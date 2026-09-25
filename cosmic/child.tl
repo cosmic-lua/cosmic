@@ -24,9 +24,10 @@
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
---- The calls that start, feed and reap a child live in the raw process
---- table, under the reserved `cosmic.internal.` namespace -- see
---- cosmic/sqlite.tl for why this indirection exists. It is off the
+--- The calls that start, feed and reap a child, and hold this process's
+--- signals while it does, live in the raw process table, under the
+--- reserved `cosmic.internal.` namespace -- see cosmic/sqlite.tl for
+--- why this indirection exists. It is off the
 --- public surface so that nothing but a handle reaps a child a handle
 --- owns: in an adopting process `collect` reaps every child with
 --- `waitpid(-1)`, and a public one would take a status from under it.
@@ -546,7 +547,7 @@ local guard_mt: metatable<Guard> = {
   end,
 }
 
---- The guard for signals `sys.guard_child_signals` has just begun to
+--- The guard for signals `raw.guard_child_signals` has just begun to
 --- hold, made the open one.
 local function make_guard(): Guard
   local g: Guard = { _signal = 0, _fresh = 0, _closed = false, _trouble = "" }
@@ -559,7 +560,7 @@ local function make_guard(): Guard
     -- The core keeps the last signal delivered since its last read.
     -- Only a sigprocmask refused its own valid arguments could fail
     -- this; it is read as no new signal.
-    local signal, _ = sys.cancelled_child_signal()
+    local signal, _ = raw.cancelled_child_signal()
     if signal ~= nil and signal ~= 0 then
       self._signal, self._fresh = signal, signal
     end
@@ -583,7 +584,7 @@ local function make_guard(): Guard
   local function restore(self: Guard): boolean, string
     self._closed = true
     if active == self then active = nil end
-    local late, trouble = sys.unguard_child_signals()
+    local late, trouble = raw.unguard_child_signals()
     if late == nil then
       self._trouble = trouble
       return false, trouble
@@ -659,7 +660,7 @@ end
 --- releasing it again, does nothing, and a release after a close
 --- answers the signal the close delivered.
 function Child.guard(): Guard | nil, string
-  local guarded, trouble = sys.guard_child_signals()
+  local guarded, trouble = raw.guard_child_signals()
   if not guarded then return nil, trouble end
   return make_guard(), ""
 end
@@ -1013,7 +1014,7 @@ end
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}
   validate(argv, opts)
-  local guarded, guard_trouble = sys.guard_child_signals()
+  local guarded, guard_trouble = raw.guard_child_signals()
   if not guarded then return nil, "signal guard: " .. guard_trouble end
   local guard = make_guard()
   local h: Handle

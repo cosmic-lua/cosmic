@@ -188,6 +188,13 @@ local module: Module = {
     ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"pipe\" }), or " ..
       "{ input = bytes }, ignores SIGPIPE for this process, so a write to a child " ..
       "that has gone fails with EPIPE instead (" .. child .. ")",
+    ["cosmic.sys.guard_child_signals"] = "use Child.guard(), and hold it in a " ..
+      "<close> variable: local g <close> = assert(Child.guard()) (" .. child .. ")",
+    ["cosmic.sys.cancelled_child_signal"] = "use g:take() on the guard Child.guard() " ..
+      "answers, or g:cancelled() for the last signal caught (" .. child .. ")",
+    ["cosmic.sys.unguard_child_signals"] = "use g:release() on the guard Child.guard() " ..
+      "answers to keep the signal caught, or g:close() to deliver it again (" ..
+      child .. ")",
     ["cosmic.sys.relaunch"] = "use Proc.relaunch() (" .. proc .. ")",
     ["cosmic.sys.Relaunch"] = "use Proc.Relaunch, what Proc.relaunch() answers (" ..
       proc .. ")",
