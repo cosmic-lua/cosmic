@@ -31,6 +31,9 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
+  -- A suite stands on no verdict another checkout reached, only on
+  -- what it runs itself; see the TODO in .github/workflows/ci.yml.
+  all.COSMIC_TEST_NO_SHARED = "1"
   if extra then for k, v in pairs(extra) do all[k] = v end end
   return all
 end

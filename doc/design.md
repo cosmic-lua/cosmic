@@ -594,6 +594,42 @@ checks. each independently builds the complete product, runs it, and uploads the
 executed bytes. a separate provenance job compares the four products and their
 attestations.
 
+#### before CI stands on shared verdicts
+
+CI writes the shared verdicts but stands only on what it runs itself
+(`COSMIC_TEST_NO_SHARED=1`, set in `.github/workflows/ci.yml` and
+`ci/cosmic_ci/orchestration.tl`): a verdict another checkout reached stands
+wherever its key is reached again, so everything a test's verdict turns on that
+the key leaves out is a way for a sibling's pass to answer for a failure. each
+gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
+are closed:
+
+- [ ] *the tree's location* (`build/filesystem_observations.tl`, above
+  `tree_name`): `getcwd`, `Fs.absolute`, `realpath` and `Proc.executable` are
+  not observed. note each answer, named relative to the tree in the shared key,
+  once the syscall table's dispatch observes them.
+- [ ] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, in `under_root`): a read of
+  `o/build.db`, `o/bin/cosmic` or `o/carried.db` is dropped from the key. key
+  each by the build's own hashes of it (`image_hash`, `boot_hash`).
+- [ ] *a stat's times and inode* (`build/test.tl`, above `held_stat`): the
+  shared key keeps only kind, size and mode. key them whole for a test that
+  declares it reads them.
+- [ ] *files SQLite opens in C* (`build/filesystem_observations.tl`, above
+  `start`): a database a test reads through `cosmic.sqlite` is never observed.
+  a VFS whose `xOpen` reports each path.
+- [ ] *lstat, readlink, realpath and getcwd* (`build/filesystem_observations.tl`,
+  above `start`): observe every call at the syscall table's dispatch rather than
+  by replacing fields of `cosmic.sys`.
+- [ ] *a read resolved beside the call* (`build/filesystem_observations.tl`, in
+  `start`): another process retargeting a link between the read and its
+  resolution goes unseen; resolve by the descriptor the call opened.
+- [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
+  `under_root`): keyed by where the link leads at the end, not when read.
+  resolve such a read as it is made, from a set of the tree's links.
+- [ ] *the binary's data tables* (`build/test.tl`, in `test.run`): a refresh
+  changes `zoneinfo` and `ca_roots` without the runtime identity. write a digest
+  of them into `meta` and key on it.
+
 `cosmic build` and `cosmic test` will fence themselves with the sandbox core, so
 a build cannot read outside its tree and a test cannot reach the network by
 accident. the sandbox module, its conformance matrix, and these tool fences are

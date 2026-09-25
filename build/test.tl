@@ -113,13 +113,18 @@ local record test
   record Previous
     --- Nil for a run no key could hold.
     reads: {observations.Observation}
+    --- Whether it passed.
+    passed: boolean
     --- For a run no key could hold: its verdict's key, what it was
-    --- compiled from and ran under, whether it passed, and what of its
+    --- compiled from and ran under, and what of its
     --- reads a key can hold, for `--all`'s absence to assume it on.
     key: string
     identity: string
-    passed: boolean
     kept: {observations.Observation}
+    --- The shared key the run reached (`VerdictKey.shared`), which says
+    --- what content this checkout already holds evidence for; nil for
+    --- a row written before runs recorded it.
+    shared: string
   end
 
   --- One verdict ever reached, by key.
@@ -257,6 +262,13 @@ local function encoded_reads(reads: {observations.Observation}, cacheable?: bool
     observations.encode(reads)
 end
 
+--- A run's key as `runs` holds it: its key, then, when it has one,
+--- its shared key after a space.
+local function run_key(key: string, shared: string | nil): string
+  if shared == nil then return key end
+  return key .. " " .. shared
+end
+
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
                           reads: {observations.Observation}, key: string,
@@ -275,7 +287,7 @@ end
 --- verdict can come of.
 local function previous_of(encoded: string, key: string, passed: boolean): test.Previous | nil
   local reads = observations.decode(encoded)
-  if reads ~= nil then return { reads = reads } end
+  if reads ~= nil then return { reads = reads, passed = passed } end
   local unstable = observations.decode_unstable(encoded)
   if unstable == nil then return nil end
   return { key = key, identity = unstable.identity, passed = passed, kept = unstable.reads }
@@ -290,7 +302,10 @@ local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | ni
   end
   local out: {string:test.Previous} = {}
   for _, row in ipairs(rows) do
-    out[row[1] .. " " .. row[2]] = previous_of(row[3], row[4], row[5] == "1")
+    local key, shared = row[4]:match("^(%S+) (%S+)$")
+    local was = previous_of(row[3], key or row[4], row[5] == "1")
+    if was ~= nil then was.shared = shared end
+    out[row[1] .. " " .. row[2]] = was
   end
   return out
 end
@@ -1147,6 +1162,22 @@ local record Recording
   --- Each key a verdict of this run stands or is assumed under, its
   --- shared key, for `owed.used`.
   shared_keys: {string:string}
+  --- What names this checkout among the rows it shares (`checkout_id`).
+  origin: string
+end
+
+--- What names this checkout among the shared rows: an id made the
+--- first time its o/build.db is asked for one and kept in its `meta`,
+--- so a checkout made again at the same path is another checkout, and
+--- one whose o/ is removed is too.
+local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
+  local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
+  if rows ~= nil and rows[1] ~= nil then return rows[1][1] end
+  local made = Hash.hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
+    tostring(Time.monotonic_ns()) .. "\0" .. tostring({}))
+  local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
+    { text(made) })
+  return made
 end
 
 --- Stops using the shared verdicts for the rest of the run, saying why
@@ -1154,10 +1185,16 @@ end
 --- costs the run nothing but what it would have saved.
 local function drop_shared(rec: Recording, trouble: string)
   if rec.shared == nil then return end
-  log:complain("test: shared verdicts: " .. rec.shared.path .. ": " .. trouble ..
-    "; running without them")
+  local path = rec.shared.path
   shared_verdicts.close(rec.shared)
   rec.shared = nil
+  local aside = ""
+  if shared_verdicts.corrupt(trouble) then
+    local moved, _ = shared_verdicts.set_aside(path, Time.now_ns())
+    if moved ~= nil then aside = "; moved aside to " .. moved end
+  end
+  log:complain("test: shared verdicts: " .. path .. ": " .. trouble ..
+    "; running without them" .. aside)
 end
 
 --- What a test was compiled from and ran under: what a verdict no key
@@ -1197,7 +1234,8 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), reads, key, stood.run_at_ns, stood.elapsed_ns)
+    Time.now_ns(), reads, run_key(key, rec.shared_keys[key]), stood.run_at_ns,
+    stood.elapsed_ns)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1251,7 +1289,8 @@ local function assume(rec: Recording, credited: test.Credited, m: importer.Modul
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), reads, key, verdict.run_at_ns, verdict.elapsed_ns, false, identity_of(rec, m))
+    Time.now_ns(), reads, run_key(key, rec.shared_keys[key]), verdict.run_at_ns,
+    verdict.elapsed_ns, false, identity_of(rec, m))
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1279,18 +1318,30 @@ end
 --- The verdict `rec.shared` holds for a test that stands here on the
 --- terms `standing` holds a verdict of this checkout to -- or, unless
 --- `asked`, that is assumed on those `assumable` does -- or nil. This
---- checkout's own evidence comes first: a key `verdicts` holds any
---- verdict under, passing or failing, is never answered from another
---- checkout's, and one that failed here takes the shared row out.
-local function shared_standing(rec: Recording, verdicts: {string:test.Verdict},
-                               m: importer.Module, id: string, asked: boolean): Shared | nil
+--- checkout's own evidence comes first: content its last run of the
+--- test reached the same shared key over -- passing or failing, a file
+--- touched since or not -- and a key `verdicts` holds any verdict
+--- under are never answered from another checkout's, and one that
+--- failed here takes the shared row out. Nor is a row this checkout
+--- wrote itself.
+local function shared_standing(rec: Recording, previous: {string:test.Previous},
+                               verdicts: {string:test.Verdict}, m: importer.Module,
+                               id: string, asked: boolean): Shared | nil
+  local last = previous[id]
+  -- A run from before runs recorded their shared key says nothing of
+  -- which content it was over: this checkout has run the test, and
+  -- runs it again rather than guess.
+  if last ~= nil and last.shared == nil then return nil end
   local candidates, trouble = shared_verdicts.candidates(rec.shared, rec.root, id, m.key)
   if candidates == nil then
     drop_shared(rec, trouble)
     return nil
   end
   for _, candidate in ipairs(candidates) do
-    local was = previous_of(candidate.reads, candidate.key, true)
+    local was: test.Previous = nil
+    if candidate.origin ~= rec.origin then
+      was = previous_of(candidate.reads, candidate.key, true)
+    end
     local reads: {observations.Observation} = nil
     local assumed = false
     if was ~= nil and was.reads ~= nil then
@@ -1302,8 +1353,12 @@ local function shared_standing(rec: Recording, verdicts: {string:test.Verdict},
       local now = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime, reads,
         rec.key_parts)
       local own = verdicts[now.key]
-      if now.stable and now.shared == candidate.key and own ~= nil then
-        if not own.passed then rec.owed.failed[#rec.owed.failed + 1] = candidate.key end
+      local own_failed = own ~= nil and not own.passed
+      local known = last ~= nil and last.shared == now.shared
+      if now.stable and now.shared == candidate.key and (own ~= nil or known) then
+        if own_failed or (known and not last.passed) then
+          rec.owed.failed[#rec.owed.failed + 1] = candidate.key
+        end
       elseif now.stable and now.shared == candidate.key then
         local found, found_trouble = shared_verdicts.found(rec.shared, candidate.key)
         if found ~= nil then
@@ -1339,7 +1394,7 @@ local function share(rec: Recording, m: importer.Module, name: string, id: strin
   rec.by_test[id] = encode_hits(hit)
   local elapsed = from.found.elapsed_ns
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), from.reads, from.key, rec.run_at_ns, elapsed,
+    Time.now_ns(), from.reads, run_key(from.key, from.shared), rec.run_at_ns, elapsed,
     not from.assumed, identity_of(rec, m))
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
@@ -1408,7 +1463,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local reached, stable = verdict_reached.key, verdict_reached.stable
   local late = verdict_reached.late
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
-    message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
+    message, Time.now_ns(), reads, run_key(reached, verdict_reached.shared), rec.run_at_ns,
+    elapsed,
     (stable or late) and cacheable, identity_of(rec, job.m))
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
@@ -1945,6 +2001,7 @@ function test.run(argv: {integer:string}): integer
     failed = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
+    origin = checkout_id(records, root, run_at_ns),
   }
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
@@ -1955,7 +2012,12 @@ function test.run(argv: {integer:string}): integer
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end
   if rec.shared == nil and cache_trouble ~= "" then
-    log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them")
+    local aside = ""
+    if cache_path ~= nil and shared_verdicts.corrupt(cache_trouble) then
+      local moved, _ = shared_verdicts.set_aside(cache_path, Time.now_ns())
+      if moved ~= nil then aside = "; moved aside to " .. moved end
+    end
+    log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them" .. aside)
   end
   local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
@@ -1973,7 +2035,7 @@ function test.run(argv: {integer:string}): integer
       end
       local from: Shared = nil
       if stood == nil and assumed == nil and consult and rec.shared ~= nil then
-        from = shared_standing(rec, verdicts, m, id, asked)
+        from = shared_standing(rec, previous, verdicts, m, id, asked)
       end
       if stood ~= nil then
         stand(rec, credited, m, name, id, stood, reads, key)
@@ -2063,7 +2125,7 @@ function test.run(argv: {integer:string}): integer
   -- this checkout's own records took it: a passing verdict is one
   -- whatever went wrong with keeping it here.
   if rec.shared ~= nil then
-    local settled, settle_trouble = shared_verdicts.settle(rec.shared, root, rec.owed,
+    local settled, settle_trouble = shared_verdicts.settle(rec.shared, root, rec.origin, rec.owed,
       Time.now_ns())
     shared_verdicts.close(rec.shared)
     if not settled then

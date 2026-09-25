@@ -10,6 +10,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 
@@ -37,6 +38,7 @@ end
 local function checkout(root: string, data: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/data.txt", data))
+  assert(Fs.write(root .. "/suite/marker.txt", "marked\n"))
   assert(Fs.write(root .. "/suite/reads_test.tl", [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -64,6 +66,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 
 local function test_reads_outside()
+  assert(Fs.stat("suite/marker.txt") ~= nil)
   assert(Fs.read(assert(Env.get("OUTSIDE")) .. "/f") == "out\n")
 end
 ]]))
@@ -159,6 +162,11 @@ local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "suite/reads_test.tl" })
   assert(second:find("4 ran, 0 stood", 1, true), second)
   assert(second:find("running without them", 1, true), second)
+  assert(second:find("moved aside", 1, true), second)
+  -- Set aside, it is not met again: the next run starts a fresh cache.
+  checkout(tmp .. "/fresh", "one\n")
+  local fresh = run(tmp .. "/fresh", tmp .. "/fresh.out", env, { "suite/reads_test.tl" })
+  assert(not fresh:find("running without them", 1, true), fresh)
   -- This format's table, in the shape of none.
   local other = tmp .. "/other/verdicts.db"
   assert(Fs.mkdirs(tmp .. "/other"))
@@ -175,6 +183,53 @@ local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   assert(third:find("4 ran, 0 stood", 1, true), third)
   local _, complaints = third:gsub("running without them", "")
   assert(complaints == 1, third)
+end
+
+--- Rewrites `path` as it was, a moment later: its contents the same,
+--- its modification time not.
+local function touch(path: string)
+  local data = assert(Fs.read(path))
+  assert(Time.sleep_ns(10000000))
+  assert(Fs.write(path, data))
+end
+
+--- A file touched in a checkout runs again what stat'd it there, with
+--- the shared cache on as off: the row its own last run wrote does not
+--- answer for it.
+local function test_a_touched_file_runs_what_stated_it(tmp: string)
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.FLAVOUR = "sweet"
+  env.OUTSIDE = tmp
+  checkout(tmp .. "/first", "one\n")
+  local words = { "suite/reads_test.tl" }
+  local first = run(tmp .. "/first", tmp .. "/first.out", env, words)
+  assert(first:find("4 ran, 0 stood", 1, true), first)
+  touch(tmp .. "/first/suite/data.txt")
+  local touched = run(tmp .. "/first", tmp .. "/touched.out", env, words)
+  assert(touched:find("1 ran, 3 stood", 1, true), touched)
+  assert(not touched:find("another checkout", 1, true), touched)
+  env.COSMIC_VERDICT_CACHE = "0"
+  touch(tmp .. "/first/suite/data.txt")
+  local alone = run(tmp .. "/first", tmp .. "/alone.out", env, words)
+  assert(alone:find("1 ran, 3 stood", 1, true), alone)
+end
+
+--- A checkout made again at the path of one removed is another
+--- checkout: it stands on what the removed one reached.
+local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tmp: string)
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.FLAVOUR = "sweet"
+  env.OUTSIDE = tmp
+  local words = { "suite/reads_test.tl" }
+  checkout(tmp .. "/here", "one\n")
+  local first = run(tmp .. "/here", tmp .. "/first.out", env, words)
+  assert(first:find("4 ran, 0 stood", 1, true), first)
+  assert(Fs.remove_tree(tmp .. "/here"))
+  checkout(tmp .. "/here", "one\n")
+  local again = run(tmp .. "/here", tmp .. "/again.out", env, words)
+  assert(again:find("0 ran, 4 stood, 4 of them on another checkout's verdict", 1, true), again)
 end
 
 --- A checkout's own evidence comes first: a test that failed here runs
@@ -199,8 +254,10 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/outside_test.tl" })
   assert(first:find("1 ran", 1, true), first)
-  -- The second runs, its own failure standing against the shared pass.
+  -- The second runs, its own failure standing against the shared pass
+  -- though a file it stat'd was touched since, which moves its own key.
   assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  touch(tmp .. "/second/suite/marker.txt")
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
   assert(again:find("1 of 5 failed", 1, true), again)
   -- ...and the row it would have stood on is gone: a third checkout

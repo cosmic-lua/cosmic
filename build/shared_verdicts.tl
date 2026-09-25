@@ -46,6 +46,8 @@ local record shared_verdicts
   record Candidate
     key: string
     reads: string
+    --- Which checkout wrote the row: see `settle`.
+    origin: string
   end
 
   --- A passing verdict's coverage and duration.
@@ -94,9 +96,11 @@ local busy_ms <const> = 10000
 local candidates_tried <const> = 32
 
 --- The table rows of this format are in: `verdicts_v<format>`. Each
---- format keeps a table of its own, so binaries of two formats sharing
---- one file each keep theirs rather than emptying the other's.
-local verdicts <const> = "verdicts_v3"
+--- format keeps a table of its own, so a binary of a later format
+--- sharing the file never empties this one's; one of an earlier format
+--- is dropped (`prepare`), since nothing writes it any more.
+local format <const> = 4
+local verdicts <const> = "verdicts_v" .. format
 
 local text = bind.text
 
@@ -136,7 +140,8 @@ local schema <const> = {
                                                    reads BLOB NOT NULL,
                                                    hits BLOB NOT NULL,
                                                    elapsed_ns INTEGER NOT NULL,
-                                                   used_ns INTEGER NOT NULL)]],
+                                                   used_ns INTEGER NOT NULL,
+                                                   origin TEXT NOT NULL)]],
   "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_test ON " .. verdicts ..
     " (test, module_key, used_ns)",
   "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_use ON " .. verdicts .. " (used_ns)",
@@ -173,17 +178,30 @@ local function unpacked(hits: string): string
   end))
 end
 
---- Makes this format's table when the file has none yet, in one
---- transaction; a file that has it is only read.
+--- Makes this format's table when the file has none yet, and drops
+--- every earlier format's, in one transaction; a file that has only
+--- this format's and later ones is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
-    { text(verdicts) })
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'verdicts%'")
   if rows == nil then return false, trouble end
-  if rows[1] ~= nil and rows[1][1] ~= "0" then return true, "" end
+  local present = false
+  local earlier: {string} = {}
+  for _, row in ipairs(rows) do
+    local number = math.tointeger(tonumber(row[1]:match("^verdicts_v(%d+)$") or ""))
+    if row[1] == verdicts then
+      present = true
+    elseif row[1] == "verdicts" or (number ~= nil and number < format) then
+      earlier[#earlier + 1] = row[1]
+    end
+  end
+  if present and #earlier == 0 then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
-  for _, statement in ipairs(schema) do
+  local statements: {string} = {}
+  for _, name in ipairs(earlier) do statements[#statements + 1] = "DROP TABLE IF EXISTS " .. name end
+  for _, statement in ipairs(schema) do statements[#statements + 1] = statement end
+  for _, statement in ipairs(statements) do
     local ok, statement_trouble = db:exec(statement)
     if not ok then
       local _, _ = db:exec("ROLLBACK")
@@ -215,6 +233,29 @@ end
 
 function shared_verdicts.close(cache: shared_verdicts.Cache)
   local _, _ = cache.db:close()
+end
+
+--- Whether `trouble`, from a query of the cache, says the file itself
+--- is broken, rather than, say, busy.
+function shared_verdicts.corrupt(trouble: string): boolean
+  return trouble:find("malformed", 1, true) ~= nil or
+    trouble:find("not a database", 1, true) ~= nil
+end
+
+--- Moves a broken cache aside, write-ahead log and all, to
+--- `<path>.corrupt-<now_ns>`, so the next run starts a fresh one
+--- rather than meeting it again; answers where it went, or nil and why.
+function shared_verdicts.set_aside(path: string, now_ns: integer): string | nil, string
+  local aside = path .. ".corrupt-" .. tostring(now_ns)
+  local moved_file, trouble = Fs.rename(path, aside)
+  if not moved_file then return nil, trouble end
+  for _, suffix in ipairs({ "-wal", "-shm" }) do
+    local there, _ = Fs.stat(path .. suffix)
+    if there ~= nil then
+      local _, _ = Fs.rename(path .. suffix, aside .. suffix)
+    end
+  end
+  return aside, ""
 end
 
 --- `encoded`, as `runs` encodes what a run read, with each path of it
@@ -262,14 +303,14 @@ end
 function shared_verdicts.candidates(cache: shared_verdicts.Cache, root: string, test: string,
                                     module_key: string): {shared_verdicts.Candidate} | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,
-    "SELECT key, CAST(inflate(reads) AS TEXT) FROM " .. verdicts .. " " ..
+    "SELECT key, CAST(inflate(reads) AS TEXT), origin FROM " .. verdicts .. " " ..
     "WHERE test = ?1 AND module_key = ?2 ORDER BY used_ns DESC LIMIT " .. candidates_tried,
     { text(test), text(module_key) })
   if rows == nil then return nil, trouble end
   local out: {shared_verdicts.Candidate} = {}
   for _, row in ipairs(rows) do
     local reads = rooted(root, row[2])
-    if reads ~= nil then out[#out + 1] = { key = row[1], reads = reads } end
+    if reads ~= nil then out[#out + 1] = { key = row[1], reads = reads, origin = row[3] } end
   end
   return out, ""
 end
@@ -287,8 +328,9 @@ function shared_verdicts.found(cache: shared_verdicts.Cache,
 end
 
 --- Writes what a run under `root` owes the cache, at `now_ns`, and
---- drops what it no longer keeps, in one transaction.
-function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string,
+--- drops what it no longer keeps, in one transaction. `origin` names
+--- the checkout writing, so it never takes a row it wrote for another's.
+function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string, origin: string,
                                 owed: shared_verdicts.Owed, now_ns: integer): boolean, string
   local db = cache.db
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
@@ -303,9 +345,9 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string,
       if reads ~= nil then
         local ok, trouble = Sqlite.run(db,
           "INSERT OR REPLACE INTO " .. verdicts .. " (key, test, module_key, reads, hits, " ..
-          "elapsed_ns, used_ns) VALUES (?1, ?2, ?3, deflate(?4), deflate(?5), ?6, ?7)",
+          "elapsed_ns, used_ns, origin) VALUES (?1, ?2, ?3, deflate(?4), deflate(?5), ?6, ?7, ?8)",
           { text(kept.key), text(kept.test), text(kept.module_key), text(reads),
-            text(packed(kept.hits)), { integer = kept.elapsed_ns }, { integer = now_ns } })
+            text(packed(kept.hits)), { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin) })
         if not ok then return false, trouble end
       end
     end
