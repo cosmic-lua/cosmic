@@ -70,8 +70,8 @@ port but not a remote address. old's `cosmic/quicksand/` is a reference for a
 network namespace, guarded proxy, and declarative child runner; it should not
 be folded into the portable sandbox contract.
 
-Open the remaining `fopen` paths with `O_CLOEXEC` (`"e"` in the mode):
-`core/boot.c`'s read and `core/patch.c`'s read and write.
+Open the remaining `fopen` path with `O_CLOEXEC` (`"e"` in the mode):
+`core/boot.c`'s read.
 
 ## surface
 

@@ -1,9 +1,8 @@
 #include "boot.h"
 
+#include <stdbool.h>
 #include <stdio.h>
-#include <string.h>
 
-#include "bridge.lua.h"
 #include "check.h"
 #include "lauxlib.h"
 
@@ -14,11 +13,27 @@ static int report (lua_State *L, const char *what) {
   return 1;
 }
 
-/* Runs the bridge chunk and leaves its table on the stack. */
+/* Writes `dir`/`name` into `path`, which holds `size` bytes, saying so
+ * when it does not fit. */
+static bool join_path (char *path, size_t size, const char *dir,
+                       const char *name) {
+  int written = snprintf(path, size, "%s/%s", dir, name);
+  if (written < 0 || (size_t)written >= size) {
+    fprintf(stderr, "cosmic boot: %s/%s is too long a path\n", dir, name);
+    return false;
+  }
+  return true;
+}
+
+/* Runs the tree's bridge chunk, core/bridge.lua, and leaves its table
+ * on the stack. */
 static int run_bridge (lua_State *L, const char *root) {
-  if (luaL_loadbufferx(L, cosmic_bridge_source, strlen(cosmic_bridge_source),
-                       "@cosmic:bridge", "t") != LUA_OK) {
-    return report(L, "the bridge would not compile");
+  char path[4096];
+  if (!join_path(path, sizeof path, root, "core/bridge.lua")) {
+    return 1;
+  }
+  if (luaL_loadfilex(L, path, "t") != LUA_OK) {
+    return report(L, "the bridge would not load");
   }
   lua_pushstring(L, root);
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
@@ -30,7 +45,9 @@ static int run_bridge (lua_State *L, const char *root) {
 /* Loads the vendored compiler under the environment the bridge built. */
 static int run_compiler (lua_State *L, const char *tl_dir, int bridge) {
   char path[4096];
-  snprintf(path, sizeof path, "%s/tl.lua", tl_dir);
+  if (!join_path(path, sizeof path, tl_dir, "tl.lua")) {
+    return 1;
+  }
   if (luaL_loadfilex(L, path, "t") != LUA_OK) {
     return report(L, "the compiler would not load");
   }
@@ -117,7 +134,9 @@ static int declare_syscalls (lua_State *L, const char *root, int bridge) {
               (long long)i);
       return 1;
     }
-    snprintf(path, sizeof path, "%s/%s", root, header);
+    if (!join_path(path, sizeof path, root, header)) {
+      return 1;
+    }
 
     lua_getfield(L, generator, "declaration");
     if (slurp(L, path) != 0) {

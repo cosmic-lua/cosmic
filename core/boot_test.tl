@@ -2,7 +2,7 @@
 --- `build.boot` through. `bin/zig build boot` runs it over this whole
 --- tree with the vendored compiler; here a tree of three stand-in modules
 --- and a compiler that passes its source through unchanged drive the same
---- C in a fraction of a second: the bridge, the compiler's load, the
+--- C in a fraction of a second: the tree's own bridge, the compiler's load, the
 --- syscall declaration, the raw modules preloaded for the tree, and the
 --- exit status or failure `build.boot` ends with.
 
@@ -42,8 +42,9 @@ end
 ]]
 
 --- Boots the stand-in tree under `tmp` with a bare core, asking
---- `build.boot` to end as `mode` says.
-local function run_boot(tmp: string, mode: string): Child.Result
+--- `build.boot` to end as `mode` says. The tree holds this tree's own
+--- bridge unless `bridge` is false.
+local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Result
   local core = assert(artifact.trusted_core())
   local path = tmp .. "/cosmic-core"
   assert(Fs.write(path, core.bytes, 0x1ed))
@@ -51,6 +52,9 @@ local function run_boot(tmp: string, mode: string): Child.Result
   assert(Fs.mkdirs(tmp .. "/tree/build"))
   assert(Fs.mkdirs(tmp .. "/tl"))
   assert(Fs.write(tmp .. "/tree/core/syscalls.h", "/* stand-in */\n"))
+  if bridge ~= false then
+    assert(Fs.write(tmp .. "/tree/core/bridge.lua", (assert(Fs.read("core/bridge.lua")))))
+  end
   assert(Fs.write(tmp .. "/tree/build/gen_syscalls.tl", gen_syscalls))
   assert(Fs.write(tmp .. "/tree/build/boot.tl", boot))
   assert(Fs.write(tmp .. "/tl/tl.lua", compiler))
@@ -69,4 +73,13 @@ local function test_boot_reports_a_build_boot_that_raises(tmp: string)
   local err = assert(r.stderr)
   assert(err:find("cosmic boot: build.boot failed: asked to raise in " .. tmp .. "/tree",
     1, true), err)
+end
+
+--- A tree with no bridge is refused by name before anything runs.
+local function test_boot_refuses_a_tree_without_a_bridge(tmp: string)
+  local r = run_boot(tmp, "status", false)
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local err = assert(r.stderr)
+  assert(err:find("cosmic boot: the bridge would not load", 1, true) and
+    err:find("core/bridge.lua", 1, true), err)
 end
