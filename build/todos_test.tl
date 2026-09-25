@@ -5,6 +5,10 @@ local Sqlite = require("cosmic.sqlite")
 local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
 local work = require("build.work")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.

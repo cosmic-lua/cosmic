@@ -3,6 +3,10 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Notes = require("eval.check.notes")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.

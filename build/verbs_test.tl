@@ -11,6 +11,10 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local invoke = require("build.invoke")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 --- The verbs that end in no verdict line: those whose words after the
 --- file are the program's own, so no option or argument is theirs to

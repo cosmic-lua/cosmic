@@ -4,6 +4,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 --- Only the call the checker names is wrapped, whatever its arguments,
 --- and nothing else on the line moves.

@@ -28,6 +28,8 @@ allowed["build.c.layout.same"] = "tested directly: whether two layouts are one "
   "states it on sources too small to be a file"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
+allowed["build.filesystem_observations.itself"] = "a test's own declaration: " ..
+  "what a process of this very program needs, which only a test declares"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..

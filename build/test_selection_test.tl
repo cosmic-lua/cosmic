@@ -6,6 +6,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local function invoke(program: string, root: string, output: string,
     selector: string): Child.Result
@@ -155,4 +159,22 @@ local function test_another_project_counts_none_of_the_cores_c(tmp: string)
   assert(db:close())
   assert(lines[1][1] == "0", lines[1][1] .. " coverage rows name the core's C")
   assert(credits[1][1] == "0", credits[1][1] .. " tests are credited the core's C")
+end
+
+--- A test whose directory cannot be made fails as that test's own
+--- failure, and the run reports it rather than ending on it.
+local function test_a_test_without_a_directory_fails_alone(tmp: string)
+  local root = project(tmp)
+  local output = tmp .. "/nowhere.out"
+  local environment = Env.all()
+  environment.TMPDIR = tmp .. "/missing"
+  local fd = assert(Fs.open_write(output))
+  local result = assert(Child.run({ assert(Proc.executable()), "test", "suite/selected_test.tl" }, {
+    cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ms = 30000,
+  }))
+  assert(Fs.close(fd))
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(text:find("could not make a temporary directory", 1, true), text)
+  assert(not text:find("attempt to perform arithmetic", 1, true), text)
 end

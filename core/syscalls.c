@@ -612,7 +612,8 @@ struct cosmic_mount_attr {
  * its own, mapping its user and group to themselves; with `offline`, a
  * network namespace of its own, which has nothing but a loopback that is
  * down; and with `unveiling`, System V IPC of its own, and a root of
- * its own in a mount namespace,
+ * its own in a mount namespace, with an empty /tmp of its own unless
+ * /tmp is among the paths,
  * holding the `count` paths at their own names -- read-only, and every
  * mount beneath them too, but where `writable` says -- and nothing else,
  * so a path outside them is not there at all, to stat as to open. The
@@ -641,6 +642,19 @@ static int unveil (const char *root, char *const *paths, char *const *names,
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
     if (mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0) return errno;
     char target[PATH_MAX];
+    /* A /tmp of its own, empty and writable, which a program takes for
+     * granted, unless /tmp is given; mounted first, so a path given
+     * beneath the host's /tmp is bound into it. */
+    int tmp = 1;
+    for (int i = 0; i < count; i++) {
+      if (strcmp(paths[i], "/tmp") == 0 || strcmp(paths[i], "/") == 0) tmp = 0;
+    }
+    if (tmp) {
+      int made = snprintf(target, sizeof target, "%s/tmp", root);
+      if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
+      if (mkdir(target, 01777) != 0) return errno;
+      if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0) return errno;
+    }
     for (int i = 0; i < count; i++) {
       struct stat st;
       if (stat(paths[i], &st) != 0) return errno;

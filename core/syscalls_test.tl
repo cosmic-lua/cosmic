@@ -583,13 +583,17 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   for _, path in ipairs(reads) do mirrored[#mirrored + 1] = path end
   local second = create(tmp .. "/second")
   local again = assert(process.spawn("/bin/sh", { "sh", "-c",
-    "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) },
+    "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
+    "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f" },
     nil, "/", nil, second, second, false, nil,
     { unveil = { reads = mirrored }, offline = true }))
   assert(assert(process.waitpid(again, false)).code == 0)
   local seen = assert(sys.pread(second, 4096, 0))
   sys.close(second)
-  assert(seen == "fd\n700\n", seen)
+  -- And a /tmp of its own, empty but for the paths given beneath the
+  -- host's, which it can write to.
+  local given_under_tmp = assert(sys.realpath(private)):sub(1, 5) == "/tmp/" and 1 or 0
+  assert(seen == "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n", seen)
   local nothing, _, nothing_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")

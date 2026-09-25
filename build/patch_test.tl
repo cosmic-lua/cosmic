@@ -2,6 +2,10 @@
 --- installed o/tool/patch, which a boot writes beside the cores.
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is the tree's patch.
+observations.confine({ reads = { "o/tool/patch" } })
 
 --- The installed applier, or nil in a tree no boot has built: the
 --- portable suite tests a fresh `git archive` of the tree, where nothing

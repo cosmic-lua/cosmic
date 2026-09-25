@@ -10,6 +10,10 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local main_source = [[
 local Fs = require("cosmic.fs")
