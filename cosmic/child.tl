@@ -150,6 +150,7 @@ local record Guard
   _closed: boolean
   cancelled: function(Guard): integer
   close: function(Guard): boolean, string
+  release: function(Guard): integer | nil, string
 end
 
 --- The open guard, if any: at most one is, process-wide.
@@ -555,18 +556,33 @@ local function make_guard(): Guard
     return self._signal
   end
 
-  function g:close(): boolean, string
-    if self._closed then return true, "" end
+  --- Restores the caller's dispositions, once, and keeps a signal
+  --- caught up to then: false and why when they could not be restored.
+  local function restore(self: Guard): boolean, string
     self._closed = true
     if active == self then active = nil end
     local late, trouble = sys.unguard_child_signals()
     if late == nil then return false, trouble end
     if self._signal == 0 then self._signal = late end
+    return true, ""
+  end
+
+  function g:close(): boolean, string
+    if self._closed then return true, "" end
+    local restored, trouble = restore(self)
+    if not restored then return false, trouble end
     if self._signal ~= 0 then
       -- The caller's own dispositions are back: deliver it as it came.
       local _, _ = sys.kill(sys.getpid(), self._signal)
     end
     return true, ""
+  end
+
+  function g:release(): integer | nil, string
+    if self._closed then return self._signal, "" end
+    local restored, trouble = restore(self)
+    if not restored then return nil, trouble end
+    return self._signal, ""
   end
 
   active = g
@@ -598,6 +614,13 @@ end
 --- why when the dispositions could not be restored; the signal is not
 --- delivered then. A guard never closed holds the signals for the rest
 --- of the process's life: hold it in a `<close>` variable.
+--- `g:release()` restores the dispositions as closing does but keeps
+--- the caught signal rather than delivering it, and answers it, or 0:
+--- a caller that passed the signal on to its child re-raises it only
+--- if the child died of it. It answers nil and why when the
+--- dispositions could not be restored. A released guard is closed:
+--- closing it again, or releasing it again, does nothing, and a
+--- release after a close answers the signal the close delivered.
 function Child.guard(): Guard | nil, string
   local guarded, trouble = sys.guard_child_signals()
   if not guarded then return nil, trouble end

@@ -737,12 +737,12 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 --- same signal, as a shell expects of an interrupted command.
 function Zig.run(argv: {string}): integer
   -- TODO: hold the signals with `Child.guard` rather than sys.*'s
-  -- guard_child_signals, cancelled_child_signal and unguard_child_signals
-  -- once a Child.Guard can close without delivering its caught signal
-  -- again, and ci/cosmic-driver.pin names a cosmic that carries that
-  -- (this runs on that release; the pinned one's Child.guard always
-  -- re-delivers): this passes the signal on to the child and re-raises
-  -- only the one the child died of.
+  -- guard_child_signals, cancelled_child_signal and unguard_child_signals,
+  -- ending with `g:release()` in place of the unguard, once
+  -- ci/cosmic-driver.pin names a cosmic whose Child.Guard has `release`
+  -- (this runs on that release; the pinned one's guard can only close,
+  -- which always re-delivers): this passes the signal on to the child
+  -- and re-raises only the one the child died of.
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then
     log:complain("signal guard: " .. guard_trouble)

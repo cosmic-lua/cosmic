@@ -394,9 +394,10 @@ COSMIC_SYSCALL(cpu_count, 0);
 COSMIC_SYSCALL(uname, 0);
 
 /* TODO: move the three child-signal calls below into core/process.h,
- * behind `Child.guard`, once ci/cosmic-driver.pin names a cosmic whose
- * cosmic.child carries Child.guard: build/zig.tl runs on that release
- * and calls them by these names (see its own TODO in `Zig.run`). */
+ * behind `Child.guard`, once build/zig.tl's `Zig.run` holds its signals
+ * with `Child.guard` rather than calling them by these names: it runs on
+ * the release ci/cosmic-driver.pin names and waits, by its own TODO, on
+ * one whose Child.Guard has `release`. */
 
 /*
  * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.

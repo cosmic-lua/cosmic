@@ -507,6 +507,50 @@ end
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
 end
 
+local function test_guard_release_with_nothing_caught_answers_zero()
+  local guard = assert(Child.guard())
+  local caught, trouble = guard:release()
+  assert(caught == 0 and trouble == "", tostring(caught) .. " " .. trouble)
+  assert(guard:release() == 0)
+  assert(guard:close())
+  local again = assert(Child.guard())
+  assert(again:close())
+end
+
+--- A released guard hands its signal back rather than delivering it,
+--- and a later close -- here the `<close>` scope's -- delivers nothing
+--- either. The nested cosmic outlives the SIGTERM it sent itself.
+local function test_guard_release_keeps_the_signal_from_close()
+  local dir = temporary()
+  local report = dir .. "/report"
+  local fixture = dir .. "/released.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local answers: {string} = {}
+  do
+    local guard <close> = assert(Child.guard())
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    answers[#answers + 1] = tostring(guard:cancelled())
+    answers[#answers + 1] = tostring((guard:release()))
+    answers[#answers + 1] = tostring((guard:release()))
+    answers[#answers + 1] = tostring((guard:close()))
+  end
+  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  return 0
+end
+]]))
+  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
+    " " .. tostring(r.stderr))
+  local term = tostring(sys.SIGTERM)
+  local got = Fs.read(report)
+  assert(got == table.concat({ term, term, term, "true" }, "|"), tostring(got))
+end
+
 --- A signal this process ignores -- `cosmic test &` from a script, whose
 --- shell ignores SIGINT for it -- is not the guard's to catch.
 local function test_guard_leaves_an_ignored_signal_ignored()
