@@ -5,6 +5,7 @@ local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
+local Prerelease = require("cosmic_ci.prerelease")
 local Runner = require("cosmic_ci.runner")
 local State = require("cosmic_ci.state")
 
@@ -94,6 +95,10 @@ local commands: {string:Command} = {
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",
     usage = "", handler = Orchestration.provenance },
+  ["prerelease-stage"] = { about = "check every worker's product and stage the prerelease",
+    usage = "", handler = Prerelease.stage_command },
+  ["prerelease-publish"] = { about = "publish the staged prerelease, or verify the one there",
+    usage = "", handler = Prerelease.publish_command },
 }
 
 return function(argv: {integer:string}): integer
