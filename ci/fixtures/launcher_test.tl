@@ -214,7 +214,22 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   end
   local mode_cache = ctx.work .. "/mode-cache"; Fixture.mkdir(mode_cache)
   Process.chmod(mode_cache, 0x1ed)
-  expect_failure(ctx, "unsafe-mode", "mode must be 0700 or 0500", mode_cache)
+  expect_failure(ctx, "unsafe-mode", "mode must be 0700 or 0500, not 755", mode_cache)
+  -- A leaf made under a setgid parent inherits the bit where the system
+  -- carries it down (Linux does), and is still private.
+  local setgid_parent = ctx.work .. "/setgid-parent"; Fixture.mkdir(setgid_parent)
+  Process.chmod(setgid_parent, 0x5ed)
+  local inherited = setgid_parent .. "/cores"
+  outcome_ok(run(ctx, "setgid-leaf", inherited), "leaf made under a setgid parent")
+  local leaf_mode = assert(Fs.stat(inherited)).mode
+  assert(leaf_mode & 0x1ff == 0x1c0, "setgid leaf is not private")
+  if ctx.target:find("linux", 1, true) ~= nil then
+    assert(leaf_mode & 0x400 ~= 0, "the leaf did not inherit setgid; this case checks nothing")
+  end
+  -- Setgid is set aside, and nothing else: a group that can read is refused.
+  local group_read = ctx.work .. "/setgid-group-read"; Fixture.mkdir(group_read)
+  Process.chmod(group_read, 0x5e8)
+  expect_failure(ctx, "setgid-group-read", "mode must be 0700 or 0500", group_read)
   local read_only = ctx.work .. "/cold-read-only"; Fixture.mkdir(read_only)
   Process.chmod(read_only, 0x140)
   expect_failure(ctx, "cold-read-only", "cache is read-only", read_only)
