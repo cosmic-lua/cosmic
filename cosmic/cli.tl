@@ -4,7 +4,8 @@
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
---- cosmic.flags reads its options -- see argv.
+--- cosmic.flags reads its options, or `Flags.dispatch(argv, 1,
+--- commands)` its commands -- see argv.
 ---
 --- `cosmic help` is generated from these fields (`build/dispatch.tl`'s
 --- `verb_help`), in the order `order` gives, rather than keeping a

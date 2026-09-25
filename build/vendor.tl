@@ -36,6 +36,7 @@
 ---
 --- Everything else in the tree but PIN is removed.
 local Archive = require("cosmic.archive")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -381,10 +382,22 @@ local function fetch_and_rewrite(root: string, cache: string, name: string): int
   return rewrite(tree, fetched)
 end
 
+--- Runs `bin/vendor`'s command line: `argv[0]` is this script's own
+--- path, and the words after it are names, or a tree and an archive. It
+--- takes no options, so a word that begins with "-" is refused (exit 2)
+--- rather than read as a name; one that must begin with "-", such as an
+--- archive's path, goes after "--".
 function Vendor.main(argv: {integer:string}): integer
-  if Vendor.is_direct_rewrite(argv) then
-    local tree = (argv[1]):gsub("/+$", "")
-    local count, trouble = rewrite(tree, argv[2])
+  local parsed, parse_trouble = Flags.parse(argv, 1, {})
+  if parsed == nil then
+    log:complain(parse_trouble .. "; usage: bin/vendor [name...] | " ..
+      "bin/vendor vendor/<name> <archive>")
+    return 2
+  end
+  local words = parsed.words
+  if Vendor.is_direct_rewrite(words) then
+    local tree = (words[1]):gsub("/+$", "")
+    local count, trouble = rewrite(tree, words[2])
     if count == nil then
       log:complain(trouble)
       return 1
@@ -399,12 +412,7 @@ function Vendor.main(argv: {integer:string}): integer
     return 2
   end
 
-  local names: {string} = {}
-  local at = 1
-  while argv[at] ~= nil do
-    names[#names + 1] = argv[at]
-    at = at + 1
-  end
+  local names = words
   if #names == 0 then
     local found, trouble = Vendor.all_names(root)
     if found == nil then

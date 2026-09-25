@@ -17,4 +17,23 @@ function Example.parse()
   assert(why == "no such option: --chek")
 end
 
+--- A program with commands: each parses the rest of the line with its
+--- own spec, and one-letter options cluster ("-vj2" is "-v -j 2").
+function Example.dispatch()
+  local commands: {string:Flags.Command} = {
+    build = {
+      spec = { ["-v"] = false, ["-j"] = true },
+      run = function(got: Flags.Parsed): integer
+        print(got.set["-v"], got.values["-j"], got.words[1])
+        return 0
+      end,
+    },
+  }
+  local code, why = Flags.dispatch({ [0] = "prog", "build", "-vj2", "all" }, 1, commands)
+  assert(code == 0, why)
+  code, why = Flags.dispatch({ [0] = "prog", "biuld" }, 1, commands)
+  print(why)
+  assert(code == nil and why == "no such command: biuld")
+end
+
 return Example
