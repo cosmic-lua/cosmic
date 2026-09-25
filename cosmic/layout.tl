@@ -1,5 +1,5 @@
 --- The shape a project's own files take for cosmic to recognize them
---- as more than plain library code -- a name `build/positions.tl`
+--- as more than plain library code -- a name `build/analyzer.tl`
 --- compares literally, or a file suffix `build/work.tl` matches, not
 --- a symbol any one function's doc comment could state on its own.
 --- `cosmic docs <word>` finds each field below directly. A field is

@@ -12,7 +12,7 @@
 --- It is a whole-tree question, so it is asked of the whole tree's
 --- shipped database, `o/cosmic.db`: its `docs` table holds every
 --- export and its `uses` table every use the build found, through a
---- `require` alias (`build.positions`) or a value's checked type
+--- `require` alias (`build.analyzer`) or a value's checked type
 --- (`build.receivers`).
 
 local Fs = require("cosmic.fs")

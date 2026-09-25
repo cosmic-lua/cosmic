@@ -7,7 +7,7 @@
 --- as (`Proc.find`), a use recorded without the module's record. Rows
 --- written by hand drift from that shape silently. Here each source is
 --- staged into a working database as `build.work` stages a tree, parsed
---- by `build.importer.derive` -- the same `build.positions` analysis a
+--- by `build.importer.derive` -- the same `build.analyzer` analysis a
 --- build runs -- and projected by `build.writer.write_result`, the
 --- function that writes `o/cosmic.db`.
 

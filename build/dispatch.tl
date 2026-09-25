@@ -269,7 +269,7 @@ local function run(file: string, argv: {integer:string}): integer
   end
 
   -- A test file elsewhere in the tree that `importer.compile` refused
-  -- (the return-collision case `positions.analyze` and
+  -- (the return-collision case `analyzer.analyze` and
   -- `with_test_tail` guard against) is silently dropped from the
   -- database otherwise; the file the caller actually asked to run
   -- still compiled fine and still runs below, so this is a warning,

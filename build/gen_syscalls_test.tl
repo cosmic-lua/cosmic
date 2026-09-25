@@ -1,5 +1,5 @@
 local gen_syscalls = require("build.gen_syscalls")
-local positions = require("build.positions")
+local analyzer = require("build.analyzer")
 local teal = require("build.teal")
 
 local built, load_trouble = teal.load()
@@ -37,12 +37,12 @@ local header = lines({
 })
 
 --- The generated declaration's documented symbols, by symbol.
-local function docs(): {string: positions.DocEntry}
+local function docs(): {string: analyzer.DocEntry}
   local source, trouble = gen_syscalls.declaration(header)
   assert(source ~= nil, trouble)
-  local found, err = positions.analyze(built, source, "syscalls.d.tl")
+  local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
-  local by_symbol: {string: positions.DocEntry} = {}
+  local by_symbol: {string: analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
     by_symbol[entry.symbol] = entry
   end

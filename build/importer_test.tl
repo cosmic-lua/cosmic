@@ -1026,8 +1026,12 @@ local function test_the_analyzer_modules_are_closed_under_require()
   local listed: {string:boolean} = {}
   for _, name in ipairs(analyzer) do listed[name] = true end
   assert(listed["build.importer"] and listed["build.ast.match"] and
-    listed["cosmic.fs"], table.concat(analyzer, ", "))
+    listed["cosmic.string"], table.concat(analyzer, ", "))
   assert(not listed["build.test"] and not listed["build.receivers"],
+    table.concat(analyzer, ", "))
+  -- The source analyzer is in the set; the privacy-by-position check,
+  -- which only the importer calls, is not.
+  assert(listed["build.analyzer"] and not listed["build.positions"],
     table.concat(analyzer, ", "))
   local function file_of(name: string): string
     local base = name:gsub("%.", "/")
