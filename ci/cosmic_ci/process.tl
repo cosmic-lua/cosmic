@@ -23,6 +23,7 @@ local record Process
   end
 end
 
+-- TODO: use Fs.chmod, once ci/cosmic-driver.pin names a release carrying it.
 function Process.chmod(path: string, mode: integer)
   assert(sys.chmod(path, mode))
 end
