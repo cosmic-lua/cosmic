@@ -641,24 +641,30 @@ local function lookup(entries: {docs.Entry}, exact: boolean, count: integer): do
   return out
 end
 
---- The words `written` holds, lowercased, as FTS5's default tokenizer
---- splits it closely enough for a match: runs of letters and digits.
-local function words_of(written: string): {string:boolean}
-  local out: {string:boolean} = {}
-  for word in written:lower():gmatch("%w+") do out[word] = true end
-  return out
+--- `written` as FTS5's default tokenizer reads it, closely enough for a
+--- match: lowercased, each run of anything but letters and digits (`_`
+--- among them) one space, and a space at each end, so a phrase is found
+--- as " phrase " and never inside a longer word.
+local function tokens_of(written: string): string
+  local spaced = written:lower():gsub("[^%w]+", " ")
+  return " " .. spaced:match("^%s*(.-)%s*$") .. " "
 end
 
---- The verbs whose prose and options together carry every word of
---- `query`, as `Cli.<verb>` entries: the search reads doc comments, and
---- a verb's options are data (`Cli.options`), so what one does is
---- matched here instead, against the options of the binary answering.
---- A verb `found` already holds is not repeated.
+--- The verbs whose symbol, prose and options together carry every word
+--- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
+--- and a verb's options are data (`Cli.options`), so what one does is
+--- matched here instead, against the options of the binary answering,
+--- as `render` shows them. Each word is a phrase, as `fts_query` quotes
+--- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
+--- come after what the index found, as the lesser match: most of what a
+--- verb's options say is said again, closer, by the code they drive. A
+--- verb `found` already holds is not repeated.
 local function by_options(view: docs.View, query: string,
                           found: {docs.Entry}): {docs.Entry} | nil, string
   local wanted: {string} = {}
   for quoted in (fts_query(query) .. " "):gmatch('"([^"]*)" ') do
-    wanted[#wanted + 1] = quoted:lower()
+    local phrase = tokens_of(quoted)
+    if phrase ~= "  " then wanted[#wanted + 1] = phrase end
   end
   if #wanted == 0 then
     return {}
@@ -679,10 +685,11 @@ local function by_options(view: docs.View, query: string,
   for _, entry in ipairs(fields) do
     local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
     if verb ~= nil and not held[entry.module .. "\n" .. entry.symbol] then
-      local spoken = words_of(entry.text .. "\n" .. Flags.options(Cli.options[verb]))
+      local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
+        entry.text .. "\n" .. Flags.options(Cli.options[verb]))
       local all = true
-      for _, word in ipairs(wanted) do
-        if not spoken[word] then all = false end
+      for _, phrase in ipairs(wanted) do
+        if not spoken:find(phrase, 1, true) then all = false end
       end
       if all then out[#out + 1] = entry end
     end
