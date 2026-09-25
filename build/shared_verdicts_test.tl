@@ -164,7 +164,7 @@ end
 end
 
 --- What `lstat` and `readlink` answer of a file of the tree is keyed,
---- logged at the syscall table's dispatch: a checkout whose link leads
+--- logged by those bindings themselves: a checkout whose link leads
 --- elsewhere, or is a file, runs what read it again, and fails it,
 --- while one the same stands on the first one's verdicts.
 local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
@@ -204,6 +204,49 @@ end
   link_checkout(tmp .. "/file", nil)
   local file = run(tmp .. "/file", tmp .. "/file.out", env, nil, true)
   assert(file:find("FAIL (2 of 2 failed", 1, true), file)
+end
+
+--- A database a test attaches through the store (`cosmic.store`'s
+--- `attach`) is read by SQLite in C too: a checkout whose database
+--- holds something else runs the test again, and fails it, while one
+--- whose database is the same stands on the first one's verdict. The
+--- working database attached so runs every time, which a key over its
+--- bytes would too: the case covers that attaching it is noted, not
+--- that the verdict is unkept rather than keyed.
+local function test_a_database_attached_through_the_store_is_keyed_by_its_contents(tmp: string)
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.COSMIC_TEST_ALL = nil
+  local function attached_checkout(root: string, value: string)
+    assert(Fs.mkdirs(root .. "/suite"))
+    local db = assert(Sqlite.open(root .. "/suite/data.db", true))
+    assert(db:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('" .. value .. "')"))
+    assert(db:close())
+    assert(Fs.write(root .. "/suite/attached_test.tl", [[
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+
+local function test_reads_an_attached_database()
+  assert(Store.attach("suite/data.db"))
+  local rows = assert(Sqlite.text_rows(Store.databases()[1], "SELECT v FROM t"))
+  assert(rows[1][1] == "one", rows[1][1])
+end
+
+local function test_reads_the_working_database()
+  assert(Store.attach("o/build.db"))
+  assert(Sqlite.text_rows(Store.databases()[1], "SELECT count(*) FROM sqlite_schema"))
+end
+]]))
+  end
+  attached_checkout(tmp .. "/first", "one")
+  local first = run(tmp .. "/first", tmp .. "/first.out", env)
+  assert(first:find("2 ran, 0 stood", 1, true), first)
+  attached_checkout(tmp .. "/same", "one")
+  local same = run(tmp .. "/same", tmp .. "/same.out", env)
+  assert(same:find("1 ran, 1 stood", 1, true), same)
+  attached_checkout(tmp .. "/changed", "two")
+  local changed = run(tmp .. "/changed", tmp .. "/changed.out", env, nil, true)
+  assert(changed:find("FAIL (1 of 2 failed", 1, true), changed)
 end
 
 --- SQLite names a file with its links resolved: a database a test

@@ -219,6 +219,45 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(Fs.remove_tree(root))
 end
 
+--- In cosmic's own tree `.github/` is walked for its TODOs -- a
+--- workflow's, an action's -- though its name is hidden, and never
+--- staged as an input, even a Teal file there. Elsewhere it stays
+--- hidden, and a hidden name under it is skipped as any other.
+local function test_own_tree_scans_github_for_todos()
+  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  assert(Fs.mkdirs(root .. "/.github/workflows"))
+  assert(Fs.mkdirs(root .. "/.github/actions/driver"))
+  assert(Fs.mkdirs(root .. "/.github/.cache"))
+  assert(Fs.write(root .. "/.github/workflows/ci.yml",
+    text({ "# TODO: pin the runner", "{name: \"ci\"}" })))
+  assert(Fs.write(root .. "/.github/actions/driver/action.yml",
+    text({ "{", "  # TODO: lint these steps", "  name: \"driver\",", "}" })))
+  assert(Fs.write(root .. "/.github/check.tl", text({ "-- TODO: not an input" })))
+  assert(Fs.write(root .. "/.github/.cache/x.yml", text({ "# TODO: hidden" })))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local listed = assert(todos.list(handle.db, root)).todos
+  local seen: {string} = {}
+  for _, todo in ipairs(listed) do seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text end
+  assert(table.concat(seen, "|") == ".github/actions/driver/action.yml:2: lint these steps|" ..
+    ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
+  local rows = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM files WHERE path LIKE '.github/%'"))
+  assert(rows[1][1] == "0", rows[1][1])
+  assert(work.close(handle))
+
+  -- Staged again as another project's tree, it is hidden, and what the
+  -- first stage scanned there is forgotten.
+  local other = assert(work.open(root))
+  assert(work.stage(other, false))
+  listed = assert(todos.list(other.db, root)).todos
+  assert(#listed == 0, "found " .. #listed)
+  rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
+  assert(rows[1][1] == "0", rows[1][1])
+  assert(work.close(other))
+  assert(Fs.remove_tree(root))
+end
+
 --- Runs git in `root`, for a test that builds a repository of its own.
 local function git_in(root: string, args: {string}): boolean
   local argv: {string} = { assert(Proc.find("git")), "-C", root, "-c", "user.name=t",

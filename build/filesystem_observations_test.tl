@@ -574,7 +574,7 @@ local function noted(found: {observations.Observation}, kind: string,
 end
 
 --- `lstat`, `readlink`, `realpath`, `getcwd` and `executable` are
---- logged at the syscall table's dispatch, whoever calls them: a
+--- logged by those bindings themselves, whoever calls them: a
 --- reference taken before the capture began is observed too, each call
 --- noted with what it answered, and none once the capture ends.
 local function test_a_query_of_the_syscall_table_is_noted_whoever_made_it(tmp: string)

@@ -521,7 +521,7 @@ local call_kinds: {string:string} = {
 
 --- Notes each query of `cosmic.sys` the syscall table logged since the
 --- last drain by every running capture, as `drain_sqlite` does SQLite's
---- files: it logs them in C, at the table's dispatch, whoever made the
+--- files: it logs them in C, in each of those bindings, whoever made the
 --- call -- a module that took it before any stand-in here was
 --- installed, or a Teal function over it. One whose answer the log
 --- could not hold, or whose relative path's working directory could not
@@ -599,14 +599,16 @@ end
 -- when a capture starts too (the VFS can keep the path of each file it
 -- holds open, and hand them over as `observed` does): today a
 -- connection a module opens as it loads, read only by a test's own
--- call, keys that call without the database.
+-- call, keys that call without the database; so does one the store
+-- attached before the capture (the worker's o/cosmic.db, whose reads a
+-- test's `require` makes are held by its module keys instead).
 ---
 --- What `cosmic.sys`'s `lstat`, `readlink`, `realpath`, `getcwd` and
---- `executable` answer while the capture runs is logged at the syscall
---- table's dispatch (core/syscalls.c), whoever calls them, and noted
---- when it ends (see `drain_syscalls`): an lstat, a readlink or a
---- realpath as a stat is -- an lstat's and a readlink's path resolved,
---- given `resolving`, only as far as its last name
+--- `executable` answer while the capture runs is logged by each of
+--- those bindings itself (core/observed.h), whoever calls it, and noted
+--- when the capture ends (see `drain_syscalls`): an lstat, a readlink
+--- or a realpath as a stat is -- an lstat's and a readlink's path
+--- resolved, given `resolving`, only as far as its last name
 --- (`observations.link_resolution`) and noted "v", or "w" under the
 --- test's own directory, as "r" and "t" are another read's -- and the
 --- working directory and the program's own path as an environment read
@@ -617,8 +619,8 @@ end
 -- syscall table's log, once it resolves a path as the call is made (a
 -- drained record is resolved as the capture ends, where a stand-in
 -- resolves it beside the call) and the process table and cosmic.http
--- have a dispatch of their own: a module that took one of them before
--- the capture began, as `local stat = sys.stat`, reads unobserved.
+-- log as those bindings do: a module that took one of them before the
+-- capture began, as `local stat = sys.stat`, reads unobserved.
 -- TODO: resolve the path of an lstat, a readlink or a realpath as the
 -- call is made, in C beside the log's record, rather than as the
 -- capture ends: a test that retargets a link of its own directory

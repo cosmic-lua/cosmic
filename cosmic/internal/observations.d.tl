@@ -8,7 +8,7 @@ local type sys = require("cosmic.sys")
 
 local record observations
   --- What one call of `cosmic.sys` was asked and answered, as the
-  --- syscall table's dispatch logged it while `observe` had it on.
+  --- binding logged it while `observe` had it on.
   record Call is {any}
     --- The call's name: "getcwd", "executable", "lstat", "readlink" or
     --- "realpath".

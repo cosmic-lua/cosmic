@@ -631,13 +631,14 @@ are closed:
 - [ ] *a database a connection opened before the capture*
   (`build/filesystem_observations.tl`, above `start`): its reads go unrecorded.
   hand over the files every open connection holds when a capture starts.
-- [ ] *a database attached through the store* (`core/store.c`, in
-  `store_attach`): opened on SQLite's default VFS, it is never observed. open it
-  through `cosmic.sqlite`'s.
-- [x] *lstat, readlink, realpath and getcwd*: every call of `cosmic.sys` goes
-  through the table's dispatch (core/syscalls.c), which logs these queries'
-  answers in C while a capture runs, whoever calls them; a capture drains the
-  log and notes each, an lstat, a readlink or a realpath as a stat is.
+- [x] *a database attached through the store* (`core/store.c`, in
+  `store_attach`): it opens through `cosmic.sqlite`'s observed VFS, so a test
+  that attaches one is keyed by its bytes, and one that attaches `o/build.db`
+  keeps no verdict.
+- [x] *lstat, readlink, realpath and getcwd*: each of those bindings, and
+  `executable`, logs what it was asked and answered in C while a capture runs
+  (core/observed.h), whoever calls it; a capture drains the log and notes each,
+  an lstat, a readlink or a realpath as a stat is.
 - [ ] *a read resolved beside the call* (`build/filesystem_observations.tl`, in
   `start`): another process retargeting a link between the read and its
   resolution goes unseen; resolve by the descriptor the call opened. a query the
