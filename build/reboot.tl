@@ -3,7 +3,10 @@
 --- Cosmic builds itself, so the tool is also an artifact of the tree. When
 --- only Teal differs, it projects a new database, combines it with the exact
 --- retained portable prefix, atomically replaces the same logical artifact,
---- and re-enters the original argv once. When a core input differs, only zig
+--- and re-enters the original argv once; when the rebuilt tool's writer is
+--- not the code that wrote its database, it writes that database again
+--- itself and re-enters once more, so a rebuild lands on the bytes a boot
+--- writes. When a core input differs, only zig
 --- can rebuild it: the tool runs `bin/zig build boot` and re-enters the
 --- original argv on the tool that boot wrote, unless `COSMIC_AUTO_BOOT=0`
 --- says to refuse instead (`reboot.auto_boot`).
@@ -38,8 +41,24 @@ local record reboot
 end
 
 --- Set in the environment of the process a reboot enters, so a tool
---- still stale after one refuses rather than rebooting again.
+--- still stale after one refuses rather than rebooting again: "1" after
+--- a rebuild or a boot, "2" after the database is written again by the
+--- rebuilt tool's own writer (`unsettled`).
 local marker = "COSMIC_REBOOTED"
+
+--- Whether the running binary's database was compiled or written by
+--- other code than it carries: a stale tool rebuilding itself compiles
+--- the tree and writes the new tool's database with its own compiler and
+--- writer, and when either is not the tree's (`work.Identities`), the new
+--- tool compiles and writes it again itself, once, so the tool a rebuild
+--- leaves is the one a boot writes. A tool whose database names neither
+--- was written by a binary from before they did, and is unsettled too.
+local function unsettled(): boolean
+  local written_by = Store.meta("written_by")
+  local compiled_by = Store.meta("compiled_by")
+  return written_by == nil or written_by ~= Store.meta("writer") or
+    compiled_by == nil or compiled_by ~= Store.meta("compiler")
+end
 
 --- What a tool stale against the core says when it does not boot.
 local core_refusal = "the tool is stale; run bin/zig build boot"
@@ -134,11 +153,22 @@ end
 --- running `argv` again. Returns only when it cannot, saying why. It
 --- takes `handle`, open and staged, and closes it on every path: before
 --- it publishes the rebuilt tool, or on the way out of a failure.
+--- `settle` rebuilds a fresh but `unsettled` tool, which a rebuild may
+--- enter; anything else refuses once a reboot has entered this process.
 local function into(handle: work.Handle, built: compiler,
-                     argv: {integer:string}): string
-  if sys.getenv(marker) ~= nil then
+                     argv: {integer:string}, settle: boolean): string
+  local entered = sys.getenv(marker)
+  if entered ~= nil and not (settle and entered == "1") then
+    if settle then
+      return closing(handle, "the tool is still unsettled after a reboot")
+    end
     return closing(handle, "the tool is still stale after a reboot")
   end
+  -- TODO: the prefix is the running tool's and `artifact.program` its own
+  -- code, and neither fingerprint covers build/artifact.tl (the image's
+  -- names build/launcher.tl alone), so an edit to how an artifact is
+  -- laid out reaches a self-rebuilt tool only at the next boot. Put
+  -- build/artifact.tl in the image fingerprint beside the launcher.
   local prefix, prefix_trouble = artifact.trusted_prefix()
   if prefix == nil then
     return closing(handle, prefix_trouble)
@@ -170,8 +200,11 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, zoned_trouble)
   end
 
-  -- Compiled and keyed as the tree's own work: the tool that replaces this one
-  -- carries the tree's compiler identity, never the stale tool's identity.
+  -- Compiled by this tool's compiler and keyed by its identity, which is
+  -- the tree's only when the compiler has not moved: a row this compiler
+  -- made is never taken for the tree's compiler's. The tool that replaces
+  -- this one carries the tree's identities, and compiles again itself
+  -- whatever this compiler compiled (`unsettled`).
   local derived, derive_trouble = importer.derive(handle, true, built)
   if not derived then
     return closing(handle, derive_trouble)
@@ -185,7 +218,7 @@ local function into(handle: work.Handle, built: compiler,
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble =
-    importer.compile(handle, built, identities.compiler, true)
+    importer.compile(handle, built, Store.meta("compiler") or "", true)
   if result == nil then
     return closing(handle, compile_trouble)
   end
@@ -195,12 +228,10 @@ local function into(handle: work.Handle, built: compiler,
   if not written then
     return closing(handle, write_trouble)
   end
-  -- TODO: this is the stale tool's own `writer.carried`, not the
-  -- tree's, and nothing it writes is signed by the code that wrote it,
-  -- so a change to what the tool carries reaches a self-rebuilt tool
-  -- only at the next `bin/zig build boot`. Derive the carried database
-  -- in the tool this rebuild writes, when it re-enters the command, or
-  -- sign the carried rows with the writer's identity.
+  -- The running tool's own `writer.carried`, which may not be the
+  -- tree's: the projection it carries is signed by that writer, and a
+  -- tool it wrote whose writer differs writes itself again on re-entry
+  -- (`unsettled`).
   local carried_path = handle.root .. "/o/carried.db"
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then
@@ -224,7 +255,7 @@ local function into(handle: work.Handle, built: compiler,
   end
 
   local environment = sys.environ()
-  environment[marker] = "1"
+  environment[marker] = settle and "2" or "1"
   local _, exec_trouble = Proc.exec(out, reentry(argv), environment)
   return exec_trouble
 end
@@ -266,7 +297,9 @@ end
 --- and re-enters `argv`; when the C core moved, it has zig boot it,
 --- unless `COSMIC_AUTO_BOOT=0` says to refuse. Only the tree's own tool
 --- (`reboot.own_tool`) does either; another refuses with
---- `foreign_refusal`, rebuilding nothing.
+--- `foreign_refusal`, rebuilding nothing. A fresh tool of the tree's
+--- own whose database another writer wrote (`unsettled`) writes itself
+--- again, as a rebuild does, and re-enters `argv`.
 ---
 --- `handle` is the working database of `root`, which must be cosmic's
 --- own tree (`tree.is_own`), open and staged. Answers nil when the tool
@@ -282,13 +315,21 @@ function reboot.guard(handle: work.Handle, root: string,
     log:complain(closing(handle, state_trouble))
     return 1
   end
-  if state == "fresh" then
+  if state == "fresh" and not unsettled() then
     return nil
   end
   local own, own_tool_trouble = reboot.own_tool(root)
   if own == nil then
     log:complain(closing(handle, own_tool_trouble))
     return 1
+  end
+  if state == "fresh" then
+    if not own then
+      return nil
+    end
+    log:complain("the tool's database was built by other code than its own; building it again")
+    log:complain(into(handle, teal.lazy(), argv, true))
+    return 3
   end
   if not own then
     log:complain(closing(handle, foreign_refusal))
@@ -309,7 +350,7 @@ function reboot.guard(handle: work.Handle, root: string,
   end
   -- state == "teal"
   log:complain("the tool is stale; rebuilding it from the tree")
-  log:complain(into(handle, teal.lazy(), argv))
+  log:complain(into(handle, teal.lazy(), argv, false))
   return 3
 end
 
@@ -372,6 +413,12 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
       return 1
     end
     fresh = recorded ~= nil and recorded == (Store.meta("boot_hash") or "")
+    -- A tool that is not the tree's own never settles (`reboot.guard`),
+    -- so only the tree's own is sent there to.
+    if fresh and unsettled() then
+      local own, _ = reboot.own_tool(root)
+      fresh = own == false
+    end
   end
   if not fresh then
     local staged, stage_trouble = work.stage(handle, own_tree)
