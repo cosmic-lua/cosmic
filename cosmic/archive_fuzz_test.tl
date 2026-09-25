@@ -21,10 +21,7 @@ local TARGETS <const> = { "a", "b", "..", "../..", "link", "link/..", "a/../..",
 
 local function gen_path(src: Fuzz.Source, from: {string}): string
   local parts: {string} = {}
-  -- TODO: this file's collections draw their count first, so shrinking
-  -- cuts only their last element; `Fuzz.more` before each would let it
-  -- cut any (its labels' rates move with the change: measure them again).
-  for i = 1, src:int(1, 3) do parts[i] = Fuzz.pick(src, from) end
+  repeat parts[#parts + 1] = Fuzz.pick(src, from) until not Fuzz.more(src, #parts, 3)
   return table.concat(parts, "/")
 end
 
@@ -34,14 +31,14 @@ end
 local function gen_extraction(src: Fuzz.Source): string
   local format = Fuzz.pick(src, { "tar", "tar.gz", "zip" })
   local fields: {string} = { format, Fuzz.pick(src, { "skip", "create" }), Fuzz.pick(src, { "", "1", "a" }) }
-  for _ = 1, src:int(1, 6) do
+  repeat
     local kind = Fuzz.pick(src, { "file", "dir", "symlink" })
     if format == "zip" and kind == "symlink" then kind = "file" end
     fields[#fields + 1] = kind
     fields[#fields + 1] = gen_path(src, PARTS)
     fields[#fields + 1] = kind == "symlink" and Fuzz.pick(src, TARGETS) or
       (kind == "file" and Fuzz.bytes(src, 8) or "")
-  end
+  until not Fuzz.more(src, (#fields - 3) // 3, 6)
   return Fuzz.pack(fields)
 end
 
@@ -116,10 +113,11 @@ local function links_under(dir: string, found: {string})
   end
 end
 
--- TODO: only 5 inputs of 64 extract anything: with up to six entries
--- of up to three parts each, nearly every archive holds a path extract
--- refuses whole, so the writes containment is about are rarely made;
--- drawing one hostile entry among well-formed ones would reach them.
+-- TODO: only 5 inputs of 64 extract anything (175 of 2000): with up to
+-- six entries of up to three parts each, nearly every archive holds a
+-- path extract refuses whole, so the writes containment is about are
+-- rarely made; drawing one hostile entry among well-formed ones would
+-- reach them.
 local function test_extraction_stays_inside_its_destination(tmp: string)
   local base = Fs.absolute(tmp) or tmp
   local case = base .. "/case"
