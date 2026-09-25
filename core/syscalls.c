@@ -573,13 +573,24 @@ static int write_whole (const char *path, const char *text) {
   return number;
 }
 
+/* The mode a directory made at `path` in the root being built takes:
+ * that of the one it stands for, `skip` bytes in, the host's own path
+ * -- a program may check its directories' modes, as a cache refusing
+ * one others can write to does -- or 0755 where the host has none. */
+static mode_t mirrored_mode (const char *path, size_t skip) {
+  struct stat st;
+  if (stat(path + skip, &st) == 0 && S_ISDIR(st.st_mode)) return st.st_mode & 07777;
+  return 0755;
+}
+
 /* Makes every directory `path` names but its last, as `mkdir -p` does,
- * writing into `path` and putting it back: 0, or an errno. */
-static int make_parents (char *path) {
-  for (char *at = path + 1; *at != '\0'; at++) {
+ * writing into `path` and putting it back, each with the mode of the one
+ * it stands for (`mirrored_mode`): 0, or an errno. */
+static int make_parents (char *path, size_t skip) {
+  for (char *at = path + skip + 1; *at != '\0'; at++) {
     if (*at != '/') continue;
     *at = '\0';
-    int made = mkdir(path, 0755);
+    int made = mkdir(path, mirrored_mode(path, skip));
     int number = errno;
     *at = '/';
     if (made != 0 && number != EEXIST) return number;
@@ -590,14 +601,14 @@ static int make_parents (char *path) {
 /* Makes a link at `path`, under the root being built, to `to`, making its
  * parents as `make_parents` does but going through no link and making
  * nothing where something already is: 0, or an errno. */
-static int make_link (char *path, const char *to) {
+static int make_link (char *path, size_t skip, const char *to) {
   struct stat st;
-  for (char *at = path + 1; *at != '\0'; at++) {
+  for (char *at = path + skip + 1; *at != '\0'; at++) {
     if (*at != '/') continue;
     *at = '\0';
     int number = 0;
     if (lstat(path, &st) != 0) {
-      if (errno != ENOENT || mkdir(path, 0755) != 0) number = errno;
+      if (errno != ENOENT || mkdir(path, mirrored_mode(path, skip)) != 0) number = errno;
     } else if (!S_ISDIR(st.st_mode)) {
       number = EEXIST;
     }
@@ -658,7 +669,7 @@ static int unveil (const char *root, char *const *paths, char *const *names,
       if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
       struct stat there;
       if (lstat(target, &there) != 0) {
-        if ((number = make_parents(target)) != 0) return number;
+        if ((number = make_parents(target, strlen(root))) != 0) return number;
         if (S_ISDIR(st.st_mode)) {
           if (mkdir(target, 0755) != 0 && errno != EEXIST) return errno;
         } else {
@@ -685,7 +696,20 @@ static int unveil (const char *root, char *const *paths, char *const *names,
       if (held) continue;
       int length = snprintf(target, sizeof target, "%s%s", root, names[i]);
       if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
-      if ((number = make_link(target, paths[i])) != 0) return number;
+      if ((number = make_link(target, strlen(root), paths[i])) != 0) return number;
+    }
+    /* With /proc, the links into it a program expects in /dev, as a
+     * container's root has them. */
+    int proc = 0;
+    for (int i = 0; i < count; i++) proc = proc || strcmp(paths[i], "/proc") == 0;
+    static const char *const dev_links[][2] = {
+      { "/dev/fd", "/proc/self/fd" }, { "/dev/stdin", "/proc/self/fd/0" },
+      { "/dev/stdout", "/proc/self/fd/1" }, { "/dev/stderr", "/proc/self/fd/2" },
+    };
+    for (size_t i = 0; proc && i < sizeof dev_links / sizeof dev_links[0]; i++) {
+      int made = snprintf(target, sizeof target, "%s%s", root, dev_links[i][0]);
+      if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
+      if ((number = make_link(target, strlen(root), dev_links[i][1])) != 0) return number;
     }
     int length = snprintf(target, sizeof target, "%s/.old", root);
     if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
@@ -996,9 +1020,6 @@ COSMIC_SYSCALL(spawn, 10) {
       return cosmic_fail(L, prepare_error);
     }
   }
-  /* TODO: an unveiled child that is a cosmic reports its coverage into a
-   * directory it was not given, so the report is lost; unveil that
-   * directory writable here once the declaring layer names it. */
   char **given = cosmic_coverage_environment(envp);
   pid_t pid = fork();
   if (pid == 0) {

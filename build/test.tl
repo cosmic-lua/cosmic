@@ -359,7 +359,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local paths: {string} = {}
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    local keyed = kind == "e"
+    local keyed = kind == "e" or kind == "u"
     if kind == "r" then
       local real = resolutions[observation.path]
       keyed = real ~= "" and Fs.within(real, root)
@@ -418,6 +418,16 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       current = observations.getenv_current(relative)
     elseif kind == "r" then
       current = observations.resolution(relative)
+    elseif kind == "u" then
+      -- A path a confined process was given may be a whole directory,
+      -- one most of a run's tests give theirs (the system's own), so
+      -- what it holds is walked once a run.
+      local memo_key = "\1u\0" .. relative
+      current = key_parts[memo_key]
+      if current == nil then
+        current = observations.unveiled_answer(relative, root)
+        key_parts[memo_key] = current
+      end
     elseif kind == "o" then
       current = hashes[relative]
       if current == nil then
@@ -448,8 +458,13 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   return { key = Hash.hex_sha256(table.concat(lines, "\n")), stable = stable }
 end
 
+--- The devices whose every answer is the same, whenever a test reads
+--- them: no input a key need hold.
+local constant_devices: {string:boolean} = { ["/dev/null"] = true, ["/dev/zero"] = true }
+
 --- Whether a passing verdict over `reads` is safe to reuse later: false
---- when the run spawned a process (an input no observation can hash),
+--- when the run spawned a process other than a confined one (an input no
+--- observation can hash; see `observations.confine`),
 --- made a request over the network or read a relative path when its
 --- working directory could not be told (an "x" observation), or opened, stat'd, or listed a path outside `root`, `scratch`,
 --- and every directory an "m" observation anywhere in the same list
@@ -460,7 +475,8 @@ end
 --- count as a foreign read). A path with an "r" or "t" observation is
 --- judged by what it resolved to as the test read it (see
 --- `under_root`), so a link in the test's own directory leading out of
---- it is outside; one that climbs with ".." and has none is outside. An
+--- it is outside; one that climbs with ".." and has none is outside, but
+--- for a device whose every answer is the same (`constant_devices`). An
 --- environment
 --- read is keyable: its answer enters the verdict key like a file's
 --- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
@@ -481,7 +497,8 @@ function test.keyable(root: string, scratch: string,
   end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if kind == "o" or kind == "s" or kind == "d" then
+    if (kind == "o" or kind == "s" or kind == "d") and
+        not constant_devices[observation.path] then
       local path = observation.path
       local real = resolutions[path]
       if real == "" or (real == nil and climbs(path)) then return false end

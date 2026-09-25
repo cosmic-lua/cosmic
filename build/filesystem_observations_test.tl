@@ -225,3 +225,86 @@ local function test_a_declared_process_is_noted_apart()
   local text = table.concat(kinds, "\n")
   assert(text == "h /bin/sh\nx not held\np /bin/sh", text)
 end
+
+--- What a confined process ran with, seen from the run's reads: "p"
+--- when the kernel could not confine it and it ran as it would have.
+local function confined_notes(run: observations.Run): string, boolean
+  local notes: {string} = {}
+  local unconfined = false
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "p" then unconfined = true end
+    if observation.kind == "u" or observation.kind == "x" or observation.kind == "p" then
+      notes[#notes + 1] = observation.kind .. " " .. observation.path
+    end
+  end
+  return table.concat(notes, "\n") .. "\n", unconfined
+end
+
+--- A process a test declared what it needs for has that and the
+--- system's own, noted "u" each, and its test's own directory besides,
+--- which is not noted; a path it was not given is not there at all.
+local function test_a_confined_process_is_noted_by_what_it_was_given(tmp: string)
+  local given, own, hidden = tmp .. "/given", tmp .. "/own", tmp .. "/hidden"
+  for _, dir in ipairs({ given, own, hidden }) do assert(Fs.mkdirs(dir)) end
+  assert(Fs.write(given .. "/f", "in"))
+  assert(Fs.write(hidden .. "/f", "secret"))
+  local run = observations.call(function()
+    observations.confine({ reads = { given } })
+    local r = assert(Child.run({ "/bin/sh", "-c",
+      "test -e " .. hidden .. "/f && exit 3; cat " .. given .. "/f > out" }))
+    observations.confine(nil)
+    assert(r.ok, "the confined shell exited " .. tostring(r.code))
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  -- Started in the test's own directory, which it could write to.
+  assert(assert(Fs.read(own .. "/out")) == "in")
+  local notes, unconfined = confined_notes(run)
+  if unconfined then
+    assert(notes == "p /bin/sh\n", notes)
+    return
+  end
+  assert(notes:find("u " .. given .. "\n", 1, true), notes)
+  assert(notes:find("u /usr\n", 1, true), notes)
+  assert(not notes:find(own, 1, true), notes)
+  assert(not notes:find("p ", 1, true), notes)
+end
+
+--- What a confined process may change outside its test's own directory
+--- is no input a key holds.
+local function test_a_confined_write_outside_the_test_is_unkeyable(tmp: string)
+  local own, elsewhere = tmp .. "/own", tmp .. "/elsewhere"
+  for _, dir in ipairs({ own, elsewhere }) do assert(Fs.mkdirs(dir)) end
+  local run = observations.call(function()
+    observations.confine({ writes = { elsewhere } })
+    assert(Child.run({ "/bin/sh", "-c", "echo x > " .. elsewhere .. "/f" }))
+    observations.confine(nil)
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  local notes, unconfined = confined_notes(run)
+  assert(unconfined or notes:find("x " .. elsewhere .. "\n", 1, true), notes)
+  assert(assert(Fs.read(elsewhere .. "/f")) == "x\n")
+end
+
+--- A confined process's path is keyed by its contents under the tree,
+--- and by what `lstat` says of everything beneath it elsewhere.
+local function test_an_unveiled_answer_follows_what_the_path_holds(tmp: string)
+  local tree, outside = tmp .. "/tree", tmp .. "/outside"
+  for _, dir in ipairs({ tree, outside }) do assert(Fs.mkdirs(dir)) end
+  assert(Fs.write(tree .. "/f", "one"))
+  assert(Fs.write(outside .. "/f", "one"))
+  local inside = observations.unveiled_answer(tree, tree)
+  local beyond = observations.unveiled_answer(outside, tree)
+  assert(inside == observations.unveiled_answer(tree, tree), "the same tree answers the same")
+  assert(beyond == observations.unveiled_answer(outside, tree))
+  assert(inside:sub(1, #tree + 1) == assert(Fs.absolute(tree)) .. " " or
+    inside:find(" ", 1, true) ~= nil)
+  assert(Fs.write(tree .. "/f", "two"))
+  assert(observations.unveiled_answer(tree, tree) ~= inside, "contents under the tree")
+  assert(Fs.write(outside .. "/g", ""))
+  assert(observations.unveiled_answer(outside, tree) ~= beyond, "an entry added outside")
+  assert(observations.unveiled_answer(tmp .. "/missing", tree) == "missing")
+  local decoded = assert(observations.decode(observations.encode({
+    { kind = "u", path = tree, answer = "" },
+  })))
+  assert(#decoded == 1 and decoded[1].kind == "u" and decoded[1].path == tree)
+end

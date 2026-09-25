@@ -31,6 +31,14 @@ local record observations
     own: {string}
   end
 
+  --- What a test declares the processes it starts need, beyond the
+  --- system's own files (see `confine`) and its own directory:
+  --- the paths they read, and the ones they change too.
+  record Confinement
+    reads: {string}
+    writes: {string}
+  end
+
   --- One test body's run: whether it passed, its failure as text (""
   --- when it passed), and what it read either way.
   record Run
@@ -119,7 +127,8 @@ function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
-    if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" then
+    if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" or
+        kind == "u" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
     elseif kind == "t" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
@@ -144,7 +153,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   local found: {observations.Observation} = {}
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v2" then
-      local kind, encoded_path, encoded_answer = line:match("^([osdert]) ([0-9a-f]*) ?([0-9a-f]*)$")
+      local kind, encoded_path, encoded_answer = line:match("^([osdertu]) ([0-9a-f]*) ?([0-9a-f]*)$")
       local path: string = nil
       local answer: string = nil
       if encoded_path ~= nil then
@@ -218,6 +227,66 @@ local function directory_result_answer(entries: {string:string} | nil,
   return table.concat(parts, "")
 end
 
+--- What a confined process has without its test naming it: the
+--- system's programs and libraries, its configuration, the devices a
+--- program takes for granted, and /proc, where a program finds itself
+--- (`/proc/self/exe`) and its descriptors (`/dev/fd`) -- each where
+--- this host has it. /proc alone does not enter a key.
+-- TODO: a /proc of the process's own, a fresh one in a pid namespace,
+-- once `sys.spawn` can start a program in one (core/syscalls.c's
+-- `unveil`): the host's, given here, shows every other process and the
+-- host's state, which a confined process can read without it entering
+-- the key.
+local system: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32",
+  "/etc", "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
+
+--- What the running test declared its processes need, or nil: see
+--- `observations.confine`.
+local confinement: observations.Confinement | nil = nil
+
+--- Declares what every process the calling test starts from here on
+--- needs: `declared.reads`, read-only, and `declared.writes`, which it
+--- may change, beside `system` and the test's own
+--- directory and every directory it made, which it may change too. Each is held to that by the
+--- kernel -- a root of its own holding those paths and nothing else,
+--- and no network (`sys.Sandbox`'s `unveil` and `offline`) -- so what
+--- it read is known, and a test whose processes all ran confined can
+--- stand: every path it was given enters the verdict key, one under
+--- the tree by its contents and any other by a walk of what `lstat`
+--- says of it and everything beneath it. A process started with a
+--- sandbox of its own is not confined further, and where the kernel
+--- cannot confine one it starts as it would have, and the run never
+--- stands. A process given no directory to start in starts in the
+--- test's own, since the one the test runs in, the tree's root, is not
+--- its to read. Called at a test module's top level, it holds for each
+--- of its tests; called in a test, for the rest of that test. A
+--- relative path is taken from the directory this is called in. Nil
+--- ends the declaration: a process started after it is not confined.
+function observations.confine(declared: observations.Confinement | nil)
+  if declared == nil then
+    confinement = nil
+    return
+  end
+  local wanted: observations.Confinement = declared
+  local here, _ = getcwd()
+  local function absolute(path: string): string
+    if path:sub(1, 1) == "/" or here == nil then return path end
+    return (here == "/" and "" or here) .. "/" .. path
+  end
+  local reads: {string} = {}
+  local writes: {string} = {}
+  for _, path in ipairs(wanted.reads or {}) do reads[#reads + 1] = absolute(path) end
+  for _, path in ipairs(wanted.writes or {}) do writes[#writes + 1] = absolute(path) end
+  confinement = { reads = reads, writes = writes }
+end
+
+--- The errnos a confined spawn fails with where the kernel cannot
+--- confine a process at all: no user namespaces, or none for this user.
+local unconfinable: {integer:boolean} = {
+  [sys.ENOSYS] = true, [sys.EPERM] = true, [sys.EACCES] = true, [sys.EINVAL] = true,
+  [sys.ENOSPC] = true,
+}
+
 --- While a `declared` call runs, a process it starts is noted "h", not
 --- "p". `noting` holds every running capture's own `note` -- one wraps
 --- another when a test captures its own calls -- for a declaration that
@@ -233,11 +302,11 @@ local noting: {function(string, any, string)} = {}
 --- "x" and never stands. Outside a capture this only calls `fn`. `fn`
 --- must not yield: a coroutine never resumed would leave its processes'
 --- successors declared.
--- TODO: hold a declared process to what it declared -- confine it, and
--- every process it starts, to reading those files (Landlock where the
--- kernel has it) -- rather than trusting the caller to have named them:
--- until then any caller, a test included, can call a process it started
--- declared.
+-- TODO: move the one declared process, build/c/init.tl's zig, onto
+-- `observations.confine` -- its toolchain and caches given it, the
+-- toolchain keyed like any other path outside the tree -- and retire
+-- `declared`, which trusts its caller to have named what a process
+-- reads rather than having the kernel hold it to that.
 function observations.declared(what: string, fn: function(): boolean)
   declaring = declaring + 1
   local ok, held = pcall(fn)
@@ -364,6 +433,67 @@ local function start(resolving: observations.Resolving | nil):
                        stderr: integer | nil, process_group: boolean,
                        fds?: {integer:integer}, sandbox?: sys.Sandbox):
                        integer | nil, string, integer
+    if sandbox == nil and confinement ~= nil and declaring == 0 then
+      local declared: observations.Confinement = confinement
+      -- The test's own: its directory, and every directory it made for
+      -- itself, which a key never holds either.
+      local own: {string} = {}
+      for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
+        own[#own + 1] = directory
+      end
+      for _, observation in ipairs(found) do
+        if observation.kind == "m" then
+          local inside = false
+          for _, directory in ipairs(own) do
+            if Fs.within(observation.path, directory) then inside = true end
+          end
+          if not inside then own[#own + 1] = observation.path end
+        end
+      end
+      local function owned(given: string): boolean
+        for _, directory in ipairs(own) do
+          if Fs.within(given, directory) then return true end
+        end
+        return false
+      end
+      local reads: {string} = {}
+      for _, given in ipairs(system) do
+        local there, _ = stat(given)
+        if there ~= nil then reads[#reads + 1] = given end
+      end
+      for _, given in ipairs(declared.reads) do reads[#reads + 1] = given end
+      local writes: {string} = {}
+      for _, given in ipairs(own) do
+        local there, _ = stat(given)
+        if there ~= nil then writes[#writes + 1] = given end
+      end
+      for _, given in ipairs(declared.writes) do writes[#writes + 1] = given end
+      -- The directory a test runs in is the tree's root, which a confined
+      -- process does not have: one given no directory starts in the
+      -- test's own.
+      local start_in = cwd
+      if start_in == nil and #writes > 0 then start_in = own[1] end
+      local pid, trouble, errno = spawn(path, argv, environment, start_in, stdin, stdout, stderr,
+        process_group, fds, { unveil = { reads = reads, writes = writes }, offline = true })
+      if pid ~= nil or not unconfinable[errno] then
+        for _, given in ipairs(reads) do
+          if given == "/proc" then
+            -- The system's own, above; any other path under it, or
+            -- under /sys, is the host's state and no input a key holds.
+          elseif Fs.within(given, "/proc") or Fs.within(given, "/sys") then
+            note("x", given, "")
+          elseif not owned(given) then
+            note("u", given, "")
+          end
+        end
+        -- What a process changed outside the test's own directory is
+        -- no input a key can hold.
+        for _, given in ipairs(declared.writes) do
+          if not owned(given) then note("x", given, "") end
+        end
+        return pid, trouble, errno
+      end
+    end
     note(declaring > 0 and "h" or "p", path, "")
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
       sandbox)
@@ -444,6 +574,59 @@ function observations.getenv_current(path: string): string
     return environ_answer(sys.environ())
   end
   return getenv_answer(sys.getenv(path))
+end
+
+--- What a path given to a confined process holds now, for its "u"
+--- observation's line in a key: where it resolves to, and a digest of
+--- it and everything beneath it, links unfollowed -- each file's
+--- contents where it resolves under `tree`, and otherwise what `lstat`
+--- says of each entry, which a package installed or a file replaced
+--- changes.
+-- TODO: the change time too, once `sys.Stat` carries it: a file
+-- rewritten in place with its old size and modification time put back
+-- is not seen outside the tree.
+-- TODO: walk in C, once cosmic.sys carries a tree walk: in Lua the
+-- system's own directories take about 0.6 s a run here, three times
+-- what `find` takes over the same entries.
+function observations.unveiled_answer(path: string, tree: string): string
+  local real, _ = realpath(path)
+  if real == nil then return "missing" end
+  local contents = Fs.within(real, tree)
+  local parts: {string} = {}
+  local function walk(at: string, name: string)
+    local st, trouble = sys.lstat(at)
+    if st == nil then
+      parts[#parts + 1] = name .. "\0error\0" .. trouble
+      return
+    end
+    local stamp = table.concat({ st.kind, tostring(st.mode), tostring(st.size),
+      tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev) }, " ")
+    if st.kind == "dir" then
+      parts[#parts + 1] = name .. "\0dir\0" .. (contents and tostring(st.mode) or stamp)
+      local entries, why = sys.readdir(at)
+      if entries == nil then
+        parts[#parts + 1] = name .. "\0unlisted\0" .. why
+        return
+      end
+      local names: {string} = {}
+      for entry in pairs(entries) do names[#names + 1] = entry end
+      table.sort(names)
+      for _, entry in ipairs(names) do
+        walk((at == "/" and "" or at) .. "/" .. entry, name .. "/" .. entry)
+      end
+    elseif st.kind == "link" then
+      local target, why = sys.readlink(at)
+      parts[#parts + 1] = name .. "\0link\0" .. (target or ("error " .. why))
+    elseif st.kind == "file" and contents then
+      local data, why = Fs.read(at)
+      parts[#parts + 1] = name .. "\0file\0" .. tostring(st.mode) .. " " ..
+        (data ~= nil and Hash.hex_sha256(data) or ("error " .. why))
+    else
+      parts[#parts + 1] = name .. "\0" .. stamp
+    end
+  end
+  walk(real, "")
+  return real .. " " .. Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
 function observations.stat_answer(path: string): string
