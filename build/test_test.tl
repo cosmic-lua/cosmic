@@ -96,6 +96,43 @@ local function test_identical_inputs_produce_the_same_stable_key(tmp: string)
   assert(key1 == key2)
 end
 
+--- A key names nothing of where the tree is: two checkouts of the same
+--- content, made at different paths and times -- so every file has its
+--- own inode and modification time -- key the same reads alike, and a
+--- verdict one reached stands in the other. What either holds changing
+--- still changes the key.
+local function test_two_checkouts_of_the_same_content_share_a_key(tmp: string)
+  local function checkout(root: string): {observations.Observation}
+    assert(Fs.mkdirs(root .. "/d"))
+    assert(Fs.write(root .. "/f", "same"))
+    assert(Fs.write(root .. "/d/g", "also the same"))
+    return {
+      { kind = "o", path = root .. "/f", answer = "" },
+      { kind = "s", path = root .. "/f", answer = "" },
+      { kind = "s", path = root .. "/d", answer = "" },
+      { kind = "d", path = root .. "/d", answer = "" },
+      { kind = "u", path = root .. "/d", answer = "" },
+    }
+  end
+  local first, second = tmp .. "/first", tmp .. "/second"
+  local first_reads = checkout(first)
+  assert(Time.sleep_ns(10000000))
+  local second_reads = checkout(second)
+  local function key(root: string, reads: {observations.Observation}): string
+    local reached = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", reads, {})
+    assert(reached.stable)
+    return reached.key
+  end
+  local reached = key(first, first_reads)
+  assert(key(second, second_reads) == reached, "another checkout of the same content")
+  assert(Fs.write(second .. "/d/g", "changed"))
+  assert(key(second, second_reads) ~= reached, "a file a confined process was given")
+  assert(Fs.write(second .. "/d/g", "also the same"))
+  assert(key(second, second_reads) == reached)
+  assert(Fs.write(second .. "/f", "diff"))
+  assert(key(second, second_reads) ~= reached, "a file the test read")
+end
+
 local function test_a_changed_content_read_is_unstable(tmp: string)
   local path = tmp .. "/a.txt"
   assert(Fs.write(path, "hello"))

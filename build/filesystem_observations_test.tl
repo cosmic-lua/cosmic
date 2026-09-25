@@ -366,8 +366,9 @@ local function test_an_unveiled_answer_follows_what_the_path_holds(tmp: string)
   local beyond = observations.unveiled_answer(outside, tree)
   assert(inside == observations.unveiled_answer(tree, tree), "the same tree answers the same")
   assert(beyond == observations.unveiled_answer(outside, tree))
-  assert(inside:sub(1, #assert(Fs.absolute(tree)) + 1) == assert(Fs.absolute(tree)) .. " ",
-    inside)
+  -- Named below the tree, as any checkout of it names it.
+  assert(inside:sub(1, 6) == "\0tree ", inside)
+  assert(beyond:sub(1, 1) == "/", beyond)
   assert(Fs.write(tree .. "/f", "two"))
   assert(observations.unveiled_answer(tree, tree) ~= inside, "contents under the tree")
   assert(Fs.write(outside .. "/f", "three"))

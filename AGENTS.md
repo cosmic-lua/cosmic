@@ -45,9 +45,14 @@
    `o/`) rebuilds or boots; another cosmic run in the tree when it is
    stale -- a release, the bootstrap cache's -- refuses, exiting 3.
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
-   module key, same contents for every file opened, and same stat and directory
-   read answers under the root -- is not run again, so a run after a small edit
-   takes seconds. A run after a boot, or on a fresh `o/`, runs everything.
+   module key and runtime, same contents for every file opened, and same stat
+   (kind, size, mode) and directory read answers under the root -- is not run
+   again, so a run after a small edit takes seconds. A key names nothing of
+   where the tree is, and every checkout shares its passing verdicts through
+   `~/.cache/cosmic/verdicts/verdicts.db` (`COSMIC_VERDICT_CACHE` names another
+   file, `0` none; a test's own `cosmic test` has none unless it names one), so
+   a fresh worktree runs only what no checkout has run on the same content; a
+   boot that changes the core runs everything.
    Environment variables a test reads are part of its key. A test that
    spawns a process it does not confine (`observations.confine`), reads
    outside the tree beyond its own temporary directories, or reaches the
@@ -60,8 +65,9 @@
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
    the slow work first. To benchmark full test execution, delete only the rows
-   from the `verdicts` table in `o/build.db`; preserve the staged database and
-   report the `ran` and `stood` counts with the elapsed time.
+   from the `verdicts` table in `o/build.db` and run with
+   `COSMIC_VERDICT_CACHE=0`; preserve the staged database and report the `ran`
+   and `stood` counts with the elapsed time.
 
 `ci/` is a tree of its own, with its own `o/`. After editing it, run
 `../o/bin/cosmic fix --check` from `ci/`; that also builds and type-checks it.
