@@ -530,7 +530,9 @@ end
 -- when a capture starts too (the VFS can keep the path of each file it
 -- holds open, and hand them over as `observed` does): today a
 -- connection a module opens as it loads, read only by a test's own
--- call, keys that call without the database.
+-- call, keys that call without the database; so does one the store
+-- attached before the capture (the worker's o/cosmic.db, whose reads a
+-- test's `require` makes are held by its module keys instead).
 -- TODO: observe every call at the syscall table's dispatch, as
 -- design.md's trace point promises, rather than by replacing fields of
 -- `cosmic.sys`, `cosmic.internal.process` and `cosmic.http` here: lstat, readlink, realpath and

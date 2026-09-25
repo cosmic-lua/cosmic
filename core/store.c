@@ -314,8 +314,10 @@ static int store_attach (lua_State *L) {
   sqlite3 *db = NULL;
   /* Through the VFS `cosmic.sqlite` opens on, so a test that attaches
    * a database (a project's, or o/build.db) is keyed by it: the default
-   * one's reads go where build.filesystem_observations never sees. */
-  int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
+   * one's reads go where build.filesystem_observations never sees. No
+   * SQLITE_OPEN_URI, as there: `path` is a filename, so a `file:` URI's
+   * `vfs=` never picks an unobserved VFS instead. */
+  int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY,
                            COSMIC_SQLITE_OBSERVED_VFS);
   guard->resource = db;
   if (rc == SQLITE_OK) {

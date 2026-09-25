@@ -167,7 +167,9 @@ end
 --- `attach`) is read by SQLite in C too: a checkout whose database
 --- holds something else runs the test again, and fails it, while one
 --- whose database is the same stands on the first one's verdict. The
---- working database attached so keeps no verdict: every run rewrites it.
+--- working database attached so runs every time, which a key over its
+--- bytes would too: the case covers that attaching it is noted, not
+--- that the verdict is unkept rather than keyed.
 local function test_a_database_attached_through_the_store_is_keyed_by_its_contents(tmp: string)
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"

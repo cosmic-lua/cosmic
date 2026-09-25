@@ -316,11 +316,12 @@ static int observed_last_error (sqlite3_vfs *vfs, int room, char *out) {
   return observed_base(vfs)->xGetLastError(observed_base(vfs), room, out);
 }
 
-/* Registers the VFS every connection `open` makes goes through: the
- * default one, but that each file it opens or asks after is observed.
- * Not the default itself, so the store's own connections, and every
- * other VFS registered over the default, are left as they are. Forwards
- * SQLite's status. */
+/* Registers the VFS every connection `open` makes goes through, and
+ * every database the store's `attach` opens: the default one, but that
+ * each file it opens or asks after is observed. Not the default itself,
+ * so the binary's own database (core/vfs.c's), and every other VFS
+ * registered over the default, are left as they are. Forwards SQLite's
+ * status. */
 static int register_observed_vfs (void) {
   if (sqlite3_vfs_find(COSMIC_SQLITE_OBSERVED_VFS) != NULL) return SQLITE_OK;
   sqlite3_vfs *base = sqlite3_vfs_find(NULL);
