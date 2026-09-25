@@ -2,7 +2,7 @@ name: fuzz
 
 # Every other run fuzzes with FUZZ_SEED's default, so each one checks the
 # same inputs and finds nothing the first did not. This one draws a seed
-# of its own each night, from the run's id, and fuzzes deeper on the
+# of its own each night, from the run's id, and fuzzes on the
 # checked core, so the properties keep meeting inputs no run has checked.
 # A failure names its seed; `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>`
 # reproduces it anywhere, and the failing inputs are kept as an artifact
@@ -18,7 +18,7 @@ on:
       iters:
         description: FUZZ_ITERS
         required: false
-        default: '10000'
+        default: '2000'
 
 permissions:
   contents: read
@@ -45,7 +45,10 @@ jobs:
         shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
     env:
       FUZZ_SEED: ${{ inputs.seed || github.run_id }}
-      FUZZ_ITERS: ${{ inputs.iters || '10000' }}
+      # TODO: 10000 once a test's report no longer outgrows the runner's
+      # capture limit (the TODO in build/test.tl's launch): archive
+      # extraction's does past about 5000.
+      FUZZ_ITERS: ${{ inputs.iters || '2000' }}
     steps:
       - name: create the unprivileged builder
         working-directory: /
@@ -71,6 +74,8 @@ jobs:
         shell: sh
         run: chown -R runner "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
 
+      # TODO: this compiles vendor/ and core/ cold each night; restoring
+      # ci.yml's zig build cache for the linux-x86_64 leg would save it.
       - name: build and boot the checked core
         run: XDG_CACHE_HOME="$RUNNER_TEMP/cache" bin/zig build sanitized
 

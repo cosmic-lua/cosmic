@@ -180,6 +180,7 @@ local function test_a_corpus_input_is_checked_before_any_draw(tmp: string)
   local corpus = tmp .. "/corpus"
   assert(Fs.mkdirs(corpus))
   assert(Fs.write(corpus .. "/a.input", "fine"))
+  assert(Fs.write(corpus .. "/README", "not an input!"))
   local checked: {string} = {}
   local function no_bang(input: string): boolean, string
     checked[#checked + 1] = input
@@ -212,20 +213,59 @@ local function test_a_report_says_how_to_keep_the_input(tmp: string)
 end
 
 -- Labels count what the drawn inputs reached; a required label no input
--- reached fails the run, and one some input reached lets it pass.
-local function test_a_required_label_no_input_reached_fails_the_run()
+-- reached fails the run, and one some input reached lets it pass. What
+-- is kept then held, so it is not left to be taken for a failure.
+local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
   local function check(input: string): boolean, string
     Fuzz.label("checked")
     if #input > 1000 then Fuzz.label("long") end
     return true, ""
   end
-  local n = Fuzz.run({ name = "labelled", iters = 10, gen = any_bytes, check = check,
+  local n = Fuzz.run({ name = "labelled", iters = 64, gen = any_bytes, check = check,
     requires = { "checked" } })
-  assert(n == 10)
-  local err = report({ name = "never long", iters = 10, gen = any_bytes, check = check,
+  assert(n == 64)
+  local err = report({ name = "never long", dir = tmp, iters = 64, gen = any_bytes, check = check,
     requires = { "checked", "long" } })
-  assert(err == 'fuzz never long: seed=1: no input of 10 reached "long", which the ' ..
+  assert(err == 'fuzz never long: seed=1: no input of 64 reached "long", which the ' ..
     "property requires: its inputs do not exercise what it is meant to", err)
+  assert(not Fs.exists(tmp .. "/never-long.input"))
+end
+
+-- Fewer inputs than the default -- what reproducing one failure runs --
+-- may miss a label by chance, so `requires` is not held of them.
+local function test_a_short_run_does_not_hold_requires()
+  local n = Fuzz.run({ name = "short", iters = 3, gen = any_bytes,
+    check = function(_input: string): boolean, string return true, "" end,
+    requires = { "never" } })
+  assert(n == 3)
+end
+
+-- A check that runs a property of its own leaves the enclosing run's
+-- labels counting: the inner run's are its own.
+local function test_a_nested_run_keeps_the_enclosing_labels()
+  local n = Fuzz.run({ name = "outer", iters = 64, gen = any_bytes,
+    check = function(_input: string): boolean, string
+      Fuzz.run({ name = "inner", iters = 2, gen = any_bytes,
+        check = function(_i: string): boolean, string
+          Fuzz.label("inner")
+          return true, ""
+        end })
+      Fuzz.label("outer")
+      return true, ""
+    end,
+    requires = { "outer" } })
+  assert(n == 64)
+  local err = report({ name = "outer only", iters = 64, gen = any_bytes,
+    check = function(_input: string): boolean, string
+      Fuzz.run({ name = "inner", iters = 1, gen = any_bytes,
+        check = function(_i: string): boolean, string
+          Fuzz.label("inner")
+          return true, ""
+        end })
+      return true, ""
+    end,
+    requires = { "inner" } })
+  assert(err:find('reached "inner"', 1, true), err)
 end
 
 -- A label outside a run's drawn inputs -- in a replay, or no run at all

@@ -217,9 +217,10 @@ local function corpus_name(input: string): string
   return Hash.hex_sha256(input):sub(1, 16) .. ".input"
 end
 
---- Checks every input in the property's corpus, in name order, raising
---- a report on the first that fails. Returns how many were checked.
-local function check_corpus(p: Fuzz.Property, budget: integer): integer
+--- Checks every `.input` file in the property's corpus, in name order,
+--- raising a report on the first that fails; each is written to `kept`
+--- first, as a drawn input is. Returns how many were checked.
+local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): integer
   local dir = corpus_of(p)
   local there, trouble = Fs.exists(dir)
   if there == false then return 0 end
@@ -230,11 +231,13 @@ local function check_corpus(p: Fuzz.Property, budget: integer): integer
   end
   local checked = 0
   for _, name in ipairs(names) do
+    if name:sub(-6) ~= ".input" then goto continue end
     local path = dir .. "/" .. name
     local input, rtrouble = Fs.read(path)
     if input == nil then
       error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
     end
+    if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     if not held then
       local shown = Codec.hex(input:sub(1, SHOWN_BYTES))
@@ -243,6 +246,7 @@ local function check_corpus(p: Fuzz.Property, budget: integer): integer
         format(p.name, path, why, #input, shown), 0)
     end
     checked = checked + 1
+    ::continue::
   end
   return checked
 end
@@ -272,14 +276,8 @@ local function build(gen: function(Fuzz.Source): string, values: {integer}): str
   return input, draws
 end
 
---- Checks every input in the property's corpus, then draws `p.iters`
---- (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks each, raising a
---- report on the first that fails, after shrinking it, or when no drawn
---- input reached a label the property requires. Returns how many drawn
---- inputs were checked.
---- @param p Property The property to fuzz
---- @return integer How many inputs held
-function Fuzz.run(p: Fuzz.Property): integer
+--- `run`'s work, with no labels being counted when it starts.
+local function run(p: Fuzz.Property): integer
   local seed = nonnegative_env("FUZZ_SEED", DEFAULT_SEED)
   local iters = p.iters or nonnegative_env("FUZZ_ITERS", DEFAULT_ITERS)
   if p.iters == nil and p.max_iters ~= nil and iters > p.max_iters then
@@ -292,18 +290,19 @@ function Fuzz.run(p: Fuzz.Property): integer
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
        format(p.name, seed, iters, kept))
   end
-  check_corpus(p, budget)
+  check_corpus(p, budget, kept)
   local counts: {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
     local draws: {Draw} = {}
-    reached = {}
+    local mine: {string: boolean} = {}
+    reached = mine
     local ok, input = pcall(p.gen, recording(Rand.new(seeds:int(math.mininteger, math.maxinteger)), draws))
     if not ok then reached = nil; error(input, 0) end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
-    for name in pairs(reached) do counts[name] = (counts[name] or 0) + 1 end
     reached = nil
+    for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
     if not held then
       local function fails(values: {integer}): boolean, {Draw}
         local candidate, used = build(p.gen, values)
@@ -337,15 +336,38 @@ function Fuzz.run(p: Fuzz.Property): integer
   end
   local line = label_counts(counts, p.requires, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
-  if iters > 0 then
+  -- Fewer inputs than the default, as reproducing one failure asks for,
+  -- may reach no label at all by chance: `requires` holds of a whole run.
+  if iters >= DEFAULT_ITERS then
     for _, name in ipairs(p.requires or {}) do
       if counts[name] == nil then
+        -- What is kept held; it is no failing input to keep.
+        if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: no input of %d reached %q, which the property requires: " ..
           "its inputs do not exercise what it is meant to"):format(p.name, seed, iters, name), 0)
       end
     end
   end
   return iters
+end
+
+--- Checks every `.input` file in the property's corpus, then draws
+--- `p.iters` (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks each,
+--- raising a report on the first that fails, after shrinking it, or when
+--- no drawn input reached a label the property requires (checked of a
+--- run of at least the default 64). Returns how many drawn inputs were
+--- checked.
+--- @param p Property The property to fuzz
+--- @return integer How many inputs held
+function Fuzz.run(p: Fuzz.Property): integer
+  -- A check may run a property of its own: its labels are its own, and
+  -- the enclosing input's count again once it is done.
+  local enclosing = reached
+  reached = nil
+  local ok, n = pcall(run, p)
+  reached = enclosing
+  if not ok then error(n, 0) end
+  return n
 end
 
 --- Checks one input directly, under the same budget as `run`: what
