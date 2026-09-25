@@ -38,7 +38,6 @@ int cosmic_observed_call (lua_State *L, enum cosmic_observed_call call,
 
 /* The queries themselves, past the log: each binding's work. */
 int cosmic_query_getcwd (lua_State *L);
-int cosmic_query_executable (lua_State *L);
 int cosmic_query_lstat (lua_State *L);
 int cosmic_query_readlink (lua_State *L);
 int cosmic_query_realpath (lua_State *L);

@@ -425,7 +425,7 @@ local function test_a_query_whose_record_is_refused_fails_as_memory_does(tmp: st
   raw.observe(false)
   local drained = raw.observed()
   assert(not unfired, "the log never grew")
-  assert(target == nil and sys.errno_name(number) == "ENOMEM", tostring(target) .. trouble)
+  assert(target == nil and sys.errno_name(number) == "ENOMEM", tostring(target) .. " " .. tostring(trouble))
   assert(again == "target")
   assert(#drained == 1 and drained[1].call == "readlink" and drained[1].path == link and
     drained[1][1] == "target", tostring(#drained))

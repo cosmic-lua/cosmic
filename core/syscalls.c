@@ -67,6 +67,8 @@ const char *cosmic_path (lua_State *L, int index) {
   return value;
 }
 
+static int cosmic_query_executable (lua_State *L);
+
 COSMIC_SYSCALL(executable, 0) {
   if (cosmic_observing) {
     return cosmic_observed_call(L, COSMIC_OBSERVED_EXECUTABLE,
@@ -75,7 +77,7 @@ COSMIC_SYSCALL(executable, 0) {
   return cosmic_query_executable(L);
 }
 
-int cosmic_query_executable (lua_State *L) {
+static int cosmic_query_executable (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
   if (lua_isstring(L, -1)) return 1;
   lua_pop(L, 1);
@@ -1538,8 +1540,11 @@ static const struct observed_call {
   const char *name;
   bool path;
 } observed_calls[] = {
-  {"getcwd", false},    {"executable", false}, {"lstat", true},
-  {"readlink", true},   {"realpath", true},
+  [COSMIC_OBSERVED_GETCWD] = {"getcwd", false},
+  [COSMIC_OBSERVED_EXECUTABLE] = {"executable", false},
+  [COSMIC_OBSERVED_LSTAT] = {"lstat", true},
+  [COSMIC_OBSERVED_READLINK] = {"readlink", true},
+  [COSMIC_OBSERVED_REALPATH] = {"realpath", true},
 };
 
 /* A record is the call's index and its count of answers, then its path

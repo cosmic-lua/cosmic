@@ -210,9 +210,12 @@ one exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
-table itself, which answers as the binding it replaces. one trace
-point at the table's dispatch gives a syscall log for every call
-uniformly when asked.
+table itself, which answers as the binding it replaces. a syscall
+log, when asked, is kept by the five queries a test's key turns on
+(`getcwd`, `executable`, `lstat`, `readlink`, `realpath`): each of
+those bindings checks the log's flag itself (`core/observed.h`), so a
+reference taken before logging began is logged too, and every other
+binding is untouched.
 
 `posix` is a reserved name of a different kind: not privacy, but
 scope. a module lives under `cosmic.posix.` when its whole job is
@@ -612,12 +615,13 @@ the key leaves out is a way for a sibling's pass to answer for a failure. each
 gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
 are closed:
 
-- [x] *the tree's location*: no input to a test, by rule. a test may not turn
-  on where the tree is; the working directory, a realpath, a readlink and the
-  program's own path it reads are keyed by `tree_name` in the shared key (whole
-  in a checkout's own), and `Proc.relaunch`'s artifact path is keyed nowhere.
-  CI checks the tree out at a path of its own each run, which is what catches a
-  test that breaks the rule.
+- [ ] *the tree's location* (`build/filesystem_observations.tl`, above
+  `tree_name`): no input to a test, by rule. a test may not turn on where the
+  tree is; the working directory, a realpath, a readlink and the program's own
+  path it reads are keyed by `tree_name` in the shared key (whole in a
+  checkout's own), and `Proc.relaunch`'s artifact path is keyed nowhere.
+  nothing yet catches a test that breaks the rule: check the tree out in CI at
+  a path of its own each run.
 - [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
   anything under `o/` is keyed by its bytes, hashed once a run while its stat
   holds; a read of the working database, which every run rewrites, is never

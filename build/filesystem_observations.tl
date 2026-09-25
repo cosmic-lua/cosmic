@@ -975,8 +975,9 @@ local tree_marker <const> = "\0tree"
 --- shared key and whole only in a checkout's own; one it does not (the
 --- artifact path `Proc.relaunch` and the process table's `relaunch`
 --- answer) is keyed nowhere. Nothing here can see a test break the
---- rule: CI, which checks the tree out at a path of its own each run,
---- is what catches one that does.
+--- rule, and nothing yet catches one that does.
+-- TODO: enforce by checking the tree out at a path of its own in CI,
+-- once the random-checkout-path change merges.
 function observations.tree_name(path: string, tree: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
   local rest, _ = Fs.relative(path, tree)
