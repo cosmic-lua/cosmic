@@ -22,14 +22,41 @@ local ESCAPES <const>: {string: boolean} = {
   ['"'] = true, ["\\"] = true, ["/"] = true, b = true, f = true, n = true, r = true, t = true, u = true,
 }
 
+--- Each character in `text` that not every YAML reader takes as JSON5
+--- does, as `line N: why`: bytes that are not UTF-8; a control
+--- character but a tab or a line end, which YAML refuses, among them
+--- C1's NEL (U+0085), which YAML 1.1 ends a line at; a `\r` alone;
+--- U+2028 and U+2029, which JSON5 ends a line at and YAML 1.2 does not;
+--- and U+FEFF, U+FFFE and U+FFFF.
+local function characters(text: string): {string}
+  local found: {string} = {}
+  if utf8.len(text) == nil then
+    return { "the text is not UTF-8" }
+  end
+  local line = 1
+  for at, code in utf8.codes(text) do
+    if code == 0x0a then
+      line = line + 1
+    elseif code == 0x0d then
+      if text:sub(at + 1, at + 1) ~= "\n" then
+        found[#found + 1] = ("line %d: a \\r alone: end a line with \\n"):format(line)
+      end
+    elseif (code < 0x20 and code ~= 0x09) or (code >= 0x7f and code < 0xa0) or code == 0x2028 or
+        code == 0x2029 or code == 0xfeff or code == 0xfffe or code == 0xffff then
+      found[#found + 1] = ("line %d: the character U+%04X, which the two read differently"):format(line, code)
+    end
+  end
+  return found
+end
+
 --- What in `text` either reader would read differently from the other,
 --- or not at all, each as `line N: why`. It holds a text to a subset
 --- narrower than the two share, where anything it cannot vouch for is
 --- refused:
 ---
---- - Anywhere: a line ends at `\n` or `\r\n` alone, since YAML 1.2 takes
----   no U+2028 or U+2029 as a line end, which JSON5 does, and a lone
----   `\r` ends a comment for one and not in every YAML reader.
+--- - Anywhere, strings and comments too: UTF-8 of tabs, line ends and
+---   printable characters alone (`characters`), a line ending at `\n` or
+---   `\r\n`.
 --- - Outside a string and a comment: only spaces, line ends,
 ---   `{}[],:`, `#` and bare words; a `#` after a space or a line's
 ---   start, since YAML reads one right after a token as part of it; a
@@ -39,10 +66,12 @@ local ESCAPES <const>: {string: boolean} = {
 --- - A bare key an identifier and none of UNSAFE_KEYS; a bare value
 ---   true, false, null or a decimal integer of at most 15 digits, which
 ---   both read as the same number.
---- - In a double-quoted string, only ESCAPES.
+--- - In a double-quoted string, only ESCAPES, and no `\u` escape of
+---   half a surrogate pair, which YAML keeps as a lone half and JSON5
+---   joins to its pair: write the character itself.
 --- - No key twice in one object, which GitHub refuses.
 local function problems(text: string): {string}
-  local found: {string} = {}
+  local found: {string} = characters(text)
   local line = 1
   local function say(why: string)
     found[#found + 1] = ("line %d: %s"):format(line, why)
@@ -62,11 +91,7 @@ local function problems(text: string): {string}
   local n = #text
   while i <= n do
     local c = text:sub(i, i)
-    if text:sub(i, i + 2) == "\u{2028}" or text:sub(i, i + 2) == "\u{2029}" then
-      say("U+2028 or U+2029, which JSON5 takes as a line end and YAML 1.2 does not")
-      i = i + 3
-    elseif c == "\r" then
-      if text:sub(i + 1, i + 1) ~= "\n" then say("a \\r alone: end a line with \\n") end
+    if c == "\r" then
       i = i + 1
     elseif c == "\n" then
       line = line + 1
@@ -76,7 +101,7 @@ local function problems(text: string): {string}
     elseif c == "#" then
       local before = i > 1 and text:sub(i - 1, i - 1) or "\n"
       if before ~= " " and before ~= "\n" then say("a # right after a token: put a space before it") end
-      i = text:find("[\r\n\226]", i) or n + 1
+      i = text:find("\n", i, true) or n + 1
     elseif c == '"' or c == "'" then
       if c == "'" then say("a single-quoted string: write it double-quoted") end
       local first = i
@@ -87,8 +112,11 @@ local function problems(text: string): {string}
           line = line + 1
         elseif d == "\\" then
           local e = text:sub(i + 1, i + 1)
-          if not ESCAPES[e] or (e == "u" and not text:sub(i + 2, i + 5):match("^%x%x%x%x$")) then
+          local hex = text:sub(i + 2, i + 5)
+          if not ESCAPES[e] or (e == "u" and not hex:match("^%x%x%x%x$")) then
             say("the escape \\" .. e .. ", which the two read differently: write \\uXXXX")
+          elseif e == "u" and hex:upper():match("^D[89A-F]") then
+            say("the escape \\u" .. hex .. ", half a surrogate pair: write the character itself")
           end
           i = i + 1
         end
@@ -138,7 +166,8 @@ local function problems(text: string): {string}
         say("the bare value " .. word .. ": quote it, or write a decimal integer of at most 15 digits")
       end
     else
-      say(("the character %q outside a string, which the two read differently"):format(c))
+      say(("the character %s outside a string, which the two read differently"):format(
+        c:byte() < 0x80 and ("%q"):format(c) or ("\\x%02X"):format(c:byte())))
       i = i + 1
     end
   end
@@ -192,12 +221,20 @@ local function test_problems_names_what_the_readers_read_apart()
     ['{"a": *x}'] = 'the character "*"',
     ["{\n# c\r\"a\": 1}"] = "a \\r alone",
     ["{\n# c\u{2028}\"a\": 1}"] = "U+2028",
+    ["{\n# c\u{85}\"a\": 1}"] = "U+0085",
+    ['{"a": "x\u{2029}y"}'] = "U+2029",
+    ['{"a": "x\x7fy"}'] = "U+007F",
+    ['{"a": "x\u{FFFE}"}'] = "U+FFFE",
+    ["{\n# \x01\n}"] = "U+0001",
+    ['{"a": "\xff"}'] = "not UTF-8",
+    ['{"a": "\\uD83D\\uDE00"}'] = "the escape \\uD83D",
+    ['{"a": \u{e9}}'] = 'the character \\xC3',
   }
   for text, want in pairs(cases) do
     local got = problems(text)
     assert(#got >= 1 and got[1]:find(want, 1, true), text .. ": " .. table.concat(got, "; "))
   end
-  local fine = '# lead\r\n{\n  "on": {push: {}}, # after\n  a: [true, false, null, 0, -12, 123456789012345,],\n' ..
+  local fine = '# lead \u{2014} \u{2192} \u{2026}\r\n{\n  "on": {push: {}}, # after\n  a: [true, false, null, 0, -12, 123456789012345,],\n' ..
     '  b: "it\'s # not a comment: //, \\"quoted\\" \\u00e9\\n",\n  "c-d": {a: "x:y"},\n  e: [{a: 1}, {a: 2}],\n}\n'
   local none = problems(fine)
   assert(#none == 0, table.concat(none, "; "))
