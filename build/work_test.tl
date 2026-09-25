@@ -107,9 +107,14 @@ end
 local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
   local path = tmp .. "/probe.tl"
   assert(Fs.write(path, "return 1\n"))
+  -- An hour ahead, so it is unsettled however long staging takes.
+  assert(Fs.set_mtime(path, Time.now_ns() // 1000000000 + 3600, 0))
   local handle = assert(work.open(tmp))
   assert(work.stage(handle, false))
   assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")
+  local unsettled = assert(Sqlite.text_rows(handle.db,
+    "SELECT mtime_ns IS NULL FROM files WHERE path = 'probe.tl'"))
+  assert(unsettled[1][1] == "1", "the first stage must leave the row unsettled")
   local before = assert(Fs.stat(path))
 
   local fd = assert(Fs.open_write(path))

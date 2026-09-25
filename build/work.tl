@@ -86,11 +86,10 @@ local version <const> = "24"
 --- holding the bytes exactly as they were on disk. A file gone from
 --- the tree is a row gone from the table. A file written within the
 --- last two seconds of being staged is recorded with a NULL modification
---- time, which no stat matches -- not even the epoch, the time a tool
---- normalizing times writes -- so the next run reads it again rather
---- than trusting a stat that a second write inside one timestamp tick
---- could leave unchanged -- the rule zig's cache applies to its own
---- inputs.
+--- time, which no stat matches, not even the epoch a tool normalizing
+--- times writes. The next run reads it again rather than trusting a
+--- stat that a second write inside one timestamp tick could leave
+--- unchanged: the rule zig's cache applies to its own inputs.
 ---
 --- `tool` is what the tool itself is made of, fingerprinted the same
 --- way but without the bytes: every source input to the embedded
