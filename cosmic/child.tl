@@ -27,10 +27,10 @@ local Time = require("cosmic.time")
 --- The calls that start, feed and reap a child, and hold this process's
 --- signals while it does, live in the raw process table, under the
 --- reserved `cosmic.internal.` namespace -- see cosmic/sqlite.tl for
---- why this indirection exists. It is off the
---- public surface so that nothing but a handle reaps a child a handle
---- owns: in an adopting process `collect` reaps every child with
---- `waitpid(-1)`, and a public one would take a status from under it.
+--- why this indirection exists. It is off the public surface so that
+--- nothing but a handle reaps a child a handle owns: in an adopting
+--- process `collect` reaps every child with `waitpid(-1)`, and a
+--- public one would take a status from under it.
 local type raw_process = require("cosmic.internal.process")
 
 local handed: any = select(2, ...)
