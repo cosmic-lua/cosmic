@@ -34,7 +34,8 @@
 --- 5. Two slots, and nothing in a third: a fallible function declares
 ---    exactly two results, and no variadic tail. What else a failure means goes in its
 ---    reason, or in a structured error record standing as the value.
----    The one exception is `cosmic.sys`, whose C bindings answer
+---    The one exception is `cosmic.sys` (and the raw process table,
+---    `cosmic.internal.process`), whose C bindings answer
 ---    `nil | false, error, errno`: a function a module stores into one
 ---    of its fields (`sys.stat = function(...) ... end`, a stand-in for
 ---    a binding) keeps the binding's shape: this rule does not read it,
@@ -96,7 +97,7 @@
 ---     to hand back more. Exported means a field of the record the
 ---     module returns, or of a record declared inside it, as the
 ---     checker typed the module's answer.
---- 11. An exported function that calls a fallible `cosmic.sys` binding
+--- 11. An exported function that calls a fallible C binding (rule 5's)
 ---     itself, not from a function nested in it, and answers a boolean
 ---     answers the binding's failure too: `boolean, string`. A bare
 ---     `boolean` over a binding has already dropped the reason a caller
@@ -292,6 +293,22 @@ local function resolved(t: Type | nil): Type | nil
     end
   end
   return at
+end
+
+--- The tables of C bindings, which answer `nil | false, error, errno`:
+--- the public syscall table and the raw process table.
+local binding_modules <const>: {string} = { "cosmic.sys", "cosmic.internal.process" }
+
+--- Each table of C bindings the checker in `env` has loaded, by the
+--- type id of its record, to its module's name: what `check` takes as
+--- `bindings`.
+function contracts.binding_tables(env: compiler.Env): {integer: string}
+  local out: {integer: string} = {}
+  for _, module in ipairs(binding_modules) do
+    local found = resolved(receivers.record_named(env, module, ""))
+    if found ~= nil and found.typeid ~= nil then out[found.typeid] = module end
+  end
+  return out
 end
 
 --- Whether `t` is `wanted`, or a union with a member that is.
@@ -699,15 +716,14 @@ local function standing(index: Index): {Node: boolean}
   return out
 end
 
---- Every function literal a module stores into a field of `cosmic.sys`:
---- a stand-in for a binding, which answers in the binding's own shape.
---- The table is known by the type the checker gave the field's owner,
---- the record `cosmic.sys` declares, whatever the owner is called.
+--- Every function literal a module stores into a field of a table of
+--- C bindings (`binding_tables`): a stand-in for a binding, which
+--- answers in the binding's own shape. The table is known by the type
+--- the checker gave the field's owner, the record its module declares,
+--- whatever the owner is called.
 local function sys_stand_ins(index: Index, records: {integer: Type},
-                             sys: Type | nil): {Node: boolean}
+                             bindings: {integer: string}): {Node: boolean}
   local out: {Node: boolean} = {}
-  local wanted = resolved(sys)
-  if wanted == nil or wanted.typeid == nil then return out end
   for _, n in ipairs(index.reached) do
     if n.kind == "assignment" then
       local exps = list_of(n.exps)
@@ -716,7 +732,8 @@ local function sys_stand_ins(index: Index, records: {integer: Type},
         if var.kind == "op" and op ~= nil and op.op == "." and owner ~= nil
             and stored ~= nil and stored.kind == "function" then
           local record_type = records[position(owner.y, owner.x)]
-          if record_type ~= nil and record_type.typeid == wanted.typeid then
+          if record_type ~= nil and record_type.typeid ~= nil
+              and bindings[record_type.typeid] ~= nil then
             out[stored] = true
           end
         end
@@ -1208,13 +1225,11 @@ local function check_exports(file: string, exported: {Exported}, exemptions: con
   end
 end
 
---- The fallible `cosmic.sys` binding `fn` calls itself, not from a
---- function nested in it, by name; nil when it calls none.
+--- The fallible C binding `fn` calls itself, not from a function
+--- nested in it, as `module.name`; nil when it calls none.
 local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
-                           records: {integer: Type}, sys: Type | nil): string | nil
-  local wanted = resolved(sys)
-  if wanted == nil or wanted.typeid == nil or fn.body == nil then return nil end
-  local sys_id = wanted.typeid
+                           records: {integer: Type}, bindings: {integer: string}): string | nil
+  if fn.body == nil then return nil end
   local found: string | nil = nil
   local seen: {Node: boolean} = {}
   local function go(n: Node)
@@ -1226,7 +1241,8 @@ local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
     if is_call(n) and e1 ~= nil and receiver ~= nil and member ~= nil
         and fallible_type(callees[position(e1.y, e1.x)]) then
       local owner = records[position(receiver.y, receiver.x)]
-      if owner ~= nil and owner.typeid == sys_id then found = member.tk end
+      local module = owner ~= nil and owner.typeid ~= nil and bindings[owner.typeid] or nil
+      if module ~= nil then found = module .. "." .. member.tk end
     end
     for _, child in ipairs(index.kids[n] or {}) do
       if not is_function(child) then go(child) end
@@ -1239,20 +1255,20 @@ end
 --- Rule 11, over every exported function defined in this module.
 local function check_wrappers(file: string, nodes: {Node: Exported}, index: Index,
                               callees: {integer: Type},
-                              records: {integer: Type}, sys: Type | nil,
+                              records: {integer: Type}, bindings: {integer: string},
                               exemptions: contracts.Exemptions, used: Used, problems: {string})
   for fn, e in pairs(nodes) do
     local rets = e.type.rets
     local results = rets ~= nil and rets.tuple or {}
     if typename(results[1]) == "boolean" and not fallible_results(results) then
-      local binding = sys_call_in(fn, index, callees, records, sys)
+      local binding = sys_call_in(fn, index, callees, records, bindings)
       local key = file .. ":" .. e.name
       if binding ~= nil then
         if exemptions.exempt[key] ~= nil then
           used.exempt[key] = true
         else
           problems[#problems + 1] = string.format(
-            "%s:%d: %s: calls cosmic.sys.%s itself and answers a bare boolean; "
+            "%s:%d: %s: calls %s itself and answers a bare boolean; "
               .. "answer its failure too: boolean, string",
             file, fn.y, e.name, binding)
         end
@@ -1574,15 +1590,14 @@ end
 --- @param root the checked AST
 --- @param typed the checker's types, as `build.receivers` kept them
 --- @param quiet `quiet_records`' answer, when the caller has an environment
---- @param sys the record `cosmic.sys` declares, as the checker holds it
---- (`receivers.record_named(env, "cosmic.sys", "")`), when the caller
---- has an environment that has loaded it
+--- @param bindings the tables of C bindings the checker has loaded
+--- (`binding_tables(env)`), when the caller has an environment
 --- @param given the exemptions to hold the module to, in place of this
 --- module's own
 --- @param export the type the checker gave the module's answer, for
 --- rules 10 and 11; without it they hold nothing
 function contracts.check(file: string, root: Node, typed: receivers.State,
-                         quiet?: {integer: {string: boolean}}, sys?: Type,
+                         quiet?: {integer: {string: boolean}}, bindings?: {integer: string},
                          given?: contracts.Exemptions, export?: any): {string}
   local exemptions = given or own_exemptions
   local problems: {string} = {}
@@ -1604,7 +1619,8 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
   local index = index_of(root)
   local scopes = scope_names(index, bound)
   local kept, statements = keeping(index, callees), standing(index)
-  local stand_ins = sys_stand_ins(index, records, sys)
+  local tables = bindings or {}
+  local stand_ins = sys_stand_ins(index, records, tables)
   for _, n in ipairs(index.reached) do
     local e1 = n.e1
     if is_call(n) and not kept[n] and e1 ~= nil
@@ -1629,7 +1645,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
   end
   local exported = exported_functions(export, export_name(root))
   check_exports(file, exported, exemptions, used, problems)
-  check_wrappers(file, exported_nodes(root, exported), index, callees, records, sys,
+  check_wrappers(file, exported_nodes(root, exported), index, callees, records, tables,
     exemptions, used, problems)
   check_inspections(file, index, callees, scopes, exemptions, used, problems)
   check_casts(file, root, index, scopes, exemptions, used, problems)

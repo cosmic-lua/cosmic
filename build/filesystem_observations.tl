@@ -6,6 +6,19 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 
+--- The raw process table, whose `spawn` `cosmic.child` starts every
+--- child with: this module is handed it (core/store.c's `raw_modules`)
+--- to note each child a test starts by standing in for that call.
+local type raw_process = require("cosmic.internal.process")
+
+local extra: any = select(2, ...)
+local process: raw_process
+if type(extra) == "table" then
+  process = extra as raw_process
+else
+  process = require("cosmic.internal.process")
+end
+
 -- What placing a path asks of the process, taken when this module
 -- loads -- before any test's module does -- so a test that stubs one
 -- cannot bend where its own reads are keyed.
@@ -277,7 +290,7 @@ end
 -- VFS whose xOpen reports each path to the same notes.
 -- TODO: observe every call at the syscall table's dispatch, as
 -- design.md's trace point promises, rather than by replacing fields of
--- `cosmic.sys` and `cosmic.http` here: lstat, readlink, realpath and
+-- `cosmic.sys`, `cosmic.internal.process` and `cosmic.http` here: lstat, readlink, realpath and
 -- getcwd are not observed, so a test whose answer turns on one of them
 -- outside the tree can still stand.
 local function start(resolving: observations.Resolving | nil):
@@ -288,7 +301,7 @@ local function start(resolving: observations.Resolving | nil):
   local readdir = sys.readdir
   local getenv = sys.getenv
   local environ = sys.environ
-  local spawn = sys.spawn
+  local spawn = process.spawn
   local mkdtemp = sys.mkdtemp
   local mkdir = sys.mkdir
   local chdir = sys.chdir
@@ -359,11 +372,11 @@ local function start(resolving: observations.Resolving | nil):
       answer = environ_answer(environment) }
     return environment
   end
-  sys.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
-                       cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
-                       stderr: integer | nil, process_group: boolean,
-                       fds?: {integer:integer}, sandbox?: sys.Sandbox):
-                       integer | nil, string, integer
+  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
+                           cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                           stderr: integer | nil, process_group: boolean,
+                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
+                           integer | nil, string, integer
     note(declaring > 0 and "h" or "p", path, "")
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
       sandbox)
@@ -408,7 +421,7 @@ local function start(resolving: observations.Resolving | nil):
     sys.readdir = readdir
     sys.getenv = getenv
     sys.environ = environ
-    sys.spawn = spawn
+    process.spawn = spawn
     sys.mkdtemp = mkdtemp
     sys.mkdir = mkdir
   end

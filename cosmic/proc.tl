@@ -3,6 +3,19 @@
 local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 
+--- `relaunch` lives in the raw process table, under the reserved
+--- `cosmic.internal.` namespace -- see cosmic/child.tl and
+--- cosmic/sqlite.tl for why.
+local type raw_process = require("cosmic.internal.process")
+
+local extra: any = select(2, ...)
+local raw: raw_process
+if type(extra) == "table" then
+  raw = extra as raw_process
+else
+  raw = require("cosmic.internal.process")
+end
+
 local record Proc
   --- How to start this same program again: the executable and the
   --- arguments that must lead its command line, the environment entries
@@ -61,7 +74,7 @@ end
 --- artifact; `Proc.executable` is the way to start that one again.
 function Proc.relaunch(): Proc.Relaunch | nil, string
   if relaunch ~= nil then return relaunch, "" end
-  local found, trouble = sys.relaunch(ARTIFACT_FD, CORE_FD)
+  local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
   if found.host then
     relaunch = { argv = { found.path }, env = {}, fds = {} }

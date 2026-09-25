@@ -28,6 +28,23 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local type raw_process = require("cosmic.internal.process")
+
+local type Searcher = function(string): any, any
+
+--- The raw process table, as the store's searcher hands it to
+--- `cosmic.child`'s loader.
+local function process_table(): raw_process
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("cosmic.child")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_process -- cast: the table core/process.h declares
+    end
+  end
+  error("cosmic.child is handed no raw table")
+end
+
+local process = process_table()
 
 local checked = testing.configuration == "sanitized"
 
@@ -196,10 +213,10 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
-  local received: sys.Pipe
+  local received: raw_process.Pipe
   local made = 0
   local ended = under_every_failure(function()
-    received = sys.pipe()
+    received = process.pipe()
   end, function()
     if received ~= nil then
       sys.close(received.reader)
@@ -218,12 +235,12 @@ end
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   if not checked then return end
-  local pid = assert(sys.spawn("/bin/sh", { "sh", "-c", "exit 7" }, nil, nil, nil,
+  local pid = assert(process.spawn("/bin/sh", { "sh", "-c", "exit 7" }, nil, nil, nil,
     nil, nil, false))
-  local received: sys.ChildStatus
-  local reaped: sys.ChildStatus
+  local received: raw_process.ChildStatus
+  local reaped: raw_process.ChildStatus
   under_every_failure(function()
-    if reaped == nil then received = sys.waitpid(pid, false) end
+    if reaped == nil then received = process.waitpid(pid, false) end
   end, function()
     if received ~= nil then
       reaped = received

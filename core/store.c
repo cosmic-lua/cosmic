@@ -10,6 +10,7 @@
 #include "coverage.h"
 #include "crypto.h"
 #include "hash.h"
+#include "process.h"
 #include "http.h"
 #include "json.h"
 #include "guard.h"
@@ -43,8 +44,11 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
  * cached value -- each wrapper in `raw_modules` below gets its raw value
  * handed straight to its own loader instead, as the `extra` argument
  * `require` passes it. Calling the searcher by hand yields the same
- * value, and that is no escalation: the raw table holds nothing the
- * wrapper does not already hand out. */
+ * value, and that is no escalation: the raw table reaches nothing the
+ * wrapper does not already reach. (The process table's `waitpid` can
+ * reap a child no handle of the caller's owns, which `cosmic.child`
+ * never does; that is a caller breaking its own bookkeeping, and why
+ * the table is off the public surface, not a privilege gained.) */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* Every wrapper that is handed a raw value when loaded trusted, and the
@@ -56,8 +60,12 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
  * code registers it -- `cosmic_store_install` the store, core/surface.c
  * the coverage collector (despite its raw name, a holdover from when it
  * carried the real `debug` library), and `cosmic_store_open_raw` all
- * the others. `build.fuzz` gets the instruction budget alone, which
- * shares the coverage collector's hook but none of its collection. */
+ * the others, a raw value shared by several wrappers once, at its first
+ * entry. `build.fuzz` gets the instruction budget alone, which shares
+ * the coverage collector's hook but none of its collection. The
+ * process table is `cosmic.child`'s and `cosmic.proc`'s, and
+ * `build.filesystem_observations`' too, which notes each child a test
+ * starts by standing in for its `spawn`. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -68,6 +76,9 @@ static const struct raw_module {
   {"cosmic.coverage", "cosmic.internal.debug", NULL},
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
+  {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
+  {"cosmic.proc", "cosmic.internal.process", NULL},
+  {"build.filesystem_observations", "cosmic.internal.process", NULL},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},

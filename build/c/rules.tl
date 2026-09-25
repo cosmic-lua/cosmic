@@ -18,7 +18,7 @@
 ---   counted from the top, is read after the string has left the stack.
 ---   Nothing keeps a popped string alive; copy it first.
 --- - "returned-shape": a binding of the syscall table returns a count of
----   values its declaration in core/syscalls.h does not, or a fallible
+---   values its declaration in core/syscalls.h (or core/process.h) does not, or a fallible
 ---   one returns two -- a failure without its errno (core/fail.h).
 --- - "failure-shape": a fallible binding fails in the other shape than
 ---   its declaration's: one declared `boolean`, an effect, fails through
@@ -93,7 +93,7 @@ local record rules
     refers: {string: boolean}
   end
 
-  --- What core/syscalls.h declares a binding returns: how many values,
+  --- What core/syscalls.h or core/process.h declares a binding returns: how many values,
   --- and whether the last is an errno or a code, so that a failure is
   --- three of them.
   record Declared
@@ -1134,10 +1134,10 @@ local function returned_shape(ctx: Context, name: string, body: Node,
     local count = constant(n.children[1])
     if count == nil then return end
     if count > d.count then
-      report(ctx, n, "returned-shape", "returns " .. count .. " values where cosmic.sys." ..
-        call .. " is declared to return " .. d.count .. " (core/syscalls.h)")
+      report(ctx, n, "returned-shape", "returns " .. count .. " values where binding " ..
+        call .. " is declared to return " .. d.count .. " (core/syscalls.h or core/process.h)")
     elseif d.fallible and count == 2 then
-      report(ctx, n, "returned-shape", "returns 2 values where a failure of cosmic.sys." ..
+      report(ctx, n, "returned-shape", "returns 2 values where a failure of binding " ..
         call .. " is nil or false, a message and an errno: return cosmic_fail or " ..
         "cosmic_fail_effect (core/fail.h)")
     end
@@ -1152,7 +1152,7 @@ function rules.unit(decls: {Node}, file: string,
                     declared?: {string: rules.Declared}): rules.Unit
   local u: rules.Unit = { file = file, defines = {}, refers = {} }
   for _, fn in ipairs(functions(decls)) do
-    -- A binding's declaration in core/syscalls.h carries the annotation
+    -- A binding's declaration in core/syscalls.h or core/process.h carries the annotation
     -- the Teal declaration is made from, whoever refers to it.
     local call = fn.name:match("^cosmic_sys_(.+)$")
     local binding = call ~= nil and declared ~= nil and declared[call] ~= nil
@@ -1205,7 +1205,7 @@ end
 
 --- Every finding in `decls`, a translation unit's own declarations, that
 --- `exempt` does not excuse, sorted by place. `declared` is what
---- core/syscalls.h declares each binding returns, by the binding's name.
+--- core/syscalls.h and core/process.h declare each binding returns, by the binding's name.
 function rules.check(decls: {Node}, file: string,
                      declared: {string: rules.Declared}): {rules.Finding}
   local fns = functions(decls)
