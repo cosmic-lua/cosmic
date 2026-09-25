@@ -9,6 +9,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
 
@@ -302,30 +303,72 @@ local function test_a_read_under_root_o_is_keyable(tmp: string)
   assert(test.keyable(tmp, scratch, reads))
 end
 
---- The shipped database is the one file under o/ a verdict is keyed
---- on: a whole-tree check reads it, so a build that rewrites it must
---- let that verdict fall. Any other file under o/ enters no key.
-local function test_the_shipped_database_enters_the_key(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/o"))
-  local db = tmp .. "/o/cosmic.db"
-  local other = tmp .. "/o/build.db"
-  assert(Fs.write(db, "first"))
-  assert(Fs.write(other, "first"))
-  local function key_over(path: string): string, boolean
-    local k = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime",
-      { { kind = "o", path = path, answer = Hash.hex_sha256("first") } }, {})
-    return k.key, k.stable
-  end
+--- What the build writes under o/ is keyed by its bytes when a test
+--- opens it: the shipped database a whole-tree check reads, the tool,
+--- anything else there. A build that rewrites one lets the verdict
+--- fall; the working database, which every run rewrites, holds none.
+local function test_the_builds_output_enters_the_key(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/o/bin"))
   local unread = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", {}, {}).key
-  local keyed, stable = key_over(db)
-  assert(stable and keyed ~= unread, "o/cosmic.db did not enter the key")
-  assert(Fs.write(db, "second"))
-  local _, still = key_over(db)
-  assert(not still, "a rewritten o/cosmic.db let the verdict stand")
-  assert(Fs.write(other, "second"))
-  local elsewhere, other_stable = key_over(other)
-  assert(other_stable and elsewhere == unread,
-    "a file under o/ but the shipped database entered the key")
+  for _, relative in ipairs({ "o/cosmic.db", "o/bin/cosmic", "o/carried.db", "o/scratch" }) do
+    local path = tmp .. "/" .. relative
+    assert(Fs.write(path, "first"))
+    local function key_over(kind: string): test.VerdictKey
+      return test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime",
+        { { kind = kind, path = path, answer = "" } }, {})
+    end
+    local keyed = key_over("o")
+    assert(keyed.stable and keyed.key ~= unread and keyed.shared ~= unread,
+      relative .. " did not enter the key")
+    local stated = key_over("s")
+    assert(stated.stable and stated.key ~= unread, relative .. "'s stat did not enter the key")
+    -- The same size, written again: its times moved, not its stat's key.
+    assert(Fs.write(path, "FIRST"))
+    assert(key_over("o").key ~= keyed.key, "a rewritten " .. relative .. " kept its key")
+    assert(key_over("s").key == stated.key, relative .. "'s stat keyed its times")
+  end
+  assert(Fs.write(tmp .. "/o/build.db", "first"))
+  for _, relative in ipairs({ "o/build.db", "o/build.db-wal" }) do
+    local k = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime",
+      { { kind = "o", path = tmp .. "/" .. relative, answer = "" } }, {})
+    assert(not k.stable, "a read of " .. relative .. " let the verdict be kept")
+  end
+end
+
+--- A file under o/ that test after test opens is remembered for the
+--- run by what `stat` says of it, and read again once it is rewritten.
+local function test_the_builds_output_is_read_again_once_rewritten(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/o/bin"))
+  local path = tmp .. "/o/bin/cosmic"
+  assert(Fs.write(path, "first"))
+  local parts: {string:string} = {}
+  local reads: {observations.Observation} = { { kind = "o", path = path, answer = "" } }
+  local first = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, parts)
+  assert(test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, parts).key ==
+    first.key)
+  assert(Fs.write(path, "second, longer"))
+  local rewritten = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, parts)
+  assert(rewritten.key ~= first.key, "a rewritten file answered from the first read")
+  local fresh = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, {})
+  assert(fresh.key == rewritten.key)
+  -- Rewritten to the same size and given its modification time back,
+  -- as `cp -p` leaves it: its change time still moved.
+  local before = assert(sys.stat(path))
+  local function changed(): string
+    local st = assert(sys.stat(path))
+    return st.ctime .. "." .. st.ctime_ns
+  end
+  local was = changed()
+  repeat
+    -- In place, as `cp -p` writes: the same inode.
+    local fd = assert(Fs.open_write(path))
+    assert(Fs.put(fd, "SECOND, LONGER"))
+    assert(Fs.close(fd))
+  until changed() ~= was
+  assert(assert(sys.stat(path)).ino == before.ino)
+  assert(sys.utimensat(path, nil, nil, before.mtime, before.mtime_ns))
+  local same_size = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, parts)
+  assert(same_size.key ~= rewritten.key, "a same-size rewrite answered from the memo")
 end
 
 local function test_a_relative_path_is_keyable(tmp: string)
