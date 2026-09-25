@@ -363,7 +363,8 @@ local carry: {string} = {
   -- Outside cosmic's own tree, `cosmic docs`, `cosmic uses` and a
   -- compile's hints read the tool's rows only for the public standard
   -- library (`symbols.public_only`), and inside it they read the tree's
-  -- own projection first: so a doc row about any other module is
+  -- own projection first (and find nothing for `build.*` until a build
+  -- has written one): so a doc row about any other module is
   -- carried only for the catalog, whose guidance is the doc comment of
   -- the function an error came from (core/main.c, `build.embed`).
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
