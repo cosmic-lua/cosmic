@@ -345,7 +345,11 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   assert(assert(Fs.stat(to .. "/sub/run")).mode & 0xfff == 0x1e8)
   local secret = assert(Fs.stat(to .. "/sub/secret"))
   assert(secret.mode & 0xfff == 0x180)
-  assert(secret.mtime == 10413792000 and secret.mtime_ns == 7, secret.mtime .. "." .. secret.mtime_ns)
+  -- What the filesystem kept of 2300: itself where it counts seconds
+  -- (ext4), its own last time where it counts nanoseconds (APFS).
+  local kept = assert(Fs.stat(from .. "/sub/secret"))
+  assert(secret.mtime == kept.mtime and secret.mtime_ns == kept.mtime_ns,
+    secret.mtime .. "." .. secret.mtime_ns)
   assert(secret.atime == 1000000000 and secret.atime_ns == 42, secret.atime .. "." .. secret.atime_ns)
   assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)
   assert(assert(Fs.is_dir(to .. "/sub/empty")))

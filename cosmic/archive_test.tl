@@ -497,8 +497,15 @@ local function test_extract_restores_mtimes_unless_told_not_to(tmp: string)
 end
 
 --- An archived time past 2262, when nanoseconds since the epoch no
---- longer fit in an integer, is restored as it is (2300-01-01 here).
+--- longer fit in an integer, is restored as it is (2300-01-01 here):
+--- the file carries what setting that time gives any file on this
+--- filesystem, which is 2300 itself where it counts seconds (ext4) and
+--- its own last time where it counts nanoseconds (APFS).
 local function test_extract_restores_an_mtime_past_2262(tmp: string)
+  local probe = tmp .. "/probe"
+  assert(Fs.write(probe, "p"))
+  assert(Fs.set_mtime(probe, 10413792000))
+  local want = assert(Fs.stat(probe))
   local archive = tmp .. "/t.tar"
   tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_file("far", "x", { mtime = 10413792000 }))
@@ -506,7 +513,8 @@ local function test_extract_restores_an_mtime_past_2262(tmp: string)
   local dest = tmp .. "/out"
   assert(Archive.extract(archive, dest))
   local far = assert(Fs.stat(dest .. "/far"))
-  assert(far.mtime == 10413792000, tostring(far.mtime))
+  assert(far.mtime == want.mtime and far.mtime_ns == want.mtime_ns,
+    far.mtime .. "." .. far.mtime_ns .. " ~= " .. want.mtime .. "." .. want.mtime_ns)
 end
 
 local function test_extract_stops_at_max_bytes_and_max_entries(tmp: string)
