@@ -340,7 +340,15 @@ end
   assert(names ~= nil and names[1] == "boom", trouble)
   local r = run_program(tmp .. "/o/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
-  assert(r.stderr == "cosmic: failed\n", tostring(r.stderr))
+  -- Its report is one line and nothing beneath it; a core built with the
+  -- portable test hooks writes lines of its own around it.
+  local reported: {string} = {}
+  for line in assert(r.stderr):gmatch("[^\n]+") do
+    if line:sub(1, 8) == "cosmic: " then
+      reported[#reported + 1] = line
+    end
+  end
+  assert(#reported == 1 and reported[1] == "cosmic: failed", tostring(r.stderr))
 end
 
 --- An uncaught error names the Teal line it was raised on, read out of
