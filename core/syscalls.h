@@ -531,6 +531,7 @@ COSMIC_SYSCALL(ftruncate, 2);
  * ---@field ENOSYS integer this platform has no such call
  * ---@field EOPNOTSUPP integer the kernel has the call but it is turned off
  * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
+ * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal

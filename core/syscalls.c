@@ -20,6 +20,8 @@
 #include <linux/filter.h>
 #include <linux/landlock.h>
 #include <linux/seccomp.h>
+#include <linux/sched.h>
+#include <sys/mount.h>
 #include <sys/socket.h>
 #include <stddef.h>
 #include <sys/prctl.h>
@@ -321,13 +323,12 @@ static void close_child_descriptors (int from, long limit) {
    LANDLOCK_ACCESS_FS_READ_DIR)
 #endif
 
-/* TODO: hold a child's metadata reads too -- Landlock checks opening a
- * file or listing a directory, never stat, access, readlink, statfs or
- * chdir, so a confined child still learns whether a path outside the
- * ruleset is there, and its size and times -- and its reach beyond: a
- * unix socket named by a path, and UDP. A mount namespace holding only
- * what the ruleset names would close the first; the others wait on a
- * Landlock right for them (or a network namespace). */
+/* A ruleset alone does not hold a child's metadata reads -- Landlock
+ * checks opening a file or listing a directory, never stat, access,
+ * readlink, statfs or chdir, so a confined child still learns whether a
+ * path outside the ruleset is there, and its size and times -- nor its
+ * reach beyond: a unix socket named by a path, and UDP. A sandbox's
+ * `unveil` closes the first and the socket paths, and `offline` the rest. */
 COSMIC_SYSCALL(landlock_ruleset, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -502,6 +503,175 @@ static int pledge_program (struct sock_filter *out, int unix_ok, int inet_ok) {
 }
 #endif
 
+/* The most paths a sandbox unveils. */
+#define UNVEIL_MAX 64
+
+/* Whether `name` is absolute with no empty, `.` or `..` component, so it
+ * names the same place under another root as under this one. */
+static int plain_name (const char *name) {
+  if (name[0] != '/') return 0;
+  for (const char *at = name; *at != '\0'; at++) {
+    if (*at != '/') continue;
+    const char *next = at + 1;
+    if (*next == '/') return 0;
+    if (next[0] == '.' && (next[1] == '/' || next[1] == '\0')) return 0;
+    if (next[0] == '.' && next[1] == '.' && (next[2] == '/' || next[2] == '\0')) return 0;
+  }
+  return 1;
+}
+
+#if defined(__linux__)
+/* Writes `text` to the file at `path` whole: 0, or an errno. */
+static int write_whole (const char *path, const char *text) {
+  int fd = open(path, O_WRONLY | O_CLOEXEC);
+  if (fd < 0) return errno;
+  size_t left = strlen(text);
+  int number = 0;
+  while (left > 0) {
+    ssize_t put = write(fd, text, left);
+    if (put < 0 && errno == EINTR) continue;
+    if (put <= 0) { number = put < 0 ? errno : EIO; break; }
+    text += put;
+    left -= (size_t)put;
+  }
+  close(fd);
+  return number;
+}
+
+/* Makes every directory `path` names but its last, as `mkdir -p` does,
+ * writing into `path` and putting it back: 0, or an errno. */
+static int make_parents (char *path) {
+  for (char *at = path + 1; *at != '\0'; at++) {
+    if (*at != '/') continue;
+    *at = '\0';
+    int made = mkdir(path, 0755);
+    int number = errno;
+    *at = '/';
+    if (made != 0 && number != EEXIST) return number;
+  }
+  return 0;
+}
+
+/* Makes a link at `path`, under the root being built, to `to`, making its
+ * parents as `make_parents` does but going through no link and making
+ * nothing where something already is: 0, or an errno. */
+static int make_link (char *path, const char *to) {
+  struct stat st;
+  for (char *at = path + 1; *at != '\0'; at++) {
+    if (*at != '/') continue;
+    *at = '\0';
+    int number = 0;
+    if (lstat(path, &st) != 0) {
+      if (errno != ENOENT || mkdir(path, 0755) != 0) number = errno;
+    } else if (!S_ISDIR(st.st_mode)) {
+      number = EEXIST;
+    }
+    *at = '/';
+    if (number == EEXIST) return 0;
+    if (number != 0) return number;
+  }
+  if (symlink(to, path) != 0 && errno != EEXIST) return errno;
+  return 0;
+}
+
+/* mount_setattr(2), which a libc may not name: making a mount and every
+ * mount beneath it read-only at once, as a remount cannot. */
+#ifndef SYS_mount_setattr
+#define SYS_mount_setattr 442
+#endif
+#ifndef AT_RECURSIVE
+#define AT_RECURSIVE 0x8000
+#endif
+#define COSMIC_MOUNT_ATTR_RDONLY 0x1
+struct cosmic_mount_attr {
+  uint64_t attr_set, attr_clr, propagation, userns_fd;
+};
+
+/* In the child, before anything else of the sandbox: a user namespace of
+ * its own, mapping its user and group to themselves; with `offline`, a
+ * network namespace of its own, which has nothing but a loopback that is
+ * down; and with `unveiling`, a root of its own in a mount namespace,
+ * holding the `count` paths at their own names -- read-only, and every
+ * mount beneath them too, but where `writable` says -- and nothing else,
+ * so a path outside them is not there at all, to stat as to open. The
+ * paths are resolved, with no link or `..` left in them, and a shorter
+ * comes before a longer; `names` holds the names they were given by where
+ * one differs from its path, and NULL elsewhere, and each such name is a
+ * link in the root to its path, where no path given holds it already.
+ * `root` is an empty directory the parent made to build on. Last, the child gives up every capability the namespace gave
+ * it, so a caller's root cannot undo a read-only mount or make one of its
+ * own. 0, or an errno.
+ * TODO: a pid namespace too, so an unveiled /proc shows the child's own
+ * processes rather than the host's; the child that unshares one is not
+ * in it, so this waits on starting the program from a second fork. */
+static int unveil (const char *root, char *const *paths, char *const *names,
+                   const int *writable, int count, int unveiling, int offline, const char *uid_map, const char *gid_map) {
+  int flags = CLONE_NEWUSER | (unveiling ? CLONE_NEWNS : 0) | (offline ? CLONE_NEWNET : 0);
+  if (syscall(SYS_unshare, flags) != 0) return errno;
+  int number = write_whole("/proc/self/setgroups", "deny");
+  if (number != 0 && number != ENOENT) return number;
+  if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) return number;
+  if ((number = write_whole("/proc/self/gid_map", gid_map)) != 0) return number;
+  if (unveiling) {
+    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
+    if (mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0) return errno;
+    char target[PATH_MAX];
+    for (int i = 0; i < count; i++) {
+      struct stat st;
+      if (stat(paths[i], &st) != 0) return errno;
+      int length = snprintf(target, sizeof target, "%s%s", root, paths[i]);
+      if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
+      struct stat there;
+      if (lstat(target, &there) != 0) {
+        if ((number = make_parents(target)) != 0) return number;
+        if (S_ISDIR(st.st_mode)) {
+          if (mkdir(target, 0755) != 0 && errno != EEXIST) return errno;
+        } else {
+          int fd = open(target, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+          if (fd < 0) return errno;
+          close(fd);
+        }
+      }
+      if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
+      if (!writable[i]) {
+        struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
+        if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
+          return errno;
+      }
+    }
+    for (int i = 0; i < count; i++) {
+      if (names[i] == NULL) continue;
+      int held = 0;
+      for (int j = 0; j < count && !held; j++) {
+        size_t n = strlen(paths[j]);
+        held = strncmp(names[i], paths[j], n) == 0 &&
+               (names[i][n] == '/' || names[i][n] == '\0' || n == 1);
+      }
+      if (held) continue;
+      int length = snprintf(target, sizeof target, "%s%s", root, names[i]);
+      if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
+      if ((number = make_link(target, paths[i])) != 0) return number;
+    }
+    int length = snprintf(target, sizeof target, "%s/.old", root);
+    if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
+    if (mkdir(target, 0700) != 0) return errno;
+    if (syscall(SYS_pivot_root, root, target) != 0) return errno;
+    if (chdir("/") != 0) return errno;
+    if (umount2("/.old", MNT_DETACH) != 0) return errno;
+    if (rmdir("/.old") != 0) return errno;
+    /* Nothing is made at the root itself once it is built. */
+    if (mount(NULL, "/", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY | MS_NOSUID | MS_NODEV, NULL) != 0)
+      return errno;
+  }
+  for (int cap = 0; cap < 64; cap++) {
+    if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0) != 0 && errno != EINVAL) return errno;
+  }
+  if (prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) != 0 && errno != EINVAL)
+    return errno;
+  return 0;
+}
+#endif
+
 COSMIC_SYSCALL(spawn, 10) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -545,9 +715,13 @@ COSMIC_SYSCALL(spawn, 10) {
   }
   int confine = -1;
   int pledged = 0, unix_ok = 0, inet_ok = 0;
+  const char *unveiled[UNVEIL_MAX];
+  int unveiled_writable[UNVEIL_MAX];
+  int unveiling = 0, unveil_count = 0, offline = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
-    lua_getfield(L, 10, "ruleset");
+    lua_pushliteral(L, "ruleset");
+    lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
       if (!lua_isinteger(L, -1))
         return luaL_argerror(L, 10, "a ruleset must be a descriptor");
@@ -558,7 +732,8 @@ COSMIC_SYSCALL(spawn, 10) {
     }
     lua_pop(L, 1);
     if (confine >= 0 && fcntl(confine, F_GETFD) < 0) return cosmic_fail(L, errno);
-    lua_getfield(L, 10, "pledge");
+    lua_pushliteral(L, "pledge");
+    lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
       if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "a pledge must be a list of promises");
       pledged = 1;
@@ -573,7 +748,47 @@ COSMIC_SYSCALL(spawn, 10) {
       }
     }
     lua_pop(L, 1);
+    lua_pushliteral(L, "unveil");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil must be a table");
+      unveiling = 1;
+      for (int w = 0; w < 2; w++) {
+        lua_pushstring(L, w == 0 ? "reads" : "writes");
+        lua_rawget(L, -2);
+        if (!lua_isnil(L, -1)) {
+          if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveiled paths must be a list");
+          lua_Integer n = (lua_Integer)lua_rawlen(L, -1);
+          for (lua_Integer i = 1; i <= n; i++) {
+            lua_rawgeti(L, -1, i);
+            const char *unveil_path = plain_string(L, -1, "unveiled path");
+            if (unveil_path[0] != '/')
+              return luaL_argerror(L, 10, "an unveiled path must be absolute");
+            if (unveil_count >= UNVEIL_MAX)
+              return luaL_argerror(L, 10, "too many unveiled paths");
+            unveiled[unveil_count] = unveil_path;
+            unveiled_writable[unveil_count] = w;
+            unveil_count++;
+            lua_pop(L, 1);
+          }
+        }
+        lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
+    lua_pushliteral(L, "offline");
+    lua_rawget(L, 10);
+    offline = lua_toboolean(L, -1);
+    lua_pop(L, 1);
   }
+#if !defined(__linux__)
+  if (unveiling || offline) return cosmic_fail(L, ENOSYS);
+#endif
+  char uid_map[64], gid_map[64];
+  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
+           (unsigned long)geteuid());
+  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", (unsigned long)getegid(),
+           (unsigned long)getegid());
 #if defined(PLEDGE_ARCH)
   struct sock_filter pledge_filter[PLEDGE_MAX];
   struct sock_fprog pledge = { 0, pledge_filter };
@@ -667,6 +882,88 @@ COSMIC_SYSCALL(spawn, 10) {
     free(argv);
     return cosmic_fail(L, promote_error);
   }
+  /* What an unveiled child resolves in a root of its own is resolved here
+   * first, while this process's filesystem is still the one its names
+   * mean: each unveiled path with no link or `..` left in it, a shorter
+   * before a longer so one inside another lands on top of it; the program
+   * and the directory to run in made absolute from this one's; and an
+   * empty directory to build the root on. Made last, after everything
+   * that can fail, and released once the child has started or failed to. */
+  char root_dir[PATH_MAX];
+  root_dir[0] = '\0';
+  char *resolved = NULL;
+  char *resolved_paths[UNVEIL_MAX], *given_names[UNVEIL_MAX];
+  char path_abs[PATH_MAX], cwd_abs[PATH_MAX];
+  if (unveiling || offline) {
+    int prepare_error = 0;
+    char here[PATH_MAX];
+    if (getcwd(here, sizeof here) == NULL) prepare_error = errno;
+    if (!prepare_error && path[0] != '/') {
+      int length = snprintf(path_abs, sizeof path_abs, "%s/%s", here, path);
+      if (length < 0 || (size_t)length >= sizeof path_abs) prepare_error = ENAMETOOLONG;
+      path = path_abs;
+    }
+    if (!prepare_error && (cwd == NULL || cwd[0] != '/')) {
+      int length = snprintf(cwd_abs, sizeof cwd_abs, "%s/%s", here, cwd == NULL ? "." : cwd);
+      if (length < 0 || (size_t)length >= sizeof cwd_abs) prepare_error = ENAMETOOLONG;
+      cwd = cwd_abs;
+    }
+    if (!prepare_error && unveil_count > 0) {
+      resolved = malloc((size_t)unveil_count * 2 * PATH_MAX);
+      if (resolved == NULL) prepare_error = ENOMEM;
+      for (int i = 0; !prepare_error && i < unveil_count; i++) {
+        resolved_paths[i] = resolved + (size_t)i * 2 * PATH_MAX;
+        given_names[i] = NULL;
+        if (realpath(unveiled[i], resolved_paths[i]) == NULL) {
+          prepare_error = errno;
+          break;
+        }
+        /* The name given, less a trailing slash, where it differs. */
+        size_t n = strlen(unveiled[i]);
+        while (n > 1 && unveiled[i][n - 1] == '/') n--;
+        if (n >= PATH_MAX) {
+          prepare_error = ENAMETOOLONG;
+          break;
+        }
+        char *name = resolved_paths[i] + PATH_MAX;
+        memcpy(name, unveiled[i], n);
+        name[n] = '\0';
+        if (plain_name(name) && strcmp(name, resolved_paths[i]) != 0) given_names[i] = name;
+      }
+      for (int i = 1; !prepare_error && i < unveil_count; i++) {
+        for (int j = i; j > 0 && strlen(resolved_paths[j]) < strlen(resolved_paths[j - 1]); j--) {
+          char *p = resolved_paths[j];
+          resolved_paths[j] = resolved_paths[j - 1];
+          resolved_paths[j - 1] = p;
+          char *q = given_names[j];
+          given_names[j] = given_names[j - 1];
+          given_names[j - 1] = q;
+          int w = unveiled_writable[j];
+          unveiled_writable[j] = unveiled_writable[j - 1];
+          unveiled_writable[j - 1] = w;
+        }
+      }
+    }
+    if (!prepare_error && unveiling) {
+      const char *base = getenv("TMPDIR");
+      if (base == NULL || base[0] != '/') base = "/tmp";
+      int length = snprintf(root_dir, sizeof root_dir, "%s/cosmic-root-XXXXXX", base);
+      if (length < 0 || (size_t)length >= sizeof root_dir) prepare_error = ENAMETOOLONG;
+      else if (mkdtemp(root_dir) == NULL) prepare_error = errno;
+      if (prepare_error) root_dir[0] = '\0';
+    }
+    if (prepare_error) {
+      free(resolved);
+      close(status_read);
+      close(status_write);
+      if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+      free(argv);
+      return cosmic_fail(L, prepare_error);
+    }
+  }
+  /* TODO: an unveiled child that is a cosmic reports its coverage into a
+   * directory it was not given, so the report is lost; unveil that
+   * directory writable here once the declaring layer names it. */
   char **given = cosmic_coverage_environment(envp);
   pid_t pid = fork();
   if (pid == 0) {
@@ -704,7 +1001,15 @@ COSMIC_SYSCALL(spawn, 10) {
       report_child_error(status_fd, failure);
       _exit(127);
     }
-    if (process_group && setpgid(0, 0) != 0) failure = errno;
+    /* The sandbox's own namespaces first: the root the rest resolves in,
+     * and mounting, which Landlock and a pledge would refuse. */
+#if defined(__linux__)
+    if (unveiling || offline) {
+      failure = unveil(root_dir, resolved_paths, given_names, unveiled_writable, unveil_count,
+                       unveiling, offline, uid_map, gid_map);
+    }
+#endif
+    if (!failure && process_group && setpgid(0, 0) != 0) failure = errno;
     if (!failure && cwd != NULL && chdir(cwd) != 0) failure = errno;
     if (!failure && sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
     for (int t = 0; !failure && t <= top; t++) {
@@ -754,7 +1059,12 @@ COSMIC_SYSCALL(spawn, 10) {
   if (given != envp) free(given);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
   free(argv);
-  if (pid < 0) { close(status_read); return cosmic_fail(L, fork_error); }
+  free(resolved);
+  if (pid < 0) {
+    close(status_read);
+    if (root_dir[0] != '\0') rmdir(root_dir);
+    return cosmic_fail(L, fork_error);
+  }
 
   int child_error = 0;
   size_t received = 0;
@@ -769,6 +1079,7 @@ COSMIC_SYSCALL(spawn, 10) {
     break;
   }
   close(status_read);
+  if (root_dir[0] != '\0') rmdir(root_dir);
   if (received != 0 || read_error != 0) {
     int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
     return cosmic_fail(L, received == sizeof child_error ? child_error :
@@ -1187,6 +1498,7 @@ static const struct constant constants[] = {
   {"ENOSYS", ENOSYS},
   {"EOPNOTSUPP", EOPNOTSUPP},
   {"EPERM", EPERM},
+  {"ENOSPC", ENOSPC},
   {"EINVAL", EINVAL},
   {"SIGHUP", SIGHUP},
   {"SIGINT", SIGINT},
