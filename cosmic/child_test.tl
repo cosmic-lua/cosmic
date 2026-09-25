@@ -287,6 +287,47 @@ local function test_stdin_pipe_belongs_to_the_caller()
   assert(r.ok and r.stdout == "typed")
 end
 
+--- A caller writing to a `stdin = "pipe"` child that has gone gets
+--- EPIPE, not SIGPIPE: the write fails and this process lives on. Run
+--- in a relaunched process, since one that already ignores SIGPIPE (a
+--- test runner that fed some child `input`) has no case to show.
+local function test_writing_to_a_gone_stdin_pipe_fails_instead_of_ending(tmp: string)
+  local relaunch = Proc.relaunch()
+  if relaunch == nil then return end -- a native start has nothing to relaunch
+  local script = tmp .. "/writes.tl"
+  assert(Fs.write(script, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+return function(): integer
+  -- The child closes its end of the pipe and lingers; writing a chunk
+  -- past what the pipe holds meets the closed end whenever it closes.
+  local h = assert(Child.start({ "/bin/sh", "-c", "exec 0<&-; sleep 5" },
+    { stdin = "pipe" }))
+  local chunk = string.rep("x", 1 << 20)
+  local ok, trouble = true, ""
+  for _ = 1, 8 do
+    ok, trouble = Fs.put(h.stdin as integer, chunk)
+    if not ok then break end
+  end
+  print(tostring(ok) .. " " .. trouble)
+  local _, _ = h:stop()
+  return 0
+end
+]]))
+  local argv: {string} = {}
+  for i, value in ipairs(relaunch.argv) do argv[i] = value end
+  argv[#argv + 1] = script
+  local env = Env.all()
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  local fds: {integer:integer | string} = {}
+  for number, fd in pairs(relaunch.fds) do fds[number] = fd end
+  local r = assert(Child.run(argv, { env = env, fds = fds, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  assert(r.signal == nil and r.ok, "ended by signal " .. tostring(r.signal) .. ": " ..
+    tostring(r.stderr))
+  assert(assert(r.stdout):find("^false "), r.stdout)
+end
+
 local function test_try_wait_services_a_chatty_child()
   local h = assert(Child.start({ "/bin/sh", "-c",
     "i=0; while [ $i -lt 20000 ]; do printf 0123456789; i=$((i+1)); done" },

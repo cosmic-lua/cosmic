@@ -70,6 +70,9 @@ local archive <const> = 'local Archive = require("cosmic.archive")'
 local zip <const> = 'local Zip = require("cosmic.zip")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
+local poll_gone <const> = "there is no public poll to take it; use " ..
+  "Child.wait_any(handles, timeout_ms), which polls every handle's streams (" ..
+  child .. ")"
 
 local module: Module = {
   fields = {
@@ -162,9 +165,14 @@ local module: Module = {
       "use Child.wait_any(handles, timeout_ms) (" .. child .. ")",
     ["cosmic.sys.poll"] = "use Child.wait_any(handles, timeout_ms), which polls every " ..
       "handle's streams (" .. child .. ")",
-    ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { input = bytes }) ignores " ..
-      "SIGPIPE for this process, so a write to a child that has gone fails instead (" ..
-      child .. ")",
+    ["cosmic.sys.POLLIN"] = poll_gone,
+    ["cosmic.sys.POLLOUT"] = poll_gone,
+    ["cosmic.sys.POLLERR"] = poll_gone,
+    ["cosmic.sys.POLLHUP"] = poll_gone,
+    ["cosmic.sys.POLLNVAL"] = poll_gone,
+    ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"pipe\" }), or " ..
+      "{ input = bytes }, ignores SIGPIPE for this process, so a write to a child " ..
+      "that has gone fails with EPIPE instead (" .. child .. ")",
     ["cosmic.sys.relaunch"] = "use Proc.relaunch() (" .. proc .. ")",
     ["cosmic.sys.Relaunch"] = "use Proc.Relaunch, what Proc.relaunch() answers (" ..
       proc .. ")",

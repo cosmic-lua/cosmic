@@ -539,11 +539,6 @@ COSMIC_SYSCALL(ftruncate, 2);
  * ---@field SIGPIPE integer a write to a pipe nobody reads
  * ---@field SIGTERM integer request termination
  * ---@field SIGUSR1 integer the first user-defined signal
- * ---@field POLLIN integer there is data to read
- * ---@field POLLOUT integer a write would not block
- * ---@field POLLERR integer the descriptor is in error
- * ---@field POLLHUP integer the other end hung up
- * ---@field POLLNVAL integer the descriptor is not open
  */
 
 /* Opens the table as the `cosmic.sys` module. */

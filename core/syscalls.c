@@ -1061,6 +1061,11 @@ static const struct constant constants[] = {
   {"SIGPIPE", SIGPIPE},
   {"SIGTERM", SIGTERM},
   {"SIGUSR1", SIGUSR1},
+  {NULL, 0},
+};
+
+/* The numbers the raw process table's `poll` takes and gives back. */
+static const struct constant process_constants[] = {
   {"POLLIN", POLLIN},
   {"POLLOUT", POLLOUT},
   {"POLLERR", POLLERR},
@@ -1071,6 +1076,10 @@ static const struct constant constants[] = {
 
 int cosmic_open_process (lua_State *L) {
   luaL_newlib(L, process_table);
+  for (const struct constant *c = process_constants; c->name != NULL; c++) {
+    lua_pushinteger(L, c->value);
+    lua_setfield(L, -2, c->name);
+  }
   return 1;
 }
 

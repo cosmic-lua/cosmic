@@ -61,7 +61,10 @@ local record Options
   cwd: string
   --- A descriptor, "inherit" (the default), "null", or "pipe". With
   --- "pipe" the handle's `stdin` is the writable end, the caller's to
-  --- write and to close with `close_stdin`.
+  --- write and to close with `close_stdin`. A pipe to stdin, this one
+  --- or `input`'s, makes this process ignore SIGPIPE from then on, so a
+  --- write to a child that has gone fails with EPIPE instead of ending
+  --- it.
   stdin: integer | string
   --- Bytes fed to the child's stdin, which is then closed. Excludes a
   --- `stdin` other than "pipe".
@@ -263,7 +266,7 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
       for index, stream in ipairs(h._streams) do
         if stream.fd ~= nil then
           fds[#fds + 1] = stream.fd
-          events[#events + 1] = sys.POLLIN
+          events[#events + 1] = raw.POLLIN
           owners[#owners + 1] = h
           which[#which + 1] = index
         end
@@ -271,7 +274,7 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
     end
     if h._input_fd ~= nil then
       fds[#fds + 1] = h._input_fd
-      events[#events + 1] = sys.POLLOUT
+      events[#events + 1] = raw.POLLOUT
       owners[#owners + 1] = h
       which[#which + 1] = 0
     end
@@ -714,9 +717,12 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
     wiring.child_ends[#wiring.child_ends + 1] = ends.reader
     wiring.ours[#wiring.ours + 1] = ends.writer
     slots[0] = ends.reader
+    -- A write to a child that has gone fails with EPIPE rather than
+    -- ending this process, whoever writes it: this module feeding
+    -- `input`, or the caller writing to `h.stdin`.
+    local ignored, ignore_trouble = raw.ignore_sigpipe()
+    if not ignored then return nil, ignore_trouble end
     if opts.input ~= nil then
-      local ignored, ignore_trouble = raw.ignore_sigpipe()
-      if not ignored then return nil, ignore_trouble end
       local nonblocking, nonblocking_trouble = raw.set_nonblocking(ends.writer, true)
       if not nonblocking then return nil, nonblocking_trouble end
       wiring.input_fd = ends.writer

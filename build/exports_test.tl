@@ -75,7 +75,7 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 -- Walk the uses from what is earned outright once a use records the
 -- function it sits in, not only its module and line.
 -- TODO: `cosmic.sys` is left out, so a constant or binding in
--- core/syscalls.h that nothing uses (`EISDIR`, `SIGUSR1`, `POLLNVAL`)
+-- core/syscalls.h that nothing uses (`EISDIR`, `SIGUSR1`)
 -- is never flagged; hold its members to the same rule once the check
 -- can tell a binding the Teal layer wraps from one nothing reaches.
 -- TODO: hold a private build/ function's optional parameter to the same

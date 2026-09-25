@@ -100,11 +100,19 @@ static int declare_syscalls (lua_State *L, const char *root, int bridge) {
   for (lua_Integer i = 1; i <= count; i++) {
     lua_rawgeti(L, targets, i);
     int derivation = lua_gettop(L);
+    if (!lua_istable(L, derivation)) {
+      fprintf(stderr, "cosmic boot: build.gen_syscalls target %lld is not a table\n",
+              (long long)i);
+      return 1;
+    }
     lua_getfield(L, derivation, "target");
     int target = lua_gettop(L);
-    lua_getfield(L, target, "header");
-    const char *header = lua_tostring(L, -1);
-    if (!lua_istable(L, target) || header == NULL) {
+    const char *header = NULL;
+    if (lua_istable(L, target)) {
+      lua_getfield(L, target, "header");
+      header = lua_tostring(L, -1);
+    }
+    if (header == NULL) {
       fprintf(stderr, "cosmic boot: build.gen_syscalls target %lld names no header\n",
               (long long)i);
       return 1;

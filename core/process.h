@@ -109,6 +109,12 @@ COSMIC_SYSCALL(relaunch, 2);
  */
 COSMIC_SYSCALL(pipe, 0);
 
+/* TODO: `set_nonblocking` and `poll`, with the POLL* numbers, are
+ * general descriptor calls, here only because `cosmic.child` is their
+ * one caller. Offer a public descriptor-poll API (a module over them,
+ * say, or back in cosmic.sys) once a caller outside the process
+ * machinery needs to wait on a descriptor. */
+
 /*
  * --- Turns a descriptor's nonblocking mode on or off.
  * ---@param fd integer the descriptor
@@ -145,6 +151,16 @@ COSMIC_SYSCALL(subreaper, 0);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(ignore_sigpipe, 0);
+
+/*
+ * --- The numbers `poll` takes and gives back, from this libc.
+ * ---@class Constants
+ * ---@field POLLIN integer there is data to read
+ * ---@field POLLOUT integer a write would not block
+ * ---@field POLLERR integer the descriptor is in error
+ * ---@field POLLHUP integer the other end hung up
+ * ---@field POLLNVAL integer the descriptor is not open
+ */
 
 /* Opens the table as the raw `cosmic.internal.process` module. */
 int cosmic_open_process (lua_State *L);

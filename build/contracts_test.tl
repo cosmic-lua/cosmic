@@ -679,6 +679,23 @@ local function test_an_exempt_export_may_answer_a_tuple()
   assert(#found == 0, table.concat(found, "\n"))
 end
 
+--- The raw process table is a table of C bindings too: a stand-in for
+--- one keeps its errno, and a bare boolean over one is flagged.
+local function test_the_raw_process_table_is_held_as_bindings_are()
+  local process = "local process = require('cosmic.internal.process')\n"
+  allows(process .. "local spawn = process.spawn\n" ..
+    "process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,\n" ..
+    "    cwd: string | nil, stdin: integer | nil, stdout: integer | nil,\n" ..
+    "    stderr: integer | nil, process_group: boolean, fds?: {integer:integer},\n" ..
+    "    sandbox?: process.Sandbox): integer | nil, string, integer\n" ..
+    "  local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout,\n" ..
+    "    stderr, process_group, fds, sandbox)\n" ..
+    "  return pid, trouble, errno\nend")
+  flags(process .. "local record M end\n" ..
+    "function M.adopt(): boolean\n  local ok, _ = process.subreaper()\n  return ok\nend\n" ..
+    "return M", "M.adopt: calls cosmic.internal.process.subreaper itself and answers a bare boolean")
+end
+
 --- Rule 11: an exported wrapper over a fallible `cosmic.sys` binding
 --- answers the binding's failure.
 local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
