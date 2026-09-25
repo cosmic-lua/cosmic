@@ -8,7 +8,8 @@
 --- the tree: what the build consumes -- Teal, and in cosmic's own tree
 --- the C core, build.zig and bin/zig -- and, fingerprinted in `scanned`
 --- and read only when it moves, everything else it walks past: scripts,
---- and in cosmic's own tree `bin/`, `eval/` and `ci/`. Blame is kept beside it, in `blames`, and only this verb runs
+--- and in cosmic's own tree `bin/`, `eval/`, `ci/` and `.github/`'s
+--- workflows and actions. Blame is kept beside it, in `blames`, and only this verb runs
 --- git. With no git, or outside a repository, TODOs are still listed,
 --- with no commit.
 
