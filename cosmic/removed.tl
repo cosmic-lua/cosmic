@@ -17,8 +17,8 @@ local record Removed
   --- cosmic.child for io.popen
   io: string
   --- unavailable; see cosmic.time, cosmic.env, cosmic.proc, cosmic.fs and
-  --- cosmic.child. There is no os.date, os.difftime or os.setlocale
-  --- equivalent
+  --- cosmic.child. os.date is cosmic.time's UTC calendar, and there is no
+  --- os.setlocale equivalent
   os: string
   --- a traceback is cosmic.errors.trace. The debug library and hooks,
   --- registry, locals/upvalues and debug.getinfo are unavailable
@@ -115,13 +115,16 @@ local module: Module = {
     ["os.getenv"] = "use Env.get(name) (" .. env .. ")",
     ["os.exit"] = "use Proc.exit(status) (" .. proc .. ")",
     ["os.time"] = "use Time.now_ns(), the wall clock in nanoseconds since " ..
-      "the epoch (// 1000000000 for seconds) (" .. time .. ")",
+      "the epoch (// 1000000000 for seconds), or Time.from_civil(fields) for " ..
+      "a calendar date, which reads it as UTC rather than local time and " ..
+      "refuses a field out of range (day 32) rather than normalizing it (" ..
+      time .. ")",
     ["os.clock"] = "use Time.monotonic_ns() to measure elapsed time; there " ..
       "is no process CPU clock (" .. time .. ")",
     ["os.difftime"] = "subtract two Time.now_ns() readings (" .. time .. ")",
-    ["os.date"] = "there is no calendar API yet; Time.now_ns() is the wall " ..
-      "clock in nanoseconds since the epoch, but nothing formats it as a " ..
-      "date (" .. time .. ")",
+    ["os.date"] = "use Time.civil(Time.now_ns()) for the UTC calendar's " ..
+      "fields, or Time.format_rfc3339(ns) for text; there is no local time " ..
+      "zone (" .. time .. ")",
     ["os.remove"] = "use Fs.remove(path) (" .. fs .. ")",
     ["os.rename"] = "use Fs.rename(from, to) (" .. fs .. ")",
     ["os.tmpname"] = "use Fs.mkdtemp(prefix), which makes a private " ..

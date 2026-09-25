@@ -236,6 +236,23 @@ COSMIC_SYSCALL(chmod, 2);
 COSMIC_SYSCALL(readdir, 1);
 
 /*
+ * --- What a tree holds, digested: `tree_digest`'s answer.
+ * ---@class TreeDigest
+ * ---@field digest string the hex sha256 of every entry at and beneath the path, links unfollowed, in name order: each one's contents where asked for, and otherwise what `lstat` says of it -- type and permissions, size, modification and change times, and inode
+ * ---@field special boolean whether it holds a socket, a FIFO or a device other than /dev/null, /dev/zero or /dev/urandom, each of which answers from past the tree, or anything the walk could not see: an entry it could not read or list, or one more than 128 directories down
+ */
+
+/*
+ * --- Digests a file or directory and everything beneath it, in one walk: a change to any entry, its name, what it is or what it holds changes the digest. An entry that cannot be read is digested as the error it gave.
+ * ---@param path string the file or directory, not followed where it is a link
+ * ---@param contents boolean digest each file's contents rather than what `lstat` says of it
+ * ---@return TreeDigest|nil digest what it holds, or nil when the path itself cannot be read
+ * ---@return string error what went wrong, when digest is nil
+ * ---@return integer errno the error number, when digest is nil
+ */
+COSMIC_SYSCALL(tree_digest, 2);
+
+/*
  * --- Returns the process's current directory.
  * ---@return string|nil path the directory, or nil on failure
  * ---@return string error what went wrong, when path is nil

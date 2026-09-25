@@ -99,6 +99,11 @@ local SPECIAL_BODY_LIMIT <const> = 1 << 20
 --- to a small negative number rather than a huge positive one.
 local function numeric(field: string): integer
   if #field > 0 and (field:byte(1) & 0x80) ~= 0 then
+    -- TODO: a base-256 field whose value needs more than 64 bits (a
+    -- 12-byte one holds 95) wraps silently here, so a size or mtime
+    -- past an integer's range reads as some other number; it should
+    -- refuse the header instead, as GNU tar does, which wants this to
+    -- answer nil for its callers in `next` to fail on.
     local negative = (field:byte(1) & 0x40) ~= 0
     local value: integer = negative and -1 or 0
     value = (value << 7) | (field:byte(1) & 0x7f)
@@ -490,6 +495,12 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
             f.name, f.linkname, f.size, f.mtime, f.uid, f.gid, f.sparse
         end
         if size < 0 then return fail("tar: negative entry size") end
+        -- Its padding added, a size this near the integer limit could
+        -- wrap negative, and `next` would skip none of its body; a block
+        -- below the limit is a bound no padding crosses.
+        if size > math.maxinteger - BLOCK then
+          return fail("tar: entry size " .. tostring(size) .. " is too large")
+        end
         state.pending_skip = size + padding_of(size)
 
         local kind = kind_of(typeflag)

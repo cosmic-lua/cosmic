@@ -15,10 +15,12 @@ end
 local tables: {{string}} = {
   { "meta", "(key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID" },
 
-  -- bytecode comes before source and lua: every require reads it, and
-  -- SQLite reaches a column by walking the row's overflow-page chain
-  -- past every earlier one, so putting it first keeps a require from
-  -- paging through the much larger source text to get there.
+  -- bytecode comes before source: every require reads it, and SQLite
+  -- reaches a column by walking the row's overflow-page chain past
+  -- every earlier one, so putting it first keeps a require from paging
+  -- through the much larger source text to get there. The Lua tl
+  -- generated is not here: nothing that reads this file loads it, and
+  -- the working database's `compiled` keeps it for the build.
   { "modules", [[(path TEXT PRIMARY KEY,
                   file TEXT NOT NULL,
                   kind TEXT NOT NULL,
@@ -26,8 +28,7 @@ local tables: {{string}} = {
                   key BLOB NOT NULL,
                   bytecode BLOB NOT NULL,
                   tests TEXT NOT NULL,
-                  source TEXT NOT NULL,
-                  lua TEXT NOT NULL) WITHOUT ROWID]] },
+                  source TEXT NOT NULL) WITHOUT ROWID]] },
 
   { "imports", [[(path TEXT NOT NULL,
                   requires TEXT NOT NULL,
