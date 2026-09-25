@@ -23,8 +23,15 @@ local is_dir = Predicate.is_dir
 local function read(path: string): string return (assert(Fs.read(path))) end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
+--- The environment every operation runs in: the driver's own, with
+--- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
+--- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
+--- night with a seed of its own: a check that gates a change answers the
+--- same on every run, and one that searches runs where a find blocks
+--- nobody's merge.
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
+  all.FUZZ_ITERS = "0"
   if extra then for k, v in pairs(extra) do all[k] = v end end
   return all
 end
@@ -119,30 +126,6 @@ local checked_compile_timeout_ms <const> = 300000
 local suite_timeout_ms <const> = 120000
 local suite_test_timeout_s <const> = "10"
 
--- The fuzz properties again on the checked core, over many more inputs
--- than a suite run's 64 (build/fuzz/init.tl). Only the `*_fuzz_test.tl`
--- modules are named: a whole run would also re-run every test that
--- starts a process, since those never stand, though the checked suite
--- ran each of them a moment before -- a third of the rerun's time.
-local deep_fuzz_iters <const> = "2000"
-local deep_fuzz_timeout_ms <const> = 900000
-local deep_fuzz_test_timeout_s <const> = "300"
-
---- Every `*_fuzz_test.tl` under root, relative to it, sorted; o/, vendor/
---- and ci/ hold none of the tree's own.
-local function fuzz_tests(root: string): {string}
-  local skipped: {string:boolean} = { o = true, vendor = true, ci = true }
-  local files = assert(Fs.walk(root, function(path: string, name: string): boolean
-    return path == name and skipped[name] or name:sub(1, 1) == "."
-  end))
-  local found: {string} = {}
-  for _, path in ipairs(files) do
-    if path:match("_fuzz_test%.tl$") then found[#found + 1] = path end
-  end
-  assert(#found > 0, "no *_fuzz_test.tl under " .. root)
-  return found
-end
-
 local function copy_flat_tl_dir(source: string, destination: string)
   local names: {string} = {}
   for _, name in ipairs((assert(Fs.list(source)))) do
@@ -234,10 +217,9 @@ local function checked_suite(c: Context, target: string, work: string): integer
   s = checked(c, "checked runtime context", { cosmic,
     c.root .. "/test/portable/tool.tl", "checked-context", core, target }, 30000)
   if s ~= 0 then return s end
-  -- The suite and the deep fuzz rerun on the checked core cost a leg
-  -- about two minutes. Most of what they check is the same on every
-  -- platform, so the workflow runs them on one leg, and the others set
-  -- COSMIC_CI_CHECKED_SUITE=skip; the checked core is still built and
+  -- The suite on the checked core costs a leg about a minute. Most of
+  -- what it checks is the same on every platform, so the workflow runs
+  -- it on one leg, and the others set COSMIC_CI_CHECKED_SUITE=skip; the checked core is still built and
   -- verified above, and the fixtures still use it.
   -- TODO: the core's platform-conditional C (__APPLE__, __aarch64__ in
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
@@ -255,14 +237,6 @@ local function checked_suite(c: Context, target: string, work: string): integer
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     90000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
-  if s ~= 0 then return s end
-  local deep = { cosmic, "test" }
-  for _, path in ipairs(fuzz_tests(c.root)) do deep[#deep + 1] = path end
-  s = logged(c, "checked deep fuzz", deep,
-    diagnostics .. "/checked-fuzz.out", diagnostics .. "/checked-fuzz.err",
-    deep_fuzz_timeout_ms, c.root, environment({ FUZZ_ITERS = deep_fuzz_iters,
-      COSMIC_TEST_TIMEOUT = deep_fuzz_test_timeout_s }))
-  write(diagnostics .. "/checked-fuzz.status", tostring(s) .. "\n")
   return s
 end
 

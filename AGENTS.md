@@ -69,9 +69,10 @@ A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
 driving `build.fuzz`'s `run`: a generator draws each input from a seeded
 source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 (64 by default) choose the inputs, a failure is shrunk and kept in the test's
-directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI
-reruns them on the checked core with `FUZZ_ITERS=2000`, and `fuzz.yml` each
-night with a seed of its own. Once a failure is fixed, keep its input in
+directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI's
+runs, which gate a merge, set `FUZZ_ITERS=0` and draw nothing; `fuzz.yml`
+fuzzes every property each night on the checked core with a seed of its own,
+and opens an issue (or comments on the open one) when it fails. Once a failure is fixed, keep its input in
 `testdata/fuzz/<property>/` as the report says: `run` checks that corpus
 before drawing anything. A check calls `Fuzz.label` for what an input reached
 (opened, read a body); a property `requires` the labels it exists to exercise,
