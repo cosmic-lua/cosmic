@@ -93,9 +93,10 @@ local record Cli
   --- database or the statement failed, a write among them; 2 for a
   --- command line it cannot read. Nothing is built or staged.
   sql: string
-  --- `cosmic docs <q>`: what the database says about q -- a symbol
+  --- `cosmic docs [q]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs), or words to search the
-  --- documentation for
+  --- documentation for; with no q, every module there is, with what
+  --- it is for
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given

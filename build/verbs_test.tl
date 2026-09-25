@@ -257,6 +257,9 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   local all = expect(tmp, "help", { "help" }, 0).stdout or ""
   assert(all:find("\n  --jobs <n> ", 1, true), all)
   -- `cosmic docs` shows them under the verb's field too.
+  -- Asked nothing, it lists the modules there are.
+  local index = expect(tmp, "docs", { "docs" }, 0).stdout or ""
+  assert(index:find("\ncosmic.fs  ", 1, true), index)
   local docs = expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout or ""
   assert(docs:find("\n  options:\n    --jobs <n> ", 1, true), docs)
 end

@@ -157,6 +157,73 @@ local function test_looks_up_a_module_and_lists_its_symbols(dir: string)
   assert(lines[5] == "  function Fs.write", lines[5])
 end
 
+--- Asked nothing, docs lists every module with the first sentence of
+--- its documentation (its record's when that is where it is said), an
+--- undocumented one too, and no test or example;
+--- a public source lists only the standard library.
+local function test_the_index_lists_every_module_by_its_first_sentence(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/hash.tl"] = source(
+      "--- Digests. Each answers bytes,",
+      "--- never text.",
+      "",
+      "local record Hash",
+      "end",
+      "",
+      "return Hash"),
+    ["build/tree.tl"] = source(
+      "--- The tree, read by",
+      "--- position.",
+      "",
+      "local record tree",
+      "end",
+      "",
+      "return tree"),
+    ["cosmic/fs_test.tl"] = source(
+      "--- Proves Fs.",
+      "",
+      "local function test_read()",
+      "end"),
+    ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file.", "  local _ = Fs.read"),
+    ["lib/bare.tl"] = source("return {}"),
+    ["lib/tworec.tl"] = source(
+      "local x = 1",
+      "",
+      "--- Not the module's: a record further down.",
+      "local record A",
+      "  y: integer",
+      "end",
+      "",
+      "return { x = x, a = A }"),
+    ["lib/sentence.tl"] = source(
+      "--- ",
+      "--- Reads, e.g. a file, with `a. b` inside. Then more.",
+      "",
+      "return {}"),
+    ["lib/onrecord.tl"] = source(
+      "--- Said on the record. More.",
+      "local record onrecord",
+      "  --- A field.",
+      "  x: integer",
+      "end",
+      "",
+      "return onrecord"),
+  }))
+  local index = assert(docs.index(view({ db })))
+  local lines: {string} = {}
+  for _, summary in ipairs(index) do
+    lines[#lines + 1] = summary.module .. "|" .. summary.text
+  end
+  local all = table.concat(lines, "\n")
+  assert(all == "build.boot|\nbuild.test|\nbuild.tree|The tree, read by position.\n" ..
+    "cosmic.fs|Files and directories.\n" ..
+    "cosmic.hash|Digests.\nlib.bare|\nlib.onrecord|Said on the record.\n" ..
+    "lib.sentence|Reads, e.g. a file, with `a. b` inside.\nlib.tworec|", all)
+  local public = assert(docs.index((assert(docs.view({ db }, { true })))))
+  assert(#public == 2 and public[1].module == "cosmic.fs" and
+    public[2].module == "cosmic.hash", tostring(#public))
+end
+
 --- A module's listing leaves out the functions its returned value never
 --- reaches, but keeps the types it declares; a private function is still
 --- found by its own name.

@@ -171,6 +171,11 @@ local function module_doc(parsed: ast.Parsed): string
     last = last + 1
   end
   local first_stmt = parsed.node[1]
+  -- TODO: keep an opening comment as the module's own row too when it
+  -- sits on the first statement (a record, a `local type ... = require`):
+  -- `cosmic docs` with no query lists such a module blank, or by its
+  -- record's comment only when that record is the file's first line
+  -- (build.docs `opens_its_file`), which could then go.
   if first_stmt ~= nil and takes_a_doc_comment(first_stmt)
      and comments[last].y == first_stmt.y - 1 then
     return ""
