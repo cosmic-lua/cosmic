@@ -561,12 +561,14 @@ end
 --- grammar applies, and the build has to see those files to run
 --- `build.doctest` over them. In cosmic's own tree the patches, the
 --- vendor pins and the zig wrapper are walked after all, as inputs to
---- the tool rather than to the build.
+--- the tool rather than to the build, and `.github/` for the TODOs
+--- alone, never as an input even where it holds Teal.
 local not_input: {string:boolean} = {
   ["o"] = true,
   ["vendor"] = true,
   ["patch"] = true,
   ["bin"] = true,
+  [".github"] = true,
 }
 
 --- The trees and files the tool is made of, in cosmic's own tree.
@@ -643,13 +645,16 @@ local function skip_input(entry: string, name: string): boolean
 end
 
 local function skip_in_own_tree(entry: string, name: string): boolean
-  -- TODO: walk .github/ here too, for `scanned` alone, so `cosmic
-  -- todos` lists the TODOs its workflows and scripts carry (fuzz.yml's,
-  -- ci-images.yml's); the hidden-name rule below skips it whole.
+  local first = first_of(entry)
+  -- `.github/` is walked, for `scanned` alone: its workflows, actions
+  -- and scripts carry TODOs the build never reads. Hidden names under
+  -- it are skipped like any other.
+  if first == ".github" then
+    return entry ~= first and name:sub(1, 1) == "."
+  end
   if name:sub(1, 1) == "." then
     return true
   end
-  local first = first_of(entry)
   if foreign_trees[first] then
     return entry == first .. "/o"
   end
