@@ -1,7 +1,8 @@
 --- Building a project into portable executables: one file each, the retained
---- multi-core prefix with a database behind it that holds the project's modules,
---- the standard library, the error catalog, and the name of the main
---- module, so it runs on its own with no `cosmic` beside it.
+--- multi-core prefix with a database behind it that holds the project's modules
+--- but not its tests or examples, the standard library, the error catalog, and
+--- the name of the main module, so it runs on its own with no `cosmic` beside
+--- it.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
 --- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
@@ -155,7 +156,7 @@ function embed.database(project: string, main: string): string | nil, string
 
   local made, trouble = Sqlite.transact(out, function(): boolean, string
     -- The standard library first, so a project's row never stands in
-    -- for a `cosmic.*` module; then the project, whole.
+    -- for a `cosmic.*` module; then the project's own modules.
     local copied, copy_trouble = copy_rows(binary, out, "modules",
       module_columns,
       "SELECT " .. module_column_list .. " FROM modules WHERE kind = " ..
@@ -191,16 +192,35 @@ function embed.database(project: string, main: string): string | nil, string
     if not attached then
       return false, attach_trouble
     end
+    -- The project's own modules, but not its tests or examples: a
+    -- program never runs those, and they are the project's to keep.
+    -- A test or example file a carried module requires is carried
+    -- anyway, since the program cannot load without it; its kind is
+    -- only its file name. An import edge and a catalog row go with the
+    -- module they are about.
+    -- TODO: an edge exists only for a `require` of a literal name
+    -- (`build.ast.requires`), so a test or example file loaded by a
+    -- computed name or through `pcall(require, "<name>")` is left out
+    -- and the program fails to load it at run time; teach
+    -- `all_requires` the `pcall(require, ...)` form, and refuse a
+    -- computed require of a project module at build time.
     for _, statement in ipairs({
-      "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
+      "WITH RECURSIVE carried(path) AS (" ..
+        "SELECT path FROM project.modules " ..
+        "WHERE kind NOT IN ('test', 'example') " ..
+        "UNION SELECT i.requires FROM project.imports i " ..
+        "JOIN carried c ON i.path = c.path) " ..
+        "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
         "SELECT " .. module_column_list .. " FROM project.modules " ..
-        "ORDER BY path",
+        "WHERE path IN (SELECT path FROM carried) ORDER BY path",
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
+        "WHERE path IN (SELECT path FROM main.modules) " ..
         "ORDER BY path, requires",
       "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
         "line) SELECT kind, module, symbol, message, " ..
         guidance_text:gsub("FROM docs", "FROM project.docs") .. ", file, line " ..
-        "FROM project.catalog ORDER BY id",
+        "FROM project.catalog " ..
+        "WHERE module IN (SELECT path FROM main.modules) ORDER BY id",
       "INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')",
       "INSERT INTO catalog_fts(catalog_fts) VALUES ('rebuild')",
       "INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')",
