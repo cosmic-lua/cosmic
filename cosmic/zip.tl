@@ -145,6 +145,11 @@ end
 -- DOS date/time, Unix epoch seconds; no timezone -- both sides are UTC
 ------------------------------------------------------------------
 
+-- TODO: these two copy cosmic.time's calendar, in seconds. Use
+-- Time.civil for unix_to_dos; dos_to_unix reads an impossible DOS date
+-- (February 31) leniently, which Time.from_civil refuses, so moving it
+-- means deciding what such an entry's mtime is.
+
 --- Days since 1970-01-01, for a proleptic Gregorian civil date. Howard
 --- Hinnant's `days_from_civil`.
 local function days_from_civil(y: integer, m: integer, d: integer): integer
