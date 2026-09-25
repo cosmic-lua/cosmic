@@ -50,13 +50,14 @@ if [ "${1-}" = zig-cache ]; then
   # shared verdicts" is the checklist.
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds
-  # the tree's location (build/filesystem_observations.tl:828), a
+  # the tree's location (build/filesystem_observations.tl:866), a
   # stat's times and inode where a test turns on them
-  # (build/test.tl:519),
-  # the files SQLite opens in C (build/filesystem_observations.tl:503),
+  # (build/test.tl:519), a database a connection opened before the
+  # test reads (build/filesystem_observations.tl:529) or one attached
+  # through the store (core/store.c:315),
   # lstat, readlink, realpath and getcwd answers
-  # (build/filesystem_observations.tl:508), a read resolved as it is
-  # made (build/filesystem_observations.tl:550) and an in-tree path
+  # (build/filesystem_observations.tl:534), a read resolved as it is
+  # made (build/filesystem_observations.tl:577) and an in-tree path
   # that crosses a link out (build/test.tl:461).
   echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
   # TODO: save what the product suite from fresh tracked source

@@ -2,22 +2,28 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local type raw_process = require("cosmic.internal.process")
+local type Raw = require("cosmic.internal.observations")
 
 local type Searcher = function(string): any, any
 
---- The raw process table the observations stand in for the spawn of,
---- as `require` hands it their loader.
-local function raw_process_table(): raw_process
+--- What `require` hands the observations' loader.
+local function raw_tables(): Raw
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("build.filesystem_observations")
     if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process -- cast: the table core/process.h declares
+      return extra as Raw -- cast: the table core/store.c's open_observations makes
     end
   end
   error("build.filesystem_observations is handed no raw table")
+end
+
+--- The raw process table the observations stand in for the spawn of.
+local function raw_process_table(): raw_process
+  return raw_tables().process
 end
 
 local function test_round_trips_every_path_byte()
@@ -55,6 +61,73 @@ local function test_capture_restores_after_an_error()
   end)
   assert(not c.ok and tostring(c.produced):find("expected", 1, true) ~= nil)
   assert(sys.open == original)
+end
+
+--- Whether `found` notes an open of `path`.
+local function opened(found: {observations.Observation}, path: string): boolean
+  for _, observation in ipairs(found) do
+    if observation.kind == "o" and observation.path == path then return true end
+  end
+  return false
+end
+
+--- SQLite reads a database in C, where no stand-in for `cosmic.sys`
+--- sees it: each file it opens or asks after through `cosmic.sqlite`
+--- -- the database, one attached to it, its journal -- is noted an open
+--- all the same, by every capture running, and by none once they end.
+local function test_a_file_sqlite_opens_is_noted(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  for _, name in ipairs({ "main.db", "attached.db" }) do
+    local db = assert(Sqlite.open(tmp .. "/" .. name, true))
+    assert(db:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('" .. name .. "')"))
+    assert(db:close())
+  end
+  local inner: observations.Captured
+  local outer = observations.capture(function()
+    local db = assert(Sqlite.open(tmp .. "/main.db", false))
+    inner = observations.capture(function()
+      assert(db:exec("ATTACH DATABASE '" .. tmp .. "/attached.db' AS other"))
+      local rows = assert(Sqlite.text_rows(db, "SELECT v FROM other.t"))
+      assert(rows[1][1] == "attached.db")
+    end)
+    assert(db:close())
+  end)
+  assert(outer.ok, tostring(outer.produced))
+  assert(inner.ok, tostring(inner.produced))
+  assert(opened(outer.reads, real .. "/main.db"))
+  assert(opened(outer.reads, real .. "/attached.db"))
+  assert(opened(outer.reads, real .. "/attached.db-journal"))
+  -- The inner capture began after the main database was opened.
+  assert(not opened(inner.reads, real .. "/main.db"))
+  assert(opened(inner.reads, real .. "/attached.db"))
+  -- A database opened while no capture runs is noted by none: not by
+  -- the next one to start.
+  local db = assert(Sqlite.open(tmp .. "/main.db", false))
+  assert(db:close())
+  local after = observations.capture(function() end)
+  assert(not opened(after.reads, real .. "/main.db"))
+end
+
+--- A file SQLite fails to open is a read too, whose answer is that it
+--- is not there.
+local function test_a_missing_database_sqlite_looked_for_is_noted(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local c = observations.capture(function()
+    local db, trouble = Sqlite.open(tmp .. "/missing.db", false)
+    assert(db == nil and trouble ~= "")
+  end)
+  assert(c.ok, tostring(c.produced))
+  assert(opened(c.reads, real .. "/missing.db"))
+end
+
+--- A connection `cosmic.sqlite` opens reads the clock through the VFS
+--- that observes its files, which passes the question to the default
+--- one: `julianday('now')` answers rather than ending the process.
+local function test_a_connection_tells_the_time()
+  local memory = assert(Sqlite.memory())
+  local rows = assert(Sqlite.text_rows(memory, "SELECT julianday('now') > 2460000"))
+  assert(memory:close())
+  assert(rows[1][1] == "1")
 end
 
 local function test_join_deduplicates_only_identical_observations()

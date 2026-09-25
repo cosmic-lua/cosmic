@@ -80,6 +80,16 @@ local record sqlite
   --- knows `sha256(X)`, `digest(A, X)` and `hmac(A, K, X)`, the digests
   --- the core provides, so a query hashes in place.
   open: function(path: string, writable?: boolean): Handle | nil, string
+  --- Turns on or off recording the files SQLite opens or asks after,
+  --- while it is on, through a connection `open` made -- the database,
+  --- its journal and WAL, an attached one; never a temporary file it
+  --- deletes on close, nor a read of a file opened before. What is
+  --- recorded stays until `observed` drains it.
+  observe: function(on: boolean)
+  --- Every path recorded since the last call, each once, as SQLite
+  --- names it: absolute, the database's own links resolved, a journal
+  --- or WAL named after it. Forgets them.
+  observed: function(): {string}
   --- The SQLite library's version, such as "3.53.4".
   version: string
 end

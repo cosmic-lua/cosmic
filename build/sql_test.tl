@@ -51,6 +51,16 @@ local function run(root: string, words: {string}): integer, Written
   return code, written
 end
 
+--- The binary's own database reads the clock through its VFS, which
+--- passes the question to the default one: `julianday('now')` answers
+--- rather than ending the process.
+local function test_the_binarys_own_database_tells_the_time()
+  local root = project()
+  local code, said = run(root, { "--store", "SELECT julianday('now') > 2460000 AS now" })
+  assert(Fs.remove_tree(root))
+  assert(code == 0 and said.out[2] == "1", table.concat(said.out, "|"))
+end
+
 local function query(path: string, statement: string): {string} | nil, string
   local opened = assert(sql.open({ name = path, path = path }))
   local lines, trouble = sql.query(opened.db, statement)

@@ -213,8 +213,10 @@ static int vfs_sleep (sqlite3_vfs *vfs, int micros) {
   return base_vfs(vfs)->xSleep(base_vfs(vfs), micros);
 }
 
-static int vfs_current_time (sqlite3_vfs *vfs, double *out) {
-  return base_vfs(vfs)->xCurrentTime(base_vfs(vfs), out);
+/* The base's own xCurrentTime is NULL: the build omits what is
+ * deprecated, and SQLite asks a VFS of version 2 this instead. */
+static int vfs_current_time (sqlite3_vfs *vfs, sqlite3_int64 *out) {
+  return base_vfs(vfs)->xCurrentTimeInt64(base_vfs(vfs), out);
 }
 
 static int vfs_last_error (sqlite3_vfs *vfs, int room, char *out) {
@@ -235,7 +237,7 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
     return SQLITE_OK;
   }
   sqlite3_vfs *lower = sqlite3_vfs_find(NULL);
-  if (lower == NULL) {
+  if (lower == NULL || lower->iVersion < 2 || lower->xCurrentTimeInt64 == NULL) {
     return SQLITE_ERROR;
   }
 
@@ -244,7 +246,7 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
    * any database is opened, and read-only after. */
   static sqlite3_vfs vfs;
   vfs = (sqlite3_vfs){
-    .iVersion = 1,
+    .iVersion = 2,
     .szOsFile = (int)sizeof(struct cosmic_file) + lower->szOsFile,
     .mxPathname = lower->mxPathname,
     .zName = COSMIC_VFS_NAME,
@@ -255,8 +257,8 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
     .xFullPathname = vfs_full_pathname,
     .xRandomness = vfs_randomness,
     .xSleep = vfs_sleep,
-    .xCurrentTime = vfs_current_time,
     .xGetLastError = vfs_last_error,
+    .xCurrentTimeInt64 = vfs_current_time,
   };
   return sqlite3_vfs_register(&vfs, 0);
 }

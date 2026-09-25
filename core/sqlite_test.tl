@@ -309,3 +309,19 @@ local function test_a_store_database_handle_only_reads()
   assert(Compress.inflate("zlib", packed, 10) == "unaffected")
   assert(Store.bytecode("cosmic.fs"))
 end
+
+--- A connection that meets another's lock waits it out, sleeping
+--- through its VFS, until its busy timeout: then it says the database
+--- is locked rather than waiting on.
+local function test_a_locked_database_is_waited_on_then_refused(tmp: string)
+  local path = tmp .. "/locked.db"
+  local holder = assert(Sqlite.open(path, true))
+  assert(holder:exec("CREATE TABLE t (v INTEGER); BEGIN EXCLUSIVE; INSERT INTO t VALUES (1)"))
+  local waiter = assert(Sqlite.open(path, true))
+  assert(waiter:exec("PRAGMA busy_timeout = 20"))
+  local ok, trouble = waiter:exec("INSERT INTO t VALUES (2)")
+  assert(not ok and trouble:find("locked", 1, true) ~= nil, trouble)
+  assert(waiter:close())
+  assert(holder:exec("COMMIT"))
+  assert(holder:close())
+end

@@ -623,9 +623,15 @@ are closed:
 - [ ] *a stat's times and inode* (`build/test.tl`, above `held_stat`): the
   shared key keeps only kind, size and mode, as, under `o/`, the own key does
   too. key them whole for a test that declares it reads them.
-- [ ] *files SQLite opens in C* (`build/filesystem_observations.tl`, above
-  `start`): a database a test reads through `cosmic.sqlite` is never observed.
-  a VFS whose `xOpen` reports each path.
+- [x] *files SQLite opens in C*: `cosmic.sqlite` opens through a VFS
+  (core/sqlite.c) that records each file SQLite opens or asks after, and a
+  capture notes each an open, keyed by its contents like any other.
+- [ ] *a database a connection opened before the capture*
+  (`build/filesystem_observations.tl`, above `start`): its reads go unrecorded.
+  hand over the files every open connection holds when a capture starts.
+- [ ] *a database attached through the store* (`core/store.c`, in
+  `store_attach`): opened on SQLite's default VFS, it is never observed. open it
+  through `cosmic.sqlite`'s.
 - [ ] *lstat, readlink, realpath and getcwd* (`build/filesystem_observations.tl`,
   above `start`): observe every call at the syscall table's dispatch rather than
   by replacing fields of `cosmic.sys`.

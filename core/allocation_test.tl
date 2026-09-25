@@ -46,6 +46,20 @@ end
 
 local process = process_table()
 
+local type raw_sqlite = require("cosmic.internal.sqlite")
+
+--- The raw SQLite table, as the store's searcher hands it to
+--- `cosmic.sqlite`'s loader.
+local function sqlite_table(): raw_sqlite
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("cosmic.sqlite")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_sqlite -- cast: the table core/sqlite.c opens
+    end
+  end
+  error("cosmic.sqlite is handed no raw table")
+end
+
 local checked = testing.configuration == "sanitized"
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
@@ -285,6 +299,42 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
   assert(bytes == before_bytes and blocks == before_blocks,
     what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
     (bytes - before_bytes) .. " bytes) on the C heap")
+end
+
+--- The files SQLite opens while observed are kept on the C heap until
+--- drained: a record refused fails the open rather than lose the file,
+--- a drain refused keeps them all, and nothing is left once drained.
+local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local raw = sqlite_table()
+  local path = tmp .. "/observed.db"
+  local real = assert(sys.realpath(tmp)) .. "/observed.db"
+  local made = assert(Sqlite.open(path, true))
+  assert(made:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept')"))
+  assert(made:close())
+  raw.observed()
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local db: Sqlite.Handle = nil
+  local ended = under_every_failure(function()
+    raw.observe(true)
+    db = assert(Sqlite.open(path, false))
+    local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
+    assert(rows[1][1] == "kept")
+    raw.observe(false)
+    local seen = raw.observed()
+    assert(seen[1] == real, tostring(seen[1]))
+  end, function()
+    raw.observe(false)
+    -- A statement a refusal left unfinalized holds the connection open
+    -- until it is collected.
+    collectgarbage("collect")
+    if db ~= nil then assert(db:close()) end
+    db = nil
+    raw.observed()
+  end)
+  assert(ended > 0, "observing allocates")
+  assert_c_heap(bytes, blocks, "observing SQLite's files under refusal")
 end
 
 --- The C heap counts what the core's C allocates and frees, and a
