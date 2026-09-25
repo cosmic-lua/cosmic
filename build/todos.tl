@@ -17,7 +17,6 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
-local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local reboot = require("build.reboot")
@@ -143,10 +142,15 @@ local function blame_files(root: string,
   local file_of: {Child.Handle:string} = {}
   local deadline_of: {Child.Handle:integer} = {}
   local next_file = 1
-  -- SIGINT or SIGTERM ends every git still running, then this process,
-  -- as `build.test` does for its workers.
-  local guarded, _ = sys.guard_child_signals()
-  local cancelled = 0
+  -- SIGINT or SIGTERM ends every git still running, then this process
+  -- when the guard closes, as `build.test` does for its workers. When
+  -- the signals cannot be held, every file is listed unblamed.
+  local opened, _ = Child.guard()
+  if opened == nil then
+    for _, file in ipairs(order) do out[file] = {} end
+    return out
+  end
+  local guard <close> = opened
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
       local file = order[next_file]
@@ -170,12 +174,8 @@ local function blame_files(root: string,
     if #running == 0 then
       break
     end
-    if guarded then
-      local signal, _ = sys.cancelled_child_signal()
-      cancelled = signal or 0
-      if cancelled ~= 0 then
-        break
-      end
+    if guard:cancelled() ~= 0 then
+      break
     end
     local done, trouble = Child.wait_any(running, 100)
     local now = Time.monotonic_ns()
@@ -198,15 +198,6 @@ local function blame_files(root: string,
   end
   for _, handle in ipairs(running) do
     local _, _ = handle:close()
-  end
-  if guarded then
-    local late, _ = sys.unguard_child_signals()
-    if cancelled == 0 then
-      cancelled = late or 0
-    end
-  end
-  if cancelled ~= 0 then
-    local _, _ = sys.kill(sys.getpid(), cancelled)
   end
   return out
 end

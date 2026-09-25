@@ -352,3 +352,61 @@ local function test_options_are_validated()
   assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [256] = 1 } } as Child.Options))
   assert(not pcall(Child.start, { "/bin/sh" }, { capture_limit = 0 } as Child.Options))
 end
+
+local function test_start_refuses_a_timeout_it_would_not_honour()
+  local ok, message = pcall(Child.start, { "/bin/sh", "-c", "exit 0" },
+    { timeout_ms = 10 } as Child.Options)
+  assert(not ok)
+  assert(tostring(message):find("h:wait", 1, true), tostring(message))
+  local r = assert(Child.run({ "/bin/sh", "-c", "exit 0" }, { timeout_ms = 10000 }))
+  assert(r.ok)
+end
+
+local function test_guard_is_one_at_a_time_and_closes_once()
+  local guard = assert(Child.guard())
+  local second, trouble = Child.guard()
+  assert(second == nil and trouble ~= "")
+  local r, run_trouble = Child.run({ "/bin/sh", "-c", "exit 0" })
+  assert(r == nil and run_trouble:find("signal guard: ", 1, true), run_trouble)
+  assert(guard:cancelled() == 0)
+  assert(guard:close())
+  assert(guard:close())
+  assert(guard:cancelled() == 0)
+  local again = assert(Child.guard())
+  assert(again:close())
+end
+
+--- A caught signal ends a wait without ending the child, stays with the
+--- guard however many waits see it, and ends the process when the
+--- guard closes. The guard lives in a nested cosmic: closing it
+--- delivers SIGTERM to whatever process holds it.
+local function test_guard_keeps_a_signal_and_delivers_it_on_close()
+  local dir = temporary()
+  local report = dir .. "/report"
+  local fixture = dir .. "/guarded.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  do
+    local guard <close> = assert(Child.guard())
+    local h = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    local first, first_trouble = h:wait(10000)
+    local second, second_trouble = h:wait(10000)
+    assert(Fs.write(argv[1], table.concat({ tostring(first == nil), first_trouble,
+      tostring(second == nil), second_trouble, tostring(guard:cancelled()) }, "|")))
+    assert(h:close())
+  end
+  return 0
+end
+]]))
+  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  local expected = "true|cancelled by signal " .. tostring(sys.SIGTERM) ..
+    "|true|cancelled by signal " .. tostring(sys.SIGTERM) .. "|" .. tostring(sys.SIGTERM)
+  local got = Fs.read(report)
+  assert(got == expected, tostring(got) .. " " .. tostring(r.stderr))
+  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
+end

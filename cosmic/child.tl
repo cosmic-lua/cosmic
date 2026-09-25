@@ -63,6 +63,9 @@ local record Options
   --- 16 MiB by default.
   capture_limit: integer
   process_group: boolean
+  --- How long `Child.run` lets the child run before ending it, as
+  --- `Handle.wait` does with its own timeout. `Child.start` refuses it:
+  --- a started child's time is the caller's to bound, by `h:wait(ms)`.
   timeout_ms: integer
 end
 
@@ -90,14 +93,18 @@ local record Handle
   _result: Result
   _status: sys.ChildStatus
   _closed: boolean
-  _guarded: boolean
-  --- The signal a guarded run was asked to stop by, once a wait saw it.
-  _cancelled: integer | nil
   _streams: {Stream}
   _input_fd: integer | nil
   _input: string
   _input_at: integer
   _limit: integer
+  --- Waits for the child to exit and answers its Result. With
+  --- `timeout_ms`, a child still running when it passes is ended --
+  --- SIGTERM, a grace period, then SIGKILL, its group included -- and
+  --- the Result says `timed_out`; `Child.wait_any`'s timeout instead
+  --- leaves every child running. While a `Child.guard` is open, a
+  --- SIGINT or SIGTERM ends the wait with nil and "cancelled by signal
+  --- N", the child still running, and the guard keeps the signal.
   wait: function(Handle, timeout_ms?: integer): Result | nil, string
   try_wait: function(Handle): TryWait | nil, string
   stop: function(Handle, signal?: integer): boolean, string
@@ -112,6 +119,25 @@ local KILL_REAP_NS <const> = 1000 * 1000 * 1000
 local INT_MAX <const> = 2147483647
 local CHUNK <const> = 65536
 local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
+
+--- SIGINT and SIGTERM held for this process while children are
+--- supervised; see `Child.guard`.
+local record Guard
+  metamethod __close: function(Guard)
+  --- The signal caught, 0 until one is.
+  _signal: integer
+  _closed: boolean
+  cancelled: function(Guard): integer
+  close: function(Guard): boolean, string
+end
+
+--- The open guard, if any: at most one is, process-wide.
+local active: Guard | nil
+
+--- The message a wait or a run cancelled by `signal` answers.
+local function cancelled_by(signal: integer): string
+  return "cancelled by signal " .. tostring(signal)
+end
 
 --- Every pid a handle owns until the handle has settled it. Pids, not
 --- handles, so a dropped handle still reaches its finalizer.
@@ -350,18 +376,14 @@ end
 
 --- Waits for the child to exit until `deadline`, servicing its streams,
 --- and settles it when it does. Nil and "" at the deadline: no answer
---- yet, and no failure. When a guarded run is asked to stop, keeps the
---- signal in `_cancelled` and fails.
+--- yet, and no failure. When the open guard has caught a signal, fails
+--- with it; the guard keeps it.
 local function poll_until(self: Handle, deadline?: integer,
     timed_out?: boolean, ignore_cancel?: boolean, killed?: boolean): Result | nil, string
   while true do
-    if not ignore_cancel then
-      local cancelled, cancel_trouble = sys.cancelled_child_signal()
-      if cancelled == nil then return nil, cancel_trouble end
-      if cancelled ~= 0 then
-        self._cancelled = cancelled
-        return nil, "cancelled by signal " .. tostring(cancelled)
-      end
+    if not ignore_cancel and active ~= nil then
+      local cancelled = active:cancelled()
+      if cancelled ~= 0 then return nil, cancelled_by(cancelled) end
     end
     local status, trouble = exited(self)
     if status ~= nil then return settled(self, timed_out or false, killed) end
@@ -456,7 +478,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
 
   function h:wait(timeout_ms?: integer): Result | nil, string
     if self._result then return self._result, "" end
-    if timeout_ms == nil and not self._guarded and not self._streams and
+    if timeout_ms == nil and active == nil and not self._streams and
         not self._input_fd then
       local status, trouble = exited(self, true)
       if not status then return nil, trouble end
@@ -481,11 +503,70 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   return setmetatable(h, handle_mt)
 end
 
+local guard_mt: metatable<Guard> = {
+  __close = function(self: Guard)
+    local _, _ = self:close()
+  end,
+}
+
+--- The guard for signals `sys.guard_child_signals` has just begun to
+--- hold, made the open one.
+local function make_guard(): Guard
+  local g: Guard = { _signal = 0, _closed = false }
+
+  function g:cancelled(): integer
+    if self._signal == 0 and not self._closed then
+      -- Only a sigprocmask refused its own valid arguments could fail
+      -- this; it is read as no signal yet.
+      local signal, _ = sys.cancelled_child_signal()
+      if signal ~= nil and signal ~= 0 then self._signal = signal end
+    end
+    return self._signal
+  end
+
+  function g:close(): boolean, string
+    if self._closed then return true, "" end
+    self._closed = true
+    if active == self then active = nil end
+    local late, trouble = sys.unguard_child_signals()
+    if late == nil then return false, trouble end
+    if self._signal == 0 then self._signal = late end
+    if self._signal ~= 0 then
+      -- The caller's own dispositions are back: deliver it as it came.
+      local _, _ = sys.kill(sys.getpid(), self._signal)
+    end
+    return true, ""
+  end
+
+  active = g
+  return setmetatable(g, guard_mt)
+end
+
 local record Child
   type Result = Result
   type Options = Options
   type TryWait = TryWait
   type Handle = Handle
+  type Guard = Guard
+end
+
+--- Holds SIGINT and SIGTERM for this process while it supervises
+--- children, so it can end them before it is ended itself. Until the
+--- guard closes, either signal is caught rather than acted on:
+--- `g:cancelled()` answers the one caught, 0 until one is, and every
+--- wait on a handle ends with "cancelled by signal N" once one is.
+--- Closing the guard -- `g:close()`, or leaving the scope of a
+--- `local g <close> = assert(Child.guard())` -- restores the
+--- dispositions the process had and delivers the caught signal again,
+--- so a process that would have died of it dies of it then, its
+--- children already ended. One guard is open at a time, `Child.run`'s
+--- included: another answers nil and why. `close` answers false and
+--- why when the dispositions could not be restored; the signal is not
+--- delivered then.
+function Child.guard(): Guard | nil, string
+  local guarded, trouble = sys.guard_child_signals()
+  if not guarded then return nil, trouble end
+  return make_guard(), ""
 end
 
 local function descriptor(value: integer | string, name: string, words: {string:boolean}):
@@ -661,12 +742,8 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
   return slots, ""
 end
 
---- Starts one executable and returns an owning handle. argv[1] is an exact
---- path, without PATH lookup. Drop/close of an unfinished handle performs
---- bounded process-group termination; wait(timeout) does the same on expiry.
-function Child.start(argv: {string}, opts?: Options): Handle | nil, string
-  opts = opts or {}
-  validate(argv, opts)
+--- `Child.start` on options already validated.
+local function start(argv: {string}, opts: Options): Handle | nil, string
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
   if grouped and adopting == nil then
@@ -699,6 +776,19 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   end
   h.stdin = wiring.stdin_fd
   return h, ""
+end
+
+--- Starts one executable and returns an owning handle. argv[1] is an exact
+--- path, without PATH lookup. Drop/close of an unfinished handle performs
+--- bounded process-group termination; wait(timeout) does the same on expiry.
+--- `timeout_ms` is refused: bound the child with `h:wait(timeout_ms)`.
+function Child.start(argv: {string}, opts?: Options): Handle | nil, string
+  opts = opts or {}
+  if opts.timeout_ms ~= nil then
+    error("timeout_ms is Child.run's; bound a started child with h:wait(timeout_ms)", 2)
+  end
+  validate(argv, opts)
+  return start(argv, opts)
 end
 
 --- Waits for the first of several handles to finish, servicing every
@@ -799,19 +889,17 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   validate(argv, opts)
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then return nil, "signal guard: " .. guard_trouble end
+  local guard = make_guard()
   local h: Handle
   local function supervised(): Result | nil, string
-    local started, trouble = Child.start(argv, opts)
+    local started, trouble = start(argv, opts)
     if not started then return nil, trouble end
     h = started
-    h._guarded = true
     return h:wait(opts.timeout_ms)
   end
   local called, r, wait_trouble = pcall(supervised)
-  local cancellation: integer
-  if called and h then cancellation = h._cancelled end
   local cleanup_trouble: string
-  if h and not h._closed and (not called or cancellation or not r) then
+  if h and not h._closed and (not called or guard:cancelled() ~= 0 or not r) then
     local cleaned, answer, failure = pcall(terminate, h)
     if not cleaned then
       cleanup_trouble = tostring(answer)
@@ -820,16 +908,15 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
       cleanup_trouble = failure
     end
   end
-  local late_signal, restore_trouble = sys.unguard_child_signals()
-  if late_signal == nil then
+  -- Closing re-delivers a caught signal, after the cleanup above.
+  local restored, restore_trouble = guard:close()
+  if not restored then
     if not called then error(r, 0) end
     return nil, "signal restore: " .. restore_trouble
   end
-  cancellation = cancellation or (late_signal ~= 0 and late_signal or nil)
-  if cancellation then
-    -- Re-deliver after cleanup with the caller's original disposition.
-    local _, _ = sys.kill(sys.getpid(), cancellation)
-    return nil, cleanup_trouble or wait_trouble or "cancelled"
+  local cancellation = guard:cancelled()
+  if cancellation ~= 0 then
+    return nil, cleanup_trouble or wait_trouble or cancelled_by(cancellation)
   end
   if not called then error(r, 0) end
   if cleanup_trouble then return nil, cleanup_trouble end

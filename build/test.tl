@@ -66,7 +66,6 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
-local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
@@ -1125,16 +1124,17 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
 end
 
 --- Runs every job, `limits.jobs` at a time, each to its verdict or its
---- deadline. SIGINT or SIGTERM ends every worker still running before
---- this process is ended by it; the signal comes back as the return.
-local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integer
+--- deadline. A SIGINT or SIGTERM `guard` catches ends every worker
+--- still running; the signal comes back as the return, for the caller
+--- to be ended by it when the guard closes.
+local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
+                        guard: Child.Guard): integer
   if #jobs == 0 then return 0 end
   local start, start_trouble = worker_start(Env.all())
   if start == nil then
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
     return 0
   end
-  local guarded, _ = sys.guard_child_signals()
   local running: {Job} = {}
   local next_job = 1
   local cancelled = 0
@@ -1147,11 +1147,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
       end
     end
     if #running == 0 then break end
-    if guarded then
-      local signal, _ = sys.cancelled_child_signal()
-      cancelled = signal or 0
-      if cancelled ~= 0 then break end
-    end
+    cancelled = guard:cancelled()
+    if cancelled ~= 0 then break end
     local earliest = running[1].deadline_ns
     local handles: {Child.Handle} = {}
     for i, job in ipairs(running) do
@@ -1196,11 +1193,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
   end
   for _, job in ipairs(running) do local _, _ = job.handle:close() end
   Child.end_strays()
-  if guarded then
-    local late, _ = sys.unguard_child_signals()
-    if cancelled == 0 then cancelled = late or 0 end
-  end
-  return cancelled
+  return guard:cancelled()
 end
 
 --- The run's bounds: `--timeout SECONDS` and `--jobs N` from the
@@ -1474,12 +1467,21 @@ function test.run(argv: {integer:string}): integer
       end
     end
   end
-  local cancelled = run_jobs(rec, jobs, limits)
-  if cancelled ~= 0 then
-    local _, _ = work.abort(handle)
-    log:complain("test: cancelled; every running test was ended")
-    local _, _ = sys.kill(sys.getpid(), cancelled)
-    return 130
+  if #jobs > 0 then
+    local opened, guard_trouble = Child.guard()
+    if opened == nil then
+      rec.errors[#rec.errors + 1] = "the test runner cannot hold SIGINT and SIGTERM: " ..
+        guard_trouble
+    else
+      -- A signal the guard caught ends this process when it closes,
+      -- once the run is aborted.
+      local guard <close> = opened
+      if run_jobs(rec, jobs, limits, guard) ~= 0 then
+        local _, _ = work.abort(handle)
+        log:complain("test: cancelled; every running test was ended")
+        return 130
+      end
+    end
   end
   local total = tally.ran + tally.cached
 
