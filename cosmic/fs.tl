@@ -218,16 +218,8 @@ local function private_dir(path: string): boolean, string
   return true, ""
 end
 
---- `$XDG_CACHE_HOME/cosmic/<tool>`, or `$HOME/.cache/cosmic/<tool>`
---- when `XDG_CACHE_HOME` is unset, empty or not absolute, created when
---- missing. What a tool keeps there it trusts on later runs, so there
---- is no shared fallback: with neither variable naming an absolute
---- path this is nil and an error, as it is when the base directory is
---- owned by another user (root aside), or `cosmic` or `cosmic/<tool>`
---- under it is owned by another user or writable by its group or by
---- others. The two are made 0700 when missing. `environment` is the
---- variables to read, by default the process's own.
-function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil, string
+--- The base `Fs.cache_path` and `Fs.cache_dir` put `cosmic` under.
+local function cache_base(environment?: {string:string}): string | nil, string
   local function get(name: string): string
     if environment ~= nil then
       return environment[name] or ""
@@ -241,6 +233,33 @@ function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil
       return nil, "no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
     end
     base = home .. "/.cache"
+  end
+  return base, ""
+end
+
+--- Where `Fs.cache_dir` keeps `tool`'s cache, read from the environment
+--- alone: nothing is made, looked at or checked, so it may not be there.
+function Fs.cache_path(tool: string, environment?: {string:string}): string | nil, string
+  local base, trouble = cache_base(environment)
+  if base == nil then
+    return nil, trouble
+  end
+  return base .. "/cosmic/" .. tool, ""
+end
+
+--- `$XDG_CACHE_HOME/cosmic/<tool>`, or `$HOME/.cache/cosmic/<tool>`
+--- when `XDG_CACHE_HOME` is unset, empty or not absolute, created when
+--- missing. What a tool keeps there it trusts on later runs, so there
+--- is no shared fallback: with neither variable naming an absolute
+--- path this is nil and an error, as it is when the base directory is
+--- owned by another user (root aside), or `cosmic` or `cosmic/<tool>`
+--- under it is owned by another user or writable by its group or by
+--- others. The two are made 0700 when missing. `environment` is the
+--- variables to read, by default the process's own.
+function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil, string
+  local base, base_trouble = cache_base(environment)
+  if base == nil then
+    return nil, base_trouble
   end
   local made, trouble = Fs.mkdirs(base)
   if not made then
