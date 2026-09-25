@@ -30,6 +30,7 @@
  * for close_range, whose wrapper musl does not expose. */
 extern long syscall (long, ...);
 #endif
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/utsname.h>
@@ -152,6 +153,21 @@ COSMIC_SYSCALL(nanosleep, 1) {
     want = left;
   }
   return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(errno_name, 1) {
+  const char *name = cosmic_errno_name(cosmic_checkint(L, 1));
+  if (name == NULL) {
+    lua_pushnil(L);
+  } else {
+    lua_pushstring(L, name);
+  }
+  return 1;
+}
+
+COSMIC_SYSCALL(errno_message, 1) {
+  lua_pushstring(L, cosmic_errno_message(cosmic_checkint(L, 1)));
+  return 1;
 }
 
 COSMIC_SYSCALL(isatty, 1) {
@@ -1503,7 +1519,8 @@ static const luaL_Reg table[] = {
   ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
   ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
   ENTRY(getuid),   ENTRY(umask),         ENTRY(entropy),
-  ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
+  ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty), ENTRY(errno_name),
+  ENTRY(errno_message),
   ENTRY(execve),   ENTRY(kill),          ENTRY(dup),
   ENTRY(dup2),     ENTRY(cpu_count),     ENTRY(uname),
   ENTRY(symlink), ENTRY(readlink), ENTRY(utimensat), ENTRY(fsync),

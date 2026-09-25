@@ -15,6 +15,7 @@
 
 #include "check.h"
 #include "coverage.h"
+#include "errnos.h"
 #include "lauxlib.h"
 #include "lualib.h"
 #include "store.h"
@@ -66,7 +67,7 @@ static int surface_print (lua_State *L) {
       if (errno == EINTR) {
         continue;
       }
-      return luaL_error(L, "print: %s", strerror(errno));
+      return luaL_error(L, "print: %s", cosmic_errno_message(errno));
     }
     at += (size_t)put;
   }

@@ -429,6 +429,26 @@ COSMIC_SYSCALL(clock_gettime, 1);
 COSMIC_SYSCALL(nanosleep, 1);
 
 /*
+ * --- The symbolic name of an errno, the name <errno.h> gives it: the
+ * --- third slot of a failure is this OS's number (`EAGAIN` is 11 on
+ * --- Linux and 35 on macOS), and its name is the same on both. Where
+ * --- two names share a number, as `EOPNOTSUPP` and `ENOTSUP` do on
+ * --- Linux, the first answers.
+ * ---@param number integer the errno
+ * ---@return string|nil name its name, or nil for a number this OS gives none
+ */
+COSMIC_SYSCALL(errno_name, 1);
+
+/*
+ * --- What an errno says: the text a failure's second slot carries for
+ * --- it, the same words on every OS (musl's), where libc's `strerror`
+ * --- would answer each OS's own.
+ * ---@param number integer the errno
+ * ---@return string message its message, "No error information" for a number with none
+ */
+COSMIC_SYSCALL(errno_message, 1);
+
+/*
  * --- Says whether a descriptor is a terminal.
  * ---@param fd integer the descriptor to ask about
  * ---@return boolean tty true when the descriptor is a terminal

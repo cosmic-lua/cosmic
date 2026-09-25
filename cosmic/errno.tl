@@ -1,10 +1,11 @@
---- Guidance for the handful of `strerror()` messages cosmic's own
---- syscalls can plausibly raise. `core/fail.h`'s `cosmic_fail` returns
---- `nil, strerror(errno), errno`, and a stdlib wrapper like
---- `cosmic/fs.tl`'s `path .. ": " .. trouble` stitches that literal
---- text straight into what a program sees. `cosmic docs ENOENT` (or
---- any field below) finds this doc comment directly; an uncaught
---- error whose own message matches one of these `strerror()` strings
+--- Guidance for the handful of errno messages cosmic's own syscalls
+--- can plausibly raise. `core/fail.h`'s `cosmic_fail` returns `nil,
+--- message, errno`, the message core/errnos.c's table gives -- musl's
+--- words, the same on every OS, which `sys.errno_message` answers --
+--- and a stdlib wrapper like `cosmic/fs.tl`'s `path .. ": " .. trouble`
+--- stitches that literal text straight into what a program sees.
+--- `cosmic docs ENOENT` (or any field below) finds this doc comment
+--- directly; an uncaught error whose own message matches one of these
 --- (`core/main.c`'s `catalog_guidance`) finds the same doc comment,
 --- by joining back to it through the catalog `build/analyzer.tl`'s
 --- `catalog_of` records.
@@ -32,7 +33,7 @@ local record Errno
   EMFILE: string
 end
 
---- Each field's own value is the exact `strerror()` text it stands
+--- Each field's own value is the exact message text it stands
 --- for -- the thing `catalog_guidance` actually matches an uncaught
 --- error's message against, not a description of it.
 local errno: Errno = {
@@ -42,7 +43,7 @@ local errno: Errno = {
   ENOTDIR = "Not a directory",
   EISDIR = "Is a directory",
   ENOSPC = "No space left on device",
-  EMFILE = "Too many open files",
+  EMFILE = "No file descriptors available",
 }
 
 return errno
