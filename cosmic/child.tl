@@ -802,9 +802,10 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     end
   end
   -- TODO: offer spawn's `sandbox` (a ruleset from raw.landlock_ruleset,
-  -- a pledge) as a Child option once a caller wants a child held to what it names
-  -- -- the test runner, holding a test to what it declares it reads, is
-  -- the one #2103 made it for; until then nothing public reaches it.
+  -- a pledge, an unveiled filesystem, no network) as a Child option
+  -- once a caller wants a child held to what it names -- the test
+  -- runner, holding a test to what it declares it reads, is the one
+  -- #2103 made it for; until then nothing public reaches it.
   local pid, trouble = raw.spawn(argv[1], argv, opts.env, opts.cwd,
     slots[0], slots[1], slots[2], grouped, extra)
   unwire(wiring, pid ~= nil)

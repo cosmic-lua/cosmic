@@ -527,7 +527,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
   end
   local report = create(tmp .. "/report")
-  local pid, trouble, errno = sys.spawn("/bin/sh", { "sh", "-c",
+  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
     "cat link/f; echo; test -e out/f && echo outside-seen || echo outside-absent; " ..
     "cat " .. assert(sys.realpath(inside)) .. "/f; echo; " ..
     "(echo x > link/g) 2>/dev/null || echo read-only; echo w > w/f && cat w/f; " ..
@@ -541,17 +541,17 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
   end
-  assert(assert(sys.waitpid(pid, false)).code == 0)
+  assert(assert(process.waitpid(pid, false)).code == 0)
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(said == "in\noutside-absent\nin\nread-only\nw\n" ..
     "CapEff:0000000000000000\n1\n", said)
   -- The parent is not held.
   assert(sys.stat(outside .. "/f") ~= nil)
-  local nothing, _, nothing_errno = sys.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
+  local nothing, _, nothing_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
-  assert(not pcall(sys.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
 end
 

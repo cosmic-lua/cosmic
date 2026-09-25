@@ -154,8 +154,11 @@ local module: Module = {
       "time it starts a child in its own group (" .. child .. ")",
     ["cosmic.sys.landlock_ruleset"] = "there is no public way to hold a child to a " ..
       "ruleset yet; start one with Child.start(argv, opts) (" .. child .. ")",
-    ["cosmic.sys.Sandbox"] = "there is no public way to hold a child to a ruleset " ..
-      "or a pledge yet; start one with Child.start(argv, opts) (" .. child .. ")",
+    ["cosmic.sys.Sandbox"] = "there is no public way to hold a child to a ruleset, " ..
+      "a pledge, an unveiled filesystem or no network yet; start one with " ..
+      "Child.start(argv, opts) (" .. child .. ")",
+    ["cosmic.sys.Unveil"] = "there is no public way to unveil a child's filesystem " ..
+      "yet; start one with Child.start(argv, opts) (" .. child .. ")",
     ["cosmic.sys.ChildStatus"] = "use Child.Result, what h:wait() answers (" .. child .. ")",
     ["cosmic.sys.pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
       "or stdout = \"capture\" (" .. child .. ")",
