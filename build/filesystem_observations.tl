@@ -6,6 +6,19 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 
+--- The raw process table, whose `spawn` `cosmic.child` starts every
+--- child with: this module is handed it (core/store.c's `raw_modules`)
+--- to note each child a test starts by standing in for that call.
+local type raw_process = require("cosmic.internal.process")
+
+local extra: any = select(2, ...)
+local process: raw_process
+if type(extra) == "table" then
+  process = extra as raw_process
+else
+  process = require("cosmic.internal.process")
+end
+
 -- What placing a path asks of the process, taken when this module
 -- loads -- before any test's module does -- so a test that stubs one
 -- cannot bend where its own reads are keyed.
@@ -233,7 +246,7 @@ end
 --- (`/proc/self/exe`) and its descriptors (`/dev/fd`) -- each where
 --- this host has it. /proc alone does not enter a key.
 -- TODO: a /proc of the process's own, a fresh one in a pid namespace,
--- once `sys.spawn` can start a program in one (core/syscalls.c's
+-- once `process.spawn` can start a program in one (core/syscalls.c's
 -- `unveil`): the host's, given here, shows every other process and the
 -- host's state, which a confined process can read without it entering
 -- the key.
@@ -249,7 +262,7 @@ local confinement: observations.Confinement | nil = nil
 --- may change, beside `system` and the test's own
 --- directory and every directory it made, which it may change too. Each is held to that by the
 --- kernel -- a root of its own holding those paths and nothing else,
---- and no network (`sys.Sandbox`'s `unveil` and `offline`) -- so what
+--- and no network (the process table's `Sandbox`, `unveil` and `offline`) -- so what
 --- it read is known, and a test whose processes all ran confined can
 --- stand: every path it was given enters the verdict key, one under
 --- the tree by its contents and any other by a walk of what `lstat`
@@ -283,7 +296,7 @@ end
 --- The errnos a confined spawn fails with where the kernel cannot
 --- confine a process at all: no user namespaces, or none for this user.
 -- TODO: fall back only on a failure of the sandbox's own setup, once
--- `sys.spawn` says which step failed (the status pipe carrying it beside
+-- `process.spawn` says which step failed (the status pipe carrying it beside
 -- the errno): an EACCES or EINVAL from exec, or an unreadable path
 -- declared, falls back unconfined too, and the test runs uncached where
 -- it should fail.
@@ -399,7 +412,7 @@ end
 -- VFS whose xOpen reports each path to the same notes.
 -- TODO: observe every call at the syscall table's dispatch, as
 -- design.md's trace point promises, rather than by replacing fields of
--- `cosmic.sys` and `cosmic.http` here: lstat, readlink, realpath and
+-- `cosmic.sys`, `cosmic.internal.process` and `cosmic.http` here: lstat, readlink, realpath and
 -- getcwd are not observed, so a test whose answer turns on one of them
 -- outside the tree can still stand.
 local function start(resolving: observations.Resolving | nil):
@@ -410,7 +423,7 @@ local function start(resolving: observations.Resolving | nil):
   local readdir = sys.readdir
   local getenv = sys.getenv
   local environ = sys.environ
-  local spawn = sys.spawn
+  local spawn = process.spawn
   local mkdtemp = sys.mkdtemp
   local mkdir = sys.mkdir
   local chdir = sys.chdir
@@ -481,11 +494,11 @@ local function start(resolving: observations.Resolving | nil):
       answer = environ_answer(environment) }
     return environment
   end
-  sys.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
-                       cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
-                       stderr: integer | nil, process_group: boolean,
-                       fds?: {integer:integer}, sandbox?: sys.Sandbox):
-                       integer | nil, string, integer
+  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
+                           cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                           stderr: integer | nil, process_group: boolean,
+                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
+                           integer | nil, string, integer
     if sandbox == nil and confinement ~= nil and declaring == 0 then
       local declared: observations.Confinement = confinement
       -- The test's own: its directory, and every directory it made for
@@ -613,7 +626,7 @@ local function start(resolving: observations.Resolving | nil):
     sys.readdir = readdir
     sys.getenv = getenv
     sys.environ = environ
-    sys.spawn = spawn
+    process.spawn = spawn
     sys.mkdtemp = mkdtemp
     sys.mkdir = mkdir
   end

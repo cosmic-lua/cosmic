@@ -3,8 +3,8 @@
 --- where `w` is a `Zip.Writer` is a use of `Writer.add_file` in
 --- `cosmic.zip`, whatever `w` is called and however it was made.
 ---
---- `build.positions.references_of` answers the other half from syntax
---- alone -- `Fs.read` through a `require` alias -- and needs no
+--- `build.analyzer.analyze`'s references answer the other half from syntax
+--- alone -- `Fs.read` through a `require` alias -- and need no
 --- checker; this needs one, so it runs where a module is compiled
 --- (`build.importer`'s `generate`) and its rows are kept with the
 --- compile, under the same key, since what a value's type is depends
@@ -28,7 +28,7 @@ local type compiler = require("build.compiler")
 local record receivers
   --- One use of a record's field: `member` is the field's canonical
   --- path within `module` (`"Writer.add_file"`), the same shape
-  --- `build.positions.Reference` gives a module member.
+  --- `build.analyzer.Reference` gives a module member.
   record Reference
     module: string
     member: string

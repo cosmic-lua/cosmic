@@ -1,5 +1,5 @@
 local gen_syscalls = require("build.gen_syscalls")
-local positions = require("build.positions")
+local analyzer = require("build.analyzer")
 local teal = require("build.teal")
 
 local built, load_trouble = teal.load()
@@ -37,12 +37,12 @@ local header = lines({
 })
 
 --- The generated declaration's documented symbols, by symbol.
-local function docs(): {string: positions.DocEntry}
+local function docs(): {string: analyzer.DocEntry}
   local source, trouble = gen_syscalls.declaration(header)
   assert(source ~= nil, trouble)
-  local found, err = positions.analyze(built, source, "syscalls.d.tl")
+  local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
-  local by_symbol: {string: positions.DocEntry} = {}
+  local by_symbol: {string: analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
     by_symbol[entry.symbol] = entry
   end
@@ -86,6 +86,22 @@ local function test_each_declaration_names_its_header_line()
                           "-- line open 17", "-- line O_RDONLY 21" }) do
     assert(source:find("\n" .. want .. "\n", 1, true), want .. " missing from:\n" .. source)
   end
+end
+
+--- The raw process table's declaration is its own record, opened with
+--- its own summary and mapped to its own header, not the syscall
+--- table's.
+local function test_a_target_names_its_own_record_and_header()
+  local process: gen_syscalls.Target = nil
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    if derivation.path == "cosmic.internal.process" then process = derivation.target end
+  end
+  assert(process ~= nil and process.header == "core/process.h", "no process target")
+  local source = assert(gen_syscalls.declaration(header, process))
+  assert(source:find("\nlocal record process\n", 1, true), source)
+  assert(source:find("\nreturn process\n", 1, true), source)
+  assert(source:find("sits in core/process.h", 1, true), source)
+  assert(not source:find("syscall table", 1, true), source)
 end
 
 --- A header declaring one fallible call whose first return is `first`.

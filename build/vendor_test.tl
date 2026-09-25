@@ -232,3 +232,12 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   assert(Fs.read(tree .. "/src/one.c") == "one")
   assert(not Fs.exists(tree .. "/doc"))
 end
+
+local function test_a_word_like_an_option_is_refused_not_read_as_a_name(dir: string)
+  -- A script path under a repository, so the run gets as far as the
+  -- names: without the refusal it looks for vendor/--dry-run/PIN there
+  -- and fails with 1.
+  assert(Fs.mkdirs(dir .. "/repo/build"))
+  assert(Fs.write(dir .. "/repo/build/vendor.tl", ""))
+  assert(Vendor.main({ [0] = dir .. "/repo/build/vendor.tl", [1] = "--dry-run" }) == 2)
+end

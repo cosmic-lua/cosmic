@@ -3,7 +3,7 @@
 --- indistinguishable in shape from a hand-written `_test.tl` once it
 --- exists. Every example is a top-level function; nothing here runs
 --- anything or discovers anything, both stay `build.test`'s and
---- `build.positions`'s jobs.
+--- `build.analyzer`'s jobs.
 local markdown = require("build.doctest.markdown")
 local String = require("cosmic.string")
 
@@ -199,7 +199,7 @@ local function emit_example(out: {string}, file: string, example: Example)
   end
   out[#out + 1] = "end"
   if not example.has_output then
-    -- Never called: `build.positions.analyze`'s `^test_` discovery only
+    -- Never called: `build.analyzer.analyze`'s `^test_` discovery only
     -- ever names this a test when it is one, so nothing after this
     -- compile step calls it, and tl's own "unused function" warning
     -- about it is not a false positive the way a real test's is --

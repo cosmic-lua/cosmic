@@ -11,8 +11,10 @@
 --- A failing input is shrunk before it is reported: the draws that built
 --- it are cut and lowered for as long as the input they build still
 --- fails, so the report names a small case rather than the first one
---- found. The report gives the seed, the iteration, and the input in
---- hex, and keeps the input in a file.
+--- found. The report gives the seed, the iteration, the input's own
+--- case (`FUZZ_CASE`, which checks that one input alone), and the input
+--- in hex, and keeps the input in a file. A check that fails an input
+--- and then holds for it is reported flaky rather than shrunk.
 ---
 --- Crash containment is the test runner's: every test runs in a worker
 --- process of its own under a deadline. Before each check `run` writes
@@ -113,6 +115,12 @@ local record Fuzz
     --- property's name, slugged, by default; one that does not exist
     --- holds nothing.
     corpus: string
+    --- One input to check in place of a run, as a report's `reproduce`
+    --- line names it: `<property>:<case seed>`. `FUZZ_CASE` sets it for
+    --- every property run, so it is for the one test file a report
+    --- names: a property whose name it does not match checks nothing,
+    --- its corpus included.
+    case: string
     --- Labels (see `label`) at least one drawn input must reach, or the
     --- run fails: what the property is meant to exercise. Not held when
     --- `FUZZ_ITERS` asks for fewer inputs than the default 64, as
@@ -219,6 +227,13 @@ local function corpus_name(input: string): string
   return Hash.hex_sha256(input):sub(1, 16) .. ".input"
 end
 
+--- The input in hex, as a report shows it: at most SHOWN_BYTES of it.
+local function shown(input: string): string
+  local hex = Codec.hex(input:sub(1, SHOWN_BYTES))
+  if #input > SHOWN_BYTES then hex = hex .. "..." end
+  return hex
+end
+
 --- Checks every `.input` file in the property's corpus, in name order,
 --- raising a report on the first that fails; each is written to `kept`
 --- first, as a drawn input is. Returns how many were checked.
@@ -242,10 +257,8 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): in
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     if not held then
-      local shown = Codec.hex(input:sub(1, SHOWN_BYTES))
-      if #input > SHOWN_BYTES then shown = shown .. "..." end
       error(("fuzz %s: corpus input %s: %s\n  input (hex, %d bytes): %s"):
-        format(p.name, path, why, #input, shown), 0)
+        format(p.name, path, why, #input, shown(input)), 0)
     end
     checked = checked + 1
     ::continue::
@@ -278,8 +291,30 @@ local function build(gen: function(Fuzz.Source): string, values: {integer}): str
   return input, draws
 end
 
+--- The one input a case names -- `p.case`, else `FUZZ_CASE` -- as the
+--- property's slug and the seed of the source that drew it, as a report
+--- prints them. Nil when neither is set; raises when one is set to
+--- anything else, so a typo is never a silent full run.
+local function named_case(p: Fuzz.Property): string, integer
+  local text = p.case or Env.get_or("FUZZ_CASE", "")
+  if text == "" then return nil, nil end
+  local raw = text
+  local name = text:match("^(.-):%-?%d+$")
+  local digits = text:match(":(%-?%d+)$")
+  local n: integer = digits ~= nil and math.tointeger(tonumber(digits)) or nil
+  if name == nil or not name:match("^[%w%-]+$") or n == nil then
+    error(("fuzz: FUZZ_CASE=%q is not <property>:<case seed>, as a report prints it"):format(raw), 0)
+  end
+  return name, n
+end
+
 --- `run`'s work, with no labels being counted when it starts.
 local function run(p: Fuzz.Property): integer
+  local case_name, case_seed = named_case(p)
+  -- TODO: a well-formed case naming no property in the file passes
+  -- silently, every property skipping it; the runner could fail a run in
+  -- which none matched, once a test can report such a thing to it.
+  if case_name ~= nil and case_name ~= slug(p.name) then return 0 end
   local seed = nonnegative_env("FUZZ_SEED", DEFAULT_SEED)
   local iters = p.iters or nonnegative_env("FUZZ_ITERS", DEFAULT_ITERS)
   -- Fewer inputs than the default, as reproducing one failure asks for,
@@ -288,6 +323,7 @@ local function run(p: Fuzz.Property): integer
   if p.iters == nil and p.max_iters ~= nil and iters > p.max_iters then
     iters = p.max_iters
   end
+  if case_name ~= nil then iters, whole = 1, false end
   local budget = p.budget or DEFAULT_BUDGET
   local kept: string
   if p.dir ~= nil then
@@ -295,20 +331,39 @@ local function run(p: Fuzz.Property): integer
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
        format(p.name, seed, iters, kept))
   end
-  check_corpus(p, budget, kept)
+  if case_name == nil then check_corpus(p, budget, kept) end
   local counts: {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
     local draws: {Draw} = {}
     local mine: {string: boolean} = {}
+    local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
+    local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or
+      ("seed=%d iteration=%d"):format(seed, i)
+    local reproduce = ("FUZZ_CASE=%s:%d (this input alone)"):format(slug(p.name), case)
+    if case_name == nil then
+      reproduce = reproduce .. (", or FUZZ_SEED=%d FUZZ_ITERS=%d"):format(seed, i)
+    end
     reached = mine
-    local ok, input = pcall(p.gen, recording(Rand.new(seeds:int(math.mininteger, math.maxinteger)), draws))
+    local ok, input = pcall(p.gen, recording(Rand.new(case), draws))
     if not ok then reached = nil; error(input, 0) end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
     if not held then
+      -- A check that fails an input once and holds for it the next time
+      -- depends on something beside the input: shrinking would chase
+      -- noise, so the report says so and stops.
+      local again, _ = attempt(p.check, input, budget)
+      if again then
+        error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
+          "checked again; it depends on something beside its input\n" ..
+          "  input (%d bytes, hex): %s\n  %s\n  reproduce: %s"):
+           format(p.name, where, why, #input, shown(input),
+            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+            reproduce), 0)
+      end
       local function fails(values: {integer}): boolean, {Draw}
         local candidate, used = build(p.gen, values)
         local still, _ = attempt(p.check, candidate, budget)
@@ -318,23 +373,24 @@ local function run(p: Fuzz.Property): integer
       local smallest, tries = shrunk.draws, shrunk.tries
       local small = build(p.gen, shrink.values_of(smallest))
       local small_held, small_why = attempt(p.check, small, budget)
+      local flaky = ""
       if not small_held then
         why = small_why
       else
-        -- A check that fails only sometimes: report what first failed.
+        -- The shrunk input failed while shrinking and held just now:
+        -- report the input that first failed, and say why.
         small, smallest = input, draws
+        flaky = "\n  flaky: the shrunk input held when checked again, so this is the input that first failed"
       end
       if kept ~= nil then local _, _ = Fs.write(kept, small) end
-      local shown = Codec.hex(small:sub(1, SHOWN_BYTES))
-      if #small > SHOWN_BYTES then shown = shown .. "..." end
       local keep = corpus_of(p) .. "/" .. corpus_name(small)
-      error(("fuzz %s: seed=%d iteration=%d: %s\n" ..
-        "  shrunk in %d tries from %d draws and %d bytes to %d draws and %d bytes; input (hex): %s\n" ..
-        "  %s\n  reproduce: FUZZ_SEED=%d FUZZ_ITERS=%d\n" ..
+      error(("fuzz %s: %s: %s\n" ..
+        "  shrunk in %d tries from %d draws and %d bytes to %d draws and %d bytes; input (hex): %s%s\n" ..
+        "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-         format(p.name, seed, i, why, tries, #draws, #input, #smallest, #small, shown,
+         format(p.name, where, why, tries, #draws, #input, #smallest, #small, shown(small), flaky,
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
-          seed, i,
+          reproduce,
           kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
             or ("write the input above to " .. keep)), 0)
     end
@@ -387,11 +443,27 @@ function Fuzz.pick<T>(src: Fuzz.Source, choices: {T}): T
   return choices[src:int(1, #choices)]
 end
 
---- Up to `max` arbitrary bytes, the length drawn first.
+--- Whether a generator holding `have` elements of a collection of at
+--- most `max` draws one more: a draw of its own before each element,
+--- whose low end stops. A count drawn up front would tie every element
+--- to it, so no element but the last could be cut; with a draw before
+--- each, cutting an element is cutting two adjacent draws, and lowering
+--- one to its low end cuts every element after it -- both of which
+--- shrinking tries. The count is geometric: before the cap its mean is
+--- `max` / 2 (at least 1), and the cap takes it lower (17 of 40).
+--- @param src Source The source
+--- @param have integer How many elements the collection holds so far
+--- @param max integer The most it may hold
+--- @return boolean True to draw another element
+function Fuzz.more(src: Fuzz.Source, have: integer, max: integer): boolean
+  if have >= max then return false end
+  return src:int(0, math.max(1, (max + 1) // 2)) ~= 0
+end
+
+--- Up to `max` arbitrary bytes, each after a `more` draw.
 function Fuzz.bytes(src: Fuzz.Source, max: integer): string
-  local n = src:int(0, max)
   local out: {string} = {}
-  for i = 1, n do out[i] = string.char(src:int(0, 255)) end
+  while Fuzz.more(src, #out, max) do out[#out + 1] = string.char(src:int(0, 255)) end
   return table.concat(out)
 end
 
@@ -406,7 +478,9 @@ local SPECIAL <const> = { 0, 1, 0x7f, 0x80, 0xff, 0x20, 0x2f, 0x2e, 0x30, 0x37, 
 --- property that also holds for well-formed input wants some of.
 function Fuzz.mutate(src: Fuzz.Source, sample: string, max_edits: integer): string
   local s = sample
-  for _ = 1, src:int(0, max_edits) do
+  local edits = 0
+  while Fuzz.more(src, edits, max_edits) do
+    edits = edits + 1
     local kind = src:int(1, 7)
     if #s == 0 then kind = 4 end
     if kind == 1 then

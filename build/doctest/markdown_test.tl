@@ -5,7 +5,7 @@ local markdown = require("build.doctest.markdown")
 
 --- Joins lines the way a real doc would read, without a fixture string
 --- embedding a literal ``` sequence anywhere in THIS file's own source
---- -- see build/positions_test.tl's `lines` for why that would matter.
+--- -- see build/analyzer_test.tl's `lines` for why that would matter.
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end

@@ -188,10 +188,14 @@ case $portable_kind in
 esac
 portable_owned "$cosmic_cache" "$portable_owner" ||
   portable_die "cache leaf has a different owner: $cosmic_cache"
+# Linux's stat reports the setgid bit a directory inherits from a setgid
+# parent -- one mkdir above makes 2700 there -- where Darwin's %Lp leaves
+# out every special bit. Setgid gives no one else a way into the leaf, so it
+# is taken as the mode without it; the parent is trusted as ever.
 case $portable_mode in
-  700) cosmic_cache_writable=1 ;;
-  500) cosmic_cache_writable=0 ;;
-  *) portable_die "cache leaf mode must be 0700 or 0500: $cosmic_cache" ;;
+  700|2700) cosmic_cache_writable=1 ;;
+  500|2500) cosmic_cache_writable=0 ;;
+  *) portable_die "cache leaf mode must be 0700 or 0500, not $portable_mode: $cosmic_cache (remove it, and the next run makes it again, or name a directory only you control in COSMIC_PORTABLE_CACHE)" ;;
 esac
 
 # Sets portable_actual to a file's SHA-256, or empty when it cannot.

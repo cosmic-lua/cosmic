@@ -1,6 +1,6 @@
 local near = require("build.fix.near")
 local Store = require("cosmic.store")
-local positions = require("build.positions")
+local analyzer = require("build.analyzer")
 local teal = require("build.teal")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -241,7 +241,7 @@ local function test_the_standard_library_earns_no_note()
     local file = module:gsub("%.", "/") .. ".tl"
     local source = Fs.read(file)
     if source ~= nil then
-      local found = assert(positions.analyze(built, source, file))
+      local found = assert(analyzer.analyze(built, source, file))
       local candidates: {near.Candidate} = {}
       for _, entry in ipairs(found.docs) do
         if entry.exported and (entry.kind == "function" or entry.kind == "method") and

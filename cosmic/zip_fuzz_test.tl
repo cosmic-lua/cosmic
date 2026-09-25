@@ -11,6 +11,9 @@ local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "" }
 
 local function gen_path(src: Fuzz.Source): string
   local parts: {string} = {}
+  -- TODO: this file's collections draw their count first, so shrinking
+  -- cuts only their last element; `Fuzz.more` before each would let it
+  -- cut any (its labels' rates move with the change: measure them again).
   for i = 1, src:int(1, 3) do parts[i] = Fuzz.pick(src, PARTS) end
   return table.concat(parts, "/")
 end

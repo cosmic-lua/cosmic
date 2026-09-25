@@ -7,17 +7,20 @@
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Env = require("cosmic.env")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local invoke = require("build.invoke")
 
---- The verbs whose words after the file are the program's own, so no
---- option or argument is theirs to refuse, and whose output is the
---- program's rather than a verdict.
+--- The verbs that end in no verdict line: those whose words after the
+--- file are the program's own, so no option or argument is theirs to
+--- refuse, and whose output is the program's; and `--version`, whose
+--- one line is all it prints (build/version_test.tl holds it).
 local passthrough: {string:string} = {
   run = "the words after the file are its program's argv",
   standalone = "the words after the file are its program's argv",
   eval = "the words after the chunk are its `...`",
+  version = "it prints one line and no verdict",
 }
 
 --- A command line with one argument more than each verb takes, or why
@@ -72,9 +75,14 @@ end
 --- The command lines only a process of their own can run, and why:
 --- every other runs here (`build.invoke`), so a test of it can stand.
 local function needs_a_process(args: {string}): string | nil
-  if args[1] == "test" and args[2] ~= "--help" and args[2] ~= "-h" then
+  local asks_help = false
+  for _, word in ipairs(args) do
+    if word == "--" then break end
+    if word == "--help" or word == "-h" then asks_help = true end
+  end
+  if args[1] == "test" and not asks_help then
     return "it starts a process for each test, and coverage this one is keeping"
-  elseif args[1] == "todos" and args[2] ~= "--help" and args[2] ~= "-h" then
+  elseif args[1] == "todos" and not asks_help then
     return "it starts git to ask who wrote each line"
   elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$")) then
     return "a file run loads its tree's modules into the process"
@@ -225,9 +233,32 @@ local function test_help_takes_a_verb(tmp: string)
   local _ = expect(tmp, "help", { "test", "--help" }, 0)
   local _ = expect(tmp, "help", { "db", "-h" }, 0)
   local _ = expect(tmp, "help", { "help", "--standalone" }, 0)
+  -- Anywhere on the verb's line, before a "--".
+  local late = expect(tmp, "help", { "test", "good", "--jobs", "2", "--help" }, 0).stdout or ""
+  assert(late:find("`cosmic test", 1, true), late)
+  local _ = expect(tmp, "help", { "sql", "SELECT 1", "-h" }, 0)
+  -- Not after a "--": there "-h" is the statement, which fails as SQL.
+  local _ = expect(tmp, "sql", { "sql", "--", "-h" }, 1)
   local refused = expect(tmp, "help", { "help", "tset" }, 2)
   local out = refused.stdout or ""
   assert(out:find("help: FAIL (no such verb: tset)", 1, true), out)
+end
+
+local function test_help_lists_each_option_a_verb_parses(tmp: string)
+  for verb, options in pairs(Cli.options) do
+    local out = expect(tmp, "help", { "help", verb }, 0).stdout or ""
+    for name, entry in pairs(options) do
+      assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "",
+        verb .. " " .. name .. " says nothing of what it does")
+      local shown = entry.value ~= nil and name .. " <" .. entry.value .. ">" or name
+      assert(out:find("\n  " .. shown .. " ", 1, true), verb .. ": " .. out)
+    end
+  end
+  local all = expect(tmp, "help", { "help" }, 0).stdout or ""
+  assert(all:find("\n  --jobs <n> ", 1, true), all)
+  -- `cosmic docs` shows them under the verb's field too.
+  local docs = expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout or ""
+  assert(docs:find("\n  options:\n    --jobs <n> ", 1, true), docs)
 end
 
 local function test_a_timeout_that_would_wrap_is_refused(tmp: string)
@@ -239,15 +270,15 @@ end
 
 local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
   local one = expect(tmp, "help", { "help", "test" }, 0).stdout or ""
-  assert(one:find("`cosmic test`", 1, true), one)
-  assert(not one:find("`cosmic fix`", 1, true), one)
+  assert(one:find("`cosmic test ", 1, true), one)
+  assert(not one:find("`cosmic fix ", 1, true), one)
   assert(not one:find("cosmic -- a runtime", 1, true), one)
   local all = expect(tmp, "help", { "help" }, 0).stdout or ""
-  assert(all:find("`cosmic test`", 1, true), all)
-  assert(all:find("`cosmic fix`", 1, true), all)
+  assert(all:find("`cosmic test ", 1, true), all)
+  assert(all:find("`cosmic fix ", 1, true), all)
   local e = expect(tmp, "help", { "help", "-e" }, 0).stdout or ""
   assert(e:find("`cosmic -e", 1, true), e)
-  assert(not e:find("`cosmic test`", 1, true), e)
+  assert(not e:find("`cosmic test ", 1, true), e)
   -- Every verb's help is one entry, its synopsis first: one paragraph
   -- before the verdict, where the whole surface is a blank line apart.
   for _, verb in ipairs(Cli.order) do

@@ -1,5 +1,7 @@
 --- `cosmic sql`: one SQL statement against a database, read-only, its
---- rows printed one per line with their cells tab-separated. This is
+--- column names printed as a first line (none for a statement without
+--- columns, such as most PRAGMAs that set) and its rows one per line
+--- after, cells tab-separated. This is
 --- how the build's own databases get asked a question without writing
 --- a throwaway script -- a script must be built as a tree, and the
 --- tree it would build is whatever directory it was run from.
@@ -13,15 +15,17 @@
 --- Nothing is built, staged or scanned: the only directory looked in
 --- is `o/` under the working directory, never one above it.
 ---
---- A cell is written as text: NULL as `\N`, a blob as `X'<hex>'`, and
+--- A cell, and a column's name, is written as text: NULL as `\N`, a
+--- blob as `X'<hex>'`, and
 --- inside text a backslash as `\\`, a tab, newline or carriage return
 --- as `\t`, `\n` or `\r`, and any other control byte as `\xHH`, so one
 --- row is always one line, no stored escape sequence reaches the
 --- terminal, and undoing those escapes gives the stored bytes back. The
 --- verdict line comes last on stdout, as every verb's does (see
 --- build/verbs_test.tl), so a pipe that wants only the rows drops the
---- last line; complaints go to stderr.
+--- first line and the last; complaints go to stderr.
 
+local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -33,8 +37,8 @@ local verdicts = require("build.verdict")
 local log = verdicts.log
 
 --- The `cosmic sql` verb: `run` is what `build/dispatch.tl` calls;
---- `options_given`, `source`, `open` and `query` are its steps, each
---- testable on its own.
+--- `source`, `open` and `query` are its steps, each testable on its
+--- own.
 local record sql
   --- Where a statement runs.
   record Source
@@ -65,35 +69,17 @@ end
 
 --- The options `cosmic sql` takes: each names a database, and at most
 --- one may be given.
-local spec: {string:boolean} = { ["--db"] = true, ["--build"] = false, ["--store"] = false }
-
---- The options among `argv` from slot 2 up to a "--", each as often as
---- it was given: `Flags.parse` keeps only the last of a repeated one,
---- and a repeat here is refused rather than read as the last.
-function sql.options_given(argv: {integer:string}): {string}
-  local given: {string} = {}
-  local slot = 2
-  while argv[slot] ~= nil and argv[slot] ~= "--" do
-    local word = argv[slot]
-    local name = word:match("^(%-%-[^=]+)=") or word
-    if spec[name] ~= nil then
-      given[#given + 1] = name
-    end
-    slot = slot + 1
-  end
-  return given
-end
+local spec = Cli.options.sql
 
 --- The database a command line names under `root`, the working
 --- directory: `--db <path>`, `--build` (o/build.db), `--store` (the
 --- binary's own database), or, with none of them, the project's own
 --- o/cosmic.db when there is one and the binary's own otherwise. Nil
---- and why when `given` -- the options as `sql.options_given` counts them
---- -- names more than one, or `--db` names the empty path.
-function sql.source(root: string, parsed: Flags.Parsed,
-    given: {string}): sql.Source | nil, string
-  if #given > 1 then
-    return nil, "name one database, not " .. table.concat(given, " and ")
+--- and why when the line gives more than one of them, or one of them
+--- twice, or `--db` names the empty path.
+function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, string
+  if #parsed.given > 1 then
+    return nil, "name one database, not " .. table.concat(parsed.given, " and ")
   end
   local chosen = parsed.values["--db"]
   if chosen ~= nil then
@@ -216,30 +202,58 @@ local function cell_text(cell: Sqlite.Cell): string
   return "\\N"
 end
 
---- Runs one statement on `db`, answering each row it yields as one
---- line. Nil and SQLite's own reason when it will not prepare or run --
---- a write among them.
+--- Runs one statement on `db`, answering its column names as one line
+--- -- none for a statement without columns -- then each row it yields
+--- as one line. Nil and why when it takes a parameter, or SQLite's own
+--- reason when it will not prepare or run -- a write among them.
 function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
-  -- TODO: print a header line of column names once cosmic.sqlite carries
-  -- sqlite3_column_name; a caller has only its own SELECT to go by now.
-  -- TODO: write each row as it is stepped rather than holding them all:
-  -- Sqlite.rows gathers the whole result first. Stepping a prepared
-  -- statement here (handle:prepare and step) or a streaming form of
-  -- Sqlite.rows would keep a large result out of memory.
-  local rows, trouble = Sqlite.rows(db, statement)
-  if rows == nil then
-    return nil, trouble
+  local prepared, prepare_trouble = db:prepare(statement)
+  if prepared == nil then
+    return nil, prepare_trouble
   end
+  -- Nothing is bound: a parameter left unbound would read as NULL.
+  local wanted = prepared:parameters()
+  if wanted > 0 then
+    prepared:finalize()
+    return nil, "the statement takes " .. wanted ..
+      (wanted == 1 and " parameter" or " parameters") .. "; cosmic sql binds none"
+  end
+  local width = prepared:columns()
   local lines: {string} = {}
-  for _, row in ipairs(rows) do
-    local cells: {string} = {}
-    for index, cell in ipairs(row) do
-      cells[index] = cell_text(cell)
+  local cells: {string} = {}
+  for index = 0, width - 1 do
+    cells[index + 1] = (prepared:name(index):gsub("[\\%c]", escape))
+  end
+  if width > 0 then
+    lines[1] = table.concat(cells, "\t")
+  end
+  -- TODO: write each row as it is stepped rather than holding them all
+  -- here; `run` prints them only once the statement is done.
+  while true do
+    local state, trouble = prepared:step()
+    if state == nil then
+      prepared:finalize()
+      return nil, trouble
+    end
+    if state == "done" then
+      break
+    end
+    for index = 0, width - 1 do
+      cells[index + 1] = cell_text(Sqlite.cell(prepared, index))
     end
     lines[#lines + 1] = table.concat(cells, "\t")
   end
+  prepared:finalize()
   return lines, ""
 end
+
+--- Said after a failure from the binary's own database, whose
+--- authorizer lets a query through and no PRAGMA but data_version (its
+--- refusal is SQLite's bare "not authorized"): what a PRAGMA would have
+--- told, a query can.
+local store_hint = "; the binary's own database answers a query and no PRAGMA " ..
+  "but data_version: `SELECT * FROM <table> LIMIT 0` names a table's columns, " ..
+  "and sqlite_schema holds each table's SQL"
 
 --- Rows to stdout, then the verdict line through `build.verdict`'s
 --- logger, which tells `build/dispatch.tl` one was given; complaints
@@ -296,7 +310,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): in
     end
     root = here
   end
-  local source, source_trouble = sql.source(root, parsed, sql.options_given(argv))
+  local source, source_trouble = sql.source(root, parsed)
   if source == nil then
     complain(source_trouble .. "; " .. usage)
     verdict(false, "usage: see `cosmic help sql`")
@@ -313,6 +327,9 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): in
     local _, _ = opened.db:close()
   end
   if lines == nil then
+    if source.path == nil then
+      trouble = trouble .. store_hint
+    end
     complain(source.name .. ": " .. trouble)
     verdict(false, source.name)
     return 1
@@ -320,7 +337,8 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): in
   for _, line in ipairs(lines) do
     to.out(line)
   end
-  verdict(true, #lines .. (#lines == 1 and " row" or " rows") .. " from " .. source.name)
+  local rows = math.max(#lines - 1, 0)
+  verdict(true, rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
   return 0
 end
 

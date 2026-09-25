@@ -164,7 +164,7 @@ local function test_a_finalized_statement_raises_from_every_method()
   for _, method in ipairs({ "step", "columns", "reset", "parameters" }) do
     raises((statement as {string: any})[method], statement)
   end
-  for _, method in ipairs({ "bind_null", "kind", "integer", "number", "bytes" }) do
+  for _, method in ipairs({ "bind_null", "name", "kind", "integer", "number", "bytes" }) do
     raises((statement as {string: any})[method], statement, 1)
   end
   raises(statement.bind_integer, statement, 1, 1)
@@ -247,6 +247,25 @@ local function test_a_column_outside_the_current_row_raises()
   end
   assert(statement:step() == "done")
   raises(statement.integer, statement, 0)
+  statement:finalize()
+  handle:close()
+end
+
+--- A column's name is its alias, or what SQLite calls it without one,
+--- known before a row is stepped and after the last; an index outside
+--- the statement's columns raises.
+local function test_a_column_is_named_before_any_row()
+  local handle = memory()
+  local statement = prepared(handle, "SELECT 1 AS one, 'two', 3 + 4")
+  assert(statement:name(0) == "one", statement:name(0))
+  assert(statement:name(1) == "'two'", statement:name(1))
+  assert(statement:name(2) == "3 + 4", statement:name(2))
+  raises(statement.name, statement, 3)
+  raises(statement.name, statement, -1)
+  raises(statement.name, statement, (1 << 32) + 1)
+  assert(statement:step() == "row")
+  assert(statement:step() == "done")
+  assert(statement:name(0) == "one")
   statement:finalize()
   handle:close()
 end

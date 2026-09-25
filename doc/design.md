@@ -185,21 +185,24 @@ that per component.
 
 the syscall table is one C function per syscall with the same
 signature on Linux and macOS, written by hand in one strict shape in
-one annotated header, `core/syscalls.h`, each entry naming its
-arity. the annotation grammar is LuaCATS, `---@param`, `---@return`,
+an annotated header, each entry naming its arity: `core/syscalls.h`
+for the public table, `cosmic.sys`, and `core/process.h`, in the same
+grammar, for the raw process table, `cosmic.internal.process`, the
+calls that start, feed and reap a child, which only `cosmic.child`
+and `cosmic.proc` are handed. the annotation grammar is LuaCATS, `---@param`, `---@return`,
 `---@class`, `---@field`, the grammar the cosmopolitan fork's
 `definitions.lua` proved on this exact job. the Teal declaration and
-the doc row for each function are generated from that header when
+the doc row for each function are generated from its header when
 the core first runs over the tree, and the generator refuses, by
 name, any function whose annotation is incomplete, whose parameter
 count disagrees with the arity, or whose returns are not one value
 or the fallible three, so a binding cannot exist without its type
-and the C surface cannot grow without a diff in that header.
+and the C surface cannot grow without a diff in one of those headers.
 argument-shape errors raise; runtime failures return `nil, err,
 errno` for a value and `false, err, errno` for an effect, plain
 values, the convention the fork already uses at over a hundred sites.
-that errno in a third slot is `cosmic.sys`'s alone, the one
-exception to the two slots of honest returns: a Teal function over a
+that errno in a third slot belongs to these two tables alone, the
+one exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
@@ -285,7 +288,15 @@ traceback carries less risk than a raw database handle. `internal`
 is a reserved name: a path under `cosmic.internal.` never satisfies
 an ordinary `require`, for any caller, which is stronger than
 positional privacy and is where every raw C binding that is not
-itself the public surface belongs, not only these three.
+itself the public surface belongs, not only these three: the process
+table behind `cosmic.child` and `cosmic.proc`, and the hash table
+behind `cosmic.hash`, are the same shape. `internal` means not
+declared or documented for a program to use, not unreachable: a
+caller that asks `package.searchers` for a wrapper by hand is handed
+its raw table too, which is no escalation, since that table reaches
+nothing its wrapper does not. what keeps a raw call off the public
+surface is that nothing names it -- no type, no doc row -- and nothing
+the checker accepts reaches it by accident.
 
 ### the database
 
@@ -637,7 +648,8 @@ included, whose support runs to 2029. the crypto subtree serves
 digests and HMAC: MD5, SHA-1, the SHA-2 and SHA-3 sizes, through the
 PSA API, with randomness from the OS rather than the library's own
 entropy and DRBG modules. `cosmic.hash` is the Teal face of it, the
-syscall table's `digest` and `hmac` the bindings, and every SQLite
+raw `cosmic.internal.hash` table's `digest`, `hmac` and streaming
+hasher the bindings, and every SQLite
 handle knows the same functions, so a query hashes in place. the TLS
 1.2 and 1.3 client under `cosmic.http` (curl over c-ares and mbedtls)
 comes from the same library and the same configuration: one header,
@@ -707,7 +719,7 @@ which rows it reads; and `help`, which takes a verb. every verb ends
 in a verdict line
 and an exit code; a file run, `--standalone` and `-e` are programs,
 not verbs, and print only what they print and exit with what they
-return. `cosmic help <verb>` prints that verb's line, and `cosmic
+return. `cosmic help <verb>` prints that verb's line and its options, and `cosmic
 help` all of them: the whole discovery surface. no other
 stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
@@ -735,7 +747,8 @@ build.zig           the C build; build.zig.zon names the package
 vendor/<name>/      the upstream files the build reads, unedited, with a PIN
 patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
-core/syscalls.h     the annotated header the .d.tl and doc rows derive from
+core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
+core/process.h      the same for the raw cosmic.internal.process table
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main

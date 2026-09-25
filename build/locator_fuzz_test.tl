@@ -66,6 +66,9 @@ local function gen(tail: Tail): function(Fuzz.Source): string
   return function(src: Fuzz.Source): string
     local manifest, trailer = tail.manifest, tail.trailer
     local cut, junk = 0, ""
+    -- TODO: this file's collections draw their count first, so shrinking
+    -- cuts only their last element; `Fuzz.more` before each would let it
+    -- cut any (its labels' rates move with the change: measure them again).
     for _ = 1, src:int(1, 4) do
       local what = src:int(1, 5)
       if what == 1 then

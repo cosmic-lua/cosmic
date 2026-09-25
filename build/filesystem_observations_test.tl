@@ -4,6 +4,21 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local type raw_process = require("cosmic.internal.process")
+
+local type Searcher = function(string): any, any
+
+--- The raw process table the observations stand in for the spawn of,
+--- as `require` hands it their loader.
+local function raw_process_table(): raw_process
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("build.filesystem_observations")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_process -- cast: the table core/process.h declares
+    end
+  end
+  error("build.filesystem_observations is handed no raw table")
+end
 
 local function test_round_trips_every_path_byte()
   local path = "a b\n" .. string.char(0) .. "z"
@@ -282,12 +297,13 @@ end
 local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
-  local spawn = sys.spawn
+  local process = raw_process_table()
+  local spawn = process.spawn
   local sandboxed = 0
-  sys.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
+  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                        cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                        stderr: integer | nil, process_group: boolean,
-                       fds?: {integer:integer}, sandbox?: sys.Sandbox):
+                       fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
                        integer | nil, string, integer
     if sandbox ~= nil then
       sandboxed = sandboxed + 1
@@ -304,7 +320,7 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
     assert(Child.run({ "/bin/sh", "-c", "true" }))
     observations.confine(nil)
   end, nil, { tree = tmp .. "/tree", own = { own } })
-  sys.spawn = spawn
+  process.spawn = spawn
   assert(run.passed, run.message)
   assert(sandboxed == 1, "only the first was tried confined: " .. tostring(sandboxed))
   local notes, _ = confined_notes(run)

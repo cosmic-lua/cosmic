@@ -22,6 +22,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local todo_scan = require("build.todo_scan")
+local gen_syscalls = require("build.gen_syscalls")
 local bind = require("build.bind")
 
 local record work
@@ -644,8 +645,9 @@ end
 
 --- Whether a file the walk found is one the build consumes: Teal
 --- source and declarations, a doc guide, and, in cosmic's own tree,
---- the syscall header the declaration of `cosmic.sys` is generated
---- from. Never anything under the trees the tool alone is made of.
+--- the headers the declarations of `cosmic.sys` and the raw process
+--- table are generated from (`build.gen_syscalls`' targets). Never
+--- anything under the trees the tool alone is made of.
 local function is_input(file: string, own_tree: boolean): boolean
   local first = first_of(file)
   if not_input[first] or (own_tree and foreign_trees[first]) then
@@ -657,7 +659,15 @@ local function is_input(file: string, own_tree: boolean): boolean
   if first == "doc" then
     return is_doc_guide(file)
   end
-  return own_tree and file == "core/syscalls.h"
+  if not own_tree then
+    return false
+  end
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    if file == derivation.target.header then
+      return true
+    end
+  end
+  return false
 end
 
 --- Whether a file is one the tool is made of, in cosmic's own tree: a
@@ -972,10 +982,11 @@ end
 --- `patch/tl/*` needs it too, the same as every other vendored tree.
 --- `build/launcher.tl` also belongs to the retained portable prefix: a
 --- database-only rebuild reuses its existing shell bytes.
---- Both are kept in `meta` for the projection to carry into the
+--- Both are written into `meta` for the projection to carry into the
 --- binary, which is how a binary knows what it was built from, so a
---- project reads them rather than computing any.
-function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
+--- project reads them rather than computing any. Returns the
+--- fingerprint written; `work.recorded_boot_hash` reads it back.
+function work.record_fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   local db = handle.db
   local boot, boot_trouble = hash_over(db, "1")
   if boot == nil then
@@ -1001,7 +1012,7 @@ function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   return { boot = boot, image = image }
 end
 
---- The `boot` fingerprint `work.fingerprint` wrote into `meta` at the
+--- The `boot` fingerprint `work.record_fingerprint` wrote into `meta` at the
 --- last stage, read back rather than recomputed: for a caller that
 --- only wants to know whether the tool it is already running still
 --- matches the tree -- paired with `work.tool_moved` to know the
@@ -1020,13 +1031,13 @@ function work.recorded_boot_hash(handle: work.Handle): string | nil, string
   return rows[1][1]
 end
 
---- The identities, computed over the tree and kept in `meta` for the
---- projections to carry. See `Identities` for what each is over.
+--- The identities, computed over the tree and written into `meta` for
+--- the projections to carry. Returns them. See `Identities` for what each is over.
 --- The compiler's closes over `requires`, so the tree must be parsed
 --- (`build.importer.derive`) first: on a fresh working database the
 --- closure would otherwise stop at `build.importer` itself, and keys
 --- made under that identity would match no later build's.
-function work.identities(handle: work.Handle): work.Identities | nil, string
+function work.record_identities(handle: work.Handle): work.Identities | nil, string
   local db = handle.db
   local pins =
     "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..

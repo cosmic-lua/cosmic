@@ -61,10 +61,16 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   if own_mask & (1 << (sys.SIGPIPE - 1)) ~= 0 then return end
   local script = tmp .. "/becomes.tl"
   assert(Fs.write(script, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local sys = require("cosmic.sys")
 return function(): integer
-  assert(sys.ignore_sigpipe())
+  -- Feeding a child its input is what makes this process ignore
+  -- SIGPIPE, so a write to a child that has gone cannot end it.
+  local fed = assert(Child.start({ "/bin/sh", "-c", "exit 0" }, { input = "" }))
+  assert(fed:wait())
+  local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
+  assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")
   local _, trouble = Proc.exec("/bin/sh", { "sh", "-c", "grep SigIgn /proc/self/status" }, {})
   print(trouble)
   return 1

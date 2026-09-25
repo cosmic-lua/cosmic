@@ -114,6 +114,43 @@ static int hash_byte_sum (lua_State *L) {
   return 1;
 }
 
+/* An algorithm nobody has heard of is an argument-shape error and
+ * raises; the library refusing a hash it advertises is a bug, and
+ * raises too. Neither is a runtime failure a caller could handle. */
+static int hashed (lua_State *L, int status, const unsigned char *digest,
+                   size_t len) {
+  if (status == -1) {
+    return luaL_argerror(L, 1, "no such digest algorithm");
+  }
+  if (status != 0) {
+    return luaL_error(L, "the digest failed with status %d", status);
+  }
+  lua_pushlstring(L, (const char *)digest, len);
+  return 1;
+}
+
+static int hash_digest (lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  size_t len;
+  const char *data = luaL_checklstring(L, 2, &len);
+  unsigned char digest[COSMIC_DIGEST_MAX];
+  size_t digest_len = 0;
+  int status = cosmic_digest(name, data, len, digest, &digest_len);
+  return hashed(L, status, digest, digest_len);
+}
+
+static int hash_hmac (lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  size_t key_len;
+  const char *key = luaL_checklstring(L, 2, &key_len);
+  size_t len;
+  const char *data = luaL_checklstring(L, 3, &len);
+  unsigned char mac[COSMIC_DIGEST_MAX];
+  size_t mac_len = 0;
+  int status = cosmic_hmac(name, key, key_len, data, len, mac, &mac_len);
+  return hashed(L, status, mac, mac_len);
+}
+
 static const luaL_Reg hasher_methods[] = {
   {"update", hasher_update},
   {"digest", hasher_digest},
@@ -121,6 +158,8 @@ static const luaL_Reg hasher_methods[] = {
 };
 
 static const luaL_Reg module[] = {
+  {"digest", hash_digest},
+  {"hmac", hash_hmac},
   {"hasher", hash_hasher},
   {"byte_sum", hash_byte_sum},
   {NULL, NULL},
