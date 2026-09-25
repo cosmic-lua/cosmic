@@ -46,16 +46,18 @@ end
 --- rebuilt tool's own writer (`unsettled`).
 local marker = "COSMIC_REBOOTED"
 
---- Whether the running binary's database was written by a writer other
---- than the one it carries: a stale tool rebuilding itself writes the
---- new tool's database with its own code, and when that code is not the
---- tree's (`work.Identities`' `writer`), the new tool writes it again
---- itself, once, so the tool a rebuild leaves is the one a boot writes.
---- A tool whose database names no writer was written by a binary from
---- before they did, and is unsettled too.
+--- Whether the running binary's database was compiled or written by
+--- other code than it carries: a stale tool rebuilding itself compiles
+--- the tree and writes the new tool's database with its own compiler and
+--- writer, and when either is not the tree's (`work.Identities`), the new
+--- tool compiles and writes it again itself, once, so the tool a rebuild
+--- leaves is the one a boot writes. A tool whose database names neither
+--- was written by a binary from before they did, and is unsettled too.
 local function unsettled(): boolean
-  local by = Store.meta("written_by")
-  return by == nil or by ~= Store.meta("writer")
+  local written_by = Store.meta("written_by")
+  local compiled_by = Store.meta("compiled_by")
+  return written_by == nil or written_by ~= Store.meta("writer") or
+    compiled_by == nil or compiled_by ~= Store.meta("compiler")
 end
 
 --- What a tool stale against the core says when it does not boot.
@@ -157,6 +159,9 @@ local function into(handle: work.Handle, built: compiler,
                      argv: {integer:string}, settle: boolean): string
   local entered = sys.getenv(marker)
   if entered ~= nil and not (settle and entered == "1") then
+    if settle then
+      return closing(handle, "the tool is still unsettled after a reboot")
+    end
     return closing(handle, "the tool is still stale after a reboot")
   end
   local prefix, prefix_trouble = artifact.trusted_prefix()
@@ -190,8 +195,11 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, zoned_trouble)
   end
 
-  -- Compiled and keyed as the tree's own work: the tool that replaces this one
-  -- carries the tree's compiler identity, never the stale tool's identity.
+  -- Compiled by this tool's compiler and keyed by its identity, which is
+  -- the tree's only when the compiler has not moved: a row this compiler
+  -- made is never taken for the tree's compiler's. The tool that replaces
+  -- this one carries the tree's identities, and compiles again itself
+  -- whatever this compiler compiled (`unsettled`).
   local derived, derive_trouble = importer.derive(handle, true, built)
   if not derived then
     return closing(handle, derive_trouble)
@@ -205,7 +213,7 @@ local function into(handle: work.Handle, built: compiler,
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble =
-    importer.compile(handle, built, identities.compiler, true)
+    importer.compile(handle, built, Store.meta("compiler") or "", true)
   if result == nil then
     return closing(handle, compile_trouble)
   end
@@ -314,7 +322,7 @@ function reboot.guard(handle: work.Handle, root: string,
     if not own then
       return nil
     end
-    log:complain("the tool's database was written by an older writer; writing it again")
+    log:complain("the tool's database was built by other code than its own; building it again")
     log:complain(into(handle, teal.lazy(), argv, true))
     return 3
   end
@@ -399,8 +407,13 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
       log:complain(closing(handle, recorded_trouble))
       return 1
     end
-    fresh = recorded ~= nil and recorded == (Store.meta("boot_hash") or "") and
-      not unsettled()
+    fresh = recorded ~= nil and recorded == (Store.meta("boot_hash") or "")
+    -- A tool that is not the tree's own never settles (`reboot.guard`),
+    -- so only the tree's own is sent there to.
+    if fresh and unsettled() then
+      local own, _ = reboot.own_tool(root)
+      fresh = own == false
+    end
   end
   if not fresh then
     local staged, stage_trouble = work.stage(handle, own_tree)

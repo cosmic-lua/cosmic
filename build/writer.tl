@@ -206,7 +206,9 @@ function writer.signature(handle: work.Handle, result: importer.Result,
 end
 
 --- Fills the attached `out` schema and vacuums it into `path`, signed
---- `signature` by the writer whose identity is `by`.
+--- `signature` by the writer whose identity is `by`, and naming the
+--- compiler whose identity keyed its modules (`result.tool`) as
+--- `compiled_by`.
 local function project(handle: work.Handle, path: string,
                        result: importer.Result, signature: string,
                        by: string): boolean, string
@@ -284,8 +286,9 @@ local function project(handle: work.Handle, path: string,
       return false, main_trouble
     end
     return Sqlite.run(db,
-      "INSERT INTO out.meta (key, value) VALUES ('projected', ?1), ('written_by', ?2)",
-      { text(signature), text(by) })
+      "INSERT INTO out.meta (key, value) VALUES ('projected', ?1), " ..
+      "('written_by', ?2), ('compiled_by', ?3)",
+      { text(signature), text(by), text(result.tool) })
   end)
   if not made then
     return false, refused
