@@ -196,6 +196,8 @@ local function test_zone_names_are_checked_before_any_file_is_read()
   end
   local z, why = Time.zone("Nowhere/Nothing")
   assert(z == nil and why:find("Nowhere/Nothing", 1, true), why)
+  local names = assert(Store.zone_names())
+  assert(names["America/New_York"] and not names["Nowhere/Nothing"])
   assert(not why:find("zoneinfo", 1, true), "the reason names no host path: " .. why)
   -- Asked again, the answer is remembered rather than looked for.
   local again, again_why = Time.zone("Nowhere/Nothing")
@@ -579,6 +581,9 @@ local function test_local_zone_names_a_carried_zone(tmp: string)
   -- naming none, is passed over.
   assert(Fs.symlink(tmp .. "/share/zoneinfo/Nowhere/Nothing", tmp .. "/unknown"))
   assert(lz(nil, tmp .. "/unknown", tmp .. "/timezone").name == "Asia/Kolkata")
+  -- /etc/timezone's first line that is neither blank nor a comment.
+  assert(Fs.write(tmp .. "/commented", "\239\187\191# written by hand\n\n\tAsia/Kolkata\r\n"))
+  assert(lz(nil, tmp .. "/copied", tmp .. "/commented").name == "Asia/Kolkata")
   assert(Fs.write(tmp .. "/garbage", "../../etc/passwd\n"))
   assert(rawequal(lz(nil, tmp .. "/unknown", tmp .. "/garbage"), Time.UTC))
 
@@ -586,9 +591,18 @@ local function test_local_zone_names_a_carried_zone(tmp: string)
   -- /etc/localtime or not.
   assert(rawequal(lz("", tmp .. "/linked"), Time.UTC))
   assert(rawequal(lz(":", tmp .. "/linked"), Time.UTC))
-  -- TZ=:/path names its zone by where the path sits, as the link does.
+  -- TZ=:/path names its zone by where the path sits, as the link does,
+  -- or where it links: TZ=:/etc/localtime, as glibc documents it.
   local path = lz(":" .. tmp .. "/share/zoneinfo/Europe/Berlin")
   assert(rawequal(path, zone("Europe/Berlin")))
+  assert(lz(":" .. tmp .. "/linked").name == "Europe/Berlin")
+  assert(lz(tmp .. "/share/zoneinfo/Europe/Berlin").name == "Europe/Berlin", "no colon, as glibc")
+  assert(lz(":posix/Europe/Berlin").name == "Europe/Berlin")
+  assert(lz("right/Europe/Berlin").name == "Europe/Berlin")
+  -- A loop of links names nothing, and ends.
+  assert(Fs.symlink(tmp .. "/loop-b", tmp .. "/loop-a"))
+  assert(Fs.symlink(tmp .. "/loop-a", tmp .. "/loop-b"))
+  assert(rawequal(lz(nil, tmp .. "/loop-a"), Time.UTC))
   assert(lz(":Asia/Kolkata").name == "Asia/Kolkata")
   assert(lz("Asia/Kolkata").name == "Asia/Kolkata")
   local rules = lz("EST5EDT,M3.2.0,M11.1.0")
@@ -599,6 +613,7 @@ local function test_local_zone_names_a_carried_zone(tmp: string)
   assert(lz("EST5EDT").name == "EST5EDT")
 
   for _, tz in ipairs({ "!!!", ":Nowhere/Nothing", ":" .. tmp .. "/copied", "Nowhere/Nothing",
+      ":" .. tmp .. "/loop-a",
       ":" .. tmp .. "/share/zoneinfo/Nowhere" }) do
     local z, why = Time.local_zone({ tz = tz, localtime = missing, timezone = missing })
     assert(z == nil and why ~= "", tz)

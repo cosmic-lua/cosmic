@@ -844,6 +844,9 @@ local refused_names: {string:string} = {}
 local refused_count = 0
 local REFUSED_KEPT <const> = 1024
 
+--- Every zone name the binary carries, read at the first lookup.
+local carried_names: {string:boolean} = nil
+
 --- IANA's zone `name`, as "America/New_York" or "UTC", from the copy of
 --- the tz database the binary carries. The host's zone files are never
 --- read, so a name gives the same rules on every host, whatever tz
@@ -854,10 +857,14 @@ local REFUSED_KEPT <const> = 1024
 --- `Zone` answered from then on, and a name found to be no zone is not
 --- looked for again.
 function Time.zone(name: string): Time.Zone | nil, string
+  local problem = name_problem(name)
+  if problem ~= nil then return nil, problem end
   local cached = zones[name]
   if cached ~= nil then return cached, "" end
   local refused = refused_names[name]
   if refused ~= nil then return nil, refused end
+  -- Only an answer the database gave is remembered: a query that failed
+  -- (EMFILE, a locked file) is this call's failure, and asked again.
   local function refuse(why: string): string
     if refused_count >= REFUSED_KEPT then
       refused_names, refused_count = {}, 0
@@ -865,13 +872,17 @@ function Time.zone(name: string): Time.Zone | nil, string
     refused_names[name], refused_count = why, refused_count + 1
     return why
   end
-  local problem = name_problem(name)
-  if problem ~= nil then return nil, refuse(problem) end
   local Store = require("cosmic.store")
-  local carried, _ = Store.zoneinfo(name)
-  if carried == nil then
+  if carried_names == nil then
+    local names, trouble = Store.zone_names()
+    if names == nil then return nil, ("time zone %s: %s"):format(name, trouble) end
+    carried_names = names
+  end
+  if not carried_names[name] then
     return nil, refuse(("no time zone %s: this binary's tz database has none"):format(name))
   end
+  local carried, trouble = Store.zoneinfo(name)
+  if carried == nil then return nil, ("time zone %s: %s"):format(name, trouble) end
   local rules, why = parse_tzif(carried)
   if rules == nil then
     return nil, refuse(("the binary's time zone %s: %s"):format(name, why))
@@ -917,8 +928,9 @@ local function zoneinfo_name(path: string): string
   return name
 end
 
---- The zone name /etc/localtime's link names, following links that
---- name none -- as NixOS's goes through /etc/zoneinfo -- a few deep.
+--- The zone name the link at `path` names, as /etc/localtime's does,
+--- following links that name none -- as NixOS's goes through
+--- /etc/zoneinfo -- a few deep.
 local function linked_name(path: string): string
   for _ = 1, 8 do
     local target, _ = Fs.readlink(path)
@@ -934,25 +946,44 @@ local function linked_name(path: string): string
 end
 
 --- The zone name /etc/timezone holds, as Debian writes it: its first
---- line, less the space around it.
+--- line that is neither blank nor a `#` comment, less the space around
+--- it and any byte order mark.
 local function written_name(path: string): string
   local text, _ = Fs.read(path)
   if text == nil then return nil end
-  local name = text:match("^[^\n]*"):match("^%s*(.-)%s*$")
-  if name_problem(name) ~= nil then return nil end
-  return name
+  text = text:gsub("^\239\187\191", "")
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    local name = line:match("^%s*(.-)%s*$")
+    if name ~= "" and name:sub(1, 1) ~= "#" then
+      if name_problem(name) ~= nil then return nil end
+      return name
+    end
+  end
+  return nil
 end
 
 --- The host's zone when `TZ` is unset: the carried zone the
 --- /etc/localtime link names, else the one /etc/timezone names, else UTC.
 local function host_zone(localtime: string, timezone: string): Time.Zone
-  for _, name in ipairs({ linked_name(localtime) or "", written_name(timezone) or "" }) do
-    if name ~= "" then
+  for _, find in ipairs({ linked_name, written_name }) do
+    local name = find(find == linked_name and localtime or timezone)
+    if name ~= nil then
       local zone, _ = Time.zone(name)
       if zone ~= nil then return zone end
     end
   end
   return Time.UTC
+end
+
+--- The zone name a `TZ` of `:name` or `:/path` gives: a name as it is,
+--- less a `posix/` or `right/` before it; a path by where it sits,
+--- as `zoneinfo_name` reads it, else by where it links, as
+--- `TZ=:/etc/localtime` does.
+local function tz_name(rest: string): string
+  if rest:sub(1, 1) ~= "/" then
+    return (rest:gsub("^posix/", ""):gsub("^right/", ""))
+  end
+  return zoneinfo_name(rest) or linked_name(rest)
 end
 
 --- Every zone `local_zone` has answered with no options, by `TZ`, and
@@ -967,11 +998,14 @@ local unset_local: Time.Zone = nil
 --- else the one the first line of /etc/timezone names, else UTC: an
 --- /etc/localtime that is a copy rather than a link, or none at all,
 --- is UTC unless /etc/timezone says otherwise, and never a failure.
---- `TZ` set and empty, or `TZ=:`, is UTC. `TZ=:Name` and `TZ=Name` are
---- `zone(Name)`, and `TZ=:/path` the zone its path names the same way
---- as the link; any other `TZ` is a POSIX TZ string
---- (`zone_from_posix`). Nil and why only for a `TZ` that names no zone
---- the binary carries and is no POSIX TZ string. `opts.tz` stands in
+--- `TZ` set and empty, or `TZ=:`, is UTC. `TZ=:Name` is `zone(Name)`,
+--- less a `posix/` or `right/` before it; `TZ=:/path` (or `/path`) is
+--- the zone its path names the same way as the link, else the one it
+--- links to, as `TZ=:/etc/localtime` does; `TZ=Name` is `zone(Name)`
+--- when the binary carries it and else a POSIX TZ string
+--- (`zone_from_posix`). Nil and why only for a `TZ` it cannot use: a
+--- `:Name` or path naming no zone the binary carries, or a bare `TZ`
+--- that is neither a carried zone nor a POSIX TZ string. `opts.tz` stands in
 --- for `TZ` (nil reads the environment's, unless `opts.unset` reads as
 --- though it were unset), `opts.localtime` for /etc/localtime and
 --- `opts.timezone` for /etc/timezone; with no options, the answer is
@@ -997,20 +1031,19 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
     zone = Time.UTC
   elseif tz == nil then
     zone = host_zone(localtime, timezone)
-  elseif tz:sub(1, 1) == ":" then
-    local name = tz:sub(2)
-    if name:sub(1, 1) == "/" then
-      name = zoneinfo_name(name)
-      if name == nil then
-        return nil, ("TZ=%s: a path names a zone only by what follows its \"zoneinfo/\""):format(tz)
-      end
+  elseif tz:sub(1, 1) == ":" or tz:sub(1, 1) == "/" then
+    local name = tz_name((tz:gsub("^:", "")))
+    if name == nil then
+      return nil, ("TZ=%s: a path names a zone only by what follows its \"zoneinfo/\", " ..
+        "or by where it links"):format(tz)
     end
     local why: string
     zone, why = Time.zone(name)
     if zone == nil then return nil, ("TZ=%s: %s"):format(tz, why) end
   else
-    if name_problem(tz) == nil then
-      local named, _ = Time.zone(tz)
+    local name = tz_name(tz)
+    if name_problem(name) == nil then
+      local named, _ = Time.zone(name)
       zone = named
     end
     if zone == nil then
