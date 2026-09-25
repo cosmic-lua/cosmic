@@ -143,5 +143,7 @@ drop lib/vtls/hostcheck.c
 drop lib/vtls/hostcheck.h
 drop lib/vtls/schannel_int.h
 drop lib/vtls/vtls_spack.c
-license curl
+license curl AND ISC
 notice COPYING
+notice lib/curlx/inet_ntop.c:1-17
+notice lib/curlx/inet_pton.c:3-18

@@ -10,7 +10,11 @@
 ---     notice LICENSE.md                a file under the tree, the whole of it
 ---     notice src/lua.h:524-543         or those lines of it, 1-based
 ---
---- `notice` repeats. What cosmic's build links in without vendoring it
+--- `notice` repeats, and every key but `notice` is read once, the first
+--- line naming it winning, as `bin/vendor` reads its own. A PIN is part
+--- of what the core is built from (`work.record_fingerprint`'s image
+--- hash), so correcting one of these lines reboots the core as a
+--- version bump does. What cosmic's build links in without vendoring it
 --- -- zig's own runtime, and the musl libc the Linux cores are static
 --- against -- has a record of the same grammar at `build/bom/<name>.pin`,
 --- its notices beside it. A tree's patches under `patch/<name>/` are
@@ -23,6 +27,10 @@
 --- them when the tool is built (`build.writer`'s `carried`), and refuses
 --- a pin that names no license, so a newly vendored tree cannot ship
 --- without one. `cosmic bom` prints them.
+---
+--- TODO: check each `license` as an SPDX expression of known ids rather
+--- than taking the line as written; `build/bom_test.tl` only holds it to
+--- the `SPDX-License-Identifier` tags its tree's own files carry.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -101,8 +109,16 @@ end
 function bom.parse(name: string, source: string): bom.Component | nil, string
   local component: bom.Component = { name = name, kind = "library", version = "",
     url = "", sha256 = "", license = "", notices = {} }
+  local seen: {string:boolean} = {}
   for line in String.lines(source) do
     local key, value = line:match("^([%w_]+)%s+(.-)%s*$")
+    if key ~= nil and key ~= "notice" then
+      if seen[key] then
+        key = nil
+      else
+        seen[key] = true
+      end
+    end
     if key == "notice" then
       local notice, trouble = notice_of(value)
       if notice == nil then
@@ -143,7 +159,11 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
   if data == nil then
     return nil, trouble
   end
+  data = data:gsub("\r\n", "\n")
   if notice.first == nil then
+    if data:sub(-1) ~= "\n" then
+      return data .. "\n"
+    end
     return data
   end
   local kept: {string} = {}
@@ -178,11 +198,15 @@ local function patches_of(root: string, name: string): string | nil, string
   table.sort(names)
   local lines: {string} = {}
   for _, file in ipairs(names) do
-    local data, read_trouble = Fs.read(directory .. "/" .. file)
-    if data == nil then
-      return nil, read_trouble
+    -- Only what `core/patch.c` applies: a patch record is a `.txt`, and
+    -- an editor's hidden file beside one is none.
+    if file:sub(1, 1) ~= "." and String.ends_with(file, ".txt") then
+      local data, read_trouble = Fs.read(directory .. "/" .. file)
+      if data == nil then
+        return nil, read_trouble
+      end
+      lines[#lines + 1] = "patch/" .. name .. "/" .. file .. " " .. Hash.hex_sha256(data)
     end
-    lines[#lines + 1] = "patch/" .. name .. "/" .. file .. " " .. Hash.hex_sha256(data)
   end
   return table.concat(lines, "\n")
 end
@@ -294,7 +318,7 @@ end
 
 --- One line per component: name, version, license, and whether cosmic
 --- patches it.
-function bom.lines(rows: {bom.Row}): {string}
+local function lines_of(rows: {bom.Row}): {string}
   local lines: {string} = {}
   for _, row in ipairs(rows) do
     local line = row.name .. " " .. row.version .. "  " .. row.license
@@ -309,18 +333,26 @@ function bom.lines(rows: {bom.Row}): {string}
 end
 
 --- Every notice `db` holds, each under a heading naming its component
---- and file, in component order.
+--- and file, in component order. A component that ships no notice --
+--- public domain, or a license such as MPL-2.0 that asks instead that a
+--- recipient be told where the source is -- gets its heading and that
+--- source.
 function bom.notices(db: Sqlite.Handle): string | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT c.name, c.version, c.license, n.file, n.text FROM components c " ..
-    "JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")
+    "SELECT c.name, c.version, c.license, c.url, n.file IS NULL, " ..
+    "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
+    "LEFT JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")
   if rows == nil then
     return nil, trouble
   end
   local parts: {string} = {}
   for _, row in ipairs(rows) do
-    local heading = "== " .. row[1] .. " " .. row[2] .. " (" .. row[3] .. "): " .. row[4]
-    parts[#parts + 1] = heading .. "\n\n" .. row[5]
+    local head = "== " .. row[1] .. " " .. row[2] .. " (" .. row[3] .. ")"
+    if row[5] == "1" then
+      parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row[4] .. "\n"
+    else
+      parts[#parts + 1] = head .. ": " .. row[6] .. "\n\n" .. row[7]
+    end
   end
   return table.concat(parts, "\n")
 end
@@ -370,7 +402,10 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
 end
 
 --- `cosmic bom [--licenses | --json <path>]`: what the running binary's
---- own database says it is made of. Nothing is built or staged.
+--- own database says it is made of. Nothing is built or staged here:
+--- `build/dispatch.tl` has a tool older than cosmic's own tree rebuild
+--- itself first, since `build.reboot` requires this module through
+--- `build.writer`.
 function bom.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer
@@ -421,7 +456,7 @@ function bom.run(argv: {integer:string}): integer
     end
     return finish(0, #rows .. " components written to " .. path)
   end
-  for _, line in ipairs(bom.lines(rows)) do
+  for _, line in ipairs(lines_of(rows)) do
     log:say(line)
   end
   return finish(0, #rows .. " components")

@@ -1,8 +1,8 @@
 --- Building a project into portable executables: one file each, the retained
 --- multi-core prefix with a database behind it that holds the project's modules
 --- but not its tests or examples, the standard library, the error catalog, the
---- bill of materials, and the name of the main module, so it runs on its own with no `cosmic` beside
---- it.
+--- bill of materials, and the name of the main module, so it runs on its own
+--- with no `cosmic` beside it.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
 --- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
@@ -193,6 +193,11 @@ function embed.database(project: string, main: string): string | nil, string
     -- licenses ask to travel with a copy.
     -- TODO: name the project itself in it, as `cosmic bom` names cosmic,
     -- once a project declares a name and version a build can read.
+    -- TODO: let `cosmic bom <executable>` print these rows: nothing a
+    -- program carries prints them, so its notices travel only inside the
+    -- database bytes. That waits on a way to open a portable file's
+    -- database from Teal, as the store opens its own (`build.artifact`
+    -- parses the prefix, not the trailer the database range hangs off).
     copied, copy_trouble = copy_rows(binary, out, "components",
       { "name", "kind", "version", "license", "url", "sha256", "patches" },
       "SELECT name, kind, version, license, url, sha256, patches " ..

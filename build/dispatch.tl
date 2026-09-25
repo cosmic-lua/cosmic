@@ -457,7 +457,13 @@ local verbs: {string: function({integer:string}): integer} = {
   todos = function(argv: {integer:string}): integer
     return require("build.todos").run(argv)
   end,
+  -- The rows are the running binary's, so in cosmic's own tree a tool
+  -- older than the tree rebuilds first, as `docs` does.
   bom = function(argv: {integer:string}): integer
+    local stale = require("build.reboot").stale_exit(argv)
+    if stale ~= nil then
+      return stale
+    end
     return require("build.bom").run(argv)
   end,
   -- Never stale-checked, unlike `db`: a staleness check stages the tree,
