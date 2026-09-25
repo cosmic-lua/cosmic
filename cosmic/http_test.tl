@@ -299,6 +299,10 @@ local function test_an_https_peer_is_verified_against_the_carried_roots()
   local broken = root:sub(1, -2) .. string.char(root:byte(-1) ~ 1)
   local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) } })
   assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
+  -- The carried roots may be what is stale: the failure says how to get
+  -- newer ones.
+  assert(refused:find("`cosmic refresh cacert --binary <this program> -o <copy>`", 1, true), refused)
+  assert(not trusted:find("cosmic refresh", 1, true), trusted)
 end
 
 local function test_a_non_string_option_throws()

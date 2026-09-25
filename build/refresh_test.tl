@@ -266,3 +266,12 @@ local function test_the_newest_sdist_is_read_from_pypi()
   none, trouble = refresh.tzdata_release("[]")
   assert(none == nil, trouble)
 end
+
+--- What someone whose data went stale would ask `cosmic docs` finds
+--- the verb.
+local function test_docs_finds_refresh_by_what_it_is_for(tmp: string)
+  for _, words in ipairs({ "update certificates", "time zone database out of date" }) do
+    local result = invoke.run({ "docs", words }, { cwd = tmp })
+    assert(result.stdout:find("Cli.refresh", 1, true), words .. ":\n" .. result.stdout)
+  end
+end
