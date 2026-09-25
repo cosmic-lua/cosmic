@@ -164,6 +164,11 @@ local function into(handle: work.Handle, built: compiler,
     end
     return closing(handle, "the tool is still stale after a reboot")
   end
+  -- TODO: the prefix is the running tool's and `artifact.program` its own
+  -- code, and neither fingerprint covers build/artifact.tl (the image's
+  -- names build/launcher.tl alone), so an edit to how an artifact is
+  -- laid out reaches a self-rebuilt tool only at the next boot. Put
+  -- build/artifact.tl in the image fingerprint beside the launcher.
   local prefix, prefix_trouble = artifact.trusted_prefix()
   if prefix == nil then
     return closing(handle, prefix_trouble)

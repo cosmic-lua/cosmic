@@ -605,9 +605,10 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "an edit to a module the compiler requires did not move its identity")
 end
 
---- The writer identity is the build's own modules in `build.writer`'s
---- closure and nothing else: an edit to one moves it, and an edit to the
---- importer, which the writer does not require here, does not. It is what
+--- The writer identity is every module in `build.writer`'s closure,
+--- the standard library's included, and nothing else: an edit to one
+--- moves it, and an edit to the importer, which the writer does not
+--- require here, does not. It is what
 --- a projection is signed with (`build.writer`), so a tool whose writer
 --- stands writes what the tree's own would.
 local function test_writer_identity_follows_the_writer_closure()
@@ -620,9 +621,12 @@ local function test_writer_identity_follows_the_writer_closure()
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/build/schema.tl",
     "local record schema\nend\nreturn schema\n"))
+  assert(Fs.write(root .. "/cosmic/codec.tl",
+    "local record codec\nend\nreturn codec\n"))
   assert(Fs.write(root .. "/build/writer.tl",
-    "local schema = require(\"build.schema\")\nlocal record writer\nend\n" ..
-    "writer.schema = schema\nreturn writer\n"))
+    "local schema = require(\"build.schema\")\n" ..
+    "local codec = require(\"cosmic.codec\")\nlocal record writer\nend\n" ..
+    "writer.schema = schema\nwriter.codec = codec\nreturn writer\n"))
   assert(Fs.write(root .. "/build/importer.tl",
     "local record importer\nend\nreturn importer\n"))
   local function identity(): string
@@ -640,8 +644,13 @@ local function test_writer_identity_follows_the_writer_closure()
   assert(identity() == fresh, "an edit outside the writer's closure moved its identity")
   assert(Fs.write(root .. "/build/schema.tl",
     "local record schema\nend\nreturn schema\n-- edited\n"))
-  assert(identity() ~= fresh,
+  local after_build = identity()
+  assert(after_build ~= fresh,
     "an edit to a module the writer requires did not move its identity")
+  assert(Fs.write(root .. "/cosmic/codec.tl",
+    "local record codec\nend\nreturn codec\n-- edited\n"))
+  assert(identity() ~= after_build,
+    "an edit to a standard library module the writer requires did not move its identity")
 end
 
 --- The Lua a module compiles to keeps the line numbers of the Teal it

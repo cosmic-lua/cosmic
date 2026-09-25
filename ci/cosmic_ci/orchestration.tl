@@ -108,7 +108,7 @@ local self_rebuild_test_timeout_ms <const> = 180000
 -- past the runner's default 30 s per test on a loaded machine.
 local self_rebuild_per_test_timeout_s <const> = "120"
 -- Each fixed-point test rebuilds the product twice from a fresh tree, and
--- the compiler's case compiles the whole tree four times over (80 s
+-- the compiler's case compiles the whole tree about twice over (80 s
 -- alone on four cores), so each runs apart from the self-rebuild file's.
 local fixed_point_test_timeout_ms <const> = 300000
 local fixed_point_per_test_timeout_s <const> = "240"
