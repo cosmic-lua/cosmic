@@ -785,14 +785,17 @@ local function test_a_pid_past_an_int_raises()
   raises(process.waitpid, 0, true)
 end
 
---- The calls that start and reap a child are the raw process table's,
---- and not the public `cosmic.sys`'s: a public `waitpid(-1)` would take
---- the status of a child a `Child` handle owns from under it.
+--- The calls that start and reap a child, and hold this process's
+--- signals while it does, are the raw process table's, and not the
+--- public `cosmic.sys`'s: a public `waitpid(-1)` would take the status
+--- of a child a `Child` handle owns from under it, and a public signal
+--- guard would be a second one beside `Child.guard`'s.
 local function test_the_process_calls_are_off_the_public_table()
   local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "relaunch", "pipe",
-      "set_nonblocking", "poll", "ignore_sigpipe", "landlock_ruleset" }) do
+      "set_nonblocking", "poll", "ignore_sigpipe", "landlock_ruleset",
+      "guard_child_signals", "unguard_child_signals", "cancelled_child_signal" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type(raw[name]) == "function", name .. " is not in the raw process table")
   end

@@ -163,6 +163,35 @@ COSMIC_SYSCALL(subreaper, 0);
 COSMIC_SYSCALL(ignore_sigpipe, 0);
 
 /*
+ * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
+ * --- A signal this process ignores stays ignored, and is never caught.
+ * --- Only one guard may be active; callers must restore it when done.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(guard_child_signals, 0);
+
+/*
+ * --- Restores dispositions and returns the last signal delivered since
+ * --- the last take.
+ * ---@return integer|nil signal the pending signal, zero when none, or nil on failure
+ * ---@return string error what went wrong, when signal is nil
+ * ---@return integer errno the error number, when signal is nil
+ */
+COSMIC_SYSCALL(unguard_child_signals, 0);
+
+/*
+ * --- Takes the last supervised SIGINT or SIGTERM delivered since the last
+ * --- take, or zero when none arrived. Two pending together are delivered
+ * --- in the kernel's order, not the order they were sent.
+ * ---@return integer|nil signal the pending signal number, zero, or nil on failure
+ * ---@return string error what went wrong, when signal is nil
+ * ---@return integer errno the error number, when signal is nil
+ */
+COSMIC_SYSCALL(cancelled_child_signal, 0);
+
+/*
  * --- The numbers `poll` takes and gives back, from this libc.
  * ---@class Constants
  * ---@field POLLIN integer there is data to read
