@@ -485,3 +485,66 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
       verb[1] .. ": a tool outside the tree wrote one into it")
   end
 end
+
+-- The fixed point of the self-rebuild: the tool a boot wrote (the
+-- product), made stale by an edit to `file` and rebuilt, then made stale
+-- again by undoing it and rebuilt once more, must be the product again,
+-- byte for byte -- prefix, database and all. The second rebuild is done
+-- by a tool the first built, so this holds only when a tool built by a
+-- rebuild writes what a boot writes: the same compiles, the same
+-- projection, signed by the same writer. `settles` is whether `file`
+-- is in `build.writer`'s import closure, so that each rebuilt tool finds
+-- its database written by another writer and writes it again once
+-- (`build.reboot`); outside it, neither does.
+local function run_fixed_point_case(tmp: string, name: string, file: string,
+    settles: boolean)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
+  local case_root = tmp .. "/case-fixed-point-" .. name
+  local tree = case_root .. "/tree"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = tree .. "/o/bin/cosmic"
+  Fixture.mkdir(tree .. "/o/bin")
+  Fixture.copy(product, program, 0x1ed)
+  local booted = Fixture.hash(product)
+
+  local path = tree .. "/" .. file
+  local original = Fixture.read(path)
+  local values = Fixture.environment({
+    COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
+  for _, stage in ipairs({ "edited", "undone" }) do
+    if stage == "edited" then
+      Fixture.write(path, original .. "-- a fixed-point fixture\n")
+    else
+      Fixture.write(path, original)
+    end
+    local outcome = Fixture.call_with_environment("fixed-point-" .. name ..
+      "-" .. stage, { program, "docs", "cosmic.child" }, tree, diagnostics,
+      values, rebuild_timeout_ms)
+    assert(outcome.result.code == 0, name .. ": " .. stage ..
+      ": exit status was " .. tostring(outcome.result.code) .. ", want 0")
+    local err = Fixture.read(outcome.err)
+    local stale_lines = count_occurrences(err,
+      "the tool is stale; rebuilding it from the tree")
+    assert(stale_lines == 1, name .. ": " .. stage .. ": reported " ..
+      tostring(stale_lines) .. " stale-rebuild lines, want 1")
+    local settled_lines = count_occurrences(err,
+      "the tool's database was written by an older writer; writing it again")
+    local want = settles and 1 or 0
+    assert(settled_lines == want, name .. ": " .. stage .. ": wrote its " ..
+      "database again " .. tostring(settled_lines) .. " times, want " ..
+      tostring(want))
+  end
+  assert(Fixture.hash(program) == booted, name .. ": the tool two " ..
+    "self-rebuilds left is not the tool the boot wrote")
+end
+
+local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "outside-the-writer", "cosmic/log.tl", false)
+end
+
+local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "inside-the-writer", "build/clock.tl", true)
+end

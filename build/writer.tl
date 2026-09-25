@@ -162,11 +162,14 @@ local rebuild_fts: {string} = {
 
 --- What the shipped database is a function of: this run's plan with
 --- each module's file, the declarations, fingerprints, host-independent
---- identities, the zones it carries, the main module, and the running binary's own boot hash,
---- as one hash. The last is the writer itself: a stale tool rebuilding
---- itself writes this file with its own, older code before the new tool
---- re-enters, and the tree's fingerprints alone would let the new tool
---- take that file for its own projection.
+--- identities, the zones it carries, the main module, and the identity
+--- of the writer writing it (`running`), as one hash. The last is
+--- the writer itself: a stale tool rebuilding itself writes this file
+--- with its own code before the new tool re-enters, and the tree's
+--- fingerprints alone would let the new tool take that file for its
+--- own projection when its writer is not the same code. A writer that is
+--- the same code signs the same bytes, so a self-rebuild whose writer did
+--- not move lands on the tool a boot writes.
 --- When it matches the one the last write left in `meta` and the file
 --- is still there, the file already is the projection of these rows,
 --- and nothing is written. The catalog, docs, examples and references
@@ -190,8 +193,8 @@ local function signature_sql(): string
   "char(10) || ?2 || char(10) || ?3)))"
 end
 
---- The signature of `result`'s projection as the binary whose boot
---- hash is `binary` would write it -- see `signature_sql`.
+--- The signature of `result`'s projection as the writer whose identity
+--- is `binary` would write it -- see `signature_sql`.
 function writer.signature(handle: work.Handle, result: importer.Result,
                           binary: string): string | nil, string
   local signed, trouble = Sqlite.text_rows(handle.db, signature_sql(),
@@ -202,9 +205,11 @@ function writer.signature(handle: work.Handle, result: importer.Result,
   return signed[1][1]
 end
 
---- Fills the attached `out` schema and vacuums it into `path`.
+--- Fills the attached `out` schema and vacuums it into `path`, signed
+--- `signature` by the writer whose identity is `by`.
 local function project(handle: work.Handle, path: string,
-                       result: importer.Result): boolean, string
+                       result: importer.Result, signature: string,
+                       by: string): boolean, string
   local db = handle.db
   for _, statement in ipairs(schema.settings("out.")) do
     local ok, failure = db:exec(statement)
@@ -232,7 +237,7 @@ local function project(handle: work.Handle, path: string,
         return false, failure
       end
     end
-    local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis')"
+    local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'writer')"
     local carried, meta_trouble = db:exec(
       "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
       "WHERE key IN " .. metadata)
@@ -278,13 +283,9 @@ local function project(handle: work.Handle, path: string,
     if not carried_main then
       return false, main_trouble
     end
-    local signature, sign_trouble = writer.signature(handle, result, Store.meta("boot_hash") or "")
-    if signature == nil then
-      return false, sign_trouble
-    end
     return Sqlite.run(db,
-      "INSERT INTO out.meta (key, value) VALUES ('projected', ?1)",
-      { text(signature) })
+      "INSERT INTO out.meta (key, value) VALUES ('projected', ?1), ('written_by', ?2)",
+      { text(signature), text(by) })
   end)
   if not made then
     return false, refused
@@ -292,6 +293,30 @@ local function project(handle: work.Handle, path: string,
 
   local _, _ = Fs.remove(path .. ".building")
   return Sqlite.run(db, "VACUUM out INTO ?1", { text(path .. ".building") })
+end
+
+--- The identity of the writer this process runs, which signs what it
+--- writes (`signature_sql`) and is recorded beside it as `written_by`.
+--- A boot, which carries no database, and a tool fresh against the tree
+--- in `handle` both run the tree's own code, so it is the tree's
+--- (`identities.writer`). Any other binary names the `writer` it
+--- carries, or, from before binaries carried one, its whole boot hash,
+--- so a tool it rebuilt is never taken for one the tree's writer wrote
+--- (`build.reboot`).
+local function running(handle: work.Handle,
+                       identities: work.Identities): string | nil, string
+  local boot_hash = Store.meta("boot_hash")
+  if boot_hash == nil then
+    return identities.writer
+  end
+  local tree_hash, trouble = work.recorded_boot_hash(handle)
+  if tree_hash == nil and trouble ~= "" then
+    return nil, trouble
+  end
+  if tree_hash == boot_hash then
+    return identities.writer
+  end
+  return Store.meta("writer") or ("boot " .. boot_hash)
 end
 
 --- Writes an already-compiled result into a fresh host-independent database
@@ -309,7 +334,11 @@ function writer.write_result(handle: work.Handle, out: string,
   if identities == nil then
     return false, identity_trouble
   end
-  local signature, sign_trouble = writer.signature(handle, result, Store.meta("boot_hash") or "")
+  local by, by_trouble = running(handle, identities)
+  if by == nil then
+    return false, by_trouble
+  end
+  local signature, sign_trouble = writer.signature(handle, result, by)
   if signature == nil then
     return false, sign_trouble
   end
@@ -321,7 +350,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if not attached then
     return false, attach_trouble
   end
-  local projected, trouble = project(handle, out, result)
+  local projected, trouble = project(handle, out, result, signature, by)
   local _, _ = db:exec("DETACH out")
   if not projected then
     return false, trouble

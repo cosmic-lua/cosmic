@@ -605,6 +605,45 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "an edit to a module the compiler requires did not move its identity")
 end
 
+--- The writer identity is the build's own modules in `build.writer`'s
+--- closure and nothing else: an edit to one moves it, and an edit to the
+--- importer, which the writer does not require here, does not. It is what
+--- a projection is signed with (`build.writer`), so a tool whose writer
+--- stands writes what the tree's own would.
+local function test_writer_identity_follows_the_writer_closure()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-writer-identity-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+                         "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/build/schema.tl",
+    "local record schema\nend\nreturn schema\n"))
+  assert(Fs.write(root .. "/build/writer.tl",
+    "local schema = require(\"build.schema\")\nlocal record writer\nend\n" ..
+    "writer.schema = schema\nreturn writer\n"))
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local record importer\nend\nreturn importer\n"))
+  local function identity(): string
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    assert(importer.derive(handle, true, built))
+    local found = assert(work.record_identities(handle))
+    work.close(handle)
+    return found.writer
+  end
+  local fresh = identity()
+  assert(identity() == fresh, "a second open of the same tree moved the writer identity")
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local record importer\nend\nreturn importer\n-- edited\n"))
+  assert(identity() == fresh, "an edit outside the writer's closure moved its identity")
+  assert(Fs.write(root .. "/build/schema.tl",
+    "local record schema\nend\nreturn schema\n-- edited\n"))
+  assert(identity() ~= fresh,
+    "an edit to a module the writer requires did not move its identity")
+end
+
 --- The Lua a module compiles to keeps the line numbers of the Teal it
 --- came from: an uncaught error names a Lua line, and the runtime
 --- reads that line straight out of the Teal source, so the two must

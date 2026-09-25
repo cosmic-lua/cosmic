@@ -503,6 +503,7 @@ local function phase_fixtures(p: PlatformContext): integer
     self_rebuild_test_timeout_ms, {
     COSMIC_FIXTURE_ROOT = root,
     COSMIC_FIXTURE_RUNTIME = runtime,
+    COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
