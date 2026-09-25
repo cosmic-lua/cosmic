@@ -28,6 +28,9 @@ local record sqlite
     step: function(Statement): string | nil, string
     --- How many columns a row of this statement has.
     columns: function(Statement): integer
+    --- The name of the column at `index`, from zero: its `AS` alias,
+    --- or what SQLite calls it without one. Known before any row.
+    name: function(Statement, index: integer): string
     --- One of "integer", "number", "text", "blob", "null".
     kind: function(Statement, index: integer): string
     --- The column at `index`, counting from 0, of the current row, as

@@ -79,8 +79,10 @@ local record Cli
   --- against o/cosmic.db, or the binary's own database when there is
   --- none; `--build` names o/build.db, `--store` the binary's own (which
   --- refuses every PRAGMA but data_version) and `--db` any file. o/ is
-  --- looked for in the working directory only, never above it. Each row
-  --- is one line of tab-separated cells: NULL as \N, a blob as X'<hex>',
+  --- looked for in the working directory only, never above it. The
+  --- first line names the columns (a statement without any prints
+  --- none); each row after is one line of
+  --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
   --- \r and any other control byte as \xHH. The verdict line comes
   --- after the rows, as every verb's last line. Exits 0 when the

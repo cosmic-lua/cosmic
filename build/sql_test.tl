@@ -63,25 +63,38 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   local root = project()
   local path = root .. "/o/cosmic.db"
   local lines = assert(query(path, "SELECT a, b FROM t ORDER BY rowid"))
-  assert(#lines == 5, #lines)
-  assert(lines[1] == "1\tone", lines[1])
-  assert(lines[2] == "\\N\tX'00FF'", lines[2])
-  assert(lines[3] == "1.5\ttab\\tand\\\\", lines[3])
-  assert(lines[4] == "2.0\t", lines[4])
+  assert(#lines == 6, #lines)
+  assert(lines[1] == "a\tb", lines[1])
+  assert(lines[2] == "1\tone", lines[2])
+  assert(lines[3] == "\\N\tX'00FF'", lines[3])
+  assert(lines[4] == "1.5\ttab\\tand\\\\", lines[4])
+  assert(lines[5] == "2.0\t", lines[5])
   -- No stored control byte reaches the terminal, and the text "\N" is
   -- told apart from NULL.
-  assert(lines[5] == "3\t\\x1B[31m\\x7F\\\\N", lines[5])
-  local none = assert(query(path, "SELECT a FROM t WHERE 0"))
-  assert(#none == 0)
+  assert(lines[6] == "3\t\\x1B[31m\\x7F\\\\N", lines[6])
+  -- A statement with no rows still names its columns.
+  local none = assert(query(path, "SELECT a, b AS \"tab\tbed\" FROM t WHERE 0"))
+  assert(#none == 1 and none[1] == "a\ttab\\tbed", none[1])
   -- Rows go to stdout, then the verdict; complaints go to stderr.
   local code, written = run(root, { "SELECT a FROM t WHERE a > 1 AND a < 3 ORDER BY a" })
   assert(code == 0)
-  assert(#written.out == 2 and written.out[1] == "1.5" and written.out[2] == "2.0",
-    table.concat(written.out, "|"))
+  assert(#written.out == 3 and written.out[1] == "a" and written.out[2] == "1.5" and
+    written.out[3] == "2.0", table.concat(written.out, "|"))
   assert(#written.err == 0, table.concat(written.err, "|"))
   assert(written.verdict:find("^sql: PASS %(2 rows from o/cosmic.db, ") ~= nil, written.verdict)
   code, written = run(root, { "SELECT a FROM t WHERE 0" })
-  assert(code == 0 and #written.out == 0)
+  assert(code == 0 and #written.out == 1 and written.out[1] == "a")
+  assert(written.verdict:find("^sql: PASS %(0 rows") ~= nil, written.verdict)
+  -- A parameter is refused rather than read as NULL.
+  local unbound, unbound_trouble = query(path, "SELECT a FROM t WHERE a = ?")
+  assert(unbound == nil and unbound_trouble ==
+    "the statement takes 1 parameter; cosmic sql binds none", unbound_trouble)
+  code, written = run(root, { "SELECT ?1, ?2" })
+  assert(code == 1 and #written.out == 0)
+  assert(written.err[1]:find("takes 2 parameters", 1, true) ~= nil, written.err[1])
+  -- A statement with no columns prints no header, and counts no row.
+  code, written = run(root, { "PRAGMA query_only = 1" })
+  assert(code == 0 and #written.out == 0, table.concat(written.out, "|"))
   assert(written.verdict:find("^sql: PASS %(0 rows") ~= nil, written.verdict)
   assert(Fs.remove_tree(root))
 end
@@ -195,8 +208,16 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   -- The binary's own database answers, and still refuses a write.
   local opened = assert(sql.open(chosen))
   assert(not opened.owned)
-  local lines = assert(sql.query(opened.db, "SELECT count(*) > 0 FROM sqlite_master"))
-  assert(lines[1] == "1", lines[1])
+  local lines = assert(sql.query(opened.db, "SELECT count(*) > 0 AS any FROM sqlite_master"))
+  assert(#lines == 2 and lines[1] == "any" and lines[2] == "1", table.concat(lines, "|"))
+  -- A PRAGMA it refuses is answered with what a query can tell instead.
+  local code, said = run(root, { "--store", "PRAGMA table_info(modules)" })
+  assert(code == 1 and #said.out == 0)
+  assert(said.err[1]:find("not authorized; the binary's own database answers a query",
+    1, true) ~= nil, said.err[1])
+  code, said = run(root, { "--store", "SELECT * FROM modules LIMIT 0" })
+  assert(code == 0 and #said.out == 1 and said.out[1]:find("\t", 1, true) ~= nil,
+    table.concat(said.out, "|"))
   for _, statement in ipairs({
     "CREATE TEMP TABLE u (a)",
     "ATTACH ':memory:' AS m",
