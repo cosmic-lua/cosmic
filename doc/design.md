@@ -482,8 +482,11 @@ under `o/vendor/`, and the core for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the vendored `tl.lua`, writes `o/cosmic.db`, and writes one
 portable `o/bin/cosmic`. the tool carries `o/carried.db`, that projection
-without the tree's own tests and examples: `cosmic test` loads those
-from `o/cosmic.db`, and a release has no use for them. a fresh clone and CI run `boot`; a
+without the tree's own tests and examples, and with the docs, uses
+and examples of the public standard library alone (and the doc rows
+the error catalog's guidance joins to): `cosmic test` and a lookup
+inside the tree read the rest from `o/cosmic.db`, and a release has no
+use for them. a fresh clone and CI run `boot`; a
 developer runs `o/bin/cosmic build` the other hundred times a day.
 
 cosmic builds itself, so the tool is also an artifact of the tree,

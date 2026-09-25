@@ -8,6 +8,7 @@ local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
+local schema = require("build.schema")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -773,6 +774,27 @@ local function test_unresolved_removed_require_names_its_own_replacement()
   assert(compile_trouble:find("module not found: 'io'", 1, true) ~= nil, compile_trouble)
   assert(compile_trouble:find("see also in docs: Removed.io", 1, true) ~= nil,
     compile_trouble)
+end
+
+--- A tree's own last projection is where a hint finds the tree's own
+--- modules, which the tool does not document for any tree but its
+--- standard library's: an unknown name that `o/cosmic.db` documents
+--- names it.
+local function test_a_hint_names_what_the_tree_s_own_projection_documents()
+  local root = assert(write_fixture("projection-hint", {
+    ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
+  }))
+  assert(Fs.mkdirs(root .. "/o"))
+  local projection = assert(Sqlite.open(root .. "/o/cosmic.db", true))
+  for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
+  assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
+    "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
+    "'module', '', 'Greets.', 'greeter.tl', 1)"))
+  assert(projection:close())
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the undeclared name to refuse the compile")
+  assert(compile_trouble:find("unknown variable: greeter -- see also in docs: greeter",
+    1, true) ~= nil, compile_trouble)
 end
 
 --- An ordinary undeclared-name typo, unrelated to anything the

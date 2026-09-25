@@ -16,6 +16,7 @@ local importer = require("build.importer")
 local bom = require("build.bom")
 local roots = require("build.roots")
 local schema = require("build.schema")
+local symbols = require("build.symbols")
 local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
@@ -359,16 +360,28 @@ local carry: {string} = {
   "INSERT INTO main.components SELECT * FROM whole.components ORDER BY name",
   "INSERT INTO main.notices SELECT * FROM whole.notices ORDER BY component, ordinal",
   "INSERT INTO main.ca_roots SELECT * FROM whole.ca_roots ORDER BY sha256",
+  -- Outside cosmic's own tree, `cosmic docs`, `cosmic uses` and a
+  -- compile's hints read the tool's rows only for the public standard
+  -- library (`symbols.public_only`), and inside it they read the tree's
+  -- own projection first: so a doc row about any other module is
+  -- carried only for the catalog, whose guidance is the doc comment of
+  -- the function an error came from (core/main.c, `build.embed`).
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
     "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
     "source_symbol, exported, kind, signature, text, file, line " ..
-    "FROM whole.docs WHERE module NOT IN dropped ORDER BY id",
-  dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses " ..
-    "WHERE module NOT IN dropped AND from_module NOT IN dropped " ..
-    "ORDER BY module, symbol, from_module, line",
+    "FROM whole.docs d WHERE module NOT IN dropped AND (" ..
+    symbols.public_only("d.module", true) ..
+    " OR EXISTS (SELECT 1 FROM whole.catalog c WHERE c.module = d.module " ..
+    "AND c.symbol = d.source_symbol)) ORDER BY id",
+  dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
+    "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..
+    symbols.public_only("u.module", true) .. " AND " ..
+    symbols.public_only("u.from_module", true) ..
+    " ORDER BY module, symbol, from_module, line",
   dropped_modules .. "INSERT INTO main.examples (module, name, text, file, " ..
     "line, source) SELECT module, name, text, file, line, source " ..
-    "FROM whole.examples WHERE module NOT IN dropped ORDER BY id",
+    "FROM whole.examples e WHERE module NOT IN dropped AND " ..
+    symbols.public_only("e.module", true) .. " ORDER BY id",
   dropped_modules .. "INSERT INTO main.catalog (kind, module, symbol, " ..
     "message, text, file, line) SELECT kind, module, symbol, message, " ..
     "text, file, line FROM whole.catalog WHERE module NOT IN dropped " ..
@@ -378,7 +391,9 @@ local carry: {string} = {
 --- Writes at `out` the database the tool built from the projection at
 --- `whole` carries: the projection without the tree's own tests and
 --- examples, which `cosmic test` loads from the projection itself and a
---- release has no use for. Like the projection, it is a function of
+--- release has no use for, and with only the public standard library's
+--- docs, uses and examples, the only ones a reader asks the tool for
+--- (see `carry`). Like the projection, it is a function of
 --- its input alone: a fresh schema, filled in one order, vacuumed.
 --- Its `meta` is the projection's, `projected` included: that signs the
 --- projection it came from, not these rows.
