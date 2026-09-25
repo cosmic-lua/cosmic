@@ -20,15 +20,15 @@ function Example.rowid_and_changes()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)"))
   assert(Sqlite.run(db, "INSERT INTO items (value) VALUES (?1)", { { text = "a" } }))
-  local id = Sqlite.last_insert_rowid(db)
+  local id = db:last_insert_rowid()
   assert(id == 1)
   assert(Sqlite.run(db, "DELETE FROM items WHERE id = ?1", { { integer = id } }))
-  assert(Sqlite.changes(db) == 1)
+  assert(db:changes() == 1)
   -- Deleting an id that is no longer there changes nothing: this is
   -- how a caller tells "removed" from "was never there" without a
   -- SELECT of its own first.
   assert(Sqlite.run(db, "DELETE FROM items WHERE id = ?1", { { integer = id } }))
-  assert(Sqlite.changes(db) == 0)
+  assert(db:changes() == 0)
   assert(db:close())
 end
 

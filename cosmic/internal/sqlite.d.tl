@@ -53,16 +53,25 @@ local record sqlite
   record Handle
     userdata
 
-    --- Runs every statement in `sql`, discarding any rows.
+    --- Runs every statement in `sql`, discarding any rows, with no
+    --- parameter binding: schema DDL, PRAGMAs, or several
+    --- `;`-separated statements in one call -- the one thing
+    --- `Sqlite.run`, `rows` and `text_rows` cannot do, since each of
+    --- those prepares exactly one statement. Reach for `Sqlite.run`
+    --- once a value needs binding.
     exec: function(Handle, sql: string): boolean, string
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement | nil, string
     --- Closes the connection; closing one already closed does nothing.
     --- A borrowed handle, such as the store's, only lets go of it.
     close: function(Handle): boolean, string
-    --- How many rows the most recent INSERT, UPDATE or DELETE changed.
+    --- How many rows the most recent INSERT, UPDATE or DELETE on this
+    --- connection changed -- not the whole database's, and not another
+    --- connection's.
     changes: function(Handle): integer
-    --- The rowid of the most recent successful INSERT.
+    --- The rowid SQLite assigned the most recent successful INSERT on
+    --- this connection: 0 before any has run on it, and a table
+    --- declared `WITHOUT ROWID` never changes it.
     last_insert_rowid: function(Handle): integer
   end
 

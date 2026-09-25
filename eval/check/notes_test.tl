@@ -8,7 +8,7 @@ local Notes = require("eval.check.notes")
 --- per path, and one run per passing or failing test.
 local function database(path: string, inputs: {{string}}, runs: {{string}})
   local db = assert(Sqlite.open(path, true))
-  assert(Sqlite.exec(db, [[
+  assert(db:exec([[
     create table inputs (path text primary key, kind text, origin text);
     create table runs (path text, passed integer);
   ]]))
@@ -20,7 +20,7 @@ local function database(path: string, inputs: {{string}}, runs: {{string}})
     assert(Sqlite.run(db, "insert into runs values (?, ?)",
       { { text = run[1] }, { integer = math.tointeger(tonumber(run[2])) } }))
   end
-  Sqlite.close(db)
+  db:close()
 end
 
 local function test_evidence_counts_passing_tests_and_examples_apart(dir: string)
@@ -47,7 +47,7 @@ local function test_reset_clears_the_runs_and_keeps_the_rest(dir: string)
   assert(evidence.tests == 0 and evidence.examples == 0)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "select count(*) from inputs", {}))
-  Sqlite.close(db)
+  db:close()
   assert(rows[1][1] == "1")
 end
 

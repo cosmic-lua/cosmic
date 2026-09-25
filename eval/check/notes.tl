@@ -84,8 +84,8 @@ function Notes.reset_evidence(path: string): boolean, string
   if db == nil then
     return false, otrouble
   end
-  local ok, etrouble = Sqlite.exec(db, "delete from runs")
-  local closed, close_trouble = Sqlite.close(db)
+  local ok, etrouble = db:exec("delete from runs")
+  local closed, close_trouble = db:close()
   if not ok then return false, etrouble end
   if not closed then return false, close_trouble end
   return true, ""
@@ -110,7 +110,7 @@ function Notes.evidence(path: string): Notes.Evidence | nil, string
   ]], {})
   -- A read-only handle has nothing to lose in closing; the query's own
   -- answer is the one that counts.
-  local _, _ = Sqlite.close(db)
+  local _, _ = db:close()
   if rows == nil then
     return nil, rtrouble
   end

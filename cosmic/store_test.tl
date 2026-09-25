@@ -40,7 +40,7 @@ return function(argv: {string}): integer
   assert(ordinary ~= nil, "no ordinary build.* module to compare")
 
   local db = assert(Sqlite.open(argv[1], true))
-  assert(Sqlite.exec(db, "CREATE TABLE modules (path TEXT, bytecode BLOB, " ..
+  assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, " ..
     "kind TEXT, source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
   local impostor = string.dump((assert(load("return 'impostor'"))))
   local names: {string} = { ordinary }
@@ -49,7 +49,7 @@ return function(argv: {string}): integer
     assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES (?1, ?2, 'module')",
       { { text = name }, { blob = impostor } }))
   end
-  assert(Sqlite.close(db))
+  assert(db:close())
   assert(Store.attach(argv[1]))
 
   for _, name in ipairs(wrappers) do

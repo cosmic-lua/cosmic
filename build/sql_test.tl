@@ -8,7 +8,7 @@ local function project(): string
   local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
   assert(Fs.mkdirs(root .. "/o"))
   local db = assert(Sqlite.open(root .. "/o/cosmic.db", true))
-  assert(Sqlite.exec(db, "CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
+  assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
     "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
     "(3, char(27) || '[31m' || char(127) || '\\N')"))
   assert(db:close())
