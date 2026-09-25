@@ -147,3 +147,33 @@ local function test_a_settled_epoch_time_is_trusted(tmp: string)
   assert(second.read == 0, "a settled epoch row must stand")
   assert(work.close(handle))
 end
+
+--- The zones a boot reads from a tree replace whatever the working
+--- database held, stay blobs, and read back out of any database that
+--- has them -- and out of one built before there was a table for them,
+--- as none.
+local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/zoneinfo/Europe"))
+  assert(Fs.write(tmp .. "/zoneinfo/UTC", "TZif utc"))
+  assert(Fs.write(tmp .. "/zoneinfo/Europe/Paris", "TZif\0paris"))
+  local zones = assert(work.read_zoneinfo(tmp .. "/zoneinfo"))
+  assert(zones["UTC"] == "TZif utc" and zones["Europe/Paris"] == "TZif\0paris")
+  local missing, trouble = work.read_zoneinfo(tmp .. "/nowhere")
+  assert(missing == nil and trouble ~= "")
+
+  local handle = assert(work.open(tmp))
+  assert(work.put_zoneinfo(handle, { ["Old/Zone"] = "gone" }))
+  assert(work.put_zoneinfo(handle, zones))
+  local back = assert(work.zoneinfo_of(handle.db))
+  assert(back["Old/Zone"] == nil, "a zone the tree no longer has is gone")
+  assert(back["Europe/Paris"] == "TZif\0paris" and back["UTC"] == "TZif utc")
+  local rows = assert(Sqlite.text_rows(handle.db,
+    "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
+  assert(rows[1][1] == "Europe/Paris blob,UTC blob", rows[1][1])
+  assert(work.close(handle))
+
+  local older = assert(Sqlite.memory())
+  local none = assert(work.zoneinfo_of(older))
+  assert(next(none) == nil)
+  assert(older:close())
+end

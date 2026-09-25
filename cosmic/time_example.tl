@@ -2,6 +2,7 @@
 --- symbol each one demonstrates and run by `cosmic test` like any other
 --- test -- see doc/design.md's `examples` table.
 
+local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 
 local Example = {}
@@ -76,6 +77,62 @@ function Example.parse_http()
   local saturday = assert(Time.parse_http("Mon, 26 Jul 1997 05:00:00 GMT"))
   print(Time.format_http(saturday))
   assert(Time.format_http(saturday) == "Sat, 26 Jul 1997 05:00:00 GMT")
+end
+
+--- A moment on New York's calendar, where clocks skip 02:30 on
+--- 2026-03-08: refused by default, and read as a wall clock set forward
+--- with "compatible".
+function Example.zone()
+  local ny = assert(Time.zone("America/New_York"))
+  local ns = assert(Time.parse_rfc3339("2026-07-01T16:00:00Z"))
+  local c = Time.civil(ns, ny)
+  print(c.hour, c.offset, c.abbreviation, c.dst)
+  assert(c.hour == 12 and c.offset == -14400 and c.abbreviation == "EDT" and c.dst)
+  print(Time.format_rfc3339(ns, { zone = ny, zone_name = true }))
+  local skipped: Time.Civil = { year = 2026, month = 3, day = 8, hour = 2, minute = 30, second = 0,
+    nanosecond = 0 }
+  print(Time.from_civil(skipped, ny))
+  local later = assert(Time.from_civil(skipped, ny, { disambiguation = "compatible" }))
+  print(Time.format_rfc3339(later, { zone = ny }))
+  assert(Time.format_rfc3339(later, { zone = ny }) == "2026-03-08T03:30:00-04:00")
+end
+
+--- The host's own zone, as `TZ` and /etc/localtime name it.
+function Example.local_zone()
+  local here, why = Time.local_zone()
+  assert(here ~= nil, why)
+  print(here.name, Time.format_rfc3339(Time.now_ns(), { zone = here, digits = 0 }))
+end
+
+--- Sydney's rules as a POSIX TZ string: daylight saving time from the
+--- first Sunday of October to the first of April, across the new year.
+function Example.zone_from_posix()
+  local sydney = assert(Time.zone_from_posix("AEST-10AEDT,M10.1.0,M4.1.0/3"))
+  local ns = assert(Time.parse_rfc3339("2027-01-01T00:00:00+11:00"))
+  local c = Time.civil(ns, sydney)
+  print(c.abbreviation, c.offset)
+  assert(c.abbreviation == "AEDT" and c.offset == 39600)
+  local utc = Time.civil(ns, Time.UTC)
+  print(utc.day, utc.hour, utc.abbreviation)
+  assert(utc.day == 31 and utc.hour == 13 and utc.abbreviation == "UTC")
+end
+
+--- A zone from TZif bytes -- here the binary's own copy of Tokyo's,
+--- which could as well have been read from a file.
+function Example.zone_from_tzif()
+  local tokyo = assert(Time.zone_from_tzif(assert(Store.zoneinfo("Asia/Tokyo")), "Asia/Tokyo"))
+  print(Time.format_rfc3339(0, { zone = tokyo, zone_name = true }))
+  assert(Time.format_rfc3339(0, { zone = tokyo, zone_name = true }) ==
+    "1970-01-01T09:00:00+09:00[Asia/Tokyo]")
+end
+
+--- RFC 9557 text names the zone after the offset: the moment and the
+--- zone come back, and an offset the zone did not have then is refused.
+function Example.parse_rfc3339_zoned()
+  local zoned = assert(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-04:00[America/New_York]"))
+  print(zoned.ns, zoned.zone.name)
+  assert(zoned.zone.name == "America/New_York" and zoned.ns == 1782921600 * 1000000000)
+  print(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-05:00[America/New_York]"))
 end
 
 return Example

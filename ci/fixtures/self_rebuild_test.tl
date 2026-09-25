@@ -5,9 +5,12 @@ local Process = require("cosmic_ci.process")
 local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
--- The second readiness comes only after the paused tool has rebuilt itself
--- from the tree: a whole compile, 3-5 s on a runner, not a handshake.
-local rebuild_timeout_ms <const> = 30000
+-- A call that finds the tool stale rebuilds it from the tree first: a
+-- whole cold compile, about 20 s on a runner while the file's other
+-- rebuilds run beside it, and past fixture.tl's 30 s default for a child
+-- on a loaded one. The driver bounds each test here at 120 s
+-- (orchestration.tl), which this leaves room inside.
+local rebuild_timeout_ms <const> = 90000
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
 -- which must itself be exactly `length` bytes: a length mismatch on either
@@ -368,7 +371,8 @@ local function test_self_rebuild_docs_verb(tmp: string)
 
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
   local outcome = Fixture.call_with_environment("docs-rebuild",
-    { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+    { program, "docs", "cosmic.child" }, tree, diagnostics, values,
+    rebuild_timeout_ms)
   assert(outcome.result.code == 0, "docs: exit status was " ..
     tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-docs-marker")
@@ -416,7 +420,8 @@ local function test_self_rebuild_fix_verb(tmp: string)
 
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
   local outcome = Fixture.call_with_environment("fix-rebuild",
-    { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values)
+    { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values,
+    rebuild_timeout_ms)
   assert(outcome.result.code == 0, "fix: exit status was " ..
     tostring(outcome.result.code) .. ", want 0")
   Fixture.contains(outcome.out, "step8-fix-marker")

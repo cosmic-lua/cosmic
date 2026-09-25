@@ -148,6 +148,20 @@ local function boot(root: string, argv: {integer:string}): integer
     log:verdict("boot", false, keep_trouble)
     return 1
   end
+  -- Read from the tree itself, as zig reads vendor/cacert: the zones
+  -- are data, which no patch record edits.
+  local zones, zones_trouble = work.read_zoneinfo(root .. "/vendor/tzdata/zoneinfo")
+  if zones == nil then
+    local _, _ = work.close(handle)
+    log:verdict("boot", false, zones_trouble)
+    return 1
+  end
+  local zoned, zoned_trouble = work.put_zoneinfo(handle, zones)
+  if not zoned then
+    local _, _ = work.close(handle)
+    log:verdict("boot", false, zoned_trouble)
+    return 1
+  end
 
   -- The tree's own identities, which are this boot's: the bridge runs the
   -- tree's build code. Parsed first, so the compiler closure is whole on a

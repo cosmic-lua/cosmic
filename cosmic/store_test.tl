@@ -116,6 +116,15 @@ local function test_alone_searches_only_the_binarys_own_database()
   assert(Store.meta("compiler") ~= nil)
 end
 
+--- The binary carries the tz database, one TZif file per zone.
+local function test_the_binary_carries_the_zones()
+  local data, why = Store.zoneinfo("America/New_York")
+  assert(data ~= nil, why)
+  assert(data:sub(1, 4) == "TZif", "a TZif file")
+  local none, trouble = Store.zoneinfo("Nowhere/Nothing")
+  assert(none == nil and trouble:find("Nowhere/Nothing", 1, true), trouble)
+end
+
 --- The binary's own connection knows the functions every handle does,
 --- so a query reads a module's deflated source back the way
 --- `Store.source` does.

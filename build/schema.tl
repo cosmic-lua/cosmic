@@ -6,8 +6,10 @@
 --- external-content mode needs a real rowid to join against, so each
 --- is keyed on one instead -- ordinary INSERTs still run in one
 --- deterministic order (see `build/writer.tl`), which is what keeps the
---- file byte-identical, not the rowid's absence. `ca_roots` is one too,
---- for its size: see below.
+--- file byte-identical, not the rowid's absence. `ca_roots` and
+--- `zoneinfo` are ones too, for their size: a WITHOUT ROWID row lives in
+--- an index page, where a blob past about a kilobyte spills into
+--- overflow pages of its own; see below. Each is written in key order.
 
 local record schema
 end
@@ -41,8 +43,16 @@ local tables: {{string}} = {
   { "decls", [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
+  -- TODO: nothing writes payload, which doc/design.md says holds an
+  -- embed-built executable's own files: have build/embed.tl carry a
+  -- project's files here, or drop the table and the doc's line.
   { "payload", [[(path TEXT PRIMARY KEY,
                   data BLOB NOT NULL) WITHOUT ROWID]] },
+
+  -- The IANA time zone database, one TZif file per zone name, which
+  -- `cosmic.time` reads where the host has no zone files of its own.
+  { "zoneinfo", [[(name TEXT PRIMARY KEY,
+                   data BLOB NOT NULL)]] },
 
   { "docs", [[(id INTEGER PRIMARY KEY,
                module TEXT NOT NULL,

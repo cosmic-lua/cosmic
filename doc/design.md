@@ -351,6 +351,14 @@ input to the build, never to the runtime. one database holds:
 - **payload**: for an embed-built executable, the user's files.
 - **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
   which `core/http.c` reads from the binary's own database alone.
+- **zoneinfo**: the IANA time zone database (`vendor/tzdata`), one
+  TZif file per zone name, which `cosmic.time` reads where the host
+  has no zone files of its own. A boot reads it from the tree, a
+  Teal-only rebuild carries the running binary's rows over, and
+  `cosmic build` copies it into every executable it writes. It keeps
+  a rowid, written in name order: a WITHOUT ROWID row lives in an
+  index page, where a zone file past about a kilobyte spills into
+  overflow pages, and the table would take two thirds more room.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
@@ -371,7 +379,7 @@ input to the build, never to the runtime. one database holds:
 every table is `WITHOUT ROWID` on a natural key, except `docs` and
 `catalog`, which FTS5's external-content mode joins by rowid and
 which are therefore keyed on an integer assigned in one deterministic
-insertion order instead. everything a build
+insertion order instead, and `ca_roots` and `zoneinfo`, for their size. everything a build
 does on one host lives in a second database beside it, `o/build.db`,
 the working database: the tree as it was last read, staged whole
 before anything transforms it; what a stat said about each file, so
