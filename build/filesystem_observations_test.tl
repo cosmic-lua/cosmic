@@ -198,3 +198,30 @@ local function test_a_relative_path_is_noted_from_the_working_directory(tmp: str
   assert(not text:find("o f\n", 1, true), text)
   assert(sys.chdir == chdir, "a wrapper was left installed")
 end
+
+--- A process started inside `declared` is noted "h", one outside it "p",
+--- and a declaration that did not hold, or one that raised, leaves the
+--- run unkeyable or the count of running declarations as it was.
+local function test_a_declared_process_is_noted_apart()
+  local run = observations.call(function()
+    observations.declared("held", function(): boolean
+      assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
+      return true
+    end)
+    observations.declared("not held", function(): boolean return false end)
+    local raised = pcall(observations.declared, "raised", function(): boolean
+      error("boom")
+    end)
+    assert(not raised)
+    assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
+  end, nil)
+  assert(run.passed, run.message)
+  local kinds: {string} = {}
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "h" or observation.kind == "p" or observation.kind == "x" then
+      kinds[#kinds + 1] = observation.kind .. " " .. observation.path
+    end
+  end
+  local text = table.concat(kinds, "\n")
+  assert(text == "h /bin/sh\nx not held\np /bin/sh", text)
+end

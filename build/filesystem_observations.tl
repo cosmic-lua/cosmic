@@ -218,10 +218,40 @@ local function directory_result_answer(entries: {string:string} | nil,
   return table.concat(parts, "")
 end
 
+--- While a `declared` call runs, a process it starts is noted "h", not
+--- "p". `noting` holds every running capture's own `note` -- one wraps
+--- another when a test captures its own calls -- for a declaration that
+--- did not hold, which each of them must hear.
+local declaring = 0
+local noting: {function(string, any, string)} = {}
+
+--- Calls `fn`, which starts processes whose every input it has read
+--- itself, through the calls observed here: a process started meanwhile
+--- is noted "h", a declared one, which a key can hold, rather than "p".
+--- `fn` answers whether its declaration held -- whether it could read
+--- everything each process read -- and when it did not, the run is noted
+--- "x" and never stands. Outside a capture this only calls `fn`. `fn`
+--- must not yield: a coroutine never resumed would leave its processes'
+--- successors declared.
+-- TODO: hold a declared process to what it declared -- confine it, and
+-- every process it starts, to reading those files (Landlock where the
+-- kernel has it) -- rather than trusting the caller to have named them:
+-- until then any caller, a test included, can call a process it started
+-- declared.
+function observations.declared(what: string, fn: function(): boolean)
+  declaring = declaring + 1
+  local ok, held = pcall(fn)
+  declaring = declaring - 1
+  if not ok then error(held, 0) end
+  if not held then
+    for _, note in ipairs(noting) do note("x", what, "") end
+  end
+end
+
 --- Installs observers until `restore` is called. The wrappers record failed
 --- queries too: absence and errors are answers a test can depend on.
 ---
---- A "p" (a process started) or an "x" (a query no key can hold: a
+--- A "p" (a process started, not `declared`) or an "x" (a query no key can hold: a
 --- request over the network, or a relative path when the working
 --- directory cannot be told) makes the run's verdict one that
 --- never stands.
@@ -333,7 +363,7 @@ local function start(resolving: observations.Resolving | nil):
                        cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                        stderr: integer | nil, process_group: boolean,
                        fds?: {integer:integer}): integer | nil, string, integer
-    note("p", path, "")
+    note(declaring > 0 and "h" or "p", path, "")
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
   end
   sys.mkdtemp = function(template: string): string | nil, string, integer
@@ -364,7 +394,11 @@ local function start(resolving: observations.Resolving | nil):
     end
     return http_open(url, opts)
   end
+  noting[#noting + 1] = note
   return found, function()
+    for at = #noting, 1, -1 do
+      if noting[at] == note then table.remove(noting, at) break end
+    end
     sys.chdir = chdir
     Http.open = http_open
     sys.open = open
