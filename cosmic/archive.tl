@@ -51,17 +51,15 @@ local record Archive
   end
 
   record ExtractOptions
-    --- A path prefix to drop from every path -- whole components only,
-    --- with or without a trailing `/` -- or a number of leading path
-    --- components to drop (tar's --strip-components). An entry the
-    --- prefix does not match, or that runs out of components, is
-    --- skipped.
-    -- TODO: one field for two operations, a prefix to match or a count
-    -- to drop, told apart by type; split it (`strip_prefix: string`,
-    -- `strip_components: integer`) once a breaking change to
-    -- ExtractOptions is wanted for its own sake, with a cosmic/removed.tl
-    -- entry for `strip`.
-    strip: string | integer
+    --- A path prefix to drop from every path, whole components only,
+    --- with or without a trailing `/`. An entry the prefix does not
+    --- match is skipped.
+    strip_prefix: string
+    --- A number of leading path components to drop from every path
+    --- (tar's --strip-components), after `strip_prefix` when both are
+    --- given. An entry that runs out of components is skipped; a
+    --- negative count raises.
+    strip_components: integer
     --- Asked with a path already stripped; false skips the entry.
     filter: function(string): boolean
     --- "skip" (the default) or "create". Created symlinks are made
@@ -242,8 +240,9 @@ end
 --- False for an absolute path, a `\`-separated or drive/UNC path, one
 --- holding a NUL byte (which every system call would silently cut the
 --- path at), or one with a `..` component -- the archive path itself,
---- before `strip` is applied, since `strip` only removes a prefix or
---- leading components and cannot make an escaping path safe.
+--- before `strip_prefix` or `strip_components` is applied, since each
+--- only removes leading components and cannot make an escaping path
+--- safe.
 local function safe_relative(path: string): boolean
   if path == "" or path:byte(1) == 47 then return false end -- '/'
   -- A NUL or a backslash anywhere, or a drive letter up front.
@@ -266,20 +265,20 @@ local function components(path: string): {string}
   return out
 end
 
-local function apply_strip(path: string, strip: string | integer | nil): string | nil
-  if strip == nil then return path end
-  if strip is string then
-    local prefix = strip:gsub("/+$", "")
-    if prefix == "" then return path end
-    if path:sub(1, #prefix) ~= prefix then return nil end
-    local rest = path:sub(#prefix + 1)
-    if rest ~= "" and rest:sub(1, 1) ~= "/" then return nil end
-    return (rest:gsub("^/+", ""))
+local function apply_strip(path: string, prefix: string | nil, count: integer | nil): string | nil
+  local rest = path
+  if prefix ~= nil then
+    prefix = prefix:gsub("/+$", "")
+    if prefix ~= "" then
+      if rest:sub(1, #prefix) ~= prefix then return nil end
+      rest = rest:sub(#prefix + 1)
+      if rest ~= "" and rest:sub(1, 1) ~= "/" then return nil end
+      rest = rest:gsub("^/+", "")
+    end
   end
   -- A float that is a whole number (2.0) counts as one; extract has
   -- refused any other.
-  local rest = path
-  for _ = 1, math.tointeger(strip) or 0 do
+  for _ = 1, math.tointeger(count) or 0 do
     local slash = rest:find("/", 1, true)
     if slash == nil then return nil end
     rest = rest:sub(slash + 1)
@@ -342,9 +341,9 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   if opts.max_bytes ~= nil and opts.max_bytes < 0 then
     error("archive: max_bytes is negative", 2)
   end
-  local strip = opts.strip
-  if strip ~= nil and not (strip is string) and math.tointeger(strip) == nil then
-    error("archive: strip is neither a path prefix nor a whole number of components", 2)
+  local count = opts.strip_components
+  if count ~= nil and (math.tointeger(count) == nil or count < 0) then
+    error("archive: strip_components is not a whole number of components", 2)
   end
   local links_mode = opts.links or "skip"
   local skip_unsupported = opts.unsupported == "skip"
@@ -497,7 +496,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     if not safe_relative(entry.path) then
       return bail("archive: refusing an unsafe entry path: " .. entry.path)
     end
-    local stripped = apply_strip(entry.path, opts.strip)
+    local stripped = apply_strip(entry.path, opts.strip_prefix, count)
     -- A path with no empty or `.` components is its own
     -- destination-relative path, and is split into components only
     -- when its parent is not already known to be a real directory.

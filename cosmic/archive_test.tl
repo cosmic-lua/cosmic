@@ -88,7 +88,7 @@ local function test_extract_strips_a_string_prefix(tmp: string)
   local archive = tmp .. "/a.tar"
   make_tar(archive)
   local dest = tmp .. "/out"
-  local written = assert(Archive.extract(archive, dest, { strip = "adir/" }))
+  local written = assert(Archive.extract(archive, dest, { strip_prefix = "adir/" }))
   table.sort(written)
   assert(#written == 1, table.concat(written, ","))
   assert(Fs.read(dest .. "/short.txt") == "hello there")
@@ -98,7 +98,7 @@ local function test_extract_strips_leading_path_components(tmp: string)
   local archive = tmp .. "/a.tar"
   make_tar(archive)
   local dest = tmp .. "/out"
-  local written = assert(Archive.extract(archive, dest, { strip = 1 }))
+  local written = assert(Archive.extract(archive, dest, { strip_components = 1 }))
   table.sort(written)
   -- "adir/" itself strips to nothing and is not written as a directory
   -- of its own; its contents still land at the extraction root.
@@ -113,12 +113,14 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local archive = tmp .. "/a.tar"
   make_tar(archive)
   local float = assert(load("return ...")) as function(number): integer
-  local written = assert(Archive.extract(archive, tmp .. "/out", { strip = float(1.0) }))
+  local written = assert(Archive.extract(archive, tmp .. "/out", { strip_components = float(1.0) }))
   assert(#written == 2, table.concat(written, ","))
   assert(Fs.read(tmp .. "/out/tool") == "#!/bin/sh\necho hi\n")
-  local ok, why = pcall(Archive.extract, archive, tmp .. "/half", { strip = float(1.5) })
-  assert(not ok and tostring(why):find("whole number", 1, true) ~= nil, tostring(why))
-  assert(Fs.exists(tmp .. "/half") == false)
+  for _, count in ipairs({ float(1.5), -1 }) do
+    local ok, why = pcall(Archive.extract, archive, tmp .. "/bad", { strip_components = count })
+    assert(not ok and tostring(why):find("whole number", 1, true) ~= nil, tostring(why))
+    assert(Fs.exists(tmp .. "/bad") == false)
+  end
 end
 
 local function test_extract_applies_a_filter(tmp: string)
@@ -519,10 +521,26 @@ local function test_extract_strip_matches_whole_components_only(tmp: string)
   end)
   for _, prefix in ipairs({ "a", "a/" }) do
     local dest = tmp .. "/out-" .. tostring(#prefix)
-    local written = assert(Archive.extract(archive, dest, { strip = prefix }))
+    local written = assert(Archive.extract(archive, dest, { strip_prefix = prefix }))
     assert(#written == 1 and written[1] == "x", prefix .. ": " .. table.concat(written, ","))
     assert(Fs.read(dest .. "/x") == "in a")
   end
+end
+
+--- Both strips at once: the prefix is matched first, then the count
+--- drops components from what is left.
+local function test_extract_strips_a_prefix_then_components(tmp: string)
+  local archive = tmp .. "/t.tar"
+  tar_of(archive, function(tw: Tar.Writer)
+    assert(tw:add_file("pkg/v1/src/x", "in src"))
+    assert(tw:add_file("other/v1/src/y", "elsewhere"))
+    assert(tw:add_file("pkg/v1", "too short"))
+  end)
+  local dest = tmp .. "/out"
+  local written = assert(Archive.extract(archive, dest,
+    { strip_prefix = "pkg", strip_components = 1 }))
+  assert(#written == 1 and written[1] == "src/x", table.concat(written, ","))
+  assert(Fs.read(dest .. "/src/x") == "in src")
 end
 
 local function test_extract_creates_a_zip_symlink_as_a_symlink(tmp: string)

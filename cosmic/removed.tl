@@ -50,6 +50,13 @@ local record Module
   --- `build.teal` says it after the checker's `invalid key` for it, or,
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
+  -- TODO: a field removed from a record a caller builds as a table
+  -- literal (cosmic.archive's ExtractOptions.strip, now strip_prefix and
+  -- strip_components) has no entry: the checker says only `unknown
+  -- field strip`, without the record it was checked against, so
+  -- `build.teal`'s `replacement` cannot look one up. Key entries by
+  -- record (`cosmic.archive.ExtractOptions.strip`) once that message
+  -- names its record.
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as `core/surface.c` does for a

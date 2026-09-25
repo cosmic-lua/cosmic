@@ -29,7 +29,8 @@ local function gen_path(src: Fuzz.Source, from: {string}): string
 end
 
 --- An extraction as `Fuzz.pack` fields: a format, the `links` option,
---- the `strip` option, then a kind, a path and a body per entry.
+--- a strip (`1` for `strip_components`, `a` for `strip_prefix`), then
+--- a kind, a path and a body per entry.
 local function gen_extraction(src: Fuzz.Source): string
   local format = Fuzz.pick(src, { "tar", "tar.gz", "zip" })
   local fields: {string} = { format, Fuzz.pick(src, { "skip", "create" }), Fuzz.pick(src, { "", "1", "a" }) }
@@ -139,12 +140,13 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       Fuzz.label("built")
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
-      local strip: string | integer = nil
-      if fields[3] == "1" then strip = 1 elseif fields[3] == "a" then strip = "a" end
+      local strip_components: integer = fields[3] == "1" and 1 or nil
+      local strip_prefix: string = fields[3] == "a" and "a" or nil
       -- A shrunk input may hold any string here; extract treats every
       -- mode but "create" as "skip".
       local mode: Archive.Links = fields[2] == "create" and "create" or "skip"
-      local written = Archive.extract(file, dest, { links = mode, strip = strip, mtimes = false })
+      local written = Archive.extract(file, dest, { links = mode, strip_prefix = strip_prefix,
+        strip_components = strip_components, mtimes = false })
       if written ~= nil and #written > 0 then Fuzz.label("extracted") end
       for _, rel in ipairs(written or {}) do
         if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then
