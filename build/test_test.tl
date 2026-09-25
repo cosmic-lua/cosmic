@@ -420,7 +420,28 @@ local function test_a_read_of_the_tests_own_process_is_keyable(tmp: string)
     { kind = "r", path = "/proc/self/status", answer = "/proc/4242/status" },
     { kind = "s", path = "/proc/thread-self/fdinfo/3", answer = "" },
   }))
-  assert(not test.keyable(tmp, tmp .. "/scratch", {
-    { kind = "o", path = "/proc/1/status", answer = "" },
-  }))
+  -- /proc/self leads to more than the process: the host's root, its
+  -- working directory, its environment, its network, and back up.
+  for _, path in ipairs({ "/proc/1/status", "/proc/self/root/etc/hostname",
+      "/proc/self/cwd/x", "/proc/self/environ", "/proc/self/../1/cmdline",
+      "/proc/self/net/tcp", "/proc/self/fd/3", "/proc/self//status" }) do
+    assert(not test.keyable(tmp, tmp .. "/scratch", {
+      { kind = "o", path = path, answer = "" },
+    }), path)
+  end
+end
+
+--- A path a confined process was given, first walked after its test
+--- started, keeps its reads for the next run to walk first, but not
+--- the verdict.
+local function test_a_path_walked_late_is_late_not_stable(tmp: string)
+  local given = tmp .. "/given"
+  assert(Fs.mkdirs(given))
+  local reads: {observations.Observation} = { { kind = "u", path = given, answer = "" } }
+  local late = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, {},
+    Time.monotonic_ns())
+  assert(late.late and not late.stable)
+  local walked: {string:string} = {}
+  local early = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, walked)
+  assert(not early.late and early.stable)
 end

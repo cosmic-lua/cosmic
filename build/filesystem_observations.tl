@@ -321,18 +321,59 @@ local unconfinable: {integer:boolean} = {
   [sys.ENOSPC] = true,
 }
 
---- Whether a request for `url` could reach past this process: only
---- http and https are spoken (core/http.c holds curl to them), and a URL
---- with no host names nowhere to connect to, so either fails before it
---- connects.
+--- Whether a request for `url` could reach past this process: all but
+--- one naming a scheme other than http and https, which core/http.c
+--- does not let curl speak. curl takes a URL with no scheme for http,
+--- and makes a host of what follows "http:" however many slashes lead
+--- it, so nothing short of the scheme says a request cannot connect.
 local function reaches(url: string): boolean
-  local scheme, rest = url:match("^(%a[%w+.-]*)://(.*)$")
-  if scheme == nil then return false end
+  local scheme = url:match("^%s*(%a[%w+.-]*):")
+  if scheme == nil then return true end
   scheme = scheme:lower()
-  if scheme ~= "http" and scheme ~= "https" then return false end
-  local authority = rest:match("^([^/?#]*)") or ""
-  local host = authority:gsub("^.*@", "")
-  return host ~= ""
+  return scheme == "http" or scheme == "https"
+end
+
+--- A list of strings as the core reads one, raw: its entries from 1 on,
+--- by rawget, to the first nil; nil when it holds anything else, which
+--- the core refuses.
+local function raw_strings(list: any): {string} | nil
+  local out: {string} = {}
+  if list == nil then return out end
+  if not list is {any:any} then return nil end
+  local at = 1
+  while true do
+    local value = rawget(list, at)
+    if value == nil then return out end
+    if not value is string then return nil end
+    out[#out + 1] = value
+    at = at + 1
+  end
+end
+
+--- `sandbox` as the core reads it -- raw, with no metamethod answering
+--- for a field -- in a plain table of its own; nil when a field holds
+--- what the core would refuse, for the core to refuse.
+local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox | nil
+  local raw = sandbox as {string:any}
+  local plain: raw_process.Sandbox = {}
+  local ruleset = rawget(raw, "ruleset")
+  if ruleset is integer then plain.ruleset = ruleset elseif ruleset ~= nil then return nil end
+  local unveil = rawget(raw, "unveil")
+  if unveil is {any:any} then
+    local reads, writes = raw_strings(rawget(unveil, "reads")), raw_strings(rawget(unveil, "writes"))
+    if reads == nil or writes == nil then return nil end
+    plain.unveil = { reads = reads, writes = writes }
+  elseif unveil ~= nil then
+    return nil
+  end
+  plain.offline = rawget(raw, "offline") == true
+  local pledge = rawget(raw, "pledge")
+  if pledge ~= nil then
+    local promises = raw_strings(pledge)
+    if promises == nil then return nil end
+    plain.pledge = promises
+  end
+  return plain
 end
 
 --- The file types `lstat` and `fstat` tell apart by their mode's type
@@ -561,10 +602,16 @@ local function start(resolving: observations.Resolving | nil):
       return false
     end
     for _, given in ipairs(reads) do
-      if given == "/proc" then
-        -- The system's own; any other path under it, or under /sys, is
-        -- the host's state and no input a key holds.
-      elseif Fs.within(given, "/proc") or Fs.within(given, "/sys") then
+      -- Judged by where it leads, as the sandbox binds it: /proc is the
+      -- system's own, and any other path in it, or in /sys, is the
+      -- host's state, which no key holds.
+      -- realpath keeps a leading "//", which POSIX lets a system give a
+      -- meaning of its own; Linux gives it none.
+      local resolved, _ = realpath(given)
+      local real = (resolved or given):gsub("//+", "/")
+      if real == "/proc" then
+        -- The system's own.
+      elseif Fs.within(real, "/proc") or Fs.within(real, "/sys") then
         note("x", given, "")
       elseif not owned(given) then
         note("u", given, "")
@@ -589,14 +636,16 @@ local function start(resolving: observations.Resolving | nil):
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
                            integer | nil, string, integer
     -- A sandbox of its own that unveils and takes the network holds a
-    -- process as a confinement does, and is noted the same.
-    local unveiled = sandbox ~= nil and sandbox.unveil ~= nil and sandbox.offline == true
-    if unveiled and declaring == 0 then
+    -- process as a confinement does, and is noted the same. It is read
+    -- as the core reads it, raw, and a plain copy is what the core is
+    -- given, so what is noted is what holds the process.
+    local plain = sandbox ~= nil and plain_sandbox(sandbox) or nil
+    if plain ~= nil and plain.unveil ~= nil and plain.offline == true and declaring == 0 then
       local own = test_own()
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
-        process_group, fds, sandbox)
+        process_group, fds, plain)
       if pid ~= nil or not unconfinable[errno] then
-        note_unveiled(sandbox.unveil.reads or {}, sandbox.unveil.writes or {}, own, environment,
+        note_unveiled(plain.unveil.reads, plain.unveil.writes, own, environment,
           stdin, stdout, stderr, fds)
       else
         -- Nothing ran; what the test does now turns on the host.
