@@ -38,11 +38,8 @@ local TOKENS <const> = { "{", "}", "[", "]", ":", ",", '"', "\\", "\\u", "d8", "
 local function gen_text(src: Fuzz.Source): string
   if src:int(0, 2) == 0 then
     local parts: {string} = {}
-    -- TODO: this file's collections draw their count first, so shrinking
-    -- cuts only their last element; `Fuzz.more` before each would let it
-    -- cut any (its labels' rates move with the change: measure them again).
-    for i = 1, src:int(0, 40) do
-      parts[i] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+    while Fuzz.more(src, #parts, 40) do
+      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
     end
     return table.concat(parts)
   end
@@ -126,7 +123,7 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
--- TODO: only 8 inputs of 64 decode (252 of 2000): edits, or a soup of
+-- TODO: only 8 inputs of 64 decode (253 of 2000): edits, or a soup of
 -- tokens, leave little that parses, so the walk into Lua values and the
 -- re-encoding checks run rarely; fewer edits on some draws, or tokens
 -- drawn from a grammar, would reach them.
@@ -148,6 +145,11 @@ end
 --- `encode` is reachable: each JSON type, NaN and the infinities, bytes
 --- that are not UTF-8, holes, mixed and odd keys, functions, the null
 --- stand-in, marked arrays, and a table that contains itself.
+-- TODO: a recipe's strings and tables read their count from one byte
+-- first, as the generators here no longer do, so cutting a recipe's bytes
+-- drops a middle element only by reshaping everything after it; a byte
+-- before each element whose low values stop, as `Fuzz.more` draws, would
+-- let shrinking drop any (measure "encoded" and "refused" again).
 local record Recipe
   bytes: string
   at: integer
@@ -272,9 +274,8 @@ local function test_the_depth_limits_are_exact(tmp: string)
     name = "json depth",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local n = src:int(0, 1200)
       local opens: {string} = {}
-      for i = 1, n do opens[i] = src:int(0, 1) == 0 and "[" or '{"k":' end
+      while Fuzz.more(src, #opens, 1200) do opens[#opens + 1] = src:int(0, 1) == 0 and "[" or '{"k":' end
       return Fuzz.pack({ table.concat(opens), tostring(src:int(1, 1000)) })
     end,
     check = function(input: string): boolean, string
@@ -306,7 +307,7 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local lines: {string} = {}
-      for i = 1, src:int(0, 5) do lines[i] = Fuzz.pick(src, SAMPLES):gsub("\n", " ") end
+      while Fuzz.more(src, #lines, 5) do lines[#lines + 1] = Fuzz.pick(src, SAMPLES):gsub("\n", " ") end
       return Fuzz.mutate(src, table.concat(lines, Fuzz.pick(src, { "\n", "\r\n", "\n\n" })), 6)
     end,
     check = function(input: string): boolean, string

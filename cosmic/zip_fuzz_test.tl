@@ -11,10 +11,7 @@ local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "" }
 
 local function gen_path(src: Fuzz.Source): string
   local parts: {string} = {}
-  -- TODO: this file's collections draw their count first, so shrinking
-  -- cuts only their last element; `Fuzz.more` before each would let it
-  -- cut any (its labels' rates move with the change: measure them again).
-  for i = 1, src:int(1, 3) do parts[i] = Fuzz.pick(src, PARTS) end
+  repeat parts[#parts + 1] = Fuzz.pick(src, PARTS) until not Fuzz.more(src, #parts, 3)
   return table.concat(parts, "/")
 end
 
@@ -22,7 +19,7 @@ end
 --- method, and a body, repeated.
 local function gen_entries(src: Fuzz.Source): {string}
   local fields: {string} = {}
-  for _ = 1, src:int(0, 4) do
+  while Fuzz.more(src, #fields // 4, 4) do
     local kind = Fuzz.pick(src, { "file", "file", "dir" })
     fields[#fields + 1] = kind
     fields[#fields + 1] = gen_path(src)

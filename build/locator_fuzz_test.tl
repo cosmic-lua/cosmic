@@ -66,10 +66,9 @@ local function gen(tail: Tail): function(Fuzz.Source): string
   return function(src: Fuzz.Source): string
     local manifest, trailer = tail.manifest, tail.trailer
     local cut, junk = 0, ""
-    -- TODO: this file's collections draw their count first, so shrinking
-    -- cuts only their last element; `Fuzz.more` before each would let it
-    -- cut any (its labels' rates move with the change: measure them again).
-    for _ = 1, src:int(1, 4) do
+    local edits = 0
+    repeat
+      edits = edits + 1
       local what = src:int(1, 5)
       if what == 1 then
         local f = Fuzz.pick(src, TRAILER_FIELDS)
@@ -87,7 +86,7 @@ local function gen(tail: Tail): function(Fuzz.Source): string
         cut = Fuzz.pick(src, { 1, 16, 4096, #tail.database })
         junk = Fuzz.bytes(src, 64)
       end
-    end
+    until not Fuzz.more(src, edits, 4)
     return Fuzz.pack({ manifest, trailer, tostring(cut), junk })
   end
 end
