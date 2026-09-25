@@ -64,14 +64,16 @@ end
 --- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
 --- letter that takes a value takes the rest of the word ("-n3", "-vn3";
 --- "-n=3" is "=3", as getopt has it) or, at the word's end, the next
---- word ("-vn 3"). A spec may name "-foo" whole, and then "-foo" is that
+--- word ("-vn 3"). A letter in a cluster is one ASCII letter or digit;
+--- a spec may name "-foo" or "-é" whole, and then that word is that
 --- option, never a cluster.
 ---
 --- Answers nil and why for an option the spec does not name, a value
 --- given to one that takes none, or one whose value is missing -- the
 --- end of the line, or a word that is itself an option the spec names
 --- ("--", "--check", "--check=1", or "-vq" when "-v" is named). A spec
---- key that is not an option ("x", "-", "--") raises.
+--- key that is not an option ("x", "-", "--"), or that holds an "=" no
+--- word could reach ("--a=b"), raises.
 --- @param argv {integer:string} The command line
 --- @param from integer The first slot to read
 --- @param spec {string:boolean} Each option, and whether it takes a value
@@ -80,7 +82,7 @@ end
 function Flags.parse(argv: {integer:string}, from: integer,
     spec: {string:boolean}): Flags.Parsed | nil, string
   for name in pairs(spec) do
-    if name:sub(1, 1) ~= "-" or name == "-" or name == "--" then
+    if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) then
       error("flags: " .. name .. " is not an option a spec can name", 2)
     end
   end
@@ -137,12 +139,14 @@ function Flags.parse(argv: {integer:string}, from: integer,
     else
       local at = 2
       while at <= #word do
-        local name = "-" .. word:sub(at, at)
+        local letter = word:sub(at, at)
+        local name = "-" .. letter
         local takes = spec[name]
-        if takes == nil then
-          if name == "-=" then
-            return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
-          end
+        if letter == "=" then
+          return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
+        elseif not letter:match("^%w$") then
+          return nil, "no such option: " .. word
+        elseif takes == nil then
           return nil, "no such option: " .. name .. " in " .. word
         elseif takes then
           local rest = word:sub(at + 1)
@@ -165,7 +169,8 @@ end
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
 --- hold -- an option before the command is one -- or a line the
---- command's spec refuses, whose why names the command.
+--- command's spec refuses, whose why names the command. Empty
+--- `commands` raises.
 --- @param argv {integer:string} The command line
 --- @param from integer The slot holding the command
 --- @param commands {string:Command} Each command, by the word that names it
@@ -173,6 +178,9 @@ end
 --- @return string Why nothing ran, or "" when a command did
 function Flags.dispatch(argv: {integer:string}, from: integer,
     commands: {string:Flags.Command}): integer | nil, string
+  if next(commands) == nil then
+    error("flags: dispatch needs a command to choose among", 2)
+  end
   local name = argv[from]
   if name == nil then
     local names: {string} = {}

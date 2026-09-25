@@ -385,7 +385,8 @@ end
 --- Runs `bin/vendor`'s command line: `argv[0]` is this script's own
 --- path, and the words after it are names, or a tree and an archive. It
 --- takes no options, so a word that begins with "-" is refused (exit 2)
---- rather than read as a name.
+--- rather than read as a name; one that must begin with "-", such as an
+--- archive's path, goes after "--".
 function Vendor.main(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 1, {})
   if parsed == nil then

@@ -55,7 +55,7 @@ local function test_reading_starts_at_the_slot_given()
 end
 
 local function test_a_spec_names_only_options()
-  for _, key in ipairs({ "x", "-", "--" }) do
+  for _, key in ipairs({ "x", "-", "--", "--a=b", "-=" }) do
     assert(not pcall(Flags.parse, { "x" }, 1, { [key] = false }), key)
   end
   local short = assert(Flags.parse({ "x", "-v", "-n", "3" }, 2, { ["-v"] = false, ["-n"] = true }))
@@ -90,6 +90,13 @@ local function test_a_spec_may_name_a_one_dash_option_whole()
   local whole: {string:boolean} = { ["-v"] = false, ["-verbose"] = false }
   local got = assert(Flags.parse({ "-verbose" }, 1, whole))
   assert(got.set["-verbose"] and not got.set["-v"])
+  whole["-e"] = false
+  got = assert(Flags.parse({ "-ve" }, 1, whole))
+  assert(got.set["-v"] and got.set["-e"] and not got.set["-verbose"])
+  whole["-é"] = false
+  assert(assert(Flags.parse({ "-é" }, 1, whole)).set["-é"])
+  local _, why = Flags.parse({ "-vé" }, 1, whole)
+  assert(why == "no such option: -vé", why)
 end
 
 local function test_a_cluster_is_refused_with_the_letter_at_fault()
@@ -97,6 +104,7 @@ local function test_a_cluster_is_refused_with_the_letter_at_fault()
     { "-vx", "no such option: -x in -vx" },
     { "-xv", "no such option: -xv" },
     { "-v=1", "-v takes no value" },
+    { "-v-q", "no such option: -v-q" },
     { "-vn", "-n needs a value" },
   }
   for _, case in ipairs(cases) do
@@ -149,4 +157,5 @@ local function test_dispatch_runs_the_command_with_its_own_options()
   local refused, trouble = Flags.dispatch({ "clean", "--jobs=2" }, 1, commands)
   assert(refused == nil and trouble == "clean: no such option: --jobs", trouble)
   assert(#ran == 2)
+  assert(not pcall(Flags.dispatch, { "x" }, 1, {}))
 end
