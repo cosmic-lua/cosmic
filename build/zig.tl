@@ -739,14 +739,14 @@ function Zig.run(argv: {string}): integer
   -- TODO: hold the signals with `Child.guard` rather than sys.*'s
   -- guard_child_signals, cancelled_child_signal and unguard_child_signals
   -- once ci/cosmic-driver.pin names a cosmic whose Child.Guard has
-  -- `release` and whose `g:cancelled()` answers the latest signal (this
-  -- runs on that release; the pinned one's guard can only close, which
-  -- always re-delivers, and keeps only its first signal). The port polls
-  -- `g:cancelled()` each round and passes on, after PASS_ON_NS, a signal
-  -- other than the one it passed on last; it ends with `g:release()` in
-  -- place of the unguard and keeps this function's own re-raise rule
-  -- below (a child that died of SIGINT or SIGTERM re-raises that),
-  -- adding one for a caught signal never passed on.
+  -- `take` and `release` (this runs on that release; the pinned one's
+  -- guard can only close, which always re-delivers, and keeps only its
+  -- first signal). The port polls `g:take()` each round in place of
+  -- sys.cancelled_child_signal, passing each signal taken on after
+  -- PASS_ON_NS as today; it ends with `g:release()` in place of the
+  -- unguard and keeps this function's own re-raise rule below (a child
+  -- that died of SIGINT or SIGTERM re-raises that), adding one for a
+  -- taken signal never passed on.
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then
     log:complain("signal guard: " .. guard_trouble)

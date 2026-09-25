@@ -1378,8 +1378,9 @@ static struct sigaction previous_term;
 static int int_caught;
 static int term_caught;
 
-/* The latest signal since the last read wins: a SIGTERM after a Ctrl-C
-   a supervised child handled must not be lost to the earlier one. */
+/* The last signal delivered since the last read wins: a SIGTERM after a
+   Ctrl-C a supervised child handled must not be lost to the earlier one.
+   Two pending together arrive in the kernel's order, not the sender's. */
 static void catch_child_cancel (int number) {
   child_cancelled = number;
 }

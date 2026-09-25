@@ -397,7 +397,7 @@ COSMIC_SYSCALL(uname, 0);
  * behind `Child.guard`, once build/zig.tl's `Zig.run` holds its signals
  * with `Child.guard` rather than calling them by these names: it runs on
  * the release ci/cosmic-driver.pin names and waits, by its own TODO, on
- * one whose Child.Guard has `release`. */
+ * one whose Child.Guard has `take` and `release`. */
 
 /*
  * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
@@ -410,8 +410,8 @@ COSMIC_SYSCALL(uname, 0);
 COSMIC_SYSCALL(guard_child_signals, 0);
 
 /*
- * --- Restores dispositions and returns the latest signal caught since the
- * --- last take.
+ * --- Restores dispositions and returns the last signal delivered since
+ * --- the last take.
  * ---@return integer|nil signal the pending signal, zero when none, or nil on failure
  * ---@return string error what went wrong, when signal is nil
  * ---@return integer errno the error number, when signal is nil
@@ -419,8 +419,9 @@ COSMIC_SYSCALL(guard_child_signals, 0);
 COSMIC_SYSCALL(unguard_child_signals, 0);
 
 /*
- * --- Takes the latest supervised SIGINT or SIGTERM since the last take,
- * --- or zero when none arrived.
+ * --- Takes the last supervised SIGINT or SIGTERM delivered since the last
+ * --- take, or zero when none arrived. Two pending together are delivered
+ * --- in the kernel's order, not the order they were sent.
  * ---@return integer|nil signal the pending signal number, zero, or nil on failure
  * ---@return string error what went wrong, when signal is nil
  * ---@return integer errno the error number, when signal is nil

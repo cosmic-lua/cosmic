@@ -553,9 +553,9 @@ end
 
 --- A guard keeps taking signals after its first: a SIGTERM after a
 --- Ctrl-C the child handled is what a supervisor must pass on next,
---- and release answers the latest rather than losing it. The nested
+--- and release answers the last one delivered rather than losing it. The nested
 --- cosmic outlives both.
-local function test_guard_release_answers_the_latest_signal()
+local function test_guard_release_answers_the_last_signal()
   local dir = temporary()
   local report = dir .. "/report"
   local fixture = dir .. "/latest.tl"
@@ -584,6 +584,41 @@ end
   local int, term = tostring(sys.SIGINT), tostring(sys.SIGTERM)
   local got = Fs.read(report)
   assert(got == table.concat({ int, term, term }, "|"), tostring(got))
+end
+
+--- `take` answers each signal once, a repeat of the same one included,
+--- while `cancelled` keeps answering the last: a supervisor passes a
+--- second SIGTERM on after its child handled the first.
+local function test_guard_take_answers_a_repeated_signal_again()
+  local dir = temporary()
+  local report = dir .. "/report"
+  local fixture = dir .. "/take.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local answers: {string} = {}
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  answers[#answers + 1] = tostring(guard:take())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  answers[#answers + 1] = tostring(guard:cancelled())
+  answers[#answers + 1] = tostring(guard:take())
+  answers[#answers + 1] = tostring(guard:take())
+  answers[#answers + 1] = tostring(guard:cancelled())
+  answers[#answers + 1] = tostring((guard:release()))
+  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  return 0
+end
+]]))
+  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
+    " " .. tostring(r.stderr))
+  local term = tostring(sys.SIGTERM)
+  local got = Fs.read(report)
+  assert(got == table.concat({ term, term, term, "0", term, term }, "|"), tostring(got))
 end
 
 --- A signal this process ignores -- `cosmic test &` from a script, whose
