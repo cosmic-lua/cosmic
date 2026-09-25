@@ -1,25 +1,7 @@
---- The patch applier (core/patch.c), run on trees built here: the
---- installed o/tool/patch, which a boot writes beside the cores.
-local Child = require("cosmic.child")
+--- The patch applier (`build/patch.tl`), run on trees built here.
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
-
--- What these tests start is the tree's patch.
-observations.confine({ reads = { "o/tool/patch" } })
-
---- The installed applier, or nil in a tree no boot has built: the
---- portable suite tests a fresh `git archive` of the tree, where nothing
---- under o/ was built, so no test here can run it. In a booted tree --
---- one with its cores under o/core -- a missing applier is a failure.
-local function applier(): string | nil
-  local root = assert(Fs.absolute("."))
-  local path = root .. "/o/tool/patch"
-  if Fs.exists(path) then
-    return path
-  end
-  assert(not Fs.exists(root .. "/o/core"), path .. " is missing; run bin/zig build boot")
-  return nil
-end
+local Patch = require("build.patch")
+local sys = require("cosmic.sys")
 
 --- A checkout at `root` with one vendored tree, `lib`, holding `files`,
 --- and the patch records `records` for it (none when nil).
@@ -37,93 +19,166 @@ local function checkout(root: string, files: {string: string}, records?: {string
   end
 end
 
---- Runs the applier on `pin` into `out`: its exit code and stderr.
-local function apply(tool: string, pin: string, out: string): integer, string
-  local result = assert(Child.run({ tool, pin, out },
-    { stdout = "capture", stderr = "capture" }))
-  return result.code or -1, result.stderr or ""
-end
-
 local function record(file: string, find: string, replace: string): string
   return "file: " .. file .. "\nnote: a test\n--- find\n" .. find ..
     "\n--- replace\n" .. replace .. "\n--- end\n"
 end
 
-local function test_records_found_from_the_pin_are_applied(dir: string)
-  local tool = applier()
-  if tool == nil then return end
+local function test_records_are_applied_to_a_copy(dir: string)
   checkout(dir .. "/root", { ["src/a.h"] = "#define X 1\n#define Y 2\n" },
     { ["01-x.txt"] = record("src/a.h", "#define X 1", "#define X 3") })
-  local code, err = apply(tool, dir .. "/root/vendor/lib/PIN", dir .. "/out")
-  assert(code == 0, err)
+  assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(Fs.read(dir .. "/out/src/a.h") == "#define X 3\n#define Y 2\n")
   assert(Fs.read(dir .. "/root/vendor/lib/src/a.h") == "#define X 1\n#define Y 2\n",
     "the vendored tree itself was edited")
 end
 
 local function test_no_patch_directory_leaves_the_copy_pristine(dir: string)
-  local tool = applier()
-  if tool == nil then return end
   checkout(dir .. "/root", { ["src/a.h"] = "same\n" })
-  local code, err = apply(tool, dir .. "/root/vendor/lib/PIN", dir .. "/out")
-  assert(code == 0, err)
+  assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(Fs.read(dir .. "/out/src/a.h") == "same\n")
   assert(Fs.read(dir .. "/out/PIN") ~= nil)
 end
 
+--- A file keeps its permission bits, which a patched one keeps too.
+local function test_a_copy_keeps_each_files_mode(dir: string)
+  checkout(dir .. "/root", { ["run.sh"] = "echo old\n", ["plain.h"] = "x\n" },
+    { ["01-run.txt"] = record("run.sh", "echo old", "echo new") })
+  assert(Fs.chmod(dir .. "/root/vendor/lib/run.sh", 0x1ed))
+  assert(Fs.chmod(dir .. "/root/vendor/lib/plain.h", 0x180))
+  assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
+  assert(assert(Fs.stat(dir .. "/out/run.sh")).mode & 0x1ff == 0x1ed)
+  assert(assert(Fs.stat(dir .. "/out/plain.h")).mode & 0x1ff == 0x180)
+  assert(Fs.read(dir .. "/out/run.sh") == "echo new\n")
+end
+
 local function test_a_find_must_match_exactly_once(dir: string)
-  local tool = applier()
-  if tool == nil then return end
   checkout(dir .. "/none", { ["src/a.h"] = "abc\n" },
     { ["01-missing.txt"] = record("src/a.h", "xyz", "q") })
-  local code, err = apply(tool, dir .. "/none/vendor/lib/PIN", dir .. "/out-none")
-  assert(code == 1 and err:find("01-missing.txt", 1, true), err)
+  local ok, err = Patch.tree(dir .. "/none", "lib", dir .. "/out-none")
+  assert(not ok and err:find("01-missing.txt", 1, true) and
+    err:find("found 0 matches", 1, true), err)
 
   checkout(dir .. "/twice", { ["src/a.h"] = "abc\nabc\n" },
     { ["01-twice.txt"] = record("src/a.h", "abc", "q") })
-  code, err = apply(tool, dir .. "/twice/vendor/lib/PIN", dir .. "/out-twice")
-  assert(code == 1 and err:find("01-twice.txt", 1, true), err)
+  ok, err = Patch.tree(dir .. "/twice", "lib", dir .. "/out-twice")
+  assert(not ok and err:find("01-twice.txt", 1, true) and
+    err:find("found 2 matches", 1, true), err)
+end
+
+--- Matches may overlap: "aa" occurs twice in "aaa", and is refused.
+local function test_overlapping_matches_count_twice()
+  local parsed = assert(Patch.parse(record("a", "aa", "b"), "r"))
+  local out, err = Patch.apply("aaa", parsed, "r")
+  assert(out == nil and err:find("found 2 matches", 1, true), err)
 end
 
 --- A record whose bytes hold a `---` line names a fence of its own.
 local function test_a_fence_header_lets_a_record_hold_the_default_fence(dir: string)
-  local tool = applier()
-  if tool == nil then return end
   local body = "--- find\nold\n"
   checkout(dir .. "/root", { ["doc.txt"] = body },
     { ["01-fence.txt"] = "fence: +++\nfile: doc.txt\nnote: a test\n+++ find\n" ..
       "--- find\nold\n+++ replace\n--- find\nnew\n+++ end\n" })
-  local code, err = apply(tool, dir .. "/root/vendor/lib/PIN", dir .. "/out")
-  assert(code == 0, err)
+  assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(Fs.read(dir .. "/out/doc.txt") == "--- find\nnew\n")
 end
 
-local function test_a_path_not_shaped_like_a_vendored_pin_is_refused(dir: string)
-  local tool = applier()
-  if tool == nil then return end
-  checkout(dir .. "/root", { ["src/a.h"] = "x\n" })
-  assert(Fs.write(dir .. "/root/vendor/lib/NOTPIN", "x\n"))
-  for _, pin in ipairs({
-    dir .. "/root/vendor/lib/NOTPIN",
-    dir .. "/root/lib/PIN",
-    "PIN",
+--- An empty replace block deletes the find's bytes.
+local function test_an_empty_replace_deletes()
+  local parsed = assert(Patch.parse(
+    "file: a\nnote: n\n--- find\ncut\n--- replace\n--- end\n", "r"))
+  assert(parsed.replace == "")
+  assert(Patch.apply("keep cut keep", parsed, "r") == "keep  keep")
+end
+
+local function test_a_malformed_record_is_refused_by_name()
+  for _, case in ipairs({
+    { "note: n\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'file: ' line" },
+    { "file: a\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'note: ' line" },
+    { "file: a\nnote: \n--- find\na\n--- replace\nb\n--- end\n", "the note says nothing" },
+    { "file: a\nnote: n\na\n--- replace\nb\n--- end\n", "no '--- find' line" },
+    { "file: a\nnote: n\n--- find\na\nb\n--- end\n", "no '--- replace' line" },
+    { "file: a\nnote: n\n--- find\na\n--- replace\nb\n", "no '--- end' line" },
+    { "file: a\nnote: n\n--- find\n--- replace\nb\n--- end\n", "the find block is empty" },
   }) do
-    local code, err = apply(tool, pin, dir .. "/out")
-    assert(code == 1 and err:find("expected <root>/vendor/<name>/PIN", 1, true), pin .. ": " .. err)
+    local parsed, err = Patch.parse(case[1], "bad.txt")
+    assert(parsed == nil and err:find("bad.txt", 1, true) and
+      err:find(case[2], 1, true), case[2] .. ": " .. err)
   end
 end
 
 --- Records apply in their names' order, each to what the one before
 --- left, and a file in the patch directory not ending in .txt is none.
 local function test_records_apply_in_name_order_and_only_txt_counts(dir: string)
-  local tool = applier()
-  if tool == nil then return end
   checkout(dir .. "/root", { ["a.h"] = "one\n" }, {
     ["02-second.txt"] = record("a.h", "two", "three"),
     ["01-first.txt"] = record("a.h", "one", "two"),
     ["03-ignored.orig"] = record("a.h", "three", "four"),
   })
-  local code, err = apply(tool, dir .. "/root/vendor/lib/PIN", dir .. "/out")
-  assert(code == 0, err)
+  assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(Fs.read(dir .. "/out/a.h") == "three\n", Fs.read(dir .. "/out/a.h"))
+end
+
+--- The directory a tree is prepared into is named by its contents: the
+--- applier, every vendored file and every record. Unchanged, it is found
+--- again as it stands; any one changed, it is another directory.
+local function test_a_prepared_tree_is_named_by_its_contents(dir: string)
+  local root = dir .. "/root"
+  checkout(root, { ["a.h"] = "one\n" }, { ["01.txt"] = record("a.h", "one", "two") })
+  local cache = dir .. "/cache"
+  local first = assert(Patch.prepare(root, "lib", cache, "applier"))
+  assert(Fs.read(first .. "/a.h") == "two\n")
+  -- A tree found again is not written again.
+  assert(Fs.write(first .. "/marker", "kept"))
+  assert(Patch.prepare(root, "lib", cache, "applier") == first)
+  assert(Fs.read(first .. "/marker") == "kept")
+
+  assert(Patch.prepare(root, "lib", cache, "another applier") ~= first)
+  assert(Fs.write(root .. "/vendor/lib/a.h", "one\n\n"))
+  local vendored = assert(Patch.prepare(root, "lib", cache, "applier"))
+  assert(vendored ~= first and Fs.read(vendored .. "/a.h") == "two\n\n")
+  assert(Fs.write(root .. "/patch/lib/01.txt", record("a.h", "one", "three")))
+  local recorded = assert(Patch.prepare(root, "lib", cache, "applier"))
+  assert(recorded ~= vendored and Fs.read(recorded .. "/a.h") == "three\n\n")
+
+  -- Another checkout of the same tree names the same directory.
+  local other = dir .. "/other"
+  checkout(other, { ["a.h"] = "one\n\n" }, { ["01.txt"] = record("a.h", "one", "three") })
+  assert(Patch.prepare(other, "lib", cache, "applier") == recorded)
+end
+
+--- A tree whose record fails leaves nothing at its name.
+local function test_a_failed_tree_leaves_nothing_behind(dir: string)
+  local root = dir .. "/root"
+  checkout(root, { ["a.h"] = "one\n" }, { ["01.txt"] = record("a.h", "absent", "x") })
+  local cache = dir .. "/cache"
+  local made, err = Patch.prepare(root, "lib", cache, "applier")
+  assert(made == nil and err:find("found 0 matches", 1, true), err)
+  assert(#assert(Fs.list(cache)) == 0, "a failed tree left something in the cache")
+end
+
+--- Every vendored tree with a PIN, in name order.
+local function test_names_are_the_pinned_trees(dir: string)
+  assert(Fs.mkdirs(dir .. "/vendor/b"))
+  assert(Fs.write(dir .. "/vendor/b/PIN", "x"))
+  assert(Fs.mkdirs(dir .. "/vendor/a"))
+  assert(Fs.write(dir .. "/vendor/a/PIN", "x"))
+  assert(Fs.mkdirs(dir .. "/vendor/unpinned"))
+  local names = assert(Patch.names(dir))
+  assert(#names == 2 and names[1] == "a" and names[2] == "b")
+end
+
+--- A link is not upstream source: neither it nor what it names is
+--- copied, and a loop of them stops nothing. An empty directory is.
+local function test_links_are_left_out_and_empty_directories_kept(dir: string)
+  checkout(dir .. "/root", { ["a.h"] = "x\n" })
+  assert(Fs.write(dir .. "/outside", "not the tree's"))
+  assert(sys.symlink(dir .. "/outside", dir .. "/root/vendor/lib/linked.h"))
+  assert(sys.symlink(".", dir .. "/root/vendor/lib/loop"))
+  assert(Fs.mkdirs(dir .. "/root/vendor/lib/empty"))
+  assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
+  assert(Fs.exists(dir .. "/out/linked.h") == false)
+  assert(Fs.exists(dir .. "/out/loop") == false)
+  assert(assert(Fs.stat(dir .. "/out/empty")).kind == "dir")
+  assert(Fs.read(dir .. "/out/a.h") == "x\n")
 end
