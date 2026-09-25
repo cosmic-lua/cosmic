@@ -629,9 +629,10 @@ are closed:
 - [ ] *a database a connection opened before the capture*
   (`build/filesystem_observations.tl`, above `start`): its reads go unrecorded.
   hand over the files every open connection holds when a capture starts.
-- [ ] *a database attached through the store* (`core/store.c`, in
-  `store_attach`): opened on SQLite's default VFS, it is never observed. open it
-  through `cosmic.sqlite`'s.
+- [x] *a database attached through the store* (`core/store.c`, in
+  `store_attach`): it opens through `cosmic.sqlite`'s observed VFS, so a test
+  that attaches one is keyed by its bytes, and one that attaches `o/build.db`
+  keeps no verdict.
 - [ ] *lstat, readlink, realpath and getcwd* (`build/filesystem_observations.tl`,
   above `start`): observe every call at the syscall table's dispatch rather than
   by replacing fields of `cosmic.sys`.

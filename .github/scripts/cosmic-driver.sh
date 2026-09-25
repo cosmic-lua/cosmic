@@ -53,8 +53,7 @@ if [ "${1-}" = zig-cache ]; then
   # the tree's location (build/filesystem_observations.tl:866), a
   # stat's times and inode where a test turns on them
   # (build/test.tl:519), a database a connection opened before the
-  # test reads (build/filesystem_observations.tl:529) or one attached
-  # through the store (core/store.c:315),
+  # test reads (build/filesystem_observations.tl:529),
   # lstat, readlink, realpath and getcwd answers
   # (build/filesystem_observations.tl:534), a read resolved as it is
   # made (build/filesystem_observations.tl:577) and an in-tree path
