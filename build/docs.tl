@@ -87,6 +87,13 @@ local record docs
     named: integer
   end
 
+  --- One module as the index lists it.
+  record Summary
+    module: string
+    --- The first sentence of its documentation; "" when it has none.
+    text: string
+  end
+
   --- One row of `uses`.
   record Use
     module: string
@@ -239,6 +246,21 @@ local function declared_in(db: Sqlite.Handle, public: boolean, module: string): 
     "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
     symbols.public_only("d.module", public) .. " ORDER BY d.id",
     { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
+--- Every module's own documentation row, and every documented record
+--- a module declares at its top: one of them says what a module is for
+--- when its opening comment sits on it rather than above it.
+local function modules_of(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE (d.symbol = '' OR " ..
+    "(d.kind = 'record' AND d.symbol NOT LIKE '%.%' AND d.text <> '')) AND " ..
+    symbols.public_only("d.module", public) .. " ORDER BY d.module, d.line",
+    {})
   if rows == nil then
     return nil, trouble
   end
@@ -688,6 +710,66 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   return lookup(found, false, 0), ""
 end
 
+--- The first sentence of `documented`'s first paragraph, on one line:
+--- up to the first `.`, `?` or `!` that a space or the end follows,
+--- outside backticks and not closing "e.g" or "i.e".
+local function first_sentence(documented: string): string
+  local trimmed = documented:match("^%s*(.-)%s*$")
+  local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
+  local quoted = false
+  for at = 1, #paragraph do
+    local char = paragraph:sub(at, at)
+    if char == "`" then
+      quoted = not quoted
+    elseif not quoted and (char == "." or char == "?" or char == "!") and
+        (at == #paragraph or paragraph:sub(at + 1, at + 1) == " ") then
+      local before = paragraph:sub(math.max(1, at - 3), at - 1)
+      if before ~= "e.g" and before ~= "i.e" then
+        return paragraph:sub(1, at)
+      end
+    end
+  end
+  return paragraph
+end
+
+--- Whether `entry`'s comment opens its file: a record's, standing in
+--- for the module's own row when a file's opening comment sits on it.
+local function opens_its_file(entry: docs.Entry): boolean
+  local _, breaks = entry.text:gsub("\n", "")
+  return entry.line - (breaks + 1) == 1
+end
+
+--- Every module `view` holds, by name, with the first sentence of its
+--- documentation ("" for one it does not document) -- no test or
+--- example, which a reader never calls: what `cosmic docs` lists when
+--- asked nothing.
+function docs.index(view: docs.View): {docs.Summary} | nil, string
+  local found, trouble = across(view, modules_of, entry_module)
+  if found == nil then
+    return nil, trouble
+  end
+  -- The module's own row when it has one, else the record its opening
+  -- comment sits on.
+  local said: {string: string} = {}
+  for _, entry in ipairs(found) do
+    if entry.symbol == "" or (said[entry.module] == nil and opens_its_file(entry)) then
+      said[entry.module] = first_sentence(entry.text)
+    end
+  end
+  local out: {docs.Summary} = {}
+  for module, owner in pairs(view.owners) do
+    local listed = module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" and
+      (view.public[owner] ~= true or symbols.is_public_module(module))
+    if listed then
+      out[#out + 1] = { module = module, text = said[module] or "" }
+    end
+  end
+  table.sort(out, function(a: docs.Summary, b: docs.Summary): boolean
+    return a.module < b.module
+  end)
+  return out
+end
+
 --- Every one of `names` that names a symbol exactly, in one query per
 --- database rather than one lookup per name -- built for a caller
 --- that needs several known symbols in one command, such as `cosmic
@@ -839,7 +921,8 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
 end
 
 --- `cosmic docs <query>`: prints what the query names and ends in a
---- verdict line; fails when nothing matches.
+--- verdict line; fails when nothing matches. With no query, lists
+--- every module (`docs.index`).
 function docs.run(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -852,16 +935,35 @@ function docs.run(argv: {integer:string}): integer
   end
   local started = Time.monotonic_ns()
   local query = table.concat(parsed.words, " ")
-  if query == "" then
-    log:complain("docs: what to look up? a symbol (Fs.read), a module " ..
-      "(cosmic.fs), or words to search for")
-    return 2
-  end
   local sources = docs.databases()
   local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
     log:complain("docs: " .. view_trouble)
     return 1
+  end
+  if query == "" then
+    local index, index_trouble = docs.index(view)
+    if index == nil then
+      log:complain("docs: " .. index_trouble)
+      return 1
+    end
+    local width = 0
+    for _, summary in ipairs(index) do
+      width = math.max(width, #summary.module)
+    end
+    for _, summary in ipairs(index) do
+      local line = summary.module
+      if summary.text ~= "" then
+        line = line .. string.rep(" ", width - #line + 2) .. summary.text
+      end
+      log:say(line)
+    end
+    log:say("")
+    log:say("`cosmic docs <module>` shows one, with what it offers; " ..
+      "`cosmic docs <words>` searches them all.")
+    log:verdict("docs", true, #index .. " modules, " .. #view.databases ..
+      " databases, " .. clock.elapsed_ms(started) .. " ms")
+    return 0
   end
   local found, trouble = docs.lookup(view, query)
   if found == nil then
