@@ -102,7 +102,7 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
   })
 end
 
--- TODO: no input of 2000 gets past the first header, whose checksum
+-- TODO: no input of 2000 reads an entry: none gets past a header, whose checksum
 -- random bytes never match, so this checks only that refusal; drawing
 -- header fields and writing their checksum would reach the field
 -- parsing behind it.

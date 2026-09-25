@@ -43,7 +43,8 @@ local function test_a_failure_is_shrunk_to_its_simplest_input()
   assert(err:find("fuzz no high bytes: seed=1 iteration=%d+: a high byte"), err)
   assert(err:find("draws and 1 bytes;", 1, true), err)
   assert(err:find("input (hex): c8\n", 1, true), err)
-  assert(err:find("reproduce: FUZZ_SEED=1 FUZZ_ITERS=", 1, true), err)
+  assert(err:find("reproduce: FUZZ_CASE=no-high-bytes:", 1, true), err)
+  assert(err:find("or FUZZ_SEED=1 FUZZ_ITERS=", 1, true), err)
 end
 
 local function test_a_seed_reaches_the_same_failure_every_time()
@@ -286,4 +287,89 @@ local function test_a_label_outside_a_run_does_nothing()
       return true, ""
     end }, "x")
   assert(held)
+end
+
+-- A report names its input's own case, and a run given that case checks
+-- that one input -- the one that failed -- and nothing else: not the
+-- other iterations, not another property, not a corpus.
+local function test_a_case_checks_the_one_input_it_names(tmp: string)
+  local seen: {string} = {}
+  local function no_nul(input: string): boolean, string
+    seen[#seen + 1] = input
+    return input:find("\0", 1, true) == nil, "a NUL"
+  end
+  local err = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul })
+  local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
+  local first = seen[#seen - 0]
+  for i = 1, #seen do
+    if seen[i]:find("\0", 1, true) then first = seen[i]; break end
+  end
+  seen = {}
+  local again = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul, case = case })
+  assert(seen[1] == first, "the case drew another input")
+  assert(again:find("fuzz one case: FUZZ_CASE=" .. case .. ": a NUL", 1, true), again)
+  local corpus = tmp .. "/corpus"
+  assert(Fs.mkdirs(corpus))
+  assert(Fs.write(corpus .. "/a.input", "\0"))
+  seen = {}
+  local n = Fuzz.run({ name = "another", corpus = corpus, gen = any_bytes, check = no_nul, case = case })
+  assert(n == 0 and #seen == 0, ("checked %d"):format(#seen))
+end
+
+local function test_a_case_that_is_not_one_raises()
+  local ok, err = pcall(Fuzz.run, { name = "p", gen = any_bytes, case = "p:x",
+    check = function(_input: string): boolean, string return true, "" end })
+  assert(not ok and tostring(err):find('FUZZ_CASE="p:x" is not <property>:<case seed>', 1, true),
+    tostring(err))
+end
+
+-- A check that fails an input once and then holds for it depends on
+-- something beside the input: the report says so rather than shrinking.
+local function test_a_check_that_fails_once_is_reported_flaky()
+  local failed = false
+  local err = report({ name = "once", iters = 5, gen = any_bytes,
+    check = function(_input: string): boolean, string
+      if failed then return true, "" end
+      failed = true
+      return false, "the first time"
+    end })
+  assert(err:find("fuzz once: seed=1 iteration=1: flaky: failed (the first time), then held " ..
+    "when the same input was checked again", 1, true), err)
+  assert(not err:find("shrunk", 1, true), err)
+end
+
+-- A shrunk input that failed while shrinking and holds when checked
+-- again is not reported as the smallest: the input that first failed
+-- is, and the report says why.
+local function test_a_shrunk_input_that_then_holds_is_named_flaky()
+  local seen_alone = false
+  local err = report({ name = "shrunk once", iters = 200, gen = any_bytes,
+    check = function(input: string): boolean, string
+      if input == "\200" then
+        if seen_alone then return true, "" end
+        seen_alone = true
+        return false, "a high byte"
+      end
+      return input:find("[\200-\255]") == nil, "a high byte"
+    end })
+  assert(err:find("flaky: the shrunk input held when checked again", 1, true), err)
+  assert(not err:find("input (hex): 80\n", 1, true), err)
+end
+
+-- Elements drawn after a `more` draw each are cut from the middle of a
+-- collection by shrinking: what fails is two elements in order, and the
+-- simplest failing input is those two, alone.
+local function test_shrinking_cuts_elements_from_the_middle()
+  local err = report({ name = "in order", iters = 300,
+    gen = function(src: Fuzz.Source): string
+      local parts: {string} = {}
+      while Fuzz.more(src, #parts, 40) do
+        parts[#parts + 1] = Fuzz.pick(src, { "a", "b", "c", "d" }) .. string.char(src:int(0, 9) + 48)
+      end
+      return table.concat(parts)
+    end,
+    check = function(input: string): boolean, string
+      return input:find("b%d.*d%d") == nil, "b before d"
+    end })
+  assert(err:find("input (hex): 62306430\n", 1, true), err)
 end

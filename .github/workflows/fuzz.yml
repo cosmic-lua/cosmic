@@ -4,11 +4,11 @@ name: fuzz
 # and check only each property's corpus (ci/cosmic_ci/orchestration.tl).
 # This one draws a seed of its own each night, from the run's id, and
 # fuzzes on the checked core, so the properties keep meeting inputs no
-# run has checked. A failure names its seed; `FUZZ_SEED=<seed>
-# FUZZ_ITERS=<iteration>` reproduces it anywhere, the failing inputs are
-# kept as an artifact to add to testdata/fuzz/ once fixed
-# (build/fuzz/init.tl), and a scheduled run's failure opens an issue, or
-# comments on the one still open, so it is seen.
+# run has checked. A failure's report names the `FUZZ_CASE` that checks
+# its input again anywhere, the failing inputs are kept as an artifact
+# to add to testdata/fuzz/ once fixed (build/fuzz/init.tl), and a
+# scheduled run's failure opens an issue, or comments on the one still
+# open, so it is seen.
 on:
   schedule:
     - cron: '17 7 * * *'
@@ -93,7 +93,7 @@ jobs:
           {
             echo "FUZZ_SEED=$FUZZ_SEED FUZZ_ITERS=$FUZZ_ITERS"
             echo
-            echo "A failure's report names the iteration; FUZZ_SEED=$FUZZ_SEED FUZZ_ITERS=<iteration> reproduces it."
+            echo "A failure's report names the FUZZ_CASE that checks its input again, and its iteration under this seed."
           } >> "$GITHUB_STEP_SUMMARY"
           mkdir -p "$RUNNER_TEMP/fuzz"
           # A failing test's directory is left under TMPDIR, holding the
@@ -168,7 +168,7 @@ jobs:
               echo 'No test output: the run failed before fuzzing finished (the build, say); see the run.'
             fi
             echo
-            echo "Reproduce with \`FUZZ_SEED=$SEED FUZZ_ITERS=<iteration> o/bin/cosmic test <file>\`;" \
+            echo "Reproduce with the \`FUZZ_CASE=...\` each report names, \`o/bin/cosmic test <file>\`;" \
               "the shrunk inputs are the run's \`fuzz-inputs-$SEED\` artifact. Once fixed, keep each" \
               "in \`testdata/fuzz/<property>/\` as its report says, and close this issue."
           } > "$body"

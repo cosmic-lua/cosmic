@@ -69,7 +69,10 @@ A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
 driving `build.fuzz`'s `run`: a generator draws each input from a seeded
 source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 (64 by default) choose the inputs, a failure is shrunk and kept in the test's
-directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI's
+directory, and the `FUZZ_CASE=<property>:<case>` its report names checks that
+one input again (`FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reruns the way to it).
+Draw a collection's elements with `Fuzz.more` rather than a count drawn first,
+so shrinking can cut any one of them. CI's
 runs, which gate a merge, set `FUZZ_ITERS=0` and draw nothing; `fuzz.yml`
 fuzzes every property each night on the checked core with a seed of its own,
 and opens an issue (or comments on the open one) when it fails. Once a failure is fixed, keep its input in

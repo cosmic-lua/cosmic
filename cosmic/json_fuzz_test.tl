@@ -123,7 +123,7 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
--- TODO: only 4 inputs of 64 decode: up to eight edits, or a soup of
+-- TODO: only 8 inputs of 64 decode (252 of 2000): edits, or a soup of
 -- tokens, leave little that parses, so the walk into Lua values and the
 -- re-encoding checks run rarely; fewer edits on some draws, or tokens
 -- drawn from a grammar, would reach them.
