@@ -720,10 +720,13 @@ end
 --- in `by_test`, since its row from the run that produced it still
 --- stands for it. One row a test, its hits as `encode_hits` wrote them
 --- when it finished.
+--- `native_lines` are the core's own C lines (`Coverage.native_lines`),
+--- or none when the tree is not the one that C belongs to.
 --- Returns the overall hit and executable-line counts, over every
 --- module written for this run, for the run's own verdict line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
+                              native_lines: Coverage.Hits,
                               hits: Coverage.Hits,
                               by_test: {string: string},
                               run_at_ns: integer): integer, integer, string
@@ -760,7 +763,6 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   -- The core's own C sits among the modules by path: a core that
   -- observes it answers every line a block begins on, and a line is hit
   -- when some window's hits name it (see `Coverage.native_lines`).
-  local native_lines = Coverage.native_lines()
   local by_source: {string: importer.Module} = {}
   local sorted_paths: {string} = {}
   for _, m in ipairs(modules) do
@@ -900,6 +902,9 @@ local record Recording
   --- test's lines would stay until the run ends: hundreds of megabytes
   --- that every test process started after would be forked from.
   by_test: {string: string}
+  --- The core's C when the tree is not cosmic's own: its hits are kept
+  --- out of every record of the run (see `write_coverage`).
+  unowned: Coverage.Hits
   tally: test.Tally
 end
 
@@ -983,6 +988,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
+    for path in pairs(rec.unowned) do
+      hit[path] = nil
+    end
     merge_hits(rec.hits, hit)
     rec.by_test[id] = encode_hits(hit)
     if passed and trouble ~= "" then
@@ -1425,11 +1433,21 @@ function test.run(argv: {integer:string}): integer
   -- a later run credit a standing verdict's lines to it by name.
   local hits: Coverage.Hits = {}
   local by_test: {string: string} = {}
+  -- The core's C is cosmic's own: another project's run neither owns
+  -- nor tests it, and counting it would make its lines most of that
+  -- project's figure.
+  local native_lines: Coverage.Hits = {}
+  local unowned: Coverage.Hits = {}
+  if own_tree then
+    native_lines = Coverage.native_lines()
+  else
+    unowned = Coverage.native_lines()
+  end
   local rec: Recording = {
     records = records, root = root, hashes = hashes, runtime = runtime,
     run_at_ns = run_at_ns, run = handle.run, key_parts = {},
     failures = failures, errors = errors, outputs = {},
-    hits = hits, by_test = by_test, tally = tally,
+    hits = hits, by_test = by_test, unowned = unowned, tally = tally,
   }
   local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
@@ -1493,7 +1511,7 @@ function test.run(argv: {integer:string}): integer
   end
 
   local cov_hit, cov_total, cov_trouble =
-    write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
+    write_coverage(records, built, result.modules, native_lines, hits, by_test, run_at_ns)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
