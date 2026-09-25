@@ -25,6 +25,7 @@
  * --- What `spawn` holds a child to from its exec on, with every process it starts.
  * ---@class Sandbox
  * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none
+ * ---@field pledge {string} the promises the child may keep, or nil for no filter: with one, a socket may be only of a family promised -- "unix" for AF_UNIX, "inet" for AF_INET and AF_INET6 -- and the calls that reach past the process (ptrace, pidfd_getfd, mounting, bpf, loading modules, io_uring and the like) fail with EPERM; keeping a child from another process's /proc/<pid>/mem takes a ruleset too. Linux on x86_64 and aarch64; ENOSYS elsewhere
  */
 
 /*

@@ -155,7 +155,7 @@ local module: Module = {
     ["cosmic.sys.landlock_ruleset"] = "there is no public way to hold a child to a " ..
       "ruleset yet; start one with Child.start(argv, opts) (" .. child .. ")",
     ["cosmic.sys.Sandbox"] = "there is no public way to hold a child to a ruleset " ..
-      "yet; start one with Child.start(argv, opts) (" .. child .. ")",
+      "or a pledge yet; start one with Child.start(argv, opts) (" .. child .. ")",
     ["cosmic.sys.ChildStatus"] = "use Child.Result, what h:wait() answers (" .. child .. ")",
     ["cosmic.sys.pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
       "or stdout = \"capture\" (" .. child .. ")",

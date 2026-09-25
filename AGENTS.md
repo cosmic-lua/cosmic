@@ -70,7 +70,13 @@ driving `build.fuzz`'s `run`: a generator draws each input from a seeded
 source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 (64 by default) choose the inputs, a failure is shrunk and kept in the test's
 directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI
-reruns them on the checked core with `FUZZ_ITERS=2000`.
+reruns them on the checked core with `FUZZ_ITERS=2000`, and `fuzz.yml` each
+night with a seed of its own. Once a failure is fixed, keep its input in
+`testdata/fuzz/<property>/` as the report says: `run` checks that corpus
+before drawing anything. A check calls `Fuzz.label` for what an input reached
+(opened, read a body); a property `requires` the labels it exists to exercise,
+so a generator whose inputs all stop at the first refusal fails rather than
+passing while it checks nothing (not held when `FUZZ_ITERS` is below 64).
 
 Leave `TODO:` comments as the work goes, the moment one is due, rather than
 recalling them at the end. One is due when a change settles for less than

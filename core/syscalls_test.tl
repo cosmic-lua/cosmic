@@ -451,6 +451,52 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
 end
 
+--- A pledged child runs under a seccomp filter, and so does what it
+--- starts; an unpledged one runs as this process does (under a filter
+--- of its own when a container gives it one), and a promise no one keeps
+--- is refused before anything starts. (That the filter refuses a socket
+--- of a family not promised is seen only from outside, with strace.)
+-- TODO: check a refused socket from inside the child once cosmic.sys can
+-- open one: curl, the only socket maker, words a refused socket and a
+-- refused connection alike.
+local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
+  local refused = pcall(process.spawn, "/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil,
+    false, nil, { pledge = { "fly" } })
+  assert(not refused, "a promise no one keeps is refused")
+  local function filtered(sandbox: raw_process.Sandbox | nil): string
+    local output = create(tmp .. "/status")
+    local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
+      "grep Seccomp: /proc/self/status; sh -c 'grep Seccomp: /proc/self/status'" },
+      nil, nil, nil, output, output, false, nil, sandbox)
+    if pid == nil then
+      sys.close(output)
+      assert(errno == sys.ENOSYS, trouble)
+      return "unsupported"
+    end
+    assert(assert(process.waitpid(pid, false)).code == 0)
+    local said = assert(sys.pread(output, 4096, 0))
+    sys.close(output)
+    return (said:gsub("%s+", " "))
+  end
+  local status_file = sys.open("/proc/self/status", sys.O_RDONLY)
+  if status_file == nil then
+    -- No /proc to ask: a pledge is at most refused as unsupported.
+    local ok, _, errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil,
+      false, nil, { pledge = {} })
+    if ok == nil then assert(errno == sys.ENOSYS) else process.waitpid(ok, false) end
+    return
+  end
+  local own = assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)")
+  sys.close(status_file)
+  local pledged = filtered({ pledge = {} })
+  if pledged ~= "unsupported" then
+    assert(pledged == "Seccomp: 2 Seccomp: 2 ", pledged)
+    assert(filtered({ pledge = { "unix", "inet" } }) == "Seccomp: 2 Seccomp: 2 ")
+  end
+  local plain = filtered(nil)
+  assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
+end
+
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
   assert(math.type(count) == "integer" and count >= 1)

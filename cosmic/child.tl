@@ -801,8 +801,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
       extra[number] = fd
     end
   end
-  -- TODO: offer spawn's `sandbox` (a ruleset from raw.landlock_ruleset)
-  -- as a Child option once a caller wants a child held to what it names
+  -- TODO: offer spawn's `sandbox` (a ruleset from raw.landlock_ruleset,
+  -- a pledge) as a Child option once a caller wants a child held to what it names
   -- -- the test runner, holding a test to what it declares it reads, is
   -- the one #2103 made it for; until then nothing public reaches it.
   local pid, trouble = raw.spawn(argv[1], argv, opts.env, opts.cwd,

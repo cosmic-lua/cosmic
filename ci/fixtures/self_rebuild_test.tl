@@ -261,6 +261,13 @@ local function run_rebuild_case(root: string, fixture_dir: string,
       action .. ": a stale tool refused an unknown option with exit status " ..
       tostring(optioned.result.code) .. ", want 3")
     Fixture.contains(optioned.err, "the tool is stale; run bin/zig build boot")
+    -- Running a file builds the tree as `test` does, and meets the same guard.
+    local ran = Fixture.call_with_environment("core-change-file-" .. action,
+      { program, "build/embed_test.tl" }, tree, diagnostics, refusal_values)
+    assert(ran.result.code == 3,
+      action .. ": a stale tool ran a file with exit status " ..
+      tostring(ran.result.code) .. ", want 3")
+    Fixture.contains(ran.err, "the tool is stale; run bin/zig build boot")
   end)
 end
 
@@ -432,7 +439,7 @@ end
 -- A stale cosmic that is not the tree's own tool -- one outside `o/`, as a
 -- release, the bootstrap cache's or one on PATH is -- refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
--- file. `docs` meets it in `build.reboot.stale_exit`, `test` in its own check,
+-- file. `docs` meets it in `build.reboot.stale_exit`, `test` and a file run in `build.reboot.guard`,
 -- and `db` with an option it lacks in the check build/dispatch.tl makes
 -- before it calls a refused command line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
@@ -454,12 +461,13 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   for _, verb in ipairs({
     { "docs", "cosmic.child" },
     { "test", "build/embed_test.tl" },
+    { "build/embed_test.tl" },
     -- An option the tree may have added is not refused as a usage error.
     { "db", "--an-option-this-tool-lacks" },
   }) do
     local argv = { program }
     for _, word in ipairs(verb) do argv[#argv + 1] = word end
-    local outcome = Fixture.call_with_environment("foreign-" .. verb[1],
+    local outcome = Fixture.call_with_environment("foreign-" .. (verb[1]:gsub("/", "-")),
       argv, tree, diagnostics, values)
     assert(outcome.result.code == 3, verb[1] .. ": exit status was " ..
       tostring(outcome.result.code) .. ", want 3")
