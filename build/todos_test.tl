@@ -246,12 +246,14 @@ local function test_own_tree_scans_github_for_todos()
   assert(rows[1][1] == "0", rows[1][1])
   assert(work.close(handle))
 
+  -- Staged again as another project's tree, it is hidden, and what the
+  -- first stage scanned there is forgotten.
   local other = assert(work.open(root))
-  assert(Sqlite.run(other.db, "DELETE FROM scanned"))
-  assert(Sqlite.run(other.db, "DELETE FROM todos"))
   assert(work.stage(other, false))
   listed = assert(todos.list(other.db, root)).todos
   assert(#listed == 0, "found " .. #listed)
+  rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
+  assert(rows[1][1] == "0", rows[1][1])
   assert(work.close(other))
   assert(Fs.remove_tree(root))
 end
