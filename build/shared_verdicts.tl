@@ -242,19 +242,29 @@ function shared_verdicts.corrupt(trouble: string): boolean
     trouble:find("not a database", 1, true) ~= nil
 end
 
---- Moves a broken cache aside, write-ahead log and all, to
---- `<path>.corrupt-<now_ns>`, so the next run starts a fresh one
---- rather than meeting it again; answers where it went, or nil and why.
+--- Moves a broken cache aside, write-ahead log and all -- the log and
+--- its index first, so no one opening the path meanwhile finds the old
+--- log beside a new file -- to `<path>.corrupt-<now_ns>`, removing any
+--- earlier one set aside there, so the next run starts a fresh cache
+--- rather than meeting it again, and at most one is kept. Answers where
+--- it went, or nil and why.
 function shared_verdicts.set_aside(path: string, now_ns: integer): string | nil, string
+  local dir, name = Fs.dirname(path), Fs.basename(path)
+  local listed, _ = Fs.list(dir)
+  for _, entry in ipairs(listed or {}) do
+    if entry:sub(1, #name + 9) == name .. ".corrupt-" then
+      local _, _ = Fs.remove(dir .. "/" .. entry)
+    end
+  end
   local aside = path .. ".corrupt-" .. tostring(now_ns)
-  local moved_file, trouble = Fs.rename(path, aside)
-  if not moved_file then return nil, trouble end
   for _, suffix in ipairs({ "-wal", "-shm" }) do
     local there, _ = Fs.stat(path .. suffix)
     if there ~= nil then
       local _, _ = Fs.rename(path .. suffix, aside .. suffix)
     end
   end
+  local moved_file, trouble = Fs.rename(path, aside)
+  if not moved_file then return nil, trouble end
   return aside, ""
 end
 

@@ -267,3 +267,40 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   local third = run(tmp .. "/third", tmp .. "/third.out", env, {})
   assert(third:find("1 ran, 4 stood", 1, true), third)
 end
+
+--- A test that failed here runs until it passes here, though its
+--- failing run stopped short of a read the passing one elsewhere made,
+--- so no key of its own matches that one's.
+local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp: string)
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.COSMIC_TEST_ALL = nil
+  assert(Fs.mkdirs(tmp .. "/outside"))
+  env.OUTSIDE = tmp .. "/outside"
+  for _, name in ipairs({ "first", "second" }) do
+    local root = tmp .. "/" .. name
+    assert(Fs.mkdirs(root .. "/suite"))
+    assert(Fs.write(root .. "/suite/c.txt", "c\n"))
+    assert(Fs.write(root .. "/suite/early_test.tl", [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+
+local function test_stops_early()
+  assert(Fs.read(assert(Env.get("OUTSIDE")) .. "/f") == "out\n")
+  assert(Fs.read("suite/c.txt") == "c\n")
+end
+]]))
+  end
+  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
+  assert(failed:find("1 of 1 failed", 1, true), failed)
+  assert(Fs.write(tmp .. "/outside/f", "out\n"))
+  local passed = run(tmp .. "/first", tmp .. "/passed.out", env, {})
+  assert(passed:find("1 ran", 1, true), passed)
+  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
+  assert(again:find("1 of 1 failed", 1, true), again)
+  env.COSMIC_VERDICT_CACHE = "0"
+  local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
+  assert(alone:find("1 of 1 failed", 1, true), alone)
+end

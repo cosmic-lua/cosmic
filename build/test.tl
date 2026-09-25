@@ -1320,7 +1320,8 @@ end
 --- `asked`, that is assumed on those `assumable` does -- or nil. This
 --- checkout's own evidence comes first: content its last run of the
 --- test reached the same shared key over -- passing or failing, a file
---- touched since or not -- and a key `verdicts` holds any verdict
+--- touched since or not -- a test whose last run here failed, over
+--- whatever content, and a key `verdicts` holds any verdict
 --- under are never answered from another checkout's, and one that
 --- failed here takes the shared row out. Nor is a row this checkout
 --- wrote itself.
@@ -1332,6 +1333,10 @@ local function shared_standing(rec: Recording, previous: {string:test.Previous},
   -- which content it was over: this checkout has run the test, and
   -- runs it again rather than guess.
   if last ~= nil and last.shared == nil then return nil end
+  -- A test that failed here runs until it passes here: a failing run
+  -- may stop short of reads a passing one makes, so no shared key tells
+  -- its content from the one another checkout passed on.
+  if last ~= nil and not last.passed then return nil end
   local candidates, trouble = shared_verdicts.candidates(rec.shared, rec.root, id, m.key)
   if candidates == nil then
     drop_shared(rec, trouble)
@@ -1513,6 +1518,9 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- verdicts every checkout shares, unless the test names a cache of
   -- its own.
   shared_verdicts.turn_off(out)
+  -- Nor does it take this run's choice not to stand on them: a test
+  -- that runs `cosmic test` says for itself what that run does.
+  out.COSMIC_TEST_NO_SHARED = nil
   return out
 end
 

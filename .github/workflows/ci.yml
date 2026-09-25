@@ -248,7 +248,7 @@ jobs:
           # (build/filesystem_observations.tl:508), a read resolved as it is
           # made (build/filesystem_observations.tl:550) and an in-tree path
           # that crosses a link out (build/test.tl:413), and the binary's
-          # zoneinfo and ca_roots tables (build/test.tl:1854).
+          # zoneinfo and ca_roots tables (build/test.tl:1862).
           echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
           # TODO: save what the product suite from fresh tracked source
           # reaches too: it runs after the zig-build cache is saved, so
