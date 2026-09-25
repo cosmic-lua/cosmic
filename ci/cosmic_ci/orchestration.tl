@@ -238,7 +238,9 @@ local function checked_suite(c: Context, target: string, work: string): integer
   -- workers, 90 to 100 s whole on a 4-core host under ci/run-local,
   -- no one test past 7 s -- a suite grown to 1400 tests, which 90 s
   -- no longer held.
-  s = logged(c, "checked suite", { cosmic, "test" },
+  -- --all: CI answers for every test, the ones no verdict can stand
+  -- for included, whatever o/ holds.
+  s = logged(c, "checked suite", { cosmic, "test", "--all" },
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     180000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
@@ -293,7 +295,9 @@ local function suite(c: Context, name: string, executable: string,
   local err = diagnostics .. "/" .. name .. "-test.err"
   local values = environment(env)
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
-  local status = logged(c, name .. " suite", { executable, "test" }, out, err,
+  -- --all: CI answers for every test, the ones no verdict can stand
+  -- for included, whatever o/ holds.
+  local status = logged(c, name .. " suite", { executable, "test", "--all" }, out, err,
     suite_timeout_ms, c.root, values)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snap_called, snap_answer = pcall(snapshot, c, diagnostics,

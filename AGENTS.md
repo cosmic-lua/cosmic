@@ -44,9 +44,14 @@
    module key, same contents for every file opened, and same stat and directory
    read answers under the root -- is not run again, so a run after a small edit
    takes seconds. A run after a boot, or on a fresh `o/`, runs everything.
-   Environment variables a test reads are part of its key; a test that spawns
-   a process or reads outside the tree beyond its own temporary directories
-   is never answered from a verdict.
+   Environment variables a test reads are part of its key. A test that
+   spawns a process it does not confine (`observations.confine`), reads
+   outside the tree beyond its own temporary directories, or reaches the
+   network has no verdict a key can hold: it is assumed to pass as it last
+   did until it, or what it loads, changes -- the summary counts it
+   "assumed" -- and runs when named, or on `--all` (`COSMIC_TEST_ALL=1`),
+   as CI's driver passes. Run `--all` before pushing a change such a test
+   covers.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and

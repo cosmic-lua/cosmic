@@ -15,10 +15,14 @@ local observations = require("build.filesystem_observations")
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
 
+--- Runs `cosmic test` on `root` with `words` after it -- `--all`, so a
+--- test no key holds runs, unless others are given.
 local function run(program: string, root: string, output: string,
-                   env: {string:string}, fails?: boolean): string
+                   env: {string:string}, fails?: boolean, words?: {string}): string
   local fd = assert(Fs.open_write(output))
-  local result, trouble = Child.run({ program, "test" }, {
+  local argv: {string} = { program, "test" }
+  for _, word in ipairs(words or { "--all" }) do argv[#argv + 1] = word end
+  local result, trouble = Child.run(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
@@ -103,4 +107,49 @@ end
   sys.close(fd)
   local third = run(program, root, tmp .. "/third.out", env, true)
   assert(third:find("4 of 6 failed", 1, true), third)
+end
+
+--- A test no key can hold -- this one reads outside its tree -- is
+--- assumed to pass as it last did, until it or what it loads changes,
+--- or it is asked for: by --all, by COSMIC_TEST_ALL=1, or by name. One
+--- that failed is never assumed.
+local function test_a_test_no_key_holds_is_assumed_until_asked_for(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(tmp .. "/outside"))
+  assert(Fs.write(tmp .. "/outside/f", "out\n"))
+  local source = [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+
+local function test_reads_outside()
+  assert(Fs.read(assert(Env.get("OUTSIDE")) .. "/f") == "out\n")
+end
+
+local function test_plain()
+  assert(1 + 1 == 2)
+end
+]]
+  assert(Fs.write(root .. "/suite/outside_test.tl", source))
+  local program = assert(Proc.executable())
+  local env = Env.all()
+  env.OUTSIDE = tmp .. "/outside"
+  env.COSMIC_TEST_ALL = nil
+  local function said(name: string, words: {string}, fails?: boolean): string
+    return run(program, root, tmp .. "/" .. name .. ".out", env, fails, words)
+  end
+  assert(said("first", {}):find("2 ran, 0 stood", 1, true))
+  local assumed = said("second", {})
+  assert(assumed:find("0 ran, 1 stood, 1 assumed", 1, true), assumed)
+  assert(said("all", { "--all" }):find("1 ran, 1 stood", 1, true))
+  local named = said("named", { "suite/outside_test.tl" })
+  assert(named:find("1 ran, 1 stood", 1, true), named)
+  env.COSMIC_TEST_ALL = "1"
+  assert(said("variable", {}):find("1 ran, 1 stood", 1, true))
+  env.COSMIC_TEST_ALL = nil
+  -- Changed, it runs, and fails; failed, it is not assumed.
+  assert(Fs.write(tmp .. "/outside/f", "changed\n"))
+  assert(Fs.write(root .. "/suite/outside_test.tl", source .. "\n"))
+  assert(said("edited", {}, true):find("1 of 2 failed", 1, true))
+  assert(said("failed", {}, true):find("1 of 2 failed", 1, true))
 end

@@ -25,9 +25,13 @@
 --- and directory listings are observed through the syscall table.
 --- Observations outside the root do not enter the key; the tool's own
 --- hash, in every module key, invalidates everything at once.
---- Environment variables a test reads are part of its key; a test
---- that spawns a process or reads outside the tree beyond its own
---- temporary directories is never answered from a verdict.
+--- Environment variables a test reads are part of its key. A test
+--- that spawns a process it does not confine, reads outside the tree
+--- beyond its own temporary directories, or reaches the network has no
+--- verdict a key can hold: its run records what it was compiled from
+--- and ran under instead, and while that is unchanged and it last
+--- passed, it is assumed to pass again rather than run -- unless the
+--- run is `--all` (or `COSMIC_TEST_ALL=1`) or names it.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -97,7 +101,12 @@ local record test
   --- What the last run recorded about one test: what it read, which
   --- is what its key is computed over next time.
   record Previous
+    --- Nil for a run no key could hold.
     reads: {observations.Observation}
+    --- For a run no key could hold: its verdict's key, and what it was
+    --- compiled from and ran under, for `--all`'s absence to assume it.
+    key: string
+    identity: string
   end
 
   --- One verdict ever reached, by key.
@@ -120,6 +129,9 @@ local record test
   record Tally
     ran: integer
     cached: integer
+    --- Answered from the verdict of a run no key could hold, whose test
+    --- has changed in nothing its key would have held.
+    assumed: integer
   end
 
   --- How a run is bounded, from the command line and the environment.
@@ -214,19 +226,19 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
                           reads: {observations.Observation}, key: string,
                           run_at_ns: integer, elapsed: integer,
-                          cacheable?: boolean): boolean, string
+                          cacheable?: boolean, identity?: string): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
     "reads, key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
       { integer = ran_at_ns }, text(cacheable == false and
-        observations.encode_unstable() or observations.encode(reads)), text(key),
+        observations.encode_unstable(identity) or observations.encode(reads)), text(key),
       { integer = run_at_ns }, { integer = elapsed } })
 end
 
 --- What the last run left of every test, by "path name".
 local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | nil, string
-  local rows, trouble = Sqlite.text_rows(handle, "SELECT path, test, reads FROM runs")
+  local rows, trouble = Sqlite.text_rows(handle, "SELECT path, test, reads, key FROM runs")
   if rows == nil then
     return nil, trouble
   end
@@ -235,6 +247,11 @@ local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | ni
     local reads = observations.decode(row[3])
     if reads ~= nil then
       out[row[1] .. " " .. row[2]] = { reads = reads }
+    else
+      local identity = observations.unstable_identity(row[3])
+      if identity ~= nil then
+        out[row[1] .. " " .. row[2]] = { key = row[4], identity = identity }
+      end
     end
   end
   return out
@@ -1014,6 +1031,12 @@ local record Recording
   tally: test.Tally
 end
 
+--- What a test was compiled from and ran under: what a verdict no key
+--- could hold is assumed on, when it is.
+local function identity_of(rec: Recording, m: importer.Module): string
+  return m.key .. "\0" .. rec.runtime
+end
+
 --- A verdict from a stored one that still stands: what the test read
 --- last time still hashes the same, and so does everything it was
 --- compiled from. Nil when there is none.
@@ -1021,7 +1044,7 @@ local function standing(rec: Recording, previous: {string:test.Previous},
                         verdicts: {string:test.Verdict}, m: importer.Module,
                         id: string): test.Verdict, {observations.Observation}, string
   local was = previous[id]
-  if was == nil then return nil, nil, "" end
+  if was == nil or was.reads == nil then return nil, nil, "" end
   local verdict_key = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime,
     was.reads, rec.key_parts)
   local key, stable = verdict_key.key, verdict_key.stable
@@ -1048,6 +1071,49 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   end
   kept, keep_trouble = record_verdict(rec.records, key, true, stood.run_at_ns, rec.run,
     stood.elapsed_ns)
+  if not kept then
+    rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
+  end
+end
+
+--- A verdict a test is assumed on, and the key it was reached under.
+local record Assumed
+  verdict: test.Verdict
+  key: string
+end
+
+--- The verdict to assume for a test no key could hold: its last run's,
+--- when that passed and the test was compiled from and ran under the
+--- same as now; nil and why when there is none.
+local function assumable(rec: Recording, previous: {string:test.Previous},
+                         verdicts: {string:test.Verdict}, m: importer.Module,
+                         id: string): Assumed | nil, string
+  local was = previous[id]
+  if was == nil or was.identity == nil then return nil, "no run no key could hold" end
+  if was.identity ~= identity_of(rec, m) then return nil, "changed since" end
+  local verdict = verdicts[was.key]
+  if verdict == nil or not verdict.passed then return nil, "did not pass" end
+  return { verdict = verdict, key = was.key }, ""
+end
+
+--- Records one test answered from an assumed verdict, keeping that
+--- verdict, its coverage and the mark that lets it be assumed again.
+local function assume(rec: Recording, credited: test.Credited, m: importer.Module,
+                      name: string, id: string, verdict: test.Verdict, key: string)
+  rec.tally.assumed = rec.tally.assumed + 1
+  local owed = credited[verdict.run_at_ns]
+  if owed == nil then
+    owed = {}
+    credited[verdict.run_at_ns] = owed
+  end
+  owed[#owed + 1] = id
+  local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
+    Time.now_ns(), {}, key, verdict.run_at_ns, verdict.elapsed_ns, false, identity_of(rec, m))
+  if not kept then
+    rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
+  end
+  kept, keep_trouble = record_verdict(rec.records, key, true, verdict.run_at_ns, rec.run,
+    verdict.elapsed_ns)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
   end
@@ -1110,7 +1176,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local late = verdict_reached.late
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
     message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
-    (stable or late) and cacheable)
+    (stable or late) and cacheable, identity_of(rec, job.m))
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
   end
@@ -1428,6 +1494,13 @@ function test.run(argv: {integer:string}): integer
     if name ~= nil then selector = selector .. ":" .. name end
     selectors[#selectors + 1] = selector
   end
+  -- A test no key can hold is assumed to pass as it last did unless
+  -- asked for: by --all, or by name -- a selector narrower than the
+  -- whole tree.
+  local everything = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  for _, selector in ipairs(selectors) do
+    if selector ~= "." then everything = true end
+  end
   local started = Time.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
@@ -1579,7 +1652,7 @@ function test.run(argv: {integer:string}): integer
   end
   local credited: test.Credited = {}
 
-  local tally: test.Tally = { ran = 0, cached = 0 }
+  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0 }
   local modules_run = #selected_modules
   local failures: {string} = {}
   local errors: {string} = {}
@@ -1608,8 +1681,15 @@ function test.run(argv: {integer:string}): integer
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
       local stood, reads, key = standing(rec, previous, verdicts, m, id)
+      local assumed: Assumed = nil
+      if stood == nil and not everything then
+        local answer, _ = assumable(rec, previous, verdicts, m, id)
+        assumed = answer
+      end
       if stood ~= nil then
         stand(rec, credited, m, name, id, stood, reads, key)
+      elseif assumed ~= nil then
+        assume(rec, credited, m, name, id, assumed.verdict, assumed.key)
       else
         jobs[#jobs + 1] = { m = m, name = name, id = id }
       end
@@ -1638,7 +1718,7 @@ function test.run(argv: {integer:string}): integer
       end
     end
   end
-  local total = tally.ran + tally.cached
+  local total = tally.ran + tally.cached + tally.assumed
 
   local credit_trouble = credit_hits(records, credited, hits)
   if credit_trouble ~= "" then
@@ -1709,7 +1789,9 @@ function test.run(argv: {integer:string}): integer
     log:say(cov_line)
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
     log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
-      tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms")
+      tally.ran .. " ran, " .. tally.cached .. " stood, " ..
+      (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
+      clock.elapsed_ms(started) .. " ms")
     return 0
   end
   table.sort(failures)

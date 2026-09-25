@@ -152,10 +152,23 @@ function observations.encode(found: {observations.Observation}): string
   return table.concat(lines, "\n")
 end
 
---- Marks a run whose observations changed while it ran. It must run again:
---- no single current filesystem answer can represent what that run observed.
-function observations.encode_unstable(): string
-  return "filesystem-observations-unstable"
+--- Marks a run whose observations changed while it ran, or that read
+--- what no key can hold. It must run again -- no single current
+--- filesystem answer can represent what that run observed -- unless its
+--- `identity` (what it was compiled from and ran under) still holds and
+--- the caller lets it be assumed.
+function observations.encode_unstable(identity?: string): string
+  if identity == nil then return "filesystem-observations-unstable" end
+  return "filesystem-observations-unstable\n" .. Codec.hex(identity)
+end
+
+--- The identity `encode_unstable` was given, or nil when it was given
+--- none or `encoded` is no such mark.
+function observations.unstable_identity(encoded: string): string | nil
+  local hex = encoded:match("^filesystem%-observations%-unstable\n([0-9a-f]+)$")
+  if hex == nil then return nil end
+  local identity, _ = Codec.unhex(hex)
+  return identity
 end
 
 --- Old rows described opens only, or no resolutions, so they cannot
