@@ -264,7 +264,8 @@ collector is a C hook behind a private binding, and `debug` itself is
 never opened. a name that is missing errors with the module
 that replaces it.
 
-the vendored `tl.lua` reaches outside the pure libraries in five
+the compiler -- the Lua the vendored `tl.tl` compiles to (below) --
+reaches outside the pure libraries in five
 places: `io.open` and the file handle it returns, `os.getenv`,
 `package.path`, `package.searchers`, and `load`. it ships as a row
 in the database and is loaded with its own environment that supplies
@@ -364,7 +365,8 @@ input to the build, never to the runtime. one database holds:
   a rowid, written in name order: a WITHOUT ROWID row lives in an
   index page, where a zone file past about a kilobyte spills into
   overflow pages, and the table would take two thirds more room.
-- **the compiler**: `tl.lua`, one row, loaded with its own environment.
+- **the compiler**: the Lua the vendored `tl.tl`, patched, compiles to,
+  one row, loaded with its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
@@ -496,7 +498,8 @@ database: compile, check, record, embed. `build.zig` owns the C.
 and `zig build` installs them under `o/vendor/` and produces the core
 for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
-importer with the vendored `tl.lua`, writes `o/cosmic.db`, and writes one
+importer with the compiler the vendored `tl.lua` compiles from the
+patched `tl.tl`, writes `o/cosmic.db`, and writes one
 portable `o/bin/cosmic`. the tool carries `o/carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone (and the doc rows
@@ -557,8 +560,12 @@ database rather than compiled again, the shipped database is a
 projection of that one, written only when what it is a function of
 moved, and a test whose verdict stands is not run again. its identity includes
 the module and runtime keys plus observed file contents, stat results, directory
-listings, and environment reads. a test that spawns a process or makes an
-unsupported observation outside the tree is not cacheable. each test
+listings, and environment reads, none of it naming where the tree is. a test
+that spawns a process or makes an unsupported observation outside the tree is
+not cacheable, only assumed to pass as it last did. passing verdicts are shared
+by every checkout on the machine through a database under the cosmic cache
+directory, keyed the same way but for a stat, of which only kind, size and mode
+count, so a fresh worktree runs only what no checkout has already run. each test
 that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its
@@ -592,6 +599,42 @@ aarch64 on an arm Mac runner, and x86_64 Linux with additional offline Alpine
 checks. each independently builds the complete product, runs it, and uploads the
 executed bytes. a separate provenance job compares the four products and their
 attestations.
+
+#### before CI stands on shared verdicts
+
+CI writes the shared verdicts but stands only on what it runs itself
+(`COSMIC_TEST_NO_SHARED=1`, set in `.github/workflows/ci.yml` and
+`ci/cosmic_ci/orchestration.tl`): a verdict another checkout reached stands
+wherever its key is reached again, so everything a test's verdict turns on that
+the key leaves out is a way for a sibling's pass to answer for a failure. each
+gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
+are closed:
+
+- [ ] *the tree's location* (`build/filesystem_observations.tl`, above
+  `tree_name`): `getcwd`, `Fs.absolute`, `realpath` and `Proc.executable` are
+  not observed. note each answer, named relative to the tree in the shared key,
+  once the syscall table's dispatch observes them.
+- [ ] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, in `under_root`): a read of
+  `o/build.db`, `o/bin/cosmic` or `o/carried.db` is dropped from the key. key
+  each by the build's own hashes of it (`image_hash`, `boot_hash`).
+- [ ] *a stat's times and inode* (`build/test.tl`, above `held_stat`): the
+  shared key keeps only kind, size and mode. key them whole for a test that
+  declares it reads them.
+- [ ] *files SQLite opens in C* (`build/filesystem_observations.tl`, above
+  `start`): a database a test reads through `cosmic.sqlite` is never observed.
+  a VFS whose `xOpen` reports each path.
+- [ ] *lstat, readlink, realpath and getcwd* (`build/filesystem_observations.tl`,
+  above `start`): observe every call at the syscall table's dispatch rather than
+  by replacing fields of `cosmic.sys`.
+- [ ] *a read resolved beside the call* (`build/filesystem_observations.tl`, in
+  `start`): another process retargeting a link between the read and its
+  resolution goes unseen; resolve by the descriptor the call opened.
+- [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
+  `under_root`): keyed by where the link leads at the end, not when read.
+  resolve such a read as it is made, from a set of the tree's links.
+- [ ] *the binary's data tables* (`build/test.tl`, in `test.run`): a refresh
+  changes `zoneinfo` and `ca_roots` without the runtime identity. write a digest
+  of them into `meta` and key on it.
 
 `cosmic build` and `cosmic test` will fence themselves with the sandbox core, so
 a build cannot read outside its tree and a test cannot reach the network by
@@ -645,8 +688,13 @@ a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 
-tl vendored, its changes carried as patches under `patch/tl/` and not
-proposed upstream.
+tl vendored, its Teal source `tl.tl` beside the `tl.lua` upstream
+generated from it. its changes are carried as patches to `tl.tl` under
+`patch/tl/`, typed and checked like any Teal, and not proposed upstream.
+the boot compiles the patched source with the upstream `tl.lua`, and the
+compiler that makes compiles its own source to exactly itself, which
+`build/compiler_test.tl` holds it to: the compiler is a function of its
+Teal source and records, not of what first compiled it.
 the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
@@ -802,7 +850,7 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua     the boot environment for tl.lua, Lua written by hand
+core/bridge.lua     the boot environment for tl, and its compile of tl.tl, by hand
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)

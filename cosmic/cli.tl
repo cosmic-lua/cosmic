@@ -57,7 +57,12 @@ local record Cli
   --- one test of that name, `test_*` or an example's, and one no test
   --- there has is refused. Each test runs
   --- in a process of its own, and fails if it runs past its timeout;
-  --- what a failing test printed is shown beneath it
+  --- what a failing test printed is shown beneath it. A test whose
+  --- verdict still stands is not run again: one this checkout reached,
+  --- in o/build.db, or one any checkout of the same content did, which
+  --- every run shares through $XDG_CACHE_HOME/cosmic/verdicts
+  --- (~/.cache/cosmic/verdicts): COSMIC_VERDICT_CACHE names another
+  --- file, and COSMIC_VERDICT_CACHE=0 turns it off
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in
   --- the working directory structurally, then writes it back out as
@@ -167,7 +172,9 @@ local module: Module = {
   options = {
     test = {
       ["--all"] = { about = "run the tests no key can hold rather than assume they pass " ..
-        "as they last did (COSMIC_TEST_ALL=1)" },
+        "as they last did, in this checkout or another (COSMIC_TEST_ALL=1)" },
+      ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
+        "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
       ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
       ["--timeout"] = { value = "seconds",
         about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },

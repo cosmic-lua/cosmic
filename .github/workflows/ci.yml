@@ -249,6 +249,9 @@
 
         {
           name: "check the pinned CI driver",
+          # Without --all, a run would assume a test no key holds from the
+          # shared verdicts: this one reads none, and writes none.
+          env: {COSMIC_VERDICT_CACHE: "0"},
           run: "cosmic-driver test cosmic_ci",
         },
 

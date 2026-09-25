@@ -1,15 +1,15 @@
-file: tl.lua
+file: tl.tl
 note: a variable read for its truthiness carries the fact that it is not nil, which is what lets a nil union narrow under a guard
 --- find
 
-            if t.typename == "typedecl" then
+            if t is TypeDeclType then
                t = typedecl_to_nominal(node, node.tk, t, t)
             end
 
             return t
 --- replace
 
-            if t.typename == "typedecl" then
+            if t is TypeDeclType then
                t = typedecl_to_nominal(node, node.tk, t, t)
             end
 
@@ -18,8 +18,7 @@ note: a variable read for its truthiness carries the fact that it is not nil, wh
             -- of nil with non-boolean members truthy means exactly "not
             -- nil": the positive branch narrows to the members, and the
             -- negated early-return shape narrows below the guard.
-            if node.truthy_read or
-               (node.expected and node.expected.typename == "boolean_context") then
+            if node.expected and node.expected.typename == "boolean_context" then
                local typ = without_nil(self, node, t, true)
                if typ then
                   node.known = IsFact({ var = node.tk, typ = typ, w = node })

@@ -1,4 +1,4 @@
-file: tl.lua
+file: tl.tl
 note: the standard `error` gets a special-function handler, as assert and pcall have, so 25 can see a call to it
 --- find
       set_special_function(stdlib_globals["require"].t, "require")
