@@ -2,6 +2,10 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local function test_attaching_a_missing_database_fails(tmp: string)
   local path = tmp .. "/missing.db"

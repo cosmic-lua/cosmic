@@ -1185,6 +1185,8 @@ end
 --- recorded as that test's failure.
 local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                       limits: test.Limits): boolean
+  -- Set before anything can fail, since `finish` reckons the time from it.
+  job.started_ns = Time.monotonic_ns()
   local scratch, tmp_trouble = test.scratch()
   if scratch == nil then
     finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)

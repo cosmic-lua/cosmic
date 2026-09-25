@@ -11,6 +11,12 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Zig = require("build.zig")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program, running build/zig.tl.
+local program = observations.itself()
+program[#program + 1] = "build/zig.tl"
+observations.confine({ reads = program })
 
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(

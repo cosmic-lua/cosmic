@@ -380,3 +380,37 @@ local function test_an_unveiled_answer_follows_what_the_path_holds(tmp: string)
   })))
   assert(#decoded == 1 and decoded[1].kind == "u" and decoded[1].path == tree)
 end
+
+--- A confined process has a /tmp of its own to write in; a TMPDIR its
+--- test chose is kept, and one it inherits but may not change is the
+--- test's own directory instead.
+-- TODO: run the inherited-TMPDIR case wherever the host sets none, and
+-- one with no environment given, once cosmic.sys can set a variable of
+-- this process: today it runs only where the host's TMPDIR is set.
+local function test_a_confined_process_has_somewhere_to_write(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own))
+  local chosen = own .. "/chosen"
+  local inherited = Env.get("TMPDIR")
+  local said: {string} = {}
+  local run = observations.call(function()
+    observations.confine({})
+    for _, environment in ipairs({ { PATH = "/usr/bin:/bin" },
+        { PATH = "/usr/bin:/bin", TMPDIR = chosen },
+        inherited ~= nil and { PATH = "/usr/bin:/bin", TMPDIR = inherited } or nil }) do
+      local r = assert(Child.run({ "/bin/sh", "-c",
+        "echo x > /tmp/f && cat /tmp/f; echo \"${TMPDIR-unset}\"" },
+        { env = environment, stdout = "capture" }))
+      said[#said + 1] = assert(r.stdout)
+    end
+    observations.confine(nil)
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  local _, unconfined = confined_notes(run)
+  if unconfined then return end
+  assert(said[1] == "x\nunset\n", said[1])
+  assert(said[2] == "x\n" .. chosen .. "\n", said[2])
+  if inherited ~= nil and not Fs.within(inherited, own) then
+    assert(said[3] == "x\n" .. own .. "\n", said[3])
+  end
+end

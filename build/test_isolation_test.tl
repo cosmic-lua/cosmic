@@ -11,6 +11,10 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local test = require("build.test")
 local worker = require("build.test_worker")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local function invoke(root: string, output: string, args: {string},
     env?: {string:string}): Child.Result

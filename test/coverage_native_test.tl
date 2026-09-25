@@ -9,6 +9,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local function is_core_c(path: string): boolean
   return path:match("^core/[%w_]+%.[ch]$") ~= nil

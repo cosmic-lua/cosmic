@@ -6,6 +6,10 @@ local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
 local narrow = require("build.narrow")
 local work = require("build.work")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is git, the system's own.
+observations.confine({})
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.

@@ -10,6 +10,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local function run(program: string, root: string, output: string,
                    env: {string:string}, fails?: boolean): string

@@ -4,6 +4,7 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 --- The raw process table, whose `spawn` `cosmic.child` starts every
@@ -273,7 +274,8 @@ local confinement: observations.Confinement | nil = nil
 --- cannot confine one it starts as it would have, and the run never
 --- stands. A process given no directory to start in starts in the
 --- test's own, since the one the test runs in, the tree's root, is not
---- its to read. Called at a test module's top level, it holds for each
+--- its to read; one has a /tmp of its own, and one that inherits a
+--- TMPDIR it may not change has the test's own directory for it. Called at a test module's top level, it holds for each
 --- of its tests; called in a test, for the rest of that test. A
 --- relative path is taken from the directory this is called in. Nil
 --- ends the declaration: a process started after it is not confined.
@@ -293,6 +295,18 @@ function observations.confine(declared: observations.Confinement | nil)
   for _, path in ipairs(wanted.reads or {}) do reads[#reads + 1] = absolute(path) end
   for _, path in ipairs(wanted.writes or {}) do writes[#writes + 1] = absolute(path) end
   confinement = { reads = reads, writes = writes }
+end
+
+--- What a confined process of this very program needs to start, for a
+--- test's `confine`: the program, and the core its launcher runs it on
+--- where it is a portable artifact.
+function observations.itself(): {string}
+  local program: {string} = {}
+  local executable, _ = Proc.executable()
+  if executable ~= nil then program[#program + 1] = executable end
+  local launched, _ = Proc.relaunch()
+  if launched ~= nil then program[#program + 1] = launched.argv[1] end
+  return program
 end
 
 --- The errnos a confined spawn fails with where the kernel cannot
@@ -546,7 +560,30 @@ local function start(resolving: observations.Resolving | nil):
       local start_in = cwd
       if start_in == nil then start_in = writes[1] or "/" end
       if confinable(path, reads, writes) then
-        local pid, trouble, errno = spawn(path, argv, environment, start_in, stdin, stdout,
+        -- A program takes a directory it can make temporary files in for
+        -- granted, as it does /dev/null. Without a TMPDIR it has a /tmp
+        -- of its own; one that inherits a TMPDIR it may not change --
+        -- the host's, rather than one its test chose -- is given the
+        -- test's own directory for it.
+        local given_environment = environment
+        local inherited = getenv("TMPDIR")
+        local temporary = inherited
+        if environment ~= nil then
+          temporary = environment.TMPDIR
+          -- Whether its TMPDIR is replaced turns on the worker's own,
+          -- which an environment given whole does not otherwise key.
+          note("e", "TMPDIR", getenv_answer(inherited))
+        end
+        local replace = temporary ~= nil and temporary == inherited
+        for _, given in ipairs(writes) do
+          if replace and Fs.within(temporary, given) then replace = false end
+        end
+        if replace and writes[1] ~= nil then
+          given_environment = {}
+          for name, value in pairs(environment or environ()) do given_environment[name] = value end
+          given_environment.TMPDIR = writes[1]
+        end
+        local pid, trouble, errno = spawn(path, argv, given_environment, start_in, stdin, stdout,
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
             offline = true })
         if pid ~= nil or not unconfinable[errno] then
@@ -671,9 +708,9 @@ end
 --- it and everything beneath it, links unfollowed -- each file's
 --- contents where it resolves under `tree`, and otherwise what `lstat`
 --- says of each entry, which a package installed or a file replaced
---- changes. One that holds a socket, a FIFO or a device other than an
---- inert one answers from past the root, and its answer starts
---- "unkeyable ".
+--- changes, and the mode of each directory above it. One that holds a
+--- socket, a FIFO or a device other than an inert one answers from past
+--- the root, and its answer starts "unkeyable ".
 -- TODO: the change time too, once `sys.Stat` carries it: a file
 -- rewritten in place with its old size and modification time put back
 -- is not seen outside the tree.
@@ -724,6 +761,17 @@ function observations.unveiled_answer(path: string, tree: string): string
     end
   end
   walk(real, "")
+  -- The modes of the directories above it, which the root it is bound
+  -- into mirrors: a program may check them, as the launcher does its
+  -- cache's.
+  local above = Fs.dirname(real)
+  while true do
+    local st, _ = sys.stat(above)
+    parts[#parts + 1] = above .. "\0above\0" .. (st ~= nil and tostring(st.mode) or "missing")
+    local parent = Fs.dirname(above)
+    if parent == above then break end
+    above = parent
+  end
   return (unkeyable and "unkeyable " or "") .. real .. " " ..
     Hash.hex_sha256(table.concat(parts, "\n"))
 end

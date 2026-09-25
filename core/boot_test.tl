@@ -9,6 +9,10 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local artifact = require("build.artifact")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 --- A compiler with the three members the bridge reaches for; `gen`
 --- hands back its source, so each stand-in below is plain Lua.

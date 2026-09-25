@@ -219,6 +219,10 @@ end
 ---   assertion's failure message and in the header comment; never
 ---   prefixed onto an error this function itself returns -- the caller
 ---   already does that for every module, doc-derived or not
+-- TODO: confine what a doc's examples start (doc/guides start this
+-- program and /bin/sh, so their verdicts never stand), once a generated
+-- module can declare it where build.filesystem_observations is out of
+-- reach: another project's docs compile without cosmic's build/.
 function generate.from_blocks(blocks: {Block}, file: string): string | nil, string
   local items, trouble = to_items(blocks)
   if items == nil then

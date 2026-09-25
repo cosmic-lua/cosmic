@@ -7,11 +7,8 @@ local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
 
 -- What these tests start is a shell, the system's own, or this very
--- program, which its launcher runs on the core it runs on.
-local program: {string} = { (assert(Proc.executable())) }
-local launched, _ = Proc.relaunch()
-if launched ~= nil then program[#program + 1] = launched.argv[1] end
-observations.confine({ reads = program })
+-- program.
+observations.confine({ reads = observations.itself() })
 
 local function path_exists(path: string): boolean
   local answer, trouble = Fs.exists(path)
@@ -19,6 +16,9 @@ local function path_exists(path: string): boolean
   return answer
 end
 
+-- TODO: make these under the test's own directory, handed to each
+-- test, rather than under TMPDIR: nothing removes them, so every run
+-- leaves its cosmic-child-* directories behind.
 local function temporary(): string
   return (assert(Fs.mkdtemp("cosmic-child-")))
 end

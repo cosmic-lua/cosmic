@@ -6,6 +6,11 @@ local Child = require("cosmic.child")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
+-- TODO: confine the shell these examples start, so their verdicts can
+-- stand, once an example may declare what its processes need: examples
+-- are shown by `cosmic docs`, and may not import
+-- build.filesystem_observations.
+
 local Example = {}
 
 --- Several children at once, and Ctrl-C ends them before it ends this

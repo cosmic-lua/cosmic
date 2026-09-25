@@ -11,6 +11,10 @@ local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local embed = require("build.embed")
 local sys = require("cosmic.sys")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local TRAILER <const> = 48
 local MANIFEST <const> = 4096

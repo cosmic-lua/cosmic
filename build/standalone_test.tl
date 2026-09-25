@@ -6,6 +6,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local function test_a_file_compiles_against_the_standard_library()
   local chunk = assert(standalone.compile("x.tl", [[
