@@ -523,10 +523,16 @@ COSMIC_SYSCALL(fsync, 1) {
   return cosmic_ok(L);
 }
 
+/* How deep `tree_digest` walks: a tree deeper than this is digested as
+ * special, since what lies below goes unseen. */
+#define TREE_DEPTH_MAX 128
+
 /* A walk of a tree for `tree_digest`: the digest being built, whether
  * files are hashed by their contents, the devices whose every answer is
- * the same or random, and whether it has met anything else that
- * answers from past the tree. */
+ * the same or random, the name below the tree of the entry being
+ * walked, and whether the walk has met anything that answers from past
+ * the tree or that it could not see -- either of which no digest can
+ * hold, so the tree is special. */
 struct tree_walk {
   psa_hash_operation_t hash;
   int contents;
@@ -534,26 +540,39 @@ struct tree_walk {
   int inert_count;
   int special;
   int failed;
+  char *name;
+  size_t name_length, name_room;
+  char said[PATH_MAX + 128];
 };
 
 /* Feeds `len` bytes of `data` into the walk's digest. */
 static void tree_feed (struct tree_walk *walk, const void *data, size_t len) {
   if (walk->failed) return;
-  if (psa_hash_update(&walk->hash, data, len) != PSA_SUCCESS) walk->failed = 1;
+  if (psa_hash_update(&walk->hash, data, len) != PSA_SUCCESS) walk->failed = EIO;
 }
 
-/* One entry's line: its name below the tree, length first so no name
- * can run into the next field, what it is, and what is said of it. */
-static void tree_line (struct tree_walk *walk, const char *name, char kind,
-                       const char *said) {
+/* Feeds `text`, its length first, so no field can run into the next. */
+static void tree_field (struct tree_walk *walk, const char *text, size_t len) {
   char head[32];
-  int made = snprintf(head, sizeof head, "%zu:", strlen(name));
+  int made = snprintf(head, sizeof head, "%zu:", len);
   tree_feed(walk, head, (size_t)made);
-  tree_feed(walk, name, strlen(name));
-  char mark[3] = {' ', kind, ' '};
-  tree_feed(walk, mark, sizeof mark);
-  tree_feed(walk, said, strlen(said));
-  tree_feed(walk, "\n", 1);
+  tree_feed(walk, text, len);
+}
+
+/* One entry's line: its name below the tree, what it is, and what is
+ * said of it (the walk's `said`). */
+static void tree_line (struct tree_walk *walk, char kind) {
+  tree_field(walk, walk->name, walk->name_length);
+  tree_feed(walk, &kind, 1);
+  tree_field(walk, walk->said, strlen(walk->said));
+}
+
+/* An entry the walk could not see all of: digested as the error, and
+ * the tree is special, since what it holds there goes unseen. */
+static void tree_unseen (struct tree_walk *walk, const char *what, int number) {
+  snprintf(walk->said, sizeof walk->said, "%s %d", what, number);
+  tree_line(walk, '!');
+  walk->special = 1;
 }
 
 /* What `lstat` says of an entry that can change without its name
@@ -567,17 +586,24 @@ static void tree_stamp (const struct stat *st, char *out, size_t size) {
            (unsigned long long)st->st_ino, (unsigned long long)st->st_dev);
 }
 
-/* The hex sha256 of the file at `path`'s contents into `out`, or its
- * error. */
-static void tree_file_digest (const char *path, char out[80]) {
-  int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-  if (fd < 0) {
-    snprintf(out, 80, "error %d", errno);
-    return;
+/* The hex sha256 of the contents of `entry`, beneath the directory
+ * `dir_fd`, into `out` -- or its error, when it is no longer the regular
+ * file `st` says it was: opened without blocking or following, so a FIFO
+ * or device put in its place is neither waited on nor read. 0, or the
+ * errno. */
+static int tree_file_digest (int dir_fd, const char *entry, const struct stat *st,
+                             char out[80]) {
+  int fd = openat(dir_fd, entry, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC);
+  if (fd < 0) return errno;
+  struct stat now;
+  if (fstat(fd, &now) != 0 || !S_ISREG(now.st_mode) || now.st_ino != st->st_ino ||
+      now.st_dev != st->st_dev) {
+    close(fd);
+    return ESTALE;
   }
   psa_hash_operation_t hash = PSA_HASH_OPERATION_INIT;
   int number = psa_hash_setup(&hash, PSA_ALG_SHA_256) == PSA_SUCCESS ? 0 : EIO;
-  unsigned char chunk[65536];
+  unsigned char chunk[16384];
   while (number == 0) {
     ssize_t got = read(fd, chunk, sizeof chunk);
     if (got < 0 && errno == EINTR) continue;
@@ -594,148 +620,182 @@ static void tree_file_digest (const char *path, char out[80]) {
   }
   if (number != 0) {
     psa_hash_abort(&hash);
-    snprintf(out, 80, "error %d", number);
-    return;
+    return number;
   }
   for (size_t i = 0; i < length; i++) snprintf(out + 2 * i, 3, "%02x", digest[i]);
+  return 0;
 }
 
 static int tree_name_order (const void *a, const void *b) {
   return strcmp(*(char *const *)a, *(char *const *)b);
 }
 
-/* Walks the entry at `path`, whose name below the tree starts `skip`
- * bytes in, and everything beneath it, into the digest; `path` has room
- * for PATH_MAX bytes and is put back as it was. */
-static void tree_walk_entry (struct tree_walk *walk, char *path, size_t skip) {
-  const char *name = path + skip;
-  char said[PATH_MAX + 128];
+/* Appends "/`entry`" to the walk's name: 0, or ENOMEM. */
+static int tree_name_push (struct tree_walk *walk, const char *entry) {
+  size_t more = strlen(entry) + 1;
+  if (walk->name_length + more + 1 > walk->name_room) {
+    size_t room = (walk->name_length + more + 1) * 2;
+    char *grown = realloc(walk->name, room);
+    if (grown == NULL) return ENOMEM;
+    walk->name = grown;
+    walk->name_room = room;
+  }
+  walk->name[walk->name_length] = '/';
+  memcpy(walk->name + walk->name_length + 1, entry, more);
+  walk->name_length += more;
+  return 0;
+}
+
+/* Walks `entry`, beneath the directory `dir_fd`, and everything beneath
+ * it into the digest, `depth` levels down; the walk's name is its name
+ * below the tree. Every lookup is made from its directory's descriptor,
+ * so no path grows with the tree. */
+static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *entry, int depth) {
   struct stat st;
-  if (lstat(path, &st) != 0) {
-    snprintf(said, sizeof said, "error %d", errno);
-    tree_line(walk, name, '!', said);
+  if (fstatat(dir_fd, entry, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+    tree_unseen(walk, "error", errno);
     return;
   }
-  tree_stamp(&st, said, sizeof said);
+  tree_stamp(&st, walk->said, sizeof walk->said);
   if (S_ISLNK(st.st_mode)) {
-    ssize_t got = readlink(path, said, sizeof said - 1);
-    if (got < 0) snprintf(said, sizeof said, "error %d", errno);
-    else said[got] = '\0';
-    tree_line(walk, name, 'l', said);
+    ssize_t got = readlinkat(dir_fd, entry, walk->said, sizeof walk->said - 1);
+    if (got < 0) {
+      tree_unseen(walk, "error", errno);
+      return;
+    }
+    walk->said[got] = '\0';
+    tree_line(walk, 'l');
     return;
   }
   if (S_ISREG(st.st_mode)) {
     if (walk->contents) {
       char digest[80];
-      tree_file_digest(path, digest);
-      snprintf(said, sizeof said, "%lo %s", (unsigned long)st.st_mode, digest);
+      int number = tree_file_digest(dir_fd, entry, &st, digest);
+      if (number != 0) {
+        tree_unseen(walk, "error", number);
+        return;
+      }
+      snprintf(walk->said, sizeof walk->said, "%lo %s", (unsigned long)st.st_mode, digest);
     }
-    tree_line(walk, name, 'f', said);
+    tree_line(walk, 'f');
     return;
   }
   if (!S_ISDIR(st.st_mode)) {
+    /* A device is inert by what device it is, wherever its node lives. */
     int inert = 0;
     for (int i = 0; S_ISCHR(st.st_mode) && i < walk->inert_count; i++) {
       inert = inert || st.st_rdev == walk->inert[i];
     }
     if (!inert) walk->special = 1;
-    tree_line(walk, name, 'o', said);
+    tree_line(walk, 'o');
     return;
   }
-  if (walk->contents) snprintf(said, sizeof said, "%lo", (unsigned long)st.st_mode);
-  tree_line(walk, name, 'd', said);
-  DIR *dir = opendir(path);
+  if (walk->contents) snprintf(walk->said, sizeof walk->said, "%lo", (unsigned long)st.st_mode);
+  tree_line(walk, 'd');
+  if (depth >= TREE_DEPTH_MAX) {
+    tree_unseen(walk, "too deep", depth);
+    return;
+  }
+  int fd = openat(dir_fd, entry, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  DIR *dir = fd < 0 ? NULL : fdopendir(fd);
   if (dir == NULL) {
-    snprintf(said, sizeof said, "unlisted %d", errno);
-    tree_line(walk, name, '!', said);
+    int number = errno;
+    if (fd >= 0) close(fd);
+    tree_unseen(walk, "unlisted", number);
     return;
   }
   char **names = NULL;
   size_t count = 0, room = 0;
   for (;;) {
     errno = 0;
-    struct dirent *entry = readdir(dir);
-    if (entry == NULL) {
-      if (errno != 0) {
-        snprintf(said, sizeof said, "unlisted %d", errno);
-        tree_line(walk, name, '!', said);
-      }
+    struct dirent *found = readdir(dir);
+    if (found == NULL) {
+      if (errno != 0) tree_unseen(walk, "unlisted", errno);
       break;
     }
-    if (entry->d_name[0] == '.' &&
-        (entry->d_name[1] == '\0' ||
-         (entry->d_name[1] == '.' && entry->d_name[2] == '\0'))) {
+    if (found->d_name[0] == '.' &&
+        (found->d_name[1] == '\0' ||
+         (found->d_name[1] == '.' && found->d_name[2] == '\0'))) {
       continue;
     }
     if (count == room) {
       size_t more = room == 0 ? 64 : room * 2;
       char **grown = realloc(names, more * sizeof *names);
       if (grown == NULL) {
-        walk->failed = 1;
+        walk->failed = ENOMEM;
         break;
       }
       names = grown;
       room = more;
     }
-    names[count] = strdup(entry->d_name);
+    names[count] = strdup(found->d_name);
     if (names[count] == NULL) {
-      walk->failed = 1;
+      walk->failed = ENOMEM;
       break;
     }
     count++;
   }
-  closedir(dir);
   if (count > 1) qsort(names, count, sizeof *names, tree_name_order);
-  size_t length = strlen(path);
+  size_t length = walk->name_length;
   for (size_t i = 0; i < count; i++) {
-    size_t more = strlen(names[i]);
-    if (!walk->failed && length + 1 + more < PATH_MAX) {
-      path[length] = '/';
-      memcpy(path + length + 1, names[i], more + 1);
-      tree_walk_entry(walk, path, skip);
-      path[length] = '\0';
-    } else if (!walk->failed) {
-      tree_line(walk, name, '!', "too long");
+    if (!walk->failed) {
+      int number = tree_name_push(walk, names[i]);
+      if (number != 0) walk->failed = number;
+      else tree_walk_entry(walk, dirfd(dir), names[i], depth + 1);
+      walk->name_length = length;
+      walk->name[length] = '\0';
     }
     free(names[i]);
   }
   free(names);
+  closedir(dir);
 }
 
 COSMIC_SYSCALL(tree_digest, 2) {
   const char *given = cosmic_path(L, 1);
   if (given == NULL) return cosmic_fail(L, EINVAL);
   int contents = lua_toboolean(L, 2);
-  char path[PATH_MAX];
-  size_t length = strlen(given);
-  if (length >= sizeof path) return cosmic_fail(L, ENAMETOOLONG);
-  memcpy(path, given, length + 1);
-  while (length > 1 && path[length - 1] == '/') path[--length] = '\0';
   struct stat st;
-  if (lstat(path, &st) != 0) return cosmic_fail(L, errno);
-  struct tree_walk walk = { PSA_HASH_OPERATION_INIT, contents, {0}, 0, 0, 0 };
+  if (lstat(given, &st) != 0) return cosmic_fail(L, errno);
+  /* The walk's state is too big for the stack, and holds its name. */
+  struct tree_walk *walk = calloc(1, sizeof *walk);
+  if (walk == NULL) return cosmic_fail(L, ENOMEM);
+  walk->hash = (psa_hash_operation_t)PSA_HASH_OPERATION_INIT;
+  walk->contents = contents;
+  walk->name_room = 64;
+  walk->name = malloc(walk->name_room);
   static const char *const inert[] = { "/dev/null", "/dev/zero", "/dev/urandom" };
   for (size_t i = 0; i < sizeof inert / sizeof *inert; i++) {
     struct stat device;
     if (stat(inert[i], &device) == 0 && S_ISCHR(device.st_mode)) {
-      walk.inert[walk.inert_count++] = device.st_rdev;
+      walk->inert[walk->inert_count++] = device.st_rdev;
     }
   }
-  if (psa_hash_setup(&walk.hash, PSA_ALG_SHA_256) != PSA_SUCCESS) return cosmic_fail(L, EIO);
-  tree_walk_entry(&walk, path, length);
+  int number = walk->name == NULL ? ENOMEM : 0;
+  if (number == 0 && psa_hash_setup(&walk->hash, PSA_ALG_SHA_256) != PSA_SUCCESS) number = EIO;
   unsigned char digest[32];
   size_t made = 0;
-  if (walk.failed ||
-      psa_hash_finish(&walk.hash, digest, sizeof digest, &made) != PSA_SUCCESS) {
-    psa_hash_abort(&walk.hash);
-    return cosmic_fail(L, walk.failed ? ENOMEM : EIO);
+  if (number == 0) {
+    walk->name[0] = '\0';
+    /* The path itself, looked up from where it is named. */
+    tree_walk_entry(walk, AT_FDCWD, given, 0);
+    number = walk->failed;
+    if (number == 0 &&
+        psa_hash_finish(&walk->hash, digest, sizeof digest, &made) != PSA_SUCCESS) {
+      number = EIO;
+    }
+    if (number != 0) psa_hash_abort(&walk->hash);
   }
+  int special = walk->special;
+  free(walk->name);
+  free(walk);
+  if (number != 0) return cosmic_fail(L, number);
   char hex[65];
   for (size_t i = 0; i < made; i++) snprintf(hex + 2 * i, 3, "%02x", digest[i]);
   lua_createtable(L, 0, 2);
   lua_pushstring(L, hex);
   lua_setfield(L, -2, "digest");
-  lua_pushboolean(L, walk.special);
+  lua_pushboolean(L, special);
   lua_setfield(L, -2, "special");
   return 1;
 }

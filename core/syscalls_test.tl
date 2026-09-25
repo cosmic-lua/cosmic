@@ -820,13 +820,13 @@ local function test_a_mode_or_flag_past_an_int_raises(tmp: string)
   raises(sys.clock_gettime, (1 << 32) + sys.CLOCK_MONOTONIC)
 end
 
---- A directory listed and one refused both leave no descriptor behind:
---- the listing's handle is released however the call ends.
 --- A tree's digest changes with any entry beneath it: its contents
---- where asked for, and otherwise what `lstat` says of it -- even a
---- file rewritten with its old size and modification time put back,
---- whose change time moved. A link is digested as its target's name,
---- unfollowed; a FIFO beneath it is special, and /dev/null is not.
+--- where asked for, and otherwise what `lstat` says of it -- a name
+--- added, removed or renamed, and even a file rewritten with its old size
+--- and modification time put back, whose change time moved. A link is
+--- digested as its target's name, unfollowed, one whose target holds a
+--- newline included; a FIFO beneath it is special, as is a tree too deep
+--- to see all of, and /dev/null is not.
 local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
   local tree = tmp .. "/tree"
   assert(sys.mkdir(tree, 0x1ed))
@@ -837,12 +837,15 @@ local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
   assert(sys.symlink("sub/f", tree .. "/link"))
   local contents = assert(sys.tree_digest(tree, true))
   local stamps = assert(sys.tree_digest(tree, false))
-  assert(#contents.digest == 64 and not contents.special)
+  assert(#contents.digest == 64 and not contents.special and not stamps.special)
   assert(contents.digest ~= stamps.digest)
   assert(assert(sys.tree_digest(tree, true)).digest == contents.digest, "the same tree")
   assert(assert(sys.tree_digest(tree .. "/", false)).digest == stamps.digest,
     "a trailing slash names the same tree")
+  -- A kernel whose change times are coarse would not see a rewrite
+  -- made at once; this one waits long enough to.
   local before = assert(sys.stat(tree .. "/sub/f"))
+  assert(sys.nanosleep(50000000))
   fd = create(tree .. "/sub/f")
   assert(sys.write(fd, "two") == 3)
   sys.close(fd)
@@ -851,9 +854,35 @@ local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
   assert(rewritten.digest ~= contents.digest, "contents rewritten")
   local restamped = assert(sys.tree_digest(tree, false))
   assert(restamped.digest ~= stamps.digest, "a change time moved")
+  assert(sys.rename(tree .. "/sub/f", tree .. "/sub/g"))
+  assert(assert(sys.tree_digest(tree, false)).digest ~= restamped.digest, "a name renamed")
+  assert(sys.rename(tree .. "/sub/g", tree .. "/sub/f"))
   assert(sys.unlink(tree .. "/link"))
   assert(sys.symlink("elsewhere", tree .. "/link"))
-  assert(assert(sys.tree_digest(tree, true)).digest ~= rewritten.digest, "a link retargeted")
+  local relinked = assert(sys.tree_digest(tree, true))
+  assert(relinked.digest ~= rewritten.digest, "a link retargeted")
+  -- A link's target is digested whole, so one holding a newline and the
+  -- line that would follow cannot pass for a tree holding that entry.
+  local forged, honest = tmp .. "/forged", tmp .. "/honest"
+  assert(sys.mkdir(forged, 0x1ed))
+  assert(sys.mkdir(honest, 0x1ed))
+  local b = create(honest .. "/b")
+  assert(sys.write(b, "hi") == 2)
+  sys.close(b)
+  assert(sys.symlink("x", honest .. "/a"))
+  local line = assert(sys.tree_digest(honest, true)).digest
+  assert(sys.symlink("x\n2:/bf" .. line, forged .. "/a"))
+  assert(assert(sys.tree_digest(forged, true)).digest ~= line)
+  -- Deeper than the walk looks, the tree is special: what lies below
+  -- goes unseen.
+  local deep = tmp .. "/deep"
+  assert(sys.mkdir(deep, 0x1ed))
+  local at = deep
+  for _ = 1, 130 do
+    at = at .. "/d"
+    assert(sys.mkdir(at, 0x1ed))
+  end
+  assert(assert(sys.tree_digest(deep, false)).special, "a tree too deep to see")
   local fifo = assert(process.spawn("/bin/sh", { "sh", "-c", "mkfifo " .. tree .. "/sub/fifo" },
     nil, nil, nil, nil, nil, false))
   assert(assert(process.waitpid(fifo, false)).code == 0)
@@ -863,6 +892,8 @@ local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
   assert(missing == nil and errno == sys.ENOENT)
 end
 
+--- A directory listed and one refused both leave no descriptor behind:
+--- the listing's handle is released however the call ends.
 local function test_readdir_leaves_no_descriptor_open(tmp: string)
   assert(sys.mkdir(tmp .. "/d"))
   local before = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
