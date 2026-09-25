@@ -617,6 +617,32 @@ local function test_a_qualified_name_lists_only_its_own_uses()
     "one name past the record, and no more")
 end
 
+--- A method on a nested record is found by the name its uses are
+--- recorded under (`Box.grow`), and counts them. The use is written by
+--- hand: it is through a typed value, which only a compile finds.
+local function test_a_nested_record_method_meets_its_uses(dir: string)
+  local thing = built(dir, { ["app/thing.tl"] = source(
+    "local record Thing",
+    "  record Box",
+    "  end",
+    "end",
+    "",
+    "--- Grows the box.",
+    "function Thing.Box:grow()",
+    "end",
+    "",
+    "return Thing") })
+  local caller = database({}, {
+    { "app.thing", "Box.grow", "app.main", "app/main.tl", "3" },
+  }, { "app.main" })
+  local found = assert(docs.lookup(view({ thing, caller }), "Box.grow"))
+  assert(found.exact and #found == 1, tostring(#found))
+  assert(found[1].source_symbol == "Thing.Box:grow", found[1].source_symbol)
+  assert(found[1].uses == 1, tostring(found[1].uses))
+  assert(#assert(docs.lookup(view({ thing }), "Thing.Box:grow")) == 1)
+  assert(#assert(docs.uses(view({ thing, caller }), "Thing.Box.grow")) == 1)
+end
+
 --- An earlier database owns a module as a whole: symbols removed by the
 --- replacement cannot reappear from a later database.
 local function test_an_earlier_database_hides_a_module_in_a_later_one(dir: string)
