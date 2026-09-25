@@ -11,13 +11,15 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local invoke = require("build.invoke")
 
---- The verbs whose words after the file are the program's own, so no
---- option or argument is theirs to refuse, and whose output is the
---- program's rather than a verdict.
+--- The verbs that end in no verdict line: those whose words after the
+--- file are the program's own, so no option or argument is theirs to
+--- refuse, and whose output is the program's; and `--version`, whose
+--- one line is all it prints (build/version_test.tl holds it).
 local passthrough: {string:string} = {
   run = "the words after the file are its program's argv",
   standalone = "the words after the file are its program's argv",
   eval = "the words after the chunk are its `...`",
+  version = "it prints one line and no verdict",
 }
 
 --- A command line with one argument more than each verb takes, or why

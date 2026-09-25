@@ -1,6 +1,7 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, docs, uses, todos, help, run, standalone, eval) answers
+--- fix, db, sql, docs, uses, todos, help, run, standalone, eval,
+--- version) answers
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
@@ -38,6 +39,10 @@ local record Cli
   --- code, as a built program's is: nothing is 0, a whole number from 0
   --- to 255 is itself, and anything else is complained about and exits 2
   eval: string
+  --- `cosmic --version`: prints `cosmic <hex>`, the SHA-256 of the file
+  --- this binary runs from -- the digest a release's SHA256SUMS names
+  --- it by and its notes cite -- with nothing built or checked
+  version: string
   --- `cosmic test`: builds the tree in the working directory, then
   --- runs every test it defines -- see test, Example -- which
   --- `cosmic docs` also shows under every symbol an example calls.
@@ -121,10 +126,10 @@ end
 
 local module: Module = {
   fields = {
-    run = "run", standalone = "standalone", eval = "eval", test = "test", fix = "fix", build = "build",
+    run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
     db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", help = "help",
   },
-  order = { "run", "standalone", "eval", "test", "fix", "build", "db", "sql", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "docs", "uses", "todos",
     "help" },
 }
 
