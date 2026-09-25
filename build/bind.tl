@@ -11,6 +11,11 @@ function bind.text(value: string): Sqlite.Value
   return { text = value }
 end
 
+--- `value`, bound as BLOB.
+function bind.blob(value: string): Sqlite.Value
+  return { blob = value }
+end
+
 --- `value`, bound as INTEGER.
 function bind.integer(value: integer): Sqlite.Value
   return { integer = value }

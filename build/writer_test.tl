@@ -203,7 +203,8 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local whole_db = assert(Sqlite.open(tmp .. "/whole.db", true))
   assert(whole_db:exec("INSERT INTO components VALUES ('zlib', 'library', '1.3', 'Zlib', " ..
     "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
-    "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10))"))
+    "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10)); " ..
+    "INSERT INTO ca_roots VALUES (sha256(x'0506'), 'A Root', x'0506')"))
   assert(whole_db:close())
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db"))
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db"))
@@ -246,6 +247,9 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(#materials == 1 and materials[1][1] == "zlib" and materials[1][2] == "Zlib" and
     materials[1][3] == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
     "the tool carries the projection's bill of materials")
+  local trusted = rows(tmp .. "/carried.db", "SELECT label, hex(der) FROM ca_roots")
+  assert(#trusted == 1 and trusted[1][1] == "A Root" and trusted[1][2] == "0506",
+    "the tool carries the projection's CA roots")
 end
 
 --- A projection ships what a reader of it loads -- each module's

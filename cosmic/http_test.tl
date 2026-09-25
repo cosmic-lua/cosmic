@@ -258,6 +258,17 @@ local function test_a_script_without_enough_connections_fails_cleanly()
   assert(trouble ~= "")
 end
 
+--- An https connection is verified against the binary's own CA roots
+--- (core/http.c's `use_roots`): a peer that is no TLS server at all is
+--- refused in the handshake, as a server none of them vouches for is,
+--- and nothing of the request is sent in the clear.
+local function test_an_https_peer_that_speaks_no_tls_is_refused()
+  local response, trouble = Http.open("https://cosmic.test/",
+    { script = { reply("200 OK", "", "not over TLS") } })
+  assert(response == nil, "a reply in the clear passed for a TLS handshake")
+  assert(trouble:find("SSL", 1, true) or trouble:find("TLS", 1, true), trouble)
+end
+
 local function test_a_non_string_option_throws()
   local ok = pcall(Http.open, url, { body = {} as string, script = {} })
   assert(not ok)
