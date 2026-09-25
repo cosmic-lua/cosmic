@@ -183,3 +183,86 @@ local function test_parse_refuses_what_rfc3339_does_not_say()
     assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
   end
 end
+
+--- The nanoseconds `text` names, which must parse.
+local function at(text: string): integer
+  return (assert(Time.parse_rfc3339(text)))
+end
+
+local function test_add_calendar_moves_years_months_then_days()
+  local from = at("2024-01-31T10:20:30.5Z")
+  local cases: {{Time.Change, string, string}} = {
+    { { days = 1 }, "reject", "2024-02-01T10:20:30.5Z" },
+    { { days = -31 }, "reject", "2023-12-31T10:20:30.5Z" },
+    { { months = 2 }, "reject", "2024-03-31T10:20:30.5Z" },
+    { { months = 1 }, "clamp", "2024-02-29T10:20:30.5Z" },
+    { { years = 1, months = 1 }, "clamp", "2025-02-28T10:20:30.5Z" },
+    { { months = -13 }, "reject", "2022-12-31T10:20:30.5Z" },
+    -- The month first, then the day: February 29, then March 1.
+    { { months = 1, days = 1 }, "clamp", "2024-03-01T10:20:30.5Z" },
+    { {}, "reject", "2024-01-31T10:20:30.5Z" },
+  }
+  for _, case in ipairs(cases) do
+    local moved = assert(Time.add_calendar(from, case[1], { overflow = case[2] as Time.Overflow }))
+    assert(Time.format_rfc3339(moved) == case[3], Time.format_rfc3339(moved) .. " not " .. case[3])
+  end
+  local leap_day = at("2024-02-29T00:00:00Z")
+  assert(Time.format_rfc3339((assert(Time.add_calendar(leap_day, { years = 4 })))) ==
+    "2028-02-29T00:00:00Z")
+  local clamped = assert(Time.add_calendar(leap_day, { years = 1 }, { overflow = "clamp" }))
+  assert(Time.format_rfc3339(clamped) == "2025-02-28T00:00:00Z")
+end
+
+local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
+  local none, why = Time.add_calendar(at("2024-01-31T00:00:00Z"), { months = 1 })
+  assert(none == nil and why == "2024-02 has no day 31; overflow \"clamp\" takes its last", why)
+  none, why = Time.add_calendar(at("2024-02-29T00:00:00Z"), { years = 1 }, { overflow = "reject" })
+  assert(none == nil and why:find("2025-02 has no day 29", 1, true) ~= nil, why)
+  -- A step past the range on the way is not refused: the result is what counts.
+  local back = assert(Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 10, days = -3652 }))
+  assert(Time.format_rfc3339(back) == "2262-01-01T00:00:00Z", Time.format_rfc3339(back))
+  assert(not pcall(Time.add_calendar, 0, { days = 1 }, { overflow = "Clamp" as Time.Overflow }))
+  none, why = Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 1 })
+  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  none, why = Time.add_calendar(at("1678-01-01T00:00:00Z"), { days = -200 })
+  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  none, why = Time.add_calendar(0, { months = 1.5 as integer })
+  assert(none == nil and why:find("months is not an integer", 1, true) ~= nil, why)
+  none, why = Time.add_calendar(0, { years = math.maxinteger })
+  assert(none == nil and why:find("years", 1, true) ~= nil, why)
+end
+
+local function test_days_between_counts_dates_not_hours()
+  assert(Time.days_between(at("2024-03-01T23:59:59Z"), at("2024-03-02T00:00:00Z")) == 1)
+  assert(Time.days_between(at("2024-03-02T00:00:00Z"), at("2024-03-01T23:59:59Z")) == -1)
+  assert(Time.days_between(at("2024-01-01T00:00:00Z"), at("2025-01-01T00:00:00Z")) == 366)
+  assert(Time.days_between(at("1969-12-31T23:59:59.9Z"), at("1970-01-01T00:00:00Z")) == 1)
+  assert(Time.days_between(0, 0) == 0)
+end
+
+local function test_months_between_counts_whole_months()
+  local cases: {{string, string, integer}} = {
+    { "2024-01-31T00:00:00Z", "2024-02-29T00:00:00Z", 0 },
+    { "2024-01-31T00:00:00Z", "2024-03-31T00:00:00Z", 2 },
+    { "2024-01-15T12:00:00Z", "2024-02-15T11:59:59Z", 0 },
+    { "2024-01-15T12:00:00Z", "2024-02-15T12:00:00Z", 1 },
+    { "2000-02-29T00:00:00Z", "2026-02-28T00:00:00Z", 311 },
+    { "2024-03-15T00:00:00Z", "2024-01-16T00:00:00Z", -1 },
+    { "2024-03-15T00:00:00Z", "2024-01-15T00:00:00Z", -2 },
+    { "1969-12-31T23:59:59Z", "1970-01-31T23:59:59Z", 1 },
+    -- Java's own answers, where the time of day and a shorter month meet.
+    { "2024-01-31T12:00:00Z", "2024-03-01T06:00:00Z", 0 },
+    { "2000-12-29T23:59:59.999Z", "2001-03-01T00:00:00Z", 1 },
+    { "2024-02-29T12:00:00Z", "2023-02-28T23:59:59.999Z", -11 },
+    { "2239-04-30T06:00:00Z", "2239-02-28T11:02:00Z", -1 },
+    { "1969-05-31T00:00:00Z", "1969-02-28T12:00:00Z", -2 },
+  }
+  for _, case in ipairs(cases) do
+    local got = Time.months_between(at(case[1]), at(case[2]))
+    assert(got == case[3], case[1] .. " to " .. case[2] .. ": " .. got)
+  end
+  -- A birthday's years: whole months over 12 (a count that is not
+  -- negative, so // truncates as it floors).
+  local age = Time.months_between(at("1990-06-15T00:00:00Z"), at("2026-06-14T00:00:00Z")) // 12
+  assert(age == 35, tostring(age))
+end
