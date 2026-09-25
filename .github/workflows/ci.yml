@@ -234,12 +234,18 @@ jobs:
           # one's. One stands only where its whole key -- the test, what it
           # loads, the runtime, every file and variable it read -- is reached
           # again, and the driver's --all runs every test no key can hold.
+          # To have CI stand only on what it runs itself while still
+          # saving what it reaches, add COSMIC_TEST_NO_SHARED=1 here.
           # TODO: save what the product suite from fresh tracked source
           # reaches too: it runs after the zig-build cache is saved, so
           # its verdicts never reach a later run, and it runs every test.
           echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/zig-build/verdicts.db" >> "$GITHUB_ENV"
 
       - name: check the pinned CI driver
+        # Without --all, a run would assume a test no key holds from the
+        # shared verdicts: this one reads none, and writes none.
+        env:
+          COSMIC_VERDICT_CACHE: "0"
         run: cosmic-driver test cosmic_ci
 
       - name: build release Cosmic and run its native suite

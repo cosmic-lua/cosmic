@@ -21,8 +21,11 @@
 --- and writes what it owes it in one short transaction as it ends. It
 --- is bounded: a row no run has relied on for `kept_ns` goes, and past
 --- `kept_rows` rows, the least lately relied on go first. A failing
---- run of a key takes the key's row out. A cache that cannot be opened
---- or written is said so and done without: it never fails a run.
+--- run of a key takes the key's row out, and a checkout that holds a
+--- verdict of its own under a key never takes another's for it. A
+--- cache that cannot be opened, read or written -- corrupt, or holding
+--- this format's table in another shape -- is said so and done
+--- without: it never fails a run.
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -90,8 +93,10 @@ local busy_ms <const> = 10000
 --- few for most, more for one that reads what every change moves.
 local candidates_tried <const> = 32
 
---- The format rows are in; a cache in any other is emptied.
-local format <const> = 2
+--- The table rows of this format are in: `verdicts_v<format>`. Each
+--- format keeps a table of its own, so binaries of two formats sharing
+--- one file each keep theirs rather than emptying the other's.
+local verdicts <const> = "verdicts_v3"
 
 local text = bind.text
 
@@ -125,15 +130,16 @@ function shared_verdicts.turn_off(environment: {string:string})
 end
 
 local schema <const> = {
-  [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
-                                         test TEXT NOT NULL,
-                                         module_key TEXT NOT NULL,
-                                         reads BLOB NOT NULL,
-                                         hits BLOB NOT NULL,
-                                         elapsed_ns INTEGER NOT NULL,
-                                         used_ns INTEGER NOT NULL)]],
-  "CREATE INDEX IF NOT EXISTS verdicts_by_test ON verdicts (test, module_key, used_ns)",
-  "CREATE INDEX IF NOT EXISTS verdicts_by_use ON verdicts (used_ns)",
+  "CREATE TABLE IF NOT EXISTS " .. verdicts .. [[ (key TEXT PRIMARY KEY,
+                                                   test TEXT NOT NULL,
+                                                   module_key TEXT NOT NULL,
+                                                   reads BLOB NOT NULL,
+                                                   hits BLOB NOT NULL,
+                                                   elapsed_ns INTEGER NOT NULL,
+                                                   used_ns INTEGER NOT NULL)]],
+  "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_test ON " .. verdicts ..
+    " (test, module_key, used_ns)",
+  "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_use ON " .. verdicts .. " (used_ns)",
 }
 
 --- Hits as `build.test` encodes them -- a line per module, its path, a
@@ -167,29 +173,22 @@ local function unpacked(hits: string): string
   end))
 end
 
---- Makes the tables, emptying a cache in another format first, in one
---- transaction.
+--- Makes this format's table when the file has none yet, in one
+--- transaction; a file that has it is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+    { text(verdicts) })
+  if rows == nil then return false, trouble end
+  if rows[1] ~= nil and rows[1][1] ~= "0" then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
-  local function steps(): boolean, string
-    local rows, trouble = Sqlite.text_rows(db, "PRAGMA user_version")
-    if rows == nil then return false, trouble end
-    local version = rows[1] ~= nil and rows[1][1] or "0"
-    if version ~= tostring(format) then
-      local dropped, drop_trouble = db:exec("DROP TABLE IF EXISTS verdicts")
-      if not dropped then return false, drop_trouble end
+  for _, statement in ipairs(schema) do
+    local ok, statement_trouble = db:exec(statement)
+    if not ok then
+      local _, _ = db:exec("ROLLBACK")
+      return false, statement_trouble
     end
-    for _, statement in ipairs(schema) do
-      local ok, statement_trouble = db:exec(statement)
-      if not ok then return false, statement_trouble end
-    end
-    return db:exec("PRAGMA user_version = " .. format)
-  end
-  local ok, trouble = steps()
-  if not ok then
-    local _, _ = db:exec("ROLLBACK")
-    return false, trouble
   end
   return db:exec("COMMIT")
 end
@@ -263,7 +262,7 @@ end
 function shared_verdicts.candidates(cache: shared_verdicts.Cache, root: string, test: string,
                                     module_key: string): {shared_verdicts.Candidate} | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,
-    "SELECT key, CAST(inflate(reads) AS TEXT) FROM verdicts " ..
+    "SELECT key, CAST(inflate(reads) AS TEXT) FROM " .. verdicts .. " " ..
     "WHERE test = ?1 AND module_key = ?2 ORDER BY used_ns DESC LIMIT " .. candidates_tried,
     { text(test), text(module_key) })
   if rows == nil then return nil, trouble end
@@ -279,7 +278,7 @@ end
 function shared_verdicts.found(cache: shared_verdicts.Cache,
                                key: string): shared_verdicts.Found | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,
-    "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM verdicts WHERE key = ?1",
+    "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. verdicts .. " WHERE key = ?1",
     { text(key) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
@@ -296,14 +295,14 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string,
   if not begun then return false, begin_trouble end
   local function steps(): boolean, string
     for _, key in ipairs(owed.failed) do
-      local ok, trouble = Sqlite.run(db, "DELETE FROM verdicts WHERE key = ?1", { text(key) })
+      local ok, trouble = Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE key = ?1", { text(key) })
       if not ok then return false, trouble end
     end
     for _, kept in ipairs(owed.kept) do
       local reads = portable(root, kept.reads)
       if reads ~= nil then
         local ok, trouble = Sqlite.run(db,
-          "INSERT OR REPLACE INTO verdicts (key, test, module_key, reads, hits, " ..
+          "INSERT OR REPLACE INTO " .. verdicts .. " (key, test, module_key, reads, hits, " ..
           "elapsed_ns, used_ns) VALUES (?1, ?2, ?3, deflate(?4), deflate(?5), ?6, ?7)",
           { text(kept.key), text(kept.test), text(kept.module_key), text(reads),
             text(packed(kept.hits)), { integer = kept.elapsed_ns }, { integer = now_ns } })
@@ -311,14 +310,15 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string,
       end
     end
     for _, key in ipairs(owed.used) do
-      local ok, trouble = Sqlite.run(db, "UPDATE verdicts SET used_ns = ?1 WHERE key = ?2",
+      local ok, trouble = Sqlite.run(db, "UPDATE " .. verdicts .. " SET used_ns = ?1 WHERE key = ?2",
         { { integer = now_ns }, text(key) })
       if not ok then return false, trouble end
     end
-    local aged, age_trouble = Sqlite.run(db, "DELETE FROM verdicts WHERE used_ns < ?1",
+    local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE used_ns < ?1",
       { { integer = now_ns - kept_ns } })
     if not aged then return false, age_trouble end
-    return Sqlite.run(db, "DELETE FROM verdicts WHERE key IN (SELECT key FROM verdicts " ..
+    return Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE key IN (SELECT key FROM " ..
+      verdicts .. " " ..
       "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
   end
   local ok, trouble = steps()

@@ -554,8 +554,12 @@ database rather than compiled again, the shipped database is a
 projection of that one, written only when what it is a function of
 moved, and a test whose verdict stands is not run again. its identity includes
 the module and runtime keys plus observed file contents, stat results, directory
-listings, and environment reads. a test that spawns a process or makes an
-unsupported observation outside the tree is not cacheable. each test
+listings, and environment reads, none of it naming where the tree is. a test
+that spawns a process or makes an unsupported observation outside the tree is
+not cacheable, only assumed to pass as it last did. passing verdicts are shared
+by every checkout on the machine through a database under the cosmic cache
+directory, keyed the same way but for a stat, of which only kind, size and mode
+count, so a fresh worktree runs only what no checkout has already run. each test
 that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its

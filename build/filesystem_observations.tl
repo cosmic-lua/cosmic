@@ -825,6 +825,14 @@ local tree_marker <const> = "\0tree"
 --- below it after a marker no path holds, and any other as it is. The
 --- tree's own location is no input to what a test does there, so two
 --- checkouts of the same content key the same read alike.
+-- TODO: the tree's location is keyed nowhere, yet a test can read it:
+-- `sys.getcwd`, `Fs.absolute`, `sys.realpath` and `Proc.executable` are
+-- not observed, so a test whose verdict turns on where the tree is (a
+-- path length limit, a name it prints and compares) stands on a
+-- sibling checkout's verdict at another path. Note each such answer
+-- as an observation, named by `tree_name` in the shared key and whole
+-- in a checkout's own, once the syscall table's dispatch observes them
+-- (see the TODO above `start`, on observing every call there).
 function observations.tree_name(path: string, tree: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
   local rest, _ = Fs.relative(path, tree)
