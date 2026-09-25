@@ -96,6 +96,54 @@ local function test_identical_inputs_produce_the_same_stable_key(tmp: string)
   assert(key1 == key2)
 end
 
+--- A shared key names nothing of where the tree is: two checkouts of
+--- the same content, made at different paths and times -- so every file
+--- has its own inode and modification time -- key the same reads alike,
+--- and a verdict one reached stands in the other. Each one's own key
+--- still holds the stats whole, so a file touched there changes it; and
+--- what either holds changing changes both.
+local function test_two_checkouts_of_the_same_content_share_a_key(tmp: string)
+  local function checkout(root: string): {observations.Observation}
+    assert(Fs.mkdirs(root .. "/d"))
+    assert(Fs.write(root .. "/f", "same"))
+    assert(Fs.write(root .. "/d/g", "also the same"))
+    return {
+      { kind = "o", path = root .. "/f", answer = "" },
+      { kind = "s", path = root .. "/f", answer = "" },
+      { kind = "s", path = root .. "/d", answer = "" },
+      { kind = "d", path = root .. "/d", answer = "" },
+      { kind = "u", path = root .. "/d", answer = "" },
+    }
+  end
+  local first, second = tmp .. "/first", tmp .. "/second"
+  local first_reads = checkout(first)
+  assert(Time.sleep_ns(10000000))
+  local second_reads = checkout(second)
+  local function reach(root: string, reads: {observations.Observation}): test.VerdictKey
+    local reached = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", reads, {})
+    assert(reached.stable)
+    return reached
+  end
+  local function key(root: string, reads: {observations.Observation}): string
+    return reach(root, reads).shared
+  end
+  local reached = key(first, first_reads)
+  assert(key(second, second_reads) == reached, "another checkout of the same content")
+  assert(reach(second, second_reads).key ~= reach(first, first_reads).key,
+    "each checkout's own key holds its stats whole")
+  local own = reach(second, second_reads).key
+  assert(Time.sleep_ns(10000000))
+  assert(Fs.write(second .. "/f", "same"))
+  assert(reach(second, second_reads).key ~= own, "a file touched in the checkout")
+  assert(key(second, second_reads) == reached, "is the same file to its siblings")
+  assert(Fs.write(second .. "/d/g", "changed"))
+  assert(key(second, second_reads) ~= reached, "a file a confined process was given")
+  assert(Fs.write(second .. "/d/g", "also the same"))
+  assert(key(second, second_reads) == reached)
+  assert(Fs.write(second .. "/f", "diff"))
+  assert(key(second, second_reads) ~= reached, "a file the test read")
+end
+
 local function test_a_changed_content_read_is_unstable(tmp: string)
   local path = tmp .. "/a.txt"
   assert(Fs.write(path, "hello"))
@@ -131,9 +179,10 @@ local function test_distinct_module_keys_never_share_a_key(tmp: string)
 end
 
 local function test_distinct_runtimes_never_share_a_key(tmp: string)
-  local key1 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime1", {}, {}).key
-  local key2 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime2", {}, {}).key
-  assert(key1 ~= key2)
+  local key1 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime1", {}, {})
+  local key2 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime2", {}, {})
+  assert(key1.key ~= key2.key)
+  assert(key1.shared ~= key2.shared, "nor a shared one")
 end
 
 local function test_distinct_read_sets_never_share_a_key(tmp: string)

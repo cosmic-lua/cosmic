@@ -25,7 +25,12 @@
 --- and directory listings are observed through the syscall table.
 --- Observations outside the root do not enter the key; the tool's own
 --- hash, in every module key, invalidates everything at once.
---- Environment variables a test reads are part of its key. A test
+--- Environment variables a test reads are part of its key. A key
+--- names nothing of where the tree is, so every checkout shares its
+--- passing verdicts too (`build.shared_verdicts`): a test no verdict of
+--- this checkout answers for stands on one another checkout of the same
+--- content reached, or is assumed on one, on the terms it would on its
+--- own, and that verdict is then recorded here as this run's. A test
 --- that spawns a process it does not confine, reads outside the tree
 --- beyond its own temporary directories, or reaches the network has no
 --- verdict a key can hold: its run records what it was compiled from
@@ -80,6 +85,7 @@ local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 local observations = require("build.filesystem_observations")
+local shared_verdicts = require("build.shared_verdicts")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
@@ -92,6 +98,10 @@ local record test
   --- read describes no run, so no verdict is kept or looked up under it.
   record VerdictKey
     key: string
+    --- The key every checkout of the tree computes alike, which a
+    --- verdict is shared under (`build.shared_verdicts`): `key` but for
+    --- a stat, keyed by what `held_stat` keeps of it.
+    shared: string
     stable: boolean
     --- A path a confined process was given was first walked after the
     --- test started: its verdict is not kept, though what it read is,
@@ -103,13 +113,18 @@ local record test
   record Previous
     --- Nil for a run no key could hold.
     reads: {observations.Observation}
+    --- Whether it passed.
+    passed: boolean
     --- For a run no key could hold: its verdict's key, what it was
-    --- compiled from and ran under, whether it passed, and what of its
+    --- compiled from and ran under, and what of its
     --- reads a key can hold, for `--all`'s absence to assume it on.
     key: string
     identity: string
-    passed: boolean
     kept: {observations.Observation}
+    --- The shared key the run reached (`VerdictKey.shared`), which says
+    --- what content this checkout already holds evidence for; nil for
+    --- a row written before runs recorded it.
+    shared: string
   end
 
   --- One verdict ever reached, by key.
@@ -135,6 +150,9 @@ local record test
     --- Answered from the verdict of a run no key could hold, whose test
     --- has changed in nothing its key would have held.
     assumed: integer
+    --- Of those that stood or were assumed, how many on a verdict
+    --- another checkout reached (`build.shared_verdicts`).
+    shared: integer
   end
 
   --- How a run is bounded, from the command line and the environment.
@@ -235,6 +253,22 @@ end
 
 local text = bind.text
 
+--- What a run read, as `runs` holds it: marked as a run no key could
+--- hold, with what it was compiled from and ran under, unless
+--- `cacheable`.
+local function encoded_reads(reads: {observations.Observation}, cacheable?: boolean,
+                             identity?: string): string
+  return cacheable == false and observations.encode_unstable(identity, reads) or
+    observations.encode(reads)
+end
+
+--- A run's key as `runs` holds it: its key, then, when it has one,
+--- its shared key after a space.
+local function run_key(key: string, shared: string | nil): string
+  if shared == nil then return key end
+  return key .. " " .. shared
+end
+
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
                           reads: {observations.Observation}, key: string,
@@ -244,9 +278,19 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
     "reads, key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
-      { integer = ran_at_ns }, text(cacheable == false and
-        observations.encode_unstable(identity, reads) or observations.encode(reads)), text(key),
+      { integer = ran_at_ns }, text(encoded_reads(reads, cacheable, identity)), text(key),
       { integer = run_at_ns }, { integer = elapsed } })
+end
+
+--- What a run left of a test, from what it read as `runs` holds it,
+--- the key it reached and whether it passed; nil for an encoding no
+--- verdict can come of.
+local function previous_of(encoded: string, key: string, passed: boolean): test.Previous | nil
+  local reads = observations.decode(encoded)
+  if reads ~= nil then return { reads = reads, passed = passed } end
+  local unstable = observations.decode_unstable(encoded)
+  if unstable == nil then return nil end
+  return { key = key, identity = unstable.identity, passed = passed, kept = unstable.reads }
 end
 
 --- What the last run left of every test, by "path name".
@@ -258,16 +302,10 @@ local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | ni
   end
   local out: {string:test.Previous} = {}
   for _, row in ipairs(rows) do
-    local reads = observations.decode(row[3])
-    if reads ~= nil then
-      out[row[1] .. " " .. row[2]] = { reads = reads }
-    else
-      local unstable = observations.decode_unstable(row[3])
-      if unstable ~= nil then
-        out[row[1] .. " " .. row[2]] = { key = row[4], identity = unstable.identity,
-          passed = row[5] == "1", kept = unstable.reads }
-      end
-    end
+    local key, shared = row[4]:match("^(%S+) (%S+)$")
+    local was = previous_of(row[3], key or row[4], row[5] == "1")
+    if was ~= nil then was.shared = shared end
+    out[row[1] .. " " .. row[2]] = was
   end
   return out
 end
@@ -395,6 +433,12 @@ local function under_root(root: string, path: string,
   if relative == shipped then
     return relative
   end
+  -- TODO: what o/ holds beyond `shipped` is keyed nowhere -- o/build.db,
+  -- o/bin/cosmic, o/carried.db -- so a test that reads it stands on a
+  -- sibling checkout's verdict whose o/ held something else (a stale
+  -- build, a different carried set). Key a read of each by what the
+  -- build says it is (its meta hashes: `image_hash`, `boot_hash`), as
+  -- `shipped` is by its bytes, rather than dropping it.
   if relative == "o" or relative:sub(1, 2) == "o/" then
     return nil
   end
@@ -423,11 +467,45 @@ local function resolutions_of(reads: {observations.Observation}): {string:string
   return out
 end
 
+--- The environment every worker this process starts has
+--- (`test.worker_environment`), which is what a test's read of a
+--- variable answered and so what its key holds: defined beside it.
+local worker_view: function(): {string:string}
+
+--- A stat answer (`observations.stat_answer`) as a shared key holds
+--- it: what the path is, its permissions and, but for a directory, its
+--- size -- what any checkout of the same tree answers alike. The times,
+--- inode, device, link count and owner a checkout's own files were
+--- given are no part of what the tree holds, and would keep a verdict
+--- from standing in any checkout but the one that reached it; a
+--- checkout's own key keeps them, so a file touched there runs what
+--- stat'd it again.
+-- TODO: a test whose verdict turns on an in-tree file's times or inode
+-- (a staleness check comparing a file of the tree against another)
+-- stands on a sibling's verdict where they differ. Key such a test's
+-- stats whole in the shared key too, once a test can declare it reads
+-- them (as `observations.confine` declares what its processes read).
+local function held_stat(answer: string): string
+  local size, mode, kind = answer:match("^ok (%S+) (%S+) (%S+)")
+  if size == nil then return answer end
+  if kind == "dir" then size = "-" end
+  return "ok " .. size .. " " .. mode .. " " .. kind
+end
+
 --- What one test's verdict is a function of: the test itself, its
 --- module's key, the runtime it ran under -- see `build.work`'s
 --- `Identities` -- and the current hash of every file under the root
 --- it read, by name. A file the stage holds is hashed already; any
 --- other is read for it here, and one that is gone says so.
+---
+--- Nothing in a key names where the tree is: a read under the root is
+--- keyed by its name there (`observations.tree_name`), a variable by what
+--- `observations.held_variable` keeps of it, and a path a confined
+--- process was given by what `observations.unveiled_answer` says of
+--- it; its `shared` key keeps of a stat only what `held_stat` does,
+--- so another checkout of the same content computes the same shared
+--- key, and a verdict one reached stands in the other
+--- (`build.shared_verdicts`).
 ---
 --- Exposed as `test.verdict_key` (`standing` and `finish` use it the
 --- same as any other caller would) so `test_test.tl` can pin two
@@ -501,13 +579,16 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- working directory, which generation 4 recorded without either.
   -- Generation 6 keys a read outside the tree that resolved into it
   -- (an "r" observation), which generation 5 never let stand.
-  local lines: {string} = { "recording-6", "module-load-reads-v1",
-    observations.key_part("i", id, observations.key_part("m", module_key, runtime)) }
+  -- Generation 7 names nothing of where the tree is (see above), so
+  -- every checkout of one tree computes the same key.
+  local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
+  local lines: {string} = { "recording-7", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-1", "module-load-reads-v1", header }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
     if kind == "e" then
-      current = observations.getenv_current(relative)
+      current = observations.getenv_current(relative, worker_view())
     elseif kind == "r" then
       current = observations.resolution(relative)
     elseif kind == "u" then
@@ -542,19 +623,42 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     if answers[identified] ~= nil and answers[identified] ~= current then
       stable = false
     end
+    local named = relative
+    local shared_answer: string = nil
+    if kind == "e" then
+      local memo_held = "\3e\0" .. relative .. "\0" .. answer
+      local held = key_parts[memo_held]
+      if held == nil then
+        held = observations.held_variable(relative, answer, worker_view(), root)
+        key_parts[memo_held] = held
+      end
+      answer = held
+    elseif kind == "s" then
+      shared_answer = held_stat(answer)
+    elseif kind == "r" then
+      answer = observations.tree_name(answer, root)
+    elseif kind == "u" then
+      named = observations.tree_name(relative, root)
+    end
     -- The same (kind, relative, answer) triple recurs across the run's
     -- tests constantly -- module loads and shared fixtures are read by
     -- most of them -- so its encoded line, which does not depend on
     -- anything but the triple itself, is worth remembering once.
-    local memo_key = kind .. "\0" .. relative .. "\0" .. answer
-    local part = key_parts[memo_key]
-    if part == nil then
-      part = observations.key_part(kind, relative, answer)
-      key_parts[memo_key] = part
+    local function part_of(said: string): string
+      local memo_key = kind .. "\0" .. named .. "\0" .. said
+      local part = key_parts[memo_key]
+      if part == nil then
+        part = observations.key_part(kind, named, said)
+        key_parts[memo_key] = part
+      end
+      return part
     end
+    local part = part_of(answer)
     lines[#lines + 1] = part
+    shared_lines[#shared_lines + 1] = shared_answer ~= nil and part_of(shared_answer) or part
   end
-  return { key = Hash.hex_sha256(table.concat(lines, "\n")), stable = stable and not late,
+  return { key = Hash.hex_sha256(table.concat(lines, "\n")),
+    shared = Hash.hex_sha256(table.concat(shared_lines, "\n")), stable = stable and not late,
     late = late }
 end
 
@@ -1051,6 +1155,46 @@ local record Recording
   --- out of every record of the run (see `write_coverage`).
   unowned: Coverage.Hits
   tally: test.Tally
+  --- The verdicts every checkout shares, or nil, and what the run owes
+  --- them when it ends.
+  shared: shared_verdicts.Cache
+  owed: shared_verdicts.Owed
+  --- Each key a verdict of this run stands or is assumed under, its
+  --- shared key, for `owed.used`.
+  shared_keys: {string:string}
+  --- What names this checkout among the rows it shares (`checkout_id`).
+  origin: string
+end
+
+--- What names this checkout among the shared rows: an id made the
+--- first time its o/build.db is asked for one and kept in its `meta`,
+--- so a checkout made again at the same path is another checkout, and
+--- one whose o/ is removed is too.
+local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
+  local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
+  if rows ~= nil and rows[1] ~= nil then return rows[1][1] end
+  local made = Hash.hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
+    tostring(Time.monotonic_ns()) .. "\0" .. tostring({}))
+  local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
+    { text(made) })
+  return made
+end
+
+--- Stops using the shared verdicts for the rest of the run, saying why
+--- once: a cache that cannot answer -- corrupt, or another format's --
+--- costs the run nothing but what it would have saved.
+local function drop_shared(rec: Recording, trouble: string)
+  if rec.shared == nil then return end
+  local path = rec.shared.path
+  shared_verdicts.close(rec.shared)
+  rec.shared = nil
+  local aside = ""
+  if shared_verdicts.corrupt(trouble) then
+    local moved, _ = shared_verdicts.set_aside(path, Time.now_ns())
+    if moved ~= nil then aside = "; moved aside to " .. moved end
+  end
+  log:complain("test: shared verdicts: " .. path .. ": " .. trouble ..
+    "; running without them" .. aside)
 end
 
 --- What a test was compiled from and ran under: what a verdict no key
@@ -1074,6 +1218,7 @@ local function standing(rec: Recording, previous: {string:test.Previous},
   local key, stable = verdict_key.key, verdict_key.stable
   local stood = stable and verdicts[key] or nil
   if stood == nil or not stood.passed then return nil, nil, "" end
+  rec.shared_keys[key] = verdict_key.shared
   return stood, was.reads, key
 end
 
@@ -1089,7 +1234,8 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), reads, key, stood.run_at_ns, stood.elapsed_ns)
+    Time.now_ns(), reads, run_key(key, rec.shared_keys[key]), stood.run_at_ns,
+    stood.elapsed_ns)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1098,6 +1244,8 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
   end
+  local shared_key = rec.shared_keys[key]
+  if shared_key ~= nil then rec.owed.used[#rec.owed.used + 1] = shared_key end
 end
 
 --- A verdict a test is assumed on, and the key it was reached under.
@@ -1124,6 +1272,7 @@ local function assumable(rec: Recording, previous: {string:test.Previous},
   if not now.stable or now.key ~= was.key then return nil, "what it read changed" end
   local verdict = verdicts[was.key]
   if verdict == nil or not verdict.passed then return nil, "did not pass" end
+  rec.shared_keys[was.key] = now.shared
   return { verdict = verdict, key = was.key, kept = was.kept }, ""
 end
 
@@ -1140,7 +1289,8 @@ local function assume(rec: Recording, credited: test.Credited, m: importer.Modul
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), reads, key, verdict.run_at_ns, verdict.elapsed_ns, false, identity_of(rec, m))
+    Time.now_ns(), reads, run_key(key, rec.shared_keys[key]), verdict.run_at_ns,
+    verdict.elapsed_ns, false, identity_of(rec, m))
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1149,6 +1299,117 @@ local function assume(rec: Recording, credited: test.Credited, m: importer.Modul
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
   end
+  local shared_key = rec.shared_keys[key]
+  if shared_key ~= nil then rec.owed.used[#rec.owed.used + 1] = shared_key end
+end
+
+--- A verdict another checkout reached that stands, or is assumed, here.
+local record Shared
+  --- The key it stands under here, and the one it is shared under.
+  key: string
+  shared: string
+  --- What the run read, in this checkout's paths: all of it for one
+  --- that stands, and what `runs` keeps of it for one assumed.
+  reads: {observations.Observation}
+  assumed: boolean
+  found: shared_verdicts.Found
+end
+
+--- The verdict `rec.shared` holds for a test that stands here on the
+--- terms `standing` holds a verdict of this checkout to -- or, unless
+--- `asked`, that is assumed on those `assumable` does -- or nil. This
+--- checkout's own evidence comes first: content its last run of the
+--- test reached the same shared key over -- passing or failing, a file
+--- touched since or not -- a test whose last run here failed, over
+--- whatever content, and a key `verdicts` holds any verdict
+--- under are never answered from another checkout's, and one that
+--- failed here takes the shared row out. Nor is a row this checkout
+--- wrote itself.
+local function shared_standing(rec: Recording, previous: {string:test.Previous},
+                               verdicts: {string:test.Verdict}, m: importer.Module,
+                               id: string, asked: boolean): Shared | nil
+  local last = previous[id]
+  -- A run from before runs recorded their shared key says nothing of
+  -- which content it was over: this checkout has run the test, and
+  -- runs it again rather than guess.
+  if last ~= nil and last.shared == nil then return nil end
+  -- A test that failed here runs until it passes here: a failing run
+  -- may stop short of reads a passing one makes, so no shared key tells
+  -- its content from the one another checkout passed on.
+  if last ~= nil and not last.passed then return nil end
+  local candidates, trouble = shared_verdicts.candidates(rec.shared, rec.root, id, m.key)
+  if candidates == nil then
+    drop_shared(rec, trouble)
+    return nil
+  end
+  for _, candidate in ipairs(candidates) do
+    local was: test.Previous = nil
+    if candidate.origin ~= rec.origin then
+      was = previous_of(candidate.reads, candidate.key, true)
+    end
+    local reads: {observations.Observation} = nil
+    local assumed = false
+    if was ~= nil and was.reads ~= nil then
+      reads = was.reads
+    elseif was ~= nil and not asked and was.identity == identity_of(rec, m) then
+      reads, assumed = was.kept, true
+    end
+    if reads ~= nil then
+      local now = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime, reads,
+        rec.key_parts)
+      local own = verdicts[now.key]
+      local own_failed = own ~= nil and not own.passed
+      local known = last ~= nil and last.shared == now.shared
+      if now.stable and now.shared == candidate.key and (own ~= nil or known) then
+        if own_failed or (known and not last.passed) then
+          rec.owed.failed[#rec.owed.failed + 1] = candidate.key
+        end
+      elseif now.stable and now.shared == candidate.key then
+        local found, found_trouble = shared_verdicts.found(rec.shared, candidate.key)
+        if found ~= nil then
+          return { key = now.key, shared = candidate.key, reads = reads, assumed = assumed,
+            found = found }
+        elseif found_trouble ~= "" then
+          drop_shared(rec, found_trouble)
+          return nil
+        end
+      end
+    end
+  end
+  return nil
+end
+
+--- Records one test answered from a verdict another checkout reached:
+--- as this run's own, with the lines that run hit, so a later run of
+--- this checkout stands on it without the shared cache.
+local function share(rec: Recording, m: importer.Module, name: string, id: string,
+                     from: Shared)
+  if from.assumed then
+    rec.tally.assumed = rec.tally.assumed + 1
+  else
+    rec.tally.cached = rec.tally.cached + 1
+  end
+  rec.tally.shared = rec.tally.shared + 1
+  local hit: Coverage.Hits = {}
+  decode_hits(from.found.hits, hit)
+  for path in pairs(rec.unowned) do
+    hit[path] = nil
+  end
+  merge_hits(rec.hits, hit)
+  rec.by_test[id] = encode_hits(hit)
+  local elapsed = from.found.elapsed_ns
+  local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
+    Time.now_ns(), from.reads, run_key(from.key, from.shared), rec.run_at_ns, elapsed,
+    not from.assumed, identity_of(rec, m))
+  if not kept then
+    rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
+  end
+  kept, keep_trouble = record_verdict(rec.records, from.key, true, rec.run_at_ns, rec.run,
+    elapsed)
+  if not kept then
+    rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
+  end
+  rec.owed.used[#rec.owed.used + 1] = from.shared
 end
 
 --- How a worker's process ended, for a failure that has no report.
@@ -1207,7 +1468,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local reached, stable = verdict_reached.key, verdict_reached.stable
   local late = verdict_reached.late
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
-    message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
+    message, Time.now_ns(), reads, run_key(reached, verdict_reached.shared), rec.run_at_ns,
+    elapsed,
     (stable or late) and cacheable, identity_of(rec, job.m))
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
@@ -1218,6 +1480,14 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     if not saved then
       rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
     end
+  end
+  if not passed then
+    rec.owed.failed[#rec.owed.failed + 1] = verdict_reached.shared
+  elseif not late and reported ~= nil then
+    rec.owed.kept[#rec.owed.kept + 1] = { key = verdict_reached.shared, test = id,
+      module_key = job.m.key,
+      reads = encoded_reads(reads, (stable or late) and cacheable, identity_of(rec, job.m)),
+      hits = rec.by_test[id], elapsed_ns = elapsed }
   end
   job.passed = passed
   if not passed then
@@ -1237,13 +1507,28 @@ end
 --- The environment a worker starts with: this process's, less the
 --- private startup hooks (`COSMIC_PORTABLE_STARTUP_TEST_*`), which pause
 --- one startup of a fixture runtime for a handshake and belong to this
---- process's own launch, not to every worker it starts.
+--- process's own launch, not to every worker it starts, and with the
+--- shared verdict cache off (`COSMIC_VERDICT_CACHE=0`).
 function test.worker_environment(environment: {string:string}): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do
     if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" then out[name] = value end
   end
+  -- A run of `cosmic test` a test starts neither reads nor writes the
+  -- verdicts every checkout shares, unless the test names a cache of
+  -- its own.
+  shared_verdicts.turn_off(out)
+  -- Nor does it take this run's choice not to stand on them: a test
+  -- that runs `cosmic test` says for itself what that run does.
+  out.COSMIC_TEST_NO_SHARED = nil
   return out
+end
+
+-- Read once, since this process never changes its own environment.
+local worker_view_memo: {string:string} = nil
+worker_view = function(): {string:string}
+  if worker_view_memo == nil then worker_view_memo = test.worker_environment(Env.all()) end
+  return worker_view_memo
 end
 
 --- How a worker is started: this exact program again -- the same core,
@@ -1533,6 +1818,11 @@ function test.run(argv: {integer:string}): integer
   -- asked for: by --all, or by name -- a selector narrower than the
   -- whole tree that chooses it.
   local everything = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  -- A run that stands on nothing another checkout reached, though it
+  -- still shares what it reaches: what answers for every test is this
+  -- checkout's own evidence, or a run.
+  local consult = not (parsed.set["--no-shared"] == true or
+    Env.get("COSMIC_TEST_NO_SHARED") == "1")
   local naming: {string} = {}
   for _, selector in ipairs(selectors) do
     if selector ~= "." then naming[#naming + 1] = selector end
@@ -1694,7 +1984,7 @@ function test.run(argv: {integer:string}): integer
   end
   local credited: test.Credited = {}
 
-  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0 }
+  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0 }
   local modules_run = #selected_modules
   local failures: {string} = {}
   local errors: {string} = {}
@@ -1718,7 +2008,25 @@ function test.run(argv: {integer:string}): integer
     failures = failures, errors = errors, outputs = {}, reruns = {},
     failed = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
+    owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
+    origin = checkout_id(records, root, run_at_ns),
   }
+  -- The verdicts every checkout of the tree shares: one that stands
+  -- here, run where another checkout reached it, is not run again.
+  -- Without them the run goes on as before, said so when that is not
+  -- what was asked for.
+  local cache_path, cache_trouble = shared_verdicts.location()
+  if cache_path ~= nil then
+    rec.shared, cache_trouble = shared_verdicts.open(cache_path)
+  end
+  if rec.shared == nil and cache_trouble ~= "" then
+    local aside = ""
+    if cache_path ~= nil and shared_verdicts.corrupt(cache_trouble) then
+      local moved, _ = shared_verdicts.set_aside(cache_path, Time.now_ns())
+      if moved ~= nil then aside = "; moved aside to " .. moved end
+    end
+    log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them" .. aside)
+  end
   local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
     for _, name in ipairs(selected_tests[m.path]) do
@@ -1733,10 +2041,16 @@ function test.run(argv: {integer:string}): integer
         local answer, _ = assumable(rec, previous, verdicts, m, id)
         assumed = answer
       end
+      local from: Shared = nil
+      if stood == nil and assumed == nil and consult and rec.shared ~= nil then
+        from = shared_standing(rec, previous, verdicts, m, id, asked)
+      end
       if stood ~= nil then
         stand(rec, credited, m, name, id, stood, reads, key)
       elseif assumed ~= nil then
         assume(rec, credited, m, name, id, assumed.verdict, assumed.key, assumed.kept)
+      elseif from ~= nil then
+        share(rec, m, name, id, from)
       else
         jobs[#jobs + 1] = { m = m, name = name, id = id }
       end
@@ -1756,6 +2070,7 @@ function test.run(argv: {integer:string}): integer
       local guard <close> = opened
       if run_jobs(rec, jobs, limits, guard) ~= 0 then
         local _, _ = work.abort(handle)
+        if rec.shared ~= nil then shared_verdicts.close(rec.shared) end
         -- TODO: name the directories a cancelled run kept for the tests
         -- that failed before the signal, as a finished run's report does;
         -- only the run's errors are said here.
@@ -1814,6 +2129,17 @@ function test.run(argv: {integer:string}): integer
   if not finished then
     errors[#errors + 1] = "close: " .. finish_trouble
   end
+  -- What this run reached is the shared cache's too, whether or not
+  -- this checkout's own records took it: a passing verdict is one
+  -- whatever went wrong with keeping it here.
+  if rec.shared ~= nil then
+    local settled, settle_trouble = shared_verdicts.settle(rec.shared, root, rec.origin, rec.owed,
+      Time.now_ns())
+    shared_verdicts.close(rec.shared)
+    if not settled then
+      log:complain("test: shared verdicts: " .. rec.shared.path .. ": " .. settle_trouble)
+    end
+  end
 
   -- A module `importer.compile` refused ran no tests at all; every
   -- other module still compiled and ran above, so this only turns the
@@ -1838,6 +2164,7 @@ function test.run(argv: {integer:string}): integer
     log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
+      (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
       clock.elapsed_ms(started) .. " ms")
     return 0
   end
