@@ -114,7 +114,8 @@ local function test_a_strict_record_refuses_a_key_it_does_not_name()
   fails({ server = { host = "h", port = 1, extra = true } }, outer, "$.server.extra: unknown key")
   local none: {string: any} = must(Shape.into({}, outer))
   assert(none.server == nil)
-  assert(not pcall(Shape.strict_record, { a = "string" as Shape.Spec }))
+  local ok, err = pcall(Shape.strict_record, { a = "string" as Shape.Spec })
+  assert(not ok and tostring(err):find('shape: strict_record\'s field "a" is not a Spec', 1, true), tostring(err))
 end
 
 local function test_a_map_refuses_a_key_that_is_not_a_string()
