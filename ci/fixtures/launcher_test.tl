@@ -503,12 +503,12 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
     end
   end
   local timing = ctx.work .. "/timing cache"
-  local cold_started = assert(Time.monotonic_ns())
+  local cold_started = Time.monotonic_ns()
   outcome_ok(run(ctx, "timing-cold", timing), "cold timing launch")
-  local cold_ms = (assert(Time.monotonic_ns()) - cold_started) // 1000000
-  local warm_started = assert(Time.monotonic_ns())
+  local cold_ms = (Time.monotonic_ns() - cold_started) // 1000000
+  local warm_started = Time.monotonic_ns()
   outcome_ok(run(ctx, "timing-warm", timing), "warm timing launch")
-  local warm_ms = (assert(Time.monotonic_ns()) - warm_started) // 1000000
+  local warm_ms = (Time.monotonic_ns() - warm_started) // 1000000
   assert(Fs.put(Fs.stderr, "portable launcher timing: cold=" ..
     tostring(cold_ms) .. "ms warm=" .. tostring(warm_ms) .. "ms\n"))
   assert(Fixture.hash(ctx.artifact) == before, "launcher artifact changed")

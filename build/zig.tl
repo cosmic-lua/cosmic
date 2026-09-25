@@ -322,14 +322,7 @@ local function real_sleep(ms: integer)
 end
 
 local function real_now_ms(): integer
-  -- TODO: drop the nil check once ci/cosmic-driver.pin names a cosmic
-  -- whose Time.monotonic_ns answers an integer alone, as the tree's does:
-  -- this runs on that release, whose answers nil and a message.
-  local ns = Time.monotonic_ns()
-  if ns == nil then
-    error("bin/zig: the monotonic clock cannot be read")
-  end
-  return ns // (1000 * 1000)
+  return Time.monotonic_ns() // (1000 * 1000)
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
@@ -745,10 +738,11 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 function Zig.run(argv: {string}): integer
   -- TODO: hold the signals with `Child.guard` rather than sys.*'s
   -- guard_child_signals, cancelled_child_signal and unguard_child_signals
-  -- once ci/cosmic-driver.pin names a cosmic whose cosmic.child carries
-  -- Child.guard (this runs on that release), and once a Child.Guard can
-  -- close without delivering its caught signal again: this passes the
-  -- signal on to the child and re-raises only the one the child died of.
+  -- once a Child.Guard can close without delivering its caught signal
+  -- again, and ci/cosmic-driver.pin names a cosmic that carries that
+  -- (this runs on that release; the pinned one's Child.guard always
+  -- re-delivers): this passes the signal on to the child and re-raises
+  -- only the one the child died of.
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then
     log:complain("signal guard: " .. guard_trouble)
@@ -769,12 +763,7 @@ function Zig.run(argv: {string}): integer
       if state.finished then
         return state.result, ""
       end
-      -- TODO: drop the `or 0` once ci/cosmic-driver.pin names a cosmic whose
-      -- Time.monotonic_ns answers an integer alone: this runs on that release.
-      -- The `assert(Time.monotonic_ns())` in ci/, which runs on it too
-      -- (cosmic_ci/orchestration.tl, cosmic_ci/runner.tl,
-      -- cosmic_ci/fixture_test.tl, fixtures/launcher_test.tl), go then.
-      local now = Time.monotonic_ns() or 0
+      local now = Time.monotonic_ns()
       local cancelled, _ = sys.cancelled_child_signal()
       if pending == 0 and cancelled ~= nil and cancelled ~= 0 then
         pending, pass_on_at = cancelled, now + PASS_ON_NS

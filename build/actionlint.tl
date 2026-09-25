@@ -40,7 +40,7 @@
 --- cannot be found, 126 when it cannot be run, 1 for anything else that
 --- stops it from starting.
 
--- TODO: share read_pin, host, the cache install and complain with
+-- TODO: share read_pin, host and the cache install with
 -- build/zig.tl once `cosmic --standalone` can load a sibling module:
 -- it runs one file and refuses any require but cosmic.*, so each tool
 -- carries its own copy.
@@ -67,6 +67,7 @@ local Archive = require("cosmic.archive")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
@@ -81,11 +82,7 @@ local record Actionlint
   type Download = function(url: string, path: string, opts: Http.Options): boolean, string
 end
 
--- TODO: Log.new("bin/actionlint"):complain once ci/cosmic-driver.pin
--- names a cosmic carrying cosmic.log: this file runs on the pinned bootstrap.
-local function complain(line: string)
-  local _, _ = Fs.put(Fs.stderr, "bin/actionlint: " .. line .. "\n")
-end
+local log = Log.new("bin/actionlint")
 
 --- `bin/actionlint.pin`'s text: a `version <v>` line, then
 --- `<host> <sha256>` lines. Each line is read as its first two words,
@@ -276,7 +273,7 @@ function Actionlint.ensure_installed(cache: string, install: string, pin: Action
     if usable(binary) then
       return binary, ""
     end
-    complain(binary .. " is empty or not executable; installing it again")
+    log:complain(binary .. " is empty or not executable; installing it again")
     local removed, rtrouble = Fs.remove_tree(install)
     if not removed then
       return nil, install .. ": " .. tostring(rtrouble) .. "; remove it and run again"
@@ -348,12 +345,12 @@ end
 function Actionlint.main(argv: {integer:string}): integer
   local root, root_trouble = Actionlint.repo_root(argv[0])
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 2
   end
   local binary, trouble = locate(root)
   if binary == nil then
-    complain(trouble)
+    log:complain(trouble)
     return 1
   end
   local given: {string} = {}
@@ -365,7 +362,7 @@ function Actionlint.main(argv: {integer:string}): integer
   if not Actionlint.names_files(given) then
     local moved, ctrouble = sys.chdir(root)
     if not moved then
-      complain(root .. ": " .. tostring(ctrouble))
+      log:complain(root .. ": " .. tostring(ctrouble))
       return 1
     end
   end
@@ -375,7 +372,7 @@ function Actionlint.main(argv: {integer:string}): integer
   end
   local _, etrouble, number = sys.execve(binary, exec_argv, Env.all())
   local install = binary:match("^(.*)/[^/]+$") or binary
-  complain(binary .. ": " .. tostring(etrouble) .. "; if the cached copy is broken, remove " ..
+  log:complain(binary .. ": " .. tostring(etrouble) .. "; if the cached copy is broken, remove " ..
     install .. " and run again")
   return Actionlint.exec_status(math.tointeger(number) or 0)
 end

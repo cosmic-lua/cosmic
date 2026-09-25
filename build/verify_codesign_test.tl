@@ -60,3 +60,12 @@ local function test_the_first_codesign_on_path_runs(dir: string)
   assert(VerifyCodesign.verify("Darwin", "core", dir .. "/a:" .. dir .. "/b") == 0)
   assert(Fs.exists(log))
 end
+
+local function test_main_answers_help_and_refuses_an_option()
+  -- Help wherever it is asked, and nothing verified: before, a second
+  -- word was a usage error and "-x" was taken as the binary's path.
+  assert(VerifyCodesign.main({ [1] = "a", [2] = "--help" }) == 0)
+  assert(VerifyCodesign.main({ [1] = "-h" }) == 0)
+  assert(VerifyCodesign.main({ [1] = "-x" }) == 2)
+  assert(VerifyCodesign.main({}) == 2)
+end

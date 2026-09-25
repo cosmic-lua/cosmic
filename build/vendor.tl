@@ -382,17 +382,30 @@ local function fetch_and_rewrite(root: string, cache: string, name: string): int
   return rewrite(tree, fetched)
 end
 
+--- What `bin/vendor --help` says.
+local usage = "bin/vendor [name... | vendor/<name> <archive>]"
+local about = "Rewrites each vendor/<name> tree -- every one by default -- from the\n" ..
+  "archive its PIN names, keeping only what the build reads. Given a tree\n" ..
+  "and an archive already on disk, rewrites that tree from it."
+local spec: {string:boolean | Flags.Option} = {
+  ["--help"] = { about = "show this help" },
+  ["-h"] = { about = "show this help" },
+}
+
 --- Runs `bin/vendor`'s command line: `argv[0]` is this script's own
 --- path, and the words after it are names, or a tree and an archive. It
---- takes no options, so a word that begins with "-" is refused (exit 2)
---- rather than read as a name; one that must begin with "-", such as an
---- archive's path, goes after "--".
+--- takes no options but `--help`, so a word that begins with "-" is
+--- refused (exit 2) rather than read as a name; one that must begin
+--- with "-", such as an archive's path, goes after "--".
 function Vendor.main(argv: {integer:string}): integer
-  local parsed, parse_trouble = Flags.parse(argv, 1, {})
+  local parsed, parse_trouble = Flags.parse(argv, 1, spec)
   if parsed == nil then
-    log:complain(parse_trouble .. "; usage: bin/vendor [name...] | " ..
-      "bin/vendor vendor/<name> <archive>")
+    log:complain(parse_trouble .. "; usage: " .. usage)
     return 2
+  end
+  if parsed.set["--help"] or parsed.set["-h"] then
+    log:say(Flags.help(usage, spec, about))
+    return 0
   end
   local words = parsed.words
   if Vendor.is_direct_rewrite(words) then
