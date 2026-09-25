@@ -847,6 +847,12 @@ local REFUSED_KEPT <const> = 1024
 --- Every zone name the binary carries, read at the first lookup.
 local carried_names: {string:boolean} = nil
 
+--- What a zone the carried database lacks says after it: a zone IANA
+--- added since the database was built is one a newer database has, and
+--- this is how this binary, or a program built with it, gets one.
+local NEWER_ZONES <const> = "if the zone is new, `cosmic refresh tzdata --binary <this program> " ..
+  "-o <copy>` writes a copy with a newer tz database"
+
 --- IANA's zone `name`, as "America/New_York" or "UTC", from the copy of
 --- the tz database the binary carries. The host's zone files are never
 --- read, so a name gives the same rules on every host, whatever tz
@@ -879,7 +885,8 @@ function Time.zone(name: string): Time.Zone | nil, string
     carried_names = names
   end
   if not carried_names[name] then
-    return nil, refuse(("no time zone %s: this binary's tz database has none"):format(name))
+    return nil, refuse(("no time zone %s: this binary's tz database has none; %s"):format(
+      name, NEWER_ZONES))
   end
   local carried, trouble = Store.zoneinfo(name)
   if carried == nil then return nil, ("time zone %s: %s"):format(name, trouble) end
@@ -964,6 +971,10 @@ end
 
 --- The host's zone when `TZ` is unset: the carried zone the
 --- /etc/localtime link names, else the one /etc/timezone names, else UTC.
+--- TODO: say so when the host names a zone this binary does not carry
+--- -- one IANA added since its database was built -- rather than taking
+--- UTC in silence: `local_zone` answers no reason on this path today;
+--- a warning, or a way to ask why, would carry `NEWER_ZONES`.
 local function host_zone(localtime: string, timezone: string): Time.Zone
   for _, find in ipairs({ linked_name, written_name }) do
     local name = find(find == linked_name and localtime or timezone)
@@ -1042,15 +1053,17 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
     if zone == nil then return nil, ("TZ=%s: %s"):format(tz, why) end
   else
     local name = tz_name(tz)
-    if name_problem(name) == nil then
+    local zone_name = name_problem(name) == nil
+    if zone_name then
       local named, _ = Time.zone(name)
       zone = named
     end
     if zone == nil then
       local p, why = parse_posix(tz)
       if p == nil then
-        return nil, ("TZ=%s names no zone this binary carries, and is no POSIX TZ string: %s"):format(
-          tz, why)
+        -- Written as a zone name, it may be one IANA added since.
+        return nil, ("TZ=%s names no zone this binary carries, and is no POSIX TZ string: %s%s"):format(
+          tz, why, zone_name and "; " .. NEWER_ZONES or "")
       end
       zone = make_zone(tz, { transitions = {}, kinds = {}, first = p.std, footer = p, named = false })
     end

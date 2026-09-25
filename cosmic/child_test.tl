@@ -16,13 +16,6 @@ local function path_exists(path: string): boolean
   return answer
 end
 
--- TODO: make these under the test's own directory, handed to each
--- test, rather than under TMPDIR: nothing removes them, so every run
--- leaves its cosmic-child-* directories behind.
-local function temporary(): string
-  return (assert(Fs.mkdtemp("cosmic-child-")))
-end
-
 local function output(dir: string, name: string): integer, string
   local path = dir .. "/" .. name
   return assert(Fs.open_write(path)), path
@@ -47,40 +40,36 @@ end
 
 --- A bare name is not looked for on PATH, and the failure says so and
 --- names what finds it; a path that is not there gets no such hint.
-local function test_a_bare_name_not_found_points_at_proc_find()
-  local dir = temporary()
-  local _, trouble = Child.run({ "cosmic-no-such-program" }, { cwd = dir })
+local function test_a_bare_name_not_found_points_at_proc_find(tmp: string)
+  local _, trouble = Child.run({ "cosmic-no-such-program" }, { cwd = tmp })
   assert(trouble:find("with no PATH search; " ..
     "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
-  local _, pathed = Child.run({ dir .. "/cosmic-no-such-program" })
+  local _, pathed = Child.run({ tmp .. "/cosmic-no-such-program" })
   assert(pathed:find("Proc.find(", 1, true) == nil, pathed)
   -- A missing directory, or a script whose interpreter is missing, fails
   -- with the same ENOENT; the name is not what is missing there.
-  local _, no_dir = Child.run({ "ls" }, { cwd = dir .. "/not-here" })
+  local _, no_dir = Child.run({ "ls" }, { cwd = tmp .. "/not-here" })
   assert(no_dir:find("Proc.find(", 1, true) == nil, no_dir)
-  assert(Fs.write(dir .. "/script", "#!/cosmic/no/such/interpreter\n"))
-  assert(sys.chmod(dir .. "/script", 0x1c0))
-  local _, script = Child.run({ "script" }, { cwd = dir })
+  assert(Fs.write(tmp .. "/script", "#!/cosmic/no/such/interpreter\n"))
+  assert(sys.chmod(tmp .. "/script", 0x1c0))
+  local _, script = Child.run({ "script" }, { cwd = tmp })
   assert(script ~= "" and script:find("Proc.find(", 1, true) == nil, script)
-  local _, empty = Child.run({ "" }, { cwd = dir })
+  local _, empty = Child.run({ "" }, { cwd = tmp })
   assert(empty:find("Proc.find(", 1, true) == nil, empty)
-  assert(Fs.remove_tree(dir))
 end
 
-local function test_argv_environment_directory_and_file_output()
-  local dir = temporary()
-  local fd, path = output(dir, "answer")
+local function test_argv_environment_directory_and_file_output(tmp: string)
+  local fd, path = output(tmp, "answer")
   local r = assert(Child.run({ "/bin/sh", "-c",
     "printf '%s|%s|%s' \"$1\" \"$2\" \"$WORD\"; pwd", "sh", "a b", "" },
-    { cwd = dir, env = { WORD = "value" }, stdout = fd }))
+    { cwd = tmp, env = { WORD = "value" }, stdout = fd }))
   assert(Fs.close(fd))
   assert(r.ok)
-  assert(assert(Fs.read(path)) == "a b||value" .. assert(Fs.absolute(dir)) .. "\n")
+  assert(assert(Fs.read(path)) == "a b||value" .. assert(Fs.absolute(tmp)) .. "\n")
 end
 
-local function test_large_redirect_does_not_depend_on_pipe_capacity()
-  local dir = temporary()
-  local fd, path = output(dir, "large")
+local function test_large_redirect_does_not_depend_on_pipe_capacity(tmp: string)
+  local fd, path = output(tmp, "large")
   local r = assert(Child.run({ "/bin/sh", "-c",
     "i=0; while [ $i -lt 10000 ]; do printf 0123456789; i=$((i+1)); done" },
     { stdout = fd }))
@@ -88,9 +77,8 @@ local function test_large_redirect_does_not_depend_on_pipe_capacity()
   assert(r.ok and #assert(Fs.read(path)) == 100000)
 end
 
-local function test_redirect_source_descriptor_does_not_leak()
-  local dir = temporary()
-  local fd = assert(Fs.open_write(dir .. "/out"))
+local function test_redirect_source_descriptor_does_not_leak(tmp: string)
+  local fd = assert(Fs.open_write(tmp .. "/out"))
   local r = assert(Child.run({ "/bin/sh", "-c",
     "test ! -e /dev/fd/$SOURCE" },
     { env = { SOURCE = tostring(fd) }, stdout = fd }))
@@ -105,9 +93,8 @@ local function test_nonzero_and_signal_status()
   assert(signaled.code == nil and signaled.signal == sys.SIGTERM)
 end
 
-local function test_timeout_kills_the_process_group_and_reaps_child()
-  local dir = temporary()
-  local fd, path = output(dir, "descendant")
+local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
+  local fd, path = output(tmp, "descendant")
   local h = assert(Child.start({ "/bin/sh", "-c",
     "sleep 30 & printf %s $!; wait" },
     { stdout = fd, stderr = fd }))
@@ -128,9 +115,8 @@ local function test_timeout_kills_the_process_group_and_reaps_child()
   assert(not alive)
 end
 
-local function test_non_group_timeout_returns_graceful_term_status()
-  local dir = temporary()
-  local ready = dir .. "/ready"
+local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
+  local ready = tmp .. "/ready"
   local h = assert(Child.start({ "/bin/sh", "-c",
     "trap 'exit 19' TERM; printf ready >\"$1\"; while :; do :; done",
     "sh", ready }, { process_group = false }))
@@ -143,9 +129,8 @@ local function test_non_group_timeout_returns_graceful_term_status()
   assert(r.code == 19 and r.signal == nil and r.timed_out)
 end
 
-local function test_spawn_validates_fds_and_preserves_cloexec_stdio()
-  local dir = temporary()
-  local fixture = dir .. "/driver.tl"
+local function test_spawn_validates_fds_and_preserves_cloexec_stdio(tmp: string)
+  local fixture = tmp .. "/driver.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -167,11 +152,10 @@ end
   assert(result.ok, "descriptor fixture exited " .. tostring(result.code))
 end
 
-local function test_run_forwards_parent_cancellation_after_group_cleanup()
-  local dir = temporary()
-  local ready = dir .. "/ready"
-  local descendant_path = dir .. "/descendant"
-  local fixture = dir .. "/driver.tl"
+local function test_run_forwards_parent_cancellation_after_group_cleanup(tmp: string)
+  local ready = tmp .. "/ready"
+  local descendant_path = tmp .. "/descendant"
+  local fixture = tmp .. "/driver.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 return function(argv: {string}): integer
@@ -183,7 +167,7 @@ return function(argv: {string}): integer
   return finished.code or 1
 end
 ]]))
-  local fd, diagnostic = output(dir, "driver.log")
+  local fd, diagnostic = output(tmp, "driver.log")
   local executable = assert(Proc.executable())
   local driver = assert(Child.start({ executable, fixture,
     descendant_path, ready },
@@ -295,9 +279,8 @@ local function test_null_streams()
   assert(r.ok and r.stdout == nil)
 end
 
-local function test_more_descriptors_by_number()
-  local dir = temporary()
-  local fd, path = output(dir, "five")
+local function test_more_descriptors_by_number(tmp: string)
+  local fd, path = output(tmp, "five")
   local r = assert(Child.run({ "/bin/sh", "-c",
     "printf report >&3; printf five >&5; test ! -e /dev/fd/4" },
     { fds = { [3] = "capture", [5] = fd }, stdout = "capture" }))
@@ -452,10 +435,9 @@ end
 --- stays with the guard however many waits see it, and ends the
 --- process when the guard closes. The guard lives in a nested cosmic:
 --- closing it delivers SIGTERM to whatever process holds it.
-local function test_guard_keeps_a_signal_and_delivers_it_on_close()
-  local dir = temporary()
-  local report = dir .. "/report"
-  local fixture = dir .. "/guarded.tl"
+local function test_guard_keeps_a_signal_and_delivers_it_on_close(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/guarded.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -520,10 +502,9 @@ end
 --- A released guard hands its signal back rather than delivering it,
 --- and a later close -- here the `<close>` scope's -- delivers nothing
 --- either. The nested cosmic outlives the SIGTERM it sent itself.
-local function test_guard_release_keeps_the_signal_from_close()
-  local dir = temporary()
-  local report = dir .. "/report"
-  local fixture = dir .. "/released.tl"
+local function test_guard_release_keeps_the_signal_from_close(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/released.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -555,10 +536,9 @@ end
 --- Ctrl-C the child handled is what a supervisor must pass on next,
 --- and release answers the last one delivered rather than losing it. The nested
 --- cosmic outlives both.
-local function test_guard_release_answers_the_last_signal()
-  local dir = temporary()
-  local report = dir .. "/report"
-  local fixture = dir .. "/latest.tl"
+local function test_guard_release_answers_the_last_signal(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/latest.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -589,10 +569,9 @@ end
 --- `take` answers each signal once, a repeat of the same one included,
 --- while `cancelled` keeps answering the last: a supervisor passes a
 --- second SIGTERM on after its child handled the first.
-local function test_guard_take_answers_a_repeated_signal_again()
-  local dir = temporary()
-  local report = dir .. "/report"
-  local fixture = dir .. "/take.tl"
+local function test_guard_take_answers_a_repeated_signal_again(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/take.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -623,10 +602,9 @@ end
 
 --- A signal this process ignores -- `cosmic test &` from a script, whose
 --- shell ignores SIGINT for it -- is not the guard's to catch.
-local function test_guard_leaves_an_ignored_signal_ignored()
-  local dir = temporary()
-  local report = dir .. "/report"
-  local fixture = dir .. "/ignoring.tl"
+local function test_guard_leaves_an_ignored_signal_ignored(tmp: string)
+  local report = tmp .. "/report"
+  local fixture = tmp .. "/ignoring.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
