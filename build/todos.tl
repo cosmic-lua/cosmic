@@ -401,19 +401,14 @@ function todos.list(db: Sqlite.Handle, root: string): todos.Listing | nil, strin
   return { todos = out, blamed = blamed }, ""
 end
 
---- A time in seconds since the epoch as its UTC date, `YYYY-MM-DD`.
+--- A time in seconds since the epoch as its UTC date, `YYYY-MM-DD`, or
+--- `??????????` for one outside what Time's nanoseconds hold (a forged
+--- commit date), rather than a date the product wrapped to.
 function todos.date(seconds: integer): string
-  -- Howard Hinnant's days-to-civil, for the proleptic Gregorian calendar.
-  local z = seconds // 86400 + 719468
-  local era = z // 146097
-  local doe = z - era * 146097
-  local yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
-  local doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
-  local mp = (5 * doy + 2) // 153
-  local day = doy - (153 * mp + 2) // 5 + 1
-  local month = mp < 10 and mp + 3 or mp - 9
-  local year = yoe + era * 400 + (month <= 2 and 1 or 0)
-  return string.format("%04d-%02d-%02d", year, month, day)
+  if seconds < math.mininteger // 1000000000 + 1 or seconds > math.maxinteger // 1000000000 then
+    return "??????????"
+  end
+  return Time.format_rfc3339(seconds * 1000000000):sub(1, 10)
 end
 
 --- One TODO as `todos` lists it: where, when, which commit, and what.

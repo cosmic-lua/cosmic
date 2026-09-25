@@ -16,4 +16,27 @@ function Example.sleep_ns()
   assert(waited >= 1000000, tostring(waited))
 end
 
+--- A moment named on the UTC calendar, and written as RFC 3339 text.
+function Example.civil()
+  local ns = 951782400 * 1000000000 + 250000000
+  local c = Time.civil(ns)
+  print(c.year, c.month, c.day, c.weekday, c.yday)
+  assert(c.year == 2000 and c.month == 2 and c.day == 29 and c.weekday == 2 and c.yday == 60)
+  print(Time.format_rfc3339(ns))
+  print(Time.format_rfc3339(ns, { digits = 0 }))
+end
+
+--- A timestamp with an offset read back as nanoseconds, and a calendar
+--- date refused for a day its month does not have.
+function Example.parse_rfc3339()
+  local ns, why = Time.parse_rfc3339("2026-09-25T09:39:21+05:30")
+  assert(ns ~= nil, why)
+  print(Time.format_rfc3339(ns))
+  local c = Time.civil(ns)
+  c.day = 31
+  local refused, reason = Time.from_civil(c)
+  print(refused, reason)
+  assert(refused == nil and reason ~= "")
+end
+
 return Example
