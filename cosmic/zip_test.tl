@@ -271,6 +271,41 @@ local function test_a_zip64_size_past_2_63_is_refused_at_open()
   end
 end
 
+local function test_an_entry_past_the_end_of_the_archive_is_refused_at_open(tmp: string)
+  -- One empty stored entry whose central header puts its local header,
+  -- or its compressed body, into the central directory or past the
+  -- archive's end: in the header's own 32-bit fields, or in a zip64
+  -- field (an offset just short of 2^63, which pread refuses as a bare
+  -- "Invalid argument").
+  local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) .. le32(0) ..
+    le32(0) .. le32(0) .. le16(1) .. le16(0) .. "a"
+  local cases: {{string, integer, integer, integer}} = {
+    { "offset into the central directory", 0, #lfh, -1 },
+    { "32-bit offset", 0, 0xFFFFFFFE, -1 },
+    { "32-bit csize", 1000, 0, -1 },
+    { "zip64 offset", 0, 0xFFFFFFFF, math.maxinteger - 10 },
+    { "zip64 csize", 0xFFFFFFFF, 0, 1 << 40 },
+  }
+  for i, case in ipairs(cases) do
+    local which, csize, offset, wide = case[1], case[2], case[3], case[4]
+    local extra = wide >= 0 and le16(1) .. le16(8) .. le64(wide) or ""
+    local cdfh = "PK\1\2" .. le16(20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) ..
+      le32(0) .. le32(csize) .. le32(0) .. le16(1) .. le16(#extra) .. le16(0) .. le16(0) ..
+      le16(0) .. le32(0) .. le32(offset) .. "a" .. extra
+    local eocd = "PK\5\6" .. le16(0) .. le16(0) .. le16(1) .. le16(1) .. le32(#cdfh) ..
+      le32(#lfh) .. le16(0)
+    local raw = lfh .. cdfh .. eocd
+    local r, trouble = Zip.open_string(raw)
+    assert(r == nil and trouble:find("runs past", 1, true) ~= nil,
+      which .. ": " .. tostring(trouble))
+    local path = tmp .. "/past" .. tostring(i) .. ".zip"
+    assert(Fs.write(path, raw))
+    r, trouble = Zip.open(path)
+    assert(r == nil and trouble:find("runs past", 1, true) ~= nil,
+      which .. " (path): " .. tostring(trouble))
+  end
+end
+
 local function test_a_forged_end_record_inside_the_comment_is_not_taken_for_the_real_one()
   local raw = three_entry_zip()
   local fake = "PK\5\6" .. le16(0) .. le16(0) .. le16(0) .. le16(0) .. le32(0) .. le32(0) ..
