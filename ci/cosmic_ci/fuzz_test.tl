@@ -42,25 +42,23 @@ local function pieces(text: string, size: integer): function(): string
   end
 end
 
---- What the shell scripts' pipelines made of `output`, run on it.
-local function shell(tmp: string, output: string, script: string): string
-  write(tmp .. "/shell.out", output)
-  local env = Env.all()
-  env.LC_ALL, env.OUT = "C", tmp .. "/shell.out"
-  local ran = assert(Child.run({ "/bin/sh", "-c", script },
-    { env = env, stdout = "capture", stderr = "capture" }))
-  assert(ran.ok, ran.stderr)
-  return ran.stdout or ""
+--- What the shell pipelines the fuzz commands replaced made of the `n`th
+--- of `outputs()`, kind "failure" or "tail": kept in testdata/fuzz/ as
+--- GNU grep, cut, head and tail wrote them (coreutils 9.4, under
+--- LC_ALL=C), since fuzz.yml ran them on ubuntu, and a host's own tools
+--- may differ (BSD cut, on macOS, leaves a last line unended). They
+--- were written by
+---
+---     failure: grep '^test: FAIL' "$OUT" | cut -c1-300 | head -30 || true
+---              echo
+---              grep -v -e '^build:' -e '^test: ' "$OUT" | cut -c1-300 | head -60 || true
+---     tail:    tail -n 40 "$OUT" 2>/dev/null | cut -c1-300 || true
+---
+--- with `$OUT` each output in turn; change `outputs()` and they must be
+--- written again.
+local function expected(kind: string, n: integer): string
+  return (assert(Fs.read("testdata/fuzz/" .. kind .. "-" .. tostring(n) .. ".txt")))
 end
-
-local failure_script <const> = table.concat({
-  "grep '^test: FAIL' \"$OUT\" | cut -c1-300 | head -30 || true",
-  "echo",
-  "grep -v -e '^build:' -e '^test: ' \"$OUT\" | cut -c1-300 | head -60 || true",
-}, "\n")
-
-local tail_script <const> =
-  "tail -n 40 \"$OUT\" 2>/dev/null | cut -c1-300 || true"
 
 --- Outputs where a line's length, its end, or a chunk's edge counts.
 local function outputs(): {string}
@@ -80,17 +78,17 @@ local function outputs(): {string}
   }
 end
 
-local function test_failure_matches_the_shell_it_replaced(tmp: string)
+local function test_failure_matches_the_shell_it_replaced()
   local prefix = "\nThe shrunk inputs are the run's fuzz-inputs-7 artifact;" ..
     " once fixed, keep each in testdata/fuzz/<property>/ as its report says." ..
     "\n\n~~~~\n"
   for n, output in ipairs(outputs()) do
-    local expected = prefix .. shell(tmp, output, failure_script) .. "~~~~\n"
+    local want = prefix .. expected("failure", n) .. "~~~~\n"
     for _, size in ipairs({ 1, 7, 65536 }) do
       if size > 1 or #output < 10000 then
         local text = Fuzz.failure(pieces(output, size), "7")
-        assert(text == expected, "output " .. tostring(n) .. " in pieces of " ..
-          tostring(size) .. " differs:\n" .. text .. "\nfrom:\n" .. expected)
+        assert(text == want, "output " .. tostring(n) .. " in pieces of " ..
+          tostring(size) .. " differs:\n" .. text .. "\nfrom:\n" .. want)
       end
     end
   end
@@ -127,9 +125,9 @@ local function test_tail_matches_the_shell_it_replaced(tmp: string)
     write(tmp .. "/fuzz.out", output)
     local tail = assert(Fuzz.tail(tmp .. "/fuzz.out"))
     local got = table.concat(tail, "\n") .. (#tail > 0 and "\n" or "")
-    local expected = shell(tmp, output, tail_script)
-    assert(got == expected, "output " .. tostring(n) .. "'s tail differs:\n" ..
-      got .. "\nfrom:\n" .. expected)
+    local want = expected("tail", n)
+    assert(got == want, "output " .. tostring(n) .. "'s tail differs:\n" ..
+      got .. "\nfrom:\n" .. want)
   end
 end
 
