@@ -256,6 +256,17 @@ local function test_a_label_under_its_required_share_fails_the_run(tmp: string)
   assert(not Fs.exists(tmp .. "/too-rare.input"))
 end
 
+-- A share outside (0, 1], NaN among them, is refused before anything is
+-- drawn, as a floor that would always or never hold.
+local function test_a_share_outside_zero_to_one_is_refused()
+  for _, share in ipairs({ 0.0, -0.5, 1.5, 0 / 0 }) do
+    local err = report({ name = "bad share", iters = 64, gen = any_bytes,
+      check = function(_input: string): boolean, string error("drawn") end,
+      shares = { x = share } })
+    assert(err:find('^fuzz bad share: the share of "x" is .+, not in %(0, 1%]$'), err)
+  end
+end
+
 -- A count the property names itself is a whole run: `requires` holds of
 -- it however few inputs it draws. (Only FUZZ_ITERS below the default,
 -- what reproducing one failure asks for, lets it go.)

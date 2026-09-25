@@ -90,7 +90,10 @@ a failure is a red run whose summary lists what failed. Once a failure is fixed,
 before drawing anything. A check calls `Fuzz.label` for what an input reached
 (opened, read a body); a property `requires` the labels it exists to exercise,
 so a generator whose inputs all stop at the first refusal fails rather than
-passing while it checks nothing (not held when `FUZZ_ITERS` is below 64).
+passing while it checks nothing, and `shares` the least share of drawn
+inputs that must reach one, set well under what a run reaches, for a
+generator most of whose inputs would otherwise stop there (neither held
+when `FUZZ_ITERS` is below 64).
 
 Leave `TODO:` comments as the work goes, the moment one is due, rather than
 recalling them at the end. One is due when a change settles for less than
