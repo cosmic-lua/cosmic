@@ -1112,11 +1112,6 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                            scratch .. "/children" }) do
     argv[#argv + 1] = value
   end
-  -- TODO: a report past Child's 16 MiB capture limit loses its head
-  -- and reads as "not a test report": cosmic/archive_fuzz_test.tl's
-  -- extraction property does at FUZZ_ITERS=7000, its report listing every
-  -- path each input read. The report could name each read once, or be
-  -- written to a file in the scratch directory rather than captured.
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(start.fds) do fds[number] = fd end
   local handle, trouble = Child.start(argv,

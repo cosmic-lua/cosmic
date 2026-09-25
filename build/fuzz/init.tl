@@ -114,7 +114,9 @@ local record Fuzz
     --- holds nothing.
     corpus: string
     --- Labels (see `label`) at least one drawn input must reach, or the
-    --- run fails: what the property is meant to exercise.
+    --- run fails: what the property is meant to exercise. Not held when
+    --- `FUZZ_ITERS` asks for fewer inputs than the default 64, as
+    --- reproducing one failure does.
     requires: {string}
   end
 end
@@ -280,6 +282,9 @@ end
 local function run(p: Fuzz.Property): integer
   local seed = nonnegative_env("FUZZ_SEED", DEFAULT_SEED)
   local iters = p.iters or nonnegative_env("FUZZ_ITERS", DEFAULT_ITERS)
+  -- Fewer inputs than the default, as reproducing one failure asks for,
+  -- may reach no label at all by chance: `requires` holds of a whole run.
+  local whole = p.iters ~= nil or iters >= DEFAULT_ITERS
   if p.iters == nil and p.max_iters ~= nil and iters > p.max_iters then
     iters = p.max_iters
   end
@@ -336,9 +341,7 @@ local function run(p: Fuzz.Property): integer
   end
   local line = label_counts(counts, p.requires, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
-  -- Fewer inputs than the default, as reproducing one failure asks for,
-  -- may reach no label at all by chance: `requires` holds of a whole run.
-  if iters >= DEFAULT_ITERS then
+  if whole and iters > 0 then
     for _, name in ipairs(p.requires or {}) do
       if counts[name] == nil then
         -- What is kept held; it is no failing input to keep.
@@ -354,8 +357,7 @@ end
 --- Checks every `.input` file in the property's corpus, then draws
 --- `p.iters` (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks each,
 --- raising a report on the first that fails, after shrinking it, or when
---- no drawn input reached a label the property requires (checked of a
---- run of at least the default 64). Returns how many drawn inputs were
+--- no drawn input reached a label the property requires. Returns how many drawn inputs were
 --- checked.
 --- @param p Property The property to fuzz
 --- @return integer How many inputs held

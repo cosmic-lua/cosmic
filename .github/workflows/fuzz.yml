@@ -46,8 +46,8 @@ jobs:
     env:
       FUZZ_SEED: ${{ inputs.seed || github.run_id }}
       # TODO: 10000 once a test's report no longer outgrows the runner's
-      # capture limit (the TODO in build/test.tl's launch): archive
-      # extraction's does past about 5000.
+      # capture limit (the TODO on build/test_worker.tl's encode_reads):
+      # archive extraction's does past about 5000.
       FUZZ_ITERS: ${{ inputs.iters || '2000' }}
     steps:
       - name: create the unprivileged builder

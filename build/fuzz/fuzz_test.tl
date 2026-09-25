@@ -190,8 +190,9 @@ local function test_a_corpus_input_is_checked_before_any_draw(tmp: string)
     gen = function(_src: Fuzz.Source): string return "drawn" end, check = no_bang })
   assert(n == 3 and checked[1] == "fine" and #checked == 4, ("%d checked"):format(#checked))
   assert(Fs.write(corpus .. "/b.input", "bang!"))
-  local err = report({ name = "corpus fails", corpus = corpus, iters = 3,
+  local err = report({ name = "corpus fails", corpus = corpus, dir = tmp, iters = 3,
     gen = function(_src: Fuzz.Source): string return "drawn" end, check = no_bang })
+  assert(Fs.read(tmp .. "/corpus-fails.input") == "bang!")
   assert(err:find("fuzz corpus fails: corpus input " .. corpus .. "/b.input: a bang", 1, true), err)
   assert(err:find("input (hex, 5 bytes): 62616e6721", 1, true), err)
 end
@@ -231,13 +232,14 @@ local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
   assert(not Fs.exists(tmp .. "/never-long.input"))
 end
 
--- Fewer inputs than the default -- what reproducing one failure runs --
--- may miss a label by chance, so `requires` is not held of them.
-local function test_a_short_run_does_not_hold_requires()
-  local n = Fuzz.run({ name = "short", iters = 3, gen = any_bytes,
+-- A count the property names itself is a whole run: `requires` holds of
+-- it however few inputs it draws. (Only FUZZ_ITERS below the default,
+-- what reproducing one failure asks for, lets it go.)
+local function test_a_named_count_holds_requires()
+  local err = report({ name = "short", iters = 3, gen = any_bytes,
     check = function(_input: string): boolean, string return true, "" end,
     requires = { "never" } })
-  assert(n == 3)
+  assert(err:find('no input of 3 reached "never"', 1, true), err)
 end
 
 -- A check that runs a property of its own leaves the enclosing run's

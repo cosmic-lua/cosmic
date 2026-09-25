@@ -60,7 +60,9 @@ end
 -- TODO: a report longer than Child's capture limit (16 MB) loses its
 -- head, and its test fails as one that never reported: an archive
 -- fuzz test's reads overran it under FUZZ_ITERS=2000 while every read
--- of the test's own directory was noted twice. Drop repeated
+-- of the test's own directory was noted twice, and its extraction
+-- property still does past about 5000 (fuzz.yml runs 2000 until this
+-- is fixed). Drop repeated
 -- observations here, as
 -- `observations.join` does on the runner's side, or stream the report.
 local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
