@@ -15,7 +15,11 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #if defined(__linux__)
+#include <linux/audit.h>
+#include <linux/filter.h>
 #include <linux/landlock.h>
+#include <linux/seccomp.h>
+#include <sys/socket.h>
 #include <stddef.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
@@ -437,6 +441,102 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
 #endif
 }
 
+#if defined(__linux__)
+#if defined(__x86_64__)
+#define PLEDGE_ARCH AUDIT_ARCH_X86_64
+#elif defined(__aarch64__)
+#define PLEDGE_ARCH AUDIT_ARCH_AARCH64
+#endif
+#endif
+
+/* The most instructions a pledge's filter takes. */
+#define PLEDGE_MAX 96
+
+#if defined(PLEDGE_ARCH)
+/* The calls a pledged child never makes, whatever it promised: each
+ * reaches past the process -- into another's memory or descriptors, the
+ * mount table, the kernel -- or, like io_uring, makes calls this filter
+ * cannot see.
+ * TODO: a filter cannot see a path, so /proc/<pid>/mem of a process of
+ * the same user is still open to a child pledged but not held to a
+ * ruleset; Landlock's own ptrace check closes it, so a sandbox that
+ * means to keep a child from other processes takes both. */
+static const int pledge_refused[] = {
+  __NR_ptrace, __NR_process_vm_readv, __NR_process_vm_writev,
+  __NR_mount, __NR_umount2, __NR_pivot_root,
+#ifdef __NR_move_mount
+  __NR_move_mount, __NR_open_tree, __NR_fsopen, __NR_fsmount, __NR_fsconfig, __NR_fspick,
+#endif
+  __NR_bpf, __NR_perf_event_open, __NR_kexec_load,
+#ifdef __NR_kexec_file_load
+  __NR_kexec_file_load,
+#endif
+  __NR_init_module, __NR_finit_module, __NR_delete_module,
+  __NR_add_key, __NR_request_key, __NR_keyctl,
+#ifdef __NR_io_uring_setup
+  __NR_io_uring_setup, __NR_io_uring_enter, __NR_io_uring_register,
+#endif
+  __NR_userfaultfd, __NR_setns, __NR_name_to_handle_at, __NR_open_by_handle_at,
+#ifdef __NR_pidfd_getfd
+  __NR_pidfd_getfd,
+#endif
+#ifdef __NR_process_madvise
+  __NR_process_madvise,
+#endif
+};
+
+/* Every instruction `pledge_program` writes: the architecture check and
+ * the call's number (4), the x32 check (2), two for each refused call,
+ * and the socket block at its largest (1 + 1 + 2 * 3 + 1 + 1). */
+_Static_assert(4 + 2 + 2 * (sizeof pledge_refused / sizeof pledge_refused[0]) + 10 <= PLEDGE_MAX,
+               "PLEDGE_MAX is too small for the pledge filter");
+
+/* The filter a pledge holds a child to: a call of another architecture is
+ * the end of it, a call `pledge_refused` names fails with EPERM, and a
+ * socket may be of the families promised (`unix`, `inet`) and no other.
+ * Answers how many instructions it wrote to `out`. */
+static int pledge_program (struct sock_filter *out, int unix_ok, int inet_ok) {
+  int n = 0;
+  const unsigned refuse = SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA);
+  out[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                                           offsetof(struct seccomp_data, arch));
+  out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PLEDGE_ARCH, 1, 0);
+  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
+  out[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                                           offsetof(struct seccomp_data, nr));
+#if defined(__x86_64__)
+  out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1);
+  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, refuse);
+#endif
+  for (size_t i = 0; i < sizeof pledge_refused / sizeof pledge_refused[0]; i++) {
+    out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+                                             (unsigned)pledge_refused[i], 0, 1);
+    out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, refuse);
+  }
+  int families[3];
+  int allowed = 0;
+  if (unix_ok) families[allowed++] = AF_UNIX;
+  if (inet_ok) {
+    families[allowed++] = AF_INET;
+    families[allowed++] = AF_INET6;
+  }
+  /* A socket's family is its first argument: past the check, loaded,
+   * compared with each promised one, and refused when none matches. */
+  unsigned char block = (unsigned char)(1 + 2 * allowed + 1);
+  out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, block);
+  out[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                                           offsetof(struct seccomp_data, args[0]));
+  for (int i = 0; i < allowed; i++) {
+    out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (unsigned)families[i],
+                                             0, 1);
+    out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+  }
+  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, refuse);
+  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+  return n;
+}
+#endif
+
 COSMIC_SYSCALL(spawn, 10) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -479,6 +579,7 @@ COSMIC_SYSCALL(spawn, 10) {
       return cosmic_fail(L, errno);
   }
   int confine = -1;
+  int pledged = 0, unix_ok = 0, inet_ok = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
     lua_getfield(L, 10, "ruleset");
@@ -492,7 +593,30 @@ COSMIC_SYSCALL(spawn, 10) {
     }
     lua_pop(L, 1);
     if (confine >= 0 && fcntl(confine, F_GETFD) < 0) return cosmic_fail(L, errno);
+    lua_getfield(L, 10, "pledge");
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "a pledge must be a list of promises");
+      pledged = 1;
+      lua_Integer promises = (lua_Integer)lua_rawlen(L, -1);
+      for (lua_Integer i = 1; i <= promises; i++) {
+        lua_rawgeti(L, -1, i);
+        const char *promise = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+        if (strcmp(promise, "unix") == 0) unix_ok = 1;
+        else if (strcmp(promise, "inet") == 0) inet_ok = 1;
+        else return luaL_argerror(L, 10, "a promise is \"unix\" or \"inet\"");
+        lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
   }
+#if defined(PLEDGE_ARCH)
+  struct sock_filter pledge_filter[PLEDGE_MAX];
+  struct sock_fprog pledge = { 0, pledge_filter };
+  if (pledged) pledge.len = (unsigned short)pledge_program(pledge_filter, unix_ok, inet_ok);
+#else
+  (void)unix_ok;
+  (void)inet_ok;
+#endif
   long descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < 0) descriptor_limit = 1024;
 
@@ -640,6 +764,16 @@ COSMIC_SYSCALL(spawn, 10) {
 #if defined(__linux__)
       if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
       else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
+#else
+      failure = ENOSYS;
+#endif
+    }
+    /* A pledge last of all: the filter would refuse nothing above, but
+     * it is the one a later step could trip over. */
+    if (!failure && pledged) {
+#if defined(PLEDGE_ARCH)
+      if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
+      else if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &pledge) != 0) failure = errno;
 #else
       failure = ENOSYS;
 #endif
