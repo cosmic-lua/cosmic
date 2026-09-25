@@ -25,18 +25,47 @@ local function gen_path(src: Fuzz.Source, from: {string}): string
   return table.concat(parts, "/")
 end
 
+--- Parts and link targets extract accepts on their own: a path of these
+--- is relative with no `..`, and a link to one of these stays inside
+--- wherever it sits, so an archive of such entries is refused, if at
+--- all, only for how they combine (a file where a directory must go, a
+--- path through a link, a `link/..` whose `link` is no real
+--- directory). More targets through another name would leave few
+--- archives making a link.
+local SAFE_PARTS <const> = { "a", "b", "link", "." }
+local SAFE_TARGETS <const> = { "a", "b", "link", ".", "link/.." }
+
 --- An extraction as `Fuzz.pack` fields: a format, the `links` option,
 --- a strip (`1` for `strip_components`, `a` for `strip_prefix`), then
---- a kind, a path and a body per entry.
+--- a kind, a path and a body per entry. Entries are well formed but for
+--- at most one hostile one, drawn from anything: extract refuses a
+--- whole archive at its first unsafe path, so archives of several
+--- hostile entries would rarely make the writes containment is about.
+--- A pair of hostile entries that escapes only together (`a/x ->
+--- link/..` with `a/link -> ..`) is therefore never drawn.
+-- TODO: the escape `target_crosses_link` refuses -- a top-level
+-- `link -> .` then `x -> link/..`, which leads to dest's parent -- is
+-- drawn about once in 6000 inputs ("refused a link through a link");
+-- drawing a top-level `link -> .` more often, and requiring the label,
+-- would exercise it in every run.
 local function gen_extraction(src: Fuzz.Source): string
   local format = Fuzz.pick(src, { "tar", "tar.gz", "zip" })
-  local fields: {string} = { format, Fuzz.pick(src, { "skip", "create" }), Fuzz.pick(src, { "", "1", "a" }) }
+  -- Links, what containment is most about, are drawn twice as often.
+  local fields: {string} = { format, Fuzz.pick(src, { "skip", "create", "create" }), Fuzz.pick(src, { "", "1", "a" }) }
+  local hostile_left = true
   repeat
-    local kind = Fuzz.pick(src, { "file", "dir", "symlink" })
+    -- One entry in eight, until one is; the high end is the hostile
+    -- one, so shrinking toward the low end makes an entry well formed.
+    -- Drawn for every entry, so an entry cut in shrinking leaves the
+    -- draws after it aligned.
+    local roll = src:int(0, 7)
+    local hostile = hostile_left and roll == 7
+    if hostile then hostile_left = false end
+    local kind = Fuzz.pick(src, { "file", "dir", "symlink", "symlink" })
     if format == "zip" and kind == "symlink" then kind = "file" end
     fields[#fields + 1] = kind
-    fields[#fields + 1] = gen_path(src, PARTS)
-    fields[#fields + 1] = kind == "symlink" and Fuzz.pick(src, TARGETS) or
+    fields[#fields + 1] = gen_path(src, hostile and PARTS or SAFE_PARTS)
+    fields[#fields + 1] = kind == "symlink" and Fuzz.pick(src, hostile and TARGETS or SAFE_TARGETS) or
       (kind == "file" and Fuzz.bytes(src, 8) or "")
   until not Fuzz.more(src, (#fields - 3) // 3, 6)
   return Fuzz.pack(fields)
@@ -100,24 +129,22 @@ local function inside(path: string, root: string): boolean
 end
 
 --- Every link under `dir`, as paths, walking real directories only.
+--- `readdir` answers a link as what it leads to, so each entry is
+--- `lstat`ed: a link to a directory is found, not walked into.
 local function links_under(dir: string, found: {string})
   local entries = sys.readdir(dir)
   if entries == nil then return end
-  for name, kind in pairs(entries) do
+  for name in pairs(entries) do
     local path = dir .. "/" .. name
-    if kind == "link" then
+    local st = sys.lstat(path)
+    if st ~= nil and st.kind == "link" then
       found[#found + 1] = path
-    elseif kind == "dir" then
+    elseif st ~= nil and st.kind == "dir" then
       links_under(path, found)
     end
   end
 end
 
--- TODO: only 5 inputs of 64 extract anything (175 of 2000): with up to
--- six entries of up to three parts each, nearly every archive holds a
--- path extract refuses whole, so the writes containment is about are
--- rarely made; drawing one hostile entry among well-formed ones would
--- reach them.
 local function test_extraction_stays_inside_its_destination(tmp: string)
   local base = Fs.absolute(tmp) or tmp
   local case = base .. "/case"
@@ -125,7 +152,10 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
     name = "archive extraction contained",
     dir = tmp,
     gen = gen_extraction,
-    requires = { "built" },
+    -- "linked": links are what containment is most about, and an
+    -- archive of several hostile entries almost never makes one (none
+    -- of 64 inputs, 10 of 2000, before entries were drawn well formed).
+    requires = { "built", "extracted", "linked" },
     check = function(input: string): boolean, string
       Fs.remove_tree(case)
       local outside = case .. "/outside"
@@ -143,9 +173,22 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       -- A shrunk input may hold any string here; extract treats every
       -- mode but "create" as "skip".
       local mode: Archive.Links = fields[2] == "create" and "create" or "skip"
-      local written = Archive.extract(file, dest, { links = mode, strip_prefix = strip_prefix,
+      local written, trouble = Archive.extract(file, dest, { links = mode, strip_prefix = strip_prefix,
         strip_components = strip_components, mtimes = false })
       if written ~= nil and #written > 0 then Fuzz.label("extracted") end
+      -- What a hostile entry among well-formed ones reaches: the
+      -- writes before it, left in place when it is refused.
+      if written == nil and (Fs.list(dest) or {})[1] ~= nil then Fuzz.label("refused after writing") end
+      -- The escape `target_crosses_link` exists for: `link -> .` made,
+      -- then a link through it (`x -> link/..`, which leads to dest's
+      -- parent) refused.
+      if written == nil and trouble:find("another symlink", 1, true) ~= nil and
+          Fs.readlink(dest .. "/link") == "." then
+        Fuzz.label("refused a link through a link")
+      end
+      for _, rel in ipairs(written or {}) do
+        if Fs.readlink(dest .. "/" .. rel) ~= nil then Fuzz.label("linked"); break end
+      end
       for _, rel in ipairs(written or {}) do
         if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then
           return false, "reported writing " .. rel
