@@ -393,6 +393,30 @@ local function docs(source: string): {string: analyzer.DocEntry}, {analyzer.DocE
   return by_symbol, found.docs
 end
 
+--- A method on a nested record names its owner in full, and is the
+--- exported member `Box.grow`, as its uses are recorded: not `:grow`.
+local function test_a_nested_record_method_names_its_whole_owner()
+  local source = lines({
+    "local record Thing",
+    "  record Box",
+    "  end",
+    "end",
+    "--- Grows the box.",
+    "function Thing.Box:grow(): boolean, string",
+    "  return nil, \"the box cannot grow\"",
+    "end",
+    "return Thing",
+  })
+  local found = catalog(source)
+  assert(#found == 1 and found[1].symbol == "Thing.Box:grow", found[1].symbol)
+  local by_symbol = docs(source)
+  local grow = by_symbol["Box.grow"]
+  assert(grow ~= nil, "no row for Box.grow")
+  assert(grow.source_symbol == "Thing.Box:grow", grow.source_symbol)
+  assert(grow.exported and grow.kind == "method", grow.kind)
+  assert(grow.text == "Grows the box.", grow.text)
+end
+
 --- A function's doc comment is the run of comment lines directly above
 --- it, leaders stripped, one line per source line; its signature is
 --- its head as written, however the source wrapped it.

@@ -222,25 +222,35 @@ local function span_text(lines: {string}, y: integer, x: integer,
   return String.trim((joined:gsub("%s+", " ")))
 end
 
+--- A `record_function`'s owner spelled in full: a plain name (`Thing`)
+--- carries its own `tk`, and a nested record's (`Thing.Box`) is a chain
+--- of `.` operators the parser built from the declaration's names.
+local function owner_name(owner: ast.Node | nil): string
+  if owner == nil then
+    return ""
+  end
+  if owner.tk ~= nil then
+    return owner.tk
+  end
+  local op, member = owner.op, owner.e2
+  if owner.kind == "op" and op ~= nil and op.op == "." and member ~= nil
+     and member.tk ~= nil then
+    return owner_name(owner.e1) .. "." .. member.tk
+  end
+  return ""
+end
+
 --- A declared function's own name: a `local_function`'s name alone, or
---- a `record_function`'s owner and name joined by `:`/`.` the way it
---- was declared, e.g. `"Sqlite.run"`.
+--- a `record_function`'s owner, in full, and name joined by `:`/`.` the
+--- way it was declared, e.g. `"Sqlite.run"`, `"Thing.Box:grow"`.
 local function symbol_of(stmt: ast.Node): string
   local fn_name = stmt.name
   local tk = fn_name ~= nil and fn_name.tk or nil
   if stmt.kind == "local_function" then
     return tk or ""
   end
-  local owner = stmt.fn_owner
-  -- TODO: spell a dotted owner in full (`Thing.Box` for
-  -- `function Thing.Box:grow`): only a plain name carries `tk`, so a
-  -- method on a nested record is written `:grow`, unexported, and its
-  -- uses (recorded as `Box.grow`) never meet it -- `cosmic docs
-  -- Box.grow` and `cosmic uses :grow` both find nothing. Walk the owner's
-  -- `.` chain here, then canonicalize_docs strips the export as it does.
-  local owner_tk = owner ~= nil and owner.tk or nil
   local sep = stmt.is_method and ":" or "."
-  return (owner_tk or "") .. sep .. (tk or "")
+  return owner_name(stmt.fn_owner) .. sep .. (tk or "")
 end
 
 --- A function declaration's head, from its first token to just before
@@ -496,7 +506,17 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     if export ~= "" and source == export then
       entry.exported = true
     elseif export ~= "" and source:sub(1, #dot) == dot then
-      entry.symbol = source:sub(#dot + 1)
+      -- A method on a nested record (`Thing.Box:grow`) is the member
+      -- `Box.grow`, as a record field and a use of it are spelled: the
+      -- `:` says how it is called, not where it lives, just as
+      -- `Thing:write` is the member `write`. Only a method's `:` is
+      -- that separator: an enum value's row (`Thing.Mode.a:b`) spells
+      -- the value itself, which may hold one.
+      local member = source:sub(#dot + 1)
+      if entry.kind == "method" then
+        member = (member:gsub(":", "."))
+      end
+      entry.symbol = member
       entry.exported = true
     elseif export ~= "" and source:sub(1, #colon) == colon then
       entry.symbol = source:sub(#colon + 1)

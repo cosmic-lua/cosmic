@@ -37,13 +37,20 @@ local function ends_in(name: string, last: string): string
     " OR substr(" .. name .. ", -length(" .. last .. ") - 1) = ':' || " .. last .. ")"
 end
 
+--- `?1` with a method's `:` spelled `.`, as a member path is kept:
+--- `Box:grow` names the member `Box.grow`.
+local DOTTED <const> = "replace(?1, ':', '.')"
+
 --- The condition under which `alias` (a row of `docs`) names `?1`
 --- exactly: a symbol as declared (`Fs.read`), a symbol's last name
---- alone (`read`, matching every `X.read` and `X:read`), or a
+--- alone (`read`, matching every `X.read` and `X:read`), a member path
+--- or its last few names, called or not (`Box:grow`, `Box.grow`), or a
 --- module's own row (`cosmic.fs`).
 function symbols.named_where(alias: string): string
   return "(" .. alias .. ".symbol = ?1 OR " .. alias .. ".source_symbol = ?1 OR " ..
     ends_in(alias .. ".symbol", "?1") .. " OR " ..
+    alias .. ".symbol = " .. DOTTED .. " OR " ..
+    ends_in(alias .. ".symbol", DOTTED) .. " OR " ..
     "(" .. alias .. ".symbol = '' AND " .. alias .. ".module = ?1))"
 end
 
@@ -54,6 +61,9 @@ end
 --- its last name alone, `?1` may spell it from the module's record
 --- down (`Fs.exists`, `Zip.Writer.add_file`): one name more, and
 --- only one, so `Stream.Writer.write` is not a use of every `write`.
+--- A use is recorded with `.` throughout (`Box.grow`), so `?1`'s `:`
+--- is read as one (`Thing.Box:grow`, `Box:grow`), as `cosmic docs`
+--- prints a method's name.
 -- TODO: the one name past the path is not checked against the module's
 -- own record, which no table keeps, so `Writer.write` is also a use of
 -- every bare `write` (`Fs.write`'s among them). Keep each module's
@@ -61,10 +71,9 @@ end
 -- symbol, and match that name here rather than any single name.
 function symbols.used_where(alias: string): string
   local symbol = alias .. ".symbol"
-  local record = "substr(?1, 1, length(?1) - length(" .. symbol .. ") - 1)"
-  return "(" .. symbol .. " = ?1 OR " .. ends_in(symbol, "?1") .. " OR " ..
-    "(" .. ends_in("?1", symbol) .. " AND instr(" .. record .. ", '.') = 0 AND " ..
-    "instr(" .. record .. ", ':') = 0))"
+  local record = "substr(" .. DOTTED .. ", 1, length(?1) - length(" .. symbol .. ") - 1)"
+  return "(" .. symbol .. " = " .. DOTTED .. " OR " .. ends_in(symbol, DOTTED) .. " OR " ..
+    "(" .. ends_in(DOTTED, symbol) .. " AND instr(" .. record .. ", '.') = 0))"
 end
 
 --- Every symbol `query` names exactly, across `databases` (searched in
