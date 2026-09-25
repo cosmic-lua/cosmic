@@ -57,7 +57,7 @@ end
 -- TODO: the one name past the path is not checked against the module's
 -- own record, which no table keeps, so `Writer.write` is also a use of
 -- every bare `write` (`Fs.write`'s among them). Keep each module's
--- record name (`Fs`, `Stream`) where `build.positions` canonicalizes a
+-- record name (`Fs`, `Stream`) where `build.analyzer` canonicalizes a
 -- symbol, and match that name here rather than any single name.
 function symbols.used_where(alias: string): string
   local symbol = alias .. ".symbol"

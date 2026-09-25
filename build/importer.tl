@@ -23,6 +23,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
@@ -60,10 +61,11 @@ end
 
 --- The extractors, generators and parser the importer's own derive and
 --- parse call: with the importer itself, the roots of
---- `importer.analyzer_modules`.
+--- `importer.analyzer_modules`. "The analyzer" in these names is that
+--- whole set, of which the source analyzer `build.analyzer` is one.
 local analyzer_roots: {string} = {
-  "build.ast", "build.bind", "build.compiler", "build.doctest",
-  "build.gen_syscalls", "build.positions",
+  "build.analyzer", "build.ast", "build.bind", "build.compiler",
+  "build.doctest", "build.gen_syscalls",
 }
 
 --- The modules whose code decides what the analysis tables record: the
@@ -244,7 +246,7 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     if requires == nil then
       return false, file .. ": " .. requires_trouble
     end
-    local found, analysis_trouble = positions.analysis_of(built, parsed, source)
+    local found, analysis_trouble = analyzer.analysis_of(built, parsed, source)
     if found == nil then
       return false, file .. ": " .. analysis_trouble
     end
@@ -337,11 +339,11 @@ local analysis_tables: {string} = {
 --- can only be named whole.
 local function analyzer_identity(): string
   local parts: {string} = { Store.meta("compiler") or "" }
-  local analyzer, _ = importer.analyzer_modules()
-  if analyzer == nil then
+  local modules, _ = importer.analyzer_modules()
+  if modules == nil then
     return "binary " .. (Store.meta("boot_hash") or "")
   end
-  for _, name in ipairs(analyzer) do
+  for _, name in ipairs(modules) do
     local source, _ = Store.source(name)
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or "")
@@ -363,13 +365,13 @@ end
 --- for its own. Only a change to that code reparses everything; an edit
 --- anywhere else in the tool reparses just what it edited.
 local function forget_stale_analysis(db: Sqlite.Handle): boolean, string
-  local analyzer = analyzer_identity()
+  local identity = analyzer_identity()
   local last, last_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'analyzer'")
   if last == nil then
     return false, last_trouble
   end
-  if #last > 0 and last[1][1] == analyzer then
+  if #last > 0 and last[1][1] == identity then
     return true, ""
   end
   for _, table_name in ipairs(analysis_tables) do
@@ -384,7 +386,7 @@ local function forget_stale_analysis(db: Sqlite.Handle): boolean, string
   end
   return Sqlite.run(db,
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
-    { text(analyzer) })
+    { text(identity) })
 end
 
 --- The identity of the code that finds `typed_refs` and checks the
@@ -817,7 +819,7 @@ end
 --- no top-level `return` to hand any of them back: unlike a test
 --- module, an example module gets no generated tail, since its own
 --- `return Example` is what the runner and `cosmic docs` both need
---- reachable from outside the file -- see `positions.ExampleEntry`.
+--- reachable from outside the file -- see `analyzer.ExampleEntry`.
 --- Caught here, at compile time, rather than left to fail the moment
 --- the runner indexes a table that `require` handed back as `true`.
 local function missing_example_return(m: Module): boolean
