@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, docs, uses, todos, bom, help, run, standalone, eval,
+--- fix, db, sql, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
@@ -122,6 +122,18 @@ local record Cli
   --- the list as a CycloneDX document instead. An executable `cosmic
   --- build` writes carries the same rows
   bom: string
+  --- `cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...]
+  --- [dataset...]`: writes to path a copy of this binary -- or of the
+  --- one --binary names, a program `cosmic build` wrote, say -- whose
+  --- data is replaced with a newer release: the CA roots it trusts
+  --- (cacert, Mozilla's bundle as curl publishes it) and the time zones
+  --- it carries (tzdata, as PyPI's tzdata sdist holds them). Each named
+  --- dataset is fetched upstream, its newest release; one given a file is
+  --- read from it, with no network; with neither, every dataset is
+  --- fetched. Every row is checked before anything is written, the
+  --- bill of materials records the release each came from, and the
+  --- binary it reads is never written
+  refresh: string
   --- `cosmic help [verb]`: prints the whole discovery surface -- every
   --- verb, one line of prose each -- or, given a verb, only its line
   help: string
@@ -143,7 +155,8 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", bom = "bom", help = "help",
+    db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    refresh = "refresh", help = "help",
   },
   options = {
     test = {
@@ -168,12 +181,18 @@ local module: Module = {
       ["--licenses"] = { about = "print each component's license notices" },
       ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
     },
+    refresh = {
+      ["-o"] = { value = "path", about = "write the refreshed binary here" },
+      ["--binary"] = { value = "path", about = "refresh this binary rather than the running one" },
+      ["--cacert"] = { value = "file", about = "read the CA roots from this PEM bundle" },
+      ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
+    },
     todos = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
   order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "docs", "uses", "todos",
-    "bom", "help" },
+    "bom", "refresh", "help" },
 }
 
 return module

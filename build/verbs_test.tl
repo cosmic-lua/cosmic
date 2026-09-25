@@ -40,7 +40,12 @@ local surplus: {string:{string} | string} = {
   sql = { "sql", "SELECT 1", "extra" },
   help = { "help", "test", "fix" },
   bom = { "bom", "extra" },
+  refresh = { "refresh", "-o", "out", "nosuch" },
 }
+
+--- The vendored bundle, which `refresh` reads with no network; the
+--- tree's root is where a test module loads.
+local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
 
 --- One command line that passes and one that fails, each run in `tree`
 --- unless it names another directory; a string for a failure no command
@@ -62,6 +67,8 @@ local cases: {string:Case} = {
   sql = { pass = { "sql", "SELECT 1" }, fail = { "sql", "SELECT * FROM zzqqx_no_table" } },
   help = { pass = { "help" }, fail = "help has nothing to fail on but its command line" },
   bom = { pass = { "bom" }, fail = { "bom", "--json", "no/such/directory/bom.json" } },
+  refresh = { pass = { "refresh", "-o", "out", "--cacert", bundle },
+    fail = { "refresh", "-o", "out", "--cacert", "no/such/cacert.pem" } },
 }
 
 local function write_tree(tmp: string): string

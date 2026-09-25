@@ -21,6 +21,17 @@ if type(extra) == "table" then
 end
 
 local record artifact
+  --- An artifact cut at its database (`split`).
+  record Split
+    --- Every byte ahead of the database: the launcher and cores, or
+    --- the host core, and the manifest behind them.
+    head: string
+    --- The SQLite database the artifact carries.
+    database: string
+    --- Whether it is a host program (`host_program`) rather than a
+    --- portable one (`program`).
+    host: boolean
+  end
 end
 
 --- Reads the validated reusable prefix from the retained portable descriptor.
@@ -279,6 +290,67 @@ function artifact.host_program(core: raw_store.Core, database: string): string |
     manifest, string.rep("\0", manifest_length - #manifest),
     database, trailer,
   }), ""
+end
+
+--- The database an artifact carries and everything ahead of it, read
+--- from the trailer of `bytes` -- a portable program's or a host
+--- program's alike -- so a new database can be put in its place
+--- (`rejoin`). The trailer's fields are checked against each other and
+--- against the file: a version and lengths this writer uses, a v1
+--- manifest where it says, a database that starts right behind that
+--- manifest, runs to the trailer and begins with SQLite's header.
+function artifact.split(bytes: string): artifact.Split | nil, string
+  if #bytes < trailer_length then
+    return nil, "too short for an artifact trailer"
+  end
+  local at = #bytes - trailer_length + 1
+  local magic = bytes:sub(at, at + 7)
+  if magic ~= trailer_magic and magic ~= host_trailer_magic then
+    return nil, "no artifact trailer"
+  end
+  local trailer_version, length, manifest_offset, manifest_size, database_offset, database_length =
+    string.unpack(">I4I4I8I8I8I8", bytes, at + 8)
+  if trailer_version ~= version or length ~= trailer_length then
+    return nil, "not a v1 artifact trailer"
+  end
+  -- An unsigned 64-bit field past math.maxinteger reads as negative.
+  if manifest_size ~= manifest_length or manifest_offset < 0 or
+     database_offset ~= manifest_offset + manifest_length or
+     database_length < #sqlite_header or
+     database_length ~= #bytes - trailer_length - database_offset then
+    return nil, "the artifact trailer's ranges do not fit the file"
+  end
+  local manifest_at = manifest_offset + 1
+  if bytes:sub(manifest_at, manifest_at + 7) ~= manifest_magic then
+    return nil, "the artifact has no v1 manifest where its trailer says"
+  end
+  local _, _, encoded_prefix = string.unpack(">I4I4I8", bytes, manifest_at + 8)
+  if encoded_prefix ~= database_offset then
+    return nil, "the artifact's manifest and trailer disagree on where its database starts"
+  end
+  local database = bytes:sub(database_offset + 1, database_offset + database_length)
+  if database:sub(1, #sqlite_header) ~= sqlite_header then
+    return nil, "the artifact's database has no SQLite header"
+  end
+  return {
+    head = bytes:sub(1, database_offset),
+    database = database,
+    host = magic == host_trailer_magic,
+  }, ""
+end
+
+--- The artifact `split` read `parts` from, with `database` in place of
+--- its own: the same head, and a trailer of the same kind whose last
+--- field is the new database's length.
+function artifact.rejoin(parts: artifact.Split, database: string): string | nil, string
+  if database:sub(1, #sqlite_header) ~= sqlite_header then
+    return nil, "the new database has no SQLite header"
+  end
+  local manifest_offset = #parts.head - manifest_length
+  local trailer = (parts.host and host_trailer_magic or trailer_magic) ..
+    string.pack(">I4I4I8I8I8I8", version, trailer_length, manifest_offset,
+      manifest_length, #parts.head, #database)
+  return parts.head .. database .. trailer, ""
 end
 
 return artifact

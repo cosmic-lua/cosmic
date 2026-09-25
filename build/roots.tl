@@ -36,7 +36,7 @@ local bundle <const> = "vendor/cacert/cacert.pem"
 --- label the line above its `====` underline gives it (empty when the
 --- bundle names none). Nil and why when a certificate block is not
 --- closed, or its body is not base64.
-local function parse(pem: string): {roots.Root} | nil, string
+function roots.parse(pem: string): {roots.Root} | nil, string
   local found: {roots.Root} = {}
   local label = ""
   local previous = ""
@@ -74,33 +74,14 @@ local function parse(pem: string): {roots.Root} | nil, string
   return found
 end
 
---- Writes the bundle under `root` into the `ca_roots` table of the
---- database `db` holds as `qualifier` (`"out."`, say). A tree with no
---- bundle writes none; one whose bundle holds no certificate fails, so
---- a binary never ships trusting nothing by accident.
-function roots.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, string
-  local path = root .. "/" .. bundle
-  local exists, trouble = Fs.exists(path)
-  if exists == nil then
-    return false, trouble
-  end
-  if not exists then
-    return true, ""
-  end
-  local pem, read_trouble = Fs.read(path)
-  if pem == nil then
-    return false, read_trouble
-  end
-  local found, parse_trouble = parse(pem)
-  if found == nil then
-    return false, path .. ": " .. parse_trouble
-  end
-  if #found == 0 then
-    return false, path .. ": holds no certificate"
-  end
-  -- One row per certificate, a bundle listing one twice trusting it
-  -- once, in digest order: `ca_roots` is a rowid table, so the order
-  -- rows go in is the order of the file's bytes.
+--- Writes `found` into the `ca_roots` table of the database `db` holds
+--- as `qualifier`, which holds none yet: one row per certificate, a
+--- bundle listing one twice trusting it once, in digest order --
+--- `ca_roots` is a rowid table, so the order rows go in is the order of
+--- the file's bytes. `cosmic refresh` writes a bundle it fetched this
+--- way too, so a bundle whose every root the TLS stack reads makes the
+--- same table either way.
+function roots.put(db: Sqlite.Handle, qualifier: string, found: {roots.Root}): boolean, string
   local by_digest: {string:roots.Root} = {}
   local digests: {string} = {}
   for _, one in ipairs(found) do
@@ -121,6 +102,38 @@ function roots.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean
     end
   end
   return true, ""
+end
+
+--- Writes the bundle under `root` into the `ca_roots` table of the
+--- database `db` holds as `qualifier` (`"out."`, say). A tree with no
+--- bundle writes none; one whose bundle holds no certificate fails, so
+--- a binary never ships trusting nothing by accident.
+--- TODO: hold the tree's bundle to `Http.check_certificate` as
+--- `cosmic refresh` holds a fetched one, refusing a root the TLS stack
+--- cannot read rather than shipping one `core/http.c` drops; the
+--- fixtures build/roots_test.tl fills from are bytes that are no
+--- certificate, and would need real ones first.
+function roots.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, string
+  local path = root .. "/" .. bundle
+  local exists, trouble = Fs.exists(path)
+  if exists == nil then
+    return false, trouble
+  end
+  if not exists then
+    return true, ""
+  end
+  local pem, read_trouble = Fs.read(path)
+  if pem == nil then
+    return false, read_trouble
+  end
+  local found, parse_trouble = roots.parse(pem)
+  if found == nil then
+    return false, path .. ": " .. parse_trouble
+  end
+  if #found == 0 then
+    return false, path .. ": holds no certificate"
+  end
+  return roots.put(db, qualifier, found)
 end
 
 return roots

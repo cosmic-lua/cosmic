@@ -202,9 +202,8 @@ function embed.database(project: string, main: string): string | nil, string
     -- once a project declares a name and version a build can read.
     -- TODO: let `cosmic bom <executable>` print these rows: nothing a
     -- program carries prints them, so its notices travel only inside the
-    -- database bytes. That waits on a way to open a portable file's
-    -- database from Teal, as the store opens its own (`build.artifact`
-    -- parses the prefix, not the trailer the database range hangs off).
+    -- database bytes. `artifact.split` now finds a file's database from
+    -- its trailer, as `cosmic refresh --binary` reads one: open that.
     copied, copy_trouble = copy_rows(binary, out, "components",
       { "name", "kind", "version", "license", "url", "sha256", "patches" },
       "SELECT name, kind, version, license, url, sha256, patches " ..
