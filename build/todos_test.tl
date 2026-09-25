@@ -138,6 +138,11 @@ local function test_date_is_utc()
   assert(todos.date(951782400) == "2000-02-29", todos.date(951782400))
   assert(todos.date(1700000000) == "2023-11-14", todos.date(1700000000))
   assert(todos.date(4107542400 - 1) == "2100-02-28", todos.date(4107542400 - 1))
+  assert(todos.date(-9223372036) == "1677-09-21", todos.date(-9223372036))
+  assert(todos.date(9223372036) == "2262-04-11", todos.date(9223372036))
+  assert(todos.date(-9223372037) == "??????????")
+  assert(todos.date(9223372037) == "??????????")
+  assert(todos.date(253402300800) == "??????????") -- year 10000
 end
 
 local function test_render_marks_unblamed_and_boundary_rows()
