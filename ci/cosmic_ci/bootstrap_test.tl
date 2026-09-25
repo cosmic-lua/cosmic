@@ -284,7 +284,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(Fs.mkdirs(runner_temp))
   local ctx_env = driver_context(candidate, runner_temp)
   local function run(phase: string, timeout: string, argv: {string}): Child.Result
-    local command = { runner, driver, "run", phase, timeout }
+    local command = { runner, driver, "run", phase, timeout, "--" }
     for _, value in ipairs(argv) do command[#command + 1] = value end
     return call(command, project, tmp .. "/" .. phase .. ".out", ctx_env,
       driver_timeout)
@@ -299,11 +299,11 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(run("timeout", "20", { "/bin/sh", "-c", "sleep 30" }).code == 124)
 
   local ready = tmp .. "/ready"
-  local command = { runner, driver, "run", "interrupted", "30000", "/bin/sh", "-c",
+  local command = { runner, driver, "run", "interrupted", "30000", "--", "/bin/sh", "-c",
     "printf ready > \"$1\"; sleep 30", "sh", ready }
   local fd = assert(Fs.open_write(tmp .. "/interrupted.out"))
   local child = assert(Child.start(command, { cwd = project, env = environment(ctx_env),
-    stdout = fd, stderr = fd, process_group = true, timeout_ms = 35000 }))
+    stdout = fd, stderr = fd, process_group = true }))
   for _ = 1, driver_timeout // 20 do
     if Predicate.exists(ready) then break end
     Time.sleep_ns(10 * 1000 * 1000)
@@ -338,7 +338,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(call({ "/bin/ln", "-s", sentinel,
     symlink_runner_temp .. "/cosmic-ci/operations.db" }, tmp, tmp .. "/db-ln.out").ok)
   local linked = call({ runner, driver, "run", "symlink-db", "1000",
-      "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
+      "--", "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
     driver_context(candidate, symlink_runner_temp), driver_timeout)
   assert(not linked.ok, "symlink operation database was accepted")
   assert(Hash.hex_sha256((assert(Fs.read(sentinel)))) == before,
@@ -363,4 +363,27 @@ local function test_summarize_reports_unavailable_database(tmp: string)
   local text = assert(Fs.read(summary))
   assert(text:find("## Cosmic CI operations", 1, true) and
     text:find("unavailable", 1, true), "summary omitted the unavailable-database line")
+end
+
+local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: string)
+  local runner = seeded_bootstrap(tmp)
+  local project = driver_project(tmp)
+  local driver = project .. "/cosmic_ci/driver.tl"
+  local env = { RUNNER_TEMP = tmp .. "/runner-temp" }
+  local helped = call({ runner, driver, "--help" }, project, tmp .. "/help.out", env,
+    driver_timeout)
+  local help = assert(Fs.read(tmp .. "/help.out"))
+  assert(helped.code == 0, help)
+  for _, name in ipairs({ "platform", "provenance", "run", "summarize" }) do
+    assert(help:find("\n  " .. name .. " ", 1, true), help)
+  end
+  local one = call({ runner, driver, "run", "--help" }, project, tmp .. "/run-help.out", env,
+    driver_timeout)
+  local run_help = assert(Fs.read(tmp .. "/run-help.out"))
+  assert(one.code == 0 and run_help:find("driver.tl run PHASE TIMEOUT_MS -- EXECUTABLE", 1, true),
+    run_help)
+  local refused = call({ runner, driver, "platfrom" }, project, tmp .. "/unknown.out", env,
+    driver_timeout)
+  local why = assert(Fs.read(tmp .. "/unknown.out"))
+  assert(refused.code == 2 and why:find("no such command: platfrom", 1, true), why)
 end

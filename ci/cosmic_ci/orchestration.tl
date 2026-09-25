@@ -594,7 +594,7 @@ end
 
 local function logical(c: Context, phase: string,
     action: function(): integer): integer
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local database = State.external_path(c.db, c.root)
   local id = State.start(database, c.worker, c.run, c.attempt, phase, started)
   local called, answer = pcall(action)
@@ -602,7 +602,7 @@ local function logical(c: Context, phase: string,
   local status = code == 0 and "success" or (called and "exit" or "error")
   local detail: string | nil = nil
   if not called then detail = tostring(answer) end
-  local finished = assert(Time.monotonic_ns())
+  local finished = Time.monotonic_ns()
   State.complete(database, id, c.worker, c.run, c.attempt, phase, finished,
     finished - started, status, code, nil, 0, detail)
   if detail then Fs.put(Fs.stderr, detail .. "\n") end

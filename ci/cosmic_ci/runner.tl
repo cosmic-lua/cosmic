@@ -66,9 +66,9 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
     for number, fd in pairs(request.fds) do fds[number] = fd end
     options.fds = fds
   end
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local called, answer, trouble = pcall(Child.run, request.argv, options)
-  local elapsed = assert(Time.monotonic_ns()) - started
+  local elapsed = Time.monotonic_ns() - started
   local close_ok, close_trouble = true, ""
   for _, fd in ipairs({ input_fd or -1, output_fd or -1, error_fd or -1 }) do
     if fd >= 0 then
@@ -98,7 +98,7 @@ end
 local function recorded(c: Runner.Context, phase: string,
     attempt: function(): Runner.Outcome): Runner.Outcome
   local database = State.external_path(c.database, c.candidate)
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local id = State.start(database, c.worker, c.run, c.attempt, phase, started)
   local called, answer = pcall(attempt)
   local outcome: Runner.Outcome
@@ -107,7 +107,7 @@ local function recorded(c: Runner.Context, phase: string,
   else
     outcome = { status = "error", code = 1,
       trouble = limited(tostring(answer)),
-      elapsed_ns = assert(Time.monotonic_ns()) - started }
+      elapsed_ns = Time.monotonic_ns() - started }
   end
   local result = outcome.result
   local exit_code: integer | nil = nil
@@ -144,9 +144,9 @@ end
 function Runner.step(c: Runner.Context, phase: string,
     work: function(): boolean, string): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
-    local started = assert(Time.monotonic_ns())
+    local started = Time.monotonic_ns()
     local ok, trouble = work()
-    local elapsed = assert(Time.monotonic_ns()) - started
+    local elapsed = Time.monotonic_ns() - started
     if ok then return { status = "success", code = 0, elapsed_ns = elapsed } end
     return { status = "error", code = 1, elapsed_ns = elapsed,
       trouble = limited((trouble or "") ~= "" and trouble or "failed") }

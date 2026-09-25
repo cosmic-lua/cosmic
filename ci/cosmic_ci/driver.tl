@@ -1,5 +1,6 @@
 local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
@@ -14,7 +15,7 @@ end
 local function run(argv: {string}): integer
   local phase, timeout_text, executable = argv[1], argv[2], argv[3]
   assert(phase and timeout_text and executable,
-    "usage: driver.tl run PHASE TIMEOUT_MS EXECUTABLE [ARG...]")
+    "usage: driver.tl run PHASE TIMEOUT_MS -- EXECUTABLE [ARG...]")
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
@@ -74,20 +75,48 @@ local function summarize(_argv: {string}): integer
   return 0
 end
 
-local commands: {string:function({string}):integer} = {
-  run = run,
-  summarize = summarize,
-  platform = Orchestration.platform,
-  provenance = Orchestration.provenance,
+--- Each command: what it does and takes, for `driver.tl --help`, and
+--- its handler, which gets the words after the command with the
+--- driver's own path at slot 0. None takes options, so a word that
+--- begins with "-" goes after a "--": `run`'s command line does.
+local record Command
+  about: string
+  usage: string
+  handler: function({string}): integer
+end
+
+local commands: {string:Command} = {
+  run = { about = "run a command as one recorded operation of the phase",
+    usage = "PHASE TIMEOUT_MS -- EXECUTABLE [ARG...]", handler = run },
+  summarize = { about = "write the operations recorded so far as a table",
+    usage = "", handler = summarize },
+  platform = { about = "run one phase of this worker's platform job",
+    usage = "PHASE [ARG]", handler = Orchestration.platform },
+  provenance = { about = "check that every worker tested the same bytes",
+    usage = "", handler = Orchestration.provenance },
 }
 
-return function(argv: {string}): integer
-  local handler = argv[1] and commands[argv[1]] or nil
-  if not handler then
-    Fs.put(Fs.stderr, "usage: driver.tl run|summarize|platform|provenance ...\n")
+return function(argv: {integer:string}): integer
+  local dispatched: {string:Flags.Command} = {}
+  for name, entry in pairs(commands) do
+    local handler = entry.handler
+    dispatched[name] = {
+      about = entry.about,
+      usage = entry.usage,
+      run = function(got: Flags.Parsed): integer
+        local rest: {integer:string} = { [0] = argv[0] }
+        for i, word in ipairs(got.words) do rest[i] = word end
+        return handler(rest)
+      end,
+    }
+  end
+  local ran, why = Flags.dispatch(argv, 1, dispatched, "driver.tl")
+  if ran == nil then
+    local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. "\n")
     return 2
   end
-  local rest: {string} = { [0] = argv[0] }
-  for i = 2, #argv do rest[#rest + 1] = argv[i] end
-  return handler(rest)
+  if ran.help ~= "" then
+    local _, _ = Fs.put(Fs.stdout, ran.help .. "\n")
+  end
+  return ran.code
 end

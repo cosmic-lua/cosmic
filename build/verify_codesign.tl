@@ -10,6 +10,7 @@
 --- bootstrap cosmic, as bin/zig runs build/zig.tl: it requires
 --- `cosmic.*` modules only.
 local Child = require("cosmic.child")
+local Flags = require("cosmic.flags")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -18,6 +19,15 @@ local record VerifyCodesign
 end
 
 local log = Log.new("verify-codesign")
+
+--- What `bin/verify-codesign --help` says.
+local usage = "bin/verify-codesign <path-to-macos-binary>"
+local about = "Checks the ad-hoc signature on a raw macOS core with codesign;\n" ..
+  "on any other host, says it skipped."
+local spec: {string:boolean | Flags.Option} = {
+  ["--help"] = { about = "show this help" },
+  ["-h"] = { about = "show this help" },
+}
 
 --- Verifies `binary` on a host whose uname(2) sysname is `sysname`,
 --- with codesign, found on `path` (PATH when nil) as the shell script
@@ -61,8 +71,17 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
 end
 
 function VerifyCodesign.main(argv: {integer: string}): integer
-  if argv[1] == nil or argv[2] ~= nil then
-    log:complain("usage: bin/verify-codesign <path-to-macos-binary>")
+  local parsed, parse_trouble = Flags.parse(argv, 1, spec)
+  if parsed == nil then
+    log:complain(parse_trouble .. "; usage: " .. usage)
+    return 2
+  end
+  if parsed.set["--help"] or parsed.set["-h"] then
+    log:say(Flags.help(usage, spec, about))
+    return 0
+  end
+  if #parsed.words ~= 1 then
+    log:complain("usage: " .. usage)
     return 2
   end
   local names, trouble = sys.uname()
@@ -70,7 +89,7 @@ function VerifyCodesign.main(argv: {integer: string}): integer
     log:complain("uname: " .. trouble)
     return 1
   end
-  return VerifyCodesign.verify(names.sysname, argv[1])
+  return VerifyCodesign.verify(names.sysname, parsed.words[1])
 end
 
 return VerifyCodesign
