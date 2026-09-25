@@ -155,6 +155,34 @@ end
   assert(changed:find("FAIL (1 of 1 failed", 1, true), changed)
 end
 
+--- SQLite names a file with its links resolved: a database a test
+--- makes in its own directory is its own still where the system temp
+--- directory is reached through a link, as macOS's /var is, and the
+--- test's verdict stands.
+local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_stands(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/real-temp"))
+  assert(Fs.symlink("real-temp", tmp .. "/temp"))
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_ALL = nil
+  env.TMPDIR = tmp .. "/temp"
+  local root = tmp .. "/checkout"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/own_database_test.tl", [[
+local Sqlite = require("cosmic.sqlite")
+
+local function test_makes_a_database(tmp: string)
+  local db = assert(Sqlite.open(tmp .. "/own.db", true))
+  assert(db:exec("CREATE TABLE t (v TEXT)"))
+  assert(db:close())
+end
+]]))
+  local first = run(root, tmp .. "/first.out", env)
+  assert(first:find("1 ran, 0 stood", 1, true), first)
+  local again = run(root, tmp .. "/again.out", env)
+  assert(again:find("0 ran, 1 stood", 1, true), again)
+end
+
 --- A row stands only under the key this checkout reaches for it --
 --- which holds the runtime, the module and everything it read (see
 --- `test_distinct_runtimes_never_share_a_key` for the runtime): one

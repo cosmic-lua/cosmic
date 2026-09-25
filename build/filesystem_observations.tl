@@ -520,10 +520,17 @@ end
 --- named through a link outside it, and what the link led to when the
 --- test read it is what its verdict describes.
 ---
---- A file SQLite opens through `cosmic.sqlite` -- a database, its
---- journal or WAL, an attached one, or one it only asked after -- is
---- noted an open too, as SQLite names it, when the capture ends (see
---- `drain_sqlite`).
+--- A file SQLite opens through `cosmic.sqlite` while the capture runs
+--- -- a database, its journal or WAL, an attached one, or one it only
+--- asked after -- is noted an open too, as SQLite names it, when the
+--- capture ends (see `drain_sqlite`). What a connection opened before
+--- the capture began reads during it is not: SQLite opened its file
+--- before anything here was watching.
+-- TODO: note the files of every `cosmic.sqlite` connection still open
+-- when a capture starts too (the VFS can keep the path of each file it
+-- holds open, and hand them over as `observed` does): today a
+-- connection a module opens as it loads, read only by a test's own
+-- call, keys that call without the database.
 -- TODO: observe every call at the syscall table's dispatch, as
 -- design.md's trace point promises, rather than by replacing fields of
 -- `cosmic.sys`, `cosmic.internal.process` and `cosmic.http` here: lstat, readlink, realpath and
@@ -786,11 +793,6 @@ local function start(resolving: observations.Resolving | nil):
   noting[#noting + 1] = note
   sqlite.observe(true)
   return found, function()
-    drain_sqlite()
-    for at = #noting, 1, -1 do
-      if noting[at] == note then table.remove(noting, at) break end
-    end
-    if #noting == 0 then sqlite.observe(false) end
     sys.chdir = chdir
     Http.open = http_open
     sys.open = open
@@ -801,6 +803,16 @@ local function start(resolving: observations.Resolving | nil):
     process.spawn = spawn
     sys.mkdtemp = mkdtemp
     sys.mkdir = mkdir
+    -- Draining allocates, and can raise on memory: every wrapper is put
+    -- back first, and a drain that fails leaves its record in C for the
+    -- next and makes this run one no key holds.
+    if not pcall(drain_sqlite) then
+      local _ = pcall(note, "x", "sqlite", "")
+    end
+    for at = #noting, 1, -1 do
+      if noting[at] == note then table.remove(noting, at) break end
+    end
+    if #noting == 0 then sqlite.observe(false) end
   end
 end
 

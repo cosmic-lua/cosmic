@@ -100,7 +100,8 @@ local function test_a_file_sqlite_opens_is_noted(tmp: string)
   -- The inner capture began after the main database was opened.
   assert(not opened(inner.reads, real .. "/main.db"))
   assert(opened(inner.reads, real .. "/attached.db"))
-  -- Outside every capture, nothing is kept for the next.
+  -- A database opened while no capture runs is noted by none: not by
+  -- the next one to start.
   local db = assert(Sqlite.open(tmp .. "/main.db", false))
   assert(db:close())
   local after = observations.capture(function() end)
@@ -114,14 +115,19 @@ local function test_a_missing_database_sqlite_looked_for_is_noted(tmp: string)
   local c = observations.capture(function()
     local db, trouble = Sqlite.open(tmp .. "/missing.db", false)
     assert(db == nil and trouble ~= "")
-    -- Time through the VFS: the connection asks it, not the system.
-    local memory = assert(Sqlite.memory())
-    local rows = assert(Sqlite.text_rows(memory, "SELECT julianday('now') > 2460000"))
-    assert(rows[1][1] == "1")
-    assert(memory:close())
   end)
   assert(c.ok, tostring(c.produced))
   assert(opened(c.reads, real .. "/missing.db"))
+end
+
+--- A connection `cosmic.sqlite` opens reads the clock through the VFS
+--- that observes its files, which passes the question to the default
+--- one: `julianday('now')` answers rather than ending the process.
+local function test_a_connection_tells_the_time()
+  local memory = assert(Sqlite.memory())
+  local rows = assert(Sqlite.text_rows(memory, "SELECT julianday('now') > 2460000"))
+  assert(memory:close())
+  assert(rows[1][1] == "1")
 end
 
 local function test_join_deduplicates_only_identical_observations()

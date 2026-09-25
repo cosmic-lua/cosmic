@@ -438,7 +438,9 @@ local function under_root(root: string, path: string,
   -- sibling checkout's verdict whose o/ held something else (a stale
   -- build, a different carried set). Key a read of each by what the
   -- build says it is (its meta hashes: `image_hash`, `boot_hash`), as
-  -- `shipped` is by its bytes, rather than dropping it.
+  -- `shipped` is by its bytes, rather than dropping it. core/store.c's
+  -- `store_attach` opens a database (o/build.db) on SQLite's default
+  -- VFS, which observes nothing: open it through core/sqlite.c's too.
   if relative == "o" or relative:sub(1, 2) == "o/" then
     return nil
   end

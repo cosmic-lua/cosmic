@@ -623,6 +623,9 @@ are closed:
 - [x] *files SQLite opens in C*: `cosmic.sqlite` opens through a VFS
   (core/sqlite.c) that records each file SQLite opens or asks after, and a
   capture notes each an open, keyed by its contents like any other.
+- [ ] *a database a connection opened before the capture*
+  (`build/filesystem_observations.tl`, above `start`): its reads go unrecorded.
+  hand over the files every open connection holds when a capture starts.
 - [ ] *lstat, readlink, realpath and getcwd* (`build/filesystem_observations.tl`,
   above `start`): observe every call at the syscall table's dispatch rather than
   by replacing fields of `cosmic.sys`.

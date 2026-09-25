@@ -1,7 +1,7 @@
 local Sqlite = require("cosmic.sqlite")
 
-local function test_native_fallible_calls_return_result_pairs()
-  local missing, open_why = Sqlite.open("/cosmic-missing/result-pairs.db")
+local function test_native_fallible_calls_return_result_pairs(tmp: string)
+  local missing, open_why = Sqlite.open(tmp .. "/missing/result-pairs.db")
   assert(missing == nil and open_why ~= "")
 
   local db, memory_why = Sqlite.memory()

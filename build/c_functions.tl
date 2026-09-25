@@ -58,7 +58,6 @@ local exempt: {string: string} = {
   ["core/vfs.c:vfs_access"] = forwarded,
   ["core/vfs.c:vfs_randomness"] = forwarded,
   ["core/vfs.c:vfs_sleep"] = forwarded,
-  ["core/vfs.c:vfs_current_time"] = forwarded,
   ["core/vfs.c:vfs_last_error"] = forwarded,
   ["core/sqlite.c:observed_randomness"] =
     "SQLite seeds its randomness through the default VFS, never a connection's",
