@@ -1,7 +1,8 @@
 #!/bin/sh
 # The one piece of shell the tree means to keep: fetch, verify and
-# cache the pinned bootstrap cosmic, then print its path (no arguments)
-# or run it with the arguments given. Every other build script is Teal
+# cache the pinned bootstrap cosmic -- or take COSMIC_BOOTSTRAP's, below
+# -- then print its path (no arguments) or run it with the arguments
+# given. Every other build script is Teal
 # this binary runs standalone -- build/zig.tl behind bin/zig,
 # build/vendor.tl behind bin/vendor, build/actionlint.tl behind
 # bin/actionlint, build/verify_codesign.tl behind bin/verify-codesign,
@@ -11,7 +12,10 @@
 # COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
 # pin's -- a tree-built o/bin/cosmic, say -- for every one of them, and
 # for CI's driver. It must be an executable file; anything else is an
-# error, never a silent fallback to the pin. Nothing is fetched then.
+# error, never a silent fallback to the pin. Nothing is fetched then,
+# and the path printed or run is absolute, so a caller that changes
+# directory still finds it. With COSMIC_BOOTSTRAP_VERIFY, which asks for
+# the pin's digest-checked cosmic, it is refused.
 #
 # The pin is ci/cosmic-driver.pin, the release CI runs as its driver
 # too: a commit, that commit's release URL, and the binary's sha256, one
@@ -41,9 +45,16 @@ die() {
 }
 
 if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ -n "${COSMIC_BOOTSTRAP_VERIFY:-}" ]; then
+    die "COSMIC_BOOTSTRAP and COSMIC_BOOTSTRAP_VERIFY are both set: a stand-in is no digest-checked cosmic"
+  fi
   if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
     die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
   fi
+  case $COSMIC_BOOTSTRAP in
+    /*) ;;
+    *) COSMIC_BOOTSTRAP=$(pwd)/$COSMIC_BOOTSTRAP ;;
+  esac
   if [ "$#" -eq 0 ]; then
     printf '%s\n' "$COSMIC_BOOTSTRAP"
     exit 0

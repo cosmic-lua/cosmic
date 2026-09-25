@@ -6,8 +6,14 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
+--- The environment a test's child runs with: this one's, less what
+--- would change which cosmic bin/cosmic-bootstrap answers -- a
+--- COSMIC_BOOTSTRAP exported where the tests run is no part of them --
+--- with `extra` over it.
 local function environment(extra?: {string:string}): {string:string}
   local values = Env.all()
+  values.COSMIC_BOOTSTRAP, values.COSMIC_BOOTSTRAP_VERIFY = nil, nil
+  values.COSMIC_BOOTSTRAP_ATTEMPTS = nil
   if extra then for name, value in pairs(extra) do values[name] = value end end
   return values
 end
@@ -272,12 +278,20 @@ local function test_bootstrap_replaces_a_linked_cache_entry(tmp: string)
   assert(Hash.hex_sha256((assert(Fs.read(cached)))) == digest)
 end
 
---- A stand-in cosmic at `tmp/stand-in` that prints the words it was run
---- with, one to a line after "ran", so a test can see who ran it and how.
+--- A stand-in cosmic at `tmp/stand-in` that prints "ran", the directory
+--- it ran in, and the words it was run with, one to a line, so a test can
+--- see who ran it, where and how.
 local function stand_in(tmp: string): string
   local path = tmp .. "/stand-in"
-  assert(Fs.write(path, "#!/bin/sh\necho ran\nfor word in \"$@\"; do echo \"$word\"; done\n", 0x1ed))
+  assert(Fs.write(path, "#!/bin/sh\necho ran\npwd -P\nfor word in \"$@\"; do echo \"$word\"; done\n", 0x1ed))
   return path
+end
+
+--- `dir` as `pwd -P` prints it, links resolved.
+local function physical(dir: string): string
+  local got = assert(Child.run({ "/bin/sh", "-c", "pwd -P" },
+    { cwd = dir, stdout = "capture" }))
+  return ((assert(got.stdout)):gsub("\n$", ""))
 end
 
 --- COSMIC_BOOTSTRAP stands in for the pin's cosmic: printed when there
@@ -286,15 +300,29 @@ end
 local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("d", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
-  local env = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
+  local env: {string:string} = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
     CALLS = tmp .. "/calls", COSMIC_BOOTSTRAP = cosmic }
-  local printed = bootstrap(tmp, root, tmp .. "/printed.out", env)
+  local printed = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+    tmp, tmp .. "/printed.out", env)
   local out = assert(Fs.read(tmp .. "/printed.out"))
   assert(printed.ok and out == cosmic .. "\n", out)
   local ran = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "a b", "c" },
     tmp, tmp .. "/ran.out", env)
   out = assert(Fs.read(tmp .. "/ran.out"))
-  assert(ran.ok and out == "ran\na b\nc\n", out)
+  assert(ran.ok and out == "ran\n" .. physical(tmp) .. "\na b\nc\n", out)
+  -- A relative one is answered absolute, for a caller that moves on.
+  env.COSMIC_BOOTSTRAP = "stand-in"
+  local relative = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+    tmp, tmp .. "/relative.out", env)
+  out = assert(Fs.read(tmp .. "/relative.out"))
+  assert(relative.ok and out:sub(1, 1) == "/" and out:find("/stand%-in\n$") ~= nil, out)
+  -- With COSMIC_BOOTSTRAP_VERIFY, which asks for the pin's checked one,
+  -- a stand-in is refused rather than answered unchecked.
+  env.COSMIC_BOOTSTRAP, env.COSMIC_BOOTSTRAP_VERIFY = cosmic, "1"
+  local verified = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+    tmp, tmp .. "/verified.out", env)
+  out = assert(Fs.read(tmp .. "/verified.out"))
+  assert(not verified.ok and out:find("both set", 1, true) ~= nil, out)
   assert(not Predicate.exists(tmp .. "/calls"), "a stand-in still fetched the pin's cosmic")
 end
 
@@ -318,9 +346,9 @@ local function test_bootstrap_refuses_a_cosmic_bootstrap_it_cannot_run(tmp: stri
   assert(not Predicate.exists(tmp .. "/calls"), "a refused stand-in fell back to the pin")
 end
 
---- Each script behind bin/ is one `exec` of bin/cosmic-bootstrap, which
---- runs its Teal standalone with the words it was given: seen through a
---- stand-in, from another directory.
+--- Each tool behind bin/ runs its own Teal standalone, with the words it
+--- was given, in the caller's directory, on the cosmic bin/cosmic-bootstrap
+--- answers: seen through a stand-in, from another directory.
 local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("f", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
@@ -333,8 +361,8 @@ local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
       tmp .. "/tool.out", { COSMIC_BOOTSTRAP = cosmic, PATH = fake_curl(tmp),
         DOWNLOAD_SOURCE = tmp .. "/missing", XDG_CACHE_HOME = tmp .. "/xdg" })
     local out = assert(Fs.read(tmp .. "/tool.out"))
-    assert(result.ok and out == "ran\n--standalone\n" .. root .. "/build/" ..
-      script .. "\nx\ny z\n", tool .. ": " .. out)
+    assert(result.ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" ..
+      root .. "/build/" .. script .. "\nx\ny z\n", tool .. ": " .. out)
   end
 end
 
