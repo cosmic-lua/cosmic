@@ -30,6 +30,27 @@ local record Time
     yday: integer
   end
 
+  --- A calendar amount, for `add_calendar`: each field may be negative,
+  --- and a missing one is zero.
+  record Change
+    years: integer
+    months: integer
+    days: integer
+  end
+
+  --- What `add_calendar` does with a day its month does not have, as
+  --- January 31 plus a month: "reject" refuses it, "clamp" takes the
+  --- month's last day.
+  enum Overflow
+    "reject"
+    "clamp"
+  end
+
+  record AddOptions
+    --- "reject" when absent.
+    overflow: Time.Overflow
+  end
+
   record FormatOptions
     --- Digits of fraction to write, 0 through 9, cut toward the past; by
     --- default as many as the nanoseconds need, none when they are zero.
@@ -147,6 +168,69 @@ end
 --- refused, not carried into the next month.
 function Time.from_civil(c: Time.Civil): integer | nil, string
   return moment(c, 0)
+end
+
+--- `ns` moved by a calendar amount on the UTC calendar: the years and
+--- months first, keeping the day and the time of day, then the days.
+--- Nil and why when the day the years and months reach is past its
+--- month's end and `opts.overflow` is not "clamp", when a field is not
+--- an integer or is past its bound (which only keeps the arithmetic
+--- from wrapping), or when the result is outside the range. Raises for
+--- an `overflow` that is neither. An exact duration needs no call: add
+--- its nanoseconds.
+function Time.add_calendar(ns: integer, change: Time.Change,
+    opts?: Time.AddOptions): integer | nil, string
+  local years, months, days = change.years or 0, change.months or 0, change.days or 0
+  local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000)
+    or outside("days", days, -3650000, 3650000)
+  if why ~= nil then return nil, why end
+  local overflow = opts ~= nil and opts.overflow or "reject"
+  if overflow ~= "reject" and overflow ~= "clamp" then
+    error("time: overflow is \"reject\" or \"clamp\", not " .. tostring(overflow), 2)
+  end
+  -- TODO: UTC only. In a zone, a day is not always 86400 seconds; adding
+  -- days there keeps the wall-clock time across a DST change, once
+  -- cosmic.time reads zones.
+  local c = Time.civil(ns)
+  local index = c.year * 12 + (c.month - 1) + years * 12 + months
+  c.year, c.month = index // 12, index % 12 + 1
+  local last = month_days(c.year, c.month)
+  if c.day > last then
+    if overflow ~= "clamp" then
+      return nil, ("%04d-%02d has no day %d; overflow \"clamp\" takes its last"):format(
+        c.year, c.month, c.day)
+    end
+    c.day = last
+  end
+  local moved = civil_from_days(days_from_civil(c.year, c.month, c.day) + days)
+  c.year, c.month, c.day = moved.year, moved.month, moved.day
+  return moment(c, 0)
+end
+
+--- Whole days from `from`'s UTC date to `to`'s, negative when `to`'s is
+--- earlier; the time of day does not count.
+function Time.days_between(from: integer, to: integer): integer
+  return to // NS // DAY - from // NS // DAY
+end
+
+--- Whole calendar months from `from` to `to`, negative when `to` is
+--- earlier, as Java's `ChronoUnit.MONTHS.between` counts them on the
+--- UTC calendar: `to`'s date steps a day toward `from`'s when its time
+--- of day has not reached `from`'s, then a month counts once the day of
+--- the month does. January 31 to February 29 is 0; to March 31, 2.
+--- Whole years are this divided by 12, truncated toward zero.
+function Time.months_between(from: integer, to: integer): integer
+  local a_day, b_day = from // NS // DAY, to // NS // DAY
+  local a_time, b_time = from % (DAY * NS), to % (DAY * NS)
+  if b_day > a_day and b_time < a_time then
+    b_day = b_day - 1
+  elseif b_day < a_day and b_time > a_time then
+    b_day = b_day + 1
+  end
+  local a, b = civil_from_days(a_day), civil_from_days(b_day)
+  local packed = ((b.year * 12 + b.month) * 32 + b.day) - ((a.year * 12 + a.month) * 32 + a.day)
+  -- Toward zero, as Java's integer division.
+  return packed >= 0 and packed // 32 or -((-packed) // 32)
 end
 
 --- `ns` as RFC 3339 text in UTC, `2026-09-25T04:09:21Z`, with a fraction

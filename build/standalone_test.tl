@@ -11,8 +11,14 @@ local observations = require("build.filesystem_observations")
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
 
-local function test_a_file_compiles_against_the_standard_library()
-  local chunk = assert(standalone.compile("x.tl", [[
+--- `standalone.compile` with its cache in the test's own directory, not
+--- this user's: a read of that one is no input a verdict can hold.
+local function compile(tmp: string, file: string, source: string): standalone.Main | nil, string
+  return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" })
+end
+
+local function test_a_file_compiles_against_the_standard_library(tmp: string)
+  local chunk = assert(compile(tmp, "x.tl", [[
 local Fs = require("cosmic.fs")
 return function(argv: {string}): integer
   return #argv + Fs.stdout
@@ -22,23 +28,23 @@ end
   assert(main({ "a", "b" }) == 3)
 end
 
-local function test_only_the_standard_library_can_be_required()
-  local chunk, trouble = standalone.compile("x.tl", 'local w = require("build.work")\nreturn w\n')
+local function test_only_the_standard_library_can_be_required(tmp: string)
+  local chunk, trouble = compile(tmp, "x.tl", 'local w = require("build.work")\nreturn w\n')
   assert(chunk == nil)
   assert(trouble:find("x.tl:1:", 1, true) ~= nil, trouble)
   assert(trouble:find("build.work", 1, true) ~= nil, trouble)
 end
 
-local function test_a_type_error_is_reported_with_its_place()
-  local chunk, trouble = standalone.compile("bad.tl", "local x: integer = \"no\"\nreturn x\n")
+local function test_a_type_error_is_reported_with_its_place(tmp: string)
+  local chunk, trouble = compile(tmp, "bad.tl", "local x: integer = \"no\"\nreturn x\n")
   assert(chunk == nil)
   assert(trouble:find("bad.tl:1:", 1, true) ~= nil, trouble)
 end
 
 --- A standalone file reaching for a removed library is told, for the
 --- field it used, what to write instead.
-local function test_a_removed_field_names_its_replacement()
-  local chunk, trouble = standalone.compile("old.tl",
+local function test_a_removed_field_names_its_replacement(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
     'return function(): integer\n  io.stderr:write("x")\n  return 0\nend\n')
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:3: unknown variable: io -- io.stderr is not available: " ..
@@ -47,8 +53,8 @@ end
 
 --- A member a `cosmic.*` module no longer has is told, under the alias
 --- the file gave the module, what to write instead.
-local function test_a_removed_member_names_its_replacement()
-  local chunk, trouble = standalone.compile("old.tl",
+local function test_a_removed_member_names_its_replacement(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
     'local Digest = require("cosmic.hash")\nreturn Digest.hex("x")\n')
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:15: invalid key 'hex' in record 'Digest' of type Digest " ..
@@ -56,8 +62,8 @@ local function test_a_removed_member_names_its_replacement()
 end
 
 --- A `<const>` binding, and a second alias of it, are the module still.
-local function test_a_removed_member_is_named_through_const_and_alias()
-  local chunk, trouble = standalone.compile("old.tl",
+local function test_a_removed_member_is_named_through_const_and_alias(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
     'local Zip <const> = require("cosmic.zip")\nlocal Z = Zip\n' ..
     'return Z.list("a.zip")\n')
   assert(chunk == nil)
@@ -68,15 +74,15 @@ end
 --- A type a `cosmic.*` module no longer declares is told its new name,
 --- under the alias the file gave the module; a type the module never
 --- declared is told nothing more.
-local function test_a_renamed_type_names_its_replacement()
-  local chunk, trouble = standalone.compile("old.tl",
+local function test_a_renamed_type_names_its_replacement(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
     'local Z <const> = require("cosmic.zip")\n' ..
     'local function f(r: Z.ZipReader): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
   assert(chunk == nil)
   assert(trouble:find("old.tl:2:21: unknown type Z.ZipReader " ..
     "-- Z.ZipReader was removed: use Zip.Reader", 1, true) ~= nil, trouble)
-  chunk, trouble = standalone.compile("new.tl",
+  chunk, trouble = compile(tmp, "new.tl",
     'local Zip = require("cosmic.zip")\n' ..
     'local function f(r: Zip.Nothing): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
@@ -84,7 +90,7 @@ local function test_a_renamed_type_names_its_replacement()
   assert(trouble:find("unknown type Zip.Nothing", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
   -- `list` is a removed function, never a type: nothing is offered.
-  chunk, trouble = standalone.compile("fn.tl",
+  chunk, trouble = compile(tmp, "fn.tl",
     'local Zip = require("cosmic.zip")\n' ..
     'local function f(r: Zip.list): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
@@ -95,8 +101,8 @@ end
 
 --- A record of the file's own named like a module's alias is not that
 --- module: no replacement is offered for its missing field.
-local function test_a_shadowing_record_is_not_told_a_replacement()
-  local chunk, trouble = standalone.compile("old.tl",
+local function test_a_shadowing_record_is_not_told_a_replacement(tmp: string)
+  local chunk, trouble = compile(tmp, "old.tl",
     'local Zip = require("cosmic.zip")\nlocal record R\n  x: integer\nend\n' ..
     'local function f(Zip: R): integer\n  return Zip.list\nend\n' ..
     'return { f = f, zip = Zip }\n')

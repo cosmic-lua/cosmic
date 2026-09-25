@@ -99,7 +99,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
 end
 
 local module_columns = { "path", "file", "kind", "source_hash", "key",
-                         "bytecode", "tests", "source", "lua" }
+                         "bytecode", "tests", "source" }
 local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
                           "file", "line" }

@@ -89,6 +89,10 @@ local record test
   record VerdictKey
     key: string
     stable: boolean
+    --- A path a confined process was given was first walked after the
+    --- test started: its verdict is not kept, though what it read is,
+    --- so the next run walks that path before it starts.
+    late: boolean
   end
   --- What the last run recorded about one test: what it read, which
   --- is what its key is computed over next time.
@@ -411,6 +415,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
   local stable = true
+  local late = false
   local paths: {string} = {}
   for _, observation in ipairs(reads) do
     local kind = observation.kind
@@ -488,7 +493,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       -- the path became since its process read it: such a verdict is
       -- not kept, and the next run, which walks it first, keeps one.
       local walked = math.tointeger(key_parts["\2u\0" .. relative]) or 0
-      if started_ns ~= nil and walked >= started_ns then stable = false end
+      if started_ns ~= nil and walked >= started_ns then late = true end
       if current:sub(1, 10) == "unkeyable " then stable = false end
     elseif kind == "o" then
       current = hashes[relative]
@@ -517,12 +522,29 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     end
     lines[#lines + 1] = part
   end
-  return { key = Hash.hex_sha256(table.concat(lines, "\n")), stable = stable }
+  return { key = Hash.hex_sha256(table.concat(lines, "\n")), stable = stable and not late,
+    late = late }
 end
 
 --- The devices whose every answer is the same, whenever a test reads
 --- them: no input a key need hold.
 local constant_devices: {string:boolean} = { ["/dev/null"] = true, ["/dev/zero"] = true }
+
+--- Whether `path` names what /proc says of the test's own process and
+--- nothing else: its status, its descriptors' flags, its threads. What
+--- a test reads there describes the worker running it, no input from
+--- outside it. Only these leaves: /proc/self also leads to the host's
+--- root, its working directory, its environment and its network.
+local function own_process(path: string): boolean
+  if ("/" .. path .. "/"):find("/%.%.?/") ~= nil or path:find("//", 1, true) then
+    return false
+  end
+  local rest = path:match("^/proc/self(.*)$") or path:match("^/proc/thread%-self(.*)$")
+  if rest == nil then return false end
+  return rest == "/status" or rest == "/fdinfo" or rest:match("^/fdinfo/%d+$") ~= nil or
+    rest == "/task" or rest:match("^/task/%d+$") ~= nil or
+    rest:match("^/task/%d+/status$") ~= nil
+end
 
 --- Whether a passing verdict over `reads` is safe to reuse later: false
 --- when the run spawned a process other than a confined one (an input no
@@ -538,11 +560,16 @@ local constant_devices: {string:boolean} = { ["/dev/null"] = true, ["/dev/zero"]
 --- judged by what it resolved to as the test read it (see
 --- `under_root`), so a link in the test's own directory leading out of
 --- it is outside; one that climbs with ".." and has none is outside, but
---- for a device whose every answer is the same (`constant_devices`). An
+--- for a device whose every answer is the same (`constant_devices`) and
+--- the test's own process in /proc (`own_process`). An
 --- environment
 --- read is keyable: its answer enters the verdict key like a file's
 --- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
 --- can exercise it directly.
+-- TODO: key a stat or a listing outside the tree by its answer, as the
+-- key holds an environment read, rather than refusing the run: a test
+-- whose code searches PATH (build/todos_test.tl, for git) stats host
+-- directories whose answers a key could hold.
 function test.keyable(root: string, scratch: string,
                       reads: {observations.Observation}): boolean
   local resolutions = resolutions_of(reads)
@@ -560,7 +587,7 @@ function test.keyable(root: string, scratch: string,
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     if (kind == "o" or kind == "s" or kind == "d") and
-        not constant_devices[observation.path] then
+        not constant_devices[observation.path] and not own_process(observation.path) then
       local path = observation.path
       local real = resolutions[path]
       if real == "" or (real == nil and climbs(path)) then return false end
@@ -1080,16 +1107,19 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
     rec.runtime, reads, rec.key_parts, job.started_ns)
   local reached, stable = verdict_reached.key, verdict_reached.stable
+  local late = verdict_reached.late
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
     message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
-    stable and cacheable)
+    (stable or late) and cacheable)
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
   end
-  saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
-    elapsed)
-  if not saved then
-    rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+  if not late then
+    saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
+      elapsed)
+    if not saved then
+      rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+    end
   end
   job.passed = passed
   if not passed then

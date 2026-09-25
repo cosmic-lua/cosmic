@@ -46,9 +46,9 @@ end
 --- own names alongside.
 local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
-  "lua, bytecode, tests) " ..
+  "bytecode, tests) " ..
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), i.source, c.lua, c.bytecode, " ..
+  "CAST(p.key AS BLOB), i.source, c.bytecode, " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
   "WHERE t.source_hash = i.source_hash), '') " ..
