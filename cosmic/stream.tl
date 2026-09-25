@@ -70,8 +70,9 @@ function Stream.from_string(s: string): Stream.Reader
     if at > #s then return nil, "" end
     local want = max or (#s - at + 1)
     if want <= 0 then return nil, "" end
+    -- Clamped before it is added, so a huge `max` cannot wrap `stop`.
+    if want > #s - at + 1 then want = #s - at + 1 end
     local stop = at + want - 1
-    if stop > #s then stop = #s end
     local chunk = s:sub(at, stop)
     at = stop + 1
     return chunk, ""
@@ -82,7 +83,9 @@ function Stream.from_string(s: string): Stream.Reader
   end
   r.skip = function(_self: Stream.Reader, n: integer): boolean, string
     if closed then return false, closed_message end
-    if at + n > #s + 1 then
+    if n < 0 then return false, "stream: skip of a negative count" end
+    -- Compared this way round, so a huge `n` cannot wrap `at + n`.
+    if n > #s + 1 - at then
       at = #s + 1
       return false, "stream: skip past the end of the data"
     end
