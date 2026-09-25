@@ -39,7 +39,8 @@ local function test_mistakes_are_refused_with_why()
   }
   for _, next_word in ipairs({ "--check", "--" }) do
     local got, why = Flags.parse({ "x", "--jobs", next_word }, 2, spec)
-    assert(got == nil and why == "--jobs needs a value", why)
+    assert(got == nil and why == "--jobs needs a value, not " .. next_word ..
+      "; give one that begins with \"-\" as --jobs=" .. next_word, why)
   end
   for _, case in ipairs(cases) do
     local got, why = Flags.parse({ "x", case[1] }, 2, spec)
@@ -113,15 +114,59 @@ local function test_a_cluster_is_refused_with_the_letter_at_fault()
   end
 end
 
-local function test_a_value_is_never_an_option_the_spec_names()
-  for _, next_word in ipairs({ "-v", "-vq", "--", "-n4" }) do
+local function test_a_value_is_never_a_word_that_looks_like_an_option()
+  -- Whether or not the spec names it: a mistyped option is not a value.
+  for _, next_word in ipairs({ "-v", "-vq", "--", "-n4", "-x", "--chek", "--check=1" }) do
     local got, why = Flags.parse({ "-n", next_word }, 1, short)
-    assert(got == nil and why == "-n needs a value", next_word)
+    assert(got == nil and why == "-n needs a value, not " .. next_word ..
+      "; give one that begins with \"-\" as -n" .. next_word, why)
   end
-  local got, why = Flags.parse({ "x", "--jobs", "--check=1" }, 2, spec)
-  assert(got == nil and why == "--jobs needs a value", why)
-  assert(assert(Flags.parse({ "-n", "-1" }, 1, short)).values["-n"] == "-1")
+  local got, why = Flags.parse({ "x", "--jobs", "--chek" }, 2, spec)
+  assert(got == nil and why == "--jobs needs a value, not --chek; " ..
+    "give one that begins with \"-\" as --jobs=--chek", why)
+  for _, number in ipairs({ "-1", "-0.5", "-1e3", "-0x10" }) do
+    assert(assert(Flags.parse({ "-n", number }, 1, short)).values["-n"] == number)
+  end
   assert(assert(Flags.parse({ "-n", "-" }, 1, short)).values["-n"] == "-")
+  assert(assert(Flags.parse({ "-n--chek" }, 1, short)).values["-n"] == "--chek")
+  assert(assert(Flags.parse({ "x", "--jobs=--chek" }, 2, spec)).values["--jobs"] == "--chek")
+  local _, missing = Flags.parse({ "-n" }, 1, short)
+  assert(missing == "-n needs a value", missing)
+end
+
+local function test_a_spec_may_describe_its_options()
+  local described: {string:boolean | Flags.Option} = {
+    ["--out"] = { value = "path", about = "where to write" },
+    ["-q"] = { about = "say less" },
+    ["--plain"] = true,
+  }
+  local got = assert(Flags.parse({ "-q", "--out", "o.txt", "--plain", "p" }, 1, described))
+  assert(got.set["-q"] and got.values["--out"] == "o.txt" and got.values["--plain"] == "p")
+  local _, why = Flags.parse({ "-q=1" }, 1, described)
+  assert(why == "-q takes no value", why)
+end
+
+local function test_help_lists_each_option_sorted_beside_what_it_does()
+  local described: {string:boolean | Flags.Option} = {
+    ["--verbose"] = { about = "say more" },
+    ["-o"] = { value = "path", about = "where to write" },
+    ["--jobs"] = { value = "n" },
+    ["--color"] = false,
+    ["-n"] = true,
+  }
+  local help = Flags.help("tool [options] <file>", described)
+  assert(help == table.concat({
+    "usage: tool [options] <file>",
+    "",
+    "options:",
+    "  --color",
+    "  --jobs <n>",
+    "  -n <value>",
+    "  -o <path>   where to write",
+    "  --verbose   say more",
+  }, "\n"), help)
+  assert(Flags.help("tool", {}) == "usage: tool")
+  assert(Flags.help("tool", {}, "Does one thing.") == "usage: tool\n\nDoes one thing.")
 end
 
 local function test_dispatch_runs_the_command_with_its_own_options()
@@ -141,9 +186,10 @@ local function test_dispatch_runs_the_command_with_its_own_options()
       end,
     },
   }
-  local code, why = Flags.dispatch({ [0] = "prog", "build", "--jobs=2", "a" }, 1, commands)
-  assert(code == 3 and why == "", why)
-  assert(Flags.dispatch({ "prog", "clean" }, 2, commands) == 0)
+  local done, why = Flags.dispatch({ [0] = "prog", "build", "--jobs=2", "a" }, 1, commands)
+  assert(done ~= nil and done.code == 3 and done.help == "" and why == "", why)
+  local cleaned = assert(Flags.dispatch({ "prog", "clean" }, 2, commands))
+  assert(cleaned.code == 0 and cleaned.help == "")
   assert(ran[1] == "build 2 a" and ran[2] == "clean 0", table.concat(ran, "|"))
   local refusals: {{string}} = {
     { nil, "needs a command: build, clean" },
@@ -158,4 +204,139 @@ local function test_dispatch_runs_the_command_with_its_own_options()
   assert(refused == nil and trouble == "clean: no such option: --jobs", trouble)
   assert(#ran == 2)
   assert(not pcall(Flags.dispatch, { "x" }, 1, {}))
+end
+
+local help_commands: {string:Flags.Command} = {
+  build = {
+    about = "Builds the target.",
+    usage = "[options] <target>",
+    spec = { ["-j"] = { value = "n", about = "run n at once" } },
+    run = function(_: Flags.Parsed): integer error("help runs nothing") end,
+  },
+  clean = {
+    run = function(_: Flags.Parsed): integer error("help runs nothing") end,
+  },
+}
+
+local build_help = table.concat({
+  "usage: prog build [options] <target>",
+  "",
+  "Builds the target.",
+  "",
+  "options:",
+  "  -j <n>  run n at once",
+}, "\n")
+
+local function test_dispatch_answers_help_rather_than_running()
+  local program_help = table.concat({
+    "usage: prog <command> [options]",
+    "",
+    "commands:",
+    "  build  Builds the target.",
+    "  clean",
+    "",
+    "Run `prog <command> --help` for a command's options.",
+  }, "\n")
+  local asks: {{integer:string}} = {
+    { [0] = "/usr/bin/prog", "--help" },
+    { [0] = "prog", "-h", "build" },
+    { [0] = "prog", "help" },
+  }
+  for _, argv in ipairs(asks) do
+    local done, why = Flags.dispatch(argv, 1, help_commands)
+    assert(done ~= nil and done.code == 0 and done.help == program_help, why)
+  end
+  for _, argv in ipairs({
+    { "help", "build" }, { "build", "--help" }, { "build", "-j", "2", "-h" },
+    { "build", "--nope", "--help" },
+  }) do
+    local done = assert(Flags.dispatch(argv, 1, help_commands, "prog"))
+    assert(done.code == 0 and done.help == build_help, done.help)
+  end
+  local clean = assert(Flags.dispatch({ "clean", "-h" }, 1, help_commands, "prog"))
+  assert(clean.help == "usage: prog clean", clean.help)
+  local unknown, why = Flags.dispatch({ "help", "bulid" }, 1, help_commands, "prog")
+  assert(unknown == nil and why == "no such command: bulid", why)
+  local missing, why_missing = Flags.dispatch({}, 1, help_commands)
+  assert(missing == nil and why_missing == "needs a command: build, clean", why_missing)
+end
+
+local function test_help_after_a_double_dash_or_named_by_the_spec_is_not_help()
+  local seen: {string} = {}
+  local commands: {string:Flags.Command} = {
+    grep = {
+      spec = { ["-h"] = false },
+      run = function(got: Flags.Parsed): integer
+        seen[#seen + 1] = tostring(got.set["-h"]) .. " " .. table.concat(got.words, " ")
+        return 0
+      end,
+    },
+    help = {
+      run = function(got: Flags.Parsed): integer
+        seen[#seen + 1] = "own help " .. #got.words
+        return 0
+      end,
+    },
+  }
+  assert(assert(Flags.dispatch({ "grep", "-h", "x" }, 1, commands)).help == "")
+  assert(assert(Flags.dispatch({ "grep", "--", "--help" }, 1, commands)).help == "")
+  assert(assert(Flags.dispatch({ "help" }, 1, commands)).help == "")
+  assert(seen[1] == "true x" and seen[2] == "nil --help" and seen[3] == "own help 0",
+    table.concat(seen, "|"))
+end
+
+local function test_a_one_dash_option_named_whole_takes_a_value_after_equals()
+  local whole: {string:boolean | Flags.Option} = { ["-std"] = true, ["-é"] = true, ["-n"] = true }
+  local got = assert(Flags.parse({ "-std=-x", "-é=c99", "-std", "c11" }, 1, whole))
+  assert(got.all["-std"][1] == "-x" and got.all["-std"][2] == "c11" and got.values["-é"] == "c99")
+  local _, why = Flags.parse({ "-std", "-x" }, 1, whole)
+  assert(why == "-std needs a value, not -x; give one that begins with \"-\" as -std=-x", why)
+  -- One letter is a cluster, as getopt reads it: the "=" is the value's.
+  assert(assert(Flags.parse({ "-n=3" }, 1, whole)).values["-n"] == "=3")
+end
+
+local function test_a_described_value_needs_a_name()
+  assert(not pcall(Flags.parse, {}, 1, { ["-o"] = { value = "" } }))
+end
+
+local function test_help_aligns_by_characters_not_bytes()
+  local described: {string:boolean | Flags.Option} = {
+    ["-é"] = { value = "n", about = "accented" },
+    ["--long"] = { about = "plain" },
+  }
+  assert(Flags.help("t", described) == table.concat({
+    "usage: t", "", "options:", "  --long  plain", "  -é <n>  accented",
+  }, "\n"), Flags.help("t", described))
+  local commands: {string:Flags.Command} = {
+    ["héllo"] = { about = "Greets.", run = function(_: Flags.Parsed): integer return 0 end },
+    build = { about = "Builds.", run = function(_: Flags.Parsed): integer return 0 end },
+  }
+  local done = assert(Flags.dispatch({ "--help" }, 1, commands, "p"))
+  assert(done.help == table.concat({
+    "usage: p <command>", "", "commands:", "  build  Builds.", "  héllo  Greets.",
+  }, "\n"), done.help)
+end
+
+local function test_help_of_help_and_help_of_too_much()
+  local done = assert(Flags.dispatch({ "help", "--help" }, 1, help_commands, "prog"))
+  assert(done.help:sub(1, 30) == "usage: prog <command> [options", done.help)
+  local refused, why = Flags.dispatch({ "help", "build", "extra" }, 1, help_commands, "prog")
+  assert(refused == nil and why == "help: one command at a time", why)
+  -- "-h" where a value would go is still help: parse would refuse it.
+  local asked = assert(Flags.dispatch({ "build", "-j", "-h" }, 1, help_commands, "prog"))
+  assert(asked.help == build_help, asked.help)
+end
+
+local function test_the_program_is_named_from_argv_zero()
+  local names: {{string}} = {
+    { "C:\\x\\prog.exe", "prog.exe" },
+    { "dir/", "program" },
+    { "p", "p" },
+  }
+  for _, case in ipairs(names) do
+    local done = assert(Flags.dispatch({ [0] = case[1], "--help" }, 1, help_commands))
+    assert(done.help:sub(1, 7 + #case[2]) == "usage: " .. case[2], done.help)
+  end
+  local bare = assert(Flags.dispatch({ "--help" }, 1, help_commands))
+  assert(bare.help:sub(1, 14) == "usage: program", bare.help)
 end
