@@ -85,10 +85,12 @@ promises lean on come first:
   module comment needs a helper, and whether `decode_into` (a TODO in
   shape.tl) earns its place.
 - a spec that agrees with its record. Nothing checks that a `Shape.record`
-  names the fields of the Teal record its answer is annotated as, so a field
-  added to the record and not to the spec is never set. Have `cosmic fix`
-  compare a `Shape.record` literal with the record its `into` flows into, and
-  hold the tree to it; generating a spec from the record is the alternative.
+  or `Shape.strict_record` names the fields of the Teal record its answer is
+  annotated as, so a field added to the record and not to the spec is never
+  set (and a strict one refuses the key outright). Have `cosmic fix` compare
+  a `Shape.record` or `Shape.strict_record` literal with the record its
+  `into` flows into, and hold the tree to it; generating a spec from the
+  record is the alternative.
 - read clang's JSON syntax tree in `build/c/tree.tl`. It reads the text form
   of `-Xclang -ast-dump`, and `rules.tl` digs about sixteen facts out of a
   node's text line (an operator, a cast's kind, a type, `static`, a literal's
