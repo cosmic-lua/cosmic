@@ -1049,6 +1049,7 @@ local function test_generated_syscall_docs_carry_header_lines()
       " * ---@class Constants",
       " * ---@field O_RDONLY integer open for reading",
       " */",
+      "COSMIC_CONSTANT(O_RDONLY)",
     }, "\n") .. "\n",
     ["cosmic/sys_example.tl"] = table.concat({
       'local syscalls = require("cosmic.sys")',
