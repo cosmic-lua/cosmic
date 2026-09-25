@@ -62,4 +62,12 @@ function Store.databases(): {Sqlite.Handle}
   return store.databases()
 end
 
+--- Calls `fn` searching only the binary's own database, as a process
+--- that attached none would -- `require`, `meta`, `source` and
+--- `databases` included -- then puts every other back where it was,
+--- whether `fn` returned or raised. Nothing can be attached meanwhile.
+function Store.alone(fn: function())
+  store.alone(fn)
+end
+
 return Store

@@ -433,7 +433,7 @@ end
 -- release, the bootstrap cache's or one on PATH is -- refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
 -- file. `docs` meets it in `build.reboot.stale_exit`, `test` in its own check,
--- and `db` with an option it lacks in the check cmd/cosmic/main.tl makes
+-- and `db` with an option it lacks in the check build/dispatch.tl makes
 -- before it calls a refused command line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
