@@ -270,8 +270,9 @@ those over the syscall table. the checker resolves the types of a
 build reading its inputs; tl's loader, the part that would compile
 and run a module, is never called, and `package.path`'s absence in
 the runtime is never observed. the compiler is not patched for any
-of this. before Teal exists, at boot, a short Lua bridge held as
-text in the C core supplies the same environment.
+of this. before Teal exists, at boot, a short Lua bridge,
+`core/bridge.lua`, which the boot reads from the tree as it reads the
+vendored compiler, supplies the same environment.
 
 Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
 defines, so assigning an undeclared global is a compile error and
@@ -488,8 +489,9 @@ both databases costs in rows, pages, and bytes.
 
 the build is a cosmic program reading the tree by position into the
 database: compile, check, record, embed. `build.zig` owns the C.
-`zig build` produces the patch applier, the patched vendor tree
-under `o/vendor/`, and the core for each target. `zig build boot`
+`bin/zig build` patches the vendored trees first, in Teal (below),
+and `zig build` installs them under `o/vendor/` and produces the core
+for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the vendored `tl.lua`, writes `o/cosmic.db`, and writes one
 portable `o/bin/cosmic`. the tool carries `o/carried.db`, that projection
@@ -602,12 +604,16 @@ url, the archive's sha256, and globs for which files are kept.
 fetches the archive with `cosmic.http`, verifies its sha256, unpacks
 it with `cosmic.archive`, and rewrites the tree to exactly the kept
 files -- no `curl`, `tar` or `unzip`, and from any directory, since a
-standalone run reads nothing of the tree but the one file.
+standalone run loads nothing of the tree but the one file.
 `patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
-it exists. a ~400-line C applier that zig builds first writes the
-patched copy to `o/vendor/<name>`; a record whose anchor no longer
-matches fails the build by name.
+it exists. `bin/zig build` runs `build/patch.tl` standalone on the
+bootstrap cosmic before zig, which writes each patched copy whole into
+zig's project cache, in a directory named by a hash of the applier,
+the vendored files and the records -- the same path from every
+checkout, so zig, which keys a C object by its source's path, compiles
+a vendored file once for all of them -- and hands zig their manifest;
+a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,
 xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, and tl;
@@ -793,7 +799,7 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
+core/bridge.lua     the boot environment for tl.lua, Lua written by hand
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)

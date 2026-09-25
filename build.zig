@@ -1,5 +1,5 @@
-//! The C build: the patch applier, the patched vendor trees, and the core
-//! executable for each target.
+//! The C build: the core executable for each target, from the patched
+//! vendor trees bin/zig writes first (build/patch.tl).
 //!
 //!     bin/zig build cores     the core for all three targets
 //!     bin/zig build boot      the host core, then the boot bridge
@@ -433,14 +433,13 @@ pub fn build(b: *std.Build) void {
     // Everything the vendored libraries are compiled from sits in the zig
     // cache, where its path is the same from every checkout of the tree:
     // zig keys a C object by its source's path and its flags' bytes, and a
-    // path into the tree is an absolute one. The patched trees are the
-    // applier's output, so the applier itself compiles from a copy of its
-    // source (a binary carries its source's path, and a step running it is
-    // keyed by its bytes), and the configuration headers the libraries read
-    // from core/ are copied beside it. A checkout sharing another's zig
-    // cache then compiles none of vendor/ again.
+    // path into the tree is an absolute one. The patched trees are
+    // build/patch.tl's output, which bin/zig writes before it runs zig into
+    // directories named by their contents (`patchedTrees`), and the
+    // configuration headers the libraries read from core/ are copied here.
+    // A checkout sharing another's zig cache then compiles none of vendor/
+    // again.
     const copies = b.addWriteFiles();
-    const applier_source = copies.addCopyFile(b.path("core/patch.c"), "patch/patch.c");
     _ = copies.addCopyFile(b.path("core/ares_config.h"), "include/ares_config.h");
     _ = copies.addCopyFile(b.path("core/curl_config.h"), "include/curl_config.h");
     _ = copies.addCopyFile(b.path("core/mbedtls_cosmic_config.h"), "include/mbedtls_cosmic_config.h");
@@ -448,30 +447,17 @@ pub fn build(b: *std.Build) void {
     _ = copies.addCopyDirectory(b.path("core/darwin-compat"), "darwin-compat", .{});
     const vendor_config = copies.getDirectory();
 
-    // The applier is a host tool, built before anything it feeds.
-    const applier = b.addExecutable(.{
-        .name = "patch",
-        .root_module = b.createModule(.{
-            .target = baselineHostTarget(b),
-            .optimize = .ReleaseSafe,
-            .link_libc = true,
-        }),
-    });
-    applier.root_module.addCSourceFile(.{
-        .file = applier_source,
-        .flags = &own_c,
-    });
-
-    const lua = patched(b, applier, "lua");
-    const sqlite = patched(b, applier, "sqlite");
-    const tl = patched(b, applier, "tl");
-    const miniz = patched(b, applier, "miniz");
-    const mbedtls = patched(b, applier, "mbedtls");
-    const bzip2 = patched(b, applier, "bzip2");
-    const xz = patched(b, applier, "xz");
-    const cares = patched(b, applier, "cares");
-    const curl = patched(b, applier, "curl");
-    const yyjson = patched(b, applier, "yyjson");
+    const trees = patchedTrees(b);
+    const lua = patched(b, trees, "lua");
+    const sqlite = patched(b, trees, "sqlite");
+    const tl = patched(b, trees, "tl");
+    const miniz = patched(b, trees, "miniz");
+    const mbedtls = patched(b, trees, "mbedtls");
+    const bzip2 = patched(b, trees, "bzip2");
+    const xz = patched(b, trees, "xz");
+    const cares = patched(b, trees, "cares");
+    const curl = patched(b, trees, "curl");
+    const yyjson = patched(b, trees, "yyjson");
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -493,13 +479,6 @@ pub fn build(b: *std.Build) void {
 
     const cores = b.step("cores", "build the core for every target");
     const boot = b.step("boot", "build the host core, then bridge into Teal");
-    // The applier is installed beside the cores, as o/tool/patch, so a
-    // test (build/patch_test.tl) can run it on trees of its own; every
-    // build otherwise runs it only on the trees the checkout holds.
-    const applier_install = b.addInstallArtifact(applier, .{
-        .dest_dir = .{ .override = .{ .custom = "tool" } },
-    });
-    boot.dependOn(&applier_install.step);
     const portable_hook_cores = b.step(
         "portable-hook-cores",
         "build release and retained-artifact test fixture cores",
@@ -824,48 +803,40 @@ fn launcherHelper(
     return b.addExecutable(.{ .name = name, .root_module = mod });
 }
 
-/// The patched copy of one vendored library, as a directory the core's
-/// sources are read from. The dependency on the applier is expressed by
-/// consuming its output, so nothing declares an order by hand.
-fn patched(
-    b: *std.Build,
-    applier: *std.Build.Step.Compile,
-    name: []const u8,
-) std.Build.LazyPath {
-    const vendor = b.fmt("vendor/{s}", .{name});
-    const patch_dir = b.fmt("patch/{s}", .{name});
-
-    // The tree is named by its PIN file (see core/patch.c): a file argument
-    // is hashed by its path under the build root, a directory argument by
-    // its absolute path, which would give each checkout its own patched
-    // copy and so its own compile of every vendored file.
-    const run = b.addRunArtifact(applier);
-    run.addFileArg(b.path(b.fmt("{s}/PIN", .{vendor})));
-
-    // A directory argument names a place, not its contents. Every file
-    // under both trees is added as an input in its own right, so editing
-    // one record or one upstream file reruns the applier.
-    watchTree(b, run, vendor);
-    watchTree(b, run, patch_dir);
-
-    return run.addOutputDirectoryArg(name);
+/// The patched vendor trees bin/zig wrote before it ran zig
+/// (build/patch.tl), as the manifest it names with `-Dpatched=` holds
+/// them: a name, a tab and a directory per line. Each directory is named
+/// by its contents, so its path is the same from every checkout.
+fn patchedTrees(b: *std.Build) []const u8 {
+    const manifest = b.option([]const u8, "patched",
+        "the patched vendor trees' manifest bin/zig writes") orelse {
+        std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
+        std.process.exit(1);
+    };
+    return std.Io.Dir.cwd().readFileAlloc(b.graph.io, manifest, b.allocator, .limited(1 << 20)) catch |err| {
+        std.debug.print("build.zig: cannot read {s}: {s}\n", .{ manifest, @errorName(err) });
+        std.process.exit(1);
+    };
 }
 
-/// Adds every file under `rel` as an input of `run`.
-fn watchTree(b: *std.Build, run: *std.Build.Step.Run, rel: []const u8) void {
-    const io = b.graph.io;
-    var dir = b.build_root.handle.openDir(io, rel, .{ .iterate = true }) catch return;
-    defer dir.close(io);
-    var walker = dir.walk(b.allocator) catch return;
-    defer walker.deinit();
-    while (walker.next(io) catch null) |entry| {
-        if (entry.kind != .file) continue;
-        run.addFileInput(b.path(b.pathJoin(&.{ rel, entry.path })));
+/// The patched copy of one vendored library, as a directory the core's
+/// sources are read from: the one `trees`, the manifest bin/zig wrote,
+/// names for it. Its contents are its name, so nothing under it is
+/// watched.
+fn patched(b: *std.Build, trees: []const u8, name: []const u8) std.Build.LazyPath {
+    var lines = std.mem.splitScalar(u8, trees, '\n');
+    while (lines.next()) |line| {
+        const tab = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
+        if (std.mem.eql(u8, line[0..tab], name)) {
+            return .{ .cwd_relative = b.dupe(line[tab + 1 ..]) };
+        }
     }
+    std.debug.print("build.zig: the patched trees' manifest names no {s}\n", .{name});
+    std.process.exit(1);
 }
 
 /// Clang's static analyzer, the one `bin/zig cc` carries, over every C
-/// file of this tree's own that a core or the patch applier is built
+/// file of this tree's own that a core is built
 /// from, with the includes, defines and warnings those builds use: a
 /// finding fails the step. The vendored libraries are not analyzed; their
 /// findings are theirs.
@@ -883,7 +854,7 @@ fn analyze(
     yyjson: std.Build.LazyPath,
 ) void {
     const extra = [_][]const u8{
-        "entry.c", "startup_hook.c", "testing.c", "testing_checked.c", "patch.c",
+        "entry.c", "startup_hook.c", "testing.c", "testing_checked.c",
     };
     const crypto = mbedtls.path(b, "tf-psa-crypto");
     for (core_sources ++ extra) |file| {
@@ -1450,12 +1421,12 @@ fn hostName(b: *std.Build) []const u8 {
 ///
 /// Every tool the build runs on the host is built for this target too, not
 /// `b.graph.host`: a tool's bytes are part of the cache key of every step
-/// that runs it, and the patch applier's output directory is the path every
-/// vendored C file compiles from. Built for the detected CPU, a restored
-/// cache from a runner on other hardware missed on every vendored object;
-/// built for the detected kernel and glibc versions, it missed after every
-/// runner image update (linux-aarch64 compiled for over a minute a run once
-/// its image moved from 20260907 to 20260920).
+/// that runs it. Built for the detected CPU, a restored cache from a runner
+/// on other hardware missed on every such step; built for the detected
+/// kernel and glibc versions, it missed after every runner image update
+/// (linux-aarch64 compiled for over a minute a run once its image moved
+/// from 20260907 to 20260920, when the patch applier was such a tool and
+/// every vendored object compiled from its output).
 fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     const host = b.graph.host.result;
     const query: std.Target.Query = .{
