@@ -217,9 +217,9 @@ local function checked_suite(c: Context, target: string, work: string): integer
   s = checked(c, "checked runtime context", { cosmic,
     c.root .. "/test/portable/tool.tl", "checked-context", core, target }, 30000)
   if s ~= 0 then return s end
-  -- The suite on the checked core costs a leg about a minute. Most of what they check is the same on every
-  -- platform, so the workflow runs them on one leg, and the others set
-  -- COSMIC_CI_CHECKED_SUITE=skip; the checked core is still built and
+  -- The suite on the checked core costs a leg about a minute. Most of
+  -- what it checks is the same on every platform, so the workflow runs
+  -- it on one leg, and the others set COSMIC_CI_CHECKED_SUITE=skip; the checked core is still built and
   -- verified above, and the fixtures still use it.
   -- TODO: the core's platform-conditional C (__APPLE__, __aarch64__ in
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer

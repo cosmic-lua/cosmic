@@ -167,6 +167,9 @@ end
 -- A costly property caps what FUZZ_ITERS may ask of it; a count the
 -- property names itself stands. FUZZ_ITERS is whatever the run set: CI
 -- sets 0, a deep run more than the cap.
+-- TODO: under CI's FUZZ_ITERS=0 the cap is never met, so only a local or
+-- nightly run checks it; once cosmic.env can set a variable for a
+-- call, set FUZZ_ITERS above the cap here.
 local function test_max_iters_caps_the_count_but_not_a_named_one()
   local function holds(_input: string): boolean, string return true, "" end
   local asked = math.tointeger(tonumber(Env.get_or("FUZZ_ITERS", "64"))) or 64
