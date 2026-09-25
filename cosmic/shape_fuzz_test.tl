@@ -194,11 +194,23 @@ local function check_total(input: string): boolean, string
   local spec = gen_spec(r, 3)
   local value = gen_value(r, spec, 4, false)
   local out, err: any, string = Shape.into(value, spec)
+  -- into_all fails exactly when into does, and answers the same value.
+  local all_out, failures: any, {Shape.Failure} = Shape.into_all(value, spec)
+  if (err == "") ~= (#failures == 0) then
+    return false, ("into answered %q, into_all %d failures"):format(err, #failures)
+  end
+  for _, f in ipairs(failures) do
+    if f.message:sub(1, #f.path + 2) ~= f.path .. ": " then
+      return false, "a failure's message does not start with its path: " .. f.message
+    end
+  end
   if err ~= "" then
     if out ~= nil then return false, "a failure answered a value" end
+    if all_out ~= nil then return false, "into_all's failure answered a value" end
     if err:sub(1, 1) ~= "$" then return false, "a failure without a path: " .. err end
     return true, ""
   end
+  if not same(out, all_out) then return false, "into_all answered another value than into" end
   if not fits(out, spec) then return false, "the answer is not its shape" end
   local again, err2: any, string = Shape.into(out, spec)
   if err2 ~= "" then return false, "the answer does not fit its own shape: " .. err2 end

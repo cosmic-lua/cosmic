@@ -191,3 +191,78 @@ local function test_a_spec_not_built_here_raises()
   assert(not pcall(Shape.record, { a = { kind = "strig" } as Shape.Spec }))
   assert(not pcall(Shape.either))
 end
+
+--- Each failure `into_all` lists, as its message.
+local function all_fail(value: any, spec: Shape.Spec): {string}
+  local v, failures = Shape.into_all(value, spec)
+  assert(v == nil, "expected a failure")
+  local messages: {string} = {}
+  for i, f in ipairs(failures) do
+    assert(f.message:sub(1, #f.path + 2) == f.path .. ": ", f.message)
+    messages[i] = f.message
+  end
+  return messages
+end
+
+local function same(got: {string}, want: {string})
+  local g, w = table.concat(got, "\n"), table.concat(want, "\n")
+  assert(g == w, ("wanted\n%s\ngot\n%s"):format(w, g))
+end
+
+-- A config file's author sees every mistake at once, in the order the
+-- walk meets them, while `into` still answers only the first.
+local function test_into_all_names_every_value_that_does_not_fit()
+  local spec = Shape.record({
+    host = Shape.string,
+    port = Shape.integer,
+    level = Shape.one_of("debug", "info"),
+    rows = Shape.list(Shape.record({ id = Shape.string })),
+    tags = Shape.map(Shape.boolean),
+  })
+  local value: {string: any} = {
+    port = "8080", level = "warn",
+    rows = { { id = 1 }, { id = "b" }, { id = true } },
+    tags = { b = 1, a = "x", c = true, [7] = true },
+  }
+  same(all_fail(value, spec), {
+    "$.host: expected string, got nothing",
+    '$.level: expected one of "debug", "info", got "warn"',
+    "$.port: expected integer, got string",
+    "$.rows[1].id: expected string, got integer",
+    "$.rows[3].id: expected string, got boolean",
+    "$.tags: expected map, got the integer key 7",
+    "$.tags.a: expected boolean, got string",
+    "$.tags.b: expected boolean, got integer",
+  })
+  fails(value, spec, "$.host: expected string, got nothing")
+  local _, failures = Shape.into_all(value, spec)
+  assert(failures[3].path == "$.port")
+end
+
+local function test_into_all_answers_the_value_and_no_failures_when_it_fits()
+  local s, failures: Server, {Shape.Failure} = Shape.into_all({ host = "h", port = 1.0 }, SERVER)
+  assert(#failures == 0)
+  assert(s.host == "h" and math.type(s.port) == "integer")
+end
+
+-- A value that fails where it stands is one failure, a run of holes
+-- is one, and an either answers the choice that got inside the value.
+local function test_into_all_keeps_each_failure_to_one_per_value()
+  same(all_fail("text", SERVER), { "$: expected record, got string" })
+  same(all_fail({ [2] = "b", [3] = 3, [6] = "f" }, Shape.list(Shape.string)), {
+    "$[1]: expected string, got nothing",
+    "$[3]: expected string, got integer",
+    "$[4]: expected string, got nothing",
+  })
+  same(all_fail({ [1 << 40] = 1 }, Shape.list(Shape.string)), {
+    "$[1]: expected string, got nothing",
+    ("$[%d]: expected string, got integer"):format(1 << 40),
+  })
+  local names = Shape.either(Shape.string, Shape.list(Shape.string))
+  same(all_fail({ 1, "b", 3 }, names), {
+    "$[1]: expected string, got integer",
+    "$[3]: expected string, got integer",
+  })
+  same(all_fail(true, names), { "$: expected string or list, got boolean" })
+  assert(not pcall(Shape.into_all, {}, {} as Shape.Spec))
+end

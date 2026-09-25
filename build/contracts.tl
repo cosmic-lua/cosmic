@@ -155,6 +155,9 @@ local exempt: {string: string} = {
   ["cosmic/child.tl:Child.wait_any"] =
     "a finished handle comes back with its group's lingering-member " ..
     "trouble, which a caller reports beside the handle's result",
+  ["cosmic/shape.tl:Shape.into_all"] =
+    "into's value and reason, the reason a list of every failure: " ..
+    "nil beside a non-empty list, the value beside an empty one",
 }
 
 local parsing: {string: string} = {
@@ -214,6 +217,9 @@ local casts: {string: string} = {
     "unrelated records",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
+    "walk has just built to the spec",
+  ["cosmic/shape.tl:Shape.into_all"] =
+    "into's cast from any, to the caller's annotation, of a value " ..
     "walk has just built to the spec",
   ["cosmic/sqlite.tl:bind"] =
     "a caller's parameter table is checked for keys its " ..
