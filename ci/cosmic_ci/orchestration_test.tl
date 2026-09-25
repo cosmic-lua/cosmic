@@ -138,6 +138,7 @@ local function test_platform_protects_paths_and_retains_primary_failure(tmp: str
 set -eu
 test ! -e o/build.db
 mkdir -p o/bin
+printf '%s' "$COSMIC_ZIG_CACHE" > o/zig-cache-named
 printf not-a-database > o/build.db
 cat > o/bin/cosmic <<'INNER'
 #!/bin/sh
@@ -176,34 +177,43 @@ chmod 755 o/bin/cosmic
   assert(outcome.result.code == 23, "suite failure was not primary")
   assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
-  -- The project cache is seeded into o/; zig's global cache is not, since
-  -- bin/zig uses it where it was restored (COSMIC_ZIG_GLOBAL_CACHE).
-  assert(Predicate.is_dir(fake .. "/o/zig-cache"), "project cache was not seeded")
+  -- Neither of zig's caches is copied into o/: bin/zig uses both where
+  -- they were restored, the project cache under the seed
+  -- (COSMIC_ZIG_CACHE) and the global one (COSMIC_ZIG_GLOBAL_CACHE).
+  assert(Fs.read(fake .. "/o/zig-cache-named") == seed .. "/zig-cache",
+    "the project cache was not used where it was restored")
+  assert(not Predicate.is_dir(fake .. "/o/zig-cache"), "project cache was copied into o/")
   assert(not Predicate.is_dir(fake .. "/o/zig-global"), "global cache was copied into o/")
   assert(Fs.exists(fake .. "/o/poison") == false)
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")
 end
 
---- cache-save copies the candidate's project cache back over the seed's:
---- the earlier save is gone, the new one sits at seed/zig-cache itself,
---- not nested inside it, and it keeps its files' bytes and modes.
-local function test_cache_save_replaces_the_seeds_project_cache(tmp: string)
+--- A local run names a project cache to start from
+--- (COSMIC_ZIG_CACHE_FROM), a developer's shared one: the build copies
+--- it into o/ and builds with the copy, leaving the one it came from as
+--- it was.
+local function test_a_local_build_copies_the_project_cache_into_o(tmp: string)
   local base, project = command(tmp)
-  local fake, seed = tmp .. "/fake", tmp .. "/seed"
-  assert(Fs.mkdirs(fake .. "/o/zig-cache/o/abc") and Fs.mkdirs(seed .. "/zig-cache"))
-  assert(Fs.write(fake .. "/o/zig-cache/o/abc/tool", "compiled", 0x1ed))
-  assert(Fs.write(seed .. "/zig-cache/stale", "old"))
+  local fake, from = tmp .. "/fake", tmp .. "/from"
+  assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(from .. "/o"))
+  assert(Fs.write(from .. "/o/entry", "compiled"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  Fixture.write(fake .. "/bin/zig", [[#!/bin/sh
+printf '%s' "$COSMIC_ZIG_CACHE" > "$COSMIC_ZIG_CACHE/named"
+exit 9
+]], 493)
   local runner_temp = tmp .. "/runner-temp"
   assert(Fs.mkdirs(runner_temp))
-  local outcome = Fixture.call("cache-save", append(base, { "platform", "cache-save" }),
+  -- Under CI the job's own seed is inherited: an empty one names none.
+  local outcome = Fixture.call("local-build", append(base, { "platform", "build" }),
     project, tmp .. "/logs", context(fake, runner_temp, {
-      TARGET = "x86_64-linux-musl", COSMIC_ZIG_CACHE_SEED = seed,
+      TARGET = "x86_64-linux-musl", COSMIC_ZIG_CACHE_FROM = from,
+      COSMIC_ZIG_CACHE_SEED = "",
     }))
-  assert(outcome.result.ok, "cache-save failed: " .. Fixture.read(outcome.err))
-  assert(Fs.read(seed .. "/zig-cache/o/abc/tool") == "compiled")
-  assert(assert(Fs.stat(seed .. "/zig-cache/o/abc/tool")).mode & 0x1ff == 0x1ed)
-  assert(Fs.exists(seed .. "/zig-cache/stale") == false, "the earlier save was kept")
-  assert(Fs.exists(seed .. "/zig-cache/zig-cache") == false, "the save was nested")
+  assert(not outcome.result.ok, "the build passed a failed bin/zig")
+  local copy = assert(Fs.absolute(fake)) .. "/o/zig-cache"
+  assert(Fs.read(copy .. "/o/entry") == "compiled", "the project cache was not copied into o/")
+  assert(Fs.read(copy .. "/named") == copy, "the build did not use the copy")
+  assert(Fs.exists(from .. "/named") == false, "the build wrote the cache it copied")
 end
