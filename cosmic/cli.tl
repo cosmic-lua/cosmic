@@ -72,7 +72,9 @@ local record Cli
   --- directory, then writes one executable under o/bin/ for each
   --- cmd/<name>/main.tl it holds -- or only those under the paths --
   --- o/bin/<name>, which runs on its own, with nothing beside it -- see
-  --- cmd. It runs on every supported system
+  --- cmd. It runs on every supported system, and carries this binary's
+  --- CA roots and time zones, which `cosmic refresh --binary
+  --- o/bin/<name>` updates later
   build: string
   --- `cosmic db [path...]`: what the two databases under o/ hold,
   --- table by table -- rows, pages, bytes -- how the last few builds
@@ -123,7 +125,9 @@ local record Cli
   --- build` writes carries the same rows
   bom: string
   --- `cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...]
-  --- [dataset...]`: writes to path a copy of this binary -- or of the
+  --- [dataset...]`: to update the CA certificates a binary trusts and
+  --- the time zone database it carries when they go out of date, with no
+  --- rebuild, writes to path a copy of this binary -- or of the
   --- one --binary names, a program `cosmic build` wrote, say -- whose
   --- data is replaced with a newer release: the CA roots it trusts
   --- (cacert, Mozilla's bundle as curl publishes it) and the time zones

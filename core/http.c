@@ -122,6 +122,13 @@ static struct script *live_scripts;
  * once and kept for the life of the process: `use_roots` hands it to
  * every TLS connection, a proxy's included. */
 static mbedtls_x509_crt roots;
+
+/* What a failure the carried roots may cause says after it: how this
+ * binary, or a program built with it, gets newer ones. */
+#define STALE_ROOTS \
+  "the CA roots this binary carries may be out of date: `cosmic refresh cacert " \
+  "--binary <this program> -o <copy>` writes a copy with newer ones, and " \
+  "$SSL_CERT_FILE names more to trust"
 static int roots_ready;
 
 /* Adds the certificates in $SSL_CERT_FILE, when it names a readable
@@ -196,7 +203,7 @@ static const char *load_roots (lua_State *L) {
   }
   sqlite3_finalize(stmt);
   if (trouble == NULL && trusted == 0) {
-    trouble = "no CA roots: the binary's database holds none";
+    trouble = "no CA roots: the binary's database holds none; " STALE_ROOTS;
   }
   if (trouble == NULL && !add_cert_file()) {
     trouble = "no memory for $SSL_CERT_FILE";
@@ -640,6 +647,25 @@ static const char *transfer_error (struct transfer *t) {
   return t->errbuf;
 }
 
+/* Pushes `t`'s failure: curl's message, and for a peer whose chain
+ * leads to no root this binary carries, how to get newer ones. Only
+ * that flag is the roots' doing -- a name that does not match, or an
+ * expired certificate, is the peer's -- and curl's mbedtls backend
+ * says which flags were set only in its message, as mbedtls's
+ * `mbedtls_x509_crt_verify_info` words them.
+ * TODO: read the verify flags rather than their wording, once a record
+ * under patch/curl/ has vendor/curl/lib/vtls/mbedtls.c's mbed_verify_cb
+ * keep them where CURLINFO_SSL_VERIFYRESULT answers. */
+static void push_transfer_error (lua_State *L, struct transfer *t) {
+  const char *message = transfer_error(t);
+  if (t->result == CURLE_PEER_FAILED_VERIFICATION &&
+      strstr(message, "not correctly signed by the trusted CA") != NULL) {
+    lua_pushfstring(L, "%s; %s", message, STALE_ROOTS);
+  } else {
+    lua_pushstring(L, message);
+  }
+}
+
 /* ---- teardown ------------------------------------------------------ */
 
 #ifdef COSMIC_CHECKED
@@ -765,7 +791,7 @@ static int handle_read (lua_State *L) {
     if (t->body_len == 0) {
       lua_pushnil(L);
       if (t->result != CURLE_OK) {
-        lua_pushstring(L, transfer_error(t));
+        push_transfer_error(L, t);
       } else {
         lua_pushliteral(L, ""); /* clean end of body */
       }
@@ -1121,7 +1147,7 @@ static int http_open (lua_State *L) {
   /* A failure after the headers is the body's, for `read` to report. */
   if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
     lua_pushnil(L);
-    lua_pushstring(L, transfer_error(t));
+    push_transfer_error(L, t);
     transfer_release(t);
     return 2;
   }

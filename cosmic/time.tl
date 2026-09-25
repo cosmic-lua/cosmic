@@ -879,7 +879,12 @@ function Time.zone(name: string): Time.Zone | nil, string
     carried_names = names
   end
   if not carried_names[name] then
-    return nil, refuse(("no time zone %s: this binary's tz database has none"):format(name))
+    -- A zone IANA added since the database was built is one a newer
+    -- database has: say how this binary, or a program built with it,
+    -- gets one.
+    return nil, refuse(("no time zone %s: this binary's tz database has none; if the zone is " ..
+      "new, `cosmic refresh tzdata --binary <this program> -o <copy>` writes a copy with a " ..
+      "newer database"):format(name))
   end
   local carried, trouble = Store.zoneinfo(name)
   if carried == nil then return nil, ("time zone %s: %s"):format(name, trouble) end

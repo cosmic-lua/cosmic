@@ -694,3 +694,12 @@ local function test_a_directory_is_no_zone()
   local z, why = Time.zone("America")
   assert(z == nil and why:find("America", 1, true), why)
 end
+
+--- A zone the carried database lacks may be one IANA added since: the
+--- refusal says how to get a newer database.
+local function test_a_missing_zone_names_the_way_to_a_newer_database()
+  local missing, why = Time.zone("Nowhere/Newly_Added")
+  assert(missing == nil)
+  assert(why:find("no time zone Nowhere/Newly_Added", 1, true), why)
+  assert(why:find("`cosmic refresh tzdata --binary <this program> -o <copy>`", 1, true), why)
+end
