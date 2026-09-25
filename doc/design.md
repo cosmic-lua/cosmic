@@ -307,6 +307,10 @@ input to the build, never to the runtime. one database holds:
   kind (module, test, example, main), and the test or example names
   the compile step found. the Lua tl generated on the way stays in
   the working database: nothing that reads a shipped file loads it.
+  the source is stored raw-deflated, as a declaration's is: only an
+  uncaught error and a checker typing another tree read it, and each
+  inflates it. `inflate(X)`, which every `cosmic.sqlite` handle knows,
+  reads it back in a query.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with

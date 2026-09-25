@@ -6,6 +6,7 @@
 
 #include <ctype.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +16,10 @@
 #include "check.h"
 #include "coverage.h"
 #include "crypto.h"
+#include "compress.h"
 #include "lauxlib.h"
 #include "executable.h"
+#include "memory.h"
 #include "sqlite3.h"
 #include "store.h"
 #include "startup.h"
@@ -351,11 +354,21 @@ static bool source_position (lua_State *L, const char *message) {
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
     bool owned = false;
     bool found = false;
+    unsigned char *source = NULL;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
       owned = true;
       const char *file = (const char *)sqlite3_column_text(stmt, 0);
-      const char *source = (const char *)sqlite3_column_text(stmt, 1);
-      const char *p = source == NULL ? "" : source;
+      /* The build stores source deflated (`build.writer`). A row that
+       * will not inflate prints no line rather than a wrong one. */
+      const void *stream = sqlite3_column_blob(stmt, 1);
+      size_t stream_len = (size_t)sqlite3_column_bytes(stmt, 1);
+      size_t source_len = 0;
+      if (stream != NULL &&
+          cosmic_inflate_raw(stream, stream_len, SIZE_MAX, &source,
+                             &source_len) != NULL) {
+        source = NULL;
+      }
+      const char *p = source == NULL ? "" : (const char *)source;
       for (long at = 1; at < line && *p != '\0'; at++) {
         const char *nl = strchr(p, '\n');
         p = nl == NULL ? p + strlen(p) : nl + 1;
@@ -372,6 +385,7 @@ static bool source_position (lua_State *L, const char *message) {
         found = true;
       }
     }
+    cosmic_free(source);
     sqlite3_finalize(stmt);
     if (owned) {
       return found;

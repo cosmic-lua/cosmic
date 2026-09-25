@@ -1,6 +1,7 @@
 #include "store.h"
 
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include "http.h"
 #include "json.h"
 #include "guard.h"
+#include "memory.h"
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"
@@ -301,6 +303,9 @@ static int store_attach (lua_State *L) {
   if (rc == SQLITE_OK) {
     rc = sqlite3_set_authorizer(db, reads_only, NULL);
   }
+  if (rc == SQLITE_OK) {
+    rc = cosmic_sqlite_functions(db);
+  }
   if (rc != SQLITE_OK) {
     lua_pushboolean(L, 0);
     lua_pushstring(L, db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db));
@@ -326,6 +331,8 @@ static int store_attach (lua_State *L) {
 }
 
 static void release_statement (void *stmt) { sqlite3_finalize(stmt); }
+
+static void release_block (void *block) { cosmic_free(block); }
 
 /* Pushes the one column `sql` answers for `key` in `db` and returns 1,
  * or pushes nothing and returns 0 when no row answers. The statement is
@@ -384,11 +391,37 @@ static int store_bytecode (lua_State *L) {
   return 2;
 }
 
+/* Replaces the raw deflate stream on top of the stack with what it
+ * decodes to. Returns NULL, or why not with the stream left in place. */
+static const char *inflate_top (lua_State *L) {
+  int at = lua_gettop(L);
+  size_t len;
+  const char *stream = lua_tolstring(L, at, &len);
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_block);
+  int slot = lua_gettop(L);
+  unsigned char *text = NULL;
+  size_t text_len = 0;
+  const char *why = cosmic_inflate_raw(stream, len, SIZE_MAX, &text,
+                                       &text_len);
+  if (why != NULL) {
+    lua_closeslot(L, slot);
+    lua_remove(L, slot);
+    return why;
+  }
+  guard->resource = text;
+  lua_pushlstring(L, (const char *)text, text_len);
+  lua_closeslot(L, slot);
+  lua_remove(L, slot);
+  lua_replace(L, at);
+  return NULL;
+}
+
 /* One module's Teal source, or a declaration's, from the database
  * attached to the running binary and no other: what a checker building
  * some other tree needs in order to type a `require` of this one's
  * modules. Only the binary's rows answer, so a project's own database
- * can never stand in for the standard library's types. */
+ * can never stand in for the standard library's types. The build stores
+ * both deflated (`build.writer`), so each is inflated here. */
 static int store_source (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -400,6 +433,12 @@ static int store_source (lua_State *L) {
   };
   for (size_t i = 0; db != NULL && i < sizeof queries / sizeof *queries; i++) {
     if (lookup(L, db, queries[i], name)) {
+      const char *why = inflate_top(L);
+      if (why != NULL) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "the source of '%s' in the binary: %s", name, why);
+        return 2;
+      }
       lua_pushliteral(L, "");
       return 2;
     }
@@ -794,6 +833,9 @@ void cosmic_store_install (lua_State *L, sqlite3 *binary,
   lua_newtable(L);
   if (binary != NULL) {
     sqlite3_set_authorizer(binary, reads_only, NULL);
+    /* Without them a query of the binary's rows answers "no such
+     * function", which is all a failure here costs. */
+    (void)cosmic_sqlite_functions(binary);
     lua_pushlightuserdata(L, binary);
     lua_seti(L, -2, 1);
   }

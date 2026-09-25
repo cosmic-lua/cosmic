@@ -4,8 +4,10 @@
 #include <string.h>
 
 #include "check.h"
+#include "compress.h"
 #include "lauxlib.h"
 #include "crypto.h"
+#include "memory.h"
 #include "sqlite3.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
@@ -149,6 +151,55 @@ static void hmac_function (sqlite3_context *ctx, int argc,
   finish_digest(ctx, status, mac, mac_len);
 }
 
+/* `deflate(X)` is the raw deflate of a text or blob, as
+ * `Compress.deflate("raw", X)` writes it, and `inflate(X)` what such a
+ * stream decodes to, as a blob, or an error when it is not one: how the
+ * build stores text a reader rarely needs, and how a query reads it
+ * back (`CAST(inflate(source) AS TEXT)`). A NULL argument gives NULL. The
+ * result is copied out and freed here: SQLite must never free a block
+ * of the core's own heap. */
+static void deflate_function (sqlite3_context *ctx, int argc,
+                              sqlite3_value **argv) {
+  if (any_null(argc, argv)) {
+    sqlite3_result_null(ctx);
+    return;
+  }
+  size_t len;
+  const void *data = bytes_of(argv[0], &len);
+  size_t out_len = 0;
+  unsigned char *out = cosmic_deflate_raw(data, len, &out_len);
+  if (out == NULL) {
+    sqlite3_result_error_nomem(ctx);
+    return;
+  }
+  sqlite3_result_blob64(ctx, out, out_len, SQLITE_TRANSIENT);
+  cosmic_free(out);
+}
+
+static void inflate_function (sqlite3_context *ctx, int argc,
+                              sqlite3_value **argv) {
+  if (any_null(argc, argv)) {
+    sqlite3_result_null(ctx);
+    return;
+  }
+  size_t len;
+  const void *data = bytes_of(argv[0], &len);
+  /* No more than SQLite would hold as one value anyway, so a stream
+   * that decodes to more fails before it is ever all in memory. */
+  int limit = sqlite3_limit(sqlite3_context_db_handle(ctx),
+                            SQLITE_LIMIT_LENGTH, -1);
+  unsigned char *out = NULL;
+  size_t out_len = 0;
+  const char *why = cosmic_inflate_raw(data, len, (size_t)limit, &out,
+                                       &out_len);
+  if (why != NULL) {
+    sqlite3_result_error(ctx, why, -1);
+    return;
+  }
+  sqlite3_result_blob64(ctx, out, out_len, SQLITE_TRANSIENT);
+  cosmic_free(out);
+}
+
 struct function {
   const char *name;
   int arity;
@@ -159,7 +210,21 @@ static const struct function functions[] = {
   {"sha256", 1, sha256_function},
   {"digest", 2, digest_function},
   {"hmac", 3, hmac_function},
+  {"deflate", 1, deflate_function},
+  {"inflate", 1, inflate_function},
 };
+
+int cosmic_sqlite_functions (sqlite3 *db) {
+  int rc = SQLITE_OK;
+  for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
+       i++) {
+    rc = sqlite3_create_function(
+        db, functions[i].name, functions[i].arity,
+        SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL,
+        functions[i].call, NULL, NULL);
+  }
+  return rc;
+}
 
 static int sqlite_open (lua_State *L) {
   size_t path_len;
@@ -186,13 +251,7 @@ static int sqlite_open (lua_State *L) {
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
-  for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
-       i++) {
-    rc = sqlite3_create_function(
-        h->db, functions[i].name, functions[i].arity,
-        SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL,
-        functions[i].call, NULL, NULL);
-  }
+  if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
   if (rc != SQLITE_OK) {
     int result = failed(L, h->db, rc);
     sqlite3_close_v2(h->db);
