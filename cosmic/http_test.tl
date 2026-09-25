@@ -601,3 +601,20 @@ local function test_the_raw_handle_close_returns_no_values()
   assert(select("#", handle.close(handle)) == 0, "close returns no values")
   assert(select("#", handle.close(handle)) == 0, "closing twice returns no values")
 end
+
+--- Every root this binary carries reads as a certificate; a DER
+--- sequence that is none, and bytes that are no DER at all, do not,
+--- and say why.
+local function test_check_certificate_reads_what_the_binary_trusts()
+  local databases = Store.databases()
+  local roots = assert(Sqlite.rows(databases[#databases], "SELECT der, label FROM ca_roots"))
+  assert(#roots > 0)
+  for _, row in ipairs(roots) do
+    local ok, why = Http.check_certificate(row[1].blob)
+    assert(ok and why == "", row[2].text .. ": " .. why)
+  end
+  for _, der in ipairs({ "", "\x30\x03abc", "not der" }) do
+    local ok, why = Http.check_certificate(der)
+    assert(not ok and why ~= "", Codec.hex(der))
+  end
+end

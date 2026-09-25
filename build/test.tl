@@ -1549,6 +1549,12 @@ function test.run(argv: {integer:string}): integer
   -- Both identities are read before the project's database is attached
   -- ahead of the binary's: they name this binary, and a project's own
   -- projection carries the ones of whichever binary wrote it.
+  -- TODO: key verdicts on the data tables the running binary carries
+  -- (`zoneinfo`, `ca_roots`) as well as on `runtime`, which `cosmic
+  -- refresh` leaves as it was: a verdict of a test that read a zone or
+  -- a root stands on a refreshed binary that would now fail it. A
+  -- digest of those rows, written into `meta` by the build and by a
+  -- refresh, would do.
   local tool = Store.meta("compiler") or ""
   local runtime = Store.meta("runtime")
   if runtime == nil or runtime == "" then

@@ -1168,10 +1168,12 @@ function work.zoneinfo_of(db: Sqlite.Handle): {string:string} | nil, string
   return zones, ""
 end
 
---- Replaces the zones the binary will carry with `zones`, by name,
---- written in name order so the table's rowids are a function of them.
-function work.put_zoneinfo(handle: work.Handle, zones: {string:string}): boolean, string
-  local cleared, trouble = handle.db:exec("DELETE FROM zoneinfo")
+--- Replaces every row of the `zoneinfo` table `db` holds with `zones`,
+--- by name, written in name order so the table's rowids are a function
+--- of them: a boot writes the tree's zones this way, and `cosmic
+--- refresh` a fetched release's, so the same zones make the same table.
+function work.write_zones(db: Sqlite.Handle, zones: {string:string}): boolean, string
+  local cleared, trouble = db:exec("DELETE FROM zoneinfo")
   if not cleared then
     return false, trouble
   end
@@ -1181,7 +1183,7 @@ function work.put_zoneinfo(handle: work.Handle, zones: {string:string}): boolean
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    local ok, why = Sqlite.run(handle.db,
+    local ok, why = Sqlite.run(db,
       "INSERT INTO zoneinfo (name, data) VALUES (?1, ?2)",
       { text(name), { blob = zones[name] } })
     if not ok then
@@ -1189,6 +1191,11 @@ function work.put_zoneinfo(handle: work.Handle, zones: {string:string}): boolean
     end
   end
   return true, ""
+end
+
+--- Replaces the zones the binary will carry with `zones`, by name.
+function work.put_zoneinfo(handle: work.Handle, zones: {string:string}): boolean, string
+  return work.write_zones(handle.db, zones)
 end
 
 --- Writes this run's row into `builds`.

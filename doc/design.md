@@ -377,6 +377,16 @@ input to the build, never to the runtime. one database holds:
   came from, so the line a Lua error names is a line of the module's
   own source, read straight out of `modules`.
 
+`ca_roots` and `zoneinfo` go stale on upstream's schedule, not the
+code's, so `cosmic refresh` (`build/refresh.tl`) writes a copy of a
+binary -- the tool, or any executable `cosmic build` wrote -- with
+either replaced from a newer release: fetched from curl.se or PyPI, or
+read from a file. It splits the artifact at its database
+(`artifact.split`), replaces the rows with the same functions a boot
+fills them with, records the release in `components`, and puts the
+database back behind the same head, byte for byte. The binary it reads
+is never written.
+
 every table is `WITHOUT ROWID` on a natural key, except `docs` and
 `catalog`, which FTS5's external-content mode joins by rowid and
 which are therefore keyed on an integer assigned in one deterministic

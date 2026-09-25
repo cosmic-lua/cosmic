@@ -182,8 +182,9 @@ local function plain(path: string): string
 end
 
 --- The archive's files PIN keeps: by archive path, the path each lands
---- at under the tree.
-local function kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string} | nil, string
+--- at under the tree. `cosmic refresh` picks a fetched release's files
+--- out of its archive with this too, by the rules its PIN names.
+function Vendor.kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string} | nil, string
   local out: {string:string} = {}
   local used: {string:boolean} = {}
   local strip = plain(pin.strip)
@@ -289,7 +290,7 @@ local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string)
   if entries == nil then
     return nil, archive_path .. ": " .. list_trouble
   end
-  local files, keep_trouble = kept(pin, entries)
+  local files, keep_trouble = Vendor.kept(pin, entries)
   if files == nil then
     return nil, tree .. ": " .. keep_trouble
   end
