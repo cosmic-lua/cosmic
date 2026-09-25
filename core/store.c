@@ -312,6 +312,10 @@ static int store_attach (lua_State *L) {
   }
   struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
   sqlite3 *db = NULL;
+  /* TODO: open through core/sqlite.c's observed VFS, as `cosmic.sqlite`
+   * does: on the default one a test that attaches a database (a
+   * project's, or o/build.db) reads it where build.filesystem_observations
+   * never sees, and its verdict is keyed without it. */
   int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
                            NULL);
   guard->resource = db;

@@ -99,6 +99,14 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   -- what the run that started it sees.
   local again = said("again", tmp .. "/second", "0 ran, 4 stood, 1 assumed")
   assert(not again:find("another checkout", 1, true), again)
+  -- Started after the tool rebuilt itself, from a shell that was
+  -- elsewhere before its last `cd`: nothing a test is given differs.
+  env.COSMIC_REBOOTED = "1"
+  env.OLDPWD = tmp .. "/elsewhere"
+  checkout(tmp .. "/rebooted", "one\n")
+  said("rebooted", tmp .. "/rebooted", "0 ran, 4 stood, 1 assumed")
+  env.COSMIC_REBOOTED = nil
+  env.OLDPWD = nil
   -- A file one test read differs: that test runs.
   checkout(tmp .. "/changed", "two\n")
   said("changed", tmp .. "/changed", "1 ran, 3 stood, 1 assumed")
@@ -181,6 +189,40 @@ end
   assert(first:find("1 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 1 stood", 1, true), again)
+end
+
+--- What the build left under o/ is an input like any file of the tree:
+--- a checkout whose o/ holds the same bytes stands on a sibling's
+--- verdict of a test that read it, one whose o/ holds other bytes runs
+--- it, and a test that read the working database, which every run
+--- rewrites, runs every time.
+local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: string)
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.COSMIC_TEST_ALL = nil
+  local function said(name: string, tool: string, wanted: string)
+    local root = tmp .. "/" .. name
+    assert(Fs.mkdirs(root .. "/suite"))
+    assert(Fs.mkdirs(root .. "/o/bin"))
+    assert(Fs.write(root .. "/o/bin/tool", tool))
+    assert(Fs.write(root .. "/suite/output_test.tl", [[
+local Fs = require("cosmic.fs")
+
+local function test_reads_the_tool()
+  assert(Fs.read("o/bin/tool") ~= nil)
+  assert(Fs.stat("o/bin/tool") ~= nil)
+end
+
+local function test_reads_the_working_database()
+  assert(Fs.read("o/build.db") ~= nil)
+end
+]]))
+    local text = run(root, tmp .. "/" .. name .. ".out", env)
+    assert(text:find(wanted, 1, true), name .. ": " .. text)
+  end
+  said("first", "one", "2 ran, 0 stood")
+  said("same", "one", "1 ran, 1 stood")
+  said("other", "two", "2 ran, 0 stood")
 end
 
 --- A row stands only under the key this checkout reaches for it --

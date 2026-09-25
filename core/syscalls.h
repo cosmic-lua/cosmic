@@ -83,6 +83,8 @@ int cosmic_open_syscalls (lua_State *L);
  * ---@field mtime_ns integer the nanoseconds part of the modification time
  * ---@field atime integer the access time, whole seconds
  * ---@field atime_ns integer the nanoseconds part of the access time
+ * ---@field ctime integer the status change time, whole seconds
+ * ---@field ctime_ns integer the nanoseconds part of the status change time
  * ---@field ino integer the inode number
  * ---@field dev integer the device the inode is on
  * ---@field nlink integer how many names point at it

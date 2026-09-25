@@ -365,8 +365,11 @@ end
   local result = invoke(root, output, { "suite/hooks_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
   local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
-    COSMIC_PORTABLE_CACHE = "c", PATH = "p" })
+    COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+  -- How this run was started -- after a tool rebuilt itself, from a
+  -- shell that was elsewhere before -- is no worker's to see.
+  assert(kept.COSMIC_REBOOTED == nil and kept.OLDPWD == nil)
   assert(kept.COSMIC_PORTABLE_CACHE == "c" and kept.PATH == "p")
 end
 

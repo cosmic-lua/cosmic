@@ -616,18 +616,22 @@ are closed:
   `tree_name`): `getcwd`, `Fs.absolute`, `realpath` and `Proc.executable` are
   not observed. note each answer, named relative to the tree in the shared key,
   once the syscall table's dispatch observes them.
-- [ ] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, in `under_root`): a read of
-  `o/build.db`, `o/bin/cosmic` or `o/carried.db` is dropped from the key. key
-  each by the build's own hashes of it (`image_hash`, `boot_hash`).
+- [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
+  anything under `o/` is keyed by its bytes, hashed once a run while its stat
+  holds; a read of the working database, which every run rewrites, is never
+  kept.
 - [ ] *a stat's times and inode* (`build/test.tl`, above `held_stat`): the
-  shared key keeps only kind, size and mode. key them whole for a test that
-  declares it reads them.
+  shared key keeps only kind, size and mode, as, under `o/`, the own key does
+  too. key them whole for a test that declares it reads them.
 - [x] *files SQLite opens in C*: `cosmic.sqlite` opens through a VFS
   (core/sqlite.c) that records each file SQLite opens or asks after, and a
   capture notes each an open, keyed by its contents like any other.
 - [ ] *a database a connection opened before the capture*
   (`build/filesystem_observations.tl`, above `start`): its reads go unrecorded.
   hand over the files every open connection holds when a capture starts.
+- [ ] *a database attached through the store* (`core/store.c`, in
+  `store_attach`): opened on SQLite's default VFS, it is never observed. open it
+  through `cosmic.sqlite`'s.
 - [ ] *lstat, readlink, realpath and getcwd* (`build/filesystem_observations.tl`,
   above `start`): observe every call at the syscall table's dispatch rather than
   by replacing fields of `cosmic.sys`.
