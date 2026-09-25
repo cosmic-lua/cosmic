@@ -240,6 +240,11 @@ end
 --- `observations.resolution` of it then: a file of the tree may be
 --- named through a link outside it, and what the link led to when the
 --- test read it is what its verdict describes.
+-- TODO: observe the files SQLite opens: `cosmic.sqlite` opens them in
+-- C, through the VFS, where nothing here sees them, so a test that reads
+-- a database under the tree (a verb run in-process by `build.invoke`
+-- reading the tree's o/build.db, say) is keyed without it. The fix is a
+-- VFS whose xOpen reports each path to the same notes.
 -- TODO: observe every call at the syscall table's dispatch, as
 -- design.md's trace point promises, rather than by replacing fields of
 -- `cosmic.sys` and `cosmic.http` here: lstat, readlink, realpath and

@@ -9,6 +9,7 @@ local Cli = require("cosmic.cli")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local invoke = require("build.invoke")
 
 --- The verbs whose words after the file are the program's own, so no
 --- option or argument is theirs to refuse, and whose output is the
@@ -68,14 +69,31 @@ local function write_tree(tmp: string): string
   return tree
 end
 
-local function cosmic(dir: string, args: {string}): Child.Result
+--- The command lines only a process of their own can run, and why:
+--- every other runs here (`build.invoke`), so a test of it can stand.
+local function needs_a_process(args: {string}): string | nil
+  if args[1] == "test" and args[2] ~= "--help" and args[2] ~= "-h" then
+    return "it starts a process for each test, and coverage this one is keeping"
+  elseif args[1] == "todos" and args[2] ~= "--help" and args[2] ~= "-h" then
+    return "it starts git to ask who wrote each line"
+  elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$")) then
+    return "a file run loads its tree's modules into the process"
+  end
+  return nil
+end
+
+local function cosmic(dir: string, args: {string}): invoke.Result
+  if needs_a_process(args) == nil then
+    return invoke.run(args, { cwd = dir })
+  end
   local argv: {string} = { (assert(Proc.executable())) }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result, trouble = Child.run(argv, {
     cwd = dir, env = Env.all(), stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
-  return (assert(result, trouble))
+  local ran = assert(result, trouble)
+  return { code = ran.code, stdout = ran.stdout or "", stderr = ran.stderr or "" }
 end
 
 --- "PASS" or "FAIL" when `line` is a verdict line of `verb`'s -- `verb:
@@ -96,7 +114,7 @@ end
 
 --- Asserts `cosmic <args>` in `dir` exits `code` and that its output ends
 --- in its only verdict line for `verb`, a pass when the code is 0.
-local function expect(dir: string, verb: string, args: {string}, code: integer): Child.Result
+local function expect(dir: string, verb: string, args: {string}, code: integer): invoke.Result
   local result = cosmic(dir, args)
   local out = result.stdout or ""
   local shown = table.concat(args, " ") .. " exited " .. tostring(result.code) ..
@@ -128,10 +146,20 @@ local function test_every_verb_is_classified()
   for verb in pairs(cases) do assert(listed[verb], verb .. " is not a verb") end
 end
 
-local function test_every_verb_refuses_what_it_does_not_take(tmp: string)
+--- Whether `verb`'s cases run in this process: a test that starts one
+--- never stands, so those that must are tests of their own.
+local function in_process(verb: string): boolean
+  return needs_a_process({ verb }) == nil
+end
+
+local function started(verb: string): boolean
+  return not in_process(verb)
+end
+
+local function refuses_what_it_does_not_take(tmp: string, which: function(string): boolean)
   local tree = write_tree(tmp)
   for _, verb in ipairs(Cli.order) do
-    if passthrough[verb] == nil then
+    if passthrough[verb] == nil and which(verb) then
       local result = expect(tree, verb, { verb, "--no-such-flag" }, 2)
       local err = result.stderr or ""
       assert(err:find("--no-such-flag", 1, true), err)
@@ -143,13 +171,21 @@ local function test_every_verb_refuses_what_it_does_not_take(tmp: string)
   end
 end
 
-local function test_every_verb_ends_in_a_verdict(tmp: string)
+local function test_every_verb_refuses_what_it_does_not_take(tmp: string)
+  refuses_what_it_does_not_take(tmp, in_process)
+end
+
+local function test_every_started_verb_refuses_what_it_does_not_take(tmp: string)
+  refuses_what_it_does_not_take(tmp, started)
+end
+
+local function ends_in_a_verdict(tmp: string, which: function(string): boolean)
   local tree = write_tree(tmp)
   -- `db` passes once the tree has a database.
   local _ = expect(tree, "build", { "build" }, 0)
   for _, verb in ipairs(Cli.order) do
     local case = cases[verb]
-    if case ~= nil then
+    if case ~= nil and which(verb) then
       local _ = expect(tree, verb, case.pass, 0)
       local fail = case.fail
       if fail is {string} then
@@ -158,6 +194,14 @@ local function test_every_verb_ends_in_a_verdict(tmp: string)
       end
     end
   end
+end
+
+local function test_every_verb_ends_in_a_verdict(tmp: string)
+  ends_in_a_verdict(tmp, in_process)
+end
+
+local function test_every_started_verb_ends_in_a_verdict(tmp: string)
+  ends_in_a_verdict(tmp, started)
 end
 
 local function test_a_mistyped_verb_is_named(tmp: string)

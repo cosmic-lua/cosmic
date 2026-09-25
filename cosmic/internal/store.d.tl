@@ -37,6 +37,10 @@ local record store
   --- the connection under it.
   databases: function(): {sqlite.Handle}
 
+  --- Calls the function searching only the binary's own database, then
+  --- puts every other back, whether it returned or raised.
+  alone: function(function())
+
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.
   trusted_prefix: function(): string | nil, string

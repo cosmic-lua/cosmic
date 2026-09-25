@@ -32,7 +32,7 @@ local verdicts = require("build.verdict")
 
 local log = verdicts.log
 
---- The `cosmic sql` verb: `run` is what `cmd/cosmic/main.tl` calls;
+--- The `cosmic sql` verb: `run` is what `build/dispatch.tl` calls;
 --- `options_given`, `source`, `open` and `query` are its steps, each
 --- testable on its own.
 local record sql
@@ -242,7 +242,7 @@ function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
 end
 
 --- Rows to stdout, then the verdict line through `build.verdict`'s
---- logger, which tells `cmd/cosmic/main.tl` one was given; complaints
+--- logger, which tells `build/dispatch.tl` one was given; complaints
 --- to stderr.
 local standard: sql.Output = {
   out = function(line: string)

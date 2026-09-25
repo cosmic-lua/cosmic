@@ -620,7 +620,7 @@ local function test_repeat_condition_uses_the_body_scope()
 end
 
 --- A member read straight off a literal `require` is a use of that
---- module's member, as `cmd/cosmic/main.tl` reaches each verb's `run`;
+--- module's member, as `build/dispatch.tl` reaches each verb's `run`;
 --- a `require` of a computed name is not, since its target is unknown,
 --- nor a call of a local or parameter that shadows `require`.
 local function test_a_member_of_an_inline_require_is_a_reference()

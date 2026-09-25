@@ -6,7 +6,7 @@
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
 --- cosmic.flags reads its options -- see argv.
 ---
---- `cosmic help` is generated from these fields (`cmd/cosmic/main.tl`'s
+--- `cosmic help` is generated from these fields (`build/dispatch.tl`'s
 --- `verb_help`), in the order `order` gives, rather than keeping a
 --- second, hand-written copy of the same wording.
 

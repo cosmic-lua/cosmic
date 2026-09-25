@@ -1,5 +1,5 @@
 --- The logger cosmic's own verbs write through. It remembers whether it
---- has printed a verdict line, so `cmd/cosmic/main.tl` can end an exit
+--- has printed a verdict line, so `build/dispatch.tl` can end an exit
 --- path a verb left without one -- a usage error, a setup failure, a
 --- stale tool -- in `<verb>: FAIL`: every verb ends in a verdict line.
 
