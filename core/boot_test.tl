@@ -11,10 +11,8 @@ local Fs = require("cosmic.fs")
 local artifact = require("build.artifact")
 local observations = require("build.filesystem_observations")
 
--- What these tests start is this very program, reading the tree's bridge.
-local reads = observations.itself()
-reads[#reads + 1] = "core/bridge.lua"
-observations.confine({ reads = reads })
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 --- A compiler with the three members the bridge reaches for; `gen`
 --- hands back its source, so each stand-in below is plain Lua.

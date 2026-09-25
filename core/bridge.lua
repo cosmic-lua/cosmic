@@ -1,4 +1,4 @@
--- The bridge: the only Lua in the tree that is not compiled from Teal,
+-- The bridge: the only Lua the tree writes by hand rather than compiling from Teal,
 -- because it is what makes Teal available. It builds the handful of
 -- things the vendored compiler reaches for outside the pure libraries --
 -- `io.open` and the handle it returns, `io.stderr`, `io.type`,
