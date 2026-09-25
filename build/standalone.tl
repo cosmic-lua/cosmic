@@ -32,12 +32,16 @@
 --- What the file returns is its entry point, called as `cosmic
 --- <file.tl>` calls one (see `argv`): a function, or a record whose
 --- `main` field is one -- the shape that lets a test `require` the same
---- file for its parts.
+--- file for its parts. What that returns is the exit status, judged as
+--- a file run's is (build/exit_status.tl): nil is 0, and anything but a
+--- whole number from 0 to 255 is complained about with the file's name
+--- and exits 2.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Removed = require("cosmic.removed")
 local Store = require("cosmic.store")
+local exit_status = require("build.exit_status")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
 
@@ -183,16 +187,7 @@ function standalone.run(argv: {integer:string}): integer
     arguments[slot - 2] = argv[slot]
     slot = slot + 1
   end
-  -- TODO: judge what main returns as build/dispatch.tl's `exit_status`
-  -- does for a file run and -e, complaining with the file's name; until
-  -- then an integer out of range reaches the core, which names
-  -- cmd.cosmic.main, and text, a table or a float is 0. The fix moves
-  -- `exit_status` to a module both can require.
-  local status: any = main(arguments)
-  if status is integer then
-    return status
-  end
-  return 0
+  return exit_status.of(file, main(arguments))
 end
 
 return standalone

@@ -17,6 +17,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local exit_status = require("build.exit_status")
 local verdict = require("build.verdict")
 
 local log = verdict.log
@@ -128,24 +129,6 @@ local function complain(line: string)
   local _, _ = Fs.put(Fs.stderr, line .. "\n")
 end
 
---- The exit code a program's return value asks for, as the core decides
---- it for a built program (`cosmic_tostatus`, build/exit_status_test.tl):
---- nil is 0, and a whole number from 0 to 255 is itself. Anything else --
---- a boolean, text, a table, 1.5, -1, 256 -- is complained about as
---- `what`'s, and exits 2.
-local function exit_status(what: string, value: any): integer
-  if value == nil then
-    return 0
-  end
-  local whole = value is number and math.tointeger(value) or nil
-  if whole == nil or whole < 0 or whole > 255 then
-    complain("cosmic: " .. what .. " returned " .. tostring(value) ..
-      ", not an exit status 0-255")
-    return 2
-  end
-  return whole
-end
-
 --- The directory a path sits in, absolute.
 local function directory_of(path: string): string | nil, string
   local resolved, trouble = Fs.absolute(path)
@@ -199,7 +182,7 @@ end
 --- loop starts before 1; a caller that wants its own name reads
 --- `argv[0]` directly. A record whose `main` field is a function is
 --- called the same way, through that field. What the function returns
---- is the exit code as a built program's is -- see `exit_status`: nil
+--- is the exit code as a built program's is -- see build/exit_status.tl: nil
 --- is 0, and anything but a whole number from 0 to 255 exits 2. No
 --- function at all is 0.
 --- @param file the path named on the command line
@@ -302,7 +285,7 @@ local function run(file: string, argv: {integer:string}): integer
       arguments[slot - 1] = argv[slot]
       slot = slot + 1
     end
-    return exit_status(file, entry(arguments))
+    return exit_status.of(file, entry(arguments))
   end
   return 0
 end
@@ -366,7 +349,7 @@ end
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
 --- does, against this binary's own standard library, with no tree around
 --- it. The words after it are its `...`; what it returns is the exit
---- code as a file run's is -- see `exit_status`.
+--- code as a file run's is -- see build/exit_status.tl.
 --- @param argv the whole command line, `cosmic` at slot 0 and `-e` at
 ---   slot 1
 local function evaluate(argv: {integer:string}): integer
@@ -386,7 +369,7 @@ local function evaluate(argv: {integer:string}): integer
     arguments[#arguments + 1] = argv[slot]
     slot = slot + 1
   end
-  return exit_status("-e", (loaded(table.unpack(arguments))))
+  return exit_status.of("-e", (loaded(table.unpack(arguments))))
 end
 
 --- `cosmic help [verb]`: the whole discovery surface, or one verb's line

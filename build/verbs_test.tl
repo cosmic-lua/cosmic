@@ -324,7 +324,7 @@ local function test_e_runs_a_lua_chunk(tmp: string)
   assert(cosmic(tmp, { "-e", "return 3.0" }).code == 3)
   assert(cosmic(tmp, { "-e", "return 255" }).code == 255)
   for chunk, shown in pairs({ ["256"] = "256", ["-1"] = "-1", ["1.5"] = "1.5", ["true"] = "true",
-    ["'text'"] = "text", ["{}"] = "table: " } as {string:string}) do
+    ["'text'"] = '"text"', ["{}"] = "table: " } as {string:string}) do
     local refused = cosmic(tmp, { "-e", "return " .. chunk })
     assert(refused.code == 2, chunk .. ": " .. tostring(refused.code))
     assert((refused.stderr or ""):find("-e returned " .. shown, 1, true), refused.stderr)
