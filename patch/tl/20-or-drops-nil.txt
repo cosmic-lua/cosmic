@@ -1,20 +1,20 @@
-file: tl.lua
+file: tl.tl
 note: `a or b` yields a only when a is truthy, so a's nil member can never reach the result: drop it before a's type is weighed against b's. Without this, `f() or {}` for an f returning `{string} | nil` kept the nil -- b fits inside a's union, so the union was the answer -- and `ipairs` on the result, or assigning it to a `{string}`, was refused. `x or nil` keeps its nil, which b supplies
 --- find
                local expected = node.expected and self:to_structural(resolve_tuple(node.expected))
 
-               if ub.typename == "nil" then
+               if ub is NilType then
 --- replace
                local expected = node.expected and self:to_structural(resolve_tuple(node.expected))
 
                -- a reaches the result only when truthy, so never as nil.
                -- b of type nil is left to its own case below, which
                -- keeps a's type whole.
-               local a_sans_nil = ub.typename ~= "nil" and without_nil(self, node, ua, false)
+               local a_sans_nil = not ub is NilType and without_nil(self, node, ua, false)
                if a_sans_nil then
                   ua = a_sans_nil
                   ra = self:to_structural(ua)
                end
 
-               if ub.typename == "nil" then
+               if ub is NilType then
 --- end
