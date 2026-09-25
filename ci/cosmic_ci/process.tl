@@ -3,7 +3,6 @@
 -- fails is ended. A paused child hands off over a named pipe.
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 
 -- Bound subprocess waits and the shorter paused-build handshakes separately.
@@ -23,9 +22,8 @@ local record Process
   end
 end
 
--- TODO: use Fs.chmod, once ci/cosmic-driver.pin names a release carrying it.
 function Process.chmod(path: string, mode: integer)
-  assert(sys.chmod(path, mode))
+  assert(Fs.chmod(path, mode))
 end
 
 -- One field of this host's `uname`.
