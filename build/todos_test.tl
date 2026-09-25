@@ -316,3 +316,32 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
+
+local function test_a_path_naming_the_tree_or_a_directory_in_it_is_a_path()
+  local made = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  local root = assert(Fs.absolute(made))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/core"))
+  local function split(argv: {string}): string
+    local split_up = todos.arguments(root, argv)
+    return table.concat(split_up.paths, ",") .. "|" .. table.concat(split_up.words, ",")
+  end
+  -- The tree itself, however written, narrows nothing.
+  assert(split({ "." }) == "|", split({ "." }))
+  assert(split({ "./" }) == "|", split({ "./" }))
+  assert(split({ root }) == "|", split({ root }))
+  assert(split({ ".", "build" }) == "|", split({ ".", "build" }))
+  assert(split({ ".", "ftruncate" }) == "|ftruncate", split({ ".", "ftruncate" }))
+  -- A directory in it, however written, is that directory.
+  assert(split({ "build" }) == "build|", split({ "build" }))
+  assert(split({ "./build/" }) == "build|", split({ "./build/" }))
+  assert(split({ "build/../core" }) == "core|", split({ "build/../core" }))
+  assert(split({ root .. "/core" }) == "core|", split({ root .. "/core" }))
+  -- Anything else is words: a name nothing in the tree has, a place
+  -- outside it, the empty word.
+  assert(split({ "ftruncate", "cosmic.sys" }) == "|ftruncate,cosmic.sys",
+    split({ "ftruncate", "cosmic.sys" }))
+  assert(split({ ".." }) == "|..", split({ ".." }))
+  assert(split({ "" }) == "|", split({ "" }))
+  assert(Fs.remove_tree(root))
+end

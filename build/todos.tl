@@ -62,6 +62,14 @@ local record todos
     todos: {Todo}
     blamed: integer
   end
+
+  --- A command line split by `arguments`.
+  record Arguments
+    --- Relative to the tree's root; none for the whole tree.
+    paths: {string}
+    --- What to search the TODOs' text for.
+    words: {string}
+  end
 end
 
 --- What `git blame --line-porcelain` said, by final line number.
@@ -459,6 +467,43 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
   return out
 end
 
+--- The command line's words split into the paths they name, relative to
+--- `root` (which `Fs.absolute` has resolved), and the words to search
+--- for. A word names a path when it resolves to one in the tree, written
+--- relative to the working directory or absolutely: `.`, `./build/` and
+--- `build/../core` name one as `build` does. One naming `root` itself
+--- asks for the whole tree, so no path narrows the listing; one that
+--- cannot be looked at, or lies outside the tree, is taken for words.
+function todos.arguments(root: string, argv: {string}): todos.Arguments
+  local paths: {string} = {}
+  local words: {string} = {}
+  local whole = false
+  for _, word in ipairs(argv) do
+    -- A path when it names one, and words to search for when not, as
+    -- `cosmic docs` takes a symbol first and words after.
+    local resolved: string = nil
+    if word ~= "" then
+      local full = word:sub(1, 1) == "/" and word or root .. "/" .. word
+      local absolute, _ = Fs.absolute(full)
+      if absolute ~= nil then
+        local relative, _ = Fs.relative(absolute, root)
+        resolved = relative
+      end
+    end
+    if resolved == "." then
+      whole = true
+    elseif resolved ~= nil then
+      paths[#paths + 1] = resolved
+    else
+      words[#words + 1] = word
+    end
+  end
+  if whole then
+    paths = {}
+  end
+  return { paths = paths, words = words }
+end
+
 --- Whether a TODO's file is one of the paths asked for, or under one.
 local function wanted(file: string, paths: {string}): boolean
   if #paths == 0 then
@@ -500,20 +545,8 @@ function todos.run(argv: {integer:string}): integer
     return 2
   end
   local oldest = parsed.set["--oldest"] == true
-  local paths: {string} = {}
-  local words: {string} = {}
-  for _, word in ipairs(parsed.words) do
-    -- A path when it names one, and words to search for when not, as
-    -- `cosmic docs` takes a symbol first and words after.
-    local path = (word:gsub("^%./", ""):gsub("/+$", ""))
-    -- A path that cannot be looked at is taken for words.
-    local exists, _ = Fs.exists(root .. "/" .. path)
-    if path ~= "" and exists then
-      paths[#paths + 1] = path
-    else
-      words[#words + 1] = word
-    end
-  end
+  local arguments = todos.arguments(root, parsed.words)
+  local paths, words = arguments.paths, arguments.words
   local query = table.concat(words, " ")
 
   local own_tree, own_trouble = tree.is_own(root)
