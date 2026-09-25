@@ -77,8 +77,8 @@ local function walk(input: string): boolean, string
       break
     else
       Fuzz.label("entry")
-      if e.size < 0 or e.compressed_size < 0 then
-        return false, ("%s: a negative size"):format(e.path)
+      if e.size < 0 or e.compressed_size < 0 or e.offset < 0 then
+        return false, ("%s: a negative size or offset"):format(e.path)
       end
       local body, otrouble = e:open()
       if body == nil then
@@ -109,7 +109,7 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
       return Fuzz.mutate(src, archive, 8)
     end,
     check = walk,
-    requires = { "opened", "body read" },
+    requires = { "opened", "body read", "no end record" },
   })
 end
 
@@ -260,7 +260,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     edits = edits + 1
     local r = recs[src:int(1, #recs)]
     local at: integer
-    if n > 0 and src:int(0, 3) == 0 then
+    if n > 0 and src:int(0, 2) == 0 then
       -- An entry's local header offset, which only reading its body
       -- follows: few of the fields drawn at random are one.
       r = centrals[src:int(1, n)]

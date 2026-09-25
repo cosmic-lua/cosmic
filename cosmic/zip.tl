@@ -499,6 +499,12 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
       return nil, "zip: a zip64 extra field's size or offset is past 2^63"
     end
   end
+  -- TODO: refuse here too a local header offset or a compressed size
+  -- the archive cannot hold (`local_offset + 30` or `csize` past its
+  -- length): such an entry is listed and fails only when opened, and
+  -- through `Zip.open` an offset near 2^63 fails as pread's bare
+  -- "Invalid argument" rather than a bad local file header. `open`
+  -- would pass the archive's length down to this pass.
   if bare and kind ~= "symlink" then return CHECKED, "" end
   local name = buf:sub(name_start, name_end)
   local entry: Zip.Entry = setmetatable({
@@ -549,7 +555,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     if loc == nil then return nil, loc_trouble end
     if #loc == 20 and loc:sub(1, 4) == Z64_LOC_SIG then
       local z64_off = u64(loc, 9)
-      if z64_off < 0 or z64_off + 56 > eocd_off - 20 then
+      if z64_off < 0 or z64_off > eocd_off - 20 - 56 then
         return nil, "zip: zip64 end of central directory lies outside the file"
       end
       local rec, rec_trouble = pread(z64_off, 56)
