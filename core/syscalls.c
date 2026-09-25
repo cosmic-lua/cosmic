@@ -1504,10 +1504,8 @@ static const luaL_Reg table[] = {
   ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
   ENTRY(getuid),   ENTRY(umask),         ENTRY(entropy),
   ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
-  ENTRY(execve),   ENTRY(kill),          ENTRY(guard_child_signals),
-  ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
-  ENTRY(dup),      ENTRY(dup2),          ENTRY(cpu_count),
-  ENTRY(uname),
+  ENTRY(execve),   ENTRY(kill),          ENTRY(dup),
+  ENTRY(dup2),     ENTRY(cpu_count),     ENTRY(uname),
   ENTRY(symlink), ENTRY(readlink), ENTRY(utimensat), ENTRY(fsync),
   ENTRY(ftruncate),
   {NULL, NULL},
@@ -1519,6 +1517,8 @@ static const luaL_Reg process_table[] = {
   ENTRY(spawn),    ENTRY(landlock_ruleset), ENTRY(waitpid),
   ENTRY(relaunch), ENTRY(pipe),             ENTRY(set_nonblocking),
   ENTRY(poll),     ENTRY(subreaper),        ENTRY(ignore_sigpipe),
+  ENTRY(guard_child_signals), ENTRY(unguard_child_signals),
+  ENTRY(cancelled_child_signal),
   {NULL, NULL},
 };
 
