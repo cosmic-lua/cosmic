@@ -479,15 +479,20 @@ local function test_json_lines()
   assert(bad == "invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
   local _, deep = Json.decode_lines('1\n[[1]]', { max_depth = 1 })
   assert(deep == "JSON nests deeper than 1 levels at line 2, column 2", deep)
-  -- Records split on \n alone: a lone \r, or in JSON5 a U+2028,
-  -- inside an earlier record is no record boundary, and a failure's
-  -- column counts from its record's start.
+  -- Records split on \n alone: a lone \r, or in JSON5 a U+2028, is
+  -- no record boundary, before a failing record or inside it, and a
+  -- failure's column counts from its record's start.
   local _, past_cr = Json.decode_lines('[1,\r2]\n{"a": tru}')
   assert(past_cr == "invalid JSON at line 2, column 7: invalid literal, expected 'true'", past_cr)
-  local _, inside_cr = Json.decode_lines('1\n[1,\r x]')
-  assert(inside_cr:match("^invalid JSON at line 2, column 6: "), inside_cr)
   local _, past_ls = Json.decode_lines('[1,\u{2028}2]\n[[1]]', { json5 = true, max_depth = 1 })
   assert(past_ls == "JSON nests deeper than 1 levels at line 2, column 2", past_ls)
+  local _, inside_cr = Json.decode_lines('1\n[1,\r x]')
+  assert(inside_cr:match("^invalid JSON at line 2, column 6: "), inside_cr)
+  local _, inside_ls = Json.decode_lines('1\n[1,\u{2028} x]', { json5 = true })
+  assert(inside_ls:match("^invalid JSON at line 2, column 8: "), inside_ls)
+  -- A JSON5 record holding only a comment holds no value.
+  local _, comment = Json.decode_lines('1\n// c', { json5 = true })
+  assert(comment == "invalid JSON at line 2: the line holds no value", comment)
   local kept = Json.decode_lines("null\n1", { null_value = Json.null })
   assert(kept ~= nil and kept[1] == Json.null, "options apply to each line")
   assert(Json.encode_lines({ { b = 1, a = { 1 } }, "x", 3 }, { pretty = false }) ==
@@ -536,6 +541,10 @@ local function test_a_failure_counts_each_line_end()
     assert(err:match("^invalid JSON at line 2, column 3: "), err)
     local strict = decode_failure('["' .. eol .. '", x]')
     assert(strict:match("^invalid JSON at line 1, column 9: "), strict)
+    -- JSON5 takes one raw inside a quoted string, and it ends the
+    -- line there too, as an editor shows it.
+    local quoted = decode_failure("['a" .. eol .. "b', x]", { json5 = true })
+    assert(quoted:match("^invalid JSON at line 2, column 5: "), quoted)
   end
 end
 

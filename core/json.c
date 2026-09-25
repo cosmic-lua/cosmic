@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
 #include "memory.h"
@@ -37,10 +38,12 @@
 
 /* yyjson allocates and frees through these, on the heap the core's own
  * C uses (core/memory.h), so the checked core counts its blocks and can
- * refuse one. */
+ * refuse one. The fault point refuses yyjson's allocation alone, as an
+ * allocation walk cannot: that refuses every one after too, so the
+ * message yyjson's refusal answers could never be built. */
 static void *json_malloc (void *ctx, size_t size) {
   (void)ctx;
-  return cosmic_malloc(size);
+  return COSMIC_FAULT("json_malloc") ? NULL : cosmic_malloc(size);
 }
 
 static void *json_realloc (void *ctx, void *block, size_t old_size,
@@ -194,8 +197,11 @@ struct layout {
  * the column in bytes. A line ends at \n, \r, or \r\n taken as one:
  * the line ends JSON's whitespace holds. In JSON5, it ends at U+2028
  * or U+2029 (E2 80 A8, E2 80 A9) too, as JSON5 reads each as a line
- * terminator; RFC 8259 has either only inside a string, where it is a
- * character like any other. A record is one line whatever it holds. */
+ * terminator -- inside a quoted string as well, where JSON5 takes one
+ * raw, as an editor breaks the line there; RFC 8259 has either only
+ * inside a string, where it is a character like any other and adds
+ * its three bytes to the column. A record is one line whatever it
+ * holds. */
 static void position (const char *text, size_t pos,
                       const struct layout *layout, size_t *line,
                       size_t *column) {
@@ -264,17 +270,27 @@ static size_t deep_offset (const char *text, size_t len, int max_depth) {
 }
 
 /* nil and where `text` stopped being JSON, as a line and a column of
- * bytes, both counted from 1. */
+ * bytes, both counted from 1; a record's line alone when it ran out
+ * of memory or holds no value (in JSON5, only a comment). */
 static int read_failure (lua_State *L, const char *text, size_t len,
                          const struct layout *layout,
                          const yyjson_read_err *err) {
   lua_pushnil(L);
   if (err->code == YYJSON_READ_ERROR_MEMORY_ALLOCATION) {
-    lua_pushliteral(L, "out of memory");
+    if (layout->record > 0) {
+      lua_pushfstring(L, "line %I: out of memory", layout->record);
+    } else {
+      lua_pushliteral(L, "out of memory");
+    }
     return 2;
   }
   if (len == 0 || err->code == YYJSON_READ_ERROR_EMPTY_CONTENT) {
-    lua_pushliteral(L, "invalid JSON: the text is empty");
+    if (layout->record > 0) {
+      lua_pushfstring(L, "invalid JSON at line %I: the line holds no value",
+                      layout->record);
+    } else {
+      lua_pushliteral(L, "invalid JSON: the text is empty");
+    }
     return 2;
   }
   size_t line, column;

@@ -12,7 +12,8 @@ local record json
   -- surrogate escape decodes as U+FFFD. Raises when `max_depth` is
   -- outside 1 to `depth_limit`. With `record`, the text is that line
   -- of a JSON Lines text: a failure names that line, its column
-  -- counted from the text's start, whatever line ends the text holds.
+  -- counted from the text's start, whatever line ends the text holds;
+  -- one out of memory or holding no value names that line alone.
   -- Raises when `record` is negative.
   decode: function(text: string, null?: any, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
