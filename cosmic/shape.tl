@@ -40,8 +40,9 @@
 ---   from the root as `cosmic.json` names one, `$.rows[2].id`, with list
 ---   indices counted from 1: `$.rows[2].id: expected string, got
 ---   integer`. A record's fields are checked in byte order, so the same
----   value always reports the same failure. `into_all` names every one,
----   for a config file whose author wants all their mistakes at once.
+---   value always reports the same failure. `failures` lists every
+---   one, for a config file whose author wants all their mistakes at
+---   once.
 --- - `into` never raises on a value, whatever it holds. A spec that was
 ---   not built by these functions is a programming error, and raises.
 
@@ -80,12 +81,12 @@ local record Shape
   --- Anything but a missing value, unchecked and not copied.
   any: Spec
 
-  --- One value that did not fit, as `into_all` lists it.
+  --- One value that did not fit, as `failures` lists it.
   record Failure
     --- The value's path from the root, `$.rows[2].id`.
     path: string
-    --- The whole message `into` would answer for it, path first:
-    --- `$.rows[2].id: expected string, got integer`.
+    --- The message `into` would answer were it the first failure,
+    --- path first: `$.rows[2].id: expected string, got integer`.
     message: string
   end
 end
@@ -279,6 +280,54 @@ local function mismatch(path: string, spec: Spec, v: any, all?: {Miss}): Miss
   return miss(path, ("expected %s, got %s"):format(wanted(spec), kind_of(v)), all)
 end
 
+--- A key a list or a map refuses, for a message: a scalar by its value,
+--- anything else by its type alone, since its address would make the
+--- same value's message differ from run to run.
+local function key_named(k: any): string
+  if k is string or k is number or k is boolean then
+    return ("the %s key %s"):format(kind_of(k), shown(k))
+  end
+  return ("a %s key"):format(type(k))
+end
+
+local KEY_RANK <const>: {string: integer} = { number = 1, boolean = 2, string = 3 }
+
+--- An order on keys that no address decides: numbers, then booleans,
+--- then strings, each by value, then the rest by type. Keys of one
+--- other type tie, and their messages are the same.
+local function key_before(a: any, b: any): boolean
+  local ta, tb = type(a), type(b)
+  if ta ~= tb then
+    local ra, rb = KEY_RANK[ta] or 4, KEY_RANK[tb] or 4
+    if ra ~= rb then return ra < rb end
+    return ta < tb
+  end
+  if a is number and b is number then return a < b end
+  if a is boolean and b is boolean then return not a and b end
+  if a is string and b is string then return a < b end
+  return false
+end
+
+--- `t`'s keys, split by `good`: those it admits in ascending order, and
+--- those it does not in `key_before`'s.
+local function split_keys(t: {any: any}, good: function(any): boolean): {any}, {any}
+  local keep, bad: {any}, {any} = {}, {}
+  for k in next, t do
+    if good(k) then keep[#keep + 1] = k else bad[#bad + 1] = k end
+  end
+  table.sort(keep, key_before)
+  table.sort(bad, key_before)
+  return keep, bad
+end
+
+local function is_index(k: any): boolean
+  return k is integer and k >= 1
+end
+
+local function is_name(k: any): boolean
+  return k is string
+end
+
 --- `t`'s keys in ascending order when every one is a positive
 --- integer, or nil and the first key that is not.
 local function indices(t: {any: any}): {integer}, any
@@ -292,7 +341,10 @@ local function indices(t: {any: any}): {integer}, any
 end
 
 --- `v` checked against `spec` at `path`. `all` is nil to stop at the
---- first miss, or the list collecting every one.
+--- first miss, or the list collecting every one. Either way a value
+--- fails where it stands (its misses are all at `path`) or inside
+--- (none is), never both, so `walk_either` keeps the same choice in
+--- both.
 local walk: function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
 
 local function walk_either(v: any, spec: Spec, path: string, all: {Miss}): any, Miss
@@ -320,27 +372,14 @@ local function walk_either(v: any, spec: Spec, path: string, all: {Miss}): any, 
   return nil, mismatch(path, spec, v, all)
 end
 
---- `t`'s keys for a map, when collecting every miss: its string keys in
---- byte order, and a miss listed for each key that is not a string,
---- those first, ordered by what they say. The first such miss, or nil.
-local function map_keys(t: {any: any}, path: string, all: {Miss}): {string}, Miss
-  local keys: {string} = {}
-  local bad: {string} = {}
-  for k in next, t do
-    if k is string then
-      keys[#keys + 1] = k
-    else
-      bad[#bad + 1] = ("expected map, got the %s key %s"):format(kind_of(k), shown(k))
-    end
-  end
-  table.sort(keys)
-  table.sort(bad)
+--- A miss for each key in `bad`, the first of them.
+local function refuse_keys(bad: {any}, path: string, kind: string, all: {Miss}): Miss
   local first: Miss = nil
-  for _, what in ipairs(bad) do
-    local m = miss(path, what, all)
-    if first == nil then first = m end
+  for _, k in ipairs(bad) do
+    local m = miss(path, ("expected %s, got %s"):format(kind, key_named(k)), all)
+    first = first or m
   end
-  return keys, first
+  return first
 end
 
 --- `v` checked against `spec`: the copy to answer and nil, or nil and
@@ -396,9 +435,21 @@ walk = function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
       if first ~= nil then return nil, first end
       return out, nil
     elseif kind == "list" then
-      local keys, bad = indices(t)
-      if keys == nil then
-        return nil, miss(path, ("expected list, got the %s key %s"):format(kind_of(bad), shown(bad)), all)
+      local keys: {integer} = {}
+      if all == nil then
+        local found, bad = indices(t)
+        if found == nil then
+          return nil, miss(path, "expected list, got " .. key_named(bad))
+        end
+        keys = found
+      else
+        -- A key the list refuses fails it where it stands: every such
+        -- key is listed, and no element looked at.
+        local kept, refused = split_keys(t, is_index)
+        if #refused > 0 then return nil, refuse_keys(refused, path, "list", all) end
+        for _, k in ipairs(kept) do
+          if k is integer then keys[#keys + 1] = k end
+        end
       end
       -- A hole is a missing element: the first one fails a list whose
       -- elements are not optional, as a missing field fails a record.
@@ -427,26 +478,34 @@ walk = function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
       if first ~= nil then return nil, first end
       return Json.array(out), nil
     elseif kind == "map" then
+      -- Every key is checked before any value, so a map with a key it
+      -- refuses fails where it stands, whichever key `next` reaches
+      -- first.
+      if all == nil then
+        for k in next, t do
+          if not (k is string) then return nil, miss(path, "expected map, got " .. key_named(k)) end
+        end
+        local out: {string: any} = {}
+        for k, e in next, t do
+          if k is string then
+            local got, failed = walk(e, spec.of, field_path(path, k))
+            if failed ~= nil then return nil, failed end
+            out[k] = got
+          end
+        end
+        return out, nil
+      end
+      local keys, refused = split_keys(t, is_name)
+      if #refused > 0 then return nil, refuse_keys(refused, path, "map", all) end
       local out: {string: any} = {}
-      if all ~= nil then
-        local keys: {string}
-        keys, first = map_keys(t, path, all)
-        for _, k in ipairs(keys) do
+      for _, k in ipairs(keys) do
+        if k is string then
           local got, failed = walk(rawget(t, k), spec.of, field_path(path, k), all)
           first = first or failed
           out[k] = got
         end
-        if first ~= nil then return nil, first end
-        return out, nil
       end
-      for k, e in next, t do
-        if not (k is string) then
-          return nil, miss(path, ("expected map, got the %s key %s"):format(kind_of(k), shown(k)))
-        end
-        local got, failed = walk(e, spec.of, field_path(path, k))
-        if failed ~= nil then return nil, failed end
-        out[k] = got
-      end
+      if first ~= nil then return nil, first end
       return out, nil
     end
   end
@@ -475,28 +534,27 @@ function Shape.into<T>(value: any, spec: Spec): T | nil, string
   return out as T, ""
 end
 
---- `into`, naming every value that does not fit rather than the first,
---- for a config file whose author wants all their mistakes at once: the
---- new value and an empty list, or nil and each failure in the order
---- the walk meets it -- a record's fields in byte order, a list's
---- elements by index, a map's keys in byte order after any key that is
---- not a string. A value that fails where it stands is not looked
---- inside, so a record that is a string is one failure, not one per
---- field; a run of missing list elements is one, at its first index;
---- and an `either` answers the failures of the first choice that got
---- inside the value, or one for the union. Raises only when `spec` is
---- not a Spec.
+--- Every value in `value` that does not fit `spec`, for a config file
+--- whose author wants all their mistakes at once; empty when it fits,
+--- and then `into` answers the typed value. `into`'s reason is always
+--- one of these messages, though not necessarily the first. They come
+--- in the order the walk meets them -- a record's fields in byte order,
+--- a list's elements by index, a map's keys in byte order -- so the
+--- same value always answers the same list. A value that fails where it
+--- stands is not looked inside: a record that is a string is one
+--- failure, not one per field, and a list or map with a key it refuses
+--- lists each such key and none of its values. A run of missing list
+--- elements is one failure, at its first index, and an `either` answers
+--- the failures of the first choice that got inside the value, or one
+--- for the union. Raises only when `spec` is not a Spec.
 --- @param value any The decoded value
 --- @param spec Spec The shape it must have
---- @return T The value, typed
---- @return {Failure} Every value that did not fit; empty when it fits
-function Shape.into_all<T>(value: any, spec: Spec): T | nil, {Shape.Failure}
-  need_spec(spec, "into_all's shape")
+--- @return {Failure} Every value that did not fit
+function Shape.failures(value: any, spec: Spec): {Shape.Failure}
+  need_spec(spec, "failures' shape")
   local all: {Miss} = {}
-  local out, failed = walk(value, spec, "$", all)
-  if failed ~= nil then return nil, all end
-  -- cast: the one from `any`, which walk has just built to `spec`
-  return out as T, all
+  walk(value, spec, "$", all)
+  return all
 end
 
 return Shape

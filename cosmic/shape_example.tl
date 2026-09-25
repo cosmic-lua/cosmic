@@ -51,17 +51,16 @@ function Example.into_failure()
   assert(err == "$.assets[1]: expected integer, got string", err)
 end
 
---- A config file's author wants every mistake at once: `into_all`
+--- A config file's author wants every mistake at once: `failures`
 --- lists each value that does not fit, by its path, in the order the
---- walk meets them.
-function Example.into_all()
+--- walk meets them; `into` answers the typed value once it is empty.
+function Example.failures()
   local RELEASE <const> = Shape.record({
     tag = Shape.integer,
     draft = Shape.string,
     assets = Shape.list(Shape.integer),
   })
-  local release, failures: Release | nil, {Shape.Failure} = Shape.into_all(decoded(), RELEASE)
-  assert(release == nil)
+  local failures = Shape.failures(decoded(), RELEASE)
   for _, f in ipairs(failures) do print(f.message) end
   assert(#failures == 4, "one per value that does not fit")
   assert(failures[1].message == "$.assets[1]: expected integer, got string", failures[1].message)

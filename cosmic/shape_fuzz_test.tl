@@ -194,23 +194,34 @@ local function check_total(input: string): boolean, string
   local spec = gen_spec(r, 3)
   local value = gen_value(r, spec, 4, false)
   local out, err: any, string = Shape.into(value, spec)
-  -- into_all fails exactly when into does, and answers the same value.
-  local all_out, failures: any, {Shape.Failure} = Shape.into_all(value, spec)
+  -- `failures` is empty exactly when into succeeds, holds into's
+  -- reason when it fails, and is the same list every call.
+  local failures = Shape.failures(value, spec)
   if (err == "") ~= (#failures == 0) then
-    return false, ("into answered %q, into_all %d failures"):format(err, #failures)
+    return false, ("into answered %q, failures %d"):format(err, #failures)
   end
+  local listed = {}
+  local held = false
   for _, f in ipairs(failures) do
     if f.message:sub(1, #f.path + 2) ~= f.path .. ": " then
       return false, "a failure's message does not start with its path: " .. f.message
     end
+    held = held or f.message == err
+    listed[#listed + 1] = f.path .. "\0" .. f.message
+  end
+  if err ~= "" and not held then return false, "into's reason is not among the failures: " .. err end
+  local again_listed = {}
+  for _, f in ipairs(Shape.failures(value, spec)) do
+    again_listed[#again_listed + 1] = f.path .. "\0" .. f.message
+  end
+  if table.concat(listed, "\n") ~= table.concat(again_listed, "\n") then
+    return false, "two calls answered two lists of failures"
   end
   if err ~= "" then
     if out ~= nil then return false, "a failure answered a value" end
-    if all_out ~= nil then return false, "into_all's failure answered a value" end
     if err:sub(1, 1) ~= "$" then return false, "a failure without a path: " .. err end
     return true, ""
   end
-  if not same(out, all_out) then return false, "into_all answered another value than into" end
   if not fits(out, spec) then return false, "the answer is not its shape" end
   local again, err2: any, string = Shape.into(out, spec)
   if err2 ~= "" then return false, "the answer does not fit its own shape: " .. err2 end
@@ -221,6 +232,13 @@ end
 --- A value that fits, encoded and decoded, with nulls kept or not:
 --- the decoded value still fits, its answer is its shape, and the answer
 --- re-encodes and reads back as itself.
+-- TODO: this fails at FUZZ_SEED=12345 FUZZ_ITERS=1466 ("{"a":null}
+-- read back as another answer"), on main before cosmic.shape grew
+-- `failures` too: under `any`, decoded with `null_value`, the answer
+-- keeps `Json.null`, which re-encodes as null and reads back as a
+-- missing key, since the second decode passes no options. Decode the
+-- answer's text with `opts` as well, and keep the input under
+-- testdata/fuzz/shape-through-json/.
 local function check_json(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local spec = gen_spec(r, 3)
