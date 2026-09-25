@@ -299,10 +299,32 @@ local function tag_of(p: Prerelease.Publish): string
   return "next-" .. p.commit
 end
 
---- The tag names the commit being published.
+--- The git object `object` (a ref's or a tag's `object` field) names.
+local function target(object: any, what: string): string, string
+  assert(object is {string:any}, what .. " names no object")
+  local sha, kind = object.sha, object.type
+  assert(sha is string and kind is string, what .. " names no object")
+  return sha, kind
+end
+
+--- The tag names the commit being published. It is resolved as a tag,
+--- through git/ref/tags/, and not by commits/<name>, which would also
+--- take a branch of that name; an annotated tag is peeled to the commit
+--- it tags. A deliberate change from the shell script, which checked
+--- commits/<tag>: a branch named for the tag passed it.
 local function verify_tag(p: Prerelease.Publish)
-  local commit = gh_object(p, { "api", "repos/" .. p.repository .. "/commits/" .. tag_of(p) })
-  assert(commit.sha == p.commit, tag_of(p) .. " names another commit")
+  local tag = tag_of(p)
+  local ref = gh_object(p, { "api", "repos/" .. p.repository .. "/git/ref/tags/" .. tag })
+  assert(ref.ref == "refs/tags/" .. tag, tag .. ": the API answered another ref")
+  local sha, kind = target(ref.object, tag)
+  -- A tag may tag a tag; a chain longer than this is no release tag.
+  for _ = 1, 8 do
+    if kind ~= "tag" then break end
+    local annotated = gh_object(p, { "api", "repos/" .. p.repository .. "/git/tags/" .. sha })
+    sha, kind = target(annotated.object, tag)
+  end
+  assert(kind == "commit", tag .. " names no commit")
+  assert(sha == p.commit, tag .. " names another commit")
 end
 
 --- The tag exists, naming the commit: made when the API says it is absent.

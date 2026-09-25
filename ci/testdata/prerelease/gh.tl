@@ -6,12 +6,19 @@
 --
 --   repo                          the repository --repo must name
 --   tags/<tag>                    the commit a tag names
+--   annotated/<tag>               the tag object a tag's ref names, when
+--                                 it is annotated
+--   tag-objects/<sha>             the commit a tag object tags
+--   branches/<name>               the commit a branch names
 --   releases/<id>/tag             a release's tag, and whether it is a
 --   releases/<id>/draft           draft and a prerelease ("true" or
 --   releases/<id>/prerelease      "false")
---   releases/<id>/assets/<name>   its assets
---   fail/ref                      the tag probe answers HTTP 500
+--   releases/<id>/assets/<name>   its assets, and the commit publishing
+--   releases/<id>/target          it tags when its tag is missing
+--   fail/ref                      git/ref/tags/ answers HTTP 500
+--   fail/ref-transport            git/ref/tags/ fails before any HTTP
 --   fail/transport                every `gh api` fails before any HTTP
+--   fail/edit-draft               `release edit` leaves the draft flag
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -94,10 +101,16 @@ local function release_of(tag: string): string | nil
   return nil
 end
 
-local function http(status: string, body: string): integer
+--- An API answer as gh prints it: the status line and headers first
+--- only under --include, and a failure also named on stderr.
+local function http(p: Parsed, status: string, body: string): integer
   local ok = status:match("^2") ~= nil
-  out("HTTP/2.0 " .. status .. "\nContent-Type: application/json; charset=utf-8\n\n" .. body)
-  return ok and 0 or 1
+  if p.options["--include"] then
+    out("HTTP/2.0 " .. status .. "\nContent-Type: application/json; charset=utf-8\n\n")
+  end
+  out(body)
+  if ok then return 0 end
+  return fail(status:match("^%d+ (.*)$") .. " (HTTP " .. status:match("^%d+") .. ")")
 end
 
 local function api(p: Parsed, repo: string): integer
@@ -122,20 +135,35 @@ local function api(p: Parsed, repo: string): integer
   end
   local probed = rest:match("^git/ref/tags/(.+)$")
   if probed and method == "GET" then
-    assert(p.options["--include"], "the tag probe does not include the status")
+    if exists(state .. "/fail/ref-transport") then
+      return fail("error connecting to api.github.com")
+    end
     if exists(state .. "/fail/ref") then
-      return http("500 Internal Server Error", '{"message":"Server Error"}')
+      return http(p, "500 Internal Server Error", '{"message":"Server Error"}')
     end
     local tag_file = state .. "/tags/" .. probed
-    if not exists(tag_file) then return http("404 Not Found", '{"message":"Not Found"}') end
-    return http("200 OK", json({ ref = "refs/tags/" .. probed,
-      object = { sha = read(tag_file) } }))
+    if not exists(tag_file) then return http(p, "404 Not Found", '{"message":"Not Found"}') end
+    local object = { sha = read(tag_file), type = "commit" }
+    if exists(state .. "/annotated/" .. probed) then
+      object = { sha = read(state .. "/annotated/" .. probed), type = "tag" }
+    end
+    return http(p, "200 OK", json({ ref = "refs/tags/" .. probed, object = object }))
   end
+  local tag_object = rest:match("^git/tags/(.+)$")
+  if tag_object and method == "GET" then
+    local tagged = state .. "/tag-objects/" .. tag_object
+    if not exists(tagged) then return http(p, "404 Not Found", '{"message":"Not Found"}') end
+    return http(p, "200 OK", json({ sha = tag_object,
+      object = { sha = read(tagged), type = "commit" } }))
+  end
+  -- A name here is a tag's or a branch's, as GitHub resolves it.
   local resolved = rest:match("^commits/(.+)$")
   if resolved and method == "GET" then
-    local tag_file = state .. "/tags/" .. resolved
-    if not exists(tag_file) then return fail("No commit found for SHA: " .. resolved .. " (HTTP 422)") end
-    return out(json({ sha = read(tag_file) }))
+    for _, kind in ipairs({ "tags", "branches" }) do
+      local named = state .. "/" .. kind .. "/" .. resolved
+      if exists(named) then return out(json({ sha = read(named) })) end
+    end
+    return fail("No commit found for SHA: " .. resolved .. " (HTTP 422)")
   end
   if rest == "git/refs" and method == "POST" then
     local tag = assert(p.fields.ref, "no ref"):match("^refs/tags/(.+)$")
@@ -201,7 +229,15 @@ local function release(p: Parsed, repo: string): integer
     write(dir .. "/assets/" .. name, read(path))
     return 0
   elseif verb == "edit" then
-    if p.options["--draft=false"] then write(dir .. "/draft", "false") end
+    if p.options["--draft=false"] and not exists(state .. "/fail/edit-draft") then
+      write(dir .. "/draft", "false")
+      -- Publishing a draft whose tag is missing makes the tag, at the
+      -- draft's target.
+      if not exists(state .. "/tags/" .. tag) and exists(dir .. "/target") then
+        assert(Fs.mkdirs(state .. "/tags"))
+        write(state .. "/tags/" .. tag, read(dir .. "/target"))
+      end
+    end
     if p.options["--prerelease"] then write(dir .. "/prerelease", "true") end
     return out("https://github.com/" .. repo .. "/releases/tag/" .. tag .. "\n")
   end

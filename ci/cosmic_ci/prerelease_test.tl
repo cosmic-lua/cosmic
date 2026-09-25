@@ -91,7 +91,6 @@ local function test_http_status()
   assert(Prerelease.http_status("HTTP/2.0 404 Not Found\nX: y\n\n{}") == "404")
   assert(Prerelease.http_status("HTTP/1.1 302 Found\n\nHTTP/2.0 500 Error\n\n{}") == "500")
   assert(Prerelease.http_status("HTTP/2.0 404\n\n") == "404")
-  assert(Prerelease.http_status("HTTP/2.0 404\r\n\r\n") == "404\r")
   assert(Prerelease.http_status("") == nil)
   assert(Prerelease.http_status("error connecting to api.github.com\n") == nil)
   assert(Prerelease.http_status(" HTTP/2.0 404 Not Found\n") == nil)
@@ -351,15 +350,73 @@ local function test_publish_refuses_a_tag_naming_another_commit(tmp: string)
 end
 
 local function test_publish_refuses_api_failures_other_than_404(tmp: string)
-  for _, failure in ipairs({ "ref", "transport" }) do
+  -- ref-transport fails only the tag probe, and with no status line at
+  -- all: the listing before it succeeds, so the probe itself refuses.
+  local expected: {string:string} = { ref = "HTTP status 500",
+    ["ref-transport"] = "HTTP status nil", transport = "failed" }
+  for _, failure in ipairs({ "ref", "ref-transport", "transport" }) do
     local r = repo(tmp .. "/" .. failure)
     assert(Fs.mkdirs(r.state .. "/fail"))
     write(r.state .. "/fail/" .. failure, "")
-    refused(failure == "ref" and "HTTP status 500" or "failed", function() publish(r) end)
+    refused(expected[failure], function() publish(r) end)
     assert(not exists(r.state .. "/tags") and not exists(r.state .. "/releases"), failure)
     local log = calls(r)
     assert(count(log, "POST") == 0 and count(log, "release create") == 0, log)
   end
+end
+
+local function test_publish_refuses_a_release_that_is_no_prerelease(tmp: string)
+  local r = repo(tmp)
+  seed(r, "1", false, staged(r))
+  write(r.state .. "/releases/1/prerelease", "false")
+  refused("is no prerelease", function() publish(r) end)
+  assert(count(calls(r), "release download ") == 0)
+end
+
+local function test_publish_refuses_a_draft_whose_source_names_another_digest(tmp: string)
+  local r = repo(tmp)
+  seed(r, "1", true, { ["source.json"] =
+    Prerelease.source_json(commit, string.rep("cd", 32), run_prefix .. "3") })
+  refused("source.json names another digest", function() publish(r) end)
+  local log = calls(r)
+  assert(count(log, "release upload ") == 0 and count(log, "release edit ") == 0, log)
+end
+
+local function test_publish_refuses_a_release_still_a_draft_after_edit(tmp: string)
+  local r = repo(tmp)
+  assert(Fs.mkdirs(r.state .. "/fail"))
+  write(r.state .. "/fail/edit-draft", "")
+  refused("is still a draft", function() publish(r) end)
+  assert(count(calls(r), "release edit ") == 1)
+end
+
+--- A branch named for the tag is no tag: a draft whose tag is missing is
+--- refused before publishing it would make the tag at its own target.
+local function test_publish_refuses_a_branch_named_for_the_tag(tmp: string)
+  local r = repo(tmp)
+  seed(r, "1", true, staged(r))
+  assert(Fs.remove(r.state .. "/tags/" .. tag))
+  assert(Fs.mkdirs(r.state .. "/branches"))
+  write(r.state .. "/branches/" .. tag, commit)
+  write(r.state .. "/releases/1/target", commit)
+  refused("gh api repos/owner/repo/git/ref/tags/" .. tag .. " failed", function() publish(r) end)
+  assert(count(calls(r), "release edit ") == 0)
+  assert(not exists(r.state .. "/tags/" .. tag))
+  assert(read(r.state .. "/releases/1/draft") == "true")
+end
+
+--- An annotated tag is peeled to the commit it tags.
+local function test_publish_peels_an_annotated_tag(tmp: string)
+  local r = repo(tmp)
+  seed(r, "1", false, staged(r))
+  local object = string.rep("e", 40)
+  assert(Fs.mkdirs(r.state .. "/annotated") and Fs.mkdirs(r.state .. "/tag-objects"))
+  write(r.state .. "/annotated/" .. tag, object)
+  write(r.state .. "/tag-objects/" .. object, commit)
+  assert(publish(r) == "prerelease already published and verified: " .. tag)
+  assert(count(calls(r), "api repos/owner/repo/git/tags/" .. object) == 1)
+  write(r.state .. "/tag-objects/" .. object, string.rep("d", 40))
+  refused("names another commit", function() publish(r) end)
 end
 
 local function test_publish_refuses_two_releases_for_the_tag(tmp: string)

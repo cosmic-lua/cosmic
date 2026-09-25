@@ -356,6 +356,12 @@ end
 --- that runs one must check out a tree holding it first: its script
 --- comes from the checkout, and a job that runs only on main would
 --- otherwise find it missing only there.
+--- A sparse checkout must also hold the directory each `run` step
+--- starts in.
+-- TODO: hold a sparse checkout to what the scripts it runs read in
+-- turn, as cosmic-driver.sh reads bin/cosmic-bootstrap and ci/'s pin:
+-- that needs each script to declare what it reads (a header line the
+-- test could parse), since finding it in the shell text is guesswork.
 local function scripts_run(path: string, workflow: {string: any}): {string}
   local out: {string} = {}
   local jobs = workflow.jobs
@@ -371,6 +377,23 @@ local function scripts_run(path: string, workflow: {string: any}): {string}
           checkout, sparse = true, checked_out(step)
         end
         local run = step.run
+        if run is string and checkout and sparse ~= nil then
+          -- A `run` step starts in its working directory, so a sparse
+          -- checkout must hold it: be it, or lie under or over a path it
+          -- names.
+          local here = normal(directory(workflow, job, step))
+          if here ~= "" then
+            local present = false
+            for _, prefix in ipairs(sparse) do
+              if here == prefix or here:sub(1, #prefix + 1) == prefix .. "/"
+                  or prefix:sub(1, #here + 1) == here .. "/" then
+                present = true
+              end
+            end
+            assert(present, path .. ": job " .. name .. "'s sparse checkout does not hold " ..
+              here .. ", where a step runs")
+          end
+        end
         if run is string then
           for named in run:gmatch("[%w_./%-]*%.github/scripts/[%w_./%-]+") do
             local script = normal(directory(workflow, job, step) .. "/" .. named)
