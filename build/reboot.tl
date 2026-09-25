@@ -185,7 +185,12 @@ local function into(handle: work.Handle, built: compiler,
   if not written then
     return closing(handle, write_trouble)
   end
-  local database, read_trouble = Fs.read(database_path)
+  local carried_path = handle.root .. "/o/carried.db"
+  local carried, carry_trouble = writer.carried(database_path, carried_path)
+  if not carried then
+    return closing(handle, carry_trouble)
+  end
+  local database, read_trouble = Fs.read(carried_path)
   if database == nil then
     return closing(handle, read_trouble)
   end

@@ -466,7 +466,9 @@ database: compile, check, record, embed. `build.zig` owns the C.
 under `o/vendor/`, and the core for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the vendored `tl.lua`, writes `o/cosmic.db`, and writes one
-portable `o/bin/cosmic`. a fresh clone and CI run `boot`; a
+portable `o/bin/cosmic`. the tool carries `o/carried.db`, that projection
+without the tree's own tests and examples: `cosmic test` loads those
+from `o/cosmic.db`, and a release has no use for them. a fresh clone and CI run `boot`; a
 developer runs `o/bin/cosmic build` the other hundred times a day.
 
 cosmic builds itself, so the tool is also an artifact of the tree,
@@ -755,7 +757,7 @@ cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
 doc/                prose
-o/                  output; o/cosmic.db, o/build.db; never committed
+o/                  output; o/cosmic.db, o/carried.db, o/build.db; never committed
 ```
 
 every directory name is singular: `doc`, not `docs`; `patch`, not

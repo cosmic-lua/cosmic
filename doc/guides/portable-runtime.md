@@ -47,7 +47,9 @@ files under `o/core`; they are never database rows.
 compiles the staged tree. [`build.writer`](../../build/writer.tl) projects the
 result into `o/cosmic.db`, a fresh host-neutral database. The projection has a
 smaller schema, deterministic insertion order, natural keys, and no working
-history.
+history. In cosmic's own tree, the database the tool carries is
+`o/carried.db`, which `writer.carried` derives from the projection by leaving
+out the tree's own tests and examples, and every row about one.
 
 The writer hashes the planned modules, declarations, build identities, main
 module, and format name. It stores that signature inside the projection. A
