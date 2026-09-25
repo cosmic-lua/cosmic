@@ -184,7 +184,16 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local database, read_trouble = Fs.read(database_path)
+  -- The tool carries the projection without the tree's own tests,
+  -- which `cosmic test` reads from `o/cosmic.db` itself.
+  local carried_path = output .. "/carried.db"
+  local carried, carry_trouble = writer.carried(database_path, carried_path)
+  if not carried then
+    local _, _ = work.close(handle)
+    log:verdict("boot", false, carry_trouble)
+    return 1
+  end
+  local database, read_trouble = Fs.read(carried_path)
   if database == nil then
     local _, _ = work.close(handle)
     log:verdict("boot", false, read_trouble)
