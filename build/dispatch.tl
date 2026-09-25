@@ -90,7 +90,8 @@ A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
 sources whose rows to count. `docs` takes words to search for instead,
-`sql` one statement, `help` a verb, and `bom` nothing.
+`sql` one statement, `help` a verb, `refresh` the datasets to fetch,
+and `bom` nothing.
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
 operator and bracket, the spacing around each, and two columns of
@@ -465,6 +466,15 @@ local verbs: {string: function({integer:string}): integer} = {
       return stale
     end
     return require("build.bom").run(argv)
+  end,
+  -- What it copies is a binary, not the tree, but its own code is the
+  -- tree's: a stale tool rebuilds first, as `bom` does.
+  refresh = function(argv: {integer:string}): integer
+    local stale = require("build.reboot").stale_exit(argv)
+    if stale ~= nil then
+      return stale
+    end
+    return require("build.refresh").run(argv)
   end,
   -- Never stale-checked, unlike `db`: a staleness check stages the tree,
   -- and this verb reads o/ and nothing else under it. It gives its own

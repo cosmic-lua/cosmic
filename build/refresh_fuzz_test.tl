@@ -1,0 +1,125 @@
+--- Fuzz properties for what `cosmic refresh` reads from upstream: a PEM
+--- bundle (`roots.parse`), the DER framing each certificate is checked
+--- for, and PyPI's description of tzdata. Each is total -- a refusal by
+--- name, never a raise -- and reads well-formed input back as written.
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+
+local Codec = require("cosmic.codec")
+local Fuzz = require("build.fuzz")
+local Json = require("cosmic.json")
+local refresh = require("build.refresh")
+local roots = require("build.roots")
+
+--- A DER sequence around `body`, its length in the short or long form.
+local function sequence(body: string): string
+  local n = #body
+  if n < 0x80 then return "\x30" .. string.char(n) .. body end
+  if n < 0x100 then return "\x30\x81" .. string.char(n) .. body end
+  return "\x30\x82" .. string.pack(">I2", n) .. body
+end
+
+local function block(der: string, label: string): string
+  local encoded = Codec.base64(der)
+  local lines: {string} = { label, ("="):rep(#label), "-----BEGIN CERTIFICATE-----" }
+  for at = 1, #encoded, 64 do
+    lines[#lines + 1] = encoded:sub(at, at + 63)
+  end
+  lines[#lines + 1] = "-----END CERTIFICATE-----"
+  return table.concat(lines, "\n")
+end
+
+local function test_a_bundle_parses_back_or_is_refused(tmp: string)
+  Fuzz.run({
+    name = "pem bundle",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local ders: {string} = {}
+      local blocks: {string} = { "## Bundle", "" }
+      while Fuzz.more(src, #ders, 6) do
+        local der = sequence(Fuzz.bytes(src, 300) .. ("c"):rep(src:int(0, 1) * 200))
+        ders[#ders + 1] = der
+        blocks[#blocks + 1] = block(der, "Root " .. #ders)
+        blocks[#blocks + 1] = ""
+      end
+      local text = table.concat(blocks, "\n")
+      local mutated = Fuzz.mutate(src, text, 3)
+      return Fuzz.pack({ mutated, mutated == text and table.concat(ders, "\0\0") or "" })
+    end,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local found, trouble = roots.parse(fields[1])
+      if found == nil then
+        Fuzz.label("refused")
+        if trouble == "" then return false, "refused without a reason" end
+        return true, ""
+      end
+      Fuzz.label("parsed")
+      local ders: {string} = {}
+      for _, one in ipairs(found) do
+        if one.der == "" then return false, "an empty certificate" end
+        -- What is framed is a sequence, whatever the bytes inside.
+        refresh.is_sequence(one.der)
+        ders[#ders + 1] = one.der
+      end
+      if fields[2] ~= "" and table.concat(ders, "\0\0") ~= fields[2] then
+        return false, "a well-formed bundle did not parse back as written"
+      end
+      return true, ""
+    end,
+    requires = { "parsed", "refused" },
+  })
+end
+
+local function test_der_framing_is_exact(tmp: string)
+  Fuzz.run({
+    name = "der framing",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local body = Fuzz.bytes(src, 40) .. ("x"):rep(src:int(0, 2) * 150)
+      local framed = sequence(body)
+      local mutated = Fuzz.mutate(src, framed, 2)
+      return Fuzz.pack({ mutated, mutated == framed and "1" or "" })
+    end,
+    check = function(input: string): boolean, string
+      local fields = Fuzz.unpack(input)
+      local framed = refresh.is_sequence(fields[1])
+      Fuzz.label(framed and "framed" or "unframed")
+      if fields[2] == "1" and not framed then
+        return false, "a well-framed sequence was refused"
+      end
+      return true, ""
+    end,
+    requires = { "framed", "unframed" },
+  })
+end
+
+local function test_pypis_description_is_read_or_refused(tmp: string)
+  local sample = Json.encode({
+    info = { version = "2099.1" },
+    urls = {
+      { packagetype = "sdist", url = "https://example.com/tzdata-2099.1.tar.gz",
+        digests = { sha256 = ("a"):rep(64) } },
+    },
+  })
+  Fuzz.run({
+    name = "tzdata index",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      return Fuzz.mutate(src, sample, 4)
+    end,
+    check = function(input: string): boolean, string
+      local source, trouble = refresh.tzdata_release(input)
+      if source == nil then
+        Fuzz.label("refused")
+        if trouble == "" then return false, "refused without a reason" end
+        return true, ""
+      end
+      Fuzz.label("found")
+      if #source.sha256 ~= 64 or not source.sha256:match("^[0-9a-f]+$") then
+        return false, "a sha256 that is not 64 lowercase hex digits: " .. source.sha256
+      end
+      return true, ""
+    end,
+    requires = { "found", "refused" },
+  })
+end

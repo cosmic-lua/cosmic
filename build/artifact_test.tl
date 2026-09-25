@@ -129,3 +129,49 @@ local function test_checked_manifest_keeps_release_entries_but_selects_checked()
   assert(ambiguous == nil and
     ambiguous_trouble:find("duplicate generated uname", 1, true) ~= nil)
 end
+
+--- A portable and a host program alike split at their database, and
+--- rejoin to the same bytes, or around a new database to what the
+--- writer would have written with it.
+local function test_split_finds_the_database_either_writer_appended()
+  local prefix = assert(artifact.prefix(records, cores))
+  local one = "SQLite format 3\0one"
+  local two = "SQLite format 3\0the second, longer"
+  local portable = assert(artifact.program(prefix, one))
+  local host = assert(artifact.host_program({ bytes = cores.x86, digest = Hash.sha256(cores.x86),
+    target_id = 1, configuration_id = 1 }, one))
+  for bytes, is_host in pairs({ [portable] = false, [host] = true }) do
+    local parts = assert(artifact.split(bytes))
+    assert(parts.database == one)
+    assert(parts.host == is_host)
+    assert(artifact.rejoin(parts, one) == bytes)
+    local swapped = assert(artifact.rejoin(parts, two))
+    local again = assert(artifact.split(swapped))
+    assert(again.database == two and again.head == parts.head and again.host == is_host)
+  end
+  assert(artifact.rejoin(assert(artifact.split(portable)), two) == artifact.program(prefix, two))
+end
+
+--- A trailer whose fields do not fit the file is refused, never read
+--- past.
+local function test_split_refuses_a_trailer_that_does_not_fit()
+  local prefix = assert(artifact.prefix(records, cores))
+  local program = assert(artifact.program(prefix, "SQLite format 3\0db"))
+  local refused: {string} = {
+    "",
+    program:sub(2),
+    program .. "x",
+    program:sub(1, -49) .. "CosmicX1" .. program:sub(-40),
+    -- The database's length one longer than the file holds.
+    program:sub(1, -9) .. string.pack(">I8", 19),
+    -- One too long for any integer, which reads negative.
+    program:sub(1, -9) .. string.pack(">I8", -1),
+  }
+  for i, bytes in ipairs(refused) do
+    local parts, trouble = artifact.split(bytes)
+    assert(parts == nil and trouble ~= "", "case " .. i)
+  end
+  local not_sqlite = assert(artifact.split(program))
+  local joined, trouble = artifact.rejoin(not_sqlite, "not sqlite")
+  assert(joined == nil and trouble:find("SQLite", 1, true), trouble)
+end

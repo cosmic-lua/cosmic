@@ -360,6 +360,16 @@ input to the build, never to the runtime. one database holds:
   a rowid, written in name order: a WITHOUT ROWID row lives in an
   index page, where a zone file past about a kilobyte spills into
   overflow pages, and the table would take two thirds more room.
+
+`ca_roots` and `zoneinfo` go stale on upstream's schedule, not the
+code's, so `cosmic refresh` (`build/refresh.tl`) writes a copy of a
+binary -- the tool, or any executable `cosmic build` wrote -- with
+either replaced from a newer release: fetched from curl.se or PyPI, or
+read from a file. It splits the artifact at its database
+(`artifact.split`), replaces the rows with the same functions a boot
+fills them with, records the release in `components`, and puts the
+database back behind the same head, byte for byte. The binary it reads
+is never written.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
