@@ -509,8 +509,9 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       -- A method on a nested record (`Thing.Box:grow`) is the member
       -- `Box.grow`, as a record field and a use of it are spelled: the
       -- `:` says how it is called, not where it lives, just as
-      -- `Thing:write` is the member `write`. Only a method's: an enum
-      -- value's own text may hold a `:`.
+      -- `Thing:write` is the member `write`. Only a method's `:` is
+      -- that separator: an enum value's row (`Thing.Mode.a:b`) spells
+      -- the value itself, which may hold one.
       local member = source:sub(#dot + 1)
       if entry.kind == "method" then
         member = (member:gsub(":", "."))
