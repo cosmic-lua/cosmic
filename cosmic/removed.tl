@@ -78,6 +78,7 @@ local zip <const> = 'local Zip = require("cosmic.zip")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
+local sys <const> = 'local sys = require("cosmic.sys")'
 local poll_gone <const> = "there is no public poll to take it; use " ..
   "Child.wait_any(handles, timeout_ms), which polls every handle's streams (" ..
   child .. ")"
@@ -189,6 +190,9 @@ local module: Module = {
       proc .. ")",
     ["cosmic.sys.digest"] = "use Hash.digest(algorithm, data) (" .. hash .. ")",
     ["cosmic.sys.hmac"] = "use Hash.hmac(algorithm, key, data) (" .. hash .. ")",
+    ["cosmic.sys.utimens"] = "use sys.utimens_ns(path, atime_ns, mtime_ns), which " ..
+      "takes nanoseconds rather than seconds and leaves a nil time as it is (" ..
+      sys .. "), or Fs.set_mtime(path, mtime_ns) (" .. fs .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..

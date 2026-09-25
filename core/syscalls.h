@@ -58,6 +58,8 @@ const char *cosmic_path (lua_State *L, int index);
  * ---@field kind string one of "file", "dir", "link", "other"
  * ---@field mtime integer the modification time, whole seconds
  * ---@field mtime_ns integer the nanoseconds part of the modification time
+ * ---@field atime integer the access time, whole seconds
+ * ---@field atime_ns integer the nanoseconds part of the access time
  * ---@field ino integer the inode number
  * ---@field dev integer the device the inode is on
  * ---@field nlink integer how many names point at it
@@ -468,16 +470,17 @@ COSMIC_SYSCALL(symlink, 2);
 COSMIC_SYSCALL(readlink, 1);
 
 /*
- * --- Sets a path's access and modification times, in whole seconds
- * --- since the epoch. The link itself is changed, not its target.
+ * --- Sets a path's access time, modification time, or both, each in
+ * --- nanoseconds since the epoch; a nil one is left as it is, and
+ * --- naming neither raises. The link itself is changed, not its target.
  * ---@param path string the path to change
- * ---@param atime_s integer the access time to set
- * ---@param mtime_s integer the modification time to set
+ * ---@param atime_ns? integer the access time to set, or nil to keep it
+ * ---@param mtime_ns? integer the modification time to set, or nil to keep it
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(utimens, 3);
+COSMIC_SYSCALL(utimens_ns, 3);
 
 /*
  * --- Flushes a descriptor's data and metadata to storage.

@@ -165,6 +165,27 @@ local function test_stat_and_lstat_refuse_a_missing_path(tmp: string)
   failed_with(sys.ENOENT, sys.lstat(tmp .. "/missing"))
 end
 
+--- Each time is nanoseconds since the epoch, floored into seconds so a
+--- time before the epoch keeps a nanoseconds part in [0, 1e9); a nil one
+--- is left alone, and naming neither is a mistake that raises.
+local function test_utimens_ns_sets_either_time_to_the_nanosecond(tmp: string)
+  local path = tmp .. "/f"
+  assert(sys.close(create(path)))
+  assert(sys.utimens_ns(path, 5 * 1000000000 + 6, 7 * 1000000000 + 8))
+  local st = assert(sys.stat(path))
+  assert(st.atime == 5 and st.atime_ns == 6 and st.mtime == 7 and st.mtime_ns == 8)
+  assert(sys.utimens_ns(path, nil, -1))
+  st = assert(sys.stat(path))
+  assert(st.mtime == -1 and st.mtime_ns == 999999999, st.mtime .. "." .. st.mtime_ns)
+  assert(st.atime == 5 and st.atime_ns == 6)
+  assert(sys.utimens_ns(path, 9, nil))
+  st = assert(sys.stat(path))
+  assert(st.atime == 0 and st.atime_ns == 9 and st.mtime == -1)
+  raises(sys.utimens_ns, path)
+  raises(sys.utimens_ns, path, nil, nil)
+  failed_with(sys.ENOENT, sys.utimens_ns(tmp .. "/missing", nil, 0))
+end
+
 local function test_mkdir_and_rmdir(tmp: string)
   local made, trouble = sys.mkdir(tmp .. "/d")
   assert(made == true, trouble)
@@ -596,7 +617,7 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.symlink(nul, tmp .. "/link"))
   failed_with(sys.EINVAL, sys.symlink(file, tmp .. "/link\0x"))
   failed_with(sys.EINVAL, sys.readlink(nul))
-  failed_with(sys.EINVAL, sys.utimens(nul, 0, 0))
+  failed_with(sys.EINVAL, sys.utimens_ns(nul, 0, 0))
   -- execve, like spawn, refuses a NUL by raising, before it allocates.
   raises(sys.execve, tmp .. "\0/sh", { "sh" }, {})
   raises(sys.execve, "/bin/sh", { "sh", "-c\0x" }, {})

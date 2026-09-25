@@ -494,6 +494,21 @@ local function test_extract_restores_mtimes_unless_told_not_to(tmp: string)
   assert((assert(Fs.stat(dest2 .. "/d/f"))).mtime ~= 1200000000)
 end
 
+--- A pax mtime too far from the epoch to count in nanoseconds is left
+--- unset rather than wrapped around into some other time. This one is
+--- chosen so the wrap lands on an ordinary one: (1e9 + 2^55) * 1e9 is
+--- 1e18 + 5^9 * 2^64, so wrapped it is 1e9 seconds, in 2001.
+local function test_extract_leaves_an_mtime_past_nanosecond_range_unset(tmp: string)
+  local archive = tmp .. "/t.tar"
+  tar_of(archive, function(tw: Tar.Writer)
+    assert(tw:add_file("far", "x", { mtime = 1000000000 + (1 << 55) }))
+  end)
+  local dest = tmp .. "/out"
+  assert(Archive.extract(archive, dest))
+  local far = assert(Fs.stat(dest .. "/far"))
+  assert(far.mtime ~= 1000000000, "the archived time wrapped around")
+end
+
 local function test_extract_stops_at_max_bytes_and_max_entries(tmp: string)
   local archive = tmp .. "/t.tar"
   tar_of(archive, function(tw: Tar.Writer)

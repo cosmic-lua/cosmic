@@ -33,9 +33,13 @@
 #if defined(__APPLE__)
 #define COSMIC_MTIME_SECONDS(st) ((st).st_mtimespec.tv_sec)
 #define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtimespec.tv_nsec)
+#define COSMIC_ATIME_SECONDS(st) ((st).st_atimespec.tv_sec)
+#define COSMIC_ATIME_NANOSECONDS(st) ((st).st_atimespec.tv_nsec)
 #else
 #define COSMIC_MTIME_SECONDS(st) ((st).st_mtim.tv_sec)
 #define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtim.tv_nsec)
+#define COSMIC_ATIME_SECONDS(st) ((st).st_atim.tv_sec)
+#define COSMIC_ATIME_NANOSECONDS(st) ((st).st_atim.tv_nsec)
 #endif
 
 static void push_field (lua_State *L, const char *name, lua_Integer value) {
@@ -44,11 +48,13 @@ static void push_field (lua_State *L, const char *name, lua_Integer value) {
 }
 
 static void push_stat (lua_State *L, const struct stat *st) {
-  lua_createtable(L, 0, 10);
+  lua_createtable(L, 0, 12);
   push_field(L, "size", (lua_Integer)st->st_size);
   push_field(L, "mode", (lua_Integer)st->st_mode);
   push_field(L, "mtime", (lua_Integer)COSMIC_MTIME_SECONDS(*st));
   push_field(L, "mtime_ns", (lua_Integer)COSMIC_MTIME_NANOSECONDS(*st));
+  push_field(L, "atime", (lua_Integer)COSMIC_ATIME_SECONDS(*st));
+  push_field(L, "atime_ns", (lua_Integer)COSMIC_ATIME_NANOSECONDS(*st));
   push_field(L, "ino", (lua_Integer)st->st_ino);
   push_field(L, "dev", (lua_Integer)st->st_dev);
   push_field(L, "nlink", (lua_Integer)st->st_nlink);
@@ -457,16 +463,36 @@ COSMIC_SYSCALL(readlink, 1) {
   return 1;
 }
 
-COSMIC_SYSCALL(utimens, 3) {
+/* Argument `index`, nanoseconds since the epoch, as a timespec, or
+ * UTIME_OMIT when it is nil or absent. The seconds are floored, so the
+ * nanoseconds part is never negative, as utimensat requires. */
+static struct timespec time_or_omit (lua_State *L, int index) {
+  struct timespec at;
+  if (lua_isnoneornil(L, index)) {
+    at.tv_sec = 0;
+    at.tv_nsec = UTIME_OMIT;
+    return at;
+  }
+  lua_Integer ns = luaL_checkinteger(L, index);
+  lua_Integer seconds = ns / 1000000000;
+  lua_Integer rest = ns % 1000000000;
+  if (rest < 0) {
+    seconds -= 1;
+    rest += 1000000000;
+  }
+  at.tv_sec = (time_t)seconds;
+  at.tv_nsec = (long)rest;
+  return at;
+}
+
+COSMIC_SYSCALL(utimens_ns, 3) {
   const char *path = cosmic_path(L, 1);
+  luaL_argcheck(L, !lua_isnoneornil(L, 2) || !lua_isnoneornil(L, 3), 2,
+                "neither an access nor a modification time");
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  lua_Integer atime_s = luaL_checkinteger(L, 2);
-  lua_Integer mtime_s = luaL_checkinteger(L, 3);
   struct timespec times[2];
-  times[0].tv_sec = (time_t)atime_s;
-  times[0].tv_nsec = 0;
-  times[1].tv_sec = (time_t)mtime_s;
-  times[1].tv_nsec = 0;
+  times[0] = time_or_omit(L, 2);
+  times[1] = time_or_omit(L, 3);
   if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0) {
     return cosmic_fail_effect(L, errno);
   }

@@ -463,11 +463,12 @@ function Fs.readlink(path: string): string | nil, string
   return target, ""
 end
 
---- Sets a path's access and modification times, in whole seconds since
---- the epoch, as `touch -h -d` does. Changes the link itself, not its
---- target.
-function Fs.set_mtime(path: string, atime_s: integer, mtime_s: integer): boolean, string
-  local set, trouble = sys.utimens(path, atime_s, mtime_s)
+--- Sets a path's modification time to `mtime_ns`, nanoseconds since
+--- the epoch, leaving its access time as it is, as `touch -h -m -d`
+--- does. Changes the link itself, not its target. A `Stat`'s whole
+--- modification time is `st.mtime * 1000000000 + st.mtime_ns`.
+function Fs.set_mtime(path: string, mtime_ns: integer): boolean, string
+  local set, trouble = sys.utimens_ns(path, nil, mtime_ns)
   if not set then
     return false, path .. ": " .. trouble
   end
@@ -537,15 +538,15 @@ end
 --- same target, never followed. Every permission bit is kept, the umask
 --- not applied, except setuid and setgid: the copy belongs to whoever
 --- makes it, so they are dropped. Each modification time is kept to the
---- second. `to` must not exist yet; each listing is read before its copy
+--- nanosecond. `to` must not exist yet; each listing is read before its copy
 --- is made, so a tree copied into itself is not copied again. Anything
 --- else in the tree (a device, a socket, a named pipe) stops the copy
 --- with its path, and a copy that stops leaves what it made so far in
 --- place.
--- TODO: keep what `cp -a` also keeps -- nanosecond times (once
--- sys.utimens takes them), the access time, hard links as links (Stat has
--- ino, dev and nlink), and the owner when run as root (once cosmic.sys
--- carries lchown).
+-- TODO: keep what `cp -a` also keeps -- the access time (Stat has
+-- atime and atime_ns, and sys.utimens_ns sets one), hard links as links
+-- (Stat has ino, dev and nlink), and the owner when run as root (once
+-- cosmic.sys carries lchown).
 function Fs.copy_tree(from: string, to: string): boolean, string
   local present, present_trouble, number = sys.lstat(to)
   if present ~= nil then
@@ -583,7 +584,7 @@ function Fs.copy_tree(from: string, to: string): boolean, string
     else
       return false, source .. ": not a file, directory or symbolic link"
     end
-    return Fs.set_mtime(target, st.mtime, st.mtime)
+    return Fs.set_mtime(target, st.mtime * 1000000000 + st.mtime_ns)
   end
   return copy(from, to)
 end

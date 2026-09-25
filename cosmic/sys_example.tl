@@ -67,6 +67,17 @@ function Example.lstat()
   assert(gone == nil and errno == syscalls.ENOENT, tostring(errno))
 end
 
+--- `syscalls.utimens_ns` sets an access time, a modification time or
+--- both, in nanoseconds; a nil one is left as it was.
+function Example.utimens_ns()
+  local dir, path = scratch()
+  assert(syscalls.utimens_ns(path, 86400 * 1000000000, nil))
+  local stat = assert(syscalls.stat(path))
+  print(stat.atime)
+  assert(stat.atime == 86400 and stat.atime_ns == 0)
+  clean(dir, path)
+end
+
 --- `syscalls.chmod` sets a path's permission bits.
 function Example.chmod()
   local dir, path = scratch()

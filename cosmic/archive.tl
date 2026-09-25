@@ -321,6 +321,18 @@ local function join(parts: {string}, n: integer): string
   return table.concat(parts, "/", 1, n)
 end
 
+--- Gives `path` the archived modification time `seconds`, leaving
+--- its access time alone. A time too far from the epoch to count in
+--- nanoseconds (a tar base-256 field can hold one) is not set rather
+--- than wrapped around, as a failure to set one is not an error.
+local function restore_mtime(path: string, seconds: integer)
+  local limit = math.maxinteger // 1000000000
+  if seconds > limit or seconds < -limit then
+    return
+  end
+  local _, _ = Fs.set_mtime(path, seconds * 1000000000)
+end
+
 local record PendingLink
   rel: string
   parts: {string}
@@ -433,7 +445,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     if bytes_left ~= nil then bytes_left = bytes_left - copied end
     local ok, wtrouble = w:close()
     if not ok then return false, wtrouble end
-    if restore_mtimes then local _, _ = Fs.set_mtime(dest_path, entry.mtime, entry.mtime) end
+    if restore_mtimes then restore_mtime(dest_path, entry.mtime) end
     return true, ""
   end
 
@@ -483,7 +495,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     end
     ok, why = Fs.symlink(link.target, full)
     if not ok then return false, why end
-    if restore_mtimes then local _, _ = Fs.set_mtime(full, link.mtime, link.mtime) end
+    if restore_mtimes then restore_mtime(full, link.mtime) end
     return true, ""
   end
 
@@ -582,7 +594,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     -- undone by then touching something inside it.
     for i = #dir_times, 1, -1 do
       local d = dir_times[i]
-      local _, _ = Fs.set_mtime(d[1], d[2], d[2])
+      restore_mtime(d[1], d[2])
     end
   end
   local _, _ = reader:close()

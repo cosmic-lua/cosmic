@@ -228,13 +228,17 @@ local function test_symlink_and_readlink_round_trip(tmp: string)
   assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true))
 end
 
-local function test_set_mtime_changes_the_stat(tmp: string)
+--- The modification time is set to the nanosecond, and the access
+--- time is left as it was.
+local function test_set_mtime_sets_nanoseconds_and_leaves_the_access_time(tmp: string)
   local path = tmp .. "/file"
   assert(Fs.write(path, "contents"))
-  local set, trouble = Fs.set_mtime(path, 1000, 2000)
+  assert(sys.utimens_ns(path, 1000 * 1000000000 + 7, nil))
+  local set, trouble = Fs.set_mtime(path, 2000 * 1000000000 + 123456789)
   assert(set and trouble == "")
   local st = assert(sys.stat(path))
-  assert(st.mtime == 2000)
+  assert(st.mtime == 2000 and st.mtime_ns == 123456789, st.mtime .. "." .. st.mtime_ns)
+  assert(st.atime == 1000 and st.atime_ns == 7, st.atime .. "." .. st.atime_ns)
 end
 
 local function test_fsync_reports_bad_descriptor(tmp: string)
@@ -312,13 +316,15 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   assert(Fs.write(from .. "/sub/secret", "s", 0x180))
   assert(Fs.symlink("../big", from .. "/sub/link"))
   assert(Fs.symlink("nowhere", from .. "/dangling"))
-  assert(Fs.set_mtime(from .. "/big", 1000000000, 1000000000))
+  assert(Fs.set_mtime(from .. "/big", 1000000000 * 1000000000 + 123456789))
   assert(sys.chmod(from .. "/sub", 0x16d))
   local to = tmp .. "/to"
   local copied, trouble = Fs.copy_tree(from, to)
   assert(copied, trouble)
   assert(assert(Fs.read(to .. "/big")) == big)
-  assert(assert(Fs.stat(to .. "/big")).mtime == 1000000000)
+  local big_st = assert(Fs.stat(to .. "/big"))
+  assert(big_st.mtime == 1000000000 and big_st.mtime_ns == 123456789,
+    big_st.mtime .. "." .. big_st.mtime_ns)
   assert(assert(Fs.stat(to .. "/sub/run")).mode & 0xfff == 0x1e8)
   assert(assert(Fs.stat(to .. "/sub/secret")).mode & 0xfff == 0x180)
   assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)

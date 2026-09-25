@@ -43,6 +43,20 @@ function Example.truncate()
   assert(Fs.remove_tree(dir))
 end
 
+--- A file's modification time set to the nanosecond, as a build does
+--- to mark an output made at a given moment; its access time is left
+--- alone.
+function Example.set_mtime()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path = dir .. "/out"
+  assert(Fs.write(path, "made"))
+  assert(Fs.set_mtime(path, 1700000000 * 1000000000 + 250000000))
+  local st = assert(Fs.stat(path))
+  print(st.mtime, st.mtime_ns)
+  assert(st.mtime == 1700000000 and st.mtime_ns == 250000000)
+  assert(Fs.remove_tree(dir))
+end
+
 --- A whole tree copied, as `cp -Rp` copies it: files, directories and
 --- links, with their permissions and modification times.
 function Example.copy_tree()
