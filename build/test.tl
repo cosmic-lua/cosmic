@@ -430,12 +430,15 @@ end
 local function output_hash(root: string, relative: string,
                            key_parts: {string:string}): string
   local path = root .. "/" .. relative
-  local stat = observations.stat_answer(path)
-  -- The change time too, which no write can set back, unlike the
-  -- modification time `cp -p` or `touch -r` gives a same-size rewrite.
+  -- What stat says of it, the change time included, which no write
+  -- can set back, unlike the modification time `cp -p` or `touch -r`
+  -- gives a same-size rewrite.
+  local stat = "missing"
   local st, _ = sys.stat(path)
   if st ~= nil then
-    stat = stat .. " " .. tostring(st.ctime) .. " " .. tostring(st.ctime_ns)
+    stat = table.concat({ tostring(st.size), tostring(st.mode), tostring(st.mtime),
+      tostring(st.mtime_ns), tostring(st.ctime), tostring(st.ctime_ns), tostring(st.ino),
+      tostring(st.dev) }, " ")
   end
   local memo_key = "\4o\0" .. relative
   local memo = key_parts[memo_key]
