@@ -352,3 +352,116 @@ local function test_options_are_validated()
   assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [256] = 1 } } as Child.Options))
   assert(not pcall(Child.start, { "/bin/sh" }, { capture_limit = 0 } as Child.Options))
 end
+
+local function test_start_refuses_a_timeout_it_would_not_honour()
+  local ok, message = pcall(Child.start, { "/bin/sh", "-c", "exit 0" },
+    { timeout_ms = 10 } as Child.Options)
+  assert(not ok)
+  assert(tostring(message):find("h:wait", 1, true), tostring(message))
+  local r = assert(Child.run({ "/bin/sh", "-c", "exit 0" }, { timeout_ms = 10000 }))
+  assert(r.ok)
+end
+
+local function test_guard_is_one_at_a_time_and_closes_once()
+  local guard = assert(Child.guard())
+  local second, trouble = Child.guard()
+  assert(second == nil and trouble ~= "")
+  local r, run_trouble = Child.run({ "/bin/sh", "-c", "exit 0" })
+  assert(r == nil and run_trouble:find("signal guard: ", 1, true), run_trouble)
+  assert(guard:cancelled() == 0)
+  assert(guard:close())
+  assert(guard:close())
+  assert(guard:cancelled() == 0)
+  local again = assert(Child.guard())
+  assert(again:close())
+end
+
+--- A caught signal ends a wait, timed or not, and the child with it:
+--- `wait(0)` is how a caller ends a child whose time is up, and a
+--- signal caught first must not leave that child running. The signal
+--- stays with the guard however many waits see it, and ends the
+--- process when the guard closes. The guard lives in a nested cosmic:
+--- closing it delivers SIGTERM to whatever process holds it.
+local function test_guard_keeps_a_signal_and_delivers_it_on_close()
+  local dir = temporary()
+  local report = dir .. "/report"
+  local fixture = dir .. "/guarded.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  do
+    local guard <close> = assert(Child.guard())
+    local timed = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
+    local untimed = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
+    local done = assert(Child.start({ "/bin/sh", "-c", "exit 3" }))
+    -- Until `done` has exited: Linux shows it as a zombie in /proc;
+    -- elsewhere, half a second is ample for `exit 3`.
+    local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
+    local on_proc = Fs.read(stat_path) ~= nil
+    local by = Time.monotonic_ns() + (on_proc and 5000 or 500) * 1000 * 1000
+    local zombie = false
+    while not zombie and Time.monotonic_ns() < by do
+      Time.sleep_ns(20 * 1000 * 1000)
+      local stat = Fs.read(stat_path)
+      zombie = stat ~= nil and stat:match("^%d+ %b() Z") ~= nil
+    end
+    assert(sys.kill(sys.getpid(), sys.SIGTERM))
+    local answers: {string} = {}
+    for _, wait in ipairs({ function(): Child.Result | nil, string return timed:wait(0) end,
+        function(): Child.Result | nil, string return untimed:wait() end }) do
+      local r, trouble = wait()
+      answers[#answers + 1] = tostring(r == nil) .. " " .. trouble
+    end
+    answers[#answers + 1] = tostring(not sys.kill(timed.pid, 0))
+    answers[#answers + 1] = tostring(not sys.kill(untimed.pid, 0))
+    local later, _ = timed:wait()
+    answers[#answers + 1] = tostring(later ~= nil)
+    local finished = assert(done:wait())
+    answers[#answers + 1] = tostring(finished.code) .. " " .. tostring(finished.timed_out)
+    answers[#answers + 1] = tostring(guard:cancelled())
+    assert(Fs.write(argv[1], table.concat(answers, "|")))
+  end
+  return 0
+end
+]]))
+  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  local cancelled = "true cancelled by signal " .. tostring(sys.SIGTERM)
+  local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
+    "3 false", tostring(sys.SIGTERM) }, "|")
+  local got = Fs.read(report)
+  assert(got == expected, tostring(got) .. " " .. tostring(r.stderr))
+  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
+end
+
+--- A signal this process ignores -- `cosmic test &` from a script, whose
+--- shell ignores SIGINT for it -- is not the guard's to catch.
+local function test_guard_leaves_an_ignored_signal_ignored()
+  local dir = temporary()
+  local report = dir .. "/report"
+  local fixture = dir .. "/ignoring.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local caught = guard:cancelled()
+  assert(guard:close())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  assert(Fs.write(argv[1], tostring(caught)))
+  return 0
+end
+]]))
+  local r = assert(Child.run({ "/bin/sh", "-c", "trap '' INT; exec \"$0\" \"$@\"",
+    assert(Proc.executable()), fixture, report },
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
+    " " .. tostring(r.stderr))
+  local got = Fs.read(report)
+  assert(got == "0", tostring(got))
+end

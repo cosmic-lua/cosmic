@@ -17,7 +17,6 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
-local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local reboot = require("build.reboot")
@@ -133,20 +132,16 @@ end
 
 --- Blame for the first line of each TODO in several files, by file,
 --- running the calls `blame_jobs` at a time; a file git has nothing to
---- say about maps to an empty table.
-local function blame_files(root: string,
-                           lines: {string:{integer}},
-                           order: {string}): {string:{integer:todos.Blame}}
+--- say about maps to an empty table. Stops once `guard` has caught a
+--- signal, every git ended.
+local function blame_all(root: string, lines: {string:{integer}}, order: {string},
+                         guard: Child.Guard | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
   local limit = blame_jobs()
   local running: {Child.Handle} = {}
   local file_of: {Child.Handle:string} = {}
   local deadline_of: {Child.Handle:integer} = {}
   local next_file = 1
-  -- SIGINT or SIGTERM ends every git still running, then this process,
-  -- as `build.test` does for its workers.
-  local guarded, _ = sys.guard_child_signals()
-  local cancelled = 0
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
       local file = order[next_file]
@@ -170,12 +165,8 @@ local function blame_files(root: string,
     if #running == 0 then
       break
     end
-    if guarded then
-      local signal, _ = sys.cancelled_child_signal()
-      cancelled = signal or 0
-      if cancelled ~= 0 then
-        break
-      end
+    if guard ~= nil and guard:cancelled() ~= 0 then
+      break
     end
     local done, trouble = Child.wait_any(running, 100)
     local now = Time.monotonic_ns()
@@ -199,16 +190,21 @@ local function blame_files(root: string,
   for _, handle in ipairs(running) do
     local _, _ = handle:close()
   end
-  if guarded then
-    local late, _ = sys.unguard_child_signals()
-    if cancelled == 0 then
-      cancelled = late or 0
-    end
-  end
-  if cancelled ~= 0 then
-    local _, _ = sys.kill(sys.getpid(), cancelled)
-  end
   return out
+end
+
+--- `blame_all` under a `Child.guard`: SIGINT or SIGTERM ends every git
+--- still running, then this process when the guard closes, as
+--- `build.test` does for its workers. Unguarded when this process
+--- already holds a guard (`todos.run` called in-process under one),
+--- where a signal acts as it would.
+local function blame_files(root: string,
+                           lines: {string:{integer}},
+                           order: {string}): {string:{integer:todos.Blame}}
+  local opened, _ = Child.guard()
+  if opened == nil then return blame_all(root, lines, order, nil) end
+  local guard <close> = opened
+  return blame_all(root, lines, order, guard)
 end
 
 --- Whether a commit hash is the one blame gives a line not committed.
