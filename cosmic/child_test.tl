@@ -37,6 +37,28 @@ local function test_start_failure_is_not_exit_127()
   assert(r.code == 127 and not r.ok)
 end
 
+--- A bare name is not looked for on PATH, and the failure says so and
+--- names what finds it; a path that is not there gets no such hint.
+local function test_a_bare_name_not_found_points_at_proc_find()
+  local dir = temporary()
+  local _, trouble = Child.run({ "cosmic-no-such-program" }, { cwd = dir })
+  assert(trouble:find("with no PATH search; " ..
+    "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
+  local _, pathed = Child.run({ dir .. "/cosmic-no-such-program" })
+  assert(pathed:find("Proc.find(", 1, true) == nil, pathed)
+  -- A missing directory, or a script whose interpreter is missing, fails
+  -- with the same ENOENT; the name is not what is missing there.
+  local _, no_dir = Child.run({ "ls" }, { cwd = dir .. "/not-here" })
+  assert(no_dir:find("Proc.find(", 1, true) == nil, no_dir)
+  assert(Fs.write(dir .. "/script", "#!/cosmic/no/such/interpreter\n"))
+  assert(sys.chmod(dir .. "/script", 0x1c0))
+  local _, script = Child.run({ "script" }, { cwd = dir })
+  assert(script ~= "" and script:find("Proc.find(", 1, true) == nil, script)
+  local _, empty = Child.run({ "" }, { cwd = dir })
+  assert(empty:find("Proc.find(", 1, true) == nil, empty)
+  assert(Fs.remove_tree(dir))
+end
+
 local function test_argv_environment_directory_and_file_output()
   local dir = temporary()
   local fd, path = output(dir, "answer")
