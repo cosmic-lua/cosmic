@@ -781,6 +781,20 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
 end
 
 --- `Child.start` on options already validated.
+--- Whether `name` is a bare name -- no slash -- that is not there in
+--- `cwd` (this process's own when nil), which does exist: most often a
+--- program meant to be found on PATH. Not when the directory is what
+--- is missing, nor when the file is there and its `#!` interpreter is
+--- not: those fail with the same ENOENT.
+local function unfound_name(name: string, cwd?: string): boolean
+  if name == "" or name:find("/", 1, true) ~= nil then return false end
+  local dir = cwd or "."
+  local there, _ = sys.stat(dir)
+  if there == nil then return false end
+  local found, _ = sys.lstat(dir .. "/" .. name)
+  return found == nil
+end
+
 local function start(argv: {string}, opts: Options): Handle | nil, string
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
@@ -806,10 +820,17 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   -- once a caller wants a child held to what it names -- the test
   -- runner, holding a test to what it declares it reads, is the one
   -- #2103 made it for; until then nothing public reaches it.
-  local pid, trouble = raw.spawn(argv[1], argv, opts.env, opts.cwd,
+  local pid, trouble, errno = raw.spawn(argv[1], argv, opts.env, opts.cwd,
     slots[0], slots[1], slots[2], grouped, extra)
   unwire(wiring, pid ~= nil)
-  if not pid then return nil, "start: " .. trouble end
+  if not pid then
+    if errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then
+      trouble = trouble .. ": " .. string.format("%q", argv[1]) ..
+        " is run as a path, with no PATH search; Proc.find(" ..
+        string.format("%q", argv[1]) .. ") answers where a shell would find it"
+    end
+    return nil, "start: " .. trouble
+  end
   local h = make_handle(pid, grouped)
   h._limit = opts.capture_limit or DEFAULT_CAPTURE_LIMIT
   if #wiring.streams > 0 then h._streams = wiring.streams end
@@ -822,7 +843,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
 end
 
 --- Starts one executable and returns an owning handle. argv[1] is an exact
---- path, without PATH lookup. Drop/close of an unfinished handle performs
+--- path, without PATH lookup: `Proc.find` finds a program by
+--- name. Drop/close of an unfinished handle performs
 --- bounded process-group termination; wait(timeout) does the same on expiry.
 --- `timeout_ms` is refused: bound the child with `h:wait(timeout_ms)`.
 function Child.start(argv: {string}, opts?: Options): Handle | nil, string
@@ -919,7 +941,8 @@ function Child.end_strays(): integer
 end
 
 --- Runs one executable path to completion. argv[1] is used exactly as given:
---- there is no PATH search. A nil environment inherits this process's
+--- there is no PATH search, and `Proc.find` finds a program by
+--- name. A nil environment inherits this process's
 --- environment; a table replaces it exactly. Standard streams inherit by
 --- default, or accept caller-owned descriptors (which remain open here),
 --- "null", or "capture". Children own a new process group by default so
