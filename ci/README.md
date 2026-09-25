@@ -78,6 +78,26 @@ operations database does not exist yet it appends a note that it is
 unavailable and exits 0: no operation ran, which means the self-check
 failed first.
 
+`prerelease-stage` and `prerelease-publish` are prerelease.yml's publish
+job, which checks out only `ci/`, `bin/cosmic-bootstrap` and
+`.github/scripts/cosmic-driver.sh`, and holds a `contents: write` token.
+The token reaches only the driver's `prerelease-publish` step, which hands
+it to the `gh` CLI; beyond the actions, the job otherwise runs only the
+scripts that fetch the pinned driver and verify it against the pin. The
+candidate product it downloads is data only, never executed.
+`prerelease-stage` reads `PRODUCTS` (the downloaded
+`portable-product-<lane>` directories, all four), `RELEASE`,
+`SOURCE_COMMIT` and `SOURCE_RUN_URL`, checks that every lane executed the
+same bytes, and writes the release under `RELEASE`: `cosmic`,
+`SHA256SUMS`, `source.json` and `notes.md`. `prerelease-publish` reads
+`GH_TOKEN`, `REPOSITORY`, `RELEASE`, `SOURCE_COMMIT`, `SOURCE_RUN_PREFIX`
+and `RUNNER_TEMP`, finds `gh` on `PATH`, and makes the staged release the
+immutable `next-<commit>` prerelease, or verifies the one already there;
+it resumes an interrupted draft only by accepting assets identical to the
+staged ones, and writes its downloads under `$RUNNER_TEMP/prerelease/`.
+`cosmic_ci/prerelease_test.tl` drives it against a fake `gh`
+(`testdata/prerelease/gh.tl`) and never reaches the network.
+
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
 over every `*_fuzz_test.tl` outside its top-level `o/`, `vendor/` and

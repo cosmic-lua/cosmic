@@ -1,6 +1,6 @@
 #!/bin/sh
-# Bootstraps the pinned CI driver for ci.yml's and fuzz.yml's jobs,
-# which run it from ci/:
+# Bootstraps the pinned CI driver for the workflows' jobs, which run it
+# from ci/:
 #
 #     sh ../.github/scripts/cosmic-driver.sh [zig-cache]
 #

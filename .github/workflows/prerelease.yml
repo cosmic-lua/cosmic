@@ -20,17 +20,37 @@
         "cancel-in-progress": false,
       },
       steps: [
-        # The job checks out only its own scripts, .github/scripts/, from the
-        # commit it publishes (not cone mode, which would add the root's
-        # files), and keeps no credential in the checkout. The candidate
-        # bytes it downloads are data only: none of them is executed.
+        # The job checks out, from the commit it publishes, only what the
+        # pinned CI driver needs: ci/ (the driver runs cosmic_ci in place
+        # and keeps its database under ci/o/), bin/cosmic-bootstrap and the
+        # script that runs it (not cone mode, which would add the root's
+        # files), and keeps no credential in the checkout. Beyond the
+        # actions, the job runs only the scripts that fetch the driver and
+        # verify it against ci/cosmic-driver.pin's digest, and the driver
+        # itself. The write token reaches only the driver's publish step,
+        # where cosmic_ci/prerelease.tl hands it to the gh CLI. The
+        # candidate bytes the job downloads are data only: none of them is
+        # ever executed.
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
-            "sparse-checkout": "/.github/scripts/",
+            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n",
             "sparse-checkout-cone-mode": false,
             "persist-credentials": false,
           },
+        },
+        {
+          name: "cache the pinned CI driver",
+          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
+            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          "working-directory": "ci",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
         },
         {
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
@@ -42,19 +62,19 @@
 
         {
           name: "verify and stage the tested product",
-          shell: "bash",
+          "working-directory": "ci",
           env: {
             PRODUCTS: "${{ runner.temp }}/products",
             RELEASE: "${{ runner.temp }}/release",
             SOURCE_COMMIT: "${{ github.sha }}",
             SOURCE_RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
           },
-          run: "bash .github/scripts/prerelease-stage.sh",
+          run: "cosmic-driver cosmic_ci/driver.tl prerelease-stage",
         },
 
         {
           name: "publish or verify the immutable prerelease",
-          shell: "bash",
+          "working-directory": "ci",
           env: {
             GH_TOKEN: "${{ github.token }}",
             REPOSITORY: "${{ github.repository }}",
@@ -62,7 +82,7 @@
             SOURCE_COMMIT: "${{ github.sha }}",
             SOURCE_RUN_PREFIX: "${{ github.server_url }}/${{ github.repository }}/actions/runs/",
           },
-          run: "bash .github/scripts/prerelease-publish.sh",
+          run: "cosmic-driver cosmic_ci/driver.tl prerelease-publish",
         },
       ],
     },
