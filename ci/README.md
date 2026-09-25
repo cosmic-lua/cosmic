@@ -98,6 +98,19 @@ staged ones, and writes its downloads under `$RUNNER_TEMP/prerelease/`.
 `cosmic_ci/prerelease_test.tl` drives it against a fake `gh`
 (`testdata/prerelease/gh.tl`) and never reaches the network.
 
+`fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
+`fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
+over every `*_fuzz_test.tl` outside its top-level `o/`, `vendor/` and
+`ci/`, with the environment it was given (`FUZZ_SEED` and `FUZZ_ITERS`
+among it), `TMPDIR` at `$RUNNER_TEMP/fuzz`, `COSMIC_AUTO_BOOT=0` and
+`COSMIC_TEST_TIMEOUT=1200`. Both its streams go to
+`$RUNNER_TEMP/fuzz.out`, copied to the job log as they are written; its
+status goes to `$RUNNER_TEMP/fuzz.status` and is the command's own. The
+step summary gets the seed, and on a failure the failing tests' lines
+and the reports beneath them. `fuzz-cancelled` appends the last 40 lines
+of `$RUNNER_TEMP/fuzz.out`, if there is one, to the step summary. Both
+write the summary where `summarize` does.
+
 `image-build` and `image-publish` are ci-images.yml's: they run `docker`,
 found on `PATH`, from `GITHUB_WORKSPACE`, record no operations and need no
 `RUNNER_TEMP` state. `image-build` builds `ci/images/$IMAGE` for `ARCH` as

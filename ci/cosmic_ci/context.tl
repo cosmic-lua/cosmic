@@ -18,11 +18,12 @@ local record Context
   products: string
 end
 
-local function required(name: string): string
+function Context.required(name: string): string
   local value = Env.get(name)
   assert(value and value ~= "", "missing required environment variable: " .. name)
   return value
 end
+local required = Context.required
 
 -- All driver state lives under $RUNNER_TEMP/cosmic-ci/: the operations
 -- database, the platform work directory, and the provenance products
@@ -64,6 +65,19 @@ end
 -- operations database, so it needs nothing but RUNNER_TEMP.
 function Context.database(): string
   return scratch_path() .. "/operations.db"
+end
+
+--- Appends `text` to the run's summary page, the file
+--- GITHUB_STEP_SUMMARY names, or writes it to stdout when that is unset.
+function Context.summarize(text: string)
+  local output = Env.get("GITHUB_STEP_SUMMARY")
+  if output and output ~= "" then
+    local output_exists = Predicate.exists(output)
+    local existing = output_exists and assert(Fs.read(output)) or ""
+    assert(Fs.write(output, existing .. text))
+  else
+    assert(Fs.put(Fs.stdout, text))
+  end
 end
 
 return Context

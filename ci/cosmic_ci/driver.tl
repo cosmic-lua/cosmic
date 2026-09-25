@@ -1,7 +1,7 @@
 local Context = require("cosmic_ci.context")
-local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Fuzz = require("cosmic_ci.fuzz")
 local Images = require("cosmic_ci.images")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
@@ -65,15 +65,7 @@ local function summarize(_argv: {string}): integer
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
   end
-  local text = table.concat(lines)
-  local output = Env.get("GITHUB_STEP_SUMMARY")
-  if output and output ~= "" then
-    local output_exists = Predicate.exists(output)
-    local existing = output_exists and assert(Fs.read(output)) or ""
-    assert(Fs.write(output, existing .. text))
-  else
-    assert(Fs.put(Fs.stdout, text))
-  end
+  Context.summarize(table.concat(lines))
   return 0
 end
 
@@ -100,6 +92,10 @@ local commands: {string:Command} = {
     usage = "", handler = Prerelease.stage_command },
   ["prerelease-publish"] = { about = "publish the staged prerelease, or verify the one there",
     usage = "", handler = Prerelease.publish_command },
+  fuzz = { about = "fuzz every property on the checked core, for fuzz.yml",
+    usage = "", handler = Fuzz.fuzz },
+  ["fuzz-cancelled"] = { about = "say how far a cancelled fuzz run got",
+    usage = "", handler = Fuzz.cancelled },
   ["image-build"] = { about = "build one of ci/images/ for one architecture",
     usage = "", handler = Images.build_command },
   ["image-publish"] = { about = "join one image's architectures under one tag",
