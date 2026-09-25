@@ -199,7 +199,7 @@ local function patches_of(root: string, name: string): string | nil, string
   table.sort(names)
   local lines: {string} = {}
   for _, file in ipairs(names) do
-    -- Only what `core/patch.c` applies: a patch record is a `.txt`.
+    -- Only what `build/patch.tl` applies: a patch record is a `.txt`.
     if String.ends_with(file, ".txt") and #file > 4 then
       local data, read_trouble = Fs.read(directory .. "/" .. file)
       if data == nil then
