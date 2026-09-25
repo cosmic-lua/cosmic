@@ -1022,17 +1022,17 @@ end
 --- types over the core, not analysis.
 local function test_the_analyzer_modules_are_closed_under_require()
   local ast = require("build.ast")
-  local analyzer = assert(importer.analyzer_modules())
+  local modules = assert(importer.analyzer_modules())
   local listed: {string:boolean} = {}
-  for _, name in ipairs(analyzer) do listed[name] = true end
+  for _, name in ipairs(modules) do listed[name] = true end
   assert(listed["build.importer"] and listed["build.ast.match"] and
-    listed["cosmic.string"], table.concat(analyzer, ", "))
+    listed["cosmic.string"], table.concat(modules, ", "))
   assert(not listed["build.test"] and not listed["build.receivers"],
-    table.concat(analyzer, ", "))
+    table.concat(modules, ", "))
   -- The source analyzer is in the set; the privacy-by-position check,
   -- which only the importer calls, is not.
   assert(listed["build.analyzer"] and not listed["build.positions"],
-    table.concat(analyzer, ", "))
+    table.concat(modules, ", "))
   local function file_of(name: string): string
     local base = name:gsub("%.", "/")
     for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
@@ -1041,7 +1041,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     return nil
   end
   local missing: {string} = {}
-  for _, name in ipairs(analyzer) do
+  for _, name in ipairs(modules) do
     local file = file_of(name)
     assert(file ~= nil, name .. " is listed but is no module of the tree's")
     assert(Store.source(name) ~= nil, name .. " has no source in the running binary, " ..

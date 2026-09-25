@@ -61,7 +61,8 @@ end
 
 --- The extractors, generators and parser the importer's own derive and
 --- parse call: with the importer itself, the roots of
---- `importer.analyzer_modules`.
+--- `importer.analyzer_modules`. "The analyzer" in these names is that
+--- whole set, of which the source analyzer `build.analyzer` is one.
 local analyzer_roots: {string} = {
   "build.analyzer", "build.ast", "build.bind", "build.compiler",
   "build.doctest", "build.gen_syscalls",

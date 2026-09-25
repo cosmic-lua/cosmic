@@ -1,6 +1,7 @@
 --- The shape a project's own files take for cosmic to recognize them
 --- as more than plain library code -- a name `build/analyzer.tl`
---- compares literally, or a file suffix `build/work.tl` matches, not
+--- compares literally, a position `build/positions.tl` checks, or a
+--- file suffix `build/work.tl` matches, not
 --- a symbol any one function's doc comment could state on its own.
 --- `cosmic docs <word>` finds each field below directly. A field is
 --- named for the file it shapes (`tests`), not for a verb: `cosmic docs
