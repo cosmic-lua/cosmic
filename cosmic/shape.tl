@@ -26,8 +26,9 @@
 --- The rules, fixed here:
 ---
 --- - The answer is a copy. A record keeps only the fields its spec
----   names, so a key the payload grew is dropped rather than refused, and
----   the value handed in is never written to.
+---   names, so a key the payload grew is dropped rather than refused
+---   (`strict_record` refuses it instead), and the value handed in is
+---   never written to.
 --- - JSON is the decoder in mind. A missing key and `Json.null`, which
 ---   `Json.decode(text, { null_value = Json.null })` puts where the text
 ---   says `null`, are the same thing: `optional` admits either and
@@ -63,6 +64,8 @@ local record Shape
     fields: {string: Spec}
     --- The fields' names in byte order, for "record".
     names: {string}
+    --- Whether a key `fields` does not name is refused, for "record".
+    strict: boolean
     --- The values admitted, for "one_of".
     values: {string | number | boolean}
     --- The specs tried in turn, for "either".
@@ -149,24 +152,45 @@ function Shape.map(of: Spec): Spec
   return { kind = "map", optional = false, of = of }
 end
 
+--- A record's spec over a copy of `fields`, its names in byte order.
+local function record_of(fields: {string: Spec}, strict: boolean, what: string): Spec
+  local own: {string: Spec} = {}
+  local names: {string} = {}
+  for name, spec in pairs(fields) do
+    need_spec(spec, ("%s's field %q"):format(what, name))
+    own[name] = spec
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  return { kind = "record", optional = false, fields = own, names = names, strict = strict }
+end
+
 --- A table with the named fields, each of its own shape. Keys it does
---- not name are ignored, and left out of the answer.
--- TODO: a strict record, refusing a key it does not name, for a config
--- file where a misspelled key should fail rather than vanish.
+--- not name are ignored, and left out of the answer; `strict_record`
+--- refuses them.
 -- TODO: `Shape.lazy(function(): Spec)`, so a spec can name itself for a
 -- tree-shaped payload; `need_spec` would then check it on first use.
 --- @param fields {string: Spec} Each field's shape, by its name
 --- @return Spec The record's shape
 function Shape.record(fields: {string: Spec}): Spec
-  local own: {string: Spec} = {}
-  local names: {string} = {}
-  for name, spec in pairs(fields) do
-    need_spec(spec, ("record's field %q"):format(name))
-    own[name] = spec
-    names[#names + 1] = name
-  end
-  table.sort(names)
-  return { kind = "record", optional = false, fields = own, names = names }
+  return record_of(fields, false, "record")
+end
+
+--- A record that refuses every key it does not name, for a config file
+--- where a misspelled key should fail rather than vanish:
+--- `{"prot": 8080}` against `strict_record({ port = Shape.integer })`
+--- fails with `$.prot: unknown key`. The keys are checked before the
+--- fields, so the misspelling is named rather than the field it was
+--- meant to be, and the first unknown one in byte order is the one
+--- reported. A key is unknown whatever its value, `Json.null` included:
+--- `"prot": null` is still a misspelling. A key that is not a string is
+--- refused as a map refuses one, `$: expected record, got the integer
+--- key 1`. Otherwise it is `record`: a named field that is `optional`
+--- may be missing or `Json.null`, and the answer is a copy.
+--- @param fields {string: Spec} Each field's shape, by its name
+--- @return Spec The record's shape
+function Shape.strict_record(fields: {string: Spec}): Spec
+  return record_of(fields, true, "strict_record")
 end
 
 --- The shape `of`, which a missing value, or `Json.null`, also
@@ -177,7 +201,8 @@ function Shape.optional(of: Spec): Spec
   need_spec(of, "optional's shape")
   return {
     kind = of.kind, optional = true, of = of.of, fields = of.fields,
-    names = of.names, values = of.values, choices = of.choices,
+    names = of.names, strict = of.strict, values = of.values,
+    choices = of.choices,
   }
 end
 
@@ -340,6 +365,44 @@ local function indices(t: {any: any}): {integer}, any
   return keys, nil
 end
 
+--- What a strict record `spec` refuses in `t`, before any field is
+--- looked at: a key that is not a string, named where the record
+--- stands, or else a string key it does not name, named where that key
+--- is (`$.prot: unknown key`). The first such miss, or nil; `all`, when
+--- collecting, gets every one of the first sort, each sorted with
+--- `key_before`, and `into` names the first by that order when the
+--- keys are strings. So a strict record fails where it stands or at its
+--- keys, and never at a field as well.
+local function unknown_keys(t: {any: any}, spec: Spec, path: string, all?: {Miss}): Miss
+  local unknown: {string} = {}
+  local refused: {any} = {}
+  for k in next, t do
+    if not (k is string) then
+      if all == nil then return miss(path, "expected record, got " .. key_named(k)) end
+      refused[#refused + 1] = k
+    elseif spec.fields[k] == nil then
+      unknown[#unknown + 1] = k
+    end
+  end
+  if #refused > 0 then
+    table.sort(refused, key_before)
+    local first: Miss = nil
+    for _, k in ipairs(refused) do
+      local m = miss(path, "expected record, got " .. key_named(k), all)
+      first = first or m
+    end
+    return first
+  end
+  table.sort(unknown)
+  local first: Miss = nil
+  for _, k in ipairs(unknown) do
+    local m = miss(field_path(path, k), "unknown key", all)
+    if all == nil then return m end
+    first = first or m
+  end
+  return first
+end
+
 --- `v` checked against `spec` at `path`. `all` is nil to stop at the
 --- first miss, or the list collecting every one. Either way a value
 --- fails where it stands (its misses are all at `path`) or inside
@@ -423,6 +486,10 @@ walk = function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
     -- answers the first.
     local first: Miss = nil
     if kind == "record" then
+      if spec.strict then
+        local unknown = unknown_keys(t, spec, path, all)
+        if unknown ~= nil then return nil, unknown end
+      end
       local out: {string: any} = {}
       for _, name in ipairs(spec.names) do
         local got, failed = walk(rawget(t, name), spec.fields[name], field_path(path, name), all)
@@ -542,8 +609,9 @@ end
 --- a list's elements by index, a map's keys in byte order -- so the
 --- same value always answers the same list. A value that fails where it
 --- stands is not looked inside: a record that is a string is one
---- failure, not one per field, and a list or map with a key it refuses
---- lists each such key and none of its values. A run of missing list
+--- failure, not one per field, and a list, map or `strict_record`
+--- with a key it refuses lists each such key and none of its values. A
+--- run of missing list
 --- elements is one failure, at its first index, and an `either` answers
 --- the failures of the first choice that got inside the value, or one
 --- for the union. Raises only when `spec` is not a Spec.

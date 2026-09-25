@@ -43,7 +43,7 @@ gen_spec = function(r: Recipe, depth: integer): Shape.Spec
   elseif pick == 8 then
     local fields: {string: Shape.Spec} = {}
     for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, depth - 1) end
-    spec = Shape.record(fields)
+    spec = byte(r, 2) == 0 and Shape.strict_record(fields) or Shape.record(fields)
   else
     spec = Shape.either(gen_spec(r, depth - 1), gen_spec(r, depth - 1))
   end
@@ -104,7 +104,8 @@ gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolea
         t[name] = gen_value(r, field, depth - 1, strict)
       end
     end
-    if byte(r, 4) == 0 then
+    -- A strict value for a strict record has no key the record lacks.
+    if byte(r, 4) == 0 and not (strict and spec.strict) then
       local extra = key(r)
       if spec.fields[extra] == nil then t[extra] = "extra" end
     end
@@ -260,6 +261,37 @@ local function check_json(input: string): boolean, string
   return true, ""
 end
 
+--- A strict record given a value that fits it but for one key it does
+--- not name -- a string or an integer, whatever its value, `Json.null`
+--- included -- refuses it, and names that key.
+local function check_strict(input: string): boolean, string
+  local r: Recipe = { bytes = input, at = 0 }
+  local fields: {string: Shape.Spec} = {}
+  for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, 2) end
+  local spec = Shape.strict_record(fields)
+  if byte(r, 2) == 0 then spec = Shape.optional(spec) end
+  local value = gen_value(r, spec, 4, true) as {any: any}
+  local extra: any
+  local want: string
+  if byte(r, 2) == 0 then
+    extra = byte(r, 4) - 1
+    want = ("$: expected record, got the integer key %d"):format(extra as integer)
+  else
+    local k = key(r)
+    if fields[k] ~= nil then k = "not a field" end
+    extra = k
+  end
+  value[extra] = STRAYS[byte(r, #STRAYS) + 1]
+  local out, err: any, string = Shape.into(value, spec)
+  if err == "" or out ~= nil then return false, "a strict record admitted an unknown key" end
+  if want ~= nil then
+    if err ~= want then return false, ("wanted %q, got %q"):format(want, err) end
+  elseif err:sub(-13) ~= ": unknown key" or err:find("^%$[.[]") == nil then
+    return false, "an unknown key reported as " .. err
+  end
+  return true, ""
+end
+
 local function test_into_is_total_and_its_answer_fits_its_shape(tmp: string)
   Fuzz.run({
     name = "shape into total",
@@ -275,5 +307,14 @@ local function test_a_fitting_value_survives_json(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
     check = check_json,
+  })
+end
+
+local function test_a_strict_record_refuses_an_unknown_key(tmp: string)
+  Fuzz.run({
+    name = "shape strict record",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
+    check = check_strict,
   })
 end

@@ -76,6 +76,19 @@ function Example.one_of()
   assert(err == '$: expected one of "debug", "info", "warn", got "loud"', err)
 end
 
+--- A config file refuses a key its spec does not name, so a misspelled
+--- one fails by name rather than leaving its field unset.
+function Example.strict_record()
+  local SERVER <const> = Shape.strict_record({
+    host = Shape.string,
+    port = Shape.optional(Shape.integer),
+  })
+  local _, err: {string: any} | nil, string =
+    Shape.into(Json.decode('{"host": "localhost", "prot": 8080}'), SERVER)
+  print(err)
+  assert(err == "$.prot: unknown key", err)
+end
+
 --- A map from names to numbers: `map` checks every value, and `number`
 --- takes an integer and a float alike.
 function Example.map()

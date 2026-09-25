@@ -33,7 +33,9 @@
 --- body"); `run` prints how many inputs reached each label, and a
 --- property that `requires` a label fails when no input reached it, so
 --- a generator whose inputs all stop at the first refusal is found out
---- rather than passing while it checks nothing.
+--- rather than passing while it checks nothing; one whose `shares`
+--- names a label fails when too few did, so one whose inputs mostly
+--- stop there is found out too.
 
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
@@ -126,6 +128,13 @@ local record Fuzz
     --- `FUZZ_ITERS` asks for fewer inputs than the default 64, as
     --- reproducing one failure does.
     requires: {string}
+    --- The least share of the drawn inputs, above 0 and at most 1, that
+    --- must reach each label named, held when `requires` is: for a
+    --- property whose generator could come to reach what it exists to
+    --- exercise rarely rather than never. Set it well under the share
+    --- a run reaches, so that another seed does not fall under it by
+    --- chance.
+    shares: {string: number}
   end
 end
 
@@ -183,7 +192,8 @@ local reached: {string: boolean} = nil
 --- Records that the input under check reached `name`: an outcome worth
 --- counting ("opened", "refused at the header", "read a body"). `run`
 --- prints how many inputs reached each label and fails a property that
---- `requires` one no input reached. Outside `run`'s drawn inputs it
+--- `requires` one no input reached, or whose `shares` names one fewer
+--- than that share of its inputs reached. Outside `run`'s drawn inputs it
 --- does nothing.
 --- @param name string The label
 function Fuzz.label(name: string)
@@ -314,6 +324,11 @@ local function run(p: Fuzz.Property): integer
   -- TODO: a well-formed case naming no property in the file passes
   -- silently, every property skipping it; the runner could fail a run in
   -- which none matched, once a test can report such a thing to it.
+  for name, share in pairs(p.shares or {}) do
+    if not (share > 0 and share <= 1) then
+      error(("fuzz %s: the share of %q is %s, not in (0, 1]"):format(p.name, name, tostring(share)), 0)
+    end
+  end
   if case_name ~= nil and case_name ~= slug(p.name) then return 0 end
   local seed = nonnegative_env("FUZZ_SEED", DEFAULT_SEED)
   local iters = p.iters or nonnegative_env("FUZZ_ITERS", DEFAULT_ITERS)
@@ -395,7 +410,16 @@ local function run(p: Fuzz.Property): integer
             or ("write the input above to " .. keep)), 0)
     end
   end
-  local line = label_counts(counts, p.requires, iters)
+  local named: {string} = {}
+  local is_named: {string: boolean} = {}
+  for _, name in ipairs(p.requires or {}) do named[#named + 1], is_named[name] = name, true end
+  local shared: {string} = {}
+  for name in pairs(p.shares or {}) do shared[#shared + 1] = name end
+  table.sort(shared)
+  for _, name in ipairs(shared) do
+    if not is_named[name] then named[#named + 1] = name end
+  end
+  local line = label_counts(counts, named, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
   if whole and iters > 0 then
     for _, name in ipairs(p.requires or {}) do
@@ -406,15 +430,25 @@ local function run(p: Fuzz.Property): integer
           "its inputs do not exercise what it is meant to"):format(p.name, seed, iters, name), 0)
       end
     end
+    for _, name in ipairs(shared) do
+      local reached_by = counts[name] or 0
+      if reached_by < p.shares[name] * iters then
+        if kept ~= nil then local _, _ = Fs.remove(kept) end
+        error(("fuzz %s: seed=%d: %d inputs of %d reached %q, under the share of %g the property " ..
+          "requires: its inputs exercise it too rarely"):format(p.name, seed, reached_by, iters, name,
+          p.shares[name]), 0)
+      end
+    end
   end
   return iters
 end
 
 --- Checks every `.input` file in the property's corpus, then draws
 --- `p.iters` (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks each,
---- raising a report on the first that fails, after shrinking it, or when
---- no drawn input reached a label the property requires. Returns how many drawn inputs were
---- checked.
+--- raising a report on the first that fails, after shrinking it, when
+--- no drawn input reached a label the property requires, or when fewer
+--- than a label's share in `p.shares` did. Raises at once on a share
+--- outside (0, 1]. Returns how many drawn inputs were checked.
 --- @param p Property The property to fuzz
 --- @return integer How many inputs held
 function Fuzz.run(p: Fuzz.Property): integer
