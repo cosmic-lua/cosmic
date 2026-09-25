@@ -62,22 +62,27 @@ local function walk(input: string): boolean, string
   local zr, trouble = Zip.open_string(input)
   if zr == nil then
     if trouble == "" then return false, "open: nil without a reason" end
+    Fuzz.label("refused at open")
     return true, ""
   end
+  Fuzz.label("opened")
   local ended = false
   for _ = 1, 10000 do
     local e, ntrouble = zr:next()
     if e == nil then
       if ntrouble == nil then return false, "next: nil without a reason" end
+      Fuzz.label(ntrouble == "" and "ended" or "refused")
       ended = true
       break
     else
+      Fuzz.label("entry")
       if e.size < 0 or e.compressed_size < 0 then
         return false, ("%s: a negative size"):format(e.path)
       end
       local body = e:open()
       if body ~= nil then
         local data = Stream.read_all(body)
+        if data ~= nil then Fuzz.label("body read") end
         if data ~= nil and #data ~= e.size then
           return false, ("%s: read %d bytes of a body of %d"):format(e.path, #data, e.size)
         end
@@ -99,9 +104,14 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
       return Fuzz.mutate(src, archive, 8)
     end,
     check = walk,
+    requires = { "opened", "body read" },
   })
 end
 
+-- TODO: no input of 2000 opens, even with an end-of-central-directory
+-- signature, so this checks only the refusals at open; drawing the
+-- record's fields (counts, offsets, sizes) consistent with the bytes
+-- around them would reach the central directory's parsing.
 local function test_the_reader_is_total_on_arbitrary_bytes(tmp: string)
   Fuzz.run({
     name = "zip reader total on bytes",
@@ -123,10 +133,12 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack(gen_entries(src))
     end,
+    requires = { "written" },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local archive = write(fields)
       if archive == nil then return true, "" end
+      Fuzz.label("written")
       local zr, trouble = Zip.open_string(archive)
       if zr == nil then return false, "open: " .. trouble end
       for i = 1, #fields, 4 do

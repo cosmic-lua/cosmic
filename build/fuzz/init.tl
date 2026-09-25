@@ -21,10 +21,22 @@
 --- inside one C call where the budget cannot reach, leaves the input
 --- that did it behind; `run` names that file in what it prints, which
 --- the runner shows for a failing test.
+---
+--- A failure found once is kept for good in the property's corpus, a
+--- directory of inputs under `testdata/fuzz/` that `run` checks before
+--- it draws anything: the report says how to copy the shrunk input
+--- there, so a fixed bug stays fixed whatever seed a later run draws.
+---
+--- A check can `label` what an input reached ("opened", "read a
+--- body"); `run` prints how many inputs reached each label, and a
+--- property that `requires` a label fails when no input reached it, so
+--- a generator whose inputs all stop at the first refusal is found out
+--- rather than passing while it checks nothing.
 
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
 local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
@@ -60,6 +72,10 @@ local SHRINK_TRIES <const> = 2000
 --- file it is kept in holds all of it.
 local SHOWN_BYTES <const> = 512
 
+--- Where a property's corpus is, by default: one directory per
+--- property, named for it, under this one at the tree's root.
+local CORPUS_ROOT <const> = "testdata/fuzz"
+
 local record Fuzz
   --- Where a generator's choices come from. Every choice is an integer
   --- draw, so a failing input can be replayed from its draws, and shrunk
@@ -92,6 +108,14 @@ local record Fuzz
     max_iters: integer
     --- VM instructions one check may spend.
     budget: integer
+    --- The directory of inputs checked before any is drawn: failures
+    --- found before, kept so they stay fixed. `testdata/fuzz/` and the
+    --- property's name, slugged, by default; one that does not exist
+    --- holds nothing.
+    corpus: string
+    --- Labels (see `label`) at least one drawn input must reach, or the
+    --- run fails: what the property is meant to exercise.
+    requires: {string}
   end
 end
 
@@ -141,6 +165,21 @@ local function nonnegative_env(name: string, otherwise: integer): integer
   return n
 end
 
+--- The labels the input being drawn and checked has reached, while
+--- `run` is counting them; nil otherwise, so shrinking and replay count
+--- nothing.
+local reached: {string: boolean} = nil
+
+--- Records that the input under check reached `name`: an outcome worth
+--- counting ("opened", "refused at the header", "read a body"). `run`
+--- prints how many inputs reached each label and fails a property that
+--- `requires` one no input reached. Outside `run`'s drawn inputs it
+--- does nothing.
+--- @param name string The label
+function Fuzz.label(name: string)
+  if reached ~= nil then reached[name] = true end
+end
+
 --- Runs `check` on `input` once, under the budget.
 local function attempt(check: function(string): boolean, string, input: string,
     budget: integer): boolean, string
@@ -167,6 +206,65 @@ local function slug(name: string): string
   return s
 end
 
+--- The property's corpus directory.
+local function corpus_of(p: Fuzz.Property): string
+  return p.corpus or (CORPUS_ROOT .. "/" .. slug(p.name))
+end
+
+--- The name an input is kept under in a corpus: its digest's head, so
+--- keeping one input twice keeps one file.
+local function corpus_name(input: string): string
+  return Hash.hex_sha256(input):sub(1, 16) .. ".input"
+end
+
+--- Checks every input in the property's corpus, in name order, raising
+--- a report on the first that fails. Returns how many were checked.
+local function check_corpus(p: Fuzz.Property, budget: integer): integer
+  local dir = corpus_of(p)
+  local there, trouble = Fs.exists(dir)
+  if there == false then return 0 end
+  local names: {string}
+  if there then names, trouble = Fs.list(dir) end
+  if names == nil then
+    error(("fuzz %s: corpus %s: %s"):format(p.name, dir, trouble), 0)
+  end
+  local checked = 0
+  for _, name in ipairs(names) do
+    local path = dir .. "/" .. name
+    local input, rtrouble = Fs.read(path)
+    if input == nil then
+      error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
+    end
+    local held, why = attempt(p.check, input, budget)
+    if not held then
+      local shown = Codec.hex(input:sub(1, SHOWN_BYTES))
+      if #input > SHOWN_BYTES then shown = shown .. "..." end
+      error(("fuzz %s: corpus input %s: %s\n  input (hex, %d bytes): %s"):
+        format(p.name, path, why, #input, shown), 0)
+    end
+    checked = checked + 1
+  end
+  return checked
+end
+
+--- The line `run` prints of how many inputs reached each label, in
+--- name order, or nil when no label was reached and none is required.
+local function label_counts(counts: {string: integer}, required: {string},
+    iters: integer): string | nil
+  local names: {string} = {}
+  for name in pairs(counts) do names[#names + 1] = name end
+  for _, name in ipairs(required or {}) do
+    if counts[name] == nil then names[#names + 1] = name end
+  end
+  if #names == 0 then return nil end
+  table.sort(names)
+  local parts: {string} = {}
+  for i, name in ipairs(names) do
+    parts[i] = ("%s %d"):format(name, counts[name] or 0)
+  end
+  return ("%s (of %d inputs)"):format(table.concat(parts, ", "), iters)
+end
+
 --- Builds the input `values` replay to, with the draws that built it.
 local function build(gen: function(Fuzz.Source): string, values: {integer}): string, {Draw}
   local draws: {Draw} = {}
@@ -174,9 +272,11 @@ local function build(gen: function(Fuzz.Source): string, values: {integer}): str
   return input, draws
 end
 
---- Draws `p.iters` (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks
---- each, raising a report on the first that fails, after shrinking it.
---- Returns how many inputs were checked.
+--- Checks every input in the property's corpus, then draws `p.iters`
+--- (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks each, raising a
+--- report on the first that fails, after shrinking it, or when no drawn
+--- input reached a label the property requires. Returns how many drawn
+--- inputs were checked.
 --- @param p Property The property to fuzz
 --- @return integer How many inputs held
 function Fuzz.run(p: Fuzz.Property): integer
@@ -192,12 +292,18 @@ function Fuzz.run(p: Fuzz.Property): integer
     print(("fuzz %s: seed=%d iters=%d; the input under test is kept at %s"):
        format(p.name, seed, iters, kept))
   end
+  check_corpus(p, budget)
+  local counts: {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
     local draws: {Draw} = {}
-    local input = p.gen(recording(Rand.new(seeds:int(math.mininteger, math.maxinteger)), draws))
+    reached = {}
+    local ok, input = pcall(p.gen, recording(Rand.new(seeds:int(math.mininteger, math.maxinteger)), draws))
+    if not ok then reached = nil; error(input, 0) end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
+    for name in pairs(reached) do counts[name] = (counts[name] or 0) + 1 end
+    reached = nil
     if not held then
       local function fails(values: {integer}): boolean, {Draw}
         local candidate, used = build(p.gen, values)
@@ -217,19 +323,33 @@ function Fuzz.run(p: Fuzz.Property): integer
       if kept ~= nil then local _, _ = Fs.write(kept, small) end
       local shown = Codec.hex(small:sub(1, SHOWN_BYTES))
       if #small > SHOWN_BYTES then shown = shown .. "..." end
+      local keep = corpus_of(p) .. "/" .. corpus_name(small)
       error(("fuzz %s: seed=%d iteration=%d: %s\n" ..
         "  shrunk in %d tries from %d draws and %d bytes to %d draws and %d bytes; input (hex): %s\n" ..
-        "  %s\n  reproduce: FUZZ_SEED=%d FUZZ_ITERS=%d"):
+        "  %s\n  reproduce: FUZZ_SEED=%d FUZZ_ITERS=%d\n" ..
+        "  once fixed, keep it as a regression case: %s"):
          format(p.name, seed, i, why, tries, #draws, #input, #smallest, #small, shown,
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
-          seed, i), 0)
+          seed, i,
+          kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
+            or ("write the input above to " .. keep)), 0)
+    end
+  end
+  local line = label_counts(counts, p.requires, iters)
+  if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
+  if iters > 0 then
+    for _, name in ipairs(p.requires or {}) do
+      if counts[name] == nil then
+        error(("fuzz %s: seed=%d: no input of %d reached %q, which the property requires: " ..
+          "its inputs do not exercise what it is meant to"):format(p.name, seed, iters, name), 0)
+      end
     end
   end
   return iters
 end
 
---- Checks one input directly, under the same budget and with the same
---- report shape as `run`: what reproducing a kept input needs.
+--- Checks one input directly, under the same budget as `run`: what
+--- reproducing a kept input needs.
 --- @param p Property The property; its generator is not used
 --- @param input string The input to check
 --- @return boolean True when the property held
