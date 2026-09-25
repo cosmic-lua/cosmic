@@ -67,7 +67,7 @@ static int surface_print (lua_State *L) {
       if (errno == EINTR) {
         continue;
       }
-      return luaL_error(L, "print: %s", cosmic_errno_message(errno));
+      return luaL_error(L, "print: %s", cosmic_errno_describe(errno, NULL));
     }
     at += (size_t)put;
   }

@@ -181,7 +181,7 @@ static bool has_word (const char *text, const char *word, size_t len) {
  * not a second search. FTS5's own ranking already prefers a row sharing
  * more, or rarer, words, but bm25 alone does not reliably separate a
  * real match from one accidental shared word (found by hand: an "io is
- * not available" message and the unrelated EMFILE row's "Too many open
+ * not available" message and an unrelated row about "too many open
  * files" share nothing meaningful except the word "files", and nothing
  * in `stopwords` catches an ordinary content word like that one). The
  * caller requires at least two before trusting the match. Distinct and

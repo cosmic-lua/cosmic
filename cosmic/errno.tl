@@ -5,10 +5,14 @@
 --- and a stdlib wrapper like `cosmic/fs.tl`'s `path .. ": " .. trouble`
 --- stitches that literal text straight into what a program sees.
 --- `cosmic docs ENOENT` (or any field below) finds this doc comment
---- directly; an uncaught error whose own message matches one of these
---- (`core/main.c`'s `catalog_guidance`) finds the same doc comment,
---- by joining back to it through the catalog `build/analyzer.tl`'s
---- `catalog_of` records.
+--- directly.
+---
+--- TODO: an uncaught error whose message matches one of these finds no
+--- guidance: `build/analyzer.tl`'s `catalog_of` records a module's
+--- literal failures, not these fields, so no catalog row holds them.
+--- Have it record each field's value as a row joined to its doc
+--- comment; `core/main.c`'s `catalog_guidance` would then print it
+--- beneath an uncaught error whose own message matches.
 local record Errno
   --- the path does not exist -- check it is spelled right, and that
   --- every parent directory already exists; cosmic.fs creates no

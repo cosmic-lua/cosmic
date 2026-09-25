@@ -156,7 +156,8 @@ COSMIC_SYSCALL(nanosleep, 1) {
 }
 
 COSMIC_SYSCALL(errno_name, 1) {
-  const char *name = cosmic_errno_name(cosmic_checkint(L, 1));
+  const char *name = NULL;
+  (void)cosmic_errno_describe(cosmic_checkint(L, 1), &name);
   if (name == NULL) {
     lua_pushnil(L);
   } else {
@@ -166,7 +167,7 @@ COSMIC_SYSCALL(errno_name, 1) {
 }
 
 COSMIC_SYSCALL(errno_message, 1) {
-  lua_pushstring(L, cosmic_errno_message(cosmic_checkint(L, 1)));
+  lua_pushstring(L, cosmic_errno_describe(cosmic_checkint(L, 1), NULL));
   return 1;
 }
 

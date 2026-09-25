@@ -11,12 +11,10 @@
 
 /* The message for errno `number`: musl's wording, on every OS, and
  * "No error information" for a number the table does not hold. Never
- * NULL; static storage. */
-const char *cosmic_errno_message (int number);
-
-/* The symbolic name of errno `number` ("ENOENT"), or NULL for a number
- * the table does not hold. Where two names share a number on this OS
- * (EOPNOTSUPP and ENOTSUP on Linux) the first in the table answers. */
-const char *cosmic_errno_name (int number);
+ * NULL; static storage. When `name` is not NULL, `*name` is set to the
+ * number's symbolic name ("ENOENT"), or NULL for a number the table
+ * does not hold; where two names share a number on this OS (EOPNOTSUPP
+ * and ENOTSUP on Linux) the first in the table answers. */
+const char *cosmic_errno_describe (int number, const char **name);
 
 #endif

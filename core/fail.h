@@ -15,14 +15,14 @@
 
 static inline int cosmic_fail (lua_State *L, int number) {
   lua_pushnil(L);
-  lua_pushstring(L, cosmic_errno_message(number));
+  lua_pushstring(L, cosmic_errno_describe(number, NULL));
   lua_pushinteger(L, number);
   return 3;
 }
 
 static inline int cosmic_fail_effect (lua_State *L, int number) {
   lua_pushboolean(L, 0);
-  lua_pushstring(L, cosmic_errno_message(number));
+  lua_pushstring(L, cosmic_errno_describe(number, NULL));
   lua_pushinteger(L, number);
   return 3;
 }

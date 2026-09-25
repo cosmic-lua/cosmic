@@ -5,7 +5,8 @@
  * exactly what musl's strerror did, and a macOS core the same words
  * rather than libSystem's. An entry this OS's <errno.h> does not name
  * is left out. EOPNOTSUPP is added ahead of ENOTSUP, which musl lists
- * alone since Linux gives both one number; macOS gives them two.
+ * alone since Linux gives both one number; macOS gives them two. The
+ * entries after musl's name what it does not (see there).
  */
 
 #include "errnos.h"
@@ -299,21 +300,85 @@ static const struct errno_entry entries[] = {
 #ifdef EKEYREJECTED
   {EKEYREJECTED, "EKEYREJECTED", "Key was rejected by service"},
 #endif
+  /* After musl's: the errnos it has no words for. The first nineteen
+   * are macOS's own, in libSystem's words -- a spawned file of the
+   * wrong architecture fails with EBADARCH -- and the last three, which
+   * both OSes name, in glibc's. */
+#ifdef EAUTH
+  {EAUTH, "EAUTH", "Authentication error"},
+#endif
+#ifdef EBADARCH
+  {EBADARCH, "EBADARCH", "Bad CPU type in executable"},
+#endif
+#ifdef EBADEXEC
+  {EBADEXEC, "EBADEXEC", "Bad executable (or shared library)"},
+#endif
+#ifdef EBADMACHO
+  {EBADMACHO, "EBADMACHO", "Malformed Mach-o file"},
+#endif
+#ifdef EBADRPC
+  {EBADRPC, "EBADRPC", "RPC struct is bad"},
+#endif
+#ifdef EDEVERR
+  {EDEVERR, "EDEVERR", "Device error"},
+#endif
+#ifdef EFTYPE
+  {EFTYPE, "EFTYPE", "Inappropriate file type or format"},
+#endif
+#ifdef ENEEDAUTH
+  {ENEEDAUTH, "ENEEDAUTH", "Need authenticator"},
+#endif
+#ifdef ENOATTR
+  {ENOATTR, "ENOATTR", "Attribute not found"},
+#endif
+#ifdef ENOPOLICY
+  {ENOPOLICY, "ENOPOLICY", "Policy not found"},
+#endif
+#ifdef ENOTCAPABLE
+  {ENOTCAPABLE, "ENOTCAPABLE", "Capabilities insufficient"},
+#endif
+#ifdef EPROCLIM
+  {EPROCLIM, "EPROCLIM", "Too many processes"},
+#endif
+#ifdef EPROCUNAVAIL
+  {EPROCUNAVAIL, "EPROCUNAVAIL", "Bad procedure for program"},
+#endif
+#ifdef EPROGMISMATCH
+  {EPROGMISMATCH, "EPROGMISMATCH", "Program version wrong"},
+#endif
+#ifdef EPROGUNAVAIL
+  {EPROGUNAVAIL, "EPROGUNAVAIL", "RPC prog. not avail"},
+#endif
+#ifdef EPWROFF
+  {EPWROFF, "EPWROFF", "Device power is off"},
+#endif
+#ifdef EQFULL
+  {EQFULL, "EQFULL", "Interface output queue is full"},
+#endif
+#ifdef ERPCMISMATCH
+  {ERPCMISMATCH, "ERPCMISMATCH", "RPC version wrong"},
+#endif
+#ifdef ESHLIBVERS
+  {ESHLIBVERS, "ESHLIBVERS", "Shared library version mismatch"},
+#endif
+#ifdef EREMOTE
+  {EREMOTE, "EREMOTE", "Object is remote"},
+#endif
+#ifdef ETOOMANYREFS
+  {ETOOMANYREFS, "ETOOMANYREFS", "Too many references: cannot splice"},
+#endif
+#ifdef EUSERS
+  {EUSERS, "EUSERS", "Too many users"},
+#endif
 };
 
-static const struct errno_entry *entry_of (int number) {
+const char *cosmic_errno_describe (int number, const char **name) {
   for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) {
-    if (entries[i].number == number) return &entries[i];
+    if (entries[i].number == number) {
+      if (name != NULL) *name = entries[i].name;
+      return entries[i].message;
+    }
   }
-  return NULL;
-}
-
-const char *cosmic_errno_message (int number) {
-  const struct errno_entry *entry = entry_of(number);
-  return entry == NULL ? "No error information" : entry->message;
-}
-
-const char *cosmic_errno_name (int number) {
-  const struct errno_entry *entry = entry_of(number);
-  return entry == NULL ? NULL : entry->name;
+  if (name != NULL) *name = NULL;
+  return "No error information";
 }

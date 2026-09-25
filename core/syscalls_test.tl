@@ -952,13 +952,41 @@ end
 --- An errno's name is the one <errno.h> gives it, whatever this OS
 --- numbers it; a number the table holds no entry for has none.
 local function test_an_errno_is_named_as_errno_h_names_it()
-  for _, name in ipairs({ "ENOENT", "EEXIST", "EACCES", "EINTR", "EAGAIN", "ENOTEMPTY",
-      "EXDEV", "EOPNOTSUPP", "EPERM", "ENOSPC", "EINVAL" }) do
-    local number = (sys as {string:any})[name] as integer
-    assert(sys.errno_name(number) == name, name .. " is named " ..
-      tostring(sys.errno_name(number)))
+  local named: {{string | integer}} = {
+    { "ENOENT", sys.ENOENT }, { "EEXIST", sys.EEXIST }, { "EACCES", sys.EACCES },
+    { "EINTR", sys.EINTR }, { "EAGAIN", sys.EAGAIN }, { "ENOTEMPTY", sys.ENOTEMPTY },
+    { "EXDEV", sys.EXDEV }, { "EOPNOTSUPP", sys.EOPNOTSUPP }, { "EPERM", sys.EPERM },
+    { "ENOSPC", sys.ENOSPC }, { "EINVAL", sys.EINVAL },
+  }
+  for _, pair in ipairs(named) do
+    local name, number = pair[1], pair[2]
+    if name is string and number is integer then
+      assert(sys.errno_name(number) == name, name .. " is named " ..
+        tostring(sys.errno_name(number)))
+    end
   end
   assert(sys.errno_name(0) == nil and sys.errno_name(-1) == nil)
   assert(sys.errno_message(-1) == "No error information")
   assert(not pcall(sys.errno_name, "ENOENT" as integer), "a name is not a number")
+end
+
+--- Every errno a macOS call can fail with is named and worded, those
+--- musl has no words for among them: a spawned file of the wrong
+--- architecture fails with EBADARCH, not "No error information".
+local function test_the_errnos_only_macos_has_are_named_there()
+  local uname = assert(sys.uname())
+  if uname.sysname ~= "Darwin" then
+    return
+  end
+  local names: {string:string} = {}
+  for number = 1, 4095 do
+    local name = sys.errno_name(number)
+    if name ~= nil then
+      names[name] = sys.errno_message(number)
+    end
+  end
+  for _, name in ipairs({ "EBADARCH", "EBADEXEC", "EBADMACHO", "ESHLIBVERS", "EAUTH",
+      "ENEEDAUTH", "EDEVERR", "EPWROFF", "ENOATTR", "EFTYPE", "EQFULL" }) do
+    assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+  end
 end
