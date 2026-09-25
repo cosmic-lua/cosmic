@@ -337,6 +337,11 @@ local analysis_tables: {string} = {
 --- tool rebuilding itself is older than the tree's. A binary that
 --- carries no source for one of them, or no record of what they import,
 --- can only be named whole.
+-- TODO: a boot carries neither, so it is named "binary " and the first
+-- build the booted tool runs parses every source again. Name a boot by
+-- the tree's sources, as `receivers_identity` does, once the compiler
+-- identity can be known before `derive` (it closes over `requires`,
+-- which only a parse fills).
 local function analyzer_identity(): string
   local parts: {string} = { Store.meta("compiler") or "" }
   local modules, _ = importer.analyzer_modules()
@@ -392,12 +397,30 @@ end
 --- The identity of the code that finds `typed_refs` and checks the
 --- error-slot discipline beside the compiler: `build.receivers` and
 --- `build.contracts` as the running binary carries them, or the binary whole when it
---- carries none. Named apart from `analyzer_identity` because its rows
---- ride on compiles, which only a change to this code must redo.
-local function receivers_identity(): string
+--- carries none. A boot carries no database and runs the tree's own
+--- code, so it names them by the tree's source, as the tool it writes
+--- will: the identity is signed into the projection (`build.writer`),
+--- which a self-rebuild must write the same as a boot does. Named apart
+--- from `analyzer_identity` because its rows ride on compiles, which
+--- only a change to this code must redo.
+local function receivers_identity(db: Sqlite.Handle): string | nil, string
+  local booting = Store.meta("boot_hash") == nil
   local parts: {string} = {}
   for _, name in ipairs({ "build.receivers", "build.contracts" }) do
-    local source, _ = Store.source(name)
+    local source: string | nil
+    if booting then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT source FROM inputs WHERE path = ?1", { text(name) })
+      if rows == nil then
+        return nil, trouble
+      end
+      if #rows > 0 then
+        source = rows[1][1]
+      end
+    else
+      local carried, _ = Store.source(name)
+      source = carried
+    end
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or "")
     end
@@ -411,7 +434,10 @@ end
 --- whose key stands is never checked again, so a `typed_refs` row is
 --- only as right as the `build.receivers` that ran beside the checker.
 local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
-  local identity = receivers_identity()
+  local identity, identity_trouble = receivers_identity(db)
+  if identity == nil then
+    return false, identity_trouble
+  end
   local last, last_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'receivers'")
   if last == nil then

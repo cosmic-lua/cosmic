@@ -97,17 +97,18 @@ local SPECIAL_BODY_LIMIT <const> = 1 << 20
 --- first byte's second-highest bit is its sign, sign-extended before
 --- the rest of the bytes are folded in, so a negative value decodes
 --- to a small negative number rather than a huge positive one.
-local function numeric(field: string): integer
+--- A base-256 value an integer cannot hold (a 12-byte field holds 95
+--- bits) answers nil, for the header to be refused, as GNU tar does,
+--- rather than read as whatever its low 64 bits say.
+local function numeric(field: string): integer | nil
   if #field > 0 and (field:byte(1) & 0x80) ~= 0 then
-    -- TODO: a base-256 field whose value needs more than 64 bits (a
-    -- 12-byte one holds 95) wraps silently here, so a size or mtime
-    -- past an integer's range reads as some other number; it should
-    -- refuse the header instead, as GNU tar does, which wants this to
-    -- answer nil for its callers in `next` to fail on.
     local negative = (field:byte(1) & 0x40) ~= 0
     local value: integer = negative and -1 or 0
     value = (value << 7) | (field:byte(1) & 0x7f)
     for i = 2, #field do
+      -- Past this range, shifting in another byte drops bits the
+      -- value needs, its sign among them.
+      if value < -(1 << 55) or value >= (1 << 55) then return nil end
       value = (value << 8) | field:byte(i)
     end
     return value
@@ -121,8 +122,9 @@ end
 --- field -- octal digits, perhaps space-padded, ending in a NUL or a
 --- space -- goes straight to `tonumber`; anything else (a base-256
 --- field, digits right up to the field's end, NUL padding before the
---- terminator) takes `numeric`'s slower, general path.
-local function numeric_at(block: string, off: integer, len: integer): integer
+--- terminator) takes `numeric`'s slower, general path, and answers
+--- nil as it does.
+local function numeric_at(block: string, off: integer, len: integer): integer | nil
   local stop = off + len - 2
   local last = block:byte(stop + 1)
   if last == 0 or last == 32 then
@@ -132,6 +134,11 @@ local function numeric_at(block: string, off: integer, len: integer): integer
     if n ~= nil and n >= 0 then return n end
   end
   return numeric(block:sub(off, off + len - 1))
+end
+
+--- The refusal of a header whose `what` field `numeric` answered nil for.
+local function out_of_range(what: string): string
+  return "tar: header " .. what .. " field is a base-256 value past the integer range"
 end
 
 --- The NUL-terminated text of the `len`-byte field at `off`, which may
@@ -458,7 +465,9 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
       end
       local typeflag = block:sub(157, 157)
       if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
-        local data, rtrouble = read_special_body(src, numeric_at(block, 125, 12))
+        local special_size = numeric_at(block, 125, 12)
+        if special_size == nil then return fail(out_of_range("size")) end
+        local data, rtrouble = read_special_body(src, special_size)
         if data == nil then return fail(rtrouble) end
         if typeflag == "L" or typeflag == "K" then
           local value, ltrouble = long_field(data)
@@ -478,10 +487,17 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
         end
         local linkname = long_link or (block:byte(158) ~= 0 and text_at(block, 158, 100) or "")
         local size = numeric_at(block, 125, 12)
+        if size == nil then return fail(out_of_range("size")) end
         local mtime = numeric_at(block, 137, 12)
+        if mtime == nil then return fail(out_of_range("mtime")) end
+        -- An 8-byte field's 63 bits always fit, but its type says nil.
         local uid = numeric_at(block, 109, 8)
+        if uid == nil then return fail(out_of_range("uid")) end
         local gid = numeric_at(block, 117, 8)
-        local mode = numeric_at(block, 101, 8) & 0xFFF
+        if gid == nil then return fail(out_of_range("gid")) end
+        local raw_mode = numeric_at(block, 101, 8)
+        if raw_mode == nil then return fail(out_of_range("mode")) end
+        local mode = raw_mode & 0xFFF
         local sparse = false
         if pax_local ~= nil or next(pax_global) ~= nil then
           local f: Fields = {
