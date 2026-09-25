@@ -7,12 +7,8 @@
 # that never runs would hold the queue. Run bin/actionlint locally before
 # pushing a workflow change.
 #
-# This file is YAML's flow style, written in the subset it shares with
-# JSON5 read with `#` comments, so cosmic.json reads it too:
-# build/workflows_test.tl holds it to that subset -- double-quoted
-# strings, `#` comments with a space before them, a space after each
-# `:`, keys YAML 1.1 reads as booleans quoted -- and checks that every
-# path the filter names exists.
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
 {
   name: "actionlint",
   "on": {

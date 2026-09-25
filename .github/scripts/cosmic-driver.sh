@@ -1,0 +1,65 @@
+#!/bin/sh
+# Bootstraps the pinned CI driver for ci.yml's jobs, which run it from
+# ci/:
+#
+#     sh ../.github/scripts/cosmic-driver.sh [zig-cache]
+#
+# bin/cosmic-bootstrap fetches and verifies the pinned release into
+# $XDG_CACHE_HOME/cosmic/bootstrap, where bin/zig finds it again, and
+# checks a restored cache against the pin first. The driver is linked in
+# as cosmic-driver on the job's PATH. `zig-cache` also points the job's
+# later steps at the caches the platform job restores.
+set -e
+
+case "${1-}" in
+  "" | zig-cache) ;;
+  *) echo "usage: cosmic-driver.sh [zig-cache]" >&2; exit 2 ;;
+esac
+
+driver=$(COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME="$RUNNER_TEMP/cache" \
+  sh ../bin/cosmic-bootstrap)
+mkdir -p "$RUNNER_TEMP/bin"
+if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
+  echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
+fi
+ln -s "$driver" "$RUNNER_TEMP/bin/cosmic-driver"
+echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+if [ "${1-}" = zig-cache ]; then
+  echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
+  # zig's global cache -- libc, compiler-rt and its standard library,
+  # keyed by content -- is used where actions/cache restored it,
+  # outside the checkout; the driver seeds and saves only the
+  # project cache, which the driver keeps under o/.
+  echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
+  # Where ci.yml restored the zig-build cache, for the driver's
+  # build and cache-save phases. Spelled from $RUNNER_TEMP, not
+  # `runner.temp`: in the alpine job container the expression is
+  # the host's path, which does not exist there, so the seed was
+  # never found and that leg recompiled vendor/ and core/ each run.
+  echo "COSMIC_ZIG_CACHE_SEED=$RUNNER_TEMP/zig-build" >> "$GITHUB_ENV"
+  # The test verdicts every checkout shares (build/shared_verdicts.tl),
+  # kept in the zig-build cache so a run starts from the last saved
+  # one's. One stands only where its whole key -- the test, what it
+  # loads, the runtime, every file and variable it read -- is reached
+  # again, and the driver's --all runs every test no key can hold.
+  # CI stands only on what it runs itself (COSMIC_TEST_NO_SHARED=1),
+  # while still writing what it reaches, so the cache is warm
+  # when that changes; doc/design.md's "before CI stands on
+  # shared verdicts" is the checklist.
+  # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
+  # here and in ci/cosmic_ci/orchestration.tl) once the key holds
+  # the tree's location (build/filesystem_observations.tl:828),
+  # what o/ holds beyond o/cosmic.db (build/test.tl:437), a stat's
+  # times and inode where a test turns on them (build/test.tl:484),
+  # the files SQLite opens in C (build/filesystem_observations.tl:503),
+  # lstat, readlink, realpath and getcwd answers
+  # (build/filesystem_observations.tl:508), a read resolved as it is
+  # made (build/filesystem_observations.tl:550) and an in-tree path
+  # that crosses a link out (build/test.tl:414).
+  echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
+  # TODO: save what the product suite from fresh tracked source
+  # reaches too: it runs after the zig-build cache is saved, so
+  # its verdicts never reach a later run, and it runs every test.
+  echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/zig-build/verdicts.db" >> "$GITHUB_ENV"
+fi
