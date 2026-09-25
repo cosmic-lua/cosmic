@@ -22,6 +22,11 @@
 --- not reached a fixed point. `cosmic fix --check .` over the whole
 --- tree is how that is checked here, in CI's own format-check step.
 ---
+--- It also lays out a YAML file in flow style (`build.flow`) it is named,
+--- and, in cosmic's own tree, those under `.github/` -- the workflows
+--- and actions -- as a directory holding it is covered: one written in
+--- block style is refused when named and passed over otherwise.
+---
 --- In cosmic's own tree it also covers the tree's C: every C file it
 --- covers is written back in the layout `build.c` holds, and every
 --- `.c` file is then compiled to its syntax tree and held to the rules
@@ -38,6 +43,7 @@ local Time = require("cosmic.time")
 local clock = require("build.clock")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
+local flow = require("build.flow")
 local near = require("build.fix.near")
 local analyzer = require("build.analyzer")
 local reboot = require("build.reboot")
@@ -70,6 +76,8 @@ local record fix
     files: {string}
     --- The C files, which only cosmic's own tree has checked.
     c_files: {string}
+    --- The YAML files in flow style, laid out by `build.flow`.
+    flow_files: {string}
     refused: {string}
   end
 end
@@ -111,6 +119,38 @@ local function sources(root: string): {string} | nil, string
       out[#out + 1] = file
     end
   end
+  return out
+end
+
+--- Whether `file` is named as YAML.
+local function is_yaml(file: string): boolean
+  return String.ends_with(file, ".yml") or String.ends_with(file, ".yaml")
+end
+
+--- The YAML files in flow style under `dir`'s `.github/`, as paths
+--- relative to `dir`: none where it has no `.github/`.
+local function workflow_sources(dir: string): {string} | nil, string
+  local github = dir .. "/.github"
+  local st, _ = Fs.stat(github)
+  if st == nil or st.kind ~= "dir" then
+    return {}
+  end
+  local files, trouble = Fs.walk(github, function(entry: string): boolean
+    return Fs.basename(entry):sub(1, 1) == "."
+  end)
+  if files == nil then
+    return nil, trouble
+  end
+  local out: {string} = {}
+  for _, file in ipairs(files) do
+    if is_yaml(file) then
+      local text, _ = Fs.read(github .. "/" .. file)
+      if text ~= nil and flow.is_flow(text) then
+        out[#out + 1] = ".github/" .. file
+      end
+    end
+  end
+  table.sort(out)
   return out
 end
 
@@ -205,17 +245,24 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       return nil, trouble
     end
     local c_files: {string} = {}
+    local flow_files: {string} = {}
     if own then
       local found, c_trouble = c_check.sources(root)
       if found == nil then
         return nil, c_trouble
       end
       c_files = found
+      local workflows, flow_trouble = workflow_sources(root)
+      if workflows == nil then
+        return nil, flow_trouble
+      end
+      flow_files = workflows
     end
-    return { files = all, c_files = c_files, refused = {} }
+    return { files = all, c_files = c_files, flow_files = flow_files, refused = {} }
   end
   local out: {string} = {}
   local c_out: {string} = {}
+  local flow_out: {string} = {}
   local refused: {string} = {}
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
@@ -237,6 +284,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
         for _, file in ipairs(c_under) do
           c_out[#c_out + 1] = path .. "/" .. file
         end
+        local workflows, flow_trouble = workflow_sources(path)
+        if workflows == nil then
+          return nil, flow_trouble
+        end
+        for _, file in ipairs(workflows) do
+          flow_out[#flow_out + 1] = path .. "/" .. file
+        end
       end
     elseif String.ends_with(path, ".c") or String.ends_with(path, ".h") then
       if own then
@@ -244,13 +298,15 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       else
         refused[#refused + 1] = path .. ": C is checked only in cosmic's own tree"
       end
+    elseif is_yaml(path) then
+      flow_out[#flow_out + 1] = path
     elseif not String.ends_with(path, ".tl") then
-      refused[#refused + 1] = path .. ": not a Teal or C source"
+      refused[#refused + 1] = path .. ": not a Teal or C source, or YAML"
     else
       out[#out + 1] = path
     end
   end
-  return { files = out, c_files = c_out, refused = refused }
+  return { files = out, c_files = c_out, flow_files = flow_out, refused = refused }
 end
 
 --- `near`'s notes on the exported functions of `files`, each line
@@ -350,7 +406,7 @@ function fix.run(argv: {integer:string}): integer
   -- covers, so the verdict says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
   local files = picked.files
-  local counted = #files + #picked.c_files + #picked.refused
+  local counted = #files + #picked.c_files + #picked.flow_files + #picked.refused
   local changed: {string} = {}
   local failures: {string} = {}
   for _, why in ipairs(picked.refused) do
@@ -401,6 +457,26 @@ function fix.run(argv: {integer:string}): integer
       for _, f in ipairs(outcome.findings) do
         failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
           " in " .. f.within .. ": " .. f.message
+      end
+    end
+  end
+  for _, file in ipairs(picked.flow_files) do
+    local source, read_trouble = Fs.read(file)
+    local out, flow_trouble: string, string
+    if source == nil then
+      flow_trouble = read_trouble
+    elseif not flow.is_flow(source) then
+      flow_trouble = "not in flow style: only a YAML file whose value opens with { or [ is laid out"
+    else
+      out, flow_trouble = flow.format(source)
+    end
+    if out == nil then
+      failures[#failures + 1] = file .. ": " .. flow_trouble
+    elseif out ~= source then
+      changed[#changed + 1] = file
+      if not checking then
+        local written, write_trouble = Fs.write(file, out)
+        if not written then failures[#failures + 1] = write_trouble end
       end
     end
   end

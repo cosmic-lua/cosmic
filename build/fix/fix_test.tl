@@ -180,7 +180,7 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       what .. " should be reported as missing, not judged on its suffix: " ..
       picked.refused[i])
   end
-  assert(picked.refused[3]:find("not a Teal or C source", 1, true) ~= nil,
+  assert(picked.refused[3]:find("not a Teal or C source, or YAML", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
     picked.refused[3])
 end
@@ -291,4 +291,27 @@ local function test_notes_name_what_the_library_already_has(tmp: string)
   assert(#notes == 1, table.concat(notes, "\n"))
   assert(notes[1]:find(tmp .. "/tree/tools/paths/init.tl:5: Paths.which: Proc.find (cosmic.proc) " ..
     "stands in for `which`", 1, true) == 1, notes[1])
+end
+
+--- A YAML file named is laid out by `build.flow`, in any tree; one
+--- under `.github/` is found only in cosmic's own tree, and only when it
+--- is in flow style.
+local function test_yaml_in_flow_style_is_taken(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/.github/workflows"))
+  assert(Fs.write(tmp .. "/.github/workflows/a.yml", "{a: 1}\n"))
+  assert(Fs.write(tmp .. "/.github/workflows/b.yml", "a: 1\n"))
+  local picked = assert(fix.chosen(tmp, { tmp .. "/.github/workflows/b.yml", tmp }))
+  assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/.github/workflows/b.yml",
+    table.concat(picked.flow_files, " "))
+
+  assert(Fs.mkdirs(tmp .. "/own/core"))
+  assert(Fs.mkdirs(tmp .. "/own/build"))
+  assert(Fs.mkdirs(tmp .. "/own/vendor/lua"))
+  assert(Fs.mkdirs(tmp .. "/own/.github/actions/x"))
+  assert(Fs.write(tmp .. "/own/build/importer.tl", "return {}\n"))
+  assert(Fs.write(tmp .. "/own/.github/actions/x/action.yml", "# c\n{a: 1}\n"))
+  assert(Fs.write(tmp .. "/own/.github/block.yml", "a: 1\n"))
+  picked = assert(fix.chosen(tmp .. "/own", { tmp .. "/own" }))
+  assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/own/.github/actions/x/action.yml",
+    table.concat(picked.flow_files, " "))
 end

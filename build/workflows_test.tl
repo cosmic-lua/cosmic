@@ -6,20 +6,15 @@
 --- what GitHub runs without a YAML parser. A step's script longer than a
 --- line or two lives under .github/scripts/, where it reads as a script
 --- rather than as one string of `\n`-joined lines; an action's is one
---- line.
+--- line. Each is also in `build.flow`'s layout, which `cosmic fix`
+--- writes.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local flow = require("build.flow")
 
 local DIR <const> = ".github/workflows"
 local ACTIONS <const> = ".github/actions"
 local READ <const>: Json.DecodeOptions = { json5 = true, hash_comments = true }
-
---- Bare keys YAML reads as something other than their text: YAML 1.1's
---- booleans and both versions' null, whatever their case.
-local UNSAFE_KEYS <const>: {string: boolean} = {
-  y = true, yes = true, n = true, no = true, on = true, off = true, ["true"] = true, ["false"] = true,
-  null = true,
-}
 
 --- The escapes a double-quoted string may hold, which the two read
 --- alike (`\u` takes four hex digits).
@@ -68,9 +63,9 @@ end
 ---   space after each `:`, and the `:` on its key's line; no `//` or
 ---   `/*` comment and no single-quoted string, which YAML lacks or reads
 ---   otherwise.
---- - A bare key an identifier and none of UNSAFE_KEYS; a bare value
----   true, false, null or a decimal integer of at most 15 digits, which
----   both read as the same number.
+--- - A bare key one `flow.bare` takes: an identifier YAML reads as its
+---   text; a bare value true, false, null or a decimal integer of at most
+---   15 digits, which both read as the same number.
 --- - In a double-quoted string, only ESCAPES, and no `\u` escape of
 ---   half a surrogate pair, which YAML keeps as a lone half and JSON5
 ---   joins to its pair: write the character itself.
@@ -161,7 +156,7 @@ local function problems(text: string): {string}
       i = i + #word
       token_line = line
       if text:match("^ *:", i) then
-        if not word:match("^[%a_$][%w_$]*$") or UNSAFE_KEYS[word:lower()] then
+        if not flow.bare(word) then
           say("the bare key " .. word .. ", which YAML reads otherwise: quote it")
         else
           key(word)
@@ -180,17 +175,13 @@ local function problems(text: string): {string}
 end
 
 --- Of `paths`, the ones in flow style, each with its text: a file whose
---- first line that is neither blank nor a comment opens with `{`.
+--- first line that is neither blank nor a comment opens with `{` or
+--- `[` (`flow.is_flow`).
 local function flow_files(paths: {string}): {string: string}
   local out: {string: string} = {}
   for _, path in ipairs(paths) do
     local text = (assert(Fs.read(path)))
-    for row in text:gmatch("[^\n]*") do
-      if row:match("%S") and not row:match("^%s*#") then
-        if row:match("^%s*{") then out[path] = text end
-        break
-      end
-    end
+    if flow.is_flow(text) then out[path] = text end
   end
   return out
 end
@@ -285,10 +276,10 @@ end
 --- Every workflow under DIR is in flow style, so none can drift back to
 --- a block style the subset check never sees.
 local function test_every_workflow_is_in_flow_style()
-  local flow = flow_workflows()
+  local workflows = flow_workflows()
   for _, name in ipairs((assert(Fs.list(DIR)))) do
     local path = DIR .. "/" .. name
-    assert(flow[path] ~= nil, path .. " is not in flow style")
+    assert(workflows[path] ~= nil, path .. " is not in flow style")
   end
 end
 
@@ -297,9 +288,9 @@ end
 --- `defaults.run` does not reach them -- and are one line: a longer
 --- script lives under .github/scripts/.
 local function test_flow_actions_keep_to_the_shared_subset()
-  local flow = flow_files(action_paths())
+  local actions = flow_files(action_paths())
   local count = 0
-  for path, text in pairs(flow) do
+  for path, text in pairs(actions) do
     count = count + 1
     local found = problems(text)
     assert(#found == 0, path .. ": " .. table.concat(found, "; "))
@@ -321,7 +312,7 @@ local function test_flow_actions_keep_to_the_shared_subset()
     end
   end
   for _, path in ipairs(action_paths()) do
-    assert(flow[path] ~= nil, path .. " is not in flow style")
+    assert(actions[path] ~= nil, path .. " is not in flow style")
   end
   assert(count > 0, "no action under " .. ACTIONS)
 end
@@ -692,4 +683,20 @@ end
 local function test_a_local_action_is_one_there_is()
   local got = refusal({ { uses = CHECKOUT }, { uses = "./.github/actions/nowhere" } })
   assert(got:find("uses .github/actions/nowhere, which holds no action.yml", 1, true), got)
+end
+
+--- Every workflow and action is already in `build.flow`'s layout, so a
+--- program that reads one and writes it back changes no byte it did not
+--- mean to: `cosmic fix <path>` lays one out.
+local function test_each_workflow_and_action_is_laid_out()
+  local count = 0
+  for _, files in ipairs({ flow_workflows(), flow_files(action_paths()) }) do
+    for path, text in pairs(files) do
+      count = count + 1
+      local out, why = flow.format(text)
+      assert(out ~= nil, path .. ": " .. tostring(why))
+      assert(out == text, path .. " is not laid out: run `cosmic fix " .. path .. "`")
+    end
+  end
+  assert(count > 0, "no workflow or action")
 end

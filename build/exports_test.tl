@@ -25,6 +25,14 @@ local allowed: {string: string} = {}
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
+allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
+  "workflows to takes a bare key by the same rule the layout writes one by"
+allowed["build.flow.parse"] = "the tree a program edits a workflow through, " ..
+  "which no program in the tree does yet; its test does"
+allowed["build.flow.render"] = "the tree a program edits a workflow through, " ..
+  "which no program in the tree does yet; its test does"
+allowed["build.flow.scalar"] = "the tree a program edits a workflow through, " ..
+  "which no program in the tree does yet; its test does"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
 allowed["build.filesystem_observations.itself"] = "a test's own declaration: " ..
