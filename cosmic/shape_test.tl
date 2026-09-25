@@ -94,6 +94,29 @@ local function test_a_map_or_record_refuses_a_json_array()
   fails(must(Json.decode('{"a": [1]}')), Shape.record({ a = Shape.string }), "$.a: expected string, got array")
 end
 
+-- A strict record names the first key it does not know, before the
+-- field that key was probably meant to be, and whatever its value.
+local function test_a_strict_record_refuses_a_key_it_does_not_name()
+  local strict = Shape.strict_record({
+    host = Shape.string,
+    port = Shape.integer,
+    tls = Shape.optional(Shape.boolean),
+  })
+  local s: Server = must(Shape.into({ host = "h", port = 1, tls = Json.null }, strict))
+  assert(s.host == "h" and s.port == 1 and s.tls == nil)
+  fails({ host = "h", prot = 1 }, strict, "$.prot: unknown key")
+  fails({ host = "h", port = 1, zz = 1, ["a key"] = 1 }, strict, '$["a key"]: unknown key')
+  fails({ host = "h", port = 1, tlss = Json.null }, strict, "$.tlss: unknown key")
+  fails({ host = "h", port = 1, [1] = "x" }, strict, "$: expected record, got the integer key 1")
+  fails(must(Json.decode("[]")), strict, "$: expected record, got array")
+  -- Nested, and optional, it is still strict.
+  local outer = Shape.record({ server = Shape.optional(strict) })
+  fails({ server = { host = "h", port = 1, extra = true } }, outer, "$.server.extra: unknown key")
+  local none: {string: any} = must(Shape.into({}, outer))
+  assert(none.server == nil)
+  assert(not pcall(Shape.strict_record, { a = "string" as Shape.Spec }))
+end
+
 local function test_a_map_refuses_a_key_that_is_not_a_string()
   local m: {string: integer} = must(Shape.into({ a = 1, b = 2.0 }, Shape.map(Shape.integer)))
   assert(m.a == 1 and math.type(m.b) == "integer")

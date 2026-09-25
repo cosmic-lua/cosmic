@@ -43,7 +43,7 @@ gen_spec = function(r: Recipe, depth: integer): Shape.Spec
   elseif pick == 8 then
     local fields: {string: Shape.Spec} = {}
     for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, depth - 1) end
-    spec = Shape.record(fields)
+    spec = byte(r, 2) == 0 and Shape.strict_record(fields) or Shape.record(fields)
   else
     spec = Shape.either(gen_spec(r, depth - 1), gen_spec(r, depth - 1))
   end
@@ -104,7 +104,8 @@ gen_value = function(r: Recipe, spec: Shape.Spec, depth: integer, strict: boolea
         t[name] = gen_value(r, field, depth - 1, strict)
       end
     end
-    if byte(r, 4) == 0 then
+    -- A strict value for a strict record has no key the record lacks.
+    if byte(r, 4) == 0 and not (strict and spec.strict) then
       local extra = key(r)
       if spec.fields[extra] == nil then t[extra] = "extra" end
     end
