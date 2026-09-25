@@ -15,7 +15,9 @@ local observations = require("build.filesystem_observations")
 observations.confine({ reads = observations.itself() })
 
 --- A compiler with the three members the bridge reaches for; `gen`
---- hands back its source, so each stand-in below is plain Lua.
+--- hands back its source, so each stand-in below is plain Lua -- the
+--- compiler's own `tl.tl` included, which the bridge compiles with it
+--- and loads as the compiler the tree is built with.
 local compiler <const> = [[
 return {
   search_module = function() return nil end,
@@ -58,6 +60,7 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.write(tmp .. "/tree/build/gen_syscalls.tl", gen_syscalls))
   assert(Fs.write(tmp .. "/tree/build/boot.tl", boot))
   assert(Fs.write(tmp .. "/tl/tl.lua", compiler))
+  assert(Fs.write(tmp .. "/tl/tl.tl", compiler))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },
     { stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
 end

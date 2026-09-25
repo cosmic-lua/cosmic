@@ -1,19 +1,19 @@
-file: tl.lua
-note: a truthy `x.field` read (an `if x.field then` guard, or the left operand of `and`, which already marks truthy_read regardless of kind) narrows the field's nil union the same way a plain variable already does, and a live narrow recorded on it is read back here too
+file: tl.tl
+note: a truthy `x.field` read (an `if x.field then` guard, or any other read in a boolean context) narrows the field's nil union the same way a plain variable already does, and a live narrow recorded on it is read back here too
 --- find
             if node.op.op == "." then
                node.receiver = ua
 
                assert(node.e2.kind == "identifier")
-               local bnode = node_at(node.e2, {
+               local bnode: Node = node_at(node.e2, {
                   tk = node.e2.tk,
                   kind = "string",
                })
-               local btype = a_type(node.e2, "string", { literal = node.e2.tk })
+               local btype = a_type(node.e2, "string", { literal = node.e2.tk } as StringType)
                local t = self:type_check_index(node.e1, bnode, ua, btype)
 
                if t.needs_compat and self.gen_compat ~= "off" then
-
+                  -- only apply to a literal use, not a propagated type
                   if node.e1.kind == "variable" and node.e2.kind == "identifier" then
                      local key = node.e1.tk .. "." .. node.e2.tk
                      node.kind = "variable"
@@ -29,37 +29,41 @@ note: a truthy `x.field` read (an `if x.field then` guard, or the left operand o
                node.receiver = ua
 
                assert(node.e2.kind == "identifier")
-               local bnode = node_at(node.e2, {
+               local bnode: Node = node_at(node.e2, {
                   tk = node.e2.tk,
                   kind = "string",
                })
-               local btype = a_type(node.e2, "string", { literal = node.e2.tk })
+               local btype = a_type(node.e2, "string", { literal = node.e2.tk } as StringType)
                local t = self:type_check_index(node.e1, bnode, ua, btype)
 
                -- A prior narrow recorded for this field is read back
                -- here, which is what lets a chain like `o.sub.x` see a
                -- narrow recorded on `o.sub` through `o.sub`'s own
                -- return value. A truthy read here (`if x.field then`,
-               -- or the left operand of `and`) then sets the fact for
-               -- reads that follow; `==`/`~=` nil and `assert` set it
-               -- at their own call sites, keyed the same way.
+               -- or any other read in a boolean context) then sets the
+               -- fact for reads that follow; `==`/`~=` nil and `assert`
+               -- set it at their own call sites, keyed the same way.
+               -- TODO: the left operand of `and` is not read in a
+               -- boolean context, so `if x.f and x.f.y then` does not
+               -- narrow `x.f` for the right operand; give `and`'s left
+               -- operand `boolean_context` in the `op` visitor, as `not`'s
+               -- operand has, and test the narrow it then carries.
                local field_key = fact_key(node)
                if field_key then
                   local narrowed = self:find_var_type(field_key, "check_only")
                   if narrowed then
                      t = narrowed
                   end
-                  if node.truthy_read or
-                     (node.expected and node.expected.typename == "boolean_context") then
+                  if node.expected and node.expected.typename == "boolean_context" then
                      local typ = without_nil(self, node, t, true)
                      if typ then
-                        node.known = IsFact({ var = field_key, typ = typ, w = node })
+                        node.known = IsFact { var = field_key, typ = typ, w = node }
                      end
                   end
                end
 
                if t.needs_compat and self.gen_compat ~= "off" then
-
+                  -- only apply to a literal use, not a propagated type
                   if node.e1.kind == "variable" and node.e2.kind == "identifier" then
                      local key = node.e1.tk .. "." .. node.e2.tk
                      node.kind = "variable"

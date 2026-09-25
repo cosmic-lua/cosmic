@@ -1,32 +1,33 @@
-file: tl.lua
+file: tl.tl
 note: the two helpers the nil-union narrowing edits share: one drops a union's nil member, the other says whether a type can hold nil
 --- find
-   function TypeChecker:arraytype_from_tuple(w, tupletype)
+   function TypeChecker:arraytype_from_tuple(w: Where, tupletype: TupleTableType): ArrayType, {Error}
 --- replace
    -- t with its nil member dropped, or nil when t is not a union that
    -- carries nil. `strict` additionally refuses a union whose other
    -- members are not known to be truthy -- boolean, any, unknown,
    -- typevar -- which is what a truthiness guard needs and an `or`
    -- fallback does not.
-   local function without_nil(self, w, t, strict)
+   local function without_nil(self: TypeChecker, w: Where, t: Type, strict: boolean): Type
       local rt = t
-      if rt.typename == "nominal" then
+      if rt is NominalType then
          rt = self:resolve_nominal(rt)
       end
-      if not (rt.typename == "union") then
+      if not rt is UnionType then
          return nil
       end
-      local has_nil, members = false, {}
+      local has_nil = false
+      local members: {Type} = {}
       for _, m in ipairs(rt.types) do
          local rm = m
-         if rm.typename == "nominal" then
+         if rm is NominalType then
             rm = self:resolve_nominal(rm)
          end
-         if rm.typename == "nil" then
+         if rm is NilType then
             has_nil = true
-         elseif strict and (rm.typename == "boolean" or rm.typename == "any" or
-            rm.typename == "unknown" or rm.typename == "boolean_context" or
-            rm.typename == "typevar") then
+         elseif strict and (rm is BooleanType or rm.typename == "any" or
+            rm is UnknownType or rm is BooleanContextType or
+            rm is TypeVarType) then
             return nil
          else
             table.insert(members, m)
@@ -41,15 +42,15 @@ note: the two helpers the nil-union narrowing edits share: one drops a union's n
    -- Does t hold nil? nil is a subtype of every type, so this stands in
    -- for is_a wherever a nil member would otherwise pass a target that
    -- cannot hold one.
-   local function admits_nil(self, w, t)
+   local function admits_nil(self: TypeChecker, w: Where, t: Type): boolean
       local rt = t
-      if rt.typename == "nominal" then
+      if rt is NominalType then
          rt = self:resolve_nominal(rt)
       end
-      return rt.typename == "nil" or rt.typename == "any" or
-      rt.typename == "unknown" or rt.typename == "typevar" or
-      without_nil(self, w, rt, false) ~= nil
+      return rt is NilType or rt.typename == "any" or
+         rt is UnknownType or rt is TypeVarType or
+         without_nil(self, w, rt, false) ~= nil
    end
 
-   function TypeChecker:arraytype_from_tuple(w, tupletype)
+   function TypeChecker:arraytype_from_tuple(w: Where, tupletype: TupleTableType): ArrayType, {Error}
 --- end

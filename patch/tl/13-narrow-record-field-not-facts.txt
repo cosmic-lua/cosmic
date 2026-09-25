@@ -1,17 +1,17 @@
-file: tl.lua
+file: tl.tl
 note: a field fact's current type falls back to its base variable's declared field type (see fact_base_type), and an unresolvable field key drops silently instead of reporting an unresolvable variable -- it has simply moved past the scope its fact was built in, which a genuine unresolvable bare variable never has
 --- find
-      not_facts = function(self, fs)
-         local ret = {}
+      not_facts = function(self: TypeChecker, fs: {string:IsFact|EqFact}): {string:IsFact|EqFact}
+         local ret: {string:IsFact|EqFact} = {}
          for var, f in pairs(fs) do
             local typ = self:find_var_type(f.var, "check_only")
 
             if not typ then
-               ret[var] = EqFact({ var = var, typ = a_type(f.w, "invalid", {}), w = f.w, no_infer = f.no_infer })
-            elseif f.fact == "==" then
+               ret[var] = EqFact { var = var, typ = an_invalid(f.w), w = f.w, no_infer = f.no_infer }
+            elseif f is EqFact then
 --- replace
-      not_facts = function(self, fs)
-         local ret = {}
+      not_facts = function(self: TypeChecker, fs: {string:IsFact|EqFact}): {string:IsFact|EqFact}
+         local ret: {string:IsFact|EqFact} = {}
          for var, f in pairs(fs) do
             -- A field key's current type is not always one find_var_type
             -- already knows -- see fact_base_type.
@@ -24,7 +24,7 @@ note: a field fact's current type falls back to its base variable's declared fie
                -- reporting an unresolvable variable, which a genuine
                -- bare-variable miss still does.
                if not string.find(var, ".", 1, true) then
-                  ret[var] = EqFact({ var = var, typ = a_type(f.w, "invalid", {}), w = f.w, no_infer = f.no_infer })
+                  ret[var] = EqFact { var = var, typ = an_invalid(f.w), w = f.w, no_infer = f.no_infer }
                end
-            elseif f.fact == "==" then
+            elseif f is EqFact then
 --- end

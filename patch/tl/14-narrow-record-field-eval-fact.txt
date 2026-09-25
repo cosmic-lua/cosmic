@@ -1,19 +1,19 @@
-file: tl.lua
+file: tl.tl
 note: the same fact_base_type fallback and silent-drop as 13-narrow-record-field-not-facts.txt, for eval_fact's positive-fact path
 --- find
-      eval_fact = function(self, f)
+      eval_fact = function(self: TypeChecker, f: Fact): {string:IsFact|EqFact}
          if not f then
             return {}
-         elseif f.fact == "is" then
+         elseif f is IsFact then
             local typ = self:find_var_type(f.var, "check_only")
             if not typ then
                return { [f.var] = invalid_from(f) }
             end
 --- replace
-      eval_fact = function(self, f)
+      eval_fact = function(self: TypeChecker, f: Fact): {string:IsFact|EqFact}
          if not f then
             return {}
-         elseif f.fact == "is" then
+         elseif f is IsFact then
             -- A field key's current type is not always one find_var_type
             -- already knows -- see fact_base_type.
             local typ = self:fact_base_type(f)
