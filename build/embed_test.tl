@@ -309,7 +309,7 @@ local Time = require("cosmic.time")
 
 return function(): integer
   -- The zones the program carries, read where the host has none.
-  local zone = assert(Time.zone("Asia/Kolkata", { directories = {} }))
+  local zone = assert(Time.zone("Asia/Kolkata"))
   print(Time.format_rfc3339(0, { zone = zone, zone_name = true }))
   error("coverage collection is already active", 0)
 end

@@ -97,7 +97,7 @@ function Example.zone()
   assert(Time.format_rfc3339(later, { zone = ny }) == "2026-03-08T03:30:00-04:00")
 end
 
---- The host's own zone, as `TZ` and /etc/localtime name it.
+--- The host's own zone: the carried one `TZ`, /etc/localtime or /etc/timezone names.
 function Example.local_zone()
   local here, why = Time.local_zone()
   assert(here ~= nil, why)

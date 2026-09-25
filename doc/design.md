@@ -352,8 +352,9 @@ input to the build, never to the runtime. one database holds:
 - **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
   which `core/http.c` reads from the binary's own database alone.
 - **zoneinfo**: the IANA time zone database (`vendor/tzdata`), one
-  TZif file per zone name, which `cosmic.time` reads where the host
-  has no zone files of its own. A boot reads it from the tree, a
+  TZif file per zone name, the only zone rules `cosmic.time` reads:
+  a host's own zone files are never read, so a zone name means the
+  same rules everywhere. A boot reads it from the tree, a
   Teal-only rebuild carries the running binary's rows over, and
   `cosmic build` copies it into every executable it writes. It keeps
   a rowid, written in name order: a WITHOUT ROWID row lives in an
