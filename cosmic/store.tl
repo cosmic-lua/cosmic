@@ -65,9 +65,9 @@ function Store.databases(): {Sqlite.Handle}
 end
 
 --- One time zone's TZif file (RFC 8536), by IANA name, from the copy
---- of the tz database the binary's own database carries: what
---- `cosmic.time` reads where the host has no zone files of its own. Nil
---- and why when it carries no such zone.
+--- of the tz database the binary's own database carries: the only zone
+--- rules `cosmic.time` reads. Nil and why when it carries no such zone
+--- or the query failed; `zone_names` tells the two apart.
 function Store.zoneinfo(name: string): string | nil, string
   local databases = store.databases()
   local binary = databases[#databases]
@@ -77,6 +77,19 @@ function Store.zoneinfo(name: string): string | nil, string
   if rows == nil then return nil, "the binary's zones: " .. trouble end
   if #rows == 0 then return nil, "the binary carries no zone " .. name end
   return rows[1][1].blob or rows[1][1].text, ""
+end
+
+--- Every time zone name the binary's own database carries, as a set,
+--- or nil and why when the query failed.
+function Store.zone_names(): {string:boolean} | nil, string
+  local databases = store.databases()
+  local binary = databases[#databases]
+  if binary == nil then return nil, "the running binary has no database" end
+  local rows, trouble = Sqlite.text_rows(binary, "SELECT name FROM zoneinfo")
+  if rows == nil then return nil, "the binary's zones: " .. trouble end
+  local names: {string:boolean} = {}
+  for _, row in ipairs(rows) do names[row[1]] = true end
+  return names, ""
 end
 
 --- Calls `fn` searching only the binary's own database, as a process

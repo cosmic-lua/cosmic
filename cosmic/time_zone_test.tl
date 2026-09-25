@@ -1,7 +1,7 @@
---- Time zones in `cosmic.time`: IANA's zones by name, from the host and
---- from the copy the binary carries; POSIX TZ strings; `TZ` and
---- /etc/localtime; and what a zone does to the calendar, RFC 3339 text
---- and local times its clocks skip or repeat.
+--- Time zones in `cosmic.time`: IANA's zones by name, from the copy the
+--- binary carries and never the host's files; POSIX TZ strings; `TZ`,
+--- /etc/localtime and /etc/timezone; and what a zone does to the
+--- calendar, RFC 3339 text and local times its clocks skip or repeat.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -11,11 +11,8 @@ local Time = require("cosmic.time")
 
 local NS <const> = 1000000000
 
---- The zones the binary carries alone, whatever the host has.
-local CARRIED <const>: Time.ZoneOptions = { directories = {} }
-
 local function zone(name: string): Time.Zone
-  local z, why = Time.zone(name, CARRIED)
+  local z, why = Time.zone(name)
   assert(z ~= nil, why)
   return z
 end
@@ -199,6 +196,8 @@ local function test_zone_names_are_checked_before_any_file_is_read()
   end
   local z, why = Time.zone("Nowhere/Nothing")
   assert(z == nil and why:find("Nowhere/Nothing", 1, true), why)
+  local names = assert(Store.zone_names())
+  assert(names["America/New_York"] and not names["Nowhere/Nothing"])
   assert(not why:find("zoneinfo", 1, true), "the reason names no host path: " .. why)
   -- Asked again, the answer is remembered rather than looked for.
   local again, again_why = Time.zone("Nowhere/Nothing")
@@ -216,7 +215,8 @@ end
 --- release than the host's does not rewrite.
 local function test_the_carried_zones_agree_with_the_hosts()
   for _, name in ipairs({ "America/New_York", "Europe/London", "Australia/Sydney" }) do
-    local host, _ = Time.zone(name, { directories = { "/usr/share/zoneinfo" } })
+    local data, _ = Fs.read("/usr/share/zoneinfo/" .. name)
+    local host = data ~= nil and Time.zone_from_tzif(data, name) or nil
     if host ~= nil then
       local carried = zone(name)
       for ns = 0, at("2020-01-01T00:00:00Z"), 30 * 86400 * NS + 7 * 3600 * NS do
@@ -535,61 +535,95 @@ local function test_counts_between_moments_follow_the_zones_calendar()
     "noon to noon, across the change")
 end
 
---- `TZ` as the C library reads it, and /etc/localtime when it is unset.
-local function test_local_zone_reads_tz_and_etc_localtime(tmp: string)
-  local missing = tmp .. "/no-localtime"
-  local function lz(tz: string, localtime?: string): Time.Zone
+--- `local_zone` takes only a zone's name from the host -- from `TZ`,
+--- the /etc/localtime link, or /etc/timezone -- and the rules from the
+--- binary's copy; with no name to take, UTC.
+local function test_local_zone_names_a_carried_zone(tmp: string)
+  local missing = tmp .. "/none"
+  local function lz(tz: string, localtime?: string, timezone?: string): Time.Zone
     local z, why = Time.local_zone({ tz = tz, unset = tz == nil, localtime = localtime or missing,
-      directories = {} })
+      timezone = timezone or missing })
     assert(z ~= nil, tostring(tz) .. ": " .. why)
     return z
   end
-  assert(rawequal(lz(nil), Time.UTC), "no /etc/localtime is UTC")
+  assert(rawequal(lz(nil), Time.UTC), "no /etc/localtime and no /etc/timezone is UTC")
 
-  local berlin = assert(Store.zoneinfo("Europe/Berlin"))
+  -- The host's file at the link's end holds Tokyo's rules: it is never
+  -- read, only its path.
+  local tokyo = assert(Store.zoneinfo("Asia/Tokyo"))
   assert(Fs.mkdirs(tmp .. "/share/zoneinfo/Europe"))
-  assert(Fs.write(tmp .. "/share/zoneinfo/Europe/Berlin", berlin))
+  assert(Fs.mkdirs(tmp .. "/share/zoneinfo/right/Europe"))
+  assert(Fs.write(tmp .. "/share/zoneinfo/Europe/Berlin", tokyo))
   assert(Fs.symlink(tmp .. "/share/zoneinfo/Europe/Berlin", tmp .. "/linked"))
-  assert(Fs.write(tmp .. "/copied", berlin))
   local summer = at("2026-07-01T12:00:00Z")
   local linked = lz(nil, tmp .. "/linked")
-  assert(linked.name == "Europe/Berlin" and Time.civil(summer, linked).abbreviation == "CEST")
+  assert(rawequal(linked, zone("Europe/Berlin")), linked.name)
+  assert(Time.civil(summer, linked).abbreviation == "CEST")
   assert(Time.format_rfc3339(summer, { zone = linked, zone_name = true }) ==
     "2026-07-01T14:00:00+02:00[Europe/Berlin]")
-  local copied = lz(nil, tmp .. "/copied")
-  assert(copied.name == "localtime" and Time.civil(summer, copied).offset == 7200)
-  -- "localtime" names no zone another host could read back.
-  local written, err = pcall(Time.format_rfc3339, summer, { zone = copied, zone_name = true })
-  assert(not written and tostring(err):find("IANA", 1, true), tostring(err))
+  -- A link to a link that names no zone is followed, relative or not,
+  -- as NixOS's /etc/localtime goes through /etc/zoneinfo.
+  assert(Fs.symlink("linked", tmp .. "/hop"))
+  assert(lz(nil, tmp .. "/hop").name == "Europe/Berlin")
+  -- The zone right/ or posix/ holds is the one of its name.
+  assert(Fs.symlink(tmp .. "/share/zoneinfo/right/Europe/Berlin", tmp .. "/right"))
+  assert(lz(nil, tmp .. "/right").name == "Europe/Berlin")
+
+  -- A copy, not a link, names nothing: /etc/timezone does, else UTC.
+  assert(Fs.write(tmp .. "/copied", tokyo))
+  assert(Fs.write(tmp .. "/timezone", "  Asia/Kolkata \nsecond line\n"))
+  assert(rawequal(lz(nil, tmp .. "/copied"), Time.UTC))
+  assert(lz(nil, tmp .. "/copied", tmp .. "/timezone").name == "Asia/Kolkata")
+  assert(lz(nil, missing, tmp .. "/timezone").name == "Asia/Kolkata")
+  -- The link wins over /etc/timezone, which may be stale.
+  assert(lz(nil, tmp .. "/linked", tmp .. "/timezone").name == "Europe/Berlin")
+  -- A link to a zone the binary does not carry, or /etc/timezone
+  -- naming none, is passed over.
+  assert(Fs.symlink(tmp .. "/share/zoneinfo/Nowhere/Nothing", tmp .. "/unknown"))
+  assert(lz(nil, tmp .. "/unknown", tmp .. "/timezone").name == "Asia/Kolkata")
+  -- /etc/timezone's first line that is neither blank nor a comment.
+  assert(Fs.write(tmp .. "/commented", "\239\187\191# written by hand\n\n\tAsia/Kolkata\r\n"))
+  assert(lz(nil, tmp .. "/copied", tmp .. "/commented").name == "Asia/Kolkata")
+  assert(Fs.write(tmp .. "/garbage", "../../etc/passwd\n"))
+  assert(rawequal(lz(nil, tmp .. "/unknown", tmp .. "/garbage"), Time.UTC))
+
   -- TZ set and empty, or ":", is UTC, as glibc, musl and tzcode have it,
   -- /etc/localtime or not.
-  assert(rawequal(lz("", tmp .. "/copied"), Time.UTC))
-  assert(rawequal(lz(":", tmp .. "/copied"), Time.UTC))
-
-  local path = lz(":" .. tmp .. "/copied")
-  assert(path.name == tmp .. "/copied" and Time.civil(summer, path).offset == 7200)
-  local path_written = pcall(Time.format_rfc3339, summer, { zone = path, zone_name = true })
-  assert(not path_written, "a path is no IANA name")
+  assert(rawequal(lz("", tmp .. "/linked"), Time.UTC))
+  assert(rawequal(lz(":", tmp .. "/linked"), Time.UTC))
+  -- TZ=:/path names its zone by where the path sits, as the link does,
+  -- or where it links: TZ=:/etc/localtime, as glibc documents it.
+  local path = lz(":" .. tmp .. "/share/zoneinfo/Europe/Berlin")
+  assert(rawequal(path, zone("Europe/Berlin")))
+  assert(lz(":" .. tmp .. "/linked").name == "Europe/Berlin")
+  assert(lz(tmp .. "/share/zoneinfo/Europe/Berlin").name == "Europe/Berlin", "no colon, as glibc")
+  assert(lz(":posix/Europe/Berlin").name == "Europe/Berlin")
+  assert(lz("right/Europe/Berlin").name == "Europe/Berlin")
+  -- A loop of links names nothing, and ends.
+  assert(Fs.symlink(tmp .. "/loop-b", tmp .. "/loop-a"))
+  assert(Fs.symlink(tmp .. "/loop-a", tmp .. "/loop-b"))
+  assert(rawequal(lz(nil, tmp .. "/loop-a"), Time.UTC))
   assert(lz(":Asia/Kolkata").name == "Asia/Kolkata")
   assert(lz("Asia/Kolkata").name == "Asia/Kolkata")
   local rules = lz("EST5EDT,M3.2.0,M11.1.0")
   assert(rules.name == "EST5EDT,M3.2.0,M11.1.0" and Time.civil(summer, rules).abbreviation == "EDT")
   local utc0 = lz("UTC0")
   assert(Time.civil(summer, utc0).offset == 0 and utc0.name == "UTC0")
-  -- A name the zone files have is read from them, as glibc does.
+  -- A name the binary carries is its zone, before a POSIX string.
   assert(lz("EST5EDT").name == "EST5EDT")
 
-  for _, tz in ipairs({ "!!!", ":Nowhere/Nothing", ":" .. missing, "Nowhere/Nothing" }) do
-    local z, why = Time.local_zone({ tz = tz, localtime = missing, directories = {} })
+  for _, tz in ipairs({ "!!!", ":Nowhere/Nothing", ":" .. tmp .. "/copied", "Nowhere/Nothing",
+      ":" .. tmp .. "/loop-a",
+      ":" .. tmp .. "/share/zoneinfo/Nowhere" }) do
+    local z, why = Time.local_zone({ tz = tz, localtime = missing, timezone = missing })
     assert(z == nil and why ~= "", tz)
   end
-  local z, why = Time.local_zone({ unset = true, localtime = tmp .. "/share" })
-  assert(z == nil and why ~= "", "a directory is no TZif file")
 end
 
 --- `local_zone` with no options reads the process's own `TZ` -- set
---- and empty, UTC -- and `zone` looks under its `TZDIR` first.
-local function test_local_zone_reads_the_environment(tmp: string)
+--- and empty, UTC -- and neither it nor `zone` reads `TZDIR`: a zone
+--- is the binary's, whatever the host's files say.
+local function test_the_environment_names_zones_and_holds_no_rules(tmp: string)
   local script = tmp .. "/local.tl"
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
@@ -601,14 +635,20 @@ return function(): integer
     return 1
   end
   local again = assert(Time.local_zone())
-  Fs.put(Fs.stdout, z.name .. " " .. Time.civil(0, z).offset .. " " .. tostring(rawequal(z, again)) .. "\n")
+  local only, _ = Time.zone("Test/Here")
+  Fs.put(Fs.stdout, z.name .. " " .. Time.civil(0, z).offset .. " " .. tostring(rawequal(z, again)) ..
+    " " .. tostring(only) .. "\n")
   return 0
 end
 ]]))
-  -- A zone only `TZDIR` has, as glibc reads it.
+  -- Zones `TZDIR` would have given, as glibc reads it: Tokyo under
+  -- Berlin's name, and one IANA has none of.
   assert(Fs.mkdirs(tmp .. "/tzdir/Test"))
-  assert(Fs.write(tmp .. "/tzdir/Test/Here", (assert(Store.zoneinfo("Asia/Tokyo")))))
-  for tz, want in pairs({ [""] = "UTC 0 true\n", ["Test/Here"] = "Test/Here 32400 true\n" }) do
+  assert(Fs.mkdirs(tmp .. "/tzdir/Europe"))
+  local tokyo = assert(Store.zoneinfo("Asia/Tokyo"))
+  assert(Fs.write(tmp .. "/tzdir/Test/Here", tokyo))
+  assert(Fs.write(tmp .. "/tzdir/Europe/Berlin", tokyo))
+  for tz, want in pairs({ [""] = "UTC 0 true nil\n", ["Europe/Berlin"] = "Europe/Berlin 3600 true nil\n" }) do
     local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script },
       { env = { TZ = tz, TZDIR = tmp .. "/tzdir", XDG_CACHE_HOME = tmp .. "/cache" },
         stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
@@ -649,10 +689,8 @@ local function test_a_date_begins_where_the_zone_says()
   assert(Time.parse_date("2026-11-01", ny) == at("2026-11-01T04:00:00Z"))
 end
 
---- A directory where a zone file would be is no zone, as a file that is
---- not there is none.
-local function test_a_directory_is_no_zone(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/zones/Nowhere"))
-  local z, why = Time.zone("Nowhere", { directories = { tmp .. "/zones" } })
-  assert(z == nil and why:find("neither the host nor this binary", 1, true), why)
+--- A directory of the tz database is no zone.
+local function test_a_directory_is_no_zone()
+  local z, why = Time.zone("America")
+  assert(z == nil and why:find("America", 1, true), why)
 end
