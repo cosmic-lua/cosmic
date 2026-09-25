@@ -103,8 +103,10 @@ local record Handle
   --- SIGTERM, a grace period, then SIGKILL, its group included -- and
   --- the Result says `timed_out`; `Child.wait_any`'s timeout instead
   --- leaves every child running. While a `Child.guard` is open, a
-  --- SIGINT or SIGTERM ends the wait with nil and "cancelled by signal
-  --- N", the child still running, and the guard keeps the signal.
+  --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
+  --- way: the child is ended and the wait answers nil and "cancelled
+  --- by signal N"; the guard keeps the signal, and a later wait answers
+  --- the ended child's Result.
   wait: function(Handle, timeout_ms?: integer): Result | nil, string
   try_wait: function(Handle): TryWait | nil, string
   stop: function(Handle, signal?: integer): boolean, string
@@ -484,10 +486,17 @@ local function make_handle(pid: integer, process_group: boolean): Handle
       if not status then return nil, trouble end
       return settled(self, false)
     end
-    if timeout_ms == nil then return poll_until(self) end
-    if timeout_ms < 0 then return nil, "timeout is negative" end
-    local r, trouble = poll_until(self, now() + timeout_ms * 1000000)
+    if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end
+    local deadline: integer
+    if timeout_ms ~= nil then deadline = now() + timeout_ms * 1000000 end
+    local r, trouble = poll_until(self, deadline)
     if r then return r, "" end
+    if active ~= nil and active:cancelled() ~= 0 then
+      -- A wait the guard's signal ended leaves no child running.
+      local _, ended_trouble = terminate(self)
+      if ended_trouble ~= "" then return nil, trouble .. "; " .. ended_trouble end
+      return nil, trouble
+    end
     if trouble ~= "" then return nil, trouble end
     return terminate(self)
   end
@@ -553,8 +562,11 @@ end
 --- Holds SIGINT and SIGTERM for this process while it supervises
 --- children, so it can end them before it is ended itself. Until the
 --- guard closes, either signal is caught rather than acted on:
---- `g:cancelled()` answers the one caught, 0 until one is, and every
---- wait on a handle ends with "cancelled by signal N" once one is.
+--- `g:cancelled()` answers the one caught, 0 until one is. Only
+--- `h:wait` reads the guard -- it ends its child and answers "cancelled
+--- by signal N" once a signal is caught; `Child.wait_any` and
+--- `h:try_wait` do not, so a loop over them asks `g:cancelled()` each
+--- round. A signal this process ignores stays ignored.
 --- Closing the guard -- `g:close()`, or leaving the scope of a
 --- `local g <close> = assert(Child.guard())` -- restores the
 --- dispositions the process had and delivers the caught signal again,
@@ -562,7 +574,8 @@ end
 --- children already ended. One guard is open at a time, `Child.run`'s
 --- included: another answers nil and why. `close` answers false and
 --- why when the dispositions could not be restored; the signal is not
---- delivered then.
+--- delivered then. A guard never closed holds the signals for the rest
+--- of the process's life: hold it in a `<close>` variable.
 function Child.guard(): Guard | nil, string
   local guarded, trouble = sys.guard_child_signals()
   if not guarded then return nil, trouble end
@@ -881,9 +894,9 @@ end
 --- default, or accept caller-owned descriptors (which remain open here),
 --- "null", or "capture". Children own a new process group by default so
 --- timeout cleanup includes descendants. start returns that ownership as a
---- Handle; run additionally forwards SIGINT/SIGTERM, performs bounded group
---- cleanup, restores the caller's dispositions, and then re-delivers
---- cancellation.
+--- Handle; run additionally holds SIGINT and SIGTERM in a `Child.guard`
+--- while the child runs: either one ends the child and its group, then
+--- the caller's dispositions are restored and the signal delivered again.
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}
   validate(argv, opts)

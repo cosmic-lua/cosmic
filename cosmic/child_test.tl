@@ -376,10 +376,12 @@ local function test_guard_is_one_at_a_time_and_closes_once()
   assert(again:close())
 end
 
---- A caught signal ends a wait without ending the child, stays with the
---- guard however many waits see it, and ends the process when the
---- guard closes. The guard lives in a nested cosmic: closing it
---- delivers SIGTERM to whatever process holds it.
+--- A caught signal ends a wait, timed or not, and the child with it:
+--- `wait(0)` is how a caller ends a child whose time is up, and a
+--- signal caught first must not leave that child running. The signal
+--- stays with the guard however many waits see it, and ends the
+--- process when the guard closes. The guard lives in a nested cosmic:
+--- closing it delivers SIGTERM to whatever process holds it.
 local function test_guard_keeps_a_signal_and_delivers_it_on_close()
   local dir = temporary()
   local report = dir .. "/report"
@@ -391,22 +393,60 @@ local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   do
     local guard <close> = assert(Child.guard())
-    local h = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
+    local timed = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
+    local untimed = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    local first, first_trouble = h:wait(10000)
-    local second, second_trouble = h:wait(10000)
-    assert(Fs.write(argv[1], table.concat({ tostring(first == nil), first_trouble,
-      tostring(second == nil), second_trouble, tostring(guard:cancelled()) }, "|")))
-    assert(h:close())
+    local answers: {string} = {}
+    for _, wait in ipairs({ function(): Child.Result | nil, string return timed:wait(0) end,
+        function(): Child.Result | nil, string return untimed:wait() end }) do
+      local r, trouble = wait()
+      answers[#answers + 1] = tostring(r == nil) .. " " .. trouble
+    end
+    answers[#answers + 1] = tostring(not sys.kill(timed.pid, 0))
+    answers[#answers + 1] = tostring(not sys.kill(untimed.pid, 0))
+    local later, _ = timed:wait()
+    answers[#answers + 1] = tostring(later ~= nil)
+    answers[#answers + 1] = tostring(guard:cancelled())
+    assert(Fs.write(argv[1], table.concat(answers, "|")))
   end
   return 0
 end
 ]]))
   local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
     { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
-  local expected = "true|cancelled by signal " .. tostring(sys.SIGTERM) ..
-    "|true|cancelled by signal " .. tostring(sys.SIGTERM) .. "|" .. tostring(sys.SIGTERM)
+  local cancelled = "true cancelled by signal " .. tostring(sys.SIGTERM)
+  local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
+    tostring(sys.SIGTERM) }, "|")
   local got = Fs.read(report)
   assert(got == expected, tostring(got) .. " " .. tostring(r.stderr))
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
+end
+
+--- A signal this process ignores -- `cosmic test &` from a script, whose
+--- shell ignores SIGINT for it -- is not the guard's to catch.
+local function test_guard_leaves_an_ignored_signal_ignored()
+  local dir = temporary()
+  local report = dir .. "/report"
+  local fixture = dir .. "/ignoring.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local caught = guard:cancelled()
+  assert(guard:close())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  assert(Fs.write(argv[1], tostring(caught)))
+  return 0
+end
+]]))
+  local r = assert(Child.run({ "/bin/sh", "-c", "trap '' INT; exec \"$0\" \"$@\"",
+    assert(Proc.executable()), fixture, report },
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
+    " " .. tostring(r.stderr))
+  local got = Fs.read(report)
+  assert(got == "0", tostring(got))
 end

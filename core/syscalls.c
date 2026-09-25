@@ -784,6 +784,10 @@ static volatile sig_atomic_t child_cancelled;
 static int child_signals_guarded;
 static struct sigaction previous_int;
 static struct sigaction previous_term;
+/* Whether the guard caught each signal: one this process ignored stays
+   ignored, as a shell's `&` or `trap '' INT` asked. */
+static int int_caught;
+static int term_caught;
 
 static void catch_child_cancel (int number) {
   if (child_cancelled == 0) child_cancelled = number;
@@ -809,22 +813,30 @@ COSMIC_SYSCALL(guard_child_signals, 0) {
   child_signal_set(&action.sa_mask);
   action.sa_flags = 0;
   child_cancelled = 0;
-  if (sigaction(SIGINT, &action, &previous_int) != 0) {
+  if (sigaction(SIGINT, NULL, &previous_int) != 0 ||
+      sigaction(SIGTERM, NULL, &previous_term) != 0) {
     int number = errno;
     sigprocmask(SIG_SETMASK, &previous_mask, NULL);
     return cosmic_fail_effect(L, number);
   }
-  if (sigaction(SIGTERM, &action, &previous_term) != 0) {
+  int_caught = previous_int.sa_handler != SIG_IGN;
+  term_caught = previous_term.sa_handler != SIG_IGN;
+  if (int_caught && sigaction(SIGINT, &action, NULL) != 0) {
     int number = errno;
-    sigaction(SIGINT, &previous_int, NULL);
+    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+    return cosmic_fail_effect(L, number);
+  }
+  if (term_caught && sigaction(SIGTERM, &action, NULL) != 0) {
+    int number = errno;
+    if (int_caught) sigaction(SIGINT, &previous_int, NULL);
     sigprocmask(SIG_SETMASK, &previous_mask, NULL);
     return cosmic_fail_effect(L, number);
   }
   child_signals_guarded = 1;
   if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0) {
     int number = errno;
-    sigaction(SIGINT, &previous_int, NULL);
-    sigaction(SIGTERM, &previous_term, NULL);
+    if (int_caught) sigaction(SIGINT, &previous_int, NULL);
+    if (term_caught) sigaction(SIGTERM, &previous_term, NULL);
     child_signals_guarded = 0;
     return cosmic_fail_effect(L, number);
   }
@@ -842,8 +854,9 @@ COSMIC_SYSCALL(unguard_child_signals, 0) {
     return 1;
   }
   int first = 0;
-  if (sigaction(SIGINT, &previous_int, NULL) != 0) first = errno;
-  if (sigaction(SIGTERM, &previous_term, NULL) != 0 && first == 0) first = errno;
+  if (int_caught && sigaction(SIGINT, &previous_int, NULL) != 0) first = errno;
+  if (term_caught && sigaction(SIGTERM, &previous_term, NULL) != 0 && first == 0)
+    first = errno;
   int cancelled = child_cancelled;
   child_signals_guarded = 0;
   child_cancelled = 0;

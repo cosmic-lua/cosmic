@@ -1126,9 +1126,10 @@ end
 --- Runs every job, `limits.jobs` at a time, each to its verdict or its
 --- deadline. A SIGINT or SIGTERM `guard` catches ends every worker
 --- still running; the signal comes back as the return, for the caller
---- to be ended by it when the guard closes.
+--- to be ended by it when the guard closes. Without a guard, a signal
+--- acts as it would, and the return is 0.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
-                        guard: Child.Guard): integer
+                        guard: Child.Guard | nil): integer
   if #jobs == 0 then return 0 end
   local start, start_trouble = worker_start(Env.all())
   if start == nil then
@@ -1147,8 +1148,14 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       end
     end
     if #running == 0 then break end
-    cancelled = guard:cancelled()
-    if cancelled ~= 0 then break end
+    if guard ~= nil then
+      cancelled = guard:cancelled()
+      -- TODO: a cancelled run leaves the scratch directory of every
+      -- worker it ended under the temporary directory; remove each one
+      -- (as `sweep` does a passing test's) once its handle is closed and
+      -- `Child.end_strays` has run, below.
+      if cancelled ~= 0 then break end
+    end
     local earliest = running[1].deadline_ns
     local handles: {Child.Handle} = {}
     for i, job in ipairs(running) do
@@ -1169,7 +1176,10 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
         local _, _ = job.handle:close()
         finish(rec, job, nil, trouble, limits)
       elseif Time.monotonic_ns() >= job.deadline_ns then
+        -- Past its deadline: `wait(0)` ends it, and says why when the
+        -- guard's signal came first. `close` makes sure it is gone.
         local result, stop_trouble = job.handle:wait(0)
+        if result == nil then local _, _ = job.handle:close() end
         finish(rec, job, result, stop_trouble, limits)
       else
         still[#still + 1] = job
@@ -1193,6 +1203,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
   end
   for _, job in ipairs(running) do local _, _ = job.handle:close() end
   Child.end_strays()
+  if guard == nil then return 0 end
   return guard:cancelled()
 end
 
@@ -1468,10 +1479,11 @@ function test.run(argv: {integer:string}): integer
     end
   end
   if #jobs > 0 then
-    local opened, guard_trouble = Child.guard()
+    -- Nil when another guard is open -- a run inside a `Child.run` --
+    -- and the run goes unguarded: a signal acts as it would.
+    local opened, _ = Child.guard()
     if opened == nil then
-      rec.errors[#rec.errors + 1] = "the test runner cannot hold SIGINT and SIGTERM: " ..
-        guard_trouble
+      run_jobs(rec, jobs, limits, nil)
     else
       -- A signal the guard caught ends this process when it closes,
       -- once the run is aborted.

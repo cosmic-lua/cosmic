@@ -132,25 +132,16 @@ end
 
 --- Blame for the first line of each TODO in several files, by file,
 --- running the calls `blame_jobs` at a time; a file git has nothing to
---- say about maps to an empty table.
-local function blame_files(root: string,
-                           lines: {string:{integer}},
-                           order: {string}): {string:{integer:todos.Blame}}
+--- say about maps to an empty table. Stops once `guard` has caught a
+--- signal, every git ended.
+local function blame_all(root: string, lines: {string:{integer}}, order: {string},
+                         guard: Child.Guard | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
   local limit = blame_jobs()
   local running: {Child.Handle} = {}
   local file_of: {Child.Handle:string} = {}
   local deadline_of: {Child.Handle:integer} = {}
   local next_file = 1
-  -- SIGINT or SIGTERM ends every git still running, then this process
-  -- when the guard closes, as `build.test` does for its workers. When
-  -- the signals cannot be held, every file is listed unblamed.
-  local opened, _ = Child.guard()
-  if opened == nil then
-    for _, file in ipairs(order) do out[file] = {} end
-    return out
-  end
-  local guard <close> = opened
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
       local file = order[next_file]
@@ -174,7 +165,7 @@ local function blame_files(root: string,
     if #running == 0 then
       break
     end
-    if guard:cancelled() ~= 0 then
+    if guard ~= nil and guard:cancelled() ~= 0 then
       break
     end
     local done, trouble = Child.wait_any(running, 100)
@@ -200,6 +191,19 @@ local function blame_files(root: string,
     local _, _ = handle:close()
   end
   return out
+end
+
+--- `blame_all` under a `Child.guard`: SIGINT or SIGTERM ends every git
+--- still running, then this process when the guard closes, as
+--- `build.test` does for its workers. Unguarded when another guard is
+--- open, where a signal acts as it would.
+local function blame_files(root: string,
+                           lines: {string:{integer}},
+                           order: {string}): {string:{integer:todos.Blame}}
+  local opened, _ = Child.guard()
+  if opened == nil then return blame_all(root, lines, order, nil) end
+  local guard <close> = opened
+  return blame_all(root, lines, order, guard)
 end
 
 --- Whether a commit hash is the one blame gives a line not committed.
