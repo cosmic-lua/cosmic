@@ -46,7 +46,7 @@ end
 --- ordinary word would match rows about something else. A catalog row's
 --- message is a literal prefix of a real one, so it is the message's
 --- words that are sought in the row's, and `bm25` ranks a row sharing
---- more, or rarer, words first. At most sixteen words, and 1024 bytes.
+--- more, or rarer, words first. At most sixteen words, and under 1024 bytes.
 local function catalog_query(message: string): string | nil
   local terms: {string} = {}
   local used = #"message: ()"

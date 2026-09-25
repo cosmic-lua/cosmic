@@ -105,7 +105,7 @@ local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
                           "file", "line" }
 
---- A catalog row's guidance, as an uncaught error prints it (core/main.c):
+--- A catalog row's guidance, as an uncaught error prints it (`Errors.guidance`):
 --- its own text, or else its symbol's doc comment.
 local guidance_text <const> = "coalesce(catalog.text, (SELECT d.text FROM docs d " ..
   "WHERE d.module = catalog.module AND d.source_symbol = catalog.symbol))"

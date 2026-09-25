@@ -72,6 +72,8 @@ local function test_one_word_or_function_words_are_not_enough(tmp: string)
   assert(matched ~= nil and matched:find("Guidance.", 1, true) ~= nil,
     "two content words match: " .. tostring(matched))
   assert(Errors.guidance("the flarb is not here") == nil)
+  assert(Errors.guidance("quuxifier is not") == nil,
+    "a function word beside one content word is one word")
 end
 
 --- A word said twice is one word, and a word is matched whole, case

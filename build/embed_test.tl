@@ -327,6 +327,22 @@ end
     "and the guidance that matches it: " .. err)
 end
 
+--- An error that is not a string is reported as a failure with nothing
+--- beneath it: no line to name, and no message to find guidance for.
+local function test_an_uncaught_error_that_is_no_string_says_it_failed(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/boom"))
+  assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
+return function(): integer
+  error({})
+end
+]]))
+  local names, trouble = embed.tree(tmp)
+  assert(names ~= nil and names[1] == "boom", trouble)
+  local r = run_program(tmp .. "/o/bin/boom")
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  assert(r.stderr == "cosmic: failed\n", tostring(r.stderr))
+end
+
 --- An uncaught error names the Teal line it was raised on, read out of
 --- the module's source, which the executable stores deflated.
 local function test_an_uncaught_error_names_its_line_of_source(tmp: string)
