@@ -72,7 +72,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+          # v2: installs are named by the pin's sha too (build/zig.tl's
+          # install_name); bump it when that name's shape changes again.
+          key: zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
       - name: hand the checkout and restored caches over to the unprivileged builder
         working-directory: /

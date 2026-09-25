@@ -16,7 +16,8 @@
 --- is looked up on `PATH`, as a shell would.
 ---
 --- Otherwise the release is cached at
---- `$XDG_CACHE_HOME/cosmic/zig/<version>-<host>` (default
+--- `$XDG_CACHE_HOME/cosmic/zig/<version>-<host>-<sha>`, `<sha>` the
+--- first 16 hex digits of the host's sha256 (`Zig.install_name`; default
 --- `$HOME/.cache/cosmic/zig/...`, and no fallback when neither is set;
 --- see `Fs.cache_dir`, which also refuses a cache directory someone
 --- else could write to): if `<install>/zig` is already there
@@ -517,13 +518,45 @@ local function status_of(why: string): integer
   return String.ends_with(why, ": not executable") and 126 or 127
 end
 
+--- How many of a pin's sha256 hex digits name its install. The name
+--- only has to tell apart the pins one cache sees over time -- a
+--- re-released tarball under an unchanged version, a pin edited by
+--- hand -- since what gets installed is still held to the whole sha256
+--- as it downloads, and the cache is this user's alone
+--- (`Fs.cache_dir`). 64 bits of a sha256 never collide by chance among
+--- those, and a pin chosen to collide gains its author nothing: they
+--- write the whole sha256 anyway. The whole digest would work as well;
+--- 16 keeps a path a person reads and types short.
+local INSTALL_SHA_DIGITS <const> = 16
+
+--- The directory name `pin`'s release for `host` installs under:
+--- `<version>-<host>-<sha>`, the sha the first `INSTALL_SHA_DIGITS` of
+--- the host's sha256, so a pin whose sha256 changes and whose version
+--- does not names a new install rather than finding the old one in
+--- place. Nil and why when the pin names no sha256 for `host`, or one
+--- that is not 64 hex digits.
+-- TODO: remove installs no pin names any more: each stays until it is
+-- removed by hand, one per version and sha a cache has seen, and one
+-- per version named `<version>-<host>` with no sha, as they were before
+-- the sha was part of the name; that wants a way to tell an install
+-- another checkout's pin still names (a last-used stamp touched on each
+-- run, say) from one none does.
+function Zig.install_name(pin: Zig.Pin, host: string): string | nil, string
+  local sha256 = pin.shas[host]
+  if sha256 == nil then
+    return nil, "names no sha256 for " .. host
+  end
+  if #sha256 ~= 64 or sha256:match("^%x+$") == nil then
+    return nil, "names a sha256 for " .. host .. " that is not 64 hex digits"
+  end
+  return pin.version .. "-" .. host .. "-" .. sha256:sub(1, INSTALL_SHA_DIGITS):lower(), ""
+end
+
 --- Where the release `bin/zig.pin` names for this host is installed
 --- under `cache`, whether it is there yet or not: what was extracted
 --- from a download the pin's sha256 was checked against when it was
---- installed. Nil and why when the pin or the host cannot be read.
--- TODO: name the install by the pin's sha256 as well as its version: a
--- pin whose sha changes but whose version does not finds the old
--- install in place and runs it.
+--- installed. Nil and why when the pin or the host cannot be read, or
+--- the pin names no well-formed sha256 for the host (`install_name`).
 function Zig.pinned_install(root: string, cache: string): Zig.Install | nil, string
   local text, ptrouble = Fs.read(root .. "/bin/zig.pin")
   if text == nil then
@@ -541,7 +574,11 @@ function Zig.pinned_install(root: string, cache: string): Zig.Install | nil, str
   if host == nil then
     return nil, htrouble
   end
-  return { path = cache .. "/" .. pin.version .. "-" .. host, pin = pin, host = host }, ""
+  local name, ntrouble = Zig.install_name(pin, host)
+  if name == nil then
+    return nil, root .. "/bin/zig.pin " .. ntrouble
+  end
+  return { path = cache .. "/" .. name, pin = pin, host = host }, ""
 end
 
 --- The zig to run and its first trouble: `COSMIC_ZIG` when set,
