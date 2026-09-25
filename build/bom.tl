@@ -29,8 +29,9 @@
 --- without one. `cosmic bom` prints them.
 ---
 --- TODO: check each `license` as an SPDX expression of known ids rather
---- than taking the line as written; `build/bom_test.tl` only holds it to
---- the `SPDX-License-Identifier` tags its tree's own files carry.
+--- than taking the line as written, once the tree vendors SPDX's license
+--- list to check against; `build/bom_test.tl` only holds it to the
+--- `SPDX-License-Identifier` tags its tree's own files carry.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -198,9 +199,8 @@ local function patches_of(root: string, name: string): string | nil, string
   table.sort(names)
   local lines: {string} = {}
   for _, file in ipairs(names) do
-    -- Only what `core/patch.c` applies: a patch record is a `.txt`, and
-    -- an editor's hidden file beside one is none.
-    if file:sub(1, 1) ~= "." and String.ends_with(file, ".txt") then
+    -- Only what `core/patch.c` applies: a patch record is a `.txt`.
+    if String.ends_with(file, ".txt") and #file > 4 then
       local data, read_trouble = Fs.read(directory .. "/" .. file)
       if data == nil then
         return nil, read_trouble

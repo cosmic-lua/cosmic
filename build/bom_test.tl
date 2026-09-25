@@ -1,7 +1,6 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
-local String = require("cosmic.string")
 local Sqlite = require("cosmic.sqlite")
 local bom = require("build.bom")
 local invoke = require("build.invoke")
@@ -75,7 +74,7 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
     "kind data\nlicense MPL-2.0\n"))
   assert(Fs.write(tmp .. "/build/bom/libc.pin", "version 2\nurl https://libc.example/\n" ..
     "license MIT\nnotice libc.COPYRIGHT\n"))
-  assert(Fs.write(tmp .. "/build/bom/libc.COPYRIGHT", "(C) libc\n"))
+  assert(Fs.write(tmp .. "/build/bom/libc.COPYRIGHT", "(C) libc\r\nMIT"))
   local db = database()
   assert(bom.fill(db, tmp, "main."))
   local rows = assert(bom.rows(db))
@@ -88,7 +87,8 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
   local notices = assert(bom.notices(db))
   assert(notices:find(" (C) Jean-loup Gailly\n Mark Adler\n", 1, true),
     "a range keeps those lines of the file: " .. notices)
-  assert(notices:find("(C) libc\n", 1, true), notices)
+  assert(notices:find("(C) libc\nMIT\n", 1, true),
+    "a notice's CRLFs are LFs, and its last line ends: " .. notices)
   assert(notices:find("https://roots.example/r.pem", 1, true),
     "a component with no notice still names where its source is: " .. notices)
   assert(db:close())
@@ -144,7 +144,8 @@ end
 
 -- TODO: hold build/bom/musl.pin's version and both notices copied
 -- beside it to the pinned zig's own lib/libc/musl and LICENSE, once a
--- test may key on a file of the zig install outside the tree.
+-- test can find the pinned zig install: only `build/zig.tl`, run
+-- standalone by `bin/zig`, knows where it unpacked it.
 
 --- The zig record's version is the pinned compiler's, and Lua's notice
 --- is the license block at the end of lua.h, not lines a new release
@@ -203,7 +204,10 @@ end
 --- Every `SPDX-License-Identifier` tag a vendored tree's own files
 --- carry names a license its PIN's expression names too: a file under
 --- another license than the tree's is one whose notice the tree's own
---- license file does not hold.
+--- license file does not hold. A file whose text is under a license its
+--- tag does not name, or that has no tag -- c-ares' ISC files tagged
+--- MIT, Apple's dnsinfo.h -- is beyond this, and named in its PIN by
+--- reading it.
 local function test_every_license_a_vendored_file_is_tagged_with_is_named()
   local root = assert(Fs.absolute("."))
   for _, name in ipairs((assert(Fs.list(root .. "/vendor")))) do
@@ -213,7 +217,7 @@ local function test_every_license_a_vendored_file_is_tagged_with_is_named()
       local named = ids_of(assert(bom.parse(name, pin)).license)
       local files = assert(Fs.walk(directory))
       for _, file in ipairs(files) do
-        if String.ends_with(file, ".c") or String.ends_with(file, ".h") then
+        if file ~= "PIN" then
           local data = assert(Fs.read(directory .. "/" .. file))
           for tag in data:gmatch("SPDX%-License%-Identifier:%s*([^\n*]+)") do
             for id in pairs(ids_of(tag)) do
