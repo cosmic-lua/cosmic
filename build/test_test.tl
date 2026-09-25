@@ -411,3 +411,16 @@ local function test_a_confined_process_is_keyable_by_what_it_was_given(tmp: stri
     started)
   assert(again.stable and again.key == first.key, "a path walked before it started")
 end
+
+--- What a test reads of its own process in /proc describes the worker
+--- running it, and is no input; another process's is the host's.
+local function test_a_read_of_the_tests_own_process_is_keyable(tmp: string)
+  assert(test.keyable(tmp, tmp .. "/scratch", {
+    { kind = "o", path = "/proc/self/status", answer = "" },
+    { kind = "r", path = "/proc/self/status", answer = "/proc/4242/status" },
+    { kind = "s", path = "/proc/thread-self/fdinfo/3", answer = "" },
+  }))
+  assert(not test.keyable(tmp, tmp .. "/scratch", {
+    { kind = "o", path = "/proc/1/status", answer = "" },
+  }))
+end

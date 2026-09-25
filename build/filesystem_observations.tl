@@ -321,6 +321,20 @@ local unconfinable: {integer:boolean} = {
   [sys.ENOSPC] = true,
 }
 
+--- Whether a request for `url` could reach past this process: only
+--- http and https are spoken (core/http.c holds curl to them), and a URL
+--- with no host names nowhere to connect to, so either fails before it
+--- connects.
+local function reaches(url: string): boolean
+  local scheme, rest = url:match("^(%a[%w+.-]*)://(.*)$")
+  if scheme == nil then return false end
+  scheme = scheme:lower()
+  if scheme ~= "http" and scheme ~= "https" then return false end
+  local authority = rest:match("^([^/?#]*)") or ""
+  local host = authority:gsub("^.*@", "")
+  return host ~= ""
+end
+
 --- The file types `lstat` and `fstat` tell apart by their mode's type
 --- bits, which `sys.Stat`'s `kind` folds into "other".
 local S_IFMT <const> = 0xf000
@@ -510,38 +524,89 @@ local function start(resolving: observations.Resolving | nil):
       answer = environ_answer(environment) }
     return environment
   end
+  -- The test's own: its directory, and every directory it made for
+  -- itself and that is a directory still -- one put back as a link
+  -- would lead elsewhere -- which a key never holds either.
+  local function test_own(): {string}
+    local own: {string} = {}
+    for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
+      own[#own + 1] = directory
+    end
+    for _, observation in ipairs(found) do
+      if observation.kind == "m" then
+        local inside = false
+        for _, directory in ipairs(own) do
+          if Fs.within(observation.path, directory) then inside = true end
+        end
+        local st, _ = sys.lstat(observation.path)
+        if not inside and st ~= nil and st.kind == "dir" then
+          own[#own + 1] = observation.path
+        end
+      end
+    end
+    return own
+  end
+  --- Notes what a process started unveiled and offline had: each path
+  --- it read, unless the test's own; each it could change beyond the
+  --- test's own, which no key holds; the environment it inherited; and
+  --- each descriptor it was handed that reaches past its root.
+  local function note_unveiled(reads: {string}, writes: {string}, own: {string},
+                               environment: {string:string} | nil, stdin: integer | nil,
+                               stdout: integer | nil, stderr: integer | nil,
+                               fds: {integer:integer} | nil)
+    local function owned(given: string): boolean
+      for _, directory in ipairs(own) do
+        if Fs.within(given, directory) then return true end
+      end
+      return false
+    end
+    for _, given in ipairs(reads) do
+      if given == "/proc" then
+        -- The system's own; any other path under it, or under /sys, is
+        -- the host's state and no input a key holds.
+      elseif Fs.within(given, "/proc") or Fs.within(given, "/sys") then
+        note("x", given, "")
+      elseif not owned(given) then
+        note("u", given, "")
+      end
+    end
+    for _, given in ipairs(writes) do
+      if not owned(given) then note("x", given, "") end
+    end
+    if environment == nil then
+      found[#found + 1] = { kind = "e", path = environ_path, answer = environ_answer(environ()) }
+    end
+    local handed: {integer} = {
+      stdin == nil and 0 or stdin, stdout == nil and 1 or stdout, stderr == nil and 2 or stderr }
+    for _, fd in pairs(fds or {}) do handed[#handed + 1] = fd end
+    for _, fd in ipairs(handed) do
+      if not contained(fd) then note("x", "fd " .. tostring(fd), "") end
+    end
+  end
   process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                            cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                            stderr: integer | nil, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
                            integer | nil, string, integer
+    -- A sandbox of its own that unveils and takes the network holds a
+    -- process as a confinement does, and is noted the same.
+    local unveiled = sandbox ~= nil and sandbox.unveil ~= nil and sandbox.offline == true
+    if unveiled and declaring == 0 then
+      local own = test_own()
+      local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
+        process_group, fds, sandbox)
+      if pid ~= nil or not unconfinable[errno] then
+        note_unveiled(sandbox.unveil.reads or {}, sandbox.unveil.writes or {}, own, environment,
+          stdin, stdout, stderr, fds)
+      else
+        -- Nothing ran; what the test does now turns on the host.
+        note("x", path, "")
+      end
+      return pid, trouble, errno
+    end
     if sandbox == nil and confinement ~= nil and declaring == 0 then
       local declared: observations.Confinement = confinement
-      -- The test's own: its directory, and every directory it made for
-      -- itself and that is a directory still -- one put back as a link
-      -- would lead elsewhere -- which a key never holds either.
-      local own: {string} = {}
-      for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
-        own[#own + 1] = directory
-      end
-      for _, observation in ipairs(found) do
-        if observation.kind == "m" then
-          local inside = false
-          for _, directory in ipairs(own) do
-            if Fs.within(observation.path, directory) then inside = true end
-          end
-          local st, _ = sys.lstat(observation.path)
-          if not inside and st ~= nil and st.kind == "dir" then
-            own[#own + 1] = observation.path
-          end
-        end
-      end
-      local function owned(given: string): boolean
-        for _, directory in ipairs(own) do
-          if Fs.within(given, directory) then return true end
-        end
-        return false
-      end
+      local own = test_own()
       local reads: {string} = {}
       for _, given in ipairs(system) do
         local there, _ = stat(given)
@@ -587,35 +652,7 @@ local function start(resolving: observations.Resolving | nil):
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
             offline = true })
         if pid ~= nil or not unconfinable[errno] then
-          for _, given in ipairs(reads) do
-            if given == "/proc" then
-              -- The system's own, above; any other path under it, or
-              -- under /sys, is the host's state and no input a key holds.
-            elseif Fs.within(given, "/proc") or Fs.within(given, "/sys") then
-              note("x", given, "")
-            elseif not owned(given) then
-              note("u", given, "")
-            end
-          end
-          -- What a process changed outside the test's own directory is
-          -- no input a key can hold.
-          for _, given in ipairs(declared.writes) do
-            if not owned(given) then note("x", given, "") end
-          end
-          -- The environment it inherits is an input like any other.
-          if environment == nil then
-            found[#found + 1] = { kind = "e", path = environ_path,
-              answer = environ_answer(environ()) }
-          end
-          -- A descriptor it is handed reaches past its root: a directory
-          -- opened on the tree, a socket onto the network.
-          local handed: {integer} = {
-            stdin == nil and 0 or stdin, stdout == nil and 1 or stdout,
-            stderr == nil and 2 or stderr }
-          for _, fd in pairs(fds or {}) do handed[#handed + 1] = fd end
-          for _, fd in ipairs(handed) do
-            if not contained(fd) then note("x", "fd " .. tostring(fd), "") end
-          end
+          note_unveiled(reads, declared.writes, own, environment, stdin, stdout, stderr, fds)
           return pid, trouble, errno
         end
       end
@@ -648,7 +685,7 @@ local function start(resolving: observations.Resolving | nil):
   Http.open = function(url: string, opts?: Http.Options): Http.Response | nil, string
     -- An `opts` that is no table is Http.open's own error to raise.
     local given: any = opts
-    if type(given) ~= "table" or opts.script == nil then
+    if (type(given) ~= "table" or opts.script == nil) and reaches(url) then
       note("x", url, "")
     end
     return http_open(url, opts)

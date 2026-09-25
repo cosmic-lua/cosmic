@@ -524,6 +524,13 @@ end
 --- them: no input a key need hold.
 local constant_devices: {string:boolean} = { ["/dev/null"] = true, ["/dev/zero"] = true }
 
+--- Whether `path` names the test's own process in /proc -- its status,
+--- its descriptors, its threads: what a test reads there describes the
+--- worker running it, no input from outside it.
+local function own_process(path: string): boolean
+  return Fs.within(path, "/proc/self") or Fs.within(path, "/proc/thread-self")
+end
+
 --- Whether a passing verdict over `reads` is safe to reuse later: false
 --- when the run spawned a process other than a confined one (an input no
 --- observation can hash; see `observations.confine`),
@@ -538,11 +545,16 @@ local constant_devices: {string:boolean} = { ["/dev/null"] = true, ["/dev/zero"]
 --- judged by what it resolved to as the test read it (see
 --- `under_root`), so a link in the test's own directory leading out of
 --- it is outside; one that climbs with ".." and has none is outside, but
---- for a device whose every answer is the same (`constant_devices`). An
+--- for a device whose every answer is the same (`constant_devices`) and
+--- the test's own process in /proc (`own_process`). An
 --- environment
 --- read is keyable: its answer enters the verdict key like a file's
 --- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
 --- can exercise it directly.
+-- TODO: key a stat or a listing outside the tree by its answer, as the
+-- key holds an environment read, rather than refusing the run: a test
+-- whose code searches PATH (build/todos_test.tl, for git) stats host
+-- directories whose answers a key could hold.
 function test.keyable(root: string, scratch: string,
                       reads: {observations.Observation}): boolean
   local resolutions = resolutions_of(reads)
@@ -560,7 +572,7 @@ function test.keyable(root: string, scratch: string,
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     if (kind == "o" or kind == "s" or kind == "d") and
-        not constant_devices[observation.path] then
+        not constant_devices[observation.path] and not own_process(observation.path) then
       local path = observation.path
       local real = resolutions[path]
       if real == "" or (real == nil and climbs(path)) then return false end

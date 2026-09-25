@@ -165,9 +165,13 @@ end
 local function test_a_network_request_is_an_unkeyable_observation()
   local open = Http.open
   local run = observations.call(function()
-    -- An unsupported scheme fails before any connection, and is noted
-    -- all the same: the wrapper cannot tell which requests would connect.
+    -- A request that could connect is noted, refused or not: the
+    -- wrapper cannot tell what answered. One that cannot -- a scheme
+    -- curl is not let speak, or no host -- fails before it connects.
+    Http.open("http://127.0.0.1:1/")
     Http.open("ftp://example.invalid/")
+    Http.open("http:///no-host-here")
+    Http.open("not a url")
     local scripted = assert(Http.get("http://example.invalid/",
       { script = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" } }))
     assert(scripted.status == 200)
@@ -177,7 +181,7 @@ local function test_a_network_request_is_an_unkeyable_observation()
   for _, observation in ipairs(run.reads) do
     if observation.kind == "x" then unkeyable[#unkeyable + 1] = observation.path end
   end
-  assert(#unkeyable == 1 and unkeyable[1] == "ftp://example.invalid/",
+  assert(#unkeyable == 1 and unkeyable[1] == "http://127.0.0.1:1/",
     table.concat(unkeyable, " "))
   assert(Http.open == open, "a wrapper was left installed")
 end
@@ -413,4 +417,41 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   if inherited ~= nil and not Fs.within(inherited, own) then
     assert(said[3] == "x\n" .. own .. "\n", said[3])
   end
+end
+
+--- A process started with a sandbox of its own that unveils and takes
+--- the network is noted by what it was given, as a confined one is; one
+--- held only by a pledge is not held to what it reads, and is a "p".
+local function test_an_unveiled_sandbox_of_its_own_is_noted_by_what_it_was_given(tmp: string)
+  local own, given = tmp .. "/own", tmp .. "/given"
+  for _, dir in ipairs({ own, given }) do assert(Fs.mkdirs(dir)) end
+  local process = raw_process_table()
+  local reads: {string} = { given }
+  for _, dir in ipairs({ "/usr", "/bin", "/lib", "/lib64", "/etc" }) do
+    if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
+  end
+  local ran = true
+  local run = observations.call(function()
+    local pid, _, errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, "/", nil, nil,
+      nil, false, nil, { unveil = { reads = reads, writes = { own } }, offline = true })
+    if pid == nil then
+      ran = false
+      assert(errno ~= nil)
+    else
+      assert(process.waitpid(pid, false))
+    end
+    local pledged = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil,
+      false, nil, { pledge = {} })
+    if pledged ~= nil then assert(process.waitpid(pledged, false)) end
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  local notes, _ = confined_notes(run)
+  if ran then
+    assert(notes:find("u " .. given .. "\n", 1, true), notes)
+    assert(not notes:find("x /bin/sh", 1, true), notes)
+  else
+    assert(notes:find("x /bin/sh\n", 1, true), notes)
+  end
+  assert(notes:find("p /bin/sh\n", 1, true), "a pledge alone: " .. notes)
+  assert(not notes:find(own, 1, true), notes)
 end
