@@ -1109,14 +1109,16 @@ function test.scratch(): string | nil, string
 end
 
 --- Removes the scratch directory of each job in `jobs` whose test
---- finished and passed; a failing one's is left to look at, and one
---- still running is not finished. A directory that cannot be removed
---- (a test left something in it it may not delete) is an error of the
---- run, naming the directory; `Fs.remove_tree` stops at the first entry
---- it cannot remove, so the rest of that directory stays too.
-local function sweep(rec: Recording, jobs: {Job})
+--- finished and passed, or, with `ended`, of every job, each one a
+--- worker a cancelled run ended; a failing one's is left to look at,
+--- and one still running is not finished. A directory that cannot be
+--- removed (a test left something in it it may not delete) is an error
+--- of the run, naming the directory; `Fs.remove_tree` stops at the
+--- first entry it cannot remove, so the rest of that directory stays
+--- too.
+local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
   for _, job in ipairs(jobs) do
-    if job.passed and job.scratch ~= nil then
+    if (ended or job.passed) and job.scratch ~= nil then
       local gone, trouble = Fs.remove_tree(job.scratch)
       if not gone then
         rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory " ..
@@ -1186,10 +1188,6 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
     if #running == 0 then break end
     if guard ~= nil then
       cancelled = guard:cancelled()
-      -- TODO: a cancelled run leaves the scratch directory of every
-      -- worker it ended under the temporary directory; remove each one
-      -- (as `sweep` does a passing test's) once its handle is closed and
-      -- `Child.end_strays` has run, below.
       if cancelled ~= 0 then break end
     end
     local earliest = running[1].deadline_ns
@@ -1228,7 +1226,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- and, on Linux, before what they could still write into is
       -- removed.
       -- TODO: a stray still writing into a passing test's directory
-      -- can race its removal: end_strays is a no-op on macOS and on
+      -- (or, on a cancelled run, an ended worker's, below) can race
+      -- its removal: end_strays is a no-op on macOS and on
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
@@ -1239,6 +1238,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
   end
   for _, job in ipairs(running) do local _, _ = job.handle:close() end
   Child.end_strays()
+  -- Only a cancelled run ends here with workers running: each one's
+  -- test never finished, so there is nothing to look at in its
+  -- directory. A stray can race this removal as it can the one
+  -- above (see the TODO there).
+  sweep(rec, running, true)
   if guard == nil then return 0 end
   return guard:cancelled()
 end
@@ -1503,6 +1507,7 @@ function test.run(argv: {integer:string}): integer
       local guard <close> = opened
       if run_jobs(rec, jobs, limits, guard) ~= 0 then
         local _, _ = work.abort(handle)
+        for _, line in ipairs(errors) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
         return 130
       end

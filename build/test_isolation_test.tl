@@ -157,6 +157,58 @@ end
   assert(assert(sys.lstat(scratch .. "/tmp")).kind == "link")
 end
 
+--- A run cancelled by SIGTERM ends every worker it had running and
+--- removes each one's directory: a test it ended never finished, so
+--- nothing in its directory is left to look at.
+local function test_a_cancelled_run_removes_its_ended_workers_directories(tmp: string)
+  local root = tmp .. "/project"
+  local temp = tmp .. "/temp"
+  local marks = tmp .. "/marks"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(temp))
+  assert(Fs.mkdirs(marks))
+  assert(Fs.write(root .. "/suite/held_test.tl", [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function hold(tmp: string, name: string)
+  assert(Fs.write(tmp .. "/kept", "x"))
+  assert(Fs.write(assert(Env.get("MARKS")) .. "/" .. name, "x"))
+  while true do end
+end
+local function test_first(tmp: string) hold(tmp, "first") end
+local function test_second(tmp: string) hold(tmp, "second") end
+]]))
+  local env = Env.all()
+  env.TMPDIR = temp
+  env.MARKS = marks
+  local output = tmp .. "/cancelled.out"
+  local fd = assert(Fs.open_write(output))
+  local runner, trouble = Child.start(
+    { assert(Proc.executable()), "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
+    { cwd = root, env = env, stdout = fd, stderr = fd })
+  assert(Fs.close(fd))
+  local handle <close> = assert(runner, trouble)
+  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
+  while not (Fs.exists(marks .. "/first") and Fs.exists(marks .. "/second")) do
+    assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
+    -- Leaves the runner running, as a timed `wait` would not.
+    local done, _ = Child.wait_any({ handle }, 50)
+    assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
+  end
+  assert(handle:stop(sys.SIGTERM))
+  local result = assert(handle:wait(30000))
+  local text = assert(Fs.read(output))
+  assert(not result.timed_out and result.signal == sys.SIGTERM, text)
+  assert(text:find("test: cancelled; every running test was ended", 1, true), text)
+  local left: {string} = {}
+  for _, name in ipairs((assert(Fs.list(temp)))) do
+    if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
+      left[#left + 1] = name
+    end
+  end
+  assert(#left == 0, table.concat(left, ", ") .. "\n" .. text)
+end
+
 --- A file under the tree named through a link outside it is still the
 --- tree's: a test that writes a counter the environment names by such
 --- a path stands on its second run, as it does named from the root.
