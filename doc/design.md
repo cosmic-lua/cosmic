@@ -270,8 +270,9 @@ those over the syscall table. the checker resolves the types of a
 build reading its inputs; tl's loader, the part that would compile
 and run a module, is never called, and `package.path`'s absence in
 the runtime is never observed. the compiler is not patched for any
-of this. before Teal exists, at boot, a short Lua bridge held as
-text in the C core supplies the same environment.
+of this. before Teal exists, at boot, a short Lua bridge,
+`core/bridge.lua`, which the boot reads from the tree as it reads the
+vendored compiler, supplies the same environment.
 
 Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
 defines, so assigning an undeclared global is a compile error and
@@ -798,7 +799,7 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
+core/bridge.lua     the boot environment for tl.lua, Lua written by hand
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
