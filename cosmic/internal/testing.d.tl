@@ -38,7 +38,9 @@ local record testing
   --- each option core/http.c sets, and "json_malloc" for each block
   --- yyjson allocates (core/json.c; not its reallocations); each makes
   --- its call report a failure of its library's own shape instead of
-  --- being made.
+  --- being made. "readdir_d_type" is passed once per entry `sys.readdir`
+  --- lists, and makes that entry's type unknown, as a filesystem that
+  --- does not say leaves it, so the entry is asked with an lstat.
   fail_at: function(point?: string, skip?: integer): boolean
 
   --- How many HTTP transfers hold curl state: made by an open, and not

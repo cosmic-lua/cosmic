@@ -493,3 +493,48 @@ local function test_truncate_cuts_and_extends(tmp: string)
   local failed, trouble = Fs.truncate(fd, 0)
   assert(not failed and trouble ~= "", "a closed descriptor was truncated")
 end
+
+local function test_walk_neither_lists_nor_follows_a_link(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/sub"))
+  assert(Fs.write(root .. "/sub/f", "f"))
+  assert(Fs.write(root .. "/g", "g"))
+  assert(Fs.symlink("g", root .. "/to_file"))
+  assert(Fs.symlink("sub", root .. "/to_dir"))
+  assert(Fs.symlink(".", root .. "/loop"))
+  assert(Fs.symlink("missing", root .. "/dangling"))
+  local found, trouble = Fs.walk(root)
+  assert(found ~= nil, trouble)
+  assert(table.concat(found, " ") == "g sub/f", "as find -type f lists: " .. table.concat(found, " "))
+end
+
+local function test_walk_following_takes_a_link_for_what_it_leads_to(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/sub"))
+  assert(Fs.mkdirs(tmp .. "/outside"))
+  assert(Fs.write(root .. "/sub/f", "f"))
+  assert(Fs.write(root .. "/g", "g"))
+  assert(Fs.write(tmp .. "/outside/o", "o"))
+  assert(Fs.symlink("g", root .. "/to_file"))
+  assert(Fs.symlink("sub", root .. "/to_dir"))
+  assert(Fs.symlink("../outside", root .. "/away"))
+  assert(Fs.symlink("missing", root .. "/dangling"))
+  local found, trouble = Fs.walk_following(root)
+  assert(found ~= nil, trouble)
+  local listed = table.concat(found, " ")
+  assert(listed == "away/o g sub/f to_dir/f to_file", "as find -L -type f lists: " .. listed)
+end
+
+--- A link back to a directory the walk is already inside is not walked
+--- again, however far down it is, and the walk still finds the rest.
+local function test_walk_following_ends_a_loop_of_links(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/a/b"))
+  assert(Fs.write(root .. "/a/b/f", "f"))
+  assert(Fs.symlink(".", root .. "/loop"))
+  assert(Fs.symlink("../..", root .. "/a/b/up"))
+  assert(Fs.symlink("self", root .. "/self"))
+  local found, trouble = Fs.walk_following(root)
+  assert(found ~= nil, trouble)
+  assert(table.concat(found, " ") == "a/b/f", table.concat(found, " "))
+end

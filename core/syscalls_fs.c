@@ -23,6 +23,7 @@
 
 #include "check.h"
 #include "fail.h"
+#include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
 #include "psa/crypto.h"
@@ -366,20 +367,27 @@ COSMIC_SYSCALL(readdir, 1) {
       continue;
     }
     /* The entry says what it is for free on every filesystem that
-     * matters; a link, or a filesystem that does not say, is resolved
-     * with one stat that follows, so a link counts as its target. */
+     * matters; a filesystem that does not say is asked with one lstat,
+     * so a link is a link either way, as lstat answers it, and never
+     * the kind of what it points at. The checked core's fault point
+     * stands in for such a filesystem, one entry at a time. */
+    unsigned char type = COSMIC_FAULT("readdir_d_type") ? DT_UNKNOWN : entry->d_type;
     const char *kind = "other";
-    if (entry->d_type == DT_DIR) {
+    if (type == DT_DIR) {
       kind = "dir";
-    } else if (entry->d_type == DT_REG) {
+    } else if (type == DT_REG) {
       kind = "file";
-    } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
+    } else if (type == DT_LNK) {
+      kind = "link";
+    } else if (type == DT_UNKNOWN) {
       struct stat st;
-      if (dir_fd >= 0 && fstatat(dir_fd, entry->d_name, &st, 0) == 0) {
+      if (dir_fd >= 0 && fstatat(dir_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0) {
         if (S_ISDIR(st.st_mode)) {
           kind = "dir";
         } else if (S_ISREG(st.st_mode)) {
           kind = "file";
+        } else if (S_ISLNK(st.st_mode)) {
+          kind = "link";
         }
       }
     }

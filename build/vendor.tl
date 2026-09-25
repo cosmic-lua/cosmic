@@ -215,7 +215,11 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
   end
   for name, kind in pairs(entries) do
     local path = under == nil and name or (under .. "/" .. name)
-    -- A link to a directory is listed as one; it is removed, not followed.
+    -- A link to a directory is removed, not followed. The pinned
+    -- release's readdir answers a link as the kind it leads to, and the
+    -- tree's as "link"; the lstat holds either way.
+    -- TODO: trust `kind` alone and drop the lstat once
+    -- ci/cosmic-driver.pin names a release whose readdir answers "link".
     local st, _ = sys.lstat(tree .. "/" .. path)
     if kind == "dir" and st ~= nil and st.kind == "dir" then
       local pruned, why = prune(tree, files, path)
