@@ -17,6 +17,9 @@ the pin again, and links the result to a runner path
 (`$RUNNER_TEMP/bin/cosmic-driver`, which CI then puts on `PATH` via
 `GITHUB_PATH`). CI then runs the driver in
 place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
+`COSMIC_BOOTSTRAP` names another host in place of the pin's, as it does for
+bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
+pin's own.
 
 ## running the platform job locally
 

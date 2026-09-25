@@ -1,20 +1,10 @@
 #!/bin/sh
 # Grades the notes task in an arena: see eval/check/notes.tl, which this
-# runs with `cosmic --standalone` on $COSMIC_BOOTSTRAP when set (it must
-# be an executable file), else on the pinned release bin/cosmic-bootstrap
-# fetches.
+# runs with `cosmic --standalone` on bin/cosmic-bootstrap's cosmic: the
+# pinned release, or $COSMIC_BOOTSTRAP when set.
 #
 #   eval/check/notes <dir>
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-script=$root/eval/check/notes.tl
-
-if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
-  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
-    printf 'eval/check/notes: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
-    exit 1
-  fi
-  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
-fi
-exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/check/notes.tl" "$@"

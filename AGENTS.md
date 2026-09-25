@@ -179,7 +179,9 @@ compiles each C file to clang's syntax tree and holds it to the items marked
 
 ## Bootstrap
 
-`bin/zig` and `bin/vendor` run Teal (`build/zig.tl`, `build/vendor.tl`) on
-the cosmic release `ci/cosmic-driver.pin` names, which `bin/cosmic-bootstrap`
-fetches once and caches by digest. `COSMIC_BOOTSTRAP=<path>` runs another
-cosmic instead, such as a tree-built `o/bin/cosmic`.
+`bin/zig`, `bin/vendor`, `bin/actionlint` and `bin/verify-codesign` each run
+their Teal (`build/zig.tl`, ...) through `bin/cosmic-bootstrap`, on the cosmic
+release `ci/cosmic-driver.pin` names, which it fetches once and caches by
+digest. `COSMIC_BOOTSTRAP=<path>` makes `bin/cosmic-bootstrap` answer another
+cosmic instead, such as a tree-built `o/bin/cosmic`, for all of them and for
+CI's driver step alike.

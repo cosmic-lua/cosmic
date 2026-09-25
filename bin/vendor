@@ -10,22 +10,9 @@
 # cosmic.http's sha256 check and unpacks with cosmic.archive -- no curl,
 # wget, tar, unzip or sha256sum needed.
 #
-# The cosmic it runs: $COSMIC_BOOTSTRAP when set (it must be an
-# executable file); else the pinned release bin/cosmic-bootstrap fetches.
+# The cosmic it runs is bin/cosmic-bootstrap's: the pinned release, or
+# $COSMIC_BOOTSTRAP when set.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-script=$root/build/vendor.tl
-
-die() {
-  printf 'bin/vendor: %s\n' "$1" >&2
-  exit 1
-}
-
-if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
-  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
-    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
-  fi
-  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
-fi
-exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/build/vendor.tl" "$@"

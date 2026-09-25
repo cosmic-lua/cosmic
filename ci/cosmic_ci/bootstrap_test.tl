@@ -6,8 +6,14 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
+--- The environment a test's child runs with: this one's, less what
+--- would change which cosmic bin/cosmic-bootstrap answers -- a
+--- COSMIC_BOOTSTRAP exported where the tests run is no part of them --
+--- with `extra` over it.
 local function environment(extra?: {string:string}): {string:string}
   local values = Env.all()
+  values.COSMIC_BOOTSTRAP, values.COSMIC_BOOTSTRAP_VERIFY = nil, nil
+  values.COSMIC_BOOTSTRAP_ATTEMPTS = nil
   if extra then for name, value in pairs(extra) do values[name] = value end end
   return values
 end
@@ -270,6 +276,94 @@ local function test_bootstrap_replaces_a_linked_cache_entry(tmp: string)
   assert(result.ok, assert(Fs.read(tmp .. "/linked.out")))
   assert(Fs.readlink(cached) == nil, "a linked cache entry was kept")
   assert(Hash.hex_sha256((assert(Fs.read(cached)))) == digest)
+end
+
+--- A stand-in cosmic at `tmp/stand-in` that prints "ran", the directory
+--- it ran in, and the words it was run with, one to a line, so a test can
+--- see who ran it, where and how.
+local function stand_in(tmp: string): string
+  local path = tmp .. "/stand-in"
+  assert(Fs.write(path, "#!/bin/sh\necho ran\npwd -P\nfor word in \"$@\"; do echo \"$word\"; done\n", 0x1ed))
+  return path
+end
+
+--- `dir` as `pwd -P` prints it, links resolved.
+local function physical(dir: string): string
+  local got = assert(Child.run({ "/bin/sh", "-c", "pwd -P" },
+    { cwd = dir, stdout = "capture" }))
+  return ((assert(got.stdout)):gsub("\n$", ""))
+end
+
+--- COSMIC_BOOTSTRAP stands in for the pin's cosmic: printed when there
+--- are no arguments, run with them when there are, and nothing fetched
+--- either way -- the pin here names bytes no download could give.
+local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: string)
+  local root, _ = bootstrap_root(tmp, string.rep("d", 40), string.rep("0", 64))
+  local cosmic = stand_in(tmp)
+  local env: {string:string} = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
+    CALLS = tmp .. "/calls", COSMIC_BOOTSTRAP = cosmic }
+  local printed = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+    tmp, tmp .. "/printed.out", env)
+  local out = assert(Fs.read(tmp .. "/printed.out"))
+  assert(printed.ok and out == cosmic .. "\n", out)
+  local ran = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "a b", "c" },
+    tmp, tmp .. "/ran.out", env)
+  out = assert(Fs.read(tmp .. "/ran.out"))
+  assert(ran.ok and out == "ran\n" .. physical(tmp) .. "\na b\nc\n", out)
+  -- A relative one is answered absolute, for a caller that moves on.
+  env.COSMIC_BOOTSTRAP = "stand-in"
+  local relative = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+    tmp, tmp .. "/relative.out", env)
+  out = assert(Fs.read(tmp .. "/relative.out"))
+  assert(relative.ok and out:sub(1, 1) == "/" and out:find("/stand%-in\n$") ~= nil, out)
+  -- With COSMIC_BOOTSTRAP_VERIFY, which asks for the pin's checked one,
+  -- a stand-in is refused rather than answered unchecked.
+  env.COSMIC_BOOTSTRAP, env.COSMIC_BOOTSTRAP_VERIFY = cosmic, "1"
+  local verified = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
+    tmp, tmp .. "/verified.out", env)
+  out = assert(Fs.read(tmp .. "/verified.out"))
+  assert(not verified.ok and out:find("both set", 1, true) ~= nil, out)
+  assert(not Predicate.exists(tmp .. "/calls"), "a stand-in still fetched the pin's cosmic")
+end
+
+--- A COSMIC_BOOTSTRAP that is not an executable file is refused, never
+--- passed over for the pin's cosmic.
+local function test_bootstrap_refuses_a_cosmic_bootstrap_it_cannot_run(tmp: string)
+  local program = assert(Proc.executable())
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
+  local root, _ = bootstrap_root(tmp, string.rep("e", 40), digest)
+  assert(Fs.write(tmp .. "/plain", "not a program\n", 0x1a4))
+  for _, given in ipairs({ tmp .. "/plain", tmp .. "/absent", tmp }) do
+    local result = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "--version" },
+      tmp, tmp .. "/refused.out",
+      { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program, CALLS = tmp .. "/calls",
+        XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP = given })
+    local out = assert(Fs.read(tmp .. "/refused.out"))
+    assert(not result.ok, given .. " was taken")
+    assert(out == "bin/cosmic-bootstrap: COSMIC_BOOTSTRAP=" .. given ..
+      " is not an executable file\n", out)
+  end
+  assert(not Predicate.exists(tmp .. "/calls"), "a refused stand-in fell back to the pin")
+end
+
+--- Each tool behind bin/ runs its own Teal standalone, with the words it
+--- was given, in the caller's directory, on the cosmic bin/cosmic-bootstrap
+--- answers: seen through a stand-in, from another directory.
+local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
+  local root, _ = bootstrap_root(tmp, string.rep("f", 40), string.rep("0", 64))
+  local cosmic = stand_in(tmp)
+  local here = checkout_root()
+  for tool, script in pairs({ zig = "zig.tl", vendor = "vendor.tl",
+      actionlint = "actionlint.tl", ["verify-codesign"] = "verify_codesign.tl" }) do
+    assert(Fs.write(root .. "/bin/" .. tool,
+      (assert(Fs.read(here .. "/bin/" .. tool))), 0x1ed))
+    local result = call({ root .. "/bin/" .. tool, "x", "y z" }, tmp,
+      tmp .. "/tool.out", { COSMIC_BOOTSTRAP = cosmic, PATH = fake_curl(tmp),
+        DOWNLOAD_SOURCE = tmp .. "/missing", XDG_CACHE_HOME = tmp .. "/xdg" })
+    local out = assert(Fs.read(tmp .. "/tool.out"))
+    assert(result.ok and out == "ran\n" .. physical(tmp) .. "\n--standalone\n" ..
+      root .. "/build/" .. script .. "\nx\ny z\n", tool .. ": " .. out)
+  end
 end
 
 local function test_driver_records_success_failures_timeout_and_interruption(tmp: string)

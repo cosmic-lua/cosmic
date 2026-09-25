@@ -1,21 +1,11 @@
 #!/bin/sh
 # Numbers from a Claude Code stream-json transcript, and the tool calls
 # that left the arena or named this repository: see eval/summarize.tl,
-# which this runs with `cosmic --standalone` on $COSMIC_BOOTSTRAP when
-# set (it must be an executable file), else on the pinned release
-# bin/cosmic-bootstrap fetches.
+# which this runs with `cosmic --standalone` on bin/cosmic-bootstrap's
+# cosmic: the pinned release, or $COSMIC_BOOTSTRAP when set.
 #
 #   eval/summarize <arena>/transcript.jsonl
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-script=$root/eval/summarize.tl
-
-if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
-  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
-    printf 'eval/summarize: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
-    exit 1
-  fi
-  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
-fi
-exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/eval/summarize.tl" "$@"

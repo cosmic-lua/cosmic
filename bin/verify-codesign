@@ -2,20 +2,11 @@
 # Whether Zig's ad-hoc signature on a raw macOS core is one Apple's own
 # tooling accepts, on macOS, and a no-op elsewhere: see
 # build/verify_codesign.tl, which this runs with `cosmic --standalone` on
-# $COSMIC_BOOTSTRAP when set (it must be an executable file), else on the
-# pinned release bin/cosmic-bootstrap fetches.
+# bin/cosmic-bootstrap's cosmic: the pinned release, or $COSMIC_BOOTSTRAP
+# when set.
 #
 #   bin/verify-codesign <path-to-macos-binary>
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-script=$root/build/verify_codesign.tl
-
-if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
-  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
-    printf 'bin/verify-codesign: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
-    exit 1
-  fi
-  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
-fi
-exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/build/verify_codesign.tl" "$@"
