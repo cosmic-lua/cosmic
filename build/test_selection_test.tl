@@ -151,6 +151,38 @@ return Example
   assert(text:find("1 tests, 1 modules; 0 ran, 1 stood", 1, true), text)
 end
 
+--- A failing test's report names the selector that reruns it, and that
+--- selector, given back to `cosmic test`, runs that one test and no other.
+local function test_a_failure_names_the_selector_that_reruns_it(tmp: string)
+  local program = assert(Proc.executable())
+  local root = project(tmp)
+  assert(Fs.write(root .. "/suite/unrelated_test.tl", [[
+local function test_unrelated()
+  error("unrelated test executed")
+end
+local function test_sibling()
+  error("sibling test executed")
+end
+]]))
+  local output = tmp .. "/all.out"
+  local result = invoke(program, root, output, ".")
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  -- The line keeps its `<module> <name>: <message>` shape; the selector
+  -- is the first `rerun:` line after it, ahead of the next test's.
+  local at = text:find("\ntest: FAIL  suite.unrelated_test test_unrelated: ", 1, true)
+  assert(at ~= nil, text)
+  local rerun = text:match("\n  rerun: cosmic test (%S+)\n", at)
+  assert(rerun == "suite/unrelated_test.tl:test_unrelated", text)
+  output = tmp .. "/rerun.out"
+  result = invoke(program, root, output, rerun)
+  text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(text:find("unrelated test executed", 1, true), text)
+  assert(not text:find("sibling test executed", 1, true), text)
+  assert(text:find("1 of 1 failed", 1, true), text)
+end
+
 local function test_cli_fails_when_no_module_matches(tmp: string)
   local program = assert(Proc.executable())
   for index, selector in ipairs({ "suite/missing_test.tl", "", "/" }) do

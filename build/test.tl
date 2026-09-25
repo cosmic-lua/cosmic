@@ -1025,6 +1025,9 @@ local record Recording
   errors: {string}
   --- What each failing test printed, by its id.
   outputs: {string:string}
+  --- Each failing test's `<file>:<name>` selector, by its id: what
+  --- `cosmic test` takes to run that one test again.
+  reruns: {string:string}
   hits: Coverage.Hits
   --- Each test's own hits, encoded as it finishes. Kept as tables, every
   --- test's lines would stay until the run ends: hundreds of megabytes
@@ -1208,6 +1211,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
     end
     rec.failures[#rec.failures + 1] = id .. ": " .. message
+    rec.reruns[id] = job.m.file .. ":" .. job.name
     if result ~= nil and result.stdout ~= nil and result.stdout ~= "" then
       rec.outputs[id] = result.stdout
     end
@@ -1695,7 +1699,7 @@ function test.run(argv: {integer:string}): integer
   local rec: Recording = {
     records = records, root = root, hashes = hashes, runtime = runtime,
     run_at_ns = run_at_ns, run = handle.run, key_parts = {},
-    failures = failures, errors = errors, outputs = {},
+    failures = failures, errors = errors, outputs = {}, reruns = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
   }
   local jobs: {Job} = {}
@@ -1822,11 +1826,14 @@ function test.run(argv: {integer:string}): integer
   end
   table.sort(failures)
   for _, failure in ipairs(failures) do
-    -- TODO: a failing test's line names it `<module> <name>`; it could
-    -- also name its `<file>:<name>` selector, so the line can be pasted
-    -- into a rerun of that one test.
+    -- The line keeps its `<module> <name>: <message>` shape; the
+    -- selector that reruns that one test follows it on a line of its own.
     log:say("test: FAIL  " .. failure)
     local id = failure:match("^(%S+ %S+):")
+    local rerun = id ~= nil and rec.reruns[id] or nil
+    if rerun ~= nil then
+      log:say("  rerun: cosmic test " .. rerun)
+    end
     local printed = id ~= nil and rec.outputs[id] or nil
     if printed ~= nil then
       if #printed > 4096 then
