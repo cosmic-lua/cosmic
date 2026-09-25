@@ -704,63 +704,17 @@ function observations.getenv_current(path: string): string
 end
 
 --- What a path given to a confined process holds now, for its "u"
---- observation's line in a key: where it resolves to, and a digest of
---- it and everything beneath it, links unfollowed -- each file's
---- contents where it resolves under `tree`, and otherwise what `lstat`
---- says of each entry, which a package installed or a file replaced
---- changes, and the mode of each directory above it. One that holds a
---- socket, a FIFO or a device other than an inert one answers from past
---- the root, and its answer starts "unkeyable ".
--- TODO: the change time too, once `sys.Stat` carries it: a file
--- rewritten in place with its old size and modification time put back
--- is not seen outside the tree.
--- TODO: walk in C, once cosmic.sys carries a tree walk: in Lua the
--- system's own directories take about 0.6 s a run here, three times
--- what `find` takes over the same entries.
+--- observation's line in a key: where it resolves to, `sys.tree_digest`
+--- of it -- each file's contents where it resolves under `tree`, and
+--- otherwise what `lstat` says of each entry, which a package installed
+--- or a file replaced changes -- and the mode of each directory above
+--- it. One that holds a socket, a FIFO or a device other than an inert
+--- one answers from past the root, and its answer starts "unkeyable ".
 function observations.unveiled_answer(path: string, tree: string): string
   local real, _ = realpath(path)
   if real == nil then return "missing" end
-  local contents = Fs.within(real, tree)
-  local parts: {string} = {}
-  local unkeyable = false
-  local function walk(at: string, name: string)
-    local st, trouble = sys.lstat(at)
-    if st == nil then
-      parts[#parts + 1] = name .. "\0error\0" .. trouble
-      return
-    end
-    local stamp = table.concat({ st.kind, tostring(st.mode), tostring(st.size),
-      tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev) }, " ")
-    if st.kind == "dir" then
-      parts[#parts + 1] = name .. "\0dir\0" .. (contents and tostring(st.mode) or stamp)
-      local entries, why = sys.readdir(at)
-      if entries == nil then
-        parts[#parts + 1] = name .. "\0unlisted\0" .. why
-        return
-      end
-      local names: {string} = {}
-      for entry in pairs(entries) do names[#names + 1] = entry end
-      table.sort(names)
-      for _, entry in ipairs(names) do
-        walk((at == "/" and "" or at) .. "/" .. entry, name .. "/" .. entry)
-      end
-    elseif st.kind == "link" then
-      local target, why = sys.readlink(at)
-      parts[#parts + 1] = name .. "\0link\0" .. (target or ("error " .. why))
-    elseif st.kind == "other" and not ((st.mode & S_IFMT) == S_IFCHR and inert_device(st)) then
-      -- A socket, a FIFO or a device answers from past the root -- a
-      -- daemon, another process -- which no digest of it can hold.
-      unkeyable = true
-      parts[#parts + 1] = name .. "\0" .. stamp
-    elseif st.kind == "file" and contents then
-      local data, why = Fs.read(at)
-      parts[#parts + 1] = name .. "\0file\0" .. tostring(st.mode) .. " " ..
-        (data ~= nil and Hash.hex_sha256(data) or ("error " .. why))
-    else
-      parts[#parts + 1] = name .. "\0" .. stamp
-    end
-  end
-  walk(real, "")
+  local walked, trouble = sys.tree_digest(real, Fs.within(real, tree))
+  local parts: {string} = { walked ~= nil and walked.digest or ("error " .. trouble) }
   -- The modes of the directories above it, which the root it is bound
   -- into mirrors: a program may check them, as the launcher does its
   -- cache's.
@@ -772,7 +726,7 @@ function observations.unveiled_answer(path: string, tree: string): string
     if parent == above then break end
     above = parent
   end
-  return (unkeyable and "unkeyable " or "") .. real .. " " ..
+  return ((walked ~= nil and walked.special) and "unkeyable " or "") .. real .. " " ..
     Hash.hex_sha256(table.concat(parts, "\n"))
 end
 

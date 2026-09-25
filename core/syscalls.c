@@ -1498,7 +1498,7 @@ static const luaL_Reg table[] = {
   ENTRY(lseek),
   ENTRY(fstat),    ENTRY(stat),          ENTRY(lstat),
   ENTRY(mkdir),    ENTRY(rmdir),         ENTRY(unlink),
-  ENTRY(rename),   ENTRY(chmod),         ENTRY(readdir),
+  ENTRY(rename),   ENTRY(chmod),         ENTRY(readdir),  ENTRY(tree_digest),
   ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
   ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
   ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
