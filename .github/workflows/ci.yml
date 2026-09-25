@@ -115,8 +115,8 @@ jobs:
       # portable suites, the regressions, attestation and provenance, so
       # nothing lands on main without all of it.
       COSMIC_CI_SCOPE: ${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}
-      # The checked core's whole suite and deep fuzz rerun (about two
-      # minutes a leg) run on linux-x86_64 alone; every leg still builds
+      # The checked core's whole suite (about a minute a leg) runs on
+      # linux-x86_64 alone; every leg still builds
       # and verifies the checked core. See orchestration.tl's checked_suite.
       COSMIC_CI_CHECKED_SUITE: ${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}
     steps:
