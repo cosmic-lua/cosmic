@@ -20,6 +20,7 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local narrow = require("build.narrow")
 local reboot = require("build.reboot")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -65,7 +66,7 @@ local record todos
 
   --- A command line split by `arguments`.
   record Arguments
-    --- Relative to the tree's root; none for the whole tree.
+    --- As `build.narrow.paths` answers them; none for the whole tree.
     paths: {string}
     --- What to search the TODOs' text for.
     words: {string}
@@ -467,54 +468,26 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
   return out
 end
 
---- The command line's words split into the paths they name, relative to
---- `root` (which `Fs.absolute` has resolved), and the words to search
---- for. A word names a path when it resolves to one in the tree, written
---- relative to the working directory or absolutely: `.`, `./build/` and
---- `build/../core` name one as `build` does. One naming `root` itself
---- asks for the whole tree, so no path narrows the listing; one that
---- cannot be looked at, or lies outside the tree, is taken for words.
+--- The command line's words split into paths, which narrow the listing
+--- as `build.narrow` reads them for every verb, and the words to search
+--- the TODOs for: a word is a path when it names one that can be looked
+--- at, relative to `root` (the working directory `run` resolves), or
+--- absolutely. `.` names the whole tree, so it narrows nothing.
 function todos.arguments(root: string, argv: {string}): todos.Arguments
-  local paths: {string} = {}
+  local named: {string} = {}
   local words: {string} = {}
-  local whole = false
   for _, word in ipairs(argv) do
     -- A path when it names one, and words to search for when not, as
     -- `cosmic docs` takes a symbol first and words after.
-    local resolved: string = nil
-    if word ~= "" then
-      local full = word:sub(1, 1) == "/" and word or root .. "/" .. word
-      local absolute, _ = Fs.absolute(full)
-      if absolute ~= nil then
-        local relative, _ = Fs.relative(absolute, root)
-        resolved = relative
-      end
-    end
-    if resolved == "." then
-      whole = true
-    elseif resolved ~= nil then
-      paths[#paths + 1] = resolved
+    local full = word:sub(1, 1) == "/" and word or root .. "/" .. word
+    local absolute, _ = Fs.absolute(full)
+    if word ~= "" and absolute ~= nil then
+      named[#named + 1] = full
     else
       words[#words + 1] = word
     end
   end
-  if whole then
-    paths = {}
-  end
-  return { paths = paths, words = words }
-end
-
---- Whether a TODO's file is one of the paths asked for, or under one.
-local function wanted(file: string, paths: {string}): boolean
-  if #paths == 0 then
-    return true
-  end
-  for _, path in ipairs(paths) do
-    if Fs.within(file, path) then
-      return true
-    end
-  end
-  return false
+  return { paths = narrow.paths(root, named), words = words }
 end
 
 --- `cosmic todos [--oldest] [path...]`: stages the tree as a build
@@ -590,7 +563,7 @@ function todos.run(argv: {integer:string}): integer
 
   local listed: {todos.Todo} = {}
   for _, todo in ipairs(all) do
-    if wanted(todo.file, paths) and (ranks == nil or ranks[todo.id] ~= nil) then
+    if narrow.holds(paths, todo.file) and (ranks == nil or ranks[todo.id] ~= nil) then
       listed[#listed + 1] = todo
     end
   end
