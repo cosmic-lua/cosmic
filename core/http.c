@@ -625,7 +625,12 @@ static void resume (struct transfer *t) {
   curl_easy_pause(t->easy, CURLPAUSE_CONT);
 }
 
-/* curl's own message, without the newline it sometimes ends with. */
+/* curl's own message, without the newline it sometimes ends with.
+ * TODO: a transport failure's message still carries libc's words for
+ * its errno -- curl's "Recv failure: %s" and the like format it with
+ * strerror_r (vendor/curl/lib/curlx/strerr.c) -- so it differs between
+ * Linux and macOS; route curlx_strerror through core/errnos.h with a
+ * patch record under patch/curl/ to make it the same on both. */
 static const char *transfer_error (struct transfer *t) {
   if (t->errbuf[0] == '\0') return curl_easy_strerror(t->result);
   size_t end = strlen(t->errbuf);

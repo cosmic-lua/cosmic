@@ -935,3 +935,58 @@ local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
   local ok, why, errno = sys.ftruncate(fd, 0)
   assert(not ok and why ~= "" and errno == sys.EBADF, why)
 end
+
+--- A failure's message is the table's (core/errnos.c), not libc's: a
+--- symbolic link loop reads "Symbolic link loop" on every OS, where
+--- macOS's strerror says "Too many levels of symbolic links".
+local function test_a_failure_s_message_is_the_same_words_on_every_os(tmp: string)
+  assert(sys.symlink(tmp .. "/b", tmp .. "/a"))
+  assert(sys.symlink(tmp .. "/a", tmp .. "/b"))
+  local fd, message, number = sys.open(tmp .. "/a", sys.O_RDONLY, 0)
+  assert(fd == nil)
+  assert(message == "Symbolic link loop", message)
+  assert(sys.errno_name(number) == "ELOOP", tostring(sys.errno_name(number)))
+  assert(sys.errno_message(number) == message)
+end
+
+--- An errno's name is the one <errno.h> gives it, whatever this OS
+--- numbers it; a number the table holds no entry for has none.
+local function test_an_errno_is_named_as_errno_h_names_it()
+  local named: {{string | integer}} = {
+    { "ENOENT", sys.ENOENT }, { "EEXIST", sys.EEXIST }, { "EACCES", sys.EACCES },
+    { "EINTR", sys.EINTR }, { "EAGAIN", sys.EAGAIN }, { "ENOTEMPTY", sys.ENOTEMPTY },
+    { "EXDEV", sys.EXDEV }, { "EOPNOTSUPP", sys.EOPNOTSUPP }, { "EPERM", sys.EPERM },
+    { "ENOSPC", sys.ENOSPC }, { "EINVAL", sys.EINVAL },
+  }
+  for _, pair in ipairs(named) do
+    local name, number = pair[1], pair[2]
+    if name is string and number is integer then
+      assert(sys.errno_name(number) == name, name .. " is named " ..
+        tostring(sys.errno_name(number)))
+    end
+  end
+  assert(sys.errno_name(0) == nil and sys.errno_name(-1) == nil)
+  assert(sys.errno_message(-1) == "No error information")
+  assert(not pcall(sys.errno_name, "ENOENT" as integer), "a name is not a number")
+end
+
+--- Every errno a macOS call can fail with is named and worded, those
+--- musl has no words for among them: a spawned file of the wrong
+--- architecture fails with EBADARCH, not "No error information".
+local function test_the_errnos_only_macos_has_are_named_there()
+  local uname = assert(sys.uname())
+  if uname.sysname ~= "Darwin" then
+    return
+  end
+  local names: {string:string} = {}
+  for number = 1, 4095 do
+    local name = sys.errno_name(number)
+    if name ~= nil then
+      names[name] = sys.errno_message(number)
+    end
+  end
+  for _, name in ipairs({ "EBADARCH", "EBADEXEC", "EBADMACHO", "ESHLIBVERS", "EAUTH",
+      "ENEEDAUTH", "EDEVERR", "EPWROFF", "ENOATTR", "EFTYPE", "EQFULL" }) do
+    assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
+  end
+end

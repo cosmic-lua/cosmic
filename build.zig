@@ -412,6 +412,7 @@ const core_sources = [_][]const u8{
     "compress.c",
     "crypto.c",
     "environment.c",
+    "errnos.c",
     "executable.c",
     "hash.c",
     "http.c",
