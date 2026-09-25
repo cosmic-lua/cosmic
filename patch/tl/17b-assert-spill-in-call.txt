@@ -1,7 +1,7 @@
-file: tl.lua
+file: tl.tl
 note: when a call fails and its last argument is an assert(...) that expanded to more than one value, also report at that assert: the fix is to parenthesize it, which `cosmic fix` does from this message
 --- find
-   function TypeChecker:type_check_funcall(node, a, b, argdelta)
+   function TypeChecker:type_check_funcall(node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
       if node.e1.op and node.e1.op.op == ":" then
          table.insert(b.tuple, 1, node.e1.receiver)
          argdelta = -1
@@ -28,14 +28,14 @@ note: when a call fails and its last argument is an assert(...) that expanded to
 
    -- Adds that report at `exp` when `exp` is an assert(...) call and a
    -- check since the error count `before` failed.
-   function TypeChecker:assert_spill_hint(exp, before)
+   function TypeChecker:assert_spill_hint(exp: Node, before: integer)
       if exp and node_is_funcall(exp) and exp.e1.kind == "variable" and
          exp.e1.tk == "assert" and #self.errs.errors > before then
          self.errs:add(exp, TypeChecker.assert_spill_message)
       end
    end
 
-   function TypeChecker:type_check_funcall(node, a, b, argdelta)
+   function TypeChecker:type_check_funcall(node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
       if node.e1.op and node.e1.op.op == ":" then
          table.insert(b.tuple, 1, node.e1.receiver)
          argdelta = -1

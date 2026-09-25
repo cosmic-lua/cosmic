@@ -1,0 +1,17 @@
+file: tl.tl
+note: the checker carries the diagnostic 17b reports at a spilling assert(...), so it is declared among the checker's fields
+--- find
+      feat_arity: boolean
+      feat_lax: boolean
+
+      same_type: function(self, Type, Type): boolean, {Error}
+--- replace
+      feat_arity: boolean
+      feat_lax: boolean
+
+      -- Reported at an `assert(...)` whose extra values a check refused;
+      -- set beside assert_spill_hint.
+      assert_spill_message: string
+
+      same_type: function(self, Type, Type): boolean, {Error}
+--- end

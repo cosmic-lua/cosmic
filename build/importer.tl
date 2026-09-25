@@ -1170,6 +1170,10 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
   if #rows == 0 then
     return true, ""
   end
+  if #rows > 1 then
+    return false, "the working database holds " .. tostring(#rows) ..
+      " compilers; there is only ever one (work.put_compiler)"
+  end
   local source = rows[1][1]
   local key = Hash.hex_sha256(source .. "\n" .. tool)
   local lua, look_trouble = cached_lua(cache, key)

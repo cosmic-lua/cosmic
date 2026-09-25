@@ -1,11 +1,11 @@
-file: tl.lua
-note: an array constructor whose last item, an assert(...), expanded to values the element type refuses names that assert; see 17
+file: tl.tl
+note: an array constructor whose last item, an assert(...), expanded to values the element type refuses names that assert; see 17b
 --- find
                      for ti, tt in ipairs(cv.tuple) do
                         self:assert_is_a(node[i], tt, decltype.elements, node, "expected an array: at index " .. tostring(i + ti - 1))
                      end
 --- replace
-                     local spill_before
+                     local spill_before: integer
                      for ti, tt in ipairs(cv.tuple) do
                         if ti == 2 then spill_before = #self.errs.errors end
                         self:assert_is_a(node[i], tt, decltype.elements, node, "expected an array: at index " .. tostring(i + ti - 1))

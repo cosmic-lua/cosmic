@@ -1,0 +1,10 @@
+file: tl.tl
+note: `error` joins the names a special-function handler may carry, so 24b can give the standard `error` one and 25 can key its handler by it
+--- find
+local enum SpecialFunctionName
+   "assert"
+--- replace
+local enum SpecialFunctionName
+   "assert"
+   "error"
+--- end
