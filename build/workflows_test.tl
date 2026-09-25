@@ -277,22 +277,30 @@ local function decoded_workflows(): {string: {string: any}}
   return out
 end
 
---- A workflow runs only when a path its push filter names changes, so a
---- path that no longer exists is a check that silently stops running.
+--- A workflow runs only when a path its filters name changes, so a
+--- path that no longer exists is a check that silently stops running,
+--- or one that never stops: every trigger's `paths` and `paths-ignore`
+--- must name what exists.
 local function test_each_path_filter_names_what_exists()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do
     local on = workflow["on"]
-    local push = on is {string: any} and on.push or nil
-    local paths = push is {string: any} and push.paths or nil
-    if paths is {string} then
-      assert(#paths > 0, path .. ": an empty path filter")
-      for _, entry in ipairs(paths) do
-        count = count + 1
-        -- A `!` excludes what it names, which must exist all the same.
-        local fixed = entry:gsub("^!", ""):gsub("/%*%*$", "")
-        assert(not fixed:find("*", 1, true), path .. ": " .. entry .. ": only a trailing /** is checked")
-        assert(Fs.exists(fixed), entry .. " is in " .. path .. "'s path filter, and does not exist")
+    if on is {string: any} then
+      for trigger, spec in pairs(on) do
+        for _, field in ipairs({ "paths", "paths-ignore" }) do
+          local entries = spec is {string: any} and spec[field] or nil
+          if entries is {string} then
+            local where = path .. "'s " .. trigger .. "." .. field
+            assert(#entries > 0, where .. " is empty")
+            for _, entry in ipairs(entries) do
+              count = count + 1
+              -- A `!` excludes what it names, which must exist all the same.
+              local fixed = entry:gsub("^!", ""):gsub("/%*%*$", "")
+              assert(not fixed:find("*", 1, true), where .. ": " .. entry .. ": only a trailing /** is checked")
+              assert(Fs.exists(fixed), entry .. " is in " .. where .. ", and does not exist")
+            end
+          end
+        end
       end
     end
   end
@@ -301,16 +309,50 @@ end
 
 local SCRIPTS <const> = ".github/scripts"
 
---- Every `run` of every step in `workflow`.
-local function runs(workflow: {string: any}): {string}
+--- `path` with its `.` and `..` segments resolved.
+local function normal(path: string): string
+  local parts: {string} = {}
+  for part in path:gmatch("[^/]+") do
+    if part == ".." then
+      table.remove(parts)
+    elseif part ~= "." then
+      parts[#parts + 1] = part
+    end
+  end
+  return table.concat(parts, "/")
+end
+
+--- The directory under the checkout a step's `run` starts in: the
+--- step's own `working-directory`, else its job's default, else the
+--- workflow's, else the checkout's root.
+local function directory(workflow: {string: any}, job: {string: any}, step: {string: any}): string
+  for _, holder in ipairs({ step, (job.defaults or {}) as {string: any}, (workflow.defaults or {}) as {string: any} }) do
+    local here = holder["working-directory"]
+    if here == nil then
+      local run = holder.run
+      here = run is {string: any} and run["working-directory"] or nil
+    end
+    if here is string then return here end
+  end
+  return "."
+end
+
+--- Every script under SCRIPTS a step of `workflow` runs, as the path from
+--- the checkout's root its `run` resolves to from where it starts.
+local function scripts_run(path: string, workflow: {string: any}): {string}
   local out: {string} = {}
-  local jobs = workflow.jobs as {string: {string: any}}
+  local jobs = workflow.jobs
+  assert(jobs is {string: {string: any}}, path .. ": no jobs")
   for _, job in pairs(jobs) do
     local steps = job.steps
     if steps is {{string: any}} then
       for _, step in ipairs(steps) do
         local run = step.run
-        if run is string then out[#out + 1] = run end
+        if run is string then
+          for named in run:gmatch("[%w_./%-]*%.github/scripts/[%w_./%-]+") do
+            out[#out + 1] = normal(directory(workflow, job, step) .. "/" .. named)
+          end
+        end
       end
     end
   end
@@ -318,18 +360,19 @@ local function runs(workflow: {string: any}): {string}
 end
 
 --- The scripts the workflows run are the ones under SCRIPTS: each one a
---- step names exists, and each one there some step names.
+--- step names is a file there, found from where the step starts, and
+--- each file there is one some step names.
 local function test_the_workflows_run_the_scripts_there_are()
   local named: {string: boolean} = {}
   for path, workflow in pairs(decoded_workflows()) do
-    for _, run in ipairs(runs(workflow)) do
-      for script in run:gmatch("%.github/scripts/([%w_.%-]+)") do
-        named[script] = true
-        assert(Fs.exists(SCRIPTS .. "/" .. script), path .. " runs " .. script .. ", which is not in " .. SCRIPTS)
-      end
+    for _, script in ipairs(scripts_run(path, workflow)) do
+      named[script] = true
+      local st = Fs.stat(script)
+      assert(st ~= nil and st.kind == "file", path .. " runs " .. script .. ", which is no file")
     end
   end
-  for _, script in ipairs((assert(Fs.list(SCRIPTS)))) do
-    assert(named[script], SCRIPTS .. "/" .. script .. " is run by no workflow")
+  for _, name in ipairs((assert(Fs.list(SCRIPTS)))) do
+    local script = SCRIPTS .. "/" .. name
+    assert(named[script], script .. " is run by no workflow")
   end
 end

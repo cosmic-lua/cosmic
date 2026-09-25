@@ -119,7 +119,8 @@
 
         {
           name: "say how far a cancelled run got",
-          if: "cancelled()",
+          # The checkout may not have happened.
+          if: "cancelled() && hashFiles('.github/scripts/fuzz-cancelled.sh') != ''",
           run: "sh .github/scripts/fuzz-cancelled.sh",
         },
 
