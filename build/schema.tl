@@ -22,8 +22,8 @@ local tables: {{string}} = {
   -- generated is not here: nothing that reads this file loads it, and
   -- the working database's `compiled` keeps it for the build. `source`
   -- is stored raw-deflated (`deflate(X)`, `build.writer`), as is a
-  -- declaration's: only an uncaught error and a checker typing another
-  -- tree read it, and it is most of what a module's row weighs.
+  -- declaration's: only an uncaught error's line and `Store.source`
+  -- read it, and it is most of what a module's row weighs.
   { "modules", [[(path TEXT PRIMARY KEY,
                   file TEXT NOT NULL,
                   kind TEXT NOT NULL,

@@ -308,7 +308,8 @@ input to the build, never to the runtime. one database holds:
   the compile step found. the Lua tl generated on the way stays in
   the working database: nothing that reads a shipped file loads it.
   the source is stored raw-deflated, as a declaration's is: only an
-  uncaught error and a checker typing another tree read it, and each
+  uncaught error's line and `Store.source` (a checker typing another
+  tree, the self-rebuild reading the compiler) read it, and each
   inflates it. `inflate(X)`, which every `cosmic.sqlite` handle knows,
   reads it back in a query.
 - **docs**: one row per symbol a module declares at its top level --

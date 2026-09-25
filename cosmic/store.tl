@@ -49,7 +49,9 @@ end
 
 --- One module's Teal source, or a declaration's, from the binary's own
 --- database and no other: what a checker building another tree needs
---- to type a `require` of this one's modules.
+--- to type a `require` of this one's modules. Stored deflated, it is
+--- inflated here; nil beside why when there is no such row or it will
+--- not inflate.
 function Store.source(name: string): string | nil, string
   return store.source(name)
 end
