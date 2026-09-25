@@ -35,8 +35,10 @@ local record testing
   --- left unfired. The points are "curl_multi_init", "curl_easy_init",
   --- "curl_multi_add_handle", "curl_multi_poll", "curl_multi_perform",
   --- "curl_slist_append" and "curl_easy_setopt(CURLOPT_<NAME>)" for
-  --- each option core/http.c sets; each makes its call report a failure
-  --- of curl's own shape instead of being made.
+  --- each option core/http.c sets, and "json_malloc" for each block
+  --- yyjson allocates (core/json.c; not its reallocations); each makes
+  --- its call report a failure of its library's own shape instead of
+  --- being made.
   fail_at: function(point?: string, skip?: integer): boolean
 
   --- How many HTTP transfers hold curl state: made by an open, and not
