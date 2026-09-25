@@ -88,7 +88,20 @@ local function entries_of(input: string, read: boolean): {string} | nil, string
       if #e.path > 100 then Fuzz.label("long path") end
       local body = e:open()
       if body ~= nil then
-        local data = Stream.read_all(body)
+        -- Every other body is asked for whole, its size in one read, as
+        -- a caller that trusts the header would; the rest in chunks.
+        local data: string = nil
+        if #seen % 2 == 0 and e.size > 0 then
+          local first, ftrouble = body:read(e.size)
+          if first ~= nil then
+            local rest = Stream.read_all(body)
+            if rest ~= nil then data = first .. rest end
+          elseif ftrouble == "" then
+            data = ""
+          end
+        else
+          data = Stream.read_all(body)
+        end
         if data ~= nil then Fuzz.label("body read") end
         if data ~= nil and e.kind == "file" and #data ~= e.size then
           return nil, ("%s: read %d bytes of a body of %d"):format(e.path, #data, e.size)
@@ -200,6 +213,8 @@ local PAX_KEYS <const> = { "path", "linkpath", "size", "mtime", "uid", "gid", "G
 --- ones past 64 bits, a NUL, and paths.
 local PAX_VALUES <const> = {
   "0", "1", "12", "-1", "1.5", "1e3", "0x10", "nan", "inf", "9223372036854775807",
+  -- Either side of the largest size whose padding cannot wrap.
+  "9223372036854775295", "9223372036854775296",
   "99999999999999999999", "a\0b", "", "dir/x.txt",
 }
 

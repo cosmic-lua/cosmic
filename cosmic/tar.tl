@@ -495,8 +495,9 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
             f.name, f.linkname, f.size, f.mtime, f.uid, f.gid, f.sparse
         end
         if size < 0 then return fail("tar: negative entry size") end
-        -- Its padding added, a size this near the integer limit would
-        -- wrap negative, and `next` would skip none of its body.
+        -- Its padding added, a size this near the integer limit could
+        -- wrap negative, and `next` would skip none of its body; a block
+        -- below the limit is a bound no padding crosses.
         if size > math.maxinteger - BLOCK then
           return fail("tar: entry size " .. tostring(size) .. " is too large")
         end
