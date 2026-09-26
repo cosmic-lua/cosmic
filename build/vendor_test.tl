@@ -82,6 +82,16 @@ local function test_a_tree_keeps_what_the_pin_names(dir: string)
   only_the_tree(dir)
 end
 
+local function test_a_link_to_a_directory_is_removed_not_followed(dir: string)
+  write_all(dir .. "/outside", { ["kept.c"] = "not the tree's" })
+  write_all(dir .. "/tree", { ["PIN"] = "strip pkg/\nkeep src/*.c\n" })
+  assert(Fs.symlink("../outside", dir .. "/tree/linked"))
+  write_tar(dir .. "/archive.tar", { ["pkg/src/one.c"] = "one" })
+  assert(Vendor.main({ [1] = dir .. "/tree", [2] = dir .. "/archive.tar" }) == 0)
+  assert(Fs.readlink(dir .. "/tree/linked") == nil, "the link was left")
+  assert(Fs.read(dir .. "/outside/kept.c") == "not the tree's", "the link was followed")
+end
+
 local function test_a_leading_dot_slash_is_not_part_of_a_path(dir: string)
   assert(run(dir, "strip pkg/\nkeep src/*.c\n", {
     ["./pkg/src/one.c"] = "one",

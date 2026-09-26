@@ -708,11 +708,8 @@ end
 --- editor's replace-by-rename, or a file added or removed, at the cost
 --- of a walk and a stat per file and never a read.
 function Zig.snapshot(root: string): {string:string} | nil, string
-  -- The pinned release's Fs.walk follows links, as work.stage's
-  -- Fs.walk_following does; the tree's lists none.
-  -- TODO: call Fs.walk_following once ci/cosmic-driver.pin names a
-  -- release that has it; the pinned one refuses the name.
-  local walked, trouble = Fs.walk(root, unwatched)
+  -- A link is taken for what it leads to, as work.stage takes it.
+  local walked, trouble = Fs.walk_following(root, unwatched)
   if walked == nil then
     return nil, trouble
   end
