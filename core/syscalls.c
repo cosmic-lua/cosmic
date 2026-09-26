@@ -749,8 +749,18 @@ static int drop_capabilities (void) {
  * where one is wholly visible (mount_too_revealing, which subset=pid
  * does not escape as of Linux 6.18), EPERM; a kernel before 5.8 knows
  * no subset, EINVAL -- the host's /proc is bound there instead,
- * read-only but where given to write. `own` says whether the procfs is
- * the child's own. 0, or an errno.
+ * read-only even where given to write, since what it holds to write is
+ * the host's (/proc/sys, other processes' entries). `own` says whether
+ * the procfs is the child's own. 0, or an errno.
+ * TODO: keep a child from setting its own audit login id
+ * (/proc/self/loginuid), which it may while that is unset (the kernel
+ * asks no capability to set an unset one, unless audit's
+ * loginuid_immutable is on), so the host's audit log names the uid it
+ * chose for what its processes do: a per-process file cannot be bound
+ * over in a procfs, so this waits on a way to refuse the write -- a
+ * Landlock rule on /proc files, or a seccomp filter able to tell the
+ * path -- or on setting it from here to the parent's own, which the
+ * kernel only lets a process holding CAP_AUDIT_CONTROL do.
  * TODO: refuse the sandbox where the kernel refuses a procfs of its
  * own (EPERM, which build.filesystem_observations' `unconfinable` falls
  * back on and `must_confine` fails), rather than bind the host's, once
@@ -760,12 +770,11 @@ static int drop_capabilities (void) {
  * cannot confine one of its own (EROFS writing its uid_map there), and
  * sees the host's processes and state, whose pids are not the ones it
  * is in (it is pid 2 of its own namespace). */
-static int place_proc (const char *target, int writable, int *own) {
+static int place_proc (const char *target, int *own) {
   *own = mount("proc", target, "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") == 0;
   if (*own) return 0;
   if (errno != EPERM && errno != EINVAL) return errno;
   if (mount("/proc", target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
-  if (writable) return 0;
   struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
   if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
     return errno;
@@ -849,12 +858,13 @@ static int build_root (const char *root, char *const *paths, char *const *names,
       }
     }
     if (strcmp(paths[i], "/proc") == 0) {
-      number = place_proc(target, writable[i], &own_proc);
+      number = place_proc(target, &own_proc);
       if (number != 0) return number;
       continue;
     }
     if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
-    if (!writable[i]) {
+    /* A path in the host's /proc is its state, read-only whoever asks. */
+    if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0) {
       struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
       if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
         return errno;
@@ -1540,25 +1550,34 @@ static bool sandbox_room (void) {
 static void end_sandbox_init (size_t at) {
   pid_t init = pairs[at].init;
   pairs[at].program = -1;
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  int64_t deadline = (int64_t)now.tv_sec * 1000000000 + now.tv_nsec + 1000000000;
   /* Its end is waited for on a pidfd where the kernel gives one, and
-   * looked for every tenth of a millisecond where not. */
+   * looked for every tenth of a millisecond where not, until the second
+   * is up, however often a signal breaks the wait. */
   int watched = (int)syscall(SYS_pidfd_open, init, 0);
   kill(init, SIGKILL);
-  if (watched >= 0) {
-    struct pollfd ended = { watched, POLLIN, 0 };
-    while (poll(&ended, 1, 1000) < 0 && errno == EINTR) {}
-    close(watched);
-  }
-  for (int tries = 0; tries < (watched >= 0 ? 1 : 10000); tries++) {
+  for (;;) {
     int ignored;
     pid_t answer = waitpid(init, &ignored, WNOHANG);
     if (answer == init || (answer < 0 && errno == ECHILD)) {
       pairs[at] = pairs[--pair_count];
-      return;
+      break;
     }
-    struct timespec pause = { 0, 100000 };
-    if (watched < 0) nanosleep(&pause, NULL);
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int64_t left = deadline - ((int64_t)now.tv_sec * 1000000000 + now.tv_nsec);
+    if (left <= 0) break;
+    if (watched >= 0) {
+      struct pollfd ended = { watched, POLLIN, 0 };
+      int milliseconds = (int)((left + 999999) / 1000000);
+      if (poll(&ended, 1, milliseconds) < 0 && errno != EINTR) break;
+    } else {
+      struct timespec pause = { 0, left < 100000 ? (long)left : 100000 };
+      nanosleep(&pause, NULL);
+    }
   }
+  if (watched >= 0) close(watched);
 }
 
 /* Reaps, without waiting, every init whose program is gone and that a
@@ -1938,9 +1957,16 @@ int cosmic_spawn_unobserved (lua_State *L) {
     int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
     pid = program;
 #if defined(__linux__)
-    if (init > 0) {
+    /* Room was made before the child started, but a finalizer the Lua
+     * calls since then ran could have spawned into it: where there is
+     * none left and no more to be had, the init is ended at once, and
+     * its program with it, rather than left for `end_strays` to take
+     * for a stray. */
+    if (init > 0 && (pair_count < pair_room || sandbox_room())) {
       pairs[pair_count++] = (struct sandbox_pair){ init, program };
       if (program < 0) end_sandbox_init(pair_count - 1);
+    } else if (init > 0) {
+      kill(init, SIGKILL);
     }
 #endif
   }

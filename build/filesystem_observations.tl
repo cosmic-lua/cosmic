@@ -488,6 +488,17 @@ end
 --- namespace may mount a procfs only where one is wholly visible, which
 --- a container's masked /proc paths are not; where one is not, a
 --- sandboxed process has the host's /proc, read-only.
+-- TODO: ask the kernel rather than read the mounts -- start a confined
+-- process once and see whether its /proc has a /proc/sys, as
+-- build/sandbox_probe.tl's "a /proc of its own" part does -- so a
+-- mount beneath /proc the kernel lets through (a host's
+-- /proc/fs/nfsd, an NFS server's) is not taken for a mask: today it
+-- is, and the tests that ask expect the fallback where there is none.
+-- TODO: key a verdict by which /proc a confined process gets, once a
+-- key can hold a fact of the host that is no file (the kernel's answer
+-- above): today one that stood where a sandbox gets a procfs of its own
+-- stands where it gets the host's, and the other way about, though the
+-- tests that ask expect different things of each.
 function observations.own_proc_given(): boolean
   local text, _ = Fs.read("/proc/self/mountinfo")
   if text == nil then return false end

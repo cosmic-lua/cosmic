@@ -207,19 +207,61 @@ static void native_collect (lua_State *L, int hits, enum native_want want) {
  * directory travels as COSMIC_COVERAGE_CHILDREN in every environment the
  * core starts a process with, whatever environment the program gave it,
  * and is taken out of this process's own before any Lua runs: a program
- * never sees it, and a verdict's key never holds it. */
+ * never sees it, and a verdict's key never holds it. It travels behind
+ * the signature of the core that named it (`signature`), and a process
+ * reports only where that is its own: another core -- the pinned
+ * release bin/zig runs, a test starts, passing the variable on as it
+ * does -- would report lines of another build's C under the same
+ * paths, which would credit this build's functions with lines they do
+ * not have. */
 #define CHILDREN_NAME "COSMIC_COVERAGE_CHILDREN"
-static char *children_entry; /* CHILDREN_NAME "=" directory, or NULL */
+#define SIGNATURE_SIZE 16
+static char *children_entry; /* CHILDREN_NAME "=" signature ":" directory, or NULL */
 static int reports;          /* this process is one a test started */
 
-static int set_children (const char *directory) {
-  size_t size = sizeof CHILDREN_NAME + 1 + strlen(directory);
+/* This core's block map, hashed (FNV-1a, 64 bits) to SIGNATURE_SIZE hex
+ * digits: its block count, and each block's path and line. The same
+ * build's cores agree, and another's all but never. */
+static const char *signature (void) {
+  static char text[SIGNATURE_SIZE + 1];
+  if (text[0] != '\0') return text;
+  uint64_t hash = 14695981039346656037ULL;
+#define MIX(byte) (hash = (hash ^ (uint8_t)(byte)) * 1099511628211ULL)
+#ifdef COSMIC_NATIVE_COVERAGE
+  for (uint32_t block = 0; block < cosmic_native_coverage_blocks; block++) {
+    uint16_t file = cosmic_native_coverage_path[block];
+    uint32_t line = cosmic_native_coverage_line[block];
+    for (int shift = 0; shift < 32; shift += 8) MIX(line >> shift);
+    if (file == UINT16_MAX) continue;
+    for (const char *at = cosmic_native_coverage_paths[file]; *at != '\0'; at++) MIX(*at);
+  }
+#endif
+#undef MIX
+  snprintf(text, sizeof text, "%016llx", (unsigned long long)hash);
+  return text;
+}
+
+/* Sets the variable's entry to `value`, as it travels. */
+static int set_children_value (const char *value) {
+  size_t size = sizeof CHILDREN_NAME + strlen(value) + 1;
   char *entry = malloc(size);
   if (!entry) return 0;
-  snprintf(entry, size, "%s=%s", CHILDREN_NAME, directory);
+  snprintf(entry, size, "%s=%s", CHILDREN_NAME, value);
   free(children_entry);
   children_entry = entry;
   return 1;
+}
+
+/* Names `directory` for the processes this one starts, behind this
+ * core's signature. */
+static int set_children (const char *directory) {
+  size_t size = SIGNATURE_SIZE + 1 + strlen(directory) + 1;
+  char *value = malloc(size);
+  if (!value) return 0;
+  snprintf(value, size, "%s:%s", signature(), directory);
+  int set = set_children_value(value);
+  free(value);
+  return set;
 }
 
 char **cosmic_coverage_environment (char **envp) {
@@ -246,7 +288,8 @@ void cosmic_coverage_report (void) {
    * there (core/syscalls.c's `start_unveiled`). */
   char path[4096];
   int length = snprintf(path, sizeof path, "%s/%ld.%u.XXXXXX",
-                        children_entry + sizeof CHILDREN_NAME, (long)getpid(), reported++);
+                        children_entry + sizeof CHILDREN_NAME + SIGNATURE_SIZE + 1,
+                        (long)getpid(), reported++);
   if (length < 0 || (size_t)length >= sizeof path) return;
   int fd = mkostemp(path, O_CLOEXEC);
   if (fd < 0) return;
@@ -513,8 +556,12 @@ static int coverage_entries (lua_State *L) {
 
 void cosmic_coverage_prepare (void) {
   const char *children = getenv(CHILDREN_NAME);
-  if (children && children[0] && !reports && set_children(children)) {
+  if (children && children[0] && !reports && set_children_value(children)) {
     unsetenv(CHILDREN_NAME);
+    /* Passed on whatever core named it, but reported to only by one of
+     * the same build. */
+    const char *value = children_entry + sizeof CHILDREN_NAME;
+    if (strncmp(value, signature(), SIGNATURE_SIZE) != 0 || value[SIGNATURE_SIZE] != ':') return;
     reports = 1;
 #ifdef COSMIC_NATIVE_COVERAGE
     if (native_count) native_ever = calloc(native_count, 1);

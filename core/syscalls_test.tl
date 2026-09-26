@@ -792,13 +792,14 @@ local function shell_reads(): {string} | nil
   return nil
 end
 
---- Starts `script` in /bin/sh confined to `reads`, offline, in /, with
---- `output` its standard output and error: its pid, or nil where the
---- kernel will not confine it, which fails the test under
---- COSMIC_SANDBOX=must.
-local function start_confined(reads: {string}, script: string, output: integer): integer | nil
+--- Starts `script` in /bin/sh confined to `reads`, offline unless
+--- `online`, in /, with `output` its standard output and error: its pid,
+--- or nil where the kernel will not confine it, which fails the test
+--- under COSMIC_SANDBOX=must.
+local function start_confined(reads: {string}, script: string, output: integer,
+                              online?: boolean): integer | nil
   local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c", script }, nil, "/", nil,
-    output, output, false, nil, { unveil = { reads = reads }, offline = true })
+    output, output, false, nil, { unveil = { reads = reads }, offline = not online })
   if pid ~= nil then return pid end
   assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
   assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
@@ -809,10 +810,10 @@ end
 --- Runs `script` as `start_confined` starts it, its output in `tmp`: its
 --- status and what it printed, or nil where the kernel will not confine
 --- it.
-local function run_confined(tmp: string, reads: {string},
-                            script: string): raw_process.ChildStatus | nil, string
+local function run_confined(tmp: string, reads: {string}, script: string,
+                            online?: boolean): raw_process.ChildStatus | nil, string
   local report = create(tmp .. "/report")
-  local pid = start_confined(reads, script, report)
+  local pid = start_confined(reads, script, report, online)
   local status: raw_process.ChildStatus | nil = nil
   if pid ~= nil then status = assert(process.waitpid(pid, false)) end
   local said = assert(sys.pread(report, 65536, 0))
@@ -950,9 +951,11 @@ local own_writable: {string:string} = {
   -- Its session's: one of the sandbox's own, since the program and its
   -- init each start one (core/syscalls.c's `run_program`).
   autogroup = "its own session's autogroup",
-  -- Its audit login id, which takes CAP_AUDIT_CONTROL in the host's
-  -- user namespace to change: open, but no write succeeds.
-  loginuid = "its own, and unwritable without a capability it lacks",
+  -- Its audit login id: its own process's, but one the host's audit log
+  -- names it by, which the kernel lets it set while it is unset (and
+  -- only with CAP_AUDIT_CONTROL once set) -- a gap core/syscalls.c's
+  -- `place_proc` leaves a TODO for.
+  loginuid = "its own, though the host's audit log reads it",
 }
 
 --- A confined child can change no state of the host's through its /proc:
@@ -969,27 +972,31 @@ local own_writable: {string:string} = {
 local function test_a_confined_child_can_write_no_host_state_through_its_proc(tmp: string)
   local reads = shell_reads()
   if reads == nil then return end
-  local status, said = run_confined(tmp, reads, "find /proc -type f 2>/dev/null | " ..
-    "while read f; do test -f \"$f\" && (: >> \"$f\") 2>/dev/null && echo \"$f\"; done; " ..
-    "echo done")
-  if status == nil then return end
-  assert(status.code == 0 and said:sub(-5) == "done\n", said)
-  local own = observations.own_proc_given()
-  local opened = 0
-  for path in said:gmatch("([^\n]+)\n") do
-    if path ~= "done" then
-      opened = opened + 1
-      assert(own, "a file of the host's /proc opens to write: " .. path)
-      local rest = path:match("^/proc/[%w-]+/task/%d+/(.+)$") or
-        path:match("^/proc/%d+/(.+)$") or path:match("^/proc/self/(.+)$") or
-        path:match("^/proc/thread%-self/(.+)$")
-      assert(rest ~= nil, "a file outside a process's directory opens to write: " .. path)
-      assert(own_writable[rest] ~= nil or rest:match("^attr/") ~= nil,
-        "a file not the process's own opens to write: " .. path)
+  -- Offline and online: an online child's /proc/<pid>/net is its
+  -- parent's network namespace's.
+  for _, online in ipairs({ false, true }) do
+    local status, said = run_confined(tmp, reads, "find /proc -type f 2>/dev/null | " ..
+      "while read f; do test -f \"$f\" && (: >> \"$f\") 2>/dev/null && echo \"$f\"; done; " ..
+      "echo done", online)
+    if status == nil then return end
+    assert(status.code == 0 and said:sub(-5) == "done\n", said)
+    local own = observations.own_proc_given()
+    local opened = 0
+    for path in said:gmatch("([^\n]+)\n") do
+      if path ~= "done" then
+        opened = opened + 1
+        assert(own, "a file of the host's /proc opens to write: " .. path)
+        local rest = path:match("^/proc/[%w-]+/task/%d+/(.+)$") or
+          path:match("^/proc/%d+/(.+)$") or path:match("^/proc/self/(.+)$") or
+          path:match("^/proc/thread%-self/(.+)$")
+        assert(rest ~= nil, "a file outside a process's directory opens to write: " .. path)
+        assert(own_writable[rest] ~= nil or rest:match("^attr/") ~= nil,
+          "a file not the process's own opens to write: " .. path)
+      end
     end
+    -- Its own maps, at least, where it can confine one of its own.
+    assert(not own or opened > 0, said)
   end
-  -- Its own maps, at least, where it can confine one of its own.
-  assert(not own or opened > 0, said)
 end
 
 --- The setsid program where this host has one, or nil.
@@ -1038,20 +1045,26 @@ end
 ]==]
 
 --- A confined child's autogroup is its own session's, not its parent's:
---- the nice it sets through /proc/self/autogroup, or through its init's
---- /proc/1/autogroup where its user may open that (root; the kernel
---- refuses the write there, EIO, as it stands), leaves its
---- parent's session's as it was. Run in a session of this test's own, so
---- a failure changes nothing of the runner's. Where the kernel has no
---- autogroup, or the host no setsid program, there is nothing to check.
+--- the nice it sets through its init's /proc/1/autogroup, and then
+--- through /proc/self/autogroup, leaves its parent's session's as it
+--- was. The init's is written first, and its own a fifth of a second
+--- later: without CAP_SYS_ADMIN the kernel lets autogroups be reniced
+--- once a tenth of a second, the whole system over (EAGAIN). /proc/1 is
+--- open to the child only where it runs as root (its init is
+--- undumpable, so owned by the namespace's root), so that half is
+--- checked only in a run as root -- not CI's, which runs unprivileged,
+--- nor ci/run-local's, as nobody. Run in a session of this test's own,
+--- so a failure changes nothing of the runner's. Where the kernel has
+--- no autogroup, or the host no setsid program, there is nothing to
+--- check.
 local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string)
   local reads = shell_reads()
   if reads == nil or sys.stat("/proc/self/autogroup") == nil then return end
   local said = in_own_session(tmp, session_preamble .. [==[
 local before = read("/proc/self/autogroup")
 local pid, trouble = process.spawn("/bin/sh", { "sh", "-c",
-  "echo 19 > /proc/self/autogroup; sed 's/.* nice /own nice /' /proc/self/autogroup; " ..
-  "echo 19 2>/dev/null > /proc/1/autogroup; true" },
+  "(echo 19 > /proc/1/autogroup) 2>/dev/null && echo init-set; sleep 0.2; " ..
+  "echo 19 > /proc/self/autogroup; sed 's/.* nice /own nice /' /proc/self/autogroup" },
   nil, "/", nil, nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
 if pid == nil then print("refused " .. trouble) return 0 end
 process.waitpid(pid, false)
@@ -1059,17 +1072,25 @@ print(before == read("/proc/self/autogroup") and "kept" or "changed: " .. before
 return 0
 ]==], table.concat(reads, ":"))
   if said == nil or said:find("^refused ") then return end
-  -- It set its own, where its /proc is its own and so writable.
+  -- It set its own, where its /proc is its own and so writable, and, as
+  -- root, its init's.
   assert(said:find("kept\n$") ~= nil, said)
-  assert(not observations.own_proc_given() or said:find("own nice 19\n", 1, true) ~= nil, said)
+  local own = observations.own_proc_given()
+  assert(not own or said:find("own nice 19\n", 1, true) ~= nil, said)
+  assert(not own or sys.getuid() ~= 0 or said:find("init-set\n", 1, true) ~= nil, said)
 end
 
 --- A confined child ends when the process that started it does, killed
 --- or ended by a signal from a terminal, not left running on its own:
---- its init ends with its parent, and its namespace with the init.
+--- its init ends with its parent, and its namespace with the init. This
+--- process takes the orphans, as a subreaper, so no one but the kernel
+--- ends them: `cosmic test`'s runner, a subreaper itself, would end any
+--- that reached it as strays, and pass this with the init's end undone.
 local function test_a_confined_child_ends_with_its_parent(tmp: string)
   local reads = shell_reads()
   if reads == nil then return end
+  local adopting = process.subreaper()
+  if not adopting then return end -- no subreaper to be (not Linux)
   local cosmic = assert(sys.executable())
   local report = create(tmp .. "/parent")
   local parent = assert(process.spawn(cosmic, { "cosmic", "-e", session_preamble .. [==[
@@ -1092,16 +1113,54 @@ sys.nanosleep(30 * 1000000000)
     return
   end
   local child = assert(math.tointeger(tonumber(said:match("^(%d+)\n"))), said)
-  -- Gone, or a zombie this process adopted, which it reaps.
-  local gone = false
+  -- This process adopted it: it ends by the kernel's SIGKILL, its
+  -- namespace's end, within seconds, where it would sleep on for 30.
+  local ended: raw_process.ChildStatus | nil = nil
   by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
-  while not gone and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    local status = process.waitpid(child, true)
-    local _, _, errno = sys.kill(child, 0)
-    gone = (status ~= nil and status.pid == child) or errno == sys.ESRCH
-    if not gone then assert(sys.nanosleep(10 * 1000000)) end
+  while ended == nil and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
+    local status = assert(process.waitpid(child, true))
+    if status.pid == child then ended = status else assert(sys.nanosleep(10 * 1000000)) end
   end
-  assert(gone, "the confined child outlived its parent")
+  if ended == nil then assert(sys.kill(child, sys.SIGKILL)) end
+  -- The rest it adopted: the init, ended with its parent.
+  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
+  while assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
+    local status = process.waitpid(-1, true)
+    if status == nil then break end
+    if status.pid == 0 then assert(sys.nanosleep(10 * 1000000)) end
+  end
+  assert(ended ~= nil, "the confined child outlived its parent")
+  assert(ended.signal == sys.SIGKILL, "ended by " .. tostring(ended.signal))
+end
+
+--- /proc given to write is no more the host's to change than given to
+--- read: a procfs of the child's own is writable, and holds no /proc/sys;
+--- where the kernel refuses one, the host's is bound read-only all the
+--- same, and so is a path beneath it given to write.
+local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: string)
+  local reads = shell_reads()
+  if reads == nil then return end
+  local without: {string} = {}
+  for _, path in ipairs(reads) do
+    if path ~= "/proc" then without[#without + 1] = path end
+  end
+  local report = create(tmp .. "/written")
+  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
+    "(: >> /proc/sys/vm/swappiness) 2>/dev/null && echo sys-writable || echo sys-read-only; " ..
+    "(: >> /proc/sys/kernel/hostname) 2>/dev/null && echo name-writable || echo name-read-only" },
+    nil, "/", nil, report, report, false, nil,
+    { unveil = { reads = without, writes = { "/proc", "/proc/sys/kernel" } }, offline = true })
+  if pid == nil then
+    sys.close(report)
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
+    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    return
+  end
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  local said = assert(sys.pread(report, 4096, 0))
+  sys.close(report)
+  assert(said == "sys-read-only\nname-read-only\n", said)
 end
 
 --- An offline child's loopback is up, as a host's is: the kernel gives
