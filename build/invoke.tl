@@ -33,6 +33,7 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local dispatch = require("build.dispatch")
+local exit_status = require("build.exit_status")
 local sys = require("cosmic.sys")
 local verdict = require("build.verdict")
 
@@ -62,19 +63,6 @@ local function runs_a_file(first: string | nil): boolean
   if first == "--standalone" then return true end
   return first:sub(1, 1) ~= "-" and (first:find("/", 1, true) ~= nil or
     first:match("%.tl$") ~= nil)
-end
-
---- The exit code `value` is as `main`'s answer, as the core's
---- `cosmic_tostatus` reads it, or nil for one it refuses.
-local function status_of(value: any): integer | nil
-  if value == nil then return 0 end
-  local whole: integer | nil = nil
-  if value is number or value is string then
-    local number = tonumber(value)
-    whole = number ~= nil and math.tointeger(number) or nil
-  end
-  if whole == nil or whole < 0 or whole > 255 then return nil end
-  return whole
 end
 
 --- Reads the whole of what a run wrote to `fd`.
@@ -180,7 +168,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         verdict.log:complain(message)
         return
       end
-      local status = status_of(answer)
+      local status = exit_status.status(answer)
       if status == nil then
         verdict.log:complain("the main function returned no exit status from 0 to 255: " ..
           "cmd.cosmic.main")
