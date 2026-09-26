@@ -442,7 +442,7 @@ function embed.run(argv: {integer:string}): integer
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  log:verdict("build", true, wrote .. ", " .. clock.elapsed_ms(started) .. " ms")
+  log:verdict("build", true, wrote .. ", " .. clock.took(started))
   return 0
 end
 

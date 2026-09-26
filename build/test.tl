@@ -2018,7 +2018,7 @@ function test.run(argv: {integer:string}): integer
   log:say("build: " .. #result.modules .. " modules (" .. result.compiled ..
     " compiled, " .. result.cached .. " cached; " .. staged.files ..
     " files staged, " .. staged.read .. " read) in " ..
-    clock.elapsed_ms(started) .. " ms")
+    clock.took(started))
 
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word, and
@@ -2290,7 +2290,7 @@ function test.run(argv: {integer:string}): integer
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 0
   end
   table.sort(failures)
@@ -2322,7 +2322,7 @@ function test.run(argv: {integer:string}): integer
   end
   log:verdict("test", false, #failures .. " of " ..
     (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
-    clock.elapsed_ms(started) .. " ms")
+    clock.took(started))
   return 1
 end
 

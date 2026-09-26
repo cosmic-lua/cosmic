@@ -122,14 +122,6 @@ only what its program prints and exits with what it returns.
 `--version` is not one either: it prints its one line.
 ]]
 
-local function say(line: string)
-  local _, _ = Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  local _, _ = Fs.put(Fs.stderr, line .. "\n")
-end
-
 --- The directory a path sits in, absolute.
 local function directory_of(path: string): string | nil, string
   local resolved, trouble = Fs.absolute(path)
@@ -201,30 +193,30 @@ local function run(file: string, argv: {integer:string}): integer
   local writer = require("build.writer")
   local root, trouble = root_of(file)
   if root == nil then
-    complain("cosmic: " .. trouble)
+    log:complain(trouble)
     return 1
   end
   local name, why = module_of(root, file)
   if name == nil then
-    complain("cosmic: " .. why)
+    log:complain(why)
     return 1
   end
 
   local started = Time.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
-    complain("cosmic: " .. own_trouble)
+    log:complain(own_trouble)
     return 1
   end
   local handle, open_trouble = work.open(root)
   if handle == nil then
-    complain("cosmic: " .. open_trouble)
+    log:complain(open_trouble)
     return 1
   end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     local _, _ = work.close(handle)
-    complain("cosmic: " .. stage_trouble)
+    log:complain(stage_trouble)
     return 1
   end
 
@@ -250,7 +242,7 @@ local function run(file: string, argv: {integer:string}): integer
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
-    complain("cosmic: " .. compile_trouble)
+    log:complain(compile_trouble)
     return 1
   end
   local written, write_trouble =
@@ -259,7 +251,7 @@ local function run(file: string, argv: {integer:string}): integer
     result.cached, written and "PASS" or "FAIL")
   local _, _ = work.close(handle)
   if not written then
-    complain("cosmic: " .. write_trouble)
+    log:complain(write_trouble)
     return 1
   end
 
@@ -270,12 +262,12 @@ local function run(file: string, argv: {integer:string}): integer
   -- still compiled fine and still runs below, so this is a warning,
   -- never a reason to fail this invocation.
   for _, line in ipairs(result.refused) do
-    complain("cosmic: warning: " .. line)
+    log:complain("warning: " .. line)
   end
 
   local attached, attach_trouble = Store.attach(database)
   if not attached then
-    complain("cosmic: " .. attach_trouble)
+    log:complain(attach_trouble)
     return 1
   end
 
@@ -305,12 +297,12 @@ local as_option: {string:string} = {
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {integer:string}): integer
   if argv[2] ~= nil then
-    complain("cosmic: --version takes nothing after it, not " .. argv[2])
+    log:complain("--version takes nothing after it, not " .. argv[2])
     return 2
   end
   local path, path_trouble = Proc.executable()
   if path == nil then
-    complain("cosmic: --version: " .. path_trouble)
+    log:complain("--version: " .. path_trouble)
     return 1
   end
   -- TODO: hash the artifact descriptor startup retained rather than
@@ -319,20 +311,20 @@ local function version(argv: {integer:string}): integer
   -- launch is hashed in its place, and an unlinked one fails.
   local fd, open_trouble = Fs.open_read(path)
   if fd == nil then
-    complain("cosmic: --version: " .. path .. ": " .. open_trouble)
+    log:complain("--version: " .. path .. ": " .. open_trouble)
     return 1
   end
   local hasher, hasher_trouble = Hash.hasher("sha256")
   if hasher == nil then
     local _, _ = Fs.close(fd)
-    complain("cosmic: --version: " .. hasher_trouble)
+    log:complain("--version: " .. hasher_trouble)
     return 1
   end
   while true do
     local piece, read_trouble = Fs.take(fd, 1 << 20)
     if piece == nil then
       local _, _ = Fs.close(fd)
-      complain("cosmic: --version: " .. path .. ": " .. read_trouble)
+      log:complain("--version: " .. path .. ": " .. read_trouble)
       return 1
     end
     if piece == "" then
@@ -343,10 +335,10 @@ local function version(argv: {integer:string}): integer
   local _, _ = Fs.close(fd)
   local digest, digest_trouble = hasher:digest()
   if digest == nil then
-    complain("cosmic: --version: " .. digest_trouble)
+    log:complain("--version: " .. digest_trouble)
     return 1
   end
-  say("cosmic " .. Codec.hex(digest))
+  log:say("cosmic " .. Codec.hex(digest))
   return 0
 end
 
@@ -359,12 +351,12 @@ end
 local function evaluate(argv: {integer:string}): integer
   local chunk = argv[2]
   if chunk == nil then
-    complain("cosmic: usage: cosmic -e '<chunk>' [args...]")
+    log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
   local loaded, trouble = load(chunk, "=-e", "t")
   if loaded == nil then
-    complain("cosmic: " .. tostring(trouble))
+    log:complain(tostring(trouble))
     return 1
   end
   local arguments: {string} = {}
@@ -403,14 +395,14 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     end
     local parsed, parse_trouble = Flags.parse(line, 2, {})
     if parsed == nil then
-      complain("cosmic: help: " .. parse_trouble)
+      log:complain("help: " .. parse_trouble)
       log:verdict("help", false, parse_trouble)
       return 2
     end
     words = parsed.words
   end
   if #words > 1 then
-    complain("cosmic: help: one verb at a time, not " .. #words)
+    log:complain("help: one verb at a time, not " .. #words)
     log:verdict("help", false, "one verb at a time")
     return 2
   end
@@ -423,16 +415,16 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       end
     end
     if not known then
-      complain("cosmic: help: no such verb: " .. words[1])
+      log:complain("help: no such verb: " .. words[1])
       log:verdict("help", false, "no such verb: " .. words[1])
       return 2
     end
-    say(verb_help(words))
-    log:verdict("help", true, "1 verb, " .. clock.elapsed_ms(started) .. " ms")
+    log:say(verb_help(words))
+    log:verdict("help", true, "1 verb, " .. clock.took(started))
     return 0
   end
-  say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix)
-  log:verdict("help", true, #Cli.order .. " verbs, " .. clock.elapsed_ms(started) .. " ms")
+  log:say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix)
+  log:verdict("help", true, #Cli.order .. " verbs, " .. clock.took(started))
   return 0
 end
 
@@ -588,8 +580,8 @@ function dispatch.main(argv: {integer:string}): integer
     return code
   end
   if verb:sub(1, 1) == "-" then
-    complain("cosmic: no such option: " .. verb)
-    complain("cosmic: `cosmic help` is the whole discovery surface")
+    log:complain("no such option: " .. verb)
+    log:complain("`cosmic help` is the whole discovery surface")
     return 2
   end
   -- A word that could not be a file to run is a mistyped verb, told as
@@ -597,7 +589,7 @@ function dispatch.main(argv: {integer:string}): integer
   if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
     local exists, _ = Fs.exists(verb)
     if not exists then
-      complain("cosmic: no such verb or file: " .. verb .. "; see `cosmic help`")
+      log:complain("no such verb or file: " .. verb .. "; see `cosmic help`")
       return 2
     end
   end

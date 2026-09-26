@@ -292,7 +292,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): in
     to.err("cosmic: sql: " .. line)
   end
   local function verdict(passed: boolean, detail: string)
-    to.verdict(passed, detail .. ", " .. clock.elapsed_ms(started) .. " ms")
+    to.verdict(passed, detail .. ", " .. clock.took(started))
   end
   local usage = "cosmic sql [--db <path> | --build | --store] '<statement>'"
   local parsed, parse_trouble = Flags.parse(argv, 2, spec)

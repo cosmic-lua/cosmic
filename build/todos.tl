@@ -575,7 +575,7 @@ function todos.run(argv: {integer:string}): integer
   end
   if ranks ~= nil and #listed == 0 then
     log:verdict("todos", false, "no TODO matches '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
   if oldest then
@@ -604,7 +604,7 @@ function todos.run(argv: {integer:string}): integer
     end
   end
   log:verdict("todos", true, #listed .. " todos in " .. file_count .. " files, " ..
-    tostring(blamed) .. " files blamed, " .. clock.elapsed_ms(started) .. " ms")
+    tostring(blamed) .. " files blamed, " .. clock.took(started))
   return 0
 end
 
