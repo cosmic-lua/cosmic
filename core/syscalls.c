@@ -1426,11 +1426,15 @@ _Noreturn void cosmic_sandbox_init (void) {
   }
   close(0);
   int program = (int)syscall(SYS_pidfd_open, 2, 0);
-  if (program < 0) _exit(0);
+  if (program < 0 && errno == ESRCH) _exit(0);
+  /* Where a filter refuses pidfd_open, the program is looked for every
+   * tenth of a second instead: it is there, a zombie too, until the
+   * parent reaps it. */
   struct pollfd waiting[2] = { { program, POLLIN, 0 }, { children, POLLIN, 0 } };
   for (;;) {
     while (waitpid(-1, NULL, WNOHANG) > 0) {}
-    if (poll(waiting, 2, -1) < 0 && errno != EINTR) _exit(127);
+    if (program < 0 && kill(2, 0) != 0 && errno == ESRCH) _exit(0);
+    if (poll(waiting, 2, program < 0 ? 100 : -1) < 0 && errno != EINTR) _exit(127);
     if (waiting[0].revents != 0) _exit(0);
     if (waiting[1].revents != 0) {
       char info[128];
