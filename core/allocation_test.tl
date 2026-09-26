@@ -23,6 +23,7 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -691,4 +692,36 @@ local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string
     assert(after == before, case.name .. " left descriptor " .. before .. " open")
   end
   assert(ended > 0, "a request allocates")
+end
+
+--- An upload -- `start`, `write` twice, `finish`, then the response read
+--- to its end -- whenever an allocation fails: nothing is left behind,
+--- as with `open`, and the run with nothing refused reads the body.
+local function test_an_upload_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  -- A reply that leaves the connection open, so curl sends the whole
+  -- body though the reply comes first.
+  local script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#hello) ..
+    "\r\n\r\n" .. hello }
+  local function upload(): string
+    local up = assert(Http.upload("http://cosmic.test/",
+      { headers = { ["X-One"] = "1" }, script = script }))
+    assert(up:write("pay"))
+    assert(up:write("load"))
+    local response = assert(up:response())
+    local body = assert(Stream.read_all(response))
+    assert(response:close())
+    return body
+  end
+  assert(upload() == hello)
+  collectgarbage("collect")
+  local before = next_descriptor(tmp)
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    assert(upload() == hello, "an upload reads the whole body")
+  end)
+  assert(ended > 0, "an upload allocates")
+  assert(testing.live_transfers() == 0, "an upload left a transfer alive")
+  assert_c_heap(bytes, blocks, "an upload under refusal")
+  assert(next_descriptor(tmp) == before, "an upload left descriptor " .. before .. " open")
 end
