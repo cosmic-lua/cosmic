@@ -615,13 +615,18 @@ the key leaves out is a way for a sibling's pass to answer for a failure. each
 gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
 are closed:
 
-- [ ] *the tree's location* (`build/filesystem_observations.tl`, above
+- [x] *the tree's location* (`build/filesystem_observations.tl`, above
   `tree_name`): no input to a test, by rule. a test may not turn on where the
-  tree is; the working directory, a realpath, a readlink and the program's own
-  path it reads are keyed by `tree_name` in the shared key (whole in a
-  checkout's own), and `Proc.relaunch`'s artifact path is keyed nowhere.
-  nothing yet catches a test that breaks the rule: check the tree out in CI at
-  a path of its own each run.
+  tree is, nor where the program is; the working directory, a realpath, a
+  readlink and the program's own path it reads are keyed by `tree_name` in the
+  shared key (whole in a checkout's own), and `Proc.relaunch`'s artifact path
+  is keyed nowhere. CI moves its checkout, and the tool with it, to a path a
+  hash of the commit and the leg chooses (`.github/scripts/place-tree.sh`): a
+  re-run of a commit meets the same path, and a new commit a new one. a test
+  that breaks the rule fails a run that runs it at a path it breaks on: every
+  such run while CI stands only on what it runs, but once it stands on shared
+  verdicts, only one where the test's key changed, so the path catches it on
+  some commits, not on every one.
 - [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
   anything under `o/` is keyed by its bytes, hashed once a run while its stat
   holds; a read of the working database, which every run rewrites, is never

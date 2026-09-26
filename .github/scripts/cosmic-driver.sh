@@ -30,11 +30,10 @@ if [ "${1-}" = zig-cache ]; then
   echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
   # zig's global cache -- libc, compiler-rt and its standard library,
   # keyed by content -- is used where actions/cache restored it,
-  # outside the checkout; the driver seeds and saves only the
-  # project cache, which the driver keeps under o/.
+  # outside the checkout, as is the project cache (below).
   echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
-  # Where ci.yml restored the zig-build cache, for the driver's
-  # build and cache-save phases. Spelled from $RUNNER_TEMP, not
+  # Where ci.yml restored the zig-build cache, whose zig-cache the
+  # driver's builds use in place. Spelled from $RUNNER_TEMP, not
   # `runner.temp`: in the alpine job container the expression is
   # the host's path, which does not exist there, so the seed was
   # never found and that leg recompiled vendor/ and core/ each run.
@@ -49,15 +48,13 @@ if [ "${1-}" = zig-cache ]; then
   # when that changes; doc/design.md's "before CI stands on
   # shared verdicts" is the checklist.
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
-  # here and in ci/cosmic_ci/orchestration.tl) once CI holds a test
-  # to the tree's location being no input to it
-  # (build/filesystem_observations.tl:979) and the key holds a
+  # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
   # stat's times and inode where a test turns on them
   # (build/test.tl:536), a database a connection opened before the
-  # test reads (build/filesystem_observations.tl:598), a call a module
-  # took before the capture (build/filesystem_observations.tl:616), a
-  # read resolved as it is made (build/filesystem_observations.tl:624
-  # and :695) and an in-tree path that crosses a link out
+  # test reads (build/filesystem_observations.tl:613), a call a module
+  # took before the capture (build/filesystem_observations.tl:631), a
+  # read resolved as it is made (build/filesystem_observations.tl:639
+  # and :710) and an in-tree path that crosses a link out
   # (build/test.tl:461).
   echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
   # TODO: save what the product suite from fresh tracked source

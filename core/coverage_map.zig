@@ -8,7 +8,7 @@
 //! as C indexed by block, with whether each block is its function's entry
 //! and, for an entry, its function's name from the first link's symbols:
 //!
-//!     coverage-map write <first> <root> <out.c>
+//!     coverage-map write <first> <out.c> <root>...
 //!     coverage-map check <first> <second>
 //!
 //! `write` maps a first link, which has no table and keeps its debug
@@ -16,9 +16,12 @@
 //! and stripped like any shipped core, to the first: the table is only
 //! true of a link with the same blocks in the same order, so the two must
 //! have as many blocks, each with the same flags, at the same distance
-//! from the first block. Only blocks on lines of files under `<root>/core/` are
-//! mapped, by repository path; any other block (inlined from a vendored
+//! from the first block. Only blocks on lines of files under a `<root>/core/`
+//! are mapped, by repository path; any other block (inlined from a vendored
 //! header, or on compiler-made code with no line) is mapped to nothing.
+//! Each `<root>` is a copy of the tree's own sources in zig's cache, as
+//! the core is compiled from them (build.zig's `Own`), laid out as the
+//! tree is: its `core/x.c` is the tree's.
 
 const std = @import("std");
 const Io = std.Io;
@@ -33,9 +36,9 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const args = try init.minimal.args.toSlice(arena);
     const mode = if (args.len > 1) args[1] else "";
-    if (std.mem.eql(u8, mode, "write") and args.len == 5) {
-        const table = try generate(arena, io, args[2], args[3]);
-        try Io.Dir.cwd().writeFile(io, .{ .sub_path = args[4], .data = table });
+    if (std.mem.eql(u8, mode, "write") and args.len >= 5) {
+        const table = try generate(arena, io, args[2], args[4..]);
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = args[3], .data = table });
     } else if (std.mem.eql(u8, mode, "check") and args.len == 4) {
         const first = try blocksOf(arena, io, args[2]);
         const second = try blocksOf(arena, io, args[3]);
@@ -48,7 +51,7 @@ pub fn main(init: std.process.Init) !void {
                 fatal("{s}: block {d} is not the one {s} mapped; " ++ different_code, .{ args[3], i, args[2] });
         }
     } else {
-        fatal("usage: coverage-map write <first> <root> <out.c> | check <first> <second>", .{});
+        fatal("usage: coverage-map write <first> <out.c> <root>... | check <first> <second>", .{});
     }
 }
 
@@ -222,7 +225,7 @@ fn read(comptime T: type, file: []const u8, at: u64) T {
     return std.mem.readInt(T, file[at..][0..@sizeOf(T)], .little);
 }
 
-fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) ![]const u8 {
+fn generate(arena: Allocator, io: Io, core_path: []const u8, roots: []const []const u8) ![]const u8 {
     const found = try blocksOf(arena, io, core_path);
     const kind = found.format;
     const pcs = found.pcs;
@@ -265,7 +268,15 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
     }
     const files = try arena.alloc(?[]const u8, count);
     var paths: std.StringArrayHashMapUnmanaged(void) = .empty;
-    const prefix = try std.fmt.allocPrint(arena, "{s}/", .{std.mem.trimEnd(u8, root, "/")});
+    // A root, and a line's directory, may be relative to the directory
+    // the build runs in -- zig's cache named relative to it, as a local
+    // CI run's under the candidate's o/ is -- which is this one's too.
+    const here = try std.process.currentPathAlloc(io, arena);
+    const prefixes = try arena.alloc([]const u8, roots.len);
+    for (prefixes, roots) |*prefix, root| {
+        const absolute = try std.fs.path.resolvePosix(arena, &.{ here, root });
+        prefix.* = try std.fmt.allocPrint(arena, "{s}/", .{std.mem.trimEnd(u8, absolute, "/")});
+    }
     for (blocks.items(.index), blocks.items(.location)) |index, location| {
         lines[index] = location.line;
         files[index] = null;
@@ -273,15 +284,18 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
         const source = coverage.fileAt(location.file);
         const directory = coverage.stringAt(coverage.directories.keys()[source.directory_index]);
         const absolute = try std.fs.path.resolvePosix(arena, &.{
-            root, directory, coverage.stringAt(source.basename),
+            here, directory, coverage.stringAt(source.basename),
         });
-        if (!std.mem.startsWith(u8, absolute, prefix)) continue;
-        const relative = absolute[prefix.len..];
-        if (!std.mem.startsWith(u8, relative, "core/")) continue;
-        files[index] = relative;
-        try paths.put(arena, relative, {});
+        for (prefixes) |prefix| {
+            if (!std.mem.startsWith(u8, absolute, prefix)) continue;
+            const relative = absolute[prefix.len..];
+            if (!std.mem.startsWith(u8, relative, "core/")) continue;
+            files[index] = relative;
+            try paths.put(arena, relative, {});
+            break;
+        }
     }
-    if (paths.count() == 0) fatal("{s}: no block resolves to a line under {s}core/", .{ core_path, prefix });
+    if (paths.count() == 0) fatal("{s}: no block resolves to a line under a root's core/", .{core_path});
     if (paths.count() >= no_path) fatal("{s}: too many files to index", .{core_path});
     paths.sort(struct {
         keys: []const []const u8,

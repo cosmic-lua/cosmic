@@ -21,8 +21,9 @@
    build reads; copying an existing cosmic executable alone is insufficient to
    test a fresh checkout. zig's caches are shared by every checkout
    (`zig-project` and `zig-global` under `~/.cache/cosmic`, see
-   `build/zig.tl`), so a fresh worktree compiles only the core's own C;
-   delete them to reclaim the space. `o/bin/cosmic db` says what the
+   `build/zig.tl`), and every C file compiles from a copy there, so a
+   fresh worktree compiles none of it again; delete them to reclaim the
+   space. `o/bin/cosmic db` says what the
    databases under `o/` hold -- `o/cosmic.db`, the tree's projection;
    `o/carried.db`, that projection less the tree's own tests and
    examples and every doc but the public standard library's, which
@@ -57,6 +58,9 @@
    tree's location and with a stat's kind, size and mode alone: a fresh
    worktree runs only what no checkout has run on the same content and core,
    and a test that failed in this checkout never stands on another's pass.
+   So a test must not depend on where the tree is (its absolute path); CI
+   moves the checkout to a path chosen by the commit and the leg to catch
+   one that does: a re-run meets the same path, a new commit a new one.
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
