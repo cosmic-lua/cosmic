@@ -135,6 +135,9 @@ local fixed_point_per_test_timeout_s <const> = "240"
 local self_driven_test_timeout_ms <const> = 600000
 local self_driven_per_test_timeout_s <const> = "480"
 local runtime_test_timeout_ms <const> = 180000
+-- The sandbox probe starts six trivial children; its bound is the
+-- tree's own load, which a booted tree has already paid.
+local sandbox_probe_timeout_ms <const> = 60000
 local identity_test_timeout_ms <const> = 120000
 -- The sanitized cosmic's first, cold compile of the test tree, run
 -- once before the checked manifest entry is timed.
@@ -404,6 +407,27 @@ local function phase_local_boundary(p: PlatformContext): integer
   assert(read(local_d .. "/local-immediate/hashes.sha256") == read(local_d .. "/local-boundary/hashes.sha256"), "local database changed across boundary"); return 0
 end
 
+--- What the candidate's own sandbox (core/process.h's `Sandbox`) can
+--- hold a child to on this worker, part by part, as
+--- build/sandbox_probe.tl finds it, written to the run's summary: whether
+--- a test run here could be confined to its declared inputs at all.
+--- It reports and does not judge: a part the kernel or the container
+--- refuses fails nothing yet.
+local function phase_sandbox(p: PlatformContext): integer
+  local c = p.operation
+  local report = p.work .. "/sandbox-probe.md"
+  local s = capture_small(c, "sandbox probe", { p.root .. "/o/bin/cosmic",
+    "build/sandbox_probe.tl" }, report, sandbox_probe_timeout_ms)
+  if s ~= 0 then return s end
+  local said = read(report)
+  ContextEnv.summarize("## Sandbox probe (" .. c.worker .. ")\n\n" .. said .. "\n")
+  assert(Fs.put(Fs.stdout, said))
+  -- TODO: fail this phase when `said` ends "Confinement: **unavailable**",
+  -- once the first reports from every Linux leg (this summary) show
+  -- which parts each can hold and the container options they need.
+  return 0
+end
+
 --- The tree's format check, which `fix --check` also builds and
 --- type-checks it for: the first thing assemble does, and all a branch
 --- push's light run does after the native suite (see ci.yml's
@@ -585,6 +609,7 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   if phase == "build" then return phase_build(p)
   elseif phase == "local-boundary" then return phase_local_boundary(p)
   elseif phase == "format" then return format_check(p)
+  elseif phase == "sandbox" then return phase_sandbox(p)
   elseif phase == "assemble" then return phase_assemble(p)
   elseif phase == "portable" then return phase_portable(p)
   elseif phase == "portable-boundary" then return phase_portable_boundary(p)
