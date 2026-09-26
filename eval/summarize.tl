@@ -100,10 +100,9 @@ local function is_word(cp: integer): boolean
     (cp >= 0xff3b and cp <= 0xff40) or (cp >= 0xff5b and cp <= 0xff65))
 end
 
--- TODO: take Python's `\w` past ASCII from Unicode's letter, digit
--- and connector categories, once cosmic carries a table of them;
--- is_word's ranges are an approximation, so a symbol such as `→`
--- counts as part of a path here.
+-- is_word's ranges approximate Python's `\w` past ASCII, so a symbol
+-- such as `→` counts as part of a path here: close enough for an eval's
+-- summary, which does not warrant a table of Unicode's categories.
 
 --- A character a path is made of: a word character, or `.@+-`.
 local function is_path_char(cp: integer): boolean

@@ -130,7 +130,10 @@ something unmet (an open PR, a release the pin does not name yet), name that
 dependency in the comment ("once #2011 merges") rather than holding the
 comment back until it lands. One that waits on the bootstrap pin says so as
 "once ci/cosmic-driver.pin names ...", word for word, so the change that
-moves the pin finds it. A gap named anywhere else -- a reply, a
+moves the pin finds it. A feature no caller needs yet is no `TODO:`: it
+goes in `doc/roadmap.md`. Nor is a limit decided for good not worth
+closing: say it in a plain comment with the reason it stays. A gap left
+only for now is still a `TODO:`. A gap named anywhere else -- a reply, a
 summary, a "known limits" line in a PR description -- is a `TODO:` not yet
 written: write it in the code before naming it there.
 
