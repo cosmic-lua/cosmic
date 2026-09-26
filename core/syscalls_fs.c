@@ -310,10 +310,15 @@ COSMIC_SYSCALL(mkdir, 2) {
     return cosmic_fail_effect(L, errno);
   }
   /* Noted once it is made, as the test's own; one the log cannot keep
-   * is taken back. */
+   * is taken back. The rmdir is of the empty directory this call made
+   * a moment ago, in a parent it could write: it fails only where
+   * another process raced into it, and then the directory stays, no
+   * directory of the test's own -- a read beneath it is resolved as
+   * any other path's, which keys it no less -- and the call still says
+   * why it failed: its record could not be kept. */
   if (cosmic_observing &&
       !cosmic_observed_note(COSMIC_OBSERVED_MKDIR, path, strlen(path))) {
-    rmdir(path);
+    (void)rmdir(path);
     return cosmic_fail_effect(L, ENOMEM);
   }
   return cosmic_ok(L);
@@ -502,10 +507,15 @@ COSMIC_SYSCALL(mkdtemp, 1) {
     return cosmic_fail(L, errno);
   }
   /* Noted once it is made, as the test's own; one the log cannot keep
-   * is taken back. */
+   * is taken back. The rmdir is of the empty directory this call made
+   * a moment ago, in a parent it could write: it fails only where
+   * another process raced into it, and then the directory stays, no
+   * directory of the test's own -- a read beneath it is resolved as
+   * any other path's, which keys it no less -- and the call still says
+   * why it failed: its record could not be kept. */
   if (cosmic_observing &&
       !cosmic_observed_note(COSMIC_OBSERVED_MKDTEMP, room, len)) {
-    rmdir(room);
+    (void)rmdir(room);
     return cosmic_fail(L, ENOMEM);
   }
   lua_pushstring(L, room);

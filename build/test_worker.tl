@@ -62,9 +62,12 @@ end
 -- fuzz test's reads overran it under FUZZ_ITERS=2000 while every read
 -- of the test's own directory was noted twice, and its extraction
 -- property still does past about 5000 (fuzz.yml runs 2000 until this
--- is fixed). Drop repeated
--- observations here, as
--- `observations.join` does on the runner's side, or stream the report.
+-- is fixed). So does a test of distinct reads alone: 20000 stats of
+-- distinct paths outside the tree, each noted with its resolution,
+-- report about 30 MB and fail so, which dropping repeats cannot help.
+-- Stream the report, read as it arrives, rather than capture it
+-- whole; dropping repeated observations here, as `observations.join`
+-- does on the runner's side, shrinks the rest.
 local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
   for _, observation in ipairs(found) do
     lines[#lines + 1] = tag .. " " ..

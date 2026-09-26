@@ -72,7 +72,12 @@ static const struct observed_call {
  * core/memory.h counts: they are the observer's, kept for whatever call
  * a test makes, and a test that holds the core to what its own C
  * allocates and frees (`testing.c_heap`) is not held to them. Their
- * growth fails only at the fault point "observed_log". */
+ * growth fails only at the fault point "observed_log": the refusal
+ * walk `testing.fail_allocations` drives never reaches it.
+ * TODO: grow the log on the counted heap again (cosmic_realloc), so
+ * the refusal walk reaches its growth as it does every other block of
+ * the core's own, once `testing.c_heap` can leave the observer's bytes
+ * out of what it answers (a count of them kept beside the log). */
 static struct {
   char *bytes;
   size_t length;

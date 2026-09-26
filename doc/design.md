@@ -211,11 +211,13 @@ binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
 table itself, which answers as the binding it replaces. a syscall
-log, when asked, is kept by the five queries a test's key turns on
-(`getcwd`, `executable`, `lstat`, `readlink`, `realpath`): each of
-those bindings checks the log's flag itself (`core/observed.h`), so a
-reference taken before logging began is logged too, and every other
-binding is untouched.
+log, when asked, is kept by the fourteen calls a test's key turns on
+(`getcwd`, `executable`, `lstat`, `readlink`, `realpath`, `open`,
+`stat`, `readdir`, `getenv`, `environ`, `mkdir`, `mkdtemp` and
+`chdir`, the process table's `spawn`, and cosmic.http's `open` of a
+request that is not scripted): each of those bindings checks the log's
+flag itself (`core/observed.h`), so a reference taken before logging
+began is logged too, and every other binding is untouched.
 
 `posix` is a reserved name of a different kind: not privacy, but
 scope. a module lives under `cosmic.posix.` when its whole job is

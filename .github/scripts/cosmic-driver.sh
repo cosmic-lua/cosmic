@@ -51,8 +51,8 @@ if [ "${1-}" = zig-cache ]; then
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
   # stat's times and inode where a test turns on them
   # (build/test.tl:536), a database a connection opened before the
-  # test reads (build/filesystem_observations.tl:668), a read resolved
-  # by the call itself (core/observed.c:316), a file SQLite opens
+  # test reads (build/filesystem_observations.tl:682), a read resolved
+  # by the call itself (core/observed.c:321), a file SQLite opens
   # resolved as it opens it (build/filesystem_observations.tl:508) and
   # an in-tree path that crosses a link out (build/test.tl:461).
   echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"

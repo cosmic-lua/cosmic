@@ -581,6 +581,20 @@ local function drain_syscalls()
   end
 end
 
+--- Drains SQLite's record and the syscall table's log into every
+--- running capture. Draining allocates, and can raise on memory: a
+--- drain that fails may have taken records out of C before noting them
+--- all, so every capture still running is made one no key holds.
+local function drain_all()
+  for _, drain in ipairs({ drain_sqlite, drain_syscalls }) do
+    if not pcall(drain) then
+      for _, each in ipairs(noting) do
+        local _ = pcall(each, "x", drain == drain_sqlite and "sqlite" or "syscalls", "")
+      end
+    end
+  end
+end
+
 --- Calls `fn`, which starts processes whose every input it has read
 --- itself, through the calls observed here: a process started meanwhile
 --- is noted "h", a declared one, which a key can hold, rather than "p".
@@ -680,8 +694,7 @@ end
 --- is logged and noted "p".
 local function start(resolving: observations.Resolving | nil):
                      {observations.Observation}, function()
-  drain_sqlite()
-  drain_syscalls()
+  drain_all()
   local found: {observations.Observation} = {}
   -- The call the stand-in wraps: what `spawn` was as the capture
   -- began, past the log when it is the process table's own, since the
@@ -696,7 +709,7 @@ local function start(resolving: observations.Resolving | nil):
   -- itself and that is a directory still -- one put back as a link
   -- would lead elsewhere -- which a key never holds either.
   local function test_own(): {string}
-    drain_syscalls()
+    drain_all()
     local own: {string} = {}
     for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
       own[#own + 1] = directory
@@ -889,17 +902,9 @@ local function start(resolving: observations.Resolving | nil):
   return found, function()
     ended = true
     process.spawn = spawn == unlogged_spawn and logged_spawn or spawn
-    -- Draining allocates, and can raise on memory: the stand-in is put
-    -- back first. A drain that fails may have taken records out of C
-    -- before noting them all, so every capture still running -- this one
-    -- and each that encloses it -- is made one no key holds.
-    for _, drain in ipairs({ drain_sqlite, drain_syscalls }) do
-      if not pcall(drain) then
-        for _, each in ipairs(noting) do
-          local _ = pcall(each, "x", drain == drain_sqlite and "sqlite" or "syscalls", "")
-        end
-      end
-    end
+    -- Draining can raise on memory (see `drain_all`): the stand-in is
+    -- put back first.
+    drain_all()
     for at = #noting, 1, -1 do
       if noting[at] == note then table.remove(noting, at) break end
     end
