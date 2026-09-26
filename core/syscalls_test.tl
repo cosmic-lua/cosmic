@@ -770,31 +770,14 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
 end
 
---- An offline child's loopback is up, as a host's is: a connection to a
---- closed port of 127.0.0.1 is refused, not unreachable, and one to a
---- listener the child opened there is taken. Perl, which the host has
---- nearly everywhere, opens the sockets: cosmic has none of its own, and
---- curl words a refused connection and an unreachable network alike.
--- TODO: check it where there is no perl -- CI's alpine image has none,
--- so there this returns having checked nothing -- once cosmic.sys can
--- open, bind and connect a socket, or once ci/images/alpine installs
--- perl.
+--- An offline child's loopback is up, as a host's is: the kernel gives
+--- lo its 127.0.0.1 only when lo comes up, so the child's own routing
+--- table (/proc/self/net is the reader's network namespace) holds that
+--- address as a local route. /bin/sh reads it, which every host has.
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
-  local perl = "/usr/bin/perl"
-  if sys.stat(perl) == nil then
-    -- Nothing here to open a socket with.
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no " .. perl ..
-      " to check the loopback with")
-    return
-  end
   local report = create(tmp .. "/report")
-  local pid, trouble, errno = process.spawn(perl, { "perl", "-MIO::Socket::INET", "-e",
-    "my $s = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => 1, Proto => 'tcp'); " ..
-    "print $s ? \"open\\n\" : ($!{ECONNREFUSED} ? \"refused\\n\" : \"failed: $!\\n\"); " ..
-    "my $l = IO::Socket::INET->new(Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0, " ..
-    "Proto => 'tcp') or die \"listen: $!\\n\"; " ..
-    "IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $l->sockport, Proto => 'tcp') " ..
-    "or die \"connect: $!\\n\"; print \"reached\\n\"" },
+  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
+    "grep -q '127.0.0.1' /proc/self/net/fib_trie && echo up || echo down" },
     nil, tmp, nil, report, report, false, nil, { offline = true })
   if pid == nil then
     sys.close(report)
@@ -806,7 +789,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
-  assert(status.code == 0 and said == "refused\nreached\n", said)
+  assert(status.code == 0 and said == "up\n", said)
 end
 
 local function test_cpu_count_is_at_least_one()
