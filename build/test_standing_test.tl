@@ -112,7 +112,8 @@ end
 --- A test no key can hold -- this one reads outside its tree -- is
 --- assumed to pass as it last did, until it, what it loads, or what of
 --- its reads a key can hold (a file of the tree, a variable) changes, or
---- it is asked for: by --all, by COSMIC_TEST_ALL=1, or by name. One that
+--- it is asked for: by --all, by COSMIC_TEST_ALL=1, by COSMIC_SANDBOX=must,
+--- or by name. One that
 --- failed is never assumed.
 local function test_a_test_no_key_holds_is_assumed_until_asked_for(tmp: string)
   local root = tmp .. "/project"
@@ -139,6 +140,7 @@ end
   local env = Env.all()
   env.OUTSIDE = tmp .. "/outside"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   env.FLAVOUR = "sweet"
   local function said(name: string, words: {string}, wanted: string, fails?: boolean)
     local text = run(program, root, tmp .. "/" .. name .. ".out", env, fails, words)
@@ -151,6 +153,11 @@ end
   env.COSMIC_TEST_ALL = "1"
   said("variable", {}, "1 ran, 1 stood")
   env.COSMIC_TEST_ALL = nil
+  -- COSMIC_SANDBOX=must runs it too: it may have passed on a process
+  -- that fell back to running unconfined.
+  env.COSMIC_SANDBOX = "must"
+  said("must", {}, "1 ran, 1 stood")
+  env.COSMIC_SANDBOX = nil
   said("again", {}, "0 ran, 1 stood, 1 assumed")
   -- What of its reads a key can hold is still held: a file of the tree
   -- changed, or a variable it read, and it runs.

@@ -459,158 +459,32 @@ local function refusing_sandboxes(fn: function()): integer
   return refused
 end
 
---- Calls `fn` with COSMIC_SANDBOX answering `mode` (nil, unset) to
---- the observations, as the environment would.
-local function in_sandbox_mode(mode: string | nil, fn: function())
-  local syscalls = raw_tables().syscalls
-  local getenv = syscalls.getenv
-  syscalls.getenv = function(name: string): string | nil
-    if name == "COSMIC_SANDBOX" then return mode end
-    return getenv(name)
-  end
-  local ok, trouble: boolean, any = pcall(fn)
-  syscalls.getenv = getenv
-  observations.confine(nil)
-  if not ok then error(trouble, 0) end
-end
-
 --- Where the kernel cannot confine a process it starts as it would have,
 --- in the same directory, and the run is noted "p"; so too a process
---- given more paths than a sandbox holds.
+--- given more paths than a sandbox holds. Under COSMIC_SANDBOX=must
+--- there is no fallback to see (build/must_confine_test.tl holds that
+--- mode to refusing it).
 local function test_an_unconfinable_process_starts_unconfined(tmp: string)
+  if sys.getenv("COSMIC_SANDBOX") == "must" then return end
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local many: {string} = {}
   for i = 1, 70 do many[i] = tmp .. "/many" .. tostring(i) end
   local run: observations.Run = nil
-  local sandboxed = 0
-  in_sandbox_mode(nil, function()
-    sandboxed = refusing_sandboxes(function()
-      run = observations.call(function()
-        observations.confine({})
-        assert(Child.run({ "/bin/sh", "-c", "pwd > where" }))
-        observations.confine({ reads = many })
-        assert(Child.run({ "/bin/sh", "-c", "true" }))
-        observations.confine(nil)
-      end, nil, { tree = tmp .. "/tree", own = { own } })
-    end)
+  local sandboxed = refusing_sandboxes(function()
+    run = observations.call(function()
+      observations.confine({})
+      assert(Child.run({ "/bin/sh", "-c", "pwd > where" }))
+      observations.confine({ reads = many })
+      assert(Child.run({ "/bin/sh", "-c", "true" }))
+      observations.confine(nil)
+    end, nil, { tree = tmp .. "/tree", own = { own } })
   end)
   assert(run.passed, run.message)
   assert(sandboxed == 1, "only the first was tried confined: " .. tostring(sandboxed))
   local notes, _ = confined_notes(run)
   assert(notes == "p /bin/sh\np /bin/sh\n", notes)
   assert(assert(Fs.read(own .. "/where")) == assert(Fs.absolute(own)) .. "\n")
-end
-
---- Under `must_confine` a process the kernel will not confine does not
---- start at all: its spawn fails naming the part of the sandbox and the
---- errno, nothing runs in its place, and the test fails even when it
---- passes over the failure. So too one given more paths than a
---- sandbox unveils, which is never tried.
-local function test_a_must_confined_process_the_kernel_refuses_does_not_start(tmp: string)
-  local own = tmp .. "/own"
-  assert(Fs.mkdirs(own))
-  local answered: string = nil
-  local run: observations.Run = nil
-  local refused = refusing_sandboxes(function()
-    run = observations.call(function()
-      observations.must_confine({})
-      local ran, trouble = Child.run({ "/bin/sh", "-c", "echo ran > ran" })
-      observations.confine(nil)
-      assert(ran == nil, "an unconfined shell ran in its place")
-      answered = trouble
-    end, nil, { tree = tmp .. "/tree", own = { own } })
-  end)
-  assert(refused == 1, tostring(refused))
-  assert(Fs.stat(own .. "/ran") == nil, "nothing runs in its place")
-  assert(not run.passed, "a test that passes over a refused spawn fails")
-  local expected = "must_confine: /bin/sh could not start confined: unveil and offline " ..
-    "could not be applied: Operation not permitted (EPERM)"
-  assert(run.message == expected, run.message)
-  assert(answered:find(expected, 1, true), answered)
-  local notes, unconfined = confined_notes(run)
-  assert(not unconfined and notes == "x /bin/sh\n", notes)
-  -- More paths than a sandbox unveils: refused before any spawn.
-  local many: {string} = {}
-  for i = 1, 70 do many[i] = tmp .. "/many" .. tostring(i) end
-  refused = refusing_sandboxes(function()
-    run = observations.call(function()
-      observations.must_confine({ reads = many })
-      local _, _ = Child.run({ "/bin/sh", "-c", "true" })
-      observations.confine(nil)
-    end, nil, { tree = tmp .. "/tree", own = { own } })
-  end)
-  assert(refused == 0, tostring(refused))
-  assert(not run.passed)
-  assert(run.message:find("^must_confine: /bin/sh could not start confined: unveil could " ..
-    "not be applied: %d+ paths, more than the 64 a sandbox unveils %(EINVAL%)$"), run.message)
-end
-
---- Where the kernel confines a process, one under `must_confine` runs
---- held to what was declared; where it does not, it fails, naming
---- what could not be applied. It never runs unconfined.
-local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
-  local given, own, hidden = tmp .. "/given", tmp .. "/own", tmp .. "/hidden"
-  for _, dir in ipairs({ given, own, hidden }) do assert(Fs.mkdirs(dir)) end
-  assert(Fs.write(given .. "/f", "in"))
-  assert(Fs.write(hidden .. "/f", "secret"))
-  local code: integer = nil
-  local run = observations.call(function()
-    observations.must_confine({ reads = { given } })
-    local r, trouble = Child.run({ "/bin/sh", "-c",
-      "test -e " .. hidden .. "/f && exit 3; cat " .. given .. "/f > out; " ..
-      "if test -r /proc/self/net/dev; then grep -c : /proc/self/net/dev >> out; fi" })
-    observations.confine(nil)
-    code = r ~= nil and r.code or nil
-    assert(r ~= nil, trouble)
-  end, nil, { tree = tmp .. "/tree", own = { own } })
-  local notes, unconfined = confined_notes(run)
-  assert(not unconfined, "a must_confine process ran unconfined: " .. notes)
-  if not run.passed then
-    assert(run.message:find("^must_confine: /bin/sh could not start confined: .+ could not " ..
-      "be applied: .+ %(E[A-Z0-9]+%)"), run.message)
-    return
-  end
-  assert(code == 0, "the confined shell exited " .. tostring(code))
-  -- Its own files, and a network of a loopback alone.
-  local out = assert(Fs.read(own .. "/out"))
-  assert(out == "in" or out == "in1\n", out)
-  assert(notes:find("u " .. given .. "\n", 1, true), notes)
-end
-
---- COSMIC_SANDBOX=must makes every `confine` a `must_confine`; unset,
---- a refused sandbox falls back; any other value raises.
-local function test_the_sandbox_mode_makes_confine_must_confine(tmp: string)
-  local own = tmp .. "/own"
-  assert(Fs.mkdirs(own))
-  local function confined_run(): observations.Run
-    local run: observations.Run = nil
-    refusing_sandboxes(function()
-      run = observations.call(function()
-        observations.confine({})
-        local _, _ = Child.run({ "/bin/sh", "-c", "true" })
-        observations.confine(nil)
-      end, nil, { tree = tmp .. "/tree", own = { own } })
-    end)
-    return run
-  end
-  in_sandbox_mode("must", function()
-    local enforced = confined_run()
-    assert(not enforced.passed, "COSMIC_SANDBOX=must refuses the fallback")
-    assert(enforced.message:find("^confine %(COSMIC_SANDBOX=must%): /bin/sh could not start " ..
-      "confined: unveil and offline could not be applied: .* %(EPERM%)$"), enforced.message)
-  end)
-  in_sandbox_mode(nil, function()
-    local fallen = confined_run()
-    assert(fallen.passed, fallen.message)
-    local notes, _ = confined_notes(fallen)
-    assert(notes == "p /bin/sh\n", notes)
-  end)
-  in_sandbox_mode("Must", function()
-    local raised, why: boolean, any = pcall(observations.confine, {})
-    assert(not raised and tostring(why):find('COSMIC_SANDBOX is "Must"', 1, true), tostring(why))
-    assert(not pcall(observations.must_confine, {}), "a misspelt mode raises here too")
-  end)
 end
 
 --- Under `must_confine`, a program exec could not run at all -- a

@@ -596,7 +596,12 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   for _, dir in ipairs(standard) do
     if shell ~= nil and shell:sub(1, #dir + 1) == dir .. "/" then reachable = true end
   end
-  if not reachable then return end -- a /bin/sh from elsewhere (/nix/store)
+  if not reachable then
+    -- A /bin/sh from elsewhere (/nix/store): none to run unveiled.
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but /bin/sh is " ..
+      tostring(shell) .. ", beneath none of the paths this test unveils")
+    return
+  end
   local inside, outside, out = tmp .. "/in", tmp .. "/out", tmp .. "/w"
   for _, dir in ipairs({ inside, outside, out }) do assert(sys.mkdir(dir, 0x1c0)) end
   local written = create(inside .. "/f")

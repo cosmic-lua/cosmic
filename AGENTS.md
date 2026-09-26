@@ -80,9 +80,11 @@
    Where the kernel cannot confine a process, `confine` starts it
    unconfined; `observations.must_confine` fails the spawn, and the
    test, instead, naming the part of the sandbox refused and its errno.
-   `COSMIC_SANDBOX=must` makes every `confine` one, and fails
+   `COSMIC_SANDBOX=must` (off by default) makes every `confine` one,
+   runs every assumed test as `--all` does, and fails
    `core/syscalls_test.tl`'s sandbox tests rather than letting them
-   return unchecked; it is off by default.
+   return unchecked. It covers only tests that confine: a process
+   started with no declaration in force still runs unconfined.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and

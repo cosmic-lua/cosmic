@@ -670,7 +670,8 @@ struct cosmic_mount_attr {
  * it, so a caller's root cannot undo a read-only mount or make one of its
  * own. 0, or an errno.
  * TODO: a pid namespace too, so an unveiled /proc shows the child's own
- * processes rather than the host's; the child that unshares one is not
+ * processes rather than the host's, and a confined child cannot kill()
+ * a process of the same user outside it, as today it can; the child that unshares one is not
  * in it, so this waits on starting the program from a second fork. A
  * UTS namespace would change nothing a child sees: its host's name and
  * kernel stay what `uname` answers, which no key holds. */

@@ -79,11 +79,11 @@ local function operation(c: Context, phase: string, command: {string},
   end
   -- TODO: set COSMIC_SANDBOX=must here on the Linux legs, so every
   -- `observations.confine` of a test is a `must_confine` and the sandbox
-  -- tests of core/syscalls_test.tl cannot pass unchecked, once their
-  -- containers can confine a process -- user namespaces, mounts and
-  -- pivot_root allowed, Landlock and seccomp filters too -- as the
-  -- sandbox probe's reports (branch
-  -- claude/cosmic-todo-automerge-94qhj7-sandbox-probe) will settle.
+  -- tests of core/syscalls_test.tl cannot pass unchecked, once the Linux
+  -- legs' hosts allow unprivileged user namespaces (ci.yml's TODO on
+  -- container options): GitHub's refuse them through
+  -- kernel.apparmor_restrict_unprivileged_userns=1 as well as through
+  -- Docker's seccomp profile.
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ms = timeout,
     output = output, error = error_output }).code
