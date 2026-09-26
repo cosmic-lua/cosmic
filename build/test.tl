@@ -102,7 +102,8 @@ local record test
     key: string
     --- The key every checkout of the tree computes alike, which a
     --- verdict is shared under (`build.shared_verdicts`): `key` but for
-    --- a stat, keyed by what `held_stat` keeps of it.
+    --- a stat, keyed by what `held_stat` keeps of it, unless the test
+    --- declared it reads stat's times.
     shared: string
     stable: boolean
     --- A path a confined process was given was first walked after the
@@ -531,19 +532,32 @@ local worker_view: function(): {string:string}
 --- inode, device, link count and owner a checkout's own files were
 --- given are no part of what the tree holds, and would keep a verdict
 --- from standing in any checkout but the one that reached it; a
---- checkout's own key keeps them, so a file touched there runs what
---- stat'd it again -- but for one under o/, which the build rewrites.
--- TODO: a test whose verdict turns on an in-tree file's times or inode
--- (a staleness check comparing a file of the tree against another)
--- stands on a sibling's verdict where they differ, and, for a file
--- under o/, on its own checkout's. Key such a test's stats whole in
--- both keys, once a test can declare it reads them (as
--- `observations.confine` declares what its processes read).
+--- checkout's own key keeps them (`unaccessed`), so a file touched there
+--- runs what stat'd it again -- but for one under o/, which the build
+--- rewrites. A test that declares it reads them
+--- (`observations.reads_stat_times`) is keyed by every field instead, in
+--- both keys, o/ included.
+-- TODO: infer the declaration rather than trust a test to make it: a
+-- test that reads an in-tree file's times or inode without declaring
+-- it -- through a stat, or an fstat of a descriptor it opened --
+-- stands on a sibling's verdict where they differ. Have `stat`,
+-- `lstat` and `fstat` note "z" themselves when a capture runs and a
+-- time, inode or device field of what they answered is read (their
+-- answer a table whose those fields are looked up through its
+-- metatable, in core/syscalls_fs.c), and retire the declaration.
 local function held_stat(answer: string): string
   local size, mode, kind = answer:match("^ok (%S+) (%S+) (%S+)")
   if size == nil then return answer end
   if kind == "dir" then size = "-" end
   return "ok " .. size .. " " .. mode .. " " .. kind
+end
+
+--- A stat answer as a checkout's own key holds it for a test that did
+--- not declare it reads stat's times: without the access time, its last
+--- two fields, which the test's own reads move.
+local function unaccessed(answer: string): string
+  if answer:sub(1, 3) ~= "ok " then return answer end
+  return (answer:gsub(" %S+ %S+$", ""))
 end
 
 --- What one test's verdict is a function of: the test itself, its
@@ -559,7 +573,10 @@ end
 --- it; its `shared` key keeps of a stat only what `held_stat` does,
 --- so another checkout of the same content computes the same shared
 --- key, and a verdict one reached stands in the other
---- (`build.shared_verdicts`).
+--- (`build.shared_verdicts`). A test that declares it reads stat's
+--- times (`observations.reads_stat_times`) is keyed by every field of
+--- each stat in both keys, and by the stat of each file of the tree it
+--- opened: its shared key is effectively its checkout's alone.
 ---
 --- Exposed as `test.verdict_key` (`standing` and `finish` use it the
 --- same as any other caller would) so `test_test.tl` can pin two
@@ -581,6 +598,19 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local stable = true
   local late = false
   local paths: {string} = {}
+  -- Whether the test declared it reads stat's times
+  -- (`observations.reads_stat_times`): its stats are keyed whole, and
+  -- each file of the tree it opened is keyed by its stat too.
+  local whole = false
+  for _, observation in ipairs(reads) do
+    if observation.kind == "z" then whole = true end
+  end
+  -- What of a stat's answer a verdict turns on: all of it for a declared
+  -- test, and all but the access time otherwise.
+  local function as_held(kind: string, answer: string): string
+    if (kind == "s" or kind == "l") and not whole then return unaccessed(answer) end
+    return answer
+  end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     local keyed = kind == "e" or kind == "u" or kind == "c" or kind == "b"
@@ -610,9 +640,15 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         paths[#paths + 1] = identified
       end
       if relative ~= nil and observation.answer ~= "" then
+        local said = as_held(kind, observation.answer)
         local before = answers[identified]
-        if before ~= nil and before ~= observation.answer then stable = false end
-        answers[identified] = observation.answer
+        if before ~= nil and before ~= said then stable = false end
+        answers[identified] = said
+      end
+      local stated = "s " .. (relative or "")
+      if whole and kind == "o" and relative ~= nil and not seen[stated] then
+        seen[stated] = true
+        paths[#paths + 1] = stated
       end
     end
   end
@@ -645,9 +681,18 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- a read's path as the call is made: generation 8 missed the one and
   -- resolved an lstat's, a readlink's or a realpath's path as the
   -- capture ended.
+  -- Generation 10 records a stat's change and access times, keys a
+  -- stat's every field for a test that declares it reads them
+  -- (`observations.reads_stat_times`), and leaves the access time out
+  -- of every other test's own key: generation 9 recorded neither time,
+  -- and kept a declared test's times out of its shared key.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-9", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-3", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-10", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-4", "module-load-reads-v1", header }
+  if whole then
+    lines[#lines + 1] = "stat-times"
+    shared_lines[#shared_lines + 1] = "stat-times"
+  end
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -683,9 +728,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         current = data ~= nil and Hash.hex_sha256(data) or "missing"
       end
     elseif kind == "s" then
-      current = observations.stat_answer(root .. "/" .. relative)
+      current = as_held(kind, observations.stat_answer(root .. "/" .. relative))
     elseif kind == "l" then
-      current = observations.lstat_answer(root .. "/" .. relative)
+      current = as_held(kind, observations.lstat_answer(root .. "/" .. relative))
     elseif kind == "k" then
       current = observations.readlink_answer(root .. "/" .. relative)
     elseif kind == "a" then
@@ -711,6 +756,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         key_parts[memo_held] = held
       end
       answer = held
+    elseif (kind == "s" or kind == "l") and whole then
+      -- Declared: whole in both keys, o/ included.
     elseif (kind == "s" or kind == "l") and output(relative) then
       -- When the build last wrote a file is its own, not the tree's:
       -- held as the shared key holds it here too, lest a test that

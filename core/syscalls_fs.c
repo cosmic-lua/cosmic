@@ -837,6 +837,12 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
   closedir(dir);
 }
 
+/* TODO: log a walk in this binding, as `stat` and `readdir` log theirs
+ * (core/observed.h): a test that digests a path of the tree reads
+ * everything beneath it, and, without contents, its times and inodes,
+ * and no capture notes any of it, so a sibling's verdict stands for it
+ * whatever the tree holds. Note it a stat of each entry walked, or one
+ * observation keyed by the digest itself. */
 COSMIC_SYSCALL(tree_digest, 2) {
   const char *given = cosmic_path(L, 1);
   if (given == NULL) return cosmic_fail(L, EINVAL);

@@ -163,14 +163,15 @@ end
 --- reader decodes: "l" an lstat, "k" a readlink, "a" a realpath, "c"
 --- the working directory and "b" the program's own path, and "v" and
 --- "w", an lstat's or a readlink's resolution, as "r" and "t" are
---- another read's.
+--- another read's; and "z", a test's declaration that it reads stat's
+--- times (`observations.reads_stat_times`), later still.
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" or
         kind == "u" or kind == "l" or kind == "k" or kind == "a" or kind == "c" or
-        kind == "b" or kind == "v" then
+        kind == "b" or kind == "v" or kind == "z" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
     elseif kind == "t" or kind == "w" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
@@ -202,7 +203,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v2" then
       local kind, encoded_path, encoded_answer =
-        line:match("^([osdertulkacbvw]) ([0-9a-f]*) ?([0-9a-f]*)$")
+        line:match("^([osdertulkacbvwz]) ([0-9a-f]*) ?([0-9a-f]*)$")
       local path: string = nil
       local answer: string = nil
       if encoded_path ~= nil then
@@ -258,9 +259,13 @@ end
 --- not even `getenv("")`.
 local environ_path = "\0environ"
 
---- Every field exposed by `sys.stat` but the access time, including an
---- error result: a read moves `atime`, so keying on it would make every
---- verdict that reads a file stale by reading it.
+--- Every field exposed by `sys.stat`, including an error result: what
+--- the path is, its size and permissions first, then its times, inode,
+--- device, link count and owner, the change time, and the access time
+--- last. A read moves the access time, so only the key of a test that
+--- declares it reads stat's times (`observations.reads_stat_times`)
+--- holds it; every other key leaves the last two fields out, lest every
+--- verdict that reads a file be made stale by reading it.
 local function stat_result_answer(st: sys.Stat | nil, trouble: string,
                                   errno: integer): string
   if st == nil then
@@ -268,7 +273,8 @@ local function stat_result_answer(st: sys.Stat | nil, trouble: string,
   end
   return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
     tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
-    tostring(st.nlink), tostring(st.uid), tostring(st.gid) }, " ")
+    tostring(st.nlink), tostring(st.uid), tostring(st.gid), tostring(st.ctime),
+    tostring(st.ctime_ns), tostring(st.atime), tostring(st.atime_ns) }, " ")
 end
 
 --- A query's answer: its value, or its error, as a stat's is told.
@@ -616,6 +622,29 @@ function observations.declared(what: string, fn: function(): boolean)
   if not held then
     for _, note in ipairs(noting) do note("x", what, "") end
   end
+end
+
+--- Declares that the calling test's verdict turns on what `stat` says
+--- of a file of the tree beyond what it is, its size and its
+--- permissions: its modification, change or access time, its inode,
+--- device, link count or owner -- a staleness check comparing one file's
+--- time with another's, say, or a test of `Fs.copy` keeping a source's
+--- times. Noted "z" by every running capture, it keys each stat and
+--- lstat the test made of a path under the tree, and what `stat` says
+--- now of each file of the tree it opened (which an `fstat` of its
+--- descriptor may have read), whole: in its checkout's own key, o/
+--- included, and in the shared key too. Every other test's shared key
+--- keeps of a stat only what the path is, its size and permissions, and
+--- its own key leaves out the access time and, under o/, which the build
+--- rewrites, the times and inode (see build/test.tl's `held_stat`).
+--- Another checkout's files never share an inode or a change time with
+--- this one's, so a declared test's verdict effectively never stands in
+--- another checkout: it runs there itself, as it must. Called at a test
+--- module's top level, it holds for each of its tests, whose capture
+--- includes the module's load; called in a test, for that test. Outside
+--- a capture it does nothing.
+function observations.reads_stat_times()
+  for _, note in ipairs(noting) do note("z", "", "") end
 end
 
 --- The tree each running capture resolves paths outside of, by its

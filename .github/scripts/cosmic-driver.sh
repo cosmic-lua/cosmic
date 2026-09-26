@@ -49,10 +49,11 @@ if [ "${1-}" = zig-cache ]; then
   # shared verdicts" is the checklist.
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
-  # stat's times and inode where a test turns on them (the TODO above
-  # build/test.tl's `held_stat`), a database a connection opened before
-  # the test reads (the TODO above build/filesystem_observations.tl's
-  # `start`), a read resolved by the call itself (the TODO above
+  # stat's times and inode where a test turns on them without declaring
+  # it (the TODO above build/test.tl's `held_stat`), a tree digest (the
+  # TODO above core/syscalls_fs.c's `tree_digest`), a database a
+  # connection opened before the test reads (the TODO above
+  # build/filesystem_observations.tl's `start`), a read resolved by the call itself (the TODO above
   # core/observed.c's `log_resolution`), a file SQLite opens resolved as
   # it opens it (the TODO above build/filesystem_observations.tl's
   # `drain_sqlite`) and an in-tree path that crosses a link out (the

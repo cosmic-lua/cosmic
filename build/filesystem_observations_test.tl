@@ -598,7 +598,13 @@ local function test_a_query_of_the_syscall_table_is_noted_whoever_made_it(tmp: s
     assert(found ~= nil, kind .. " " .. path .. " is not noted")
     return found.answer
   end
-  assert(answer("l", real .. "/link") == observations.lstat_answer(real .. "/link"))
+  -- But for its access time, its last two fields, which the readlink
+  -- after it moved.
+  local function unaccessed(said: string): string
+    return (said:gsub(" %S+ %S+$", ""))
+  end
+  assert(unaccessed(answer("l", real .. "/link")) ==
+    unaccessed(observations.lstat_answer(real .. "/link")))
   assert(answer("l", real .. "/link"):find(" link ", 1, true), answer("l", real .. "/link"))
   assert(answer("l", real .. "/missing") == observations.lstat_answer(real .. "/missing"))
   assert(answer("l", real .. "/missing"):sub(1, 6) == "error ")
@@ -842,4 +848,25 @@ local function test_a_resolution_is_the_one_the_observations_told(tmp: string)
         told:sub(1, 80) .. " ~= " .. want:sub(1, 80))
     end
   end
+end
+
+--- A test's declaration that it reads stat's times is noted by the
+--- capture it is made in, and kept through a stored run's encoding, so
+--- the key a later run is looked up under sees it before it runs.
+local function test_a_declaration_of_stat_s_times_is_noted_and_kept()
+  local run = observations.call(function()
+    observations.reads_stat_times()
+  end, nil)
+  assert(run.passed, run.message)
+  local declared = false
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "z" then declared = true end
+  end
+  assert(declared, "the declaration was not noted")
+  local back = assert(observations.decode(observations.encode(run.reads)))
+  local kept = false
+  for _, observation in ipairs(back) do
+    if observation.kind == "z" then kept = true end
+  end
+  assert(kept, "the declaration did not survive encoding")
 end
