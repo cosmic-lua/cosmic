@@ -315,11 +315,31 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/own/.github/actions/x/action.yml",
     table.concat(picked.flow_files, " "))
   -- `.github/` named, or a directory under it, covers what it holds.
-  for _, dir in ipairs({ tmp .. "/own/.github", tmp .. "/own/.github/actions" }) do
+  for _, dir in ipairs({ tmp .. "/own/.github", tmp .. "/own/.github/actions", tmp .. "/own/.github/actions/" }) do
     picked = assert(fix.chosen(tmp .. "/own", { dir }))
     assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$"),
       dir .. ": " .. table.concat(picked.flow_files, " "))
+    assert(not picked.flow_files[1]:find("//", 1, true), picked.flow_files[1])
   end
+  -- Whether a directory lies under `.github/` is read off its path in
+  -- the tree, not above it; and `vendor/` is never covered.
+  assert(Fs.mkdirs(tmp .. "/.github/own/core"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/build"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/vendor/lua/.github"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/.github/workflows"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/docs"))
+  assert(Fs.write(tmp .. "/.github/own/build/importer.tl", "return {}\n"))
+  assert(Fs.write(tmp .. "/.github/own/.github/workflows/w.yml", "{a: 1}\n"))
+  assert(Fs.write(tmp .. "/.github/own/docs/d.yml", "{a: 1}\n"))
+  assert(Fs.write(tmp .. "/.github/own/vendor/lua/.github/v.yml", "{a: 1}\n"))
+  local nested = tmp .. "/.github/own"
+  for _, named in ipairs({ {}, { nested } }) do
+    picked = assert(fix.chosen(nested, named))
+    local got = table.concat(picked.flow_files, " ")
+    assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$"), got)
+  end
+  picked = assert(fix.chosen(nested, { nested .. "/vendor/lua" }))
+  assert(#picked.flow_files == 0, table.concat(picked.flow_files, " "))
 end
 
 --- A YAML file is laid out in place, not written under `--check`, and

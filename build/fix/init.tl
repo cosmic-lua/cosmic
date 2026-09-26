@@ -25,7 +25,8 @@
 --- It also lays out a YAML file in flow style (`build.flow`) it is named,
 --- and, in cosmic's own tree, those under `.github/` -- the workflows
 --- and actions -- as a directory holding it is covered: one written in
---- block style is refused when named and passed over otherwise.
+--- block style is refused when named and passed over otherwise, and one
+--- that cannot be read ends the run.
 ---
 --- In cosmic's own tree it also covers the tree's C: every C file it
 --- covers is written back in the layout `build.c` holds, and every
@@ -128,10 +129,27 @@ local function is_yaml(file: string): boolean
 end
 
 --- The YAML files in flow style `dir` covers, as paths relative to it:
---- those under its `.github/`, or, for a directory that is `.github/`
---- or lies under one, those under it; none where it has neither.
-local function workflow_sources(dir: string): {string} | nil, string
-  local within = ("/" .. dir .. "/"):find("/.github/", 1, true) ~= nil
+--- those under its `.github/`, or, for a directory that is the tree's
+--- `.github/` or lies under it, those under it; none where it has
+--- neither, or lies under a directory `fix` never covers (`vendor/`).
+--- A file there that cannot be read is a failure, not one passed over.
+local function workflow_sources(dir: string, root: string): {string} | nil, string
+  dir = dir:gsub("/+$", "")
+  if dir == "" then dir = "/" end
+  local absolute, _ = Fs.absolute(dir)
+  local top, _ = Fs.absolute(root)
+  local inside: string | nil = nil
+  if absolute ~= nil and top ~= nil then
+    local relative, _ = Fs.relative(absolute, top)
+    if relative ~= nil and relative ~= ".." and relative:sub(1, 3) ~= "../" then inside = relative end
+  end
+  if inside == nil then
+    return {}
+  end
+  local within = inside == ".github" or inside:sub(1, 8) == ".github/"
+  if not within and inside ~= "." and skip(inside) then
+    return {}
+  end
   local base = within and dir or dir .. "/.github"
   local prefix = within and "" or ".github/"
   local st, _ = Fs.stat(base)
@@ -258,7 +276,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
         return nil, c_trouble
       end
       c_files = found
-      local workflows, flow_trouble = workflow_sources(root)
+      local workflows, flow_trouble = workflow_sources(root, root)
       if workflows == nil then
         return nil, flow_trouble
       end
@@ -290,12 +308,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
         for _, file in ipairs(c_under) do
           c_out[#c_out + 1] = path .. "/" .. file
         end
-        local workflows, flow_trouble = workflow_sources(path)
+        local workflows, flow_trouble = workflow_sources(path, root)
         if workflows == nil then
           return nil, flow_trouble
         end
+        local base = path:gsub("/+$", "")
         for _, file in ipairs(workflows) do
-          flow_out[#flow_out + 1] = path .. "/" .. file
+          flow_out[#flow_out + 1] = base .. "/" .. file
         end
       end
     elseif String.ends_with(path, ".c") or String.ends_with(path, ".h") then
@@ -333,10 +352,14 @@ function fix.lay_out(files: {string}, checking: boolean, changed: {string}, fail
     if out == nil then
       failures[#failures + 1] = file .. ": " .. flow_trouble
     elseif out ~= source then
-      changed[#changed + 1] = file
+      local written, write_trouble = true, ""
       if not checking then
-        local written, write_trouble = Fs.write(file, out)
-        if not written then failures[#failures + 1] = write_trouble end
+        written, write_trouble = Fs.write(file, out)
+      end
+      if written then
+        changed[#changed + 1] = file
+      else
+        failures[#failures + 1] = file .. ": " .. write_trouble
       end
     end
   end

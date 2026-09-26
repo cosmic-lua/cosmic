@@ -260,3 +260,71 @@ local function test_update_keeps_the_comments_of_what_stays()
   local v = flow.value(doc.root) as {string: any}
   assert(v.name == "cd" and (v.added as {string: any}).b == 2)
 end
+
+--- An array's members are paired the way a diff pairs lines, so a step
+--- dropped or added leaves the others' comments with them, and a step
+--- changed in place keeps its own.
+local function test_update_keeps_each_steps_comments_with_it()
+  local Json = require("cosmic.json")
+  local text = "{\n  steps: [\n    # check out the tree\n    {uses: \"actions/checkout\"},\n" ..
+    "    {run: \"make\"}, # build it\n  ],\n}\n"
+  local doc = assert(flow.parse(text))
+  doc.root = flow.update(doc.root, { steps = Json.array({ { run = "make" } }) })
+  assert(flow.render(doc) == "{\n  steps: [\n    {run: \"make\"}, # build it\n  ],\n}\n", flow.render(doc))
+
+  doc = assert(flow.parse(text))
+  doc.root = flow.update(doc.root, { steps = Json.array({
+    { uses = "actions/checkout" }, { run = "make test" }, { run = "make install" } }) })
+  assert(flow.render(doc) == "{\n  steps: [\n    # check out the tree\n    {uses: \"actions/checkout\"},\n" ..
+    "    {run: \"make test\"},\n    {run: \"make install\"},\n  ],\n}\n", flow.render(doc))
+
+  doc = assert(flow.parse(text))
+  doc.root = flow.update(doc.root, { steps = Json.array({ { uses = "actions/checkout" }, { run = "make all" } }) })
+  assert(flow.render(doc) == "{\n  steps: [\n    # check out the tree\n    {uses: \"actions/checkout\"},\n" ..
+    "    {run: \"make all\"}, # build it\n  ],\n}\n", flow.render(doc))
+end
+
+--- What `from`, `update` and `set` build is kept on one line only where
+--- it fits the width at the column it is rendered at.
+local function test_width_is_held_where_a_node_lands()
+  local Json = require("cosmic.json")
+  assert(flow.write(Json.array({ 1, 2, 3 }), { width = 9 }) == "[1, 2, 3]\n")
+  assert(flow.write(Json.array({ 1, 2, 3 }), { width = 8 }) == "[\n  1,\n  2,\n  3,\n]\n")
+  local long = Json.array({ string.rep("a", 40), string.rep("b", 40) })
+  local doc = assert(flow.parse("{\n  jobs: {\n    a: {\n      steps: [],\n    },\n  },\n}\n"))
+  doc.root = flow.update(doc.root, { jobs = { a = { steps = Json.array(), branches = long } } })
+  for line in flow.render(doc):gmatch("[^\n]+") do assert(#line <= 100, line) end
+  doc = assert(flow.parse("{\n  a: [1],\n}\n"))
+  local many: {integer} = {}
+  for i = 1, 60 do many[i] = i end
+  doc.root = flow.update(doc.root, { a = Json.array(many) })
+  for line in flow.render(doc):gmatch("[^\n]+") do assert(#line <= 100, line) end
+  doc = assert(flow.parse("{\n  a: {\n    b: {\n      c: 1,\n    },\n  },\n}\n"))
+  flow.set(assert(flow.get(doc.root, "a", "b")), "d", flow.from(long, { width = 60 }))
+  for line in flow.render(doc):gmatch("[^\n]+") do assert(#line <= 60, line) end
+end
+
+local function test_values_the_subset_cannot_hold_are_refused()
+  local out, why = flow.format('{"<<": {a: 1}}\n')
+  assert(out == nil and why:find("merge", 1, true), tostring(why))
+  assert(not pcall(flow.from, { ["<<"] = 1 }))
+  out, why = flow.format('{a: "x\ty"}\n')
+  assert(out == nil and why:find("a tab in a string", 1, true), tostring(why))
+  out, why = flow.format("{\n  a: 1 # c1\n  , # c2\n  b: 2,\n}\n")
+  assert(out == nil and why:find("on a line of its own", 1, true), tostring(why))
+  local deep: {any} = {}
+  local at = deep
+  for _ = 1, 70 do
+    local inner: {any} = {}
+    at[1] = inner
+    at = inner
+  end
+  assert(not pcall(flow.from, deep), "nesting past cosmic.json's depth is refused")
+  local cycle: {string: any} = {}
+  cycle.self = cycle
+  local ok, err = pcall(flow.from, cycle)
+  assert(not ok and tostring(err):find("holds itself", 1, true), tostring(err))
+  local value, trouble = flow.value(assert(flow.parse("{a: x}")).root)
+  assert(value == nil and trouble ~= "", "a node that reads as nothing says why")
+  assert(#flow.comments("# a\n{b: \"# no\"} # c\n") == 2)
+end

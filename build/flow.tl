@@ -43,6 +43,9 @@ local record flow
     items: {flow.Item}
     --- Whether a container stays on one line.
     inline: boolean
+    --- For a container `from` built or `update` changed, the widest line
+    --- it stays on one line within, decided where it is rendered.
+    width: integer
     --- A comment on a multi-line container's opening line.
     comment: string
     --- The comments and blank lines after its last member.
@@ -203,6 +206,8 @@ local function scan(text: string, comments: {string}): {string}
         local d = text:sub(i, i)
         if d == "\n" then
           line = line + 1
+        elseif d == "\t" then
+          say("a tab in a string, which JSON5 refuses: write \\t")
         elseif d == "\\" then
           local e = text:sub(i + 1, i + 1)
           local hex = text:sub(i + 2, i + 5)
@@ -219,6 +224,7 @@ local function scan(text: string, comments: {string}): {string}
       token_line = line
       if text:match("^ *:", i) then
         local name, _ = Json.decode(text:sub(first, i - 1), READ)
+        if name == "<<" then say("the key <<, which YAML 1.1 reads as a merge") end
         if name is string then key(name) end
       end
     elseif c == "/" and text:sub(i + 1, i + 1):match("[/*]") then
@@ -477,8 +483,12 @@ local function parse_container(r: Reader): flow.Node
       local comma_line = r.line
       r.at = r.at + 1
       local more = trivia(r)
+      local on_comma, beyond = trailing(more, comma_line)
+      if on_comma ~= nil and (comment ~= nil or #rest > 0) then
+        fail(comma_line, "a comment after a , on a line of its own: put it after the member")
+      end
       if comment == nil and #rest == 0 then
-        comment, rest = trailing(more, comma_line)
+        comment, rest = on_comma, beyond
       else
         for _, entry in ipairs(more.entries) do rest[#rest + 1] = entry end
       end
@@ -538,18 +548,20 @@ local function inline_text(node: flow.Node): string
 end
 
 --- Whether a node is written on one line: a scalar, an empty container
---- with no comments, or one written that way that holds only such.
-local function one_line(node: flow.Node): boolean
+--- with no comments, or one written that way that holds only such --
+--- and, for one that `width` holds (see `Node.width`), whose text fits
+--- in it from `column` with `after` more bytes after it.
+local function one_line(node: flow.Node, column: integer, after: integer): boolean
   if node.kind == "scalar" then return true end
   if node.comment ~= nil or #tidy(node.tail, true, true) > 0 then return false end
   if #node.items == 0 then return true end
   if not node.inline then return false end
   for _, item in ipairs(node.items) do
-    if item.comment ~= nil or #tidy(item.before, true, true) > 0 or not one_line(item.value) then
+    if item.comment ~= nil or #tidy(item.before, true, true) > 0 or not one_line(item.value, 0, 0) then
       return false
     end
   end
-  return true
+  return node.width == nil or column + #inline_text(node) + after <= node.width
 end
 
 local function comment_lines(out: {string}, entries: {string}, pad: string)
@@ -559,9 +571,10 @@ local function comment_lines(out: {string}, entries: {string}, pad: string)
 end
 
 --- Appends `node`'s text to `out`, whose last line it continues; `pad`
---- is its line's indentation.
-local function write(out: {string}, node: flow.Node, pad: string)
-  if one_line(node) then
+--- is its line's indentation, and `after` how many bytes follow it on
+--- its last line (a member's comma).
+local function write(out: {string}, node: flow.Node, pad: string, after: integer)
+  if one_line(node, #out[#out], after) then
     out[#out] = out[#out] .. inline_text(node)
     return
   end
@@ -572,7 +585,7 @@ local function write(out: {string}, node: flow.Node, pad: string)
   for index, item in ipairs(node.items) do
     comment_lines(out, tidy(item.before, index == 1, false), inner)
     out[#out + 1] = inner .. (item.key ~= nil and key_text(item.key) .. ": " or "")
-    write(out, item.value, inner)
+    write(out, item.value, inner, 1)
     out[#out] = out[#out] .. "," .. (item.comment ~= nil and " " .. item.comment or "")
   end
   comment_lines(out, tidy(node.tail, #node.items == 0, true), inner)
@@ -584,7 +597,7 @@ function flow.render(doc: flow.Doc): string
   local out: {string} = {}
   comment_lines(out, tidy(doc.head, true, false), "")
   out[#out + 1] = ""
-  write(out, doc.root, "")
+  write(out, doc.root, "", 0)
   if doc.comment ~= nil then out[#out] = out[#out] .. " " .. doc.comment end
   comment_lines(out, tidy(doc.foot, false, true), "")
   return table.concat(out, "\n") .. "\n"
@@ -608,6 +621,13 @@ local function same_multiset(a: {string}, b: {string}): boolean
     if left[i] ~= right[i] then return false end
   end
   return true
+end
+
+--- The comments of `text`, as `problems` finds them.
+function flow.comments(text: string): {string}
+  local found: {string} = {}
+  scan(text, found)
+  return found
 end
 
 --- `text` in the canonical form, or nil and why not: a text outside the
@@ -665,7 +685,8 @@ local function ordered(value: {string: any}, opts: flow.Options): {string}
   for i, key in ipairs(opts.order or WORKFLOW_ORDER) do rank[key] = i end
   local keys: {string} = {}
   for key in pairs(value) do
-    if not key is string then error("flow.from: an object key " .. tostring(key) .. " is no string", 3) end
+    if not key is string then error("flow.from: an object key " .. tostring(key) .. " is no string", 0) end
+    if key == "<<" then error("flow.from: the key <<, which YAML 1.1 reads as a merge", 0) end
     keys[#keys + 1] = key
   end
   table.sort(keys, function(a: string, b: string): boolean
@@ -677,40 +698,41 @@ local function ordered(value: {string: any}, opts: flow.Options): {string}
   return keys
 end
 
---- The tree of `value` at a line indented `pad` columns and begun with
---- `lead` columns of key.
-local function build(value: any, opts: flow.Options, pad: integer, lead: integer): flow.Node
+--- The tree of `value`, `depth` containers down.
+local function build(value: any, opts: flow.Options, depth: integer): flow.Node
   if not value is {any: any} or value == Json.null then
     return flow.scalar(value)
   end
-  local node: flow.Node = { items = {}, tail = {} }
+  if depth >= MAX_DEPTH then
+    error("flow.from: containers nested deeper than " .. MAX_DEPTH .. ", or a table that holds itself", 0)
+  end
+  local node: flow.Node = { items = {}, tail = {}, width = opts.width or 100 }
   if is_array(value) and value is {any} then
     node.kind = "array"
     for _, each in ipairs(value) do
-      node.items[#node.items + 1] = { value = build(each, opts, pad + 2, 0), before = {} }
+      node.items[#node.items + 1] = { value = build(each, opts, depth + 1), before = {} }
     end
   elseif value is {string: any} then
     node.kind = "object"
     for _, key in ipairs(ordered(value, opts)) do
-      node.items[#node.items + 1] = {
-        key = key, value = build(value[key], opts, pad + 2, #key_text(key) + 2), before = {},
-      }
+      node.items[#node.items + 1] = { key = key, value = build(value[key], opts, depth + 1), before = {} }
     end
   end
   local scalars = true
   for _, item in ipairs(node.items) do
     if item.value.kind ~= "scalar" then scalars = false end
   end
-  node.inline = scalars and pad + lead + #inline_text(node) + 1 <= (opts.width or 100)
+  node.inline = scalars
   return node
 end
 
 --- The tree of a Teal value: a table `cosmic.json` would write as an
 --- object or an array, and scalars `scalar` takes. An object's keys
 --- come in `opts.order`, and a container of scalars alone is kept on one
---- line where it fits `opts.width`. Raises for a value it cannot write.
+--- line where it fits `opts.width` in the column it is rendered at.
+--- Raises for a value it cannot write.
 function flow.from(value: any, opts?: flow.Options): flow.Node
-  return build(value, opts or {}, 0, 0)
+  return build(value, opts or {}, 0)
 end
 
 --- A new text of a Teal value, with no comments: `from`, rendered.
@@ -718,10 +740,10 @@ function flow.write(value: any, opts?: flow.Options): string
   return flow.render({ head = {}, root = flow.from(value, opts), foot = {} })
 end
 
---- A node's value, as `cosmic.json` reads it (`Json.null` for null).
-function flow.value(node: flow.Node): any
-  local value, _ = Json.decode(inline_text(node), { json5 = true, null_value = Json.null })
-  return value
+--- A node's value, as `cosmic.json` reads it (`Json.null` for null), or
+--- nil and why it reads as none.
+function flow.value(node: flow.Node): any | nil, string
+  return Json.decode(inline_text(node), { json5 = true, null_value = Json.null })
 end
 
 --- The member of `node` down `path`, a key for each object and an index
@@ -766,52 +788,121 @@ function flow.set(node: flow.Node, key: string | integer, new: flow.Node)
   end
 end
 
---- `node` with `value` written over it: a member both hold keeps its
---- place and comments and takes the new value, the same way down; one
---- only `node` holds goes, its comments with it; one only `value` holds
---- is added at the end, in `opts.order`. Where the two are not both
---- objects or both arrays, the result is `from(value)`.
-function flow.update(node: flow.Node, value: any, opts?: flow.Options): flow.Node
-  local o: flow.Options = opts or {}
+--- A value's encoding, to tell members apart by.
+local function encoded(value: any): string
+  local text, _ = Json.encode(value)
+  return text or ""
+end
+
+--- Pairs the members of `old` with the values of `new` the way a diff
+--- does: those equal in both, longest run in order first, anchor the
+--- rest; between two anchors, a run of the same length on both sides is
+--- paired in order (a member changed in place), and a run of another
+--- length is dropped from `old` and added from `new`. The pairing, by
+--- `new`'s index: the old item, or nil for one to add.
+local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
+  local a, b: {string}, {string} = {}, {}
+  for i, item in ipairs(old) do
+    local value, _ = flow.value(item.value)
+    a[i] = encoded(value)
+  end
+  for j, value in ipairs(new) do b[j] = encoded(value) end
+  -- The table of longest common runs from each (i, j) to the end.
+  local lcs: {{integer}} = {}
+  for i = #a + 1, 1, -1 do
+    lcs[i] = {}
+    for j = #b + 1, 1, -1 do
+      if i > #a or j > #b then
+        lcs[i][j] = 0
+      elseif a[i] == b[j] then
+        lcs[i][j] = lcs[i + 1][j + 1] + 1
+      else
+        lcs[i][j] = math.max(lcs[i + 1][j], lcs[i][j + 1])
+      end
+    end
+  end
+  local out: {integer: flow.Item} = {}
+  local function between(i1: integer, i2: integer, j1: integer, j2: integer)
+    if i2 - i1 == j2 - j1 then
+      for k = 0, i2 - i1 - 1 do out[j1 + k] = old[i1 + k] end
+    end
+  end
+  local i, j = 1, 1
+  local gi, gj = 1, 1
+  while i <= #a and j <= #b do
+    if a[i] == b[j] then
+      between(gi, i, gj, j)
+      out[j] = old[i]
+      i, j = i + 1, j + 1
+      gi, gj = i, j
+    elseif lcs[i + 1][j] >= lcs[i][j + 1] then
+      i = i + 1
+    else
+      j = j + 1
+    end
+  end
+  between(gi, #a + 1, gj, #b + 1)
+  return out
+end
+
+--- `update`'s walk.
+local function update(node: flow.Node, value: any, o: flow.Options, depth: integer): flow.Node
   if not value is {any: any} or value == Json.null then
     local new = flow.scalar(value)
     if node.kind == "scalar" and node.text == new.text then return node end
     return new
   end
-  local array = is_array(value) or (Json.is_array(value) or (node.kind == "array" and next(value) == nil))
+  if depth >= MAX_DEPTH then
+    error("flow.update: containers nested deeper than " .. MAX_DEPTH .. ", or a table that holds itself", 0)
+  end
+  local array = is_array(value) or (node.kind == "array" and next(value) == nil)
   if (array and node.kind ~= "array") or (not array and node.kind ~= "object") then
-    return flow.from(value, o)
+    return build(value, o, depth)
   end
   local kept: {flow.Item} = {}
   if array and value is {any} then
-    local list = value
-    for index, item in ipairs(node.items) do
-      if list[index] ~= nil then
-        item.value = flow.update(item.value, list[index], o)
+    local pairing = paired(node.items, value)
+    for index, each in ipairs(value) do
+      local item = pairing[index]
+      if item ~= nil then
+        item.value = update(item.value, each, o, depth + 1)
         kept[#kept + 1] = item
+      else
+        kept[#kept + 1] = { value = build(each, o, depth + 1), before = {} }
       end
     end
-    for index = #kept + 1, #list do
-      kept[#kept + 1] = { value = flow.from(list[index], o), before = {} }
-    end
   elseif value is {string: any} then
-    local object = value
     local seen: {string: boolean} = {}
     for _, item in ipairs(node.items) do
-      if object[item.key] ~= nil then
-        item.value = flow.update(item.value, object[item.key], o)
+      if value[item.key] ~= nil then
+        item.value = update(item.value, value[item.key], o, depth + 1)
         kept[#kept + 1] = item
         seen[item.key] = true
       end
     end
-    for _, key in ipairs(ordered(object, o)) do
+    for _, key in ipairs(ordered(value, o)) do
       if not seen[key] then
-        kept[#kept + 1] = { key = key, value = flow.from(object[key], o), before = {} }
+        kept[#kept + 1] = { key = key, value = build(value[key], o, depth + 1), before = {} }
       end
     end
   end
   node.items = kept
+  -- One written on one line stays there only while it fits.
+  if node.inline then node.width = o.width or 100 end
   return node
+end
+
+--- `node` with `value` written over it, changed in place: an object's
+--- member both hold keeps its place and comments and takes the new
+--- value, the same way down; one only `node` holds goes, its comments
+--- with it; one only `value` holds is added at the end, in `opts.order`.
+--- An array's members are paired as `paired` says, so a member added or
+--- removed leaves the others' comments with them. A container written on
+--- one line stays there only while it fits `opts.width`. Where the two
+--- are not both objects or both arrays, the result is `from(value)`.
+--- The order applies to every object, a step's `with` and `env` too.
+function flow.update(node: flow.Node, value: any, opts?: flow.Options): flow.Node
+  return update(node, value, opts or {}, 0)
 end
 
 return flow

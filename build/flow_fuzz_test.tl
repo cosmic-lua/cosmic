@@ -64,6 +64,10 @@ local function format_holds(input: string): boolean, string
   local found = flow.problems(out)
   if #found > 0 then return false, "laid out outside the subset: " .. found[1] end
   if value_of(out) ~= value_of(input) then return false, "laid out as another value" end
+  local before, after = flow.comments(input), flow.comments(out)
+  table.sort(before)
+  table.sort(after)
+  if table.concat(before, "\n") ~= table.concat(after, "\n") then return false, "a comment lost or changed" end
   local again, again_why = flow.format(out)
   if again ~= out then return false, "not a fixed point: " .. tostring(again_why) end
   return true, ""
