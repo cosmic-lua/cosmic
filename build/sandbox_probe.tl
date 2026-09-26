@@ -245,7 +245,12 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   held, said = tried(root, own_pids, { unveil = { reads = reads, writes = {} }, offline = true })
   add("unveiled: a pid namespace of its own", false, held, said)
   held, said = tried(root, own_proc, { unveil = { reads = reads, writes = {} }, offline = true })
-  add("unveiled: a /proc of its own", false, held, said)
+  -- Needed: without it a confined process's /proc is the host's,
+  -- read-only, so a sandboxed test worker cannot confine what its test
+  -- starts; ci.yml's Linux legs are given it (--security-opt
+  -- systempaths=unconfined, in .github/scripts/leg-container.sh), so
+  -- COSMIC_CI_REQUIRE_SANDBOX=1 fails a leg that loses it.
+  add("unveiled: a /proc of its own", true, held, said)
   if ruleset == nil then
     add("all four", false, false, "no landlock ruleset to hold it to")
   else
