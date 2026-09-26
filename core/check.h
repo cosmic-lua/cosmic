@@ -25,8 +25,9 @@ static inline int cosmic_optint (lua_State *L, int arg, int otherwise) {
   return lua_isnoneornil(L, arg) ? otherwise : cosmic_checkint(L, arg);
 }
 
-/* The exit status a main function left at `index`: nothing is 0, and an
- * integer from 0 to 255 is itself. Anything else is -1, for the caller to
+/* The exit status a main function left at `index`: nothing is 0, and a
+ * whole number from 0 to 255, or text naming one (lua_tointegerx's
+ * reading), is itself. Anything else is -1, for the caller to
  * refuse: an exit keeps only the low byte, so 256 would pass for success,
  * and the value is read outside any protected call, where a raise ends
  * the process in a panic. */

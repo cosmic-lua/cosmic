@@ -4,13 +4,19 @@
 --- (`Options.script`), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
+local Child = require("cosmic.child")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
+local observations = require("build.filesystem_observations")
+
+-- What these tests start is this very program.
+observations.confine({ reads = observations.itself() })
 
 local url = "http://cosmic.test/"
 
@@ -341,6 +347,41 @@ local function test_connection_refused_on_a_closed_local_port()
   assert(trouble ~= "")
   assert(trouble:lower():find("refus", 1, true) ~= nil or
     trouble:lower():find("connect", 1, true) ~= nil, trouble)
+end
+
+--- What a fresh process, $SSL_CERT_FILE naming `cert_file`, is told
+--- when it opens a closed local port: the roots, that file's included,
+--- are loaded once per process, at its first request.
+local function refused_with_cert_file(tmp: string, cert_file: string): string
+  local script = tmp .. "/open.tl"
+  assert(Fs.write(script, [[
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ms = 2000 })
+Fs.put(Fs.stdout, trouble or "")
+]]))
+  local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script },
+    { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  assert(result.code == 0, tostring(result.stderr))
+  return result.stdout or ""
+end
+
+--- $SSL_CERT_FILE naming what holds no certificates -- a directory, or
+--- a file of anything else -- adds none and refuses nothing: a request
+--- fails as it would without it. A directory's size, as seeking to its
+--- end tells it, once asked for more memory than there was, refusing
+--- every request.
+-- TODO: add a FIFO, which opening without O_NONBLOCK waited on for a
+-- writer forever, once cosmic.sys carries mkfifo.
+local function test_a_cert_file_holding_no_certificates_is_passed_over(tmp: string)
+  local junk = tmp .. "/junk.pem"
+  assert(Fs.write(junk, "no certificate here\n"))
+  for _, cert_file in ipairs({ tmp, junk, tmp .. "/missing.pem" }) do
+    local trouble = refused_with_cert_file(tmp, cert_file)
+    assert(not trouble:find("SSL_CERT_FILE", 1, true), cert_file .. ": " .. trouble)
+    assert(trouble:lower():find("connect", 1, true) ~= nil, cert_file .. ": " .. trouble)
+  end
 end
 
 local function test_get_reports_the_same_failure_as_open()
