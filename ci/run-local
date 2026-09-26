@@ -183,7 +183,7 @@ else
 fi
 
 if [ "$#" = 0 ]; then
-  set -- build local-boundary assemble portable portable-boundary fixtures
+  set -- build local-boundary sandbox assemble portable portable-boundary fixtures
 fi
 
 # The driver runs from a copy of ci/, so that its working database (the
