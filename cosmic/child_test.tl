@@ -436,9 +436,14 @@ end
 
 --- A wait holds a streamed output to its limit, even while a writer
 --- outside the group goes on filling the pipe: the rest waits in the
---- pipe for the reader, which reads on after the wait.
+--- pipe for the reader, which reads on after the wait. The child's own
+--- 2 KiB, past the limit and within what a pipe holds, goes into the
+--- pipe before the background writer starts, so it is there when the
+--- child exits however late that writer runs, and the writer cannot
+--- fill the pipe ahead of it and leave the child blocked.
 local function test_a_wait_holds_a_streamed_output_to_its_limit()
-  local h = assert(Child.start({ "/bin/sh", "-c", "head -c 4000000 /dev/zero & exit 0" },
+  local h = assert(Child.start({ "/bin/sh", "-c",
+    "head -c 2048 /dev/zero; head -c 4000000 /dev/zero & exit 0" },
     { stdout = "stream", capture_limit = 1024, process_group = false }))
   assert(assert(h:wait(5000)).ok)
   Time.sleep_ns(100 * 1000 * 1000)
