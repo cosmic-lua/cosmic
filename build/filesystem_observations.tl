@@ -354,7 +354,7 @@ end
 -- refuses it a procfs of its own and it has the host's /proc (a
 -- container masking parts of it: core/syscalls.c's `place_proc`), which
 -- it can read there without that entering the key, once the containers
--- CI runs in let a user namespace mount one (the TODO at `guard_proc`).
+-- CI runs in let a user namespace mount one (the TODO there).
 local system: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32",
   "/etc", "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
 
@@ -481,6 +481,26 @@ function observations.itself(): {string}
   return program
 end
 
+--- Whether this host gives a sandboxed process a procfs of its own pid
+--- namespace (core/process.h's `unveil`): whether /proc, as this
+--- process sees it, is writable and has nothing mounted beneath it but
+--- /proc/sys/fs/binfmt_misc, which the kernel keeps empty. A user
+--- namespace may mount a procfs only where one is wholly visible, which
+--- a container's masked /proc paths are not; where one is not, a
+--- sandboxed process has the host's /proc, read-only.
+function observations.own_proc_given(): boolean
+  local text, _ = Fs.read("/proc/self/mountinfo")
+  if text == nil then return false end
+  for line in text:gmatch("[^\n]+") do
+    local point, options = line:match("^%S+ %S+ %S+ %S+ (%S+) (%S+)")
+    if point == "/proc" and ("," .. options .. ","):find(",ro,", 1, true) then return false end
+    if point ~= nil and point:sub(1, 6) == "/proc/" and point ~= "/proc/sys/fs/binfmt_misc" then
+      return false
+    end
+  end
+  return true
+end
+
 --- What a sandboxed worker of this very program -- `cosmic test`'s,
 --- started as `Proc.relaunch` says, in `cwd` -- has to be given to start
 --- and run a test of the tree at `tree`, beside what the test itself
@@ -490,8 +510,8 @@ end
 --- worker attaches), and `cwd`; to change, `scratch`, its temporary
 --- directory. Each is there as it is given, so each may be handed to
 --- `process.spawn`'s `unveil` whole. The worker can confine what its
---- test starts in turn, having a /proc of its own; and it `nest`s, so it
---- can where the kernel refuses it one and its /proc is the host's.
+--- test starts in turn, having a /proc of its own -- but where the
+--- kernel refuses it one and its /proc is the host's, read-only.
 function observations.worker_unveil(tree: string, cwd: string, scratch: string): raw_process.Unveil
   local reads: {string} = {}
   local seen: {string:boolean} = {}
@@ -506,7 +526,7 @@ function observations.worker_unveil(tree: string, cwd: string, scratch: string):
   for _, path in ipairs(observations.itself()) do add(path) end
   add((tree == "/" and "" or tree) .. "/o/cosmic.db")
   add(cwd)
-  return { reads = reads, writes = { scratch }, nest = true }
+  return { reads = reads, writes = { scratch } }
 end
 
 --- What of the environment a process of this very program needs, for a
@@ -533,16 +553,17 @@ end
 -- (the status pipe carrying it beside the errno): an EACCES or EINVAL
 -- from exec, or an unreadable path declared, falls back unconfined too,
 -- and the test runs uncached where it should fail.
--- TODO: treat the EROFS a process confined inside a sandbox that does not
--- `nest` fails with where that sandbox's /proc is the host's (a
--- container masking parts of its /proc) -- its uid_map write, on a /proc
--- read-only whole -- as a sandbox the kernel cannot give, falling back
--- or, under `must_confine`, refused, once `process.spawn` says which
--- step failed (the TODO above): today the spawn fails with it outright,
--- so a test that passes over a failed spawn passes having run nothing,
--- even in must mode, as build/must_confine_test.tl's nested case does
--- there. Where the kernel gives a sandbox a /proc of its own, as a host
--- does, it confines one of its own nesting or not.
+-- TODO: treat the EROFS a process confined inside a sandbox fails with
+-- where that sandbox's /proc is the host's (a container masking parts of
+-- its /proc, without --security-opt systempaths=unconfined) -- its
+-- uid_map write, on a /proc read-only whole -- as a sandbox the kernel
+-- cannot give, falling back or, under `must_confine`, refused, once
+-- `process.spawn` says which step failed (the TODO above): today the
+-- spawn fails with it outright, so a test that passes over a failed
+-- spawn passes having run nothing, even in must mode, as
+-- build/must_confine_test.tl's nested case does there. Where the kernel
+-- gives a sandbox a /proc of its own, as a host does, it confines one
+-- of its own.
 local unconfinable: {integer:boolean} = {
   [sys.ENOSYS] = true, [sys.EPERM] = true, [sys.EACCES] = true, [sys.EINVAL] = true,
   [sys.ENOSPC] = true,
@@ -589,7 +610,7 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
   if unveil is {any:any} then
     local reads, writes = raw_strings(rawget(unveil, "reads")), raw_strings(rawget(unveil, "writes"))
     if reads == nil or writes == nil then return nil end
-    plain.unveil = { reads = reads, writes = writes, nest = rawget(unveil, "nest") == true }
+    plain.unveil = { reads = reads, writes = writes }
   elseif unveil ~= nil then
     return nil
   end

@@ -1,7 +1,13 @@
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#else
+#define _GNU_SOURCE
+#endif
 
 #include "coverage.h"
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -242,7 +248,7 @@ void cosmic_coverage_report (void) {
   int length = snprintf(path, sizeof path, "%s/%ld.%u.XXXXXX",
                         children_entry + sizeof CHILDREN_NAME, (long)getpid(), reported++);
   if (length < 0 || (size_t)length >= sizeof path) return;
-  int fd = mkstemp(path);
+  int fd = mkostemp(path, O_CLOEXEC);
   if (fd < 0) return;
   /* One "path TAB line" per hit block; a line hit twice is read once. */
   char buffer[8192];

@@ -35,12 +35,12 @@ end
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
 local sandbox_only <const> =
   "runs only in a sandboxed child that made a user namespace and mapped its ids, which a host refusing unprivileged ones never starts"
-local host_proc_only <const> =
-  "runs only in a sandboxed child whose /proc is the host's, bound where the kernel refuses it a procfs of its own " ..
-  "(a container masking parts of its /proc), and only for a sandbox that nests"
+local sandbox_started <const> =
+  "runs only in the parent of a sandboxed child that started, which a host refusing unprivileged user namespaces " ..
+  "never starts"
 local init_only <const> =
-  "runs only as a sandbox's init, pid 1 of an unveiled child's pid namespace, a process of its own the core executes " ..
-  "afresh, whose coverage no test collects"
+  "runs only as a sandbox's init, pid 1 of an unveiled child's pid namespace, which the core executes afresh with " ..
+  "an empty environment, so with no directory to report its coverage to"
 local maps_ids <const> =
   "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
@@ -65,10 +65,9 @@ local exempt: {string: string} = {
   ["core/syscalls.c:raise_descriptor"] = sandbox_only,
   ["core/syscalls.c:start_init"] = sandbox_only,
   ["core/syscalls.c:start_program"] = sandbox_only,
-  ["core/syscalls.c:forget_sandbox_init"] = sandbox_only,
-  ["core/syscalls.c:guard_proc"] = host_proc_only,
-  ["core/syscalls.c:proc_own"] = host_proc_only,
+  ["core/syscalls.c:end_sandbox_init"] = sandbox_started,
   ["core/syscalls.c:cosmic_sandbox_init"] = init_only,
+  ["core/syscalls.c:descriptor_kind"] = init_only,
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.
   ["core/syscalls.c:make_mirrored"] = sandbox_only,

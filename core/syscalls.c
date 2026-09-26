@@ -682,93 +682,6 @@ static int loopback_up (void) {
   return number;
 }
 
-/* One entry getdents64(2) writes, which a libc may not declare. */
-struct cosmic_dirent64 {
-  uint64_t d_ino;
-  int64_t d_off;
-  unsigned short d_reclen;
-  unsigned char d_type;
-  char d_name[];
-};
-
-/* Whether `name`, an entry of /proc, is a process's own -- its pid -- or
- * the directory itself or its parent. */
-static bool proc_own (const char *name) {
-  if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return true;
-  for (const char *at = name; *at != '\0'; at++) {
-    if (*at < '0' || *at > '9') return false;
-  }
-  return true;
-}
-
-/* For a sandbox that `nest`s where its /proc is the host's bound
- * (`place_proc`'s fallback): makes read-only, in the root being built,
- * what of the host's /proc -- bound read-write at `target`, `length`
- * bytes long, in a buffer of PATH_MAX -- is not a process's own: each
- * entry of it that is a directory, or a file with any write bit
- * (/proc/sys, /proc/sysrq-trigger, /proc/irq, /proc/bus and the like,
- * which a child mapped to root could otherwise write), is bound over
- * itself read-only, and every mount beneath it too. A process's own,
- * and the links into them (self, thread-self, net, mounts), stay
- * writable, so a child of the child can map its ids in a user namespace
- * of its own, which it writes its own /proc/self/uid_map for. 0, or an
- * errno.
- * TODO: drop this walk and `nest` with it once the containers CI runs
- * in let a user namespace mount a procfs of its own, as a host does
- * (Docker's masked /proc paths refuse one: mount_too_revealing, which
- * subset=pid does not escape as of Linux 6.18). Until then, where it
- * runs, an entry /proc gains after this lists it -- a module loaded
- * later adding one -- is writable to the child, and so is what its user
- * may write of a host process's /proc/<pid> -- its oom_score_adj,
- * coredump_filter, clear_refs, sched, autogroup -- and its
- * /proc/<pid>/net shows the host's network namespace, though the child,
- * in a pid namespace of its own, can no longer signal it. */
-static int guard_proc (char *target, size_t length) {
-  int dir = open("/proc", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (dir < 0) return errno;
-  _Alignas(8) char entries[4096];
-  char source[PATH_MAX];
-  int number = 0;
-  while (number == 0) {
-    long got = syscall(SYS_getdents64, dir, entries, sizeof entries);
-    if (got <= 0) {
-      if (got < 0) number = errno;
-      break;
-    }
-    for (long at = 0; number == 0 && at < got;) {
-      const struct cosmic_dirent64 *entry = (const struct cosmic_dirent64 *)(entries + at);
-      if (entry->d_reclen == 0) {
-        number = EIO;
-        break;
-      }
-      at += entry->d_reclen;
-      const char *name = entry->d_name;
-      if (proc_own(name)) continue;
-      struct stat st;
-      if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
-        if (errno != ENOENT) number = errno;
-        continue;
-      }
-      if (S_ISLNK(st.st_mode) || (!S_ISDIR(st.st_mode) && (st.st_mode & 0222) == 0)) continue;
-      int made = snprintf(source, sizeof source, "/proc/%s", name);
-      int placed = snprintf(target + length, PATH_MAX - length, "/%s", name);
-      if (made < 0 || (size_t)made >= sizeof source || placed < 0 ||
-          (size_t)placed >= PATH_MAX - length) {
-        number = ENAMETOOLONG;
-      } else if (mount(source, target, NULL, MS_BIND | MS_REC, NULL) != 0) {
-        number = errno;
-      } else {
-        struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
-        if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
-          number = errno;
-      }
-    }
-  }
-  target[length] = '\0';
-  close(dir);
-  return number;
-}
-
 /* Whether this process is in a user namespace other than the host's:
  * its uid_map maps less than every id to itself. False where it cannot
  * tell, as without /proc. */
@@ -828,23 +741,29 @@ static int drop_capabilities (void) {
  * that namespace's processes alone (subset=pid: no /proc/sys, no
  * /proc/sysrq-trigger, nothing of the host's but those processes') --
  * writable, so a process in it can map its ids in a user namespace of
- * its own, and confine one of its own in turn, touching nothing
- * outside. Where the kernel refuses one -- a container's runtime masks
+ * its own, and confine one of its own in turn. What it may write there
+ * is its own processes', and its session's autogroup, which is the
+ * sandbox's own (`run_program` starts one, as `cosmic_sandbox_init`
+ * does). Where the kernel refuses one -- a container's runtime masks
  * parts of its /proc, and a user namespace may mount a procfs only
- * where one is wholly visible (mount_too_revealing), EPERM; a kernel
- * before 5.8 knows no subset, EINVAL -- the host's /proc is bound
- * there instead, read-only (writable where given to write), or, where
- * `nest` says, read-only but for its processes' own entries
- * (`guard_proc`). `target` is `length` bytes long, in a buffer of
- * PATH_MAX; `own` says whether the procfs is the child's own. 0, or an
- * errno. */
-static int place_proc (char *target, size_t length, int writable, int nest, int *own) {
+ * where one is wholly visible (mount_too_revealing, which subset=pid
+ * does not escape as of Linux 6.18), EPERM; a kernel before 5.8 knows
+ * no subset, EINVAL -- the host's /proc is bound there instead,
+ * read-only but where given to write. `own` says whether the procfs is
+ * the child's own. 0, or an errno.
+ * TODO: let a child whose /proc is the host's confine one of its own,
+ * which fails with EROFS writing its uid_map there, once the containers
+ * the tree is tested in let a user namespace mount a procfs of its own
+ * (Docker's --security-opt systempaths=unconfined, once #2228 lands),
+ * or else drop the fallback and refuse the sandbox: meanwhile its
+ * /proc shows the host's processes and state, whose pids are not the
+ * ones it is in (it is pid 2 of its own namespace). */
+static int place_proc (const char *target, int writable, int *own) {
   *own = mount("proc", target, "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") == 0;
   if (*own) return 0;
   if (errno != EPERM && errno != EINVAL) return errno;
   if (mount("/proc", target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
   if (writable) return 0;
-  if (nest) return guard_proc(target, length);
   struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
   if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
     return errno;
@@ -878,7 +797,7 @@ static int place_proc (char *target, size_t length, int writable, int nest, int 
  * A UTS namespace would change nothing a child sees: its host's name
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
-                       const int *writable, int count, int nest, int mapped) {
+                       const int *writable, int count, int mapped) {
   int number = 0;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
@@ -928,7 +847,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
       }
     }
     if (strcmp(paths[i], "/proc") == 0) {
-      number = place_proc(target, (size_t)length, writable[i], nest, &own_proc);
+      number = place_proc(target, writable[i], &own_proc);
       if (number != 0) return number;
       continue;
     }
@@ -1034,11 +953,8 @@ struct spawn_plan {
   int unveil_count;
   const char *uid_map;
   const char *gid_map;
-  /* Whether /proc, where it is the host's (`place_proc`), is given with
-   * its processes' own entries writable (`guard_proc`), and whether the
-   * child is root in a user namespace not the host's, which may not map
-   * root into one of its own. */
-  int nest;
+  /* Whether the child is root in a user namespace not the host's, which
+   * may not map root into one of its own. */
   int unmap_root;
 #if defined(__linux__)
   /* For an unveiled child: the tops of the stacks its init and its
@@ -1084,15 +1000,22 @@ static void default_signals (void) {
 }
 
 /* The rest of a child's start once its sandbox's namespaces are made
- * (`spawn_child`): its process group, its directory, its descriptors
- * moved from where `pinned` holds them, Landlock's `confined` ruleset
- * and the pledge, the parent's mask, and exec. A failure goes to the
- * parent over `status_fd` as an errno. */
+ * (`spawn_child`): its process group -- for an unveiled child, a
+ * session of its own, and so a group of its own whatever
+ * `process_group` says, so the autogroup its writable /proc lets it set
+ * (/proc/self/autogroup) is the sandbox's, not its parent's session's --
+ * its directory, its descriptors moved from where `pinned` holds them,
+ * Landlock's `confined` ruleset and the pledge, the parent's mask, and
+ * exec. A failure goes to the parent over `status_fd` as an errno. */
 static _Noreturn void run_program (const struct spawn_plan *plan, const int *pinned,
                                    int confined, int status_fd) {
   int top = plan->top;
   int failure = 0;
-  if (plan->process_group && setpgid(0, 0) != 0) failure = errno;
+  if (plan->unveiling) {
+    if (setsid() < 0) failure = errno;
+  } else if (plan->process_group && setpgid(0, 0) != 0) {
+    failure = errno;
+  }
   if (!failure && plan->cwd != NULL && chdir(plan->cwd) != 0) failure = errno;
   for (int t = 0; !failure && t <= top; t++) {
     if (pinned[t] >= 0) {
@@ -1111,7 +1034,14 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
     }
   }
   /* Confined last, just before exec: what the child and every process
-   * it starts may reach is the ruleset's, and nothing lets it off. */
+   * it starts may reach is the ruleset's, and nothing lets it off.
+   * TODO: let a ruleset that names /proc reach an unveiled child's own
+   * /proc, as it reaches the host's where the child has that
+   * (`place_proc`), once `landlock_ruleset` records which paths a
+   * ruleset holds: adding the rule here, in the child, would widen the
+   * caller's ruleset for every later child besides, and a ruleset that
+   * left /proc out would gain it. Until then a child held to one reads
+   * nothing of its own /proc. */
   if (!failure && confined >= 0) {
 #if defined(__linux__)
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
@@ -1181,30 +1111,31 @@ static int raise_descriptor (int fd, int top, int *placed) {
 /* The sandbox's init, on the unveiled child's memory from its start to
  * its exec: the first process in the child's pid namespace, it gives up
  * its capabilities and executes this very program as
- * `cosmic_sandbox_init`, holding the started pipe's read end as 0 and
- * the ready pipe's write end as 1, and nothing else -- from / as the
- * host has it still, where a core linked dynamically (the checked one)
- * finds its loader and libraries, whatever the child is given. Its root
- * and directory move to the child's own when the program pivots
- * (`start_program`). A failure before that exec is its errno in the
- * shared `init_error`. */
+ * `cosmic_sandbox_init`, holding the started pipe's read end as 0, the
+ * ready pipe's write end as 1 and the parent's status pipe's write end
+ * as 2, and nothing else -- from / as the host has it still, where a
+ * core linked dynamically (the checked one) finds its loader and
+ * libraries, whatever the child is given. Its root and directory move
+ * to the child's own when the program pivots (`start_program`). A
+ * failure before that exec is its errno in the shared `init_error`. */
 static _Noreturn int start_init (void *argument) {
   struct sandbox_start *start = argument;
   const struct spawn_plan *plan = start->plan;
   int failure = drop_capabilities();
   if (!failure && chdir("/") != 0) failure = errno;
-  /* Each source is above the child's descriptors (`raise_descriptor`),
-   * so none is overwritten by the moves. */
-  const int from[3] = { start->started, start->ready, start->exe };
-  for (int t = 0; !failure && t < 3; t++) {
+  /* Each source but the status pipe's is above the child's descriptors
+   * (`raise_descriptor`), and that one, just above them, is moved
+   * before 3 is written: so none is overwritten by the moves. */
+  const int from[4] = { start->started, start->ready, start->status_fd, start->exe };
+  for (int t = 0; !failure && t < 4; t++) {
     if (dup2(from[t], t) < 0) failure = errno;
   }
-  if (!failure && fcntl(2, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
+  if (!failure && fcntl(3, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
   if (!failure) {
-    close_child_descriptors(3, plan->descriptor_limit);
+    close_child_descriptors(4, plan->descriptor_limit);
     char *argv[] = { (char *)COSMIC_SANDBOX_INIT, NULL };
     char *envp[] = { NULL };
-    syscall(SYS_execveat, 2, "", argv, envp, AT_EMPTY_PATH);
+    syscall(SYS_execveat, 3, "", argv, envp, AT_EMPTY_PATH);
     failure = errno;
   }
   start->init_error = failure;
@@ -1221,7 +1152,7 @@ static _Noreturn int start_program (void *argument) {
   const struct sandbox_start *start = argument;
   const struct spawn_plan *plan = start->plan;
   int failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
-                           plan->unveiled_writable, plan->unveil_count, plan->nest,
+                           plan->unveiled_writable, plan->unveil_count,
                            start->mapped);
   if (!failure) failure = drop_capabilities();
   if (failure) {
@@ -1244,7 +1175,8 @@ static _Noreturn int start_program (void *argument) {
  * program's own processes see, and signal, none but each other and
  * that init, which ignores them. The init is the parent's child too
  * (CLONE_PARENT), so no subreaper adopts it when this process ends, as
- * one would a stray (`spawn` reaps it: `reap_sandbox_inits`). This
+ * one would a stray (`waitpid` ends and reaps it with its program:
+ * `end_sandbox_init`), and it ends if the parent does. This
  * process waits for the init to be past its exec -- until then it
  * shares this memory -- and to have made itself undumpable, so no
  * program of the same user in the sandbox can ptrace it; then it starts
@@ -1390,25 +1322,52 @@ static _Noreturn int spawn_child (void *argument) {
 }
 
 #if defined(__linux__)
+/* The kind of descriptor `fd` is (S_IFIFO and the like), or 0 where it
+ * is none. */
+static mode_t descriptor_kind (int fd) {
+  struct stat st;
+  if (fstat(fd, &st) != 0) return 0;
+  return st.st_mode & S_IFMT;
+}
+
+bool cosmic_sandbox_init_asked (int argc, char **argv) {
+  return argc == 1 && strcmp(argv[0], COSMIC_SANDBOX_INIT) == 0 && getpid() == 1 &&
+         (COSMIC_ENVIRON == NULL || COSMIC_ENVIRON[0] == NULL) &&
+         descriptor_kind(0) == S_IFIFO && descriptor_kind(1) == S_IFIFO &&
+         descriptor_kind(2) == S_IFIFO;
+}
+
 /* The sandbox's init, as `start_init` executes this program: pid 1 of
  * an unveiled child's pid namespace, which ends, and every process left
- * in it with it, when it does. It makes itself undumpable, so no
- * process in the sandbox, which has its user, can ptrace it or read its
- * /proc entries, and says so -- 0, or an errno -- on 1; then it waits
- * for 0 to end, which it does once the program has exec'd or failed
- * to, and for the program, pid 2, to end, reaping meanwhile every
- * process the namespace orphans. Every signal stays blocked, as it
- * started: pid 1 takes none it does not catch from its own namespace,
- * and from outside it only SIGKILL and SIGSTOP. Anything else started
- * with its name -- never pid 1 -- ends at once. */
+ * in it with it, when it does. It starts a session of its own, so the
+ * autogroup a process in the sandbox could set through /proc/1 is not
+ * its parent's session's; makes itself undumpable, so no process in the
+ * sandbox, which has its user, can ptrace it; and ends when its parent
+ * does (PR_SET_PDEATHSIG), so the parent's end -- a runner ended by
+ * Ctrl-C, or killed -- ends the sandbox too: it holds the parent's
+ * status pipe on 2, which the parent reads from until the program has
+ * started, so a parent already gone by the time the signal is set is
+ * seen there, as a pipe with no reader. It says so -- 0, or an errno --
+ * on 1; then it waits for 0 to end, which it does once the program has
+ * exec'd or failed to, and for the program, pid 2, to end, reaping
+ * meanwhile every process the namespace orphans. Every signal stays
+ * blocked, as it started: pid 1 takes none it does not catch from its
+ * own namespace, and from outside it only SIGKILL and SIGSTOP. */
 _Noreturn void cosmic_sandbox_init (void) {
-  if (getpid() != 1) _exit(2);
   sigset_t every;
   sigfillset(&every);
   int failure = 0;
   if (sigprocmask(SIG_SETMASK, &every, NULL) != 0) failure = errno;
+  if (!failure && setsid() < 0) failure = errno;
   if (!failure && prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0) failure = errno;
   if (!failure && prctl(PR_SET_NAME, COSMIC_SANDBOX_INIT_COMM, 0, 0, 0) != 0) failure = errno;
+  if (!failure && prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0) failure = errno;
+  if (!failure) {
+    struct pollfd parent = { 2, POLLOUT, 0 };
+    if (poll(&parent, 1, 0) < 0) failure = errno;
+    else if (parent.revents & (POLLERR | POLLHUP)) _exit(127);
+  }
+  close(2);
   /* The kernel's own signal set, one bit per signal: SIGCHLD alone. */
   uint64_t chld = (uint64_t)1 << (SIGCHLD - 1);
   int children = -1;
@@ -1540,36 +1499,100 @@ COSMIC_SYSCALL(spawn, 10) {
 }
 
 #if defined(__linux__)
-/* The inits of the unveiled children this process started, each its
- * own child (`start_unveiled`), until they are reaped: each ends once
- * its program has, and `reap_sandbox_inits` reaps it then, so a caller
- * that waits only for the programs it started leaves no zombie. Past
- * the last slot, an init is left for a wait for any child to reap. */
-#define SANDBOX_INITS_MAX 256
-static pid_t sandbox_inits[SANDBOX_INITS_MAX];
-static int sandbox_init_count;
+/* An unveiled child's init and program, each this process's own child
+ * (`start_unveiled`), until the init is reaped: `program` is -1 once the
+ * program has been, and `init` once the init has. */
+struct sandbox_pair {
+  pid_t init;
+  pid_t program;
+};
 
-/* Forgets the init at `at`. */
-static void forget_sandbox_init (int at) {
-  sandbox_inits[at] = sandbox_inits[--sandbox_init_count];
+/* Every such pair this process has not seen the end of, in `pairs`,
+ * `pair_count` of them in room for `pair_room`. Room is made before a
+ * child starts (`sandbox_room`), so recording one never fails. */
+static struct sandbox_pair *pairs;
+static size_t pair_count, pair_room;
+
+/* Room for one more pair: true, or false with errno ENOMEM. */
+static bool sandbox_room (void) {
+  if (pair_count < pair_room) return true;
+  size_t room = pair_room == 0 ? 16 : pair_room * 2;
+  struct sandbox_pair *grown = realloc(pairs, room * sizeof *grown);
+  if (grown == NULL) {
+    errno = ENOMEM;
+    return false;
+  }
+  pairs = grown;
+  pair_room = room;
+  return true;
 }
 
-/* Reaps every init of `sandbox_inits` that has ended, without waiting
- * for one that has not. Every wait of this process's goes through the
- * process table, which forgets an init it reaps (`waitpid`), so none
- * here can have been reaped, and its pid taken by another child, since. */
-static void reap_sandbox_inits (void) {
-  for (int at = 0; at < sandbox_init_count;) {
+/* Reaps the init of the pair at `at`, whose program is gone, waiting at
+ * most a second: it is sent SIGKILL -- its pid is still its own, not
+ * reaped -- which ends every process left in its namespace before the
+ * init itself ends, so once it is reaped nothing of the sandbox runs. A
+ * pair whose init is reaped is forgotten; one whose init outlasts the
+ * second -- a process in the namespace the kernel cannot end, stuck in
+ * an uninterruptible wait -- is kept, for `end_sandbox_inits` to reap
+ * later. */
+static void end_sandbox_init (size_t at) {
+  pid_t init = pairs[at].init;
+  pairs[at].program = -1;
+  kill(init, SIGKILL);
+  for (int tries = 0; tries < 1000; tries++) {
     int ignored;
-    pid_t answer = waitpid(sandbox_inits[at], &ignored, WNOHANG);
-    if (answer == 0 || (answer < 0 && errno == EINTR)) {
-      at++;
+    pid_t answer = waitpid(init, &ignored, WNOHANG);
+    if (answer == init || (answer < 0 && errno == ECHILD)) {
+      pairs[at] = pairs[--pair_count];
+      return;
+    }
+    struct timespec pause = { 0, 1000000 };
+    nanosleep(&pause, NULL);
+  }
+}
+
+/* Reaps, without waiting, every init whose program is gone and that a
+ * second was not enough for (`end_sandbox_init`). */
+static void end_sandbox_inits (void) {
+  for (size_t at = 0; at < pair_count;) {
+    int ignored;
+    if (pairs[at].program < 0 && waitpid(pairs[at].init, &ignored, WNOHANG) != 0) {
+      pairs[at] = pairs[--pair_count];
     } else {
-      forget_sandbox_init(at);
+      at++;
+    }
+  }
+}
+
+/* What a wait that reaped `pid` means for the pairs: a program's reaping
+ * ends its init (`end_sandbox_init`), and an init's forgets its pair. */
+static void sandbox_reaped (pid_t pid) {
+  for (size_t at = 0; at < pair_count; at++) {
+    if (pairs[at].program == pid) {
+      end_sandbox_init(at);
+      return;
+    }
+    if (pairs[at].init == pid) {
+      pairs[at] = pairs[--pair_count];
+      return;
     }
   }
 }
 #endif
+
+COSMIC_SYSCALL(sandbox_inits, 0) {
+#if defined(__linux__)
+  if (pair_count > (size_t)INT_MAX) return luaL_error(L, "too many sandboxes");
+  lua_createtable(L, (int)pair_count, 0);
+  for (size_t at = 0; at < pair_count; at++) {
+    lua_pushinteger(L, (lua_Integer)pairs[at].init);
+    lua_rawseti(L, -2, (lua_Integer)at + 1);
+  }
+#else
+  lua_newtable(L);
+#endif
+  return 1;
+}
 
 int cosmic_spawn_unobserved (lua_State *L) {
   const char *path = plain_string(L, 1, "path");
@@ -1616,7 +1639,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
   int pledged = 0, unix_ok = 0, inet_ok = 0;
   const char *unveiled[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
-  int unveiling = 0, unveil_count = 0, offline = 0, nest = 0;
+  int unveiling = 0, unveil_count = 0, offline = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
     lua_pushliteral(L, "ruleset");
@@ -1673,10 +1696,6 @@ int cosmic_spawn_unobserved (lua_State *L) {
         }
         lua_pop(L, 1);
       }
-      lua_pushliteral(L, "nest");
-      lua_rawget(L, -2);
-      nest = lua_toboolean(L, -1);
-      lua_pop(L, 1);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "offline");
@@ -1686,6 +1705,8 @@ int cosmic_spawn_unobserved (lua_State *L) {
   }
 #if !defined(__linux__)
   if (unveiling || offline) return cosmic_fail(L, ENOSYS);
+#else
+  if (unveiling && !sandbox_room()) return cosmic_fail(L, errno);
 #endif
   char uid_map[64], gid_map[64];
   snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
@@ -1880,14 +1901,14 @@ int cosmic_spawn_unobserved (lua_State *L) {
     .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
-    .uid_map = uid_map, .gid_map = gid_map, .nest = nest, .unmap_root = unmap_root,
+    .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
   };
   pid_t program = -1;
 #if defined(__linux__)
   pid_t init = -1;
   plan.init = &init;
   plan.program = &program;
-  reap_sandbox_inits();
+  end_sandbox_inits();
 #endif
   int fork_error = 0;
   pid_t pid = start_child(&plan, &fork_error);
@@ -1907,8 +1928,10 @@ int cosmic_spawn_unobserved (lua_State *L) {
     int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
     pid = program;
 #if defined(__linux__)
-    if (init > 0 && sandbox_init_count < SANDBOX_INITS_MAX)
-      sandbox_inits[sandbox_init_count++] = init;
+    if (init > 0) {
+      pairs[pair_count++] = (struct sandbox_pair){ init, program };
+      if (program < 0) end_sandbox_init(pair_count - 1);
+    }
 #endif
   }
 
@@ -1928,6 +1951,9 @@ int cosmic_spawn_unobserved (lua_State *L) {
   if (root_dir[0] != '\0') rmdir(root_dir);
   if (received != 0 || read_error != 0 || pid < 0) {
     int ignored; while (pid > 0 && waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+#if defined(__linux__)
+    if (pid > 0) sandbox_reaped(pid);
+#endif
     return cosmic_fail(L, received == sizeof child_error ? child_error :
                        (read_error != 0 ? read_error : EIO));
   }
@@ -1954,13 +1980,8 @@ COSMIC_SYSCALL(waitpid, 2) {
   while (answer < 0 && errno == EINTR);
   if (answer < 0) return cosmic_fail(L, errno);
 #if defined(__linux__)
-  for (int at = 0; answer > 0 && at < sandbox_init_count; at++) {
-    if (sandbox_inits[at] == answer) {
-      forget_sandbox_init(at);
-      break;
-    }
-  }
-  reap_sandbox_inits();
+  if (answer > 0) sandbox_reaped(answer);
+  end_sandbox_inits();
 #endif
   lua_pushinteger(L, answer);
   lua_rawset(L, -5);
