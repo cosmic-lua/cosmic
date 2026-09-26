@@ -760,7 +760,10 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
     sys.close(output)
     assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but no sandbox: " ..
       trouble)
-    assert(errno ~= nil, trouble)
+    -- Only as a kernel that cannot confine refuses, never for a path
+    -- the set left out.
+    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
   end
   local status = assert(process.waitpid(pid, false))

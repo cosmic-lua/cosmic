@@ -487,7 +487,8 @@ end
 --- hashing it again (`itself`), the tree's store (o/cosmic.db, which a
 --- worker attaches), and `cwd`; to change, `scratch`, its temporary
 --- directory. Each is there as it is given, so each may be handed to
---- `process.spawn`'s `unveil` whole.
+--- `process.spawn`'s `unveil` whole; and it `nest`s, so the worker can
+--- confine what its test starts in turn.
 function observations.worker_unveil(tree: string, cwd: string, scratch: string): raw_process.Unveil
   local reads: {string} = {}
   local seen: {string:boolean} = {}
@@ -502,7 +503,7 @@ function observations.worker_unveil(tree: string, cwd: string, scratch: string):
   for _, path in ipairs(observations.itself()) do add(path) end
   add((tree == "/" and "" or tree) .. "/o/cosmic.db")
   add(cwd)
-  return { reads = reads, writes = { scratch } }
+  return { reads = reads, writes = { scratch }, nest = true }
 end
 
 --- What of the environment a process of this very program needs, for a
@@ -529,6 +530,13 @@ end
 -- (the status pipe carrying it beside the errno): an EACCES or EINVAL
 -- from exec, or an unreadable path declared, falls back unconfined too,
 -- and the test runs uncached where it should fail.
+-- TODO: treat the EROFS a process confined inside a sandbox that does not
+-- `nest` fails with -- its uid_map write, on a /proc read-only whole --
+-- as a sandbox the kernel cannot give, falling back or, under
+-- `must_confine`, refused, once `process.spawn` says which step failed
+-- (the TODO above): today the spawn fails with it outright, so a test
+-- that passes over a failed spawn passes having run nothing, even in
+-- must mode, as build/must_confine_test.tl's nested case does.
 local unconfinable: {integer:boolean} = {
   [sys.ENOSYS] = true, [sys.EPERM] = true, [sys.EACCES] = true, [sys.EINVAL] = true,
   [sys.ENOSPC] = true,
@@ -575,7 +583,7 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
   if unveil is {any:any} then
     local reads, writes = raw_strings(rawget(unveil, "reads")), raw_strings(rawget(unveil, "writes"))
     if reads == nil or writes == nil then return nil end
-    plain.unveil = { reads = reads, writes = writes }
+    plain.unveil = { reads = reads, writes = writes, nest = rawget(unveil, "nest") == true }
   elseif unveil ~= nil then
     return nil
   end

@@ -664,7 +664,9 @@ struct cosmic_mount_attr {
  * refused, or reaches a listener the child's own processes opened, as
  * on a host, rather than finding no network at all. 0, or an errno. */
 static int loopback_up (void) {
-  int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+  /* A unix socket, which any socket's interface ioctls fall through to,
+   * so a parent pledged to no "inet" still starts an offline child. */
+  int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
   if (fd < 0) return errno;
   struct ifreq request;
   memset(&request, 0, sizeof request);
@@ -699,16 +701,23 @@ static bool proc_own (const char *name) {
   return true;
 }
 
-/* Makes read-only, in the root being built, what of the host's /proc --
- * bound read-write at `target`, `length` bytes long, in a buffer of
- * PATH_MAX -- is not a process's own: each entry of it that is a
- * directory, or a file anyone may write (/proc/sys, /proc/sysrq-trigger,
- * /proc/irq, /proc/bus and the like, which a child mapped to root could
- * otherwise write), is bound over itself read-only, and every mount
- * beneath it too. A process's own, and the links into them (self,
- * thread-self, net, mounts), stay writable, so a child of the child can
- * map its ids in a user namespace of its own, which it writes its own
- * /proc/self/uid_map for. 0, or an errno. */
+/* For a sandbox that `nest`s: makes read-only, in the root being built,
+ * what of the host's /proc -- bound read-write at `target`, `length`
+ * bytes long, in a buffer of PATH_MAX -- is not a process's own: each
+ * entry of it that is a directory, or a file with any write bit
+ * (/proc/sys, /proc/sysrq-trigger, /proc/irq, /proc/bus and the like,
+ * which a child mapped to root could otherwise write), is bound over
+ * itself read-only, and every mount beneath it too. A process's own,
+ * and the links into them (self, thread-self, net, mounts), stay
+ * writable, so a child of the child can map its ids in a user namespace
+ * of its own, which it writes its own /proc/self/uid_map for. 0, or an
+ * errno.
+ * TODO: an entry /proc gains after this lists it -- a module loaded
+ * later adding one -- is writable to the child, and a host process's
+ * /proc/<pid>/net shows the host's network namespace, what of it its
+ * user may write included; a fresh procfs mounted with subset=pid in a
+ * pid namespace of the child's own replaces this whole walk (the pid
+ * namespace TODO at `unveil`). */
 static int guard_proc (char *target, size_t length) {
   int dir = open("/proc", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (dir < 0) return errno;
@@ -723,6 +732,10 @@ static int guard_proc (char *target, size_t length) {
     }
     for (long at = 0; number == 0 && at < got;) {
       const struct cosmic_dirent64 *entry = (const struct cosmic_dirent64 *)(entries + at);
+      if (entry->d_reclen == 0) {
+        number = EIO;
+        break;
+      }
       at += entry->d_reclen;
       const char *name = entry->d_name;
       if (proc_own(name)) continue;
@@ -751,6 +764,22 @@ static int guard_proc (char *target, size_t length) {
   return number;
 }
 
+/* Whether this process is in a user namespace other than the host's:
+ * its uid_map maps less than every id to itself. False where it cannot
+ * tell, as without /proc. */
+static bool inner_user_namespace (void) {
+  int fd = open("/proc/self/uid_map", O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return false;
+  char text[128];
+  ssize_t got = read(fd, text, sizeof text - 1);
+  close(fd);
+  if (got <= 0) return false;
+  text[got] = '\0';
+  unsigned long inside = 0, outside = 0, count = 0;
+  if (sscanf(text, "%lu %lu %lu", &inside, &outside, &count) != 3) return false;
+  return inside != 0 || outside != 0 || count != 4294967295UL;
+}
+
 /* In the child, before anything else of the sandbox: a user namespace of
  * its own, mapping its user and group to themselves; with `offline`, a
  * network namespace of its own, which has nothing but a loopback, brought
@@ -758,8 +787,9 @@ static int guard_proc (char *target, size_t length) {
  * its own in a mount namespace, with a /tmp of its own unless /tmp or
  * / is among the paths,
  * holding the `count` paths at their own names -- read-only, and every
- * mount beneath them too, but where `writable` says, and but a /proc's
- * processes' own entries (`guard_proc`) -- and nothing else,
+ * mount beneath them too, but where `writable` says, and, where `nest`
+ * says, but a /proc's processes' own entries (`guard_proc`) -- and
+ * nothing else,
  * so a path outside them is not there at all, to stat as to open. The
  * paths are resolved, with no link or `..` left in them, and a shorter
  * comes before a longer; `names` holds the names they were given by where
@@ -776,23 +806,30 @@ static int guard_proc (char *target, size_t length) {
  * process table's `waitpid` removing a directory its `spawn` handed the
  * reaped child's pid.
  * TODO: a pid namespace too, so an unveiled /proc shows the child's own
- * processes rather than the host's, and a confined child can neither
- * kill() a process of the same user outside it nor write what its user
- * may of one's /proc entries (`guard_proc`), as today it can; the child that unshares one is not
+ * processes rather than the host's, and a confined child cannot kill()
+ * a process of the same user outside it, as today it can; nor, where it
+ * `nest`s, write what its user may of such a process's /proc/<pid>
+ * entries (`guard_proc`: oom_score_adj, coredump_filter, clear_refs,
+ * sched, autogroup). A fresh procfs mounted with subset=pid in that
+ * namespace then replaces `guard_proc`'s writable host /proc. The child
+ * that unshares one is not
  * in it, so this waits on starting the program from a second fork. A
  * UTS namespace would change nothing a child sees: its host's name and
  * kernel stay what `uname` answers, which no key holds. */
 static int unveil (const char *root, char *const *paths, char *const *names,
-                   const int *writable, int count, int unveiling, int offline, const char *uid_map, const char *gid_map) {
+                   const int *writable, int count, int unveiling, int offline, int nest,
+                   int unmap_root, const char *uid_map, const char *gid_map) {
   int flags = CLONE_NEWUSER | (unveiling ? CLONE_NEWNS | CLONE_NEWIPC : 0) |
               (offline ? CLONE_NEWNET : 0);
   if (syscall(SYS_unshare, flags) != 0) return errno;
   int number = write_whole("/proc/self/setgroups", "deny");
   if (number != 0 && number != ENOENT) return number;
-  /* A user the kernel will not let it map stays unmapped -- the kernel's
-   * overflow id, inside -- with the same access to every file: root,
-   * which may map root only holding CAP_SETFCAP, which a sandbox's child
-   * gave up.
+  /* Root inside a user namespace not the host's -- a sandbox's child --
+   * may map root only holding CAP_SETFCAP, which it gave up (`unmap_root`
+   * says it is such a root): its user stays unmapped, the kernel's
+   * overflow id inside, owning what root owns but with no capability to
+   * override a file's permissions, as it had none mapped either. Any
+   * other refusal is the sandbox's failure.
    * TODO: let a child left unmapped confine one of its own in turn, as a
    * mapped one can at any depth: the kernel refuses a user namespace to
    * a user its own does not map, so root confines only two deep. The
@@ -800,7 +837,7 @@ static int unveil (const char *root, char *const *paths, char *const *names,
    * from outside by a parent holding CAP_SETUID. */
   int mapped = 1;
   if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) {
-    if (number != EPERM) return number;
+    if (number != EPERM || !unmap_root) return number;
     mapped = 0;
   }
   if ((number = write_whole("/proc/self/gid_map", gid_map)) != 0) return number;
@@ -850,7 +887,7 @@ static int unveil (const char *root, char *const *paths, char *const *names,
         }
       }
       if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
-      if (!writable[i] && strcmp(paths[i], "/proc") == 0) {
+      if (!writable[i] && nest && strcmp(paths[i], "/proc") == 0) {
         if ((number = guard_proc(target, (size_t)length)) != 0) return number;
       } else if (!writable[i]) {
         struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
@@ -944,6 +981,11 @@ struct spawn_plan {
   int unveil_count;
   const char *uid_map;
   const char *gid_map;
+  /* Whether /proc is given with its processes' own entries writable
+   * (`guard_proc`), and whether the child is root in a user namespace
+   * not the host's, which may not map root into one of its own. */
+  int nest;
+  int unmap_root;
   /* The parent's signal mask from before it blocked every signal to
    * start the child, which the program is to start with. */
   sigset_t mask;
@@ -1040,7 +1082,8 @@ static _Noreturn int spawn_child (void *argument) {
   if (plan->unveiling || plan->offline) {
     failure = unveil(plan->root_dir, plan->resolved_paths, plan->given_names,
                      plan->unveiled_writable, plan->unveil_count, plan->unveiling,
-                     plan->offline, plan->uid_map, plan->gid_map);
+                     plan->offline, plan->nest, plan->unmap_root, plan->uid_map,
+                     plan->gid_map);
   }
 #endif
   if (!failure && plan->process_group && setpgid(0, 0) != 0) failure = errno;
@@ -1218,7 +1261,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
   int pledged = 0, unix_ok = 0, inet_ok = 0;
   const char *unveiled[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
-  int unveiling = 0, unveil_count = 0, offline = 0;
+  int unveiling = 0, unveil_count = 0, offline = 0, nest = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
     lua_pushliteral(L, "ruleset");
@@ -1275,6 +1318,10 @@ int cosmic_spawn_unobserved (lua_State *L) {
         }
         lua_pop(L, 1);
       }
+      lua_pushliteral(L, "nest");
+      lua_rawget(L, -2);
+      nest = lua_toboolean(L, -1);
+      lua_pop(L, 1);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "offline");
@@ -1462,6 +1509,10 @@ int cosmic_spawn_unobserved (lua_State *L) {
       return cosmic_fail(L, prepare_error);
     }
   }
+  int unmap_root = 0;
+#if defined(__linux__)
+  unmap_root = (unveiling || offline) && inner_user_namespace() && geteuid() == 0;
+#endif
   char **given = cosmic_coverage_environment(envp);
   struct spawn_plan plan = {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
@@ -1474,7 +1525,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
     .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
-    .uid_map = uid_map, .gid_map = gid_map,
+    .uid_map = uid_map, .gid_map = gid_map, .nest = nest, .unmap_root = unmap_root,
   };
   int fork_error = 0;
   pid_t pid = start_child(&plan, &fork_error);

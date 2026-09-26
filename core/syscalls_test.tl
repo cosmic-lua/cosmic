@@ -676,8 +676,8 @@ end
 
 --- An unveiled child has a root of its own holding only the paths it was
 --- given, at their own names once resolved: a path outside them is not
---- there to stat, one given to read is read-only -- /proc but for the
---- processes' own entries -- one given to write is written, it keeps no
+--- there to stat, one given to read is read-only -- /proc too, but for
+--- the processes' own entries where it nests -- one given to write is written, it keeps no
 --- capability, and an offline one has no network but a loopback. An empty unveiling leaves it nothing, not even a
 --- program to run. Where unprivileged namespaces are refused, spawning
 --- one says so.
@@ -739,23 +739,30 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   assert(sys.mkdir(private .. "/inner", 0x1ed))
   local mirrored: {string} = { "/proc", private .. "/inner" }
   for _, path in ipairs(reads) do mirrored[#mirrored + 1] = path end
-  local second = create(tmp .. "/second")
-  local again = assert(process.spawn("/bin/sh", { "sh", "-c",
-    "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
-    "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f; " ..
-    "test -w /proc/self/uid_map && echo own-writable; " ..
-    "test -w /proc/sys/vm/swappiness || echo sys-read-only" },
-    nil, "/", nil, second, second, false, nil,
-    { unveil = { reads = mirrored }, offline = true }))
-  assert(assert(process.waitpid(again, false)).code == 0)
-  local seen = assert(sys.pread(second, 4096, 0))
-  sys.close(second)
+  local function mirror(nest: boolean): string
+    local second = create(tmp .. "/second")
+    local again = assert(process.spawn("/bin/sh", { "sh", "-c",
+      "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
+      "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f; " ..
+      "test -w /proc/self/uid_map && echo own-writable || echo own-read-only; " ..
+      "test -w /proc/sys/vm/swappiness || echo sys-read-only" },
+      nil, "/", nil, second, second, false, nil,
+      { unveil = { reads = mirrored, nest = nest }, offline = true }))
+    assert(assert(process.waitpid(again, false)).code == 0)
+    local seen = assert(sys.pread(second, 4096, 0))
+    sys.close(second)
+    return seen
+  end
   -- And a /tmp of its own, empty but for the paths given beneath the
-  -- host's, which it can write to; and of /proc, its own entries it can
-  -- write, so it can confine a child in turn, and not the host's state.
+  -- host's, which it can write to; /proc read-only whole, its own
+  -- entries too; and, where it nests, those alone writable, so it can
+  -- confine a child in turn, and never the host's state.
   local given_under_tmp = assert(sys.realpath(private)):sub(1, 5) == "/tmp/" and 1 or 0
-  assert(seen == "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n" ..
-    "own-writable\nsys-read-only\n", seen)
+  local common = "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n"
+  local plain = mirror(false)
+  assert(plain == common .. "own-read-only\nsys-read-only\n", plain)
+  local nesting = mirror(true)
+  assert(nesting == common .. "own-writable\nsys-read-only\n", nesting)
   local nothing, _, nothing_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
@@ -768,9 +775,18 @@ end
 --- listener the child opened there is taken. Perl, which the host has
 --- nearly everywhere, opens the sockets: cosmic has none of its own, and
 --- curl words a refused connection and an unreachable network alike.
+-- TODO: check it where there is no perl -- CI's alpine image has none,
+-- so there this returns having checked nothing -- once cosmic.sys can
+-- open, bind and connect a socket, or once ci/images/alpine installs
+-- perl.
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local perl = "/usr/bin/perl"
-  if sys.stat(perl) == nil then return end -- nothing here to open a socket with
+  if sys.stat(perl) == nil then
+    -- Nothing here to open a socket with.
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no " .. perl ..
+      " to check the loopback with")
+    return
+  end
   local report = create(tmp .. "/report")
   local pid, trouble, errno = process.spawn(perl, { "perl", "-MIO::Socket::INET", "-e",
     "my $s = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => 1, Proto => 'tcp'); " ..
