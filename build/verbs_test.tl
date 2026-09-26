@@ -422,10 +422,11 @@ local function test_db_takes_paths_to_narrow_it(tmp: string)
   assert(none:find("no row is about nowhere", 1, true), none)
 end
 
---- `sql` reads o/ and nothing else: it never checks the tool is as new
---- as the tree, which would stage it, not even after refusing its
---- command line. Here that check would fail: the directory is cosmic's
---- own tree, structurally, and its working database will not open.
+--- `sql` reads o/ and nothing else: it never lists a directory of the
+--- tree, and never checks the tool is as new as the tree, which would
+--- stage it, not even after refusing its command line. Here that check
+--- would fail: the directory is cosmic's own tree, structurally, and
+--- its working database will not open.
 local function test_sql_never_stages_the_tree(tmp: string)
   assert(Fs.mkdirs(tmp .. "/core"))
   assert(Fs.mkdirs(tmp .. "/build"))
@@ -435,9 +436,19 @@ local function test_sql_never_stages_the_tree(tmp: string)
   assert(Fs.write(tmp .. "/o/build.db", garbage))
   local staged = expect(tmp, "db", { "db" }, 1)
   assert((staged.stderr or ""):find("file is not a database", 1, true), staged.stderr)
-  local asked = expect(tmp, "sql", { "sql", "SELECT 1" }, 0).stdout or ""
+  local asked = ""
+  local c = observations.capture(function()
+    asked = expect(tmp, "sql", { "sql", "SELECT 1" }, 0).stdout or ""
+    local _ = expect(tmp, "sql", { "sql", "--no-such-flag" }, 2)
+  end)
+  assert(c.ok, tostring(c.produced))
   assert(asked:find("^1\n1\n"), asked)
-  local _ = expect(tmp, "sql", { "sql", "--no-such-flag" }, 2)
+  -- Observed paths are resolved: /var/... is /private/var/... on macOS.
+  local real = assert(Fs.absolute(tmp))
+  for _, read in ipairs(c.reads) do
+    local under = read.path:sub(1, #tmp) == tmp or read.path:sub(1, #real) == real
+    assert(not (read.kind == "d" and under), "sql listed " .. read.path)
+  end
   assert(Fs.read(tmp .. "/o/build.db") == garbage)
   local names = assert(Fs.list(tmp .. "/o"))
   assert(#names == 1, table.concat(names, " "))
