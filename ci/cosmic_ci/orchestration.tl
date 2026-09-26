@@ -127,8 +127,11 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- alone on four cores), so each runs apart from the self-rebuild file's.
 local fixed_point_test_timeout_ms <const> = 300000
 local fixed_point_per_test_timeout_s <const> = "240"
--- A boot the product drives from another path compiles the core's own C
--- for every target again (about 110 s on four cores), then the tree.
+-- A boot the product drives from another path compiles no C again (it
+-- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
+-- about 110 s for the whole fixture in a local run on four cores, loaded.
+-- TODO: lower these bounds once CI's own runs show the fixture's time
+-- without the core's C compile they were sized for (about 110 s of it).
 local self_driven_test_timeout_ms <const> = 600000
 local self_driven_per_test_timeout_s <const> = "480"
 local runtime_test_timeout_ms <const> = 180000

@@ -616,8 +616,10 @@ are closed:
   `tree_name`): `getcwd`, `Fs.absolute`, `realpath` and `Proc.executable` are
   not observed, so the location is no input a verdict may turn on: a test must
   not depend on where the tree is (AGENTS.md), and CI moves its checkout to a
-  path of each run's own (`.github/scripts/place-tree.sh`), so a test that does
-  fails some run.
+  path of each run's own (`.github/scripts/place-tree.sh`). a test that does
+  fails a run that runs it: every run while CI stands only on what it runs, but
+  once it stands on shared verdicts, only a run where the test's key changed,
+  so the random path catches it on some runs, not on every one.
 - [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
   anything under `o/` is keyed by its bytes, hashed once a run while its stat
   holds; a read of the working database, which every run rewrites, is never

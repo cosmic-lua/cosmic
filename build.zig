@@ -442,13 +442,20 @@ const core_sources = [_][]const u8{
 /// under core/, laid out as the tree is (`core/x.c` beside `core/x.h`): a
 /// quoted `#include` finds its neighbour first, as in the tree, and an
 /// edit to one file moves only that file's copy, so only its objects
-/// compile again; an edit to a header moves every copy. The headers alone
-/// are copied once more, the include directory a file outside core/
-/// reads them from. Debug information names the copy, which is there to
-/// read, and whose path ends in the tree's own (`.../core/x.c`):
+/// compile again. An edit to any header under core/ moves every copy, so
+/// every core object compiles again (a boot of 19 s locally, against 6 s
+/// after an edit to one .c file): a trade for copies that need no list of
+/// what each file includes. The headers alone are copied once more, the
+/// include directory a file outside core/ reads them from. Only core/'s
+/// own headers sit beside a copy: a quoted `#include` of a neighbouring
+/// .c file, or of a header in a directory under core/, would find nothing
+/// there and fail to compile. Debug information names the copy, which is
+/// there to read, and whose path ends in the tree's own (`.../core/x.c`):
 /// `core/coverage_map.zig` maps a line back to the tree by it. The
-/// checked core's sanitizer names the tree's `core/x.c` (`checked_flags`),
-/// and the analyzer reads the tree's own files (`analyze`).
+/// checked core's sanitizer names the tree's `core/x.c` (`checked_flags`)
+/// -- except in an unnamed type's name, which holds the copy's path, so
+/// the core's own C names its types -- and the analyzer reads the tree's
+/// own files (`analyze`).
 // TODO: name the tree's file in a compile's error, not its copy in the
 // cache: clang has no flag remapping a diagnostic's path, so bin/zig
 // would rewrite zig's output, `<cache>/o/<digest>/` to the tree's root.
