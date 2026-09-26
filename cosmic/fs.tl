@@ -6,9 +6,10 @@
 --- an error. A predicate uses the same contract, with false as a valid
 --- answer. A call that only has an effect returns `boolean, string`.
 ---
---- `basename`, `dirname`, `within` and `relative` are the exception:
---- they work on a path's text alone, read nothing, and cannot fail, so
---- each answers a plain value.
+--- `basename`, `dirname`, `within` and `relative` work on a path's
+--- text alone and read nothing. The first three cannot fail, so each
+--- answers a plain value; `relative` answers nil and why when the path
+--- is not within the directory.
 ---
 --- The syscall table itself is `cosmic.sys`. A call this module does not
 --- wrap -- `lstat`, `chdir`, `pread` and others -- is there, and
@@ -143,11 +144,19 @@ function Fs.is_dir(path: string): boolean | nil, string
   return nil, path .. ": " .. trouble
 end
 
+--- `path` without its trailing slashes, scanned back from the end: a
+--- pattern anchored at `$` would retry at every slash of a long run.
+local function unslashed(path: string): string
+  local to = #path
+  while to > 0 and path:byte(to) == 47 do to = to - 1 end
+  return path:sub(1, to)
+end
+
 --- Creates a directory and every missing directory above it, as
 --- `mkdir -p` does.
 function Fs.mkdirs(path: string): boolean, string
-  path = path:gsub("(.)/+$", "%1")
-  if path == "" or path == "/" then
+  path = unslashed(path)
+  if path == "" then
     return true, ""
   end
   local directory, inspection = Fs.is_dir(path)
@@ -675,14 +684,6 @@ function Fs.copy_tree(from: string, to: string): boolean, string
     return true, ""
   end
   return copy(from, to)
-end
-
---- `path` without its trailing slashes, scanned back from the end: a
---- pattern anchored at `$` would retry at every slash of a long run.
-local function unslashed(path: string): string
-  local to = #path
-  while to > 0 and path:byte(to) == 47 do to = to - 1 end
-  return path:sub(1, to)
 end
 
 --- The last component of a path, as basename(1) names it: trailing

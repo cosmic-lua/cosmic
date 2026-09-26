@@ -81,7 +81,7 @@ local record Cli
   --- CA roots and time zones: `cosmic refresh --binary o/bin/<name> -o
   --- <copy>` writes a copy with newer ones later
   build: string
-  --- `cosmic db [path...]`: what the two databases under o/ hold,
+  --- `cosmic db [path...]`: what the three databases under o/ hold,
   --- table by table -- rows, pages, bytes -- how the last few builds
   --- went, and the slowest tests. Paths narrow it to the rows about the
   --- sources under them -- a row whose file, module or source hash is

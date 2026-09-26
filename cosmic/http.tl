@@ -12,7 +12,9 @@
 --- `Response` whose body is read a chunk at a time; `Http.get` reads
 --- the whole body for the common case, and `Http.download` streams it
 --- straight to a file, verifying a checksum while it goes.
----
+
+local Codec = require("cosmic.codec")
+
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace, which never satisfies an ordinary
 --- `require` for any caller -- see cosmic/store.tl for why -- and
@@ -20,7 +22,6 @@
 --- chunk's own loader, present because this module was itself loaded,
 --- trusted, from the binary's own tree. Boot mode falls back to
 --- requiring it by name, which only boot's own preload answers.
-local Codec = require("cosmic.codec")
 local type raw_http = require("cosmic.internal.http")
 
 local extra: any = select(2, ...)
@@ -76,7 +77,7 @@ local record Http
     low_speed_seconds: integer
     verbose: boolean
     script: {string}
-    -- Http.download only: the expected sha256, as lowercase hex.
+    --- Http.download only: the expected sha256, as lowercase hex.
     sha256: string
   end
 

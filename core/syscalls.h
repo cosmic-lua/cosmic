@@ -41,7 +41,8 @@
  * than raising. A non-string still raises, as any argument-shape error
  * does. `spawn` (core/process.h), whose path and cwd refused a NUL by
  * raising before this rule, still does: `cosmic.child` depends on it,
- * and neither way truncates. */
+ * and neither way truncates. `execve` and `landlock_ruleset` raise on
+ * one too. */
 const char *cosmic_path (lua_State *L, int index);
 
 /* Opens the table as the `cosmic.sys` module. */

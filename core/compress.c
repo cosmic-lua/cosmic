@@ -1024,8 +1024,6 @@ int cosmic_open_compress (lua_State *L) {
   lua_setfield(L, -2, "__gc");
   lua_pushcfunction(L, stream_close);
   lua_setfield(L, -2, "__close");
-  lua_pushstring(L, STREAM_TYPE);
-  lua_setfield(L, -2, "__name");
   lua_newtable(L);
   luaL_setfuncs(L, stream_methods, 0);
   lua_setfield(L, -2, "__index");

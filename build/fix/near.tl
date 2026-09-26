@@ -196,7 +196,7 @@ function near.known(databases: {Sqlite.Handle}): {near.Known} | nil, string
   local owner: {string: integer} = {}
   for index, db in ipairs(databases) do
     local tables, tables_trouble = Sqlite.text_rows(db,
-      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
+      "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
     if tables == nil then
       return nil, tables_trouble
     end

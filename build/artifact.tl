@@ -6,7 +6,7 @@
 --- `host_program` lays out the other format: the running core alone, at the
 --- start of the file, then its manifest, database and trailer, so the kernel
 --- executes it directly with no launcher.
---- Neither function writes a path; callers publish the returned bytes through
+--- None of them writes a path; callers publish the returned bytes through
 --- the repository's existing atomic file writer.
 
 local Codec = require("cosmic.codec")
@@ -48,7 +48,7 @@ end
 --- checked against that digest, from the same trusted capability.
 function artifact.trusted_core(): raw_store.Core | nil, string
   if trusted_store == nil then
-    return nil, "no retained artifact capability"
+    return nil, "no retained portable artifact capability"
   end
   return trusted_store.trusted_core()
 end
@@ -132,10 +132,6 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
   return targets, ""
 end
 
-local function hex(bytes: string): string
-  return Codec.hex(bytes)
-end
-
 local function launcher(targets: {Target}, test_hooks: boolean,
                         selected_configuration?: integer): string | nil, string
   local arms: {string} = {}
@@ -155,7 +151,7 @@ local function launcher(targets: {Target}, test_hooks: boolean,
         target.uname_os, target.uname_arch, target.uname_os, target.target_id,
         target.configuration_id, target.offset, target.offset // core_alignment,
         target.length,
-        hex(target.digest))
+        Codec.hex(target.digest))
     end
   end
   if #arms == 0 then

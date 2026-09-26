@@ -199,6 +199,22 @@ end
   assert(not sys.kill(descendant, 0))
 end
 
+--- A refused option is blamed on the line that passed it, not on a line
+--- of cosmic.child: the checks under `validate` raise at their caller's
+--- caller's caller.
+local function test_a_refused_option_names_the_caller_s_line()
+  for _, opts in ipairs({
+    { stdout = "bad" } as Child.Options,
+    { cwd = "/tmp\0bad" } as Child.Options,
+    { timeout_ms = -1 } as Child.Options,
+  }) do
+    local ok, why: boolean, any = pcall(function()
+      local _, _ = Child.run({ "/bin/sh" }, opts)
+    end)
+    assert(not ok and tostring(why):find("child_test:", 1, true) ~= nil, tostring(why))
+  end
+end
+
 local function test_invalid_inputs_do_not_poison_signal_guard()
   assert(not pcall(Child.run, { "/bin/sh" }, { stdout = "bad" } as Child.Options))
   assert(not pcall(Child.run, { "/bin/sh\0bad" }))

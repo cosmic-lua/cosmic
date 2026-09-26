@@ -534,6 +534,7 @@ local function test_extract_stops_at_max_bytes_and_max_entries(tmp: string)
   assert(Fs.read(tmp .. "/o4/b") == string.rep("b", 600))
   -- A negative limit is a mistake, not a failure to report.
   assert(not pcall(Archive.extract, archive, tmp .. "/o5", { max_bytes = -1 }))
+  assert(not pcall(Archive.extract, archive, tmp .. "/o6", { max_entries = -1 }))
 end
 
 local function test_extract_strip_matches_whole_components_only(tmp: string)
