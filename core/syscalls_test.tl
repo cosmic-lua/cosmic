@@ -773,11 +773,17 @@ end
 --- An offline child's loopback is up, as a host's is: the kernel gives
 --- lo its 127.0.0.1 only when lo comes up, so the child's own routing
 --- table (/proc/self/net is the reader's network namespace) holds that
---- address as a local route. /bin/sh reads it, which every host has.
+--- address as a local route. The child is this program, reading it.
+-- TODO: connect to a closed port of 127.0.0.1 and hold the child to
+-- ECONNREFUSED, not ENETUNREACH, once cosmic.sys can open a socket or
+-- core/http.c answers a failed request with CURLINFO_OS_ERRNO: curl's own
+-- message words the two alike.
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local report = create(tmp .. "/report")
-  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
-    "grep -q '127.0.0.1' /proc/self/net/fib_trie && echo up || echo down" },
+  local cosmic = assert(sys.executable())
+  local pid, trouble, errno = process.spawn(cosmic, { "cosmic", "-e",
+    "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
+    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" },
     nil, tmp, nil, report, report, false, nil, { offline = true })
   if pid == nil then
     sys.close(report)
