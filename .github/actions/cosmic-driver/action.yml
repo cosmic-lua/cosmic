@@ -11,12 +11,14 @@
 #
 # Neither a job's `defaults.run` nor its `working-directory` reaches a
 # composite action's steps, so each says its own. A job whose steps run
-# as another user than the container's root (ci.yml's Linux legs,
-# fuzz.yml) passes its shell as `shell` and that user as `owner`, and
-# uses this action after its hand-over: the restore runs as root, like
-# every action in a job container, so what it restored is handed to
-# `owner` before the bootstrap runs as that user, which then owns the
-# driver's link and cache as it did when the job ran these steps itself.
+# through a shell of their own passes it as `shell`. One whose steps run
+# as another user than its job container's root (fuzz.yml) passes that
+# user as `owner` too, and uses this action after its hand-over: the
+# restore runs as root, like every action in a job container, so what
+# it restored is handed to `owner` before the bootstrap runs as that
+# user, which then owns the driver's link and cache as it did when the
+# job ran these steps itself. ci.yml's Linux legs run their actions on
+# the host, as a user of the container's `runner`'s uid, and pass none.
 #
 # TODO: have bin/actionlint check these steps too once actionlint lints
 # a composite action's own steps: it checks what a workflow passes this

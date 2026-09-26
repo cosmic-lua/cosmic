@@ -418,8 +418,11 @@ end
 --- hold a child to on this worker, part by part, as
 --- build/sandbox_probe.tl finds it, written to the run's summary: whether
 --- a test run here could be confined to its declared inputs at all.
---- It reports and does not judge: a part the kernel or the container
---- refuses fails nothing yet.
+--- Where COSMIC_CI_REQUIRE_SANDBOX=1 it fails when a part a confined test
+--- needs did not hold: ci.yml gives each Linux leg what the sandbox needs
+--- and sets it there, so a refusal means the leg lost it. Elsewhere (a
+--- ci/run-local on a host that refuses a namespace) it only reports.
+--- The report goes to the summary either way.
 local function phase_sandbox(p: PlatformContext): integer
   local c = p.operation
   local report = p.work .. "/sandbox-probe.md"
@@ -429,9 +432,11 @@ local function phase_sandbox(p: PlatformContext): integer
   local said = read(report)
   ContextEnv.summarize("## Sandbox probe (" .. c.worker .. ")\n\n" .. said .. "\n")
   assert(Fs.put(Fs.stdout, said))
-  -- TODO: fail this phase when `said` ends "Confinement: **unavailable**",
-  -- once the first reports from every Linux leg (this summary) show
-  -- which parts each can hold and the container options they need.
+  local refused = said:match("Confinement: %*%*unavailable%*%*[^\n]*")
+  if refused and named("COSMIC_CI_REQUIRE_SANDBOX") == "1" then
+    assert(Fs.put(Fs.stderr, "sandbox: this worker cannot confine a test: " .. refused .. "\n"))
+    return 1
+  end
   return 0
 end
 
