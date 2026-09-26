@@ -58,10 +58,16 @@
             # moving a digest is a deliberate edit, after ci-images.yml
             # publishes a new one (its run summary gives it). The packages
             # are private, so the pull logs in with this job's token, which
-            # needs packages: read (see the job's container and permissions).
-            # (macOS cannot be containerized; that leg takes the image
-            # macos-15 names.) --init and the unprivileged `runner` user are
-            # as for alpine-x86_64, below.
+            # needs packages: read (see the job's permissions). (macOS
+            # cannot be containerized; that leg takes the image macos-15
+            # names, and runs its steps on it with `sh`.)
+            #
+            # A Linux leg's container is started by a step, not by the
+            # job's `container:` (see "start the leg's container", below):
+            # its `run` steps run in it through `leg-shell`
+            # (.github/scripts/leg-container.sh) as `runner`, an
+            # unprivileged user of the host runner's uid, whom `prepare`
+            # creates, as root, first.
             {
               name: "linux-x86_64",
               runner: "ubuntu-24.04",
@@ -69,10 +75,7 @@
               image: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
               # useradd -o: the image's own `ubuntu` user may hold the uid.
               prepare: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
-              # setpriv, not su: util-linux su resets PATH, which drops the
-              # driver's directory that the bootstrap step adds to GITHUB_PATH;
-              # setpriv changes only the user and keeps the environment.
-              shell: "setpriv --reuid=runner --regid=runner --init-groups sh -e {0}",
+              shell: "leg-shell {0}",
             },
             {
               name: "linux-aarch64",
@@ -80,7 +83,7 @@
               target: "aarch64-linux-musl",
               image: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
               prepare: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
-              shell: "setpriv --reuid=runner --regid=runner --init-groups sh -e {0}",
+              shell: "leg-shell {0}",
             },
             {
               name: "macos-aarch64",
@@ -93,56 +96,14 @@
               name: "alpine-x86_64",
               runner: "ubuntu-24.04",
               target: "x86_64-linux-musl",
-              # --init puts a reaper at PID 1: a process-group kill leaves
-              # orphaned descendants, and the suite checks they are gone,
-              # not zombies nobody collects.
               image: "ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72",
               prepare: "adduser -D -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
-              # The container's default user stays root -- the runner never
-              # passes --user to docker create/exec, and a default user whose
-              # uid differs from the host runner's breaks the checkout
-              # action's file commands (GITHUB_ENV, GITHUB_PATH, ... under
-              # RUNNER_TEMP, host-owned). Driver steps instead drop to the
-              # unprivileged `runner` user created below; only what needs
-              # root (creating that user, the hand-over) overrides this shell.
-              shell: "su runner -c \"sh -e {0}\"",
+              shell: "leg-shell {0}",
             },
           ],
         },
       },
       "runs-on": "${{ matrix.runner }}",
-      # An empty image (macOS) runs the job on the host. The login is here,
-      # not in the matrix: a matrix is expanded before the job has a token,
-      # so github.token there is empty, and secrets are not available there.
-      container: {
-        image: "${{ matrix.image }}",
-        credentials: {
-          username: "${{ github.actor }}",
-          password: "${{ secrets.GITHUB_TOKEN }}",
-        },
-        # No --security-opt: spawn's sandbox (core/process.h) cannot
-        # unveil or go offline here, and the tests that confine a child
-        # start it unconfined instead. Docker's default seccomp profile
-        # allows unshare, mount, umount2 and mount_setattr only to a
-        # container holding CAP_SYS_ADMIN, and pivot_root to none, so a
-        # user namespace is refused with EPERM; its default AppArmor
-        # profile, where the host has AppArmor, denies mount besides.
-        # The narrowest fix, a seccomp profile of Docker's default with
-        # those five calls allowed, cannot be given here: the runner
-        # creates this container before any step, so the profile's file
-        # is not on the host yet, and seccomp=unconfined drops every
-        # filter to allow five calls. The sandbox-options job, below,
-        # says which options each runner host needs, for ubuntu's image
-        # on both and alpine's on x86_64, which shares its host: the
-        # options are the host's docker's, so alpine-x86_64 takes the
-        # same ones. The probe step says what each leg's container holds.
-        # TODO: give the Linux legs the options a sandbox needs, once the
-        # sandbox-options job's first reports say which the runners
-        # need (seccomp alone, or AppArmor too, and whether the host's
-        # kernel.apparmor_restrict_unprivileged_userns refuses a
-        # namespace whatever the container's options), and drop that job.
-        options: "--init",
-      },
       permissions: {
         contents: "read",
         # To pull the Linux legs' images from GHCR.
@@ -165,23 +126,90 @@
       },
       steps: [
         {
-          name: "create the unprivileged builder",
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+        },
+
+        # spawn's sandbox (core/process.h's `Sandbox`) confines a test's
+        # child in a new user namespace, where it mounts, unveils and
+        # goes offline. A Linux leg's container needs three relaxations
+        # for it, and no more. The reports of a sandbox-options job (since
+        # removed; it tried each image on its host, as uid 65534, under
+        # Docker's defaults, seccomp narrowed or unconfined and AppArmor
+        # unconfined, with the switch below on and off) found every part
+        # -- landlock, pledge, offline, unveil, unveil+offline -- held in
+        # the ubuntu and alpine images on ubuntu-24.04 (x86_64) with all
+        # three, and each item below says what failed without it;
+        # linux-aarch64's host takes the same, which the probe step holds
+        # it to. The runners are ephemeral VMs, discarded after the job.
+        #
+        # 1. The host's kernel.apparmor_restrict_unprivileged_userns=1
+        # (the GitHub hosts set it) withholds a new user namespace's
+        # capabilities from a process no AppArmor profile lets have
+        # them: with it on, no container option let any part that needs
+        # a namespace hold. It is the host's, so it is turned off here,
+        # before the container starts; a kernel without the switch has
+        # no such restriction to turn off.
+        {
+          name: "let an unprivileged process hold a user namespace",
           if: "matrix.image",
           "working-directory": "/",
           shell: "sh",
-          # Creating the unprivileged builder (matrix.prepare) needs root,
-          # which is this container's default user. `runner`'s uid is read
-          # from the workspace directory the host runner already created
-          # (before this step, before checkout), so it matches the owner of
-          # the bind-mounted checkout, RUNNER_TEMP, and the runner's own
-          # file-command files. Every later step on this leg drops to
-          # `runner` (see matrix.shell); only this step and the hand-over
-          # below stay root, and say so explicitly.
-          run: "${{ matrix.prepare }}",
+          run: "[ ! -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] || sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
+        },
+
+        # 2. Docker's default seccomp profile allows unshare, mount,
+        # umount2 and mount_setattr only to a container holding
+        # CAP_SYS_ADMIN, and pivot_root to none, so a new user namespace
+        # is refused with EPERM. The profile here is that default with
+        # just those five calls allowed
+        # (.github/scripts/seccomp-profile.sh), not seccomp=unconfined,
+        # which held too but drops every other rule of the filter.
+        #
+        # 3. Docker's default AppArmor profile (docker-default) denies
+        # mount: with the narrowed profile alone, unveil still failed
+        # with EACCES. So the container runs unconfined by AppArmor.
+        # TODO: run the container under an AppArmor profile of
+        # docker-default's with mount allowed in place of
+        # apparmor=unconfined, if the runner lets a step load one
+        # (apparmor_parser, as root, before the container starts) and
+        # the probe finds every part holds under it.
+        #
+        # The runner creates a job's `container:` before any step runs,
+        # so neither the switch nor the profile's file could be set up
+        # for it: the container is started here instead, by
+        # .github/scripts/leg-container.sh, with --init, as the job's
+        # was (a process-group kill leaves orphaned descendants, and the
+        # suite checks they are gone, not zombies nobody collects). From
+        # here on a `run` step's shell is `leg-shell` (matrix.shell),
+        # which runs it there; the actions (checkout, caches, uploads)
+        # run on the host, as the host's `runner`, whose uid the
+        # container's `runner` shares, so no hand-over is needed between
+        # them.
+        {
+          name: "start the leg's container",
+          if: "matrix.image",
+          "working-directory": ".",
+          shell: "sh",
+          env: {
+            IMAGE: "${{ matrix.image }}",
+            TOKEN: "${{ secrets.GITHUB_TOKEN }}",
+            ACTOR: "${{ github.actor }}",
+          },
+          run: "sh .github/scripts/seccomp-profile.sh \"$RUNNER_TEMP/seccomp.json\" && sh .github/scripts/leg-container.sh start \"$IMAGE\" --security-opt \"seccomp=$RUNNER_TEMP/seccomp.json\" --security-opt apparmor=unconfined",
         },
 
         {
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          name: "create the unprivileged builder",
+          if: "matrix.image",
+          "working-directory": "/",
+          # Creating the unprivileged builder (matrix.prepare) needs
+          # root in the container. `runner`'s uid is read from the
+          # workspace directory, so it matches the owner of the
+          # checkout, RUNNER_TEMP, and the runner's own file-command
+          # files, which the container holds at their host paths. Every
+          # later `run` step on this leg runs as `runner` (matrix.shell).
+          shell: "leg-shell --root {0}",
+          run: "${{ matrix.prepare }}",
         },
 
         {
@@ -242,23 +270,10 @@
           },
         },
 
-        {
-          name: "hand the checkout and restored caches over to the unprivileged builder",
-          if: "matrix.image",
-          "working-directory": "/",
-          shell: "sh",
-          # The checkout and the two cache restores above ran as root
-          # (actions run as the container's default user); everything from
-          # here on runs as `runner` (see matrix.shell), so it needs to own
-          # what it is about to read and write. The driver's cache, restored
-          # after this, the cosmic-driver action hands over itself.
-          run: "chown -R runner \"$GITHUB_WORKSPACE\" \"$RUNNER_TEMP\"",
-        },
-
-        # After the hand-over: the action's cache restore runs as root, and
-        # it hands what it restored to `runner` (owner) before bootstrapping
-        # as `runner` (matrix.shell), which a composite action's steps do
-        # not take from defaults.run.
+        # Its cache restore runs on the host, and its bootstrap in the
+        # leg's container as `runner` (matrix.shell), which a composite
+        # action's steps do not take from defaults.run. No `owner`: the
+        # host's user, who restores, has `runner`'s uid.
         {
           name: "bootstrap the pinned CI driver",
           id: "driver",
@@ -266,7 +281,6 @@
           with: {
             "zig-cache": true,
             shell: "${{ matrix.shell }}",
-            owner: "${{ matrix.image && 'runner' || '' }}",
           },
         },
 
@@ -299,17 +313,16 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
 
-        # Whether this leg could confine a test to its declared inputs:
+        # Whether this leg can confine a test to its declared inputs:
         # build/sandbox_probe.tl starts a trivial child under each part
         # of spawn's sandbox and writes what held, and each refusal's
-        # errno, to the run's summary. It reports only, for now; see
-        # the TODO in cosmic_ci/orchestration.tl's phase_sandbox.
+        # errno, to the run's summary, and the leg fails where a part a
+        # confined test needs did not hold (cosmic_ci/orchestration.tl's
+        # phase_sandbox): its container lost what "start the leg's
+        # container" gave it.
         {
           name: "probe the sandbox a confined test runs in",
           if: "runner.os == 'Linux'",
-          # Report-only: a bug of the probe's must not stop the steps
-          # whose results the leg exists for.
-          "continue-on-error": true,
           run: "cosmic-driver cosmic_ci/driver.tl platform sandbox",
         },
 
@@ -408,77 +421,17 @@
         # The last step, whatever failed before it, so the checkout's post
         # step meets the tree where it checked it out: its git refuses a
         # repository at another path, and leaves its credentials behind
-        # (.github/scripts/place-tree.sh). In a container it runs as root,
-        # as the hand-over does, who can move back what `runner` moved; on
-        # macOS as the host's user, who moved it. A checkout that never
-        # happened has nothing to move back.
+        # (.github/scripts/place-tree.sh). It runs on the host, as the
+        # host's user, who moved it on macOS and whose uid the Linux
+        # legs' container's `runner`, who moved it there, shares; so it
+        # runs even where that container never started. A checkout that
+        # never happened has nothing to move back.
         {
           name: "move the tree back to where it was checked out",
           if: "always()",
           "working-directory": ".",
           shell: "sh",
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
-        },
-      ],
-    },
-
-    # Which `docker create` options would let the Linux legs' containers
-    # run spawn's sandbox, tried on each runner's host, where those
-    # options take effect: build/sandbox_probe.tl, run by the pinned
-    # cosmic, in each leg's image under each set of options, reported in
-    # the run's summary, which no check requires (see the platform job's
-    # container options). The x86_64 host runs both linux-x86_64's and
-    # alpine-x86_64's images, as the platform job does; linux-aarch64's
-    # runs ubuntu's. Only on this repository, where the images can be
-    # pulled, and not in the merge queue, whose entries run the same
-    # hosts again.
-    "sandbox-options": {
-      name: "sandbox-options-${{ matrix.arch }}",
-      if: "github.repository == 'cosmic-lua/cosmic' && github.event_name != 'merge_group'",
-      strategy: {
-        "fail-fast": false,
-        matrix: {
-          include: [
-            {
-              arch: "x86_64",
-              runner: "ubuntu-24.04",
-              # The platform job's ubuntu and alpine images; move them
-              # with those (build/workflows_test.tl holds them alike).
-              images: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72",
-            },
-            {
-              arch: "aarch64",
-              runner: "ubuntu-24.04-arm",
-              images: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
-            },
-          ],
-        },
-      },
-      "runs-on": "${{ matrix.runner }}",
-      permissions: {
-        contents: "read",
-        # To pull the Linux legs' images from GHCR.
-        packages: "read",
-      },
-      "timeout-minutes": 15,
-      steps: [
-        {
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-          with: {
-            "sparse-checkout": "/.github/scripts/\n/ci/cosmic-driver.pin\n/build/sandbox_probe.tl\n",
-            "sparse-checkout-cone-mode": false,
-            "persist-credentials": false,
-          },
-        },
-        {
-          name: "try the container options a sandbox could need",
-          env: {
-            TOKEN: "${{ github.token }}",
-            ACTOR: "${{ github.actor }}",
-            IMAGES: "${{ matrix.images }}",
-          },
-          # Logged out after, whatever the report found.
-          run: "echo \"$TOKEN\" | docker login ghcr.io -u \"$ACTOR\" --password-stdin && sh .github/scripts/sandbox-options.sh $IMAGES; docker logout ghcr.io",
         },
       ],
     },

@@ -48,15 +48,14 @@ exists (macOS) it warns and runs as root.
 ## runner users
 
 `macos-aarch64` runs every step as the unprivileged host runner user. The
-three Linux legs run in GitHub job containers (the images `ci/images/`
-builds), which always execute `uses:` and `run:` steps as the container's
-default user. That default user stays root -- creating the builder needs it,
-and a default user whose uid differs from the host runner's would break the
-checkout action's file commands -- but the driver itself, and every
-`cosmic-driver` step, runs as an unprivileged `runner` user created with the
-same uid as the host runner, after root hands the checkout and restored
-caches over to it. See `.github/workflows/ci.yml` for the exact step order
-and ownership.
+three Linux legs run their actions (checkout, caches, uploads) on the host,
+as the host runner user, and their `run:` steps in a container of the image
+`ci/images/` builds, which a step starts with the options spawn's sandbox
+needs (`.github/scripts/leg-container.sh`): each step runs there through the
+`leg-shell` shell as an unprivileged `runner` user created, as root, with
+the same uid as the host runner, so it owns what the actions wrote with no
+hand-over. See `.github/workflows/ci.yml` for the exact step order, the
+container's options and why each is needed.
 
 Orchestration copies `cosmic_ci/` once per fixture into a separate, external
 fixture project, since each fixture needs a fresh working database; each runs

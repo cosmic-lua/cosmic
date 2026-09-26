@@ -426,8 +426,11 @@ end
 --- drops to an unprivileged user -- passes that shell to each local
 --- action it uses that takes one, since `defaults.run` does not reach a
 --- composite action's steps: its bootstrap would otherwise run as root.
---- It names that user as the action's `owner` too, where it takes one,
---- or what the action restores as root stays root's.
+--- In a job container, where an action restores as root, it names that
+--- user as the action's `owner` too, where it takes one, or what the
+--- action restores stays root's; a job whose actions run on the host
+--- (ci.yml's platform job, whose Linux legs start their container in a
+--- step) restores as the host's user already.
 local function test_a_job_passes_its_shell_to_its_actions()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do
@@ -453,7 +456,7 @@ local function test_a_job_passes_its_shell_to_its_actions()
               local given = with is {string: any} and with.shell or nil
               assert(given == shell, path .. ": job " .. name .. " runs its steps with " .. tostring(shell) ..
                 ", and passes " .. dir .. " the shell " .. tostring(given))
-              if inputs.owner ~= nil then
+              if inputs.owner ~= nil and job.container ~= nil then
                 local owner = with is {string: any} and with.owner or nil
                 assert(owner is string and owner ~= "", path .. ": job " .. name .. " runs its steps with " ..
                   tostring(shell) .. ", and names " .. dir .. " no owner to hand what it restores")
@@ -502,8 +505,8 @@ local function test_each_workflow_and_action_is_laid_out()
 end
 
 --- Each of CI's images is pinned to one digest in every workflow that
---- names it -- the platform job's legs, the sandbox-options job's and
---- fuzz.yml's -- so moving one leaves none of them on the old one.
+--- names it -- the platform job's legs and fuzz.yml's -- so moving one
+--- leaves none of them on the old one.
 local function test_each_image_has_one_digest_everywhere()
   local seen: {string: string} = {}
   local where: {string: string} = {}
