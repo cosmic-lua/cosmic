@@ -21,22 +21,26 @@ end
 
 --- A module of the tree this module never requires by a literal name,
 --- nor anything it requires, is refused, naming it and the module
---- whose closure it is outside.
+--- whose closure it is outside. A test module is one: no module
+--- requires one.
 local function test_a_module_of_the_tree_outside_the_closure_is_refused()
-  local ok, why = pcall(require, computed("build", "flow"))
-  assert(not ok, "build.flow loaded")
+  local ok, why = pcall(require, computed("build", "flow_test"))
+  assert(not ok, "build.flow_test loaded")
   local text = tostring(why)
-  assert(text:find("module 'build.flow' is outside the import closure of " ..
+  assert(text:find("module 'build.flow_test' is outside the import closure of " ..
     "build.test_closure_test", 1, true), text)
-  assert(text:find('Require it statically, at the top level of build.test_closure_test: ' ..
-    'local _ = require("build.flow")', 1, true), text)
+  assert(text:find("nor pcall(require, ...) is followed", 1, true), text)
+  assert(text:find('or of build.test_closure_test itself: ' ..
+    'local _ = require("build.flow_test")', 1, true), text)
 end
 
---- A module the worker loaded for itself is no way around it.
+--- A module the worker loaded for itself is no way around it:
+--- `build.dispatch`, the program's entry, which starts the worker and
+--- which no test's closure holds.
 local function test_a_module_the_worker_loaded_is_refused_too()
-  local ok, why = pcall(require, computed("build", "test_worker"))
-  assert(not ok, "build.test_worker loaded")
-  assert(tostring(why):find("module 'build.test_worker' is outside the import closure",
+  local ok, why = pcall(require, computed("build", "dispatch"))
+  assert(not ok, "build.dispatch loaded")
+  assert(tostring(why):find("module 'build.dispatch' is outside the import closure",
     1, true), tostring(why))
 end
 

@@ -62,10 +62,22 @@ local record Test
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them.
     tool: boolean
+    -- TODO: give each test a store derived from its import closure, and
+    -- take `store` for the whole one, once the sandboxed worker (a
+    -- later phase of declared inputs) binds one at o/cosmic.db. The
+    -- worker refuses a `require` outside the closure, but not a module
+    -- reached another way: `cosmic.store`'s `bytecode` and `source`, a
+    -- searcher called by hand or taken out of `package.searchers` --
+    -- among them the `Store.source` reads of `cosmic.*` sources that
+    -- build/teal.tl's `standard` and build/importer.tl's
+    -- `dependency_keys` make when a test type-checks a snippet
+    -- (build/importer_test.tl, build/analyzer_test.tl). Such a read is
+    -- neither refused nor audited, and a key built from the closure's
+    -- digest misses it.
     --- Whether the tests open the tree's projection, `o/cosmic.db`,
-    --- themselves rather than through `require` and `cosmic.store`:
-    --- through `require` they reach only their import closure, and
-    --- opened so, all of it.
+    --- themselves rather than through `require` and `cosmic.store`.
+    --- Through `require` they reach only their import closure; nothing
+    --- holds a read of it made another way yet (see the TODO above).
     store: boolean
   end
 end
