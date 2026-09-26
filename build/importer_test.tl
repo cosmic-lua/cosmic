@@ -296,6 +296,23 @@ local function test_image_hash_leaves_out_teal_under_core()
   assert(image_hash_of(root) ~= image, "the core's C did not move its hash")
 end
 
+--- A rebuild lays the artifact out with the running tool's own
+--- build/artifact.tl, so an edit to it boots, as one to the launcher does.
+local function test_image_hash_covers_the_artifact_layout()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-image-artifact-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/build/artifact.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/launcher.tl", "return {}\n"))
+  local image = image_hash_of(root)
+  assert(Fs.write(root .. "/build/artifact.tl", "return { changed = true }\n"))
+  local moved = image_hash_of(root)
+  assert(moved ~= image, "an edit to build/artifact.tl did not move the core's hash")
+  assert(Fs.write(root .. "/build/launcher.tl", "return { changed = true }\n"))
+  assert(image_hash_of(root) ~= moved, "an edit to build/launcher.tl did not move the core's hash")
+end
+
 --- The compiler identity is what turns source into bytecode: the Teal
 --- compiler's and Lua's pins and patches, and the build's own modules
 --- in the importer's closure. The standard library the importer runs on

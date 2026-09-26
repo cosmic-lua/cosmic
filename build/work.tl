@@ -1025,7 +1025,9 @@ end
 --- a change under `vendor/tl/PIN`, `patch/tl/*` or to the applier needs
 --- it too, the same as every other vendored tree.
 --- `build/launcher.tl` also belongs to the retained portable prefix: a
---- database-only rebuild reuses its existing shell bytes.
+--- database-only rebuild reuses its existing shell bytes. So does
+--- `build/artifact.tl`, which lays the artifact out: a rebuild lays it
+--- out with the running tool's own copy, so an edit to it boots too.
 --- Both are written into `meta` for the projection to carry into the
 --- binary, which is how a binary knows what it was built from, so a
 --- project reads them rather than computing any. Returns the
@@ -1039,7 +1041,8 @@ function work.record_fingerprint(handle: work.Handle): work.Fingerprint | nil, s
   local image, image_trouble = hash_over(db,
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
     "path IN ('build.zig', 'build.zig.zon', " ..
-    "'bin/zig', 'bin/zig.pin', 'build/launcher.tl', 'build/patch.tl') OR " ..
+    "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
+    "'build/patch.tl') OR " ..
     "path GLOB 'vendor/*/PIN' OR " ..
     "path GLOB 'patch/*'")
   if image == nil then
