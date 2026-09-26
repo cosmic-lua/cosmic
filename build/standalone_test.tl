@@ -200,6 +200,8 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   end
   local whole = run("4.0")
   assert(whole.code == 4, tostring(whole.stderr))
+  local text = run("\"4\"")
+  assert(text.code == 4, tostring(text.stderr))
 end
 
 local function test_a_run_without_a_file_is_a_usage_error()
