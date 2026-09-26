@@ -18,9 +18,11 @@
 --- host (`host`), environment variables (`env`), the network
 --- (`network`), processes no sandbox holds (`processes`), the tool
 --- itself (`tool`), and the tree's projection opened directly
---- (`store`). Nothing enforces them yet, nor keys a verdict by them:
---- the audit compares them with what observation saw
---- (`build.filesystem_observations`), test by test.
+--- (`store`). Of them, only the closure's modules are enforced: a
+--- worker lets a test `require` no other module of the tree
+--- (`build.test_worker`'s `refusal`). Nothing else enforces them yet,
+--- nor keys a verdict by them: the audit compares them with what
+--- observation saw (`build.filesystem_observations`), test by test.
 
 local observations = require("build.filesystem_observations")
 local type analyzer = require("build.analyzer")
@@ -74,18 +76,29 @@ local corpora <const> = "testdata/fuzz/"
 --- of it -- as the files they are read from, sorted; and the declaration
 --- file of each it requires that only `declarations`, the tree's
 --- declaration files by import path, answers for. Whether `build.fuzz`
---- is among them rides along.
--- TODO: follow a require the parse cannot name -- `require(name)` of a
--- computed name, `pcall(require, ...)` (build/test_worker.tl,
--- build/dispatch.tl, cosmic/removed_test.tl, cosmic/coverage_test.tl)
--- -- once the worker records what a test's `require` loaded, as
--- observation records what it opened: `requires` holds only literal
--- names, so such a module is read outside the closure, and phase 2's
--- keys, built from this closure, inherit the miss.
+--- is among them rides along, and so do the modules' names, sorted.
+---
+--- `requires` holds only the literal names handed to `require` itself,
+--- so a `require` of a computed name -- or, until `build.ast.requires`
+--- follows it (the TODO in build/embed.tl), of a literal one through
+--- `pcall(require, ...)` -- is not followed: the worker refuses one
+--- that names a module of the tree outside this closure
+--- (`build.test_worker`), so the miss fails the test rather than
+--- leaving its key short.
+-- TODO: hold the compiler -- `vendor.tl`, derived from vendor/tl/ and
+-- its patches -- in the closure of every module whose closure holds
+-- build.teal, which loads it as bytecode (`Store.bytecode("vendor.tl")`)
+-- rather than by `require`, so no parse follows it; today's key holds
+-- it through the module key's compiler hash, but a key built from this
+-- closure alone would miss it. Follow a `Store.bytecode` of a literal
+-- name as the parse follows a `require`, or name the compiler among
+-- build.teal's inputs, once verdicts are keyed by this closure's
+-- digest.
 local function closure(m: Module, by_path: {string:Module},
-                       declarations: {string:string}): {string}, boolean
+                       declarations: {string:string}): {string}, boolean, {string}
   local seen: {string:boolean} = {}
   local files: {string} = {}
+  local names: {string} = {}
   local fuzzes = false
   local stack: {Module} = { m }
   while #stack > 0 do
@@ -93,6 +106,7 @@ local function closure(m: Module, by_path: {string:Module},
     if not seen[here.path] then
       seen[here.path] = true
       files[#files + 1] = here.file
+      names[#names + 1] = here.path
       for _, name in ipairs(here.requires) do
         local other = by_path[name]
         if name == "build.fuzz" then fuzzes = true end
@@ -101,12 +115,24 @@ local function closure(m: Module, by_path: {string:Module},
         elseif other == nil and declarations[name] ~= nil and not seen[name] then
           seen[name] = true
           files[#files + 1] = declarations[name]
+          names[#names + 1] = name
         end
       end
     end
   end
   table.sort(files)
-  return files, fuzzes
+  table.sort(names)
+  return files, fuzzes, names
+end
+
+--- The names of the modules `m`'s import closure holds, sorted: itself,
+--- every module of `by_path` it requires, directly or not, and each it
+--- requires that only a declaration of `declarations` answers for --
+--- what a worker lets its tests `require` of the tree.
+function test_inputs.modules(m: Module, by_path: {string:Module},
+                             declarations: {string:string}): {string}
+  local _, _, names = closure(m, by_path, declarations)
+  return names
 end
 
 --- `m`'s default inputs and its declared ones together: `by_path` is

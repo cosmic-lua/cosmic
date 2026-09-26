@@ -11,6 +11,13 @@
 --- every test and names what each read that neither covers, with the
 --- `needs` call that would hold it.
 ---
+--- The closure is what the build finds `require`d by a literal name,
+--- anywhere in the module and in each it requires. Under `cosmic test`,
+--- a `require` of any other module of the tree -- a name computed, or
+--- handed to `pcall(require, ...)` -- fails, naming the module: require
+--- it statically, at the top level. The modules the core itself
+--- carries, which no file of the tree is, load as ever.
+---
 --- The build reads the declaration from the source, without running
 --- the module, so the call is held to one shape: a statement at the
 --- top of a test or example module, once, on the name a `local` binds
@@ -57,10 +64,20 @@ local record Test
     tool: boolean
     -- TODO: give each test a store derived from its import closure, and
     -- take `store` for the whole one, once the sandboxed worker (a
-    -- later phase of declared inputs) binds one at o/cosmic.db: today a
-    -- test reads all of it, declared or not.
+    -- later phase of declared inputs) binds one at o/cosmic.db. The
+    -- worker refuses a `require` outside the closure, but not a module
+    -- reached another way: `cosmic.store`'s `bytecode` and `source`, a
+    -- searcher called by hand or taken out of `package.searchers` --
+    -- among them the `Store.source` reads of `cosmic.*` sources that
+    -- build/teal.tl's `standard` and build/importer.tl's
+    -- `dependency_keys` make when a test type-checks a snippet
+    -- (build/importer_test.tl, build/analyzer_test.tl). Such a read is
+    -- neither refused nor audited, and a key built from the closure's
+    -- digest misses it.
     --- Whether the tests open the tree's projection, `o/cosmic.db`,
     --- themselves rather than through `require` and `cosmic.store`.
+    --- Through `require` they reach only their import closure; nothing
+    --- holds a read of it made another way yet (see the TODO above).
     store: boolean
   end
 end

@@ -14,6 +14,7 @@
 
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -193,6 +194,90 @@ function worker.decode(text: string): worker.Report | nil, string
   return report, ""
 end
 
+--- Modules of the tree any test may `require` beyond its closure:
+--- `cosmic.removed`, which core/surface.c requires to say what to
+--- write instead of a removed global (`os.getenv`) a test reached for.
+--- It is a diagnostic the core loads, not an input of the test: what a
+--- test does with the error is no read of it.
+local diagnostics <const>: {string:boolean} = { ["cosmic.removed"] = true }
+
+--- Why the module `module_path`'s tests may not `require` `name`, or
+--- nil when they may: `closure` is the set of module names its import
+--- closure holds (`test_inputs.modules`), and `tree` the set of the
+--- modules of the tree's projection. A module of the tree outside the
+--- closure is refused, since the build does not follow it and a change
+--- to it would leave the test's verdict standing; anything else --
+--- the core's own modules, and whatever another database a test
+--- attaches holds -- is no input of the tree and loads as ever.
+local function refusal(name: string, module_path: string, closure: {string:boolean},
+                        tree: {string:boolean}): string | nil
+  if closure[name] or diagnostics[name] or not tree[name] then return nil end
+  return string.format("module '%s' is outside the import closure of %s: the build " ..
+    "follows a require only when it is called directly on a literal name, so neither a " ..
+    "computed name nor pcall(require, ...) is followed, and a change to %s would not run " ..
+    "%s's tests again. Require it so at the top level of the module this is raised in, " ..
+    "or of %s itself: local _ = require(%q)",
+    name, module_path, name, module_path, module_path, name)
+end
+
+--- A call made with the `require`s of the tree's modules held to
+--- `closure`, the set of the names `module_path`'s import closure
+--- holds.
+local type Held = function(fn: function(any...): (any...), argument?: any): any
+
+--- Reads the tree's modules from `projection`, the handle on its
+--- projection, and answers a `Held`: it calls `fn` with `argument`
+--- while a searcher ahead of every other answers a module `refusal`
+--- refuses with a loader that raises why, where it was required, and
+--- while each such module the worker itself has loaded already is out
+--- of `package.loaded`, so a `require` of it reaches the searcher too;
+--- then puts both back, whether `fn` returned or raised, and returns
+--- or raises as it did. Nil and why when the tree's modules cannot be
+--- read.
+---
+--- It holds `require` alone: a chunk a test loads by hand
+--- (`Store.bytecode` and `load`, or a searcher it calls itself, or
+--- takes out of `package.searchers`) is read from the projection
+--- directly and neither refused nor audited -- the TODO on
+--- `cosmic.test`'s `Needs.store`.
+local function hold_requires(module_path: string, closure: {string:boolean},
+                             projection: Sqlite.Handle): Held | nil, string
+  local rows, trouble = Sqlite.text_rows(projection, "SELECT path FROM modules")
+  if rows == nil then return nil, "the tree's modules: " .. trouble end
+  local tree: {string:boolean} = {}
+  for _, row in ipairs(rows) do tree[row[1]] = true end
+  -- A refusal is a loader that raises, not a searcher that does: a
+  -- caller that asks every searcher by hand for the raw value one
+  -- hands a wrapper (core/syscalls_test.tl's `raw_behind`) finds none
+  -- beside it and asks the next, as it would of a searcher that knew
+  -- nothing of the name.
+  local function gate(name: string): (function(? string, ? any): (any), any)
+    local why = refusal(name, module_path, closure, tree)
+    if why == nil then return nil, nil end
+    return function(_?: string, _?: any): any
+      -- Level 3: the caller of `require`, past this loader and it.
+      error(why, 3)
+    end, nil
+  end
+  return function(fn: function(any...): (any...), argument?: any): any
+    local set_aside: {string:any} = {}
+    for name, value in pairs(package.loaded) do
+      if refusal(name, module_path, closure, tree) ~= nil then set_aside[name] = value end
+    end
+    for name in pairs(set_aside) do package.loaded[name] = nil end
+    local searchers = package.searchers
+    table.insert(searchers, 1, gate)
+    local ok, produced = pcall(fn, argument)
+    for i = #searchers, 1, -1 do
+      if searchers[i] == gate then table.remove(searchers, i) end
+    end
+    for name, value in pairs(set_aside) do package.loaded[name] = value end
+    -- Level 0: the value raised, as it was raised.
+    if not ok then error(produced, 0) end
+    return produced
+  end, ""
+end
+
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else means there is no report to read.
@@ -203,11 +288,15 @@ local function install(module: any, runner: any)
 end
 
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs>`, `children` a directory, not yet there, to collect the
---- coverage of the processes the test starts in, and `needs` what the
+--- <needs> <closure>...`, `children` a directory, not yet there, to collect
+--- the coverage of the processes the test starts in, `needs` what the
 --- build read of the module's `cosmic.test` declaration
 --- (`test_inputs.canonical`), "" or absent for none: a module whose
---- `needs` call was handed anything else fails to load.
+--- `needs` call was handed anything else fails to load; and `closure`
+--- the names of the module's import closure (`test_inputs.modules`),
+--- one argument each, which its load and its test may `require` of
+--- the tree and nothing else of it (`refusal`), absent for no such
+--- hold -- a closure holds its module at least.
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
@@ -221,6 +310,26 @@ function worker.run(argv: {integer:string}): integer
   if not attached then
     log:complain(attach_trouble)
     return 2
+  end
+  -- Attached last, the projection is searched first.
+  local projection = Store.databases()[1]
+  -- Without a closure, a call as it is.
+  local held: Held = function(fn: function(any...): (any...), argument?: any): any
+    return fn(argument)
+  end
+  if argv[9] ~= nil then
+    local closure: {string:boolean} = {}
+    local i = 9
+    while argv[i] ~= nil do
+      closure[argv[i]] = true
+      i = i + 1
+    end
+    local holding, hold_trouble = hold_requires(module_path, closure, projection)
+    if holding == nil then
+      log:complain(root .. "/o/cosmic.db: " .. hold_trouble)
+      return 2
+    end
+    held = holding
   end
   -- The worker's own connection: no test is keyed by all of it (see
   -- `observations.exclude_held_files`; a query of it is the TODO above
@@ -250,8 +359,10 @@ function worker.run(argv: {integer:string}): integer
   local handed: Test.Needs = nil
   local runner = { loaded = false, handed = function(needs: Test.Needs) handed = needs end }
   install(Test, runner)
+  -- The hold is up for the module's load and its test alone, not for
+  -- the worker's own work around them.
   local captured = observations.capture(function(): any
-    return require(module_path)
+    return held(function(): any return require(module_path) end)
   end, resolving)
   runner.loaded = true
   local loaded, produced, load_reads = captured.ok, captured.produced, captured.reads
@@ -280,7 +391,9 @@ function worker.run(argv: {integer:string}): integer
     else
       local test_session, _ = Coverage.start()
       local started = Time.monotonic_ns()
-      local run = observations.call(fn, tmp, resolving)
+      local run = observations.call(function(argument: any): any
+        return held(fn, argument)
+      end, tmp, resolving)
       local finished = Time.monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)

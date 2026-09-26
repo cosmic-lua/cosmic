@@ -1,5 +1,18 @@
 local Removed = require("cosmic.removed")
 
+--- Every module `Removed.members` names a member of, required by a
+--- literal name so the test's import closure holds each: a `require`
+--- of a computed name is refused under `cosmic test`
+--- (`build.test_worker`).
+local modules <const>: {string:any} = {
+  ["cosmic.archive"] = require("cosmic.archive"),
+  ["cosmic.hash"] = require("cosmic.hash"),
+  ["cosmic.sqlite"] = require("cosmic.sqlite"),
+  ["cosmic.sys"] = require("cosmic.sys"),
+  ["cosmic.tar"] = require("cosmic.tar"),
+  ["cosmic.zip"] = require("cosmic.zip"),
+}
+
 --- Every replacement is for a field of a name the surface removes, so
 --- `message` can reach it: an entry under a misspelt library would never
 --- be said.
@@ -26,7 +39,8 @@ local function test_every_removed_member_is_gone_from_its_module()
   for dotted in pairs(Removed.members) do
     local module, member = dotted:match("^(cosmic%.[%w_]+)%.([%w_]+)$")
     assert(module ~= nil, dotted)
-    local loaded: any = require(module)
+    local loaded = modules[module]
+    assert(loaded ~= nil, module .. " is not among this test's modules: add it")
     assert(loaded is {string: any} and loaded[member] == nil, dotted)
   end
 end

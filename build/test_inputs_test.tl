@@ -66,6 +66,16 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
   assert(not test_inputs.covers_env(effective, "USER"))
 end
 
+--- The modules a worker lets a test `require` of the tree are the
+--- closure's by name: the module itself, what it requires directly or
+--- not, and one only a declaration answers for, but neither a module
+--- it never reaches nor one the binary carries.
+local function test_the_closure_names_its_modules()
+  local m, by_path = tree()
+  assert(table.concat(test_inputs.modules(m, by_path, staged), " ") ==
+    "lib.declared lib.deep lib.helper lib.thing_test")
+end
+
 --- A module's declaration adds to its defaults, each path with all
 --- beneath it.
 local function test_a_declaration_adds_to_the_defaults()
