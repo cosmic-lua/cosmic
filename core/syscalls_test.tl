@@ -404,18 +404,10 @@ local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
   assert(text:find("SigIgn:", 1, true) ~= nil, text)
 end
 
---- Whether `fd` is closed on exec, as /proc says; nil where there is no
---- /proc to ask.
--- TODO: ask the descriptor itself, once cosmic.sys carries
--- fcntl(F_GETFD): without /proc (macOS, a sandbox) the close-on-exec
--- promises of dup and dup2 go unchecked.
-local function closed_on_exec(fd: integer): boolean | nil
-  local info = sys.open("/proc/self/fdinfo/" .. fd, sys.O_RDONLY)
-  if info == nil then return nil end
-  local text = assert(sys.read(info, 4096))
-  sys.close(info)
-  local flags = assert(tonumber(assert(text:match("flags:%s*(%d+)")), 8))
-  return flags & 0x80000 ~= 0
+--- Whether `fd` is closed on exec, as the descriptor's own flags say.
+local function closed_on_exec(fd: integer): boolean
+  local flags = assert(sys.fd_flags(fd))
+  return flags & sys.FD_CLOEXEC ~= 0
 end
 
 --- A copy names what its original does and is closed on exec; `dup2`
@@ -428,14 +420,14 @@ local function test_dup_and_dup2_redirect_a_descriptor(tmp: string)
   assert(copy ~= ends.writer)
   assert(sys.write(copy, "copied") == 6)
   assert(sys.read(ends.reader, 64) == "copied")
-  assert(closed_on_exec(copy) ~= false, "a copy is closed on exec")
+  assert(closed_on_exec(copy), "a copy is closed on exec")
 
   local path = tmp .. "/out"
   local file = create(path)
   local saved = assert(sys.dup(1))
   local redirected, trouble = pcall(function(): string
     assert(sys.dup2(file, 1))
-    assert(closed_on_exec(1) ~= true, "a descriptor dup2 made is left open across exec")
+    assert(not closed_on_exec(1), "a descriptor dup2 made is left open across exec")
     print("printed")
     return ""
   end)
@@ -449,6 +441,7 @@ local function test_dup_and_dup2_redirect_a_descriptor(tmp: string)
   sys.close(file)
 
   sys.close(copy)
+  failed_with(sys.EBADF, sys.fd_flags(copy))
   local gone, dup_trouble, errno = sys.dup(copy)
   assert(gone == nil and dup_trouble ~= "" and errno == sys.EBADF, dup_trouble)
   local ok, dup2_trouble, dup2_errno = sys.dup2(copy, ends.writer)
@@ -690,6 +683,8 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.symlink(file, tmp .. "/link\0x"))
   failed_with(sys.EINVAL, sys.readlink(nul))
   failed_with(sys.EINVAL, sys.utimensat(nul, 0, 0))
+  failed_with(sys.EINVAL, sys.access(nul, 0))
+  failed_with(sys.EINVAL, sys.mkfifo(tmp .. "/pipe\0x"))
   -- execve, like spawn, refuses a NUL by raising, before it allocates.
   raises(sys.execve, tmp .. "\0/sh", { "sh" }, {})
   raises(sys.execve, "/bin/sh", { "sh", "-c\0x" }, {})
@@ -1035,4 +1030,44 @@ local function test_the_errnos_only_macos_has_are_named_there()
       "ENEEDAUTH", "EDEVERR", "EPWROFF", "ENOATTR", "EFTYPE", "EQFULL" }) do
     assert(names[name] ~= nil and names[name] ~= "No error information", name .. " is unnamed")
   end
+end
+
+--- `access` asks with this process's own ids: it may read and write a
+--- file it made, run it only once an execute bit it holds is set, and
+--- a missing path or a mode outside R_OK, W_OK and X_OK fails or raises.
+local function test_access_asks_what_this_process_may_do(tmp: string)
+  local path = tmp .. "/file"
+  sys.close(create(path))
+  assert(sys.access(path, 0))
+  assert(sys.access(path, sys.R_OK | sys.W_OK))
+  failed_with(sys.EACCES, sys.access(path, sys.X_OK))
+  assert(sys.chmod(path, 0x1c0))
+  assert(sys.access(path, sys.X_OK))
+  assert(sys.access(tmp, sys.X_OK), "a directory it may search")
+  failed_with(sys.ENOENT, sys.access(tmp .. "/missing", 0))
+  raises(sys.access, path, 0x100)
+end
+
+--- `mkfifo` makes a named pipe, which `lstat` calls "other" and a
+--- second make refuses; opened with O_NONBLOCK, its reading end opens
+--- with no writer rather than waiting for one.
+local function test_mkfifo_makes_a_named_pipe(tmp: string)
+  local path = tmp .. "/pipe"
+  assert(sys.mkfifo(path, 0x180))
+  local st = assert(sys.lstat(path))
+  assert(st.kind == "other" and st.mode & 0x1ff == 0x180, st.kind)
+  failed_with(sys.EEXIST, sys.mkfifo(path))
+  local reader = assert(sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK))
+  assert(sys.read(reader, 64) == "")
+  sys.close(reader)
+end
+
+--- O_NOFOLLOW refuses a link where the path ends, and opens the file it
+--- would have led to.
+local function test_o_nofollow_refuses_a_final_link(tmp: string)
+  local path = tmp .. "/file"
+  sys.close(create(path))
+  assert(sys.symlink("file", tmp .. "/link"))
+  failed(sys.open(tmp .. "/link", sys.O_RDONLY | sys.O_NOFOLLOW))
+  sys.close((assert(sys.open(path, sys.O_RDONLY | sys.O_NOFOLLOW))))
 end

@@ -115,6 +115,18 @@ local function test_find_searches_a_path_as_a_shell_does(dir: string)
   assert(found == "./anything" and trouble == "")
 end
 
+--- A file only others may run is not one this process may, unless it is
+--- root's, which may run any file with an execute bit at all.
+local function test_find_passes_over_a_file_only_others_may_run(dir: string)
+  assert(Fs.write(dir .. "/tool", "#!/bin/sh\n", 0x189))
+  local found, trouble = Proc.find("tool", dir)
+  if sys.getuid() == 0 then
+    assert(found == dir .. "/tool", trouble)
+  else
+    assert(found == nil and trouble == dir .. "/tool: not executable", trouble)
+  end
+end
+
 --- An empty entry in the list -- the whole list empty, or one before,
 --- between or after others -- is the working directory, and a name
 --- found there comes back relative to it.

@@ -403,6 +403,16 @@ local function test_copy_tree_into_itself_copies_once(tmp: string)
   assert(Fs.exists(from .. "/b/b") == false, "the copy was copied again")
 end
 
+--- A named pipe in the tree stops the copy with its path, rather than
+--- being read, which would wait for a writer.
+local function test_copy_tree_stops_at_a_named_pipe(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/from"))
+  assert(sys.mkfifo(tmp .. "/from/pipe"))
+  local copied, trouble = Fs.copy_tree(tmp .. "/from", tmp .. "/to")
+  assert(not copied and trouble == tmp .. "/from/pipe: not a file, directory or symbolic link",
+    trouble)
+end
+
 local function test_copy_tree_names_why_a_target_cannot_be_made(tmp: string)
   assert(Fs.write(tmp .. "/file", "f"))
   local copied, trouble = Fs.copy_tree(tmp .. "/file", tmp .. "/file/x")

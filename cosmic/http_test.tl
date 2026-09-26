@@ -13,6 +13,7 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 
 -- What these tests start is this very program.
@@ -367,17 +368,18 @@ Fs.put(Fs.stdout, trouble or "")
   return result.stdout or ""
 end
 
---- $SSL_CERT_FILE naming what holds no certificates -- a directory, or
---- a file of anything else -- adds none and refuses nothing: a request
---- fails as it would without it. A directory's size, as seeking to its
---- end tells it, once asked for more memory than there was, refusing
---- every request.
--- TODO: add a FIFO, which opening without O_NONBLOCK waited on for a
--- writer forever, once cosmic.sys carries mkfifo.
+--- $SSL_CERT_FILE naming what holds no certificates -- a directory, a
+--- named pipe, or a file of anything else -- adds none and refuses
+--- nothing: a request fails as it would without it. A directory's size,
+--- as seeking to its end tells it, once asked for more memory than there
+--- was, refusing every request; a pipe, opened without O_NONBLOCK, waited
+--- for a writer forever.
 local function test_a_cert_file_holding_no_certificates_is_passed_over(tmp: string)
   local junk = tmp .. "/junk.pem"
   assert(Fs.write(junk, "no certificate here\n"))
-  for _, cert_file in ipairs({ tmp, junk, tmp .. "/missing.pem" }) do
+  local pipe = tmp .. "/pipe.pem"
+  assert(sys.mkfifo(pipe))
+  for _, cert_file in ipairs({ tmp, junk, pipe, tmp .. "/missing.pem" }) do
     local trouble = refused_with_cert_file(tmp, cert_file)
     assert(not trouble:find("SSL_CERT_FILE", 1, true), cert_file .. ": " .. trouble)
     assert(trouble:lower():find("connect", 1, true) ~= nil, cert_file .. ": " .. trouble)

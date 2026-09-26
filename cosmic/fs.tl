@@ -593,11 +593,17 @@ end
 --- Copies one regular file's bytes a chunk at a time, so a large file
 --- is never held in memory whole.
 local function copy_bytes(from: string, to: string): boolean, string
-  -- TODO: open with O_NOFOLLOW, once cosmic.sys carries it, so a source
-  -- swapped for a link or a FIFO after its lstat is refused rather than
-  -- followed or blocked on.
-  local input, open_trouble = Fs.open_read(from)
-  if input == nil then return false, open_trouble end
+  -- A source swapped for a link, a named pipe or a terminal since its
+  -- lstat is refused rather than followed, waited on for a writer, or
+  -- taken as this process's terminal.
+  local input, open_trouble = sys.open(from,
+    sys.O_RDONLY | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY)
+  if input == nil then return false, from .. ": " .. open_trouble end
+  local st, stat_trouble = sys.fstat(input)
+  if st == nil or st.kind ~= "file" then
+    local _, _ = Fs.close(input)
+    return false, from .. ": " .. (st == nil and stat_trouble or "no longer a regular file")
+  end
   -- Exclusive: a name that appeared since the target was checked, a
   -- planted link included, is refused rather than written through.
   local output, create_trouble = sys.open(to,
