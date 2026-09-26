@@ -9,14 +9,15 @@
 #
 #     sh .github/scripts/sandbox-options.sh IMAGE...
 #
-# A report goes to the run's summary ($GITHUB_STEP_SUMMARY, else stdout):
+# A report goes to standard output, and to the run's summary
+# ($GITHUB_STEP_SUMMARY) too when there is one, so the job's log holds it:
 # the host's switches, then for each image and set of options the
 # probe's report, or what stopped it. It reports and fails nothing: an
 # option the host refuses is a finding.
 set -u
 
 [ $# -ge 1 ] || { echo "usage: sandbox-options.sh IMAGE..." >&2; exit 2; }
-summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
+summary=${GITHUB_STEP_SUMMARY:-/dev/null}
 work=${RUNNER_TEMP:-/tmp}/sandbox-options
 rm -rf "$work"
 mkdir -p "$work/probe"
@@ -125,4 +126,4 @@ done
       esac
     done
   done
-} >> "$summary"
+} | tee -a "$summary"
