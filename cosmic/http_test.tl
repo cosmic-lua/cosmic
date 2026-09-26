@@ -12,6 +12,7 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Stream = require("cosmic.stream")
 local observations = require("build.filesystem_observations")
 
 -- What these tests start is this very program.
@@ -597,9 +598,24 @@ local function test_a_close_variable_closes_the_response()
     local response <close> = assert(Http.open(url, { script = { reply("200 OK", "", "x") } }))
     kept = response
   end
-  local ok, err = pcall(kept.read, kept)
-  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
-  kept:close() -- closing again is harmless
+  local chunk, trouble = kept:read()
+  assert(chunk == nil and trouble:find("closed", 1, true) ~= nil, trouble)
+  local again, again_trouble = kept:close() -- closing again is harmless
+  assert(again and again_trouble == "")
+end
+
+--- A response is a `cosmic.stream` Reader: what takes a file's Reader
+--- takes a body the same way.
+local function test_a_response_is_a_stream_reader()
+  local body = string.rep("0123456789", 10000)
+  local response = assert(Http.open(url, { script = { reply("200 OK", "", body) } }))
+  local reader: Stream.Reader = response
+  local head = assert(Stream.read_exact(reader, 10))
+  assert(head == "0123456789")
+  local rest = Stream.collect()
+  assert(assert(Stream.copy(reader, rest)) == #body - 10)
+  assert(rest:result() == body:sub(11))
+  assert(reader:close())
 end
 
 local revived: {Http.Response} = {}
@@ -662,4 +678,212 @@ local function test_check_certificate_reads_what_the_binary_trusts()
     local ok, why = Http.check_certificate(der)
     assert(not ok and why ~= "", Codec.hex(der))
   end
+end
+
+--- A whole reply that leaves the connection open: a scripted reply
+--- arrives before curl has sent the request, and one that closes the
+--- connection would end an upload's body there.
+local function kept_open(status: string, body: string): string
+  return "HTTP/1.1 " .. status .. "\r\nContent-Length: " .. tostring(#body) ..
+    "\r\n\r\n" .. body
+end
+
+--- Writes each of `chunks` to an upload over `script`, then answers
+--- its response (whole body read, closed), that body, and what curl
+--- sent.
+local function upload(script: {string}, chunks: {string}, opts?: Http.Options):
+    Http.Response, string, string
+  opts = opts or {}
+  opts.script = script
+  local up = assert(Http.upload(url, opts))
+  for _, chunk in ipairs(chunks) do assert(up:write(chunk)) end
+  assert(up:close())
+  local response = assert(up:response())
+  local body = assert(Stream.read_all(response))
+  local sent = response:sent()
+  assert(response:close())
+  return response, body, sent
+end
+
+--- A body of no given size goes chunked, a chunk per write, with no
+--- `Expect: 100-continue` to wait on.
+local function test_an_upload_sends_its_writes_chunked()
+  local response, body, sent = upload({ kept_open("200 OK", "done") },
+    { "hello, ", "cosmic!" })
+  assert(response.status == 200 and body == "done")
+  assert(sent:find("POST / HTTP/1.1\r\n", 1, true) == 1, sent)
+  assert(sent:find("\r\nTransfer-Encoding: chunked\r\n", 1, true) ~= nil, sent)
+  assert(sent:find("Expect:", 1, true) == nil, sent)
+  assert(sent:find("\r\n\r\n7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n", 1, true) ~= nil, sent)
+end
+
+--- A given size is the Content-Length, and the body goes as written.
+local function test_an_upload_of_a_given_size_sends_a_content_length()
+  local _, _, sent = upload({ kept_open("201 Created", "") }, { "hello, ", "cosmic!" },
+    { method = "PUT", body_size = 14, headers = { ["Content-Type"] = "text/plain" } })
+  assert(sent:find("PUT / HTTP/1.1\r\n", 1, true) == 1, sent)
+  assert(sent:find("\r\nContent-Length: 14\r\n", 1, true) ~= nil, sent)
+  assert(sent:find("\r\nContent-Type: text/plain\r\n", 1, true) ~= nil, sent)
+  assert(sent:find("chunked", 1, true) == nil, sent)
+  assert(sent:sub(-18) == "\r\n\r\nhello, cosmic!", sent)
+end
+
+--- An upload is a `cosmic.stream` Writer: `Stream.copy` fills it from a
+--- Reader, far more than one buffer's worth.
+local function test_an_upload_is_a_stream_writer()
+  local data = string.rep("0123456789abcdef", 256 * 1024)
+  local up = assert(Http.upload(url, { body_size = #data,
+    script = { kept_open("200 OK", "ok") } }))
+  local writer: Stream.Writer = up
+  assert(assert(Stream.copy(Stream.from_string(data), writer)) == #data)
+  assert(writer:close())
+  local response = assert(up:response())
+  -- The reply came first, so curl may still be sending the body: the
+  -- transfer is over, and all of it sent, once the reply is read out.
+  assert(assert(Stream.read_all(response)) == "ok")
+  local sent = response:sent()
+  assert(sent:sub(-#data) == data, "the whole body was sent")
+  assert(response:close())
+end
+
+--- `body` and a HEAD are refused, each as its kind of mistake.
+local function test_an_upload_refuses_a_body_and_a_head()
+  assert(not pcall(Http.upload, url, { body = "x", script = {} } as Http.Options))
+  assert(not pcall(Http.upload, url, { body_size = -1, script = {} } as Http.Options))
+  local up, trouble = Http.upload(url, { method = "HEAD", script = {} })
+  assert(up == nil and trouble:find("HEAD", 1, true) ~= nil, trouble)
+end
+
+--- A request that fails says so from `close` and `response`, and
+--- every later write fails too.
+local function test_a_failed_upload_says_why()
+  local up = assert(Http.upload(url, { script = {} }))
+  local wrote, trouble = up:write("x")
+  assert(not wrote and trouble ~= "", "a write with nowhere to go succeeded")
+  local closed, close_trouble = up:close()
+  assert(not closed and close_trouble ~= "", close_trouble)
+  local response, why = up:response()
+  assert(response == nil and why == close_trouble, why)
+  local again, again_trouble = up:write("y")
+  assert(not again and again_trouble:find("closed", 1, true) ~= nil, again_trouble)
+end
+
+--- An aborted upload sends no more and has no response.
+local function test_an_aborted_upload_has_no_response()
+  local up = assert(Http.upload(url, { script = { reply("200 OK", "", "") } }))
+  assert(up:write("partial"))
+  assert(up:abort())
+  assert(up:abort())
+  assert(up:close(), "a close after abort is harmless, as a second abort is")
+  local response, why = up:response()
+  assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
+  assert(not up:write("more"))
+end
+
+--- A server that refuses the request before its body is sent is heard:
+--- the writes stop, and the response is the refusal.
+local function test_a_refusal_before_the_body_is_all_sent_is_the_response()
+  local up = assert(Http.upload(url, { script = {
+    reply("413 Content Too Large", "", "too big") } }))
+  local chunk = string.rep("x", 1 << 20)
+  local refused = ""
+  for _ = 1, 64 do
+    local ok, trouble = up:write(chunk)
+    if not ok then
+      refused = trouble
+      break
+    end
+  end
+  assert(refused:find("answered before", 1, true) ~= nil, refused)
+  local response = assert(up:response())
+  assert(response.status == 413)
+  assert(assert(Stream.read_all(response)) == "too big")
+  assert(response:close())
+end
+
+--- A redirect that would send the body again cannot: what was written
+--- is gone, so the request fails rather than send an empty body.
+local function test_an_upload_redirected_by_a_307_fails()
+  local up = assert(Http.upload(url, { script = {
+    reply("307 Temporary Redirect", "Location: /again\r\n", ""),
+    reply("200 OK", "", "ok") } }))
+  local _, _ = up:write("payload")
+  local closed, trouble = up:close()
+  assert(not closed and trouble:find("rewind", 1, true) ~= nil, trouble)
+end
+
+--- A 303 needs no body resent: the request follows it as a GET.
+local function test_an_upload_redirected_by_a_303_follows_as_a_get()
+  local response, body, sent = upload({
+    "HTTP/1.1 303 See Other\r\nLocation: /again\r\nContent-Length: 0\r\n\r\n",
+    reply("200 OK", "", "fetched") }, { "payload" })
+  assert(response.status == 200 and body == "fetched")
+  assert(sent:find("POST / HTTP/1.1\r\n", 1, true) == 1, sent)
+  assert(sent:find("GET /again HTTP/1.1\r\n", 1, true) ~= nil, sent)
+end
+
+--- A write that would take the body past its given size fails and
+--- takes none of it; the body then written to its size goes through.
+local function test_an_upload_refuses_a_body_past_its_size()
+  local up = assert(Http.upload(url, { body_size = 4,
+    script = { kept_open("200 OK", "ok") } }))
+  assert(up:write("ab"))
+  local wrote, trouble = up:write("cdef")
+  assert(not wrote and trouble:find("longer than its body_size of 4", 1, true) ~= nil, trouble)
+  assert(up:write("cd"))
+  assert(up:close())
+  local response = assert(up:response())
+  assert(response:sent():sub(-8) == "\r\n\r\nabcd", response:sent())
+  assert(response:close())
+end
+
+--- A body short of its given size fails the request at `close`.
+local function test_an_upload_short_of_its_size_fails()
+  local up = assert(Http.upload(url, { body_size = 10,
+    script = { kept_open("200 OK", "ok") } }))
+  assert(up:write("abc"))
+  local closed, trouble = up:close()
+  assert(not closed and trouble:find("shorter than its body_size of 10 bytes: 3 written",
+    1, true) ~= nil, trouble)
+end
+
+--- A GET named with a streamed body goes as a GET, not a POST.
+local function test_an_upload_names_its_method()
+  local _, _, sent = upload({ kept_open("200 OK", "") }, { "q" }, { method = "GET" })
+  assert(sent:find("GET / HTTP/1.1\r\n", 1, true) == 1, sent)
+end
+
+--- A server that answers first with more than the body buffer holds,
+--- keeping the connection open, cannot hold a write up: the transfer is
+--- paused on the unread answer, so the write stops and says so, and the
+--- response is there to read.
+local function test_a_large_early_answer_does_not_hang_a_write()
+  local answer = string.rep("x", 3 * 1024 * 1024)
+  local up = assert(Http.upload(url, { script = { kept_open("413 Content Too Large", answer) } }))
+  local chunk = string.rep("y", 1 << 20)
+  local refused = ""
+  for _ = 1, 64 do
+    local ok, trouble = up:write(chunk)
+    if not ok then
+      refused = trouble
+      break
+    end
+  end
+  assert(refused:find("answered before", 1, true) ~= nil, refused)
+  local response = assert(up:response())
+  assert(response.status == 413)
+  assert(#assert(Stream.read_all(response)) == #answer)
+  assert(response:close())
+end
+
+--- An upload left in a `<close>` variable before its `close` is aborted.
+local function test_a_close_variable_aborts_an_upload()
+  local kept: Http.Upload
+  do
+    local up <close> = assert(Http.upload(url, { script = { kept_open("200 OK", "") } }))
+    assert(up:write("partial"))
+    kept = up
+  end
+  local response, why = kept:response()
+  assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
 end
