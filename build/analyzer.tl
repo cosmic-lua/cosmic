@@ -9,6 +9,7 @@ local type compiler = require("build.compiler")
 local ast = require("build.ast")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
+local caches = require("build.caches")
 
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
@@ -93,6 +94,7 @@ local record analyzer
     processes: boolean
     tool: boolean
     store: boolean
+    caches: {string}
   end
 
   record Analysis
@@ -1028,7 +1030,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false,
+    processes = false, tool = false, store = false, caches = {},
   }
   local seen: {string:boolean} = {}
   for _, item in ipairs(value) do
@@ -1077,6 +1079,13 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         local path_trouble = (field == "reads" or field == "host") and
           input_path_trouble(field, text.conststr) or ""
         if field == "env" and text.conststr == "" then path_trouble = "an empty name" end
+        if field == "caches" and caches.names[text.conststr] == nil then
+          local known: {string} = {}
+          for name in pairs(caches.names) do known[#known + 1] = name end
+          table.sort(known)
+          path_trouble = "no cache " .. text.conststr .. "; the caches are " ..
+            table.concat(known, ", ")
+        end
         if path_trouble ~= "" then
           return nil, at(entry) .. field ..
             ": " .. path_trouble
@@ -1089,6 +1098,8 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         out.host = list
       elseif field == "env" then
         out.env = list
+      elseif field == "caches" then
+        out.caches = list
       else
         out.network = list
       end

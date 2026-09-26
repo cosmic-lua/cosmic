@@ -103,6 +103,18 @@ end
 
 -- The global cache is shared: named outright, else in this user's cache
 -- directory, and in the checkout only when there is no cache directory.
+--- A zig command other than `build` runs with zig's caches where `build`
+--- puts them, unless the caller names its own.
+local function test_other_subcommands_use_the_build_s_caches()
+  local got = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
+    COSMIC_ZIG_CACHE = "/p", PATH = "/bin" })
+  assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.ZIG_LOCAL_CACHE_DIR == "/p" and
+    got.PATH == "/bin")
+  local kept = Zig.passthrough_environment("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
+    COSMIC_ZIG_CACHE = "/p", ZIG_GLOBAL_CACHE_DIR = "/mine" })
+  assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p")
+end
+
 local function test_global_cache_is_named_then_shared_then_local(tmp: string)
   assert(Zig.global_cache("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/ci/zig-global",
     XDG_CACHE_HOME = tmp }) == "/ci/zig-global")

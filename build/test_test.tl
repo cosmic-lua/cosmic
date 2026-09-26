@@ -254,6 +254,23 @@ local function test_a_network_request_is_not_keyable(tmp: string)
   assert(not test.keyable(tmp, tmp .. "/scratch", reads))
 end
 
+--- A read or a write beneath a host cache the test's module declares
+--- (`build.caches`) is no input: it is excluded as the test's own
+--- directory is, so its verdict stands -- and the read enters no key.
+local function test_a_read_of_a_declared_cache_is_keyable(tmp: string)
+  local cache = tmp .. "/cache/zig-global"
+  local reads: {observations.Observation} = {
+    { kind = "o", path = cache .. "/o/abc/x.h", answer = "" },
+    { kind = "s", path = cache .. "/h", answer = "ok 1 2 file" },
+  }
+  assert(not test.keyable(tmp .. "/root", tmp .. "/scratch", reads))
+  assert(test.keyable(tmp .. "/root", tmp .. "/scratch", reads, { cache }))
+  assert(not test.keyable(tmp .. "/root", tmp .. "/scratch", reads, { tmp .. "/cache/zig" }))
+  local key = test.verdict_key(tmp .. "/root", {}, "m test_x", "k", "r", reads, {})
+  local bare = test.verdict_key(tmp .. "/root", {}, "m test_x", "k", "r", {}, {})
+  assert(key.key == bare.key and key.shared == bare.shared, "a cache read entered the key")
+end
+
 local function test_a_read_outside_the_tree_is_not_keyable(tmp: string)
   local reads: {observations.Observation} =
     { { kind = "o", path = "/etc/hostname", answer = "" } }

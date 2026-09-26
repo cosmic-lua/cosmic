@@ -238,6 +238,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
     if declared.processes then rows[#rows + 1] = { "processes", "true" } end
     if declared.tool then rows[#rows + 1] = { "tool", "true" } end
     if declared.store then rows[#rows + 1] = { "store", "true" } end
+    each("caches", declared.caches)
   end
   for ordinal, row in ipairs(rows) do
     local ok, why = Sqlite.run(db,
@@ -571,7 +572,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
     local one = declared[hash]
     if one == nil then
       one = { line = 0, reads = {}, host = {}, env = {}, network = {},
-        processes = false, tool = false, store = false }
+        processes = false, tool = false, store = false, caches = {} }
       declared[hash] = one
     end
     if field == "line" then
@@ -590,6 +591,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared
       one.tool = true
     elseif field == "store" then
       one.store = true
+    elseif field == "caches" then
+      one.caches[#one.caches + 1] = value
     end
   end
   return declared, ""

@@ -79,6 +79,17 @@ local record Test
     --- Through `require` they reach only their import closure; nothing
     --- holds a read of it made another way yet (see the TODO above).
     store: boolean
+    --- Host caches the tests, or the processes they start, write, by
+    --- name: `"zig"` (the pinned zig, and zig's global and project
+    --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
+    --- portable cosmic extracts); the runner knows where each is on the
+    --- host (`build.caches`), and another name fails the build. Only for
+    --- a cache whose contents never change a result -- content-addressed,
+    --- there to save time: what a test reads or writes there enters no
+    --- verdict's key, and the audit asks nothing more of it. A sandboxed
+    --- worker has each writable at its own path, with the variables that
+    --- locate it.
+    caches: {string}
   end
 end
 
@@ -87,7 +98,7 @@ end
 --- in the source to the same table (`build.analyzer`).
 Test.fields = {
   reads = "list", host = "list", env = "list", network = "either",
-  processes = "flag", tool = "flag", store = "flag",
+  processes = "flag", tool = "flag", store = "flag", caches = "list",
 }
 
 --- What a test runner installed as `__runner` on this module's table

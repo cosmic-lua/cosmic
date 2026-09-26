@@ -88,11 +88,11 @@ end
 local function test_every_field_of_needs_is_one_fields_names()
   local every: Test.Needs = {
     reads = {}, host = {}, env = {}, network = true, processes = true, tool = true,
-    store = true,
+    store = true, caches = {},
   }
   local want: {string:string} = {
     reads = "list", host = "list", env = "list", network = "either",
-    processes = "flag", tool = "flag", store = "flag",
+    processes = "flag", tool = "flag", store = "flag", caches = "list",
   }
   local count = 0
   for name in pairs(every as {string:any}) do

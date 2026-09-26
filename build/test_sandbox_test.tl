@@ -57,6 +57,14 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   end
   assert(holds(unveil.reads, host) and unveil.at[host] == nil)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and unveil.at[scratch] == "/tmp")
+  -- A declared cache is given to write at its own name, made first.
+  inputs.cache_paths = { tmp .. "/caches/zig-global" }
+  local cached = test_sandbox.plan(root, scratch, inputs, {})
+  assert(cached.trouble == "", cached.trouble)
+  assert(holds(cached.sandbox.unveil.writes, tmp .. "/caches/zig-global") and
+    cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
+  assert(Fs.exists(tmp .. "/caches/zig-global"))
+  inputs.cache_paths = {}
   inputs.network = { ["127.0.0.1"] = true }
   inputs.tool = true
   local online = test_sandbox.plan(root, scratch, inputs, {})
@@ -193,4 +201,42 @@ end
   env.COSMIC_TEST_SANDBOX = "yes"
   text, ok = run(root, tmp .. "/misspelt", env)
   assert(not ok and text:find('COSMIC_TEST_SANDBOX is "yes"', 1, true), text)
+end
+
+--- End to end: a sandboxed worker writes a host cache its module
+--- declares, where the host has it, and cannot write one it does not
+--- declare -- which the runner neither gives nor makes. Where no worker
+--- can be sandboxed here, the run says so.
+local function test_a_sandboxed_worker_writes_only_the_caches_it_declares(tmp: string)
+  local root, xdg = tmp .. "/root", assert(Fs.absolute(tmp)) .. "/xdg"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/cache_test.tl", [[
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.needs { caches = { "zig" } }
+
+local function test_write()
+  local base = assert(sys.getenv("XDG_CACHE_HOME"))
+  local declared, _ = Fs.write(base .. "/cosmic/zig-global/entry", "cached")
+  local undeclared, _ = Fs.write(base .. "/cosmic/bootstrap/entry", "cached")
+  error("wrote|" .. tostring(declared) .. "|" .. tostring(undeclared) .. "|end")
+end
+]]))
+  local env = observations.environment()
+  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
+  -- The program's cores stay where they are; only the caches move.
+  env.COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE or Fs.cache_path("cores")
+  env.XDG_CACHE_HOME = xdg
+  env.COSMIC_ZIG_CACHE, env.COSMIC_ZIG_GLOBAL_CACHE = nil, nil
+  env.COSMIC_TEST_SANDBOX = "1"
+  local text, ok = run(root, tmp .. "/out", env)
+  assert(not ok, text)
+  if text:find("no worker can be sandboxed here", 1, true) then return end
+  assert(text:find("wrote|true|false|end", 1, true), text)
+  assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
+  assert(not Fs.exists(xdg .. "/cosmic/bootstrap"))
 end

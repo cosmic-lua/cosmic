@@ -106,6 +106,7 @@ local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
@@ -890,14 +891,17 @@ end
 --- the test's own process in /proc (`own_process`). An
 --- environment
 --- read is keyable: its answer enters the verdict key like a file's
---- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
---- can exercise it directly.
+--- hash does. So is a read beneath one of `caches`, the host caches the
+--- test's module declares (`build.caches`), which are content-addressed
+--- and never change a result: excluded as `scratch` is. Exposed
+--- alongside `test.verdict_key` so `test_test.tl` can exercise it
+--- directly.
 -- TODO: key a stat or a listing outside the tree by its answer, as the
 -- key holds an environment read, rather than refusing the run: a test
 -- whose code searches PATH (build/todos_test.tl, for git) stats host
 -- directories whose answers a key could hold.
 function test.keyable(root: string, scratch: string,
-                      reads: {observations.Observation}): boolean
+                      reads: {observations.Observation}, caches?: {string}): boolean
   local followed, unfollowed = resolutions_of(reads)
   local function under(dir: string, path: string): boolean
     return Fs.within(path, dir)
@@ -923,8 +927,12 @@ function test.keyable(root: string, scratch: string,
       local real = resolved_for(kind, followed, unfollowed)[path]
       if real == "" or (real == nil and climbs(path)) then return false end
       local judged = real or path
+      local cached = false
+      for _, cache in ipairs(caches or {}) do
+        if under(cache, judged) or under(cache, path) then cached = true end
+      end
       if judged:sub(1, 1) == "/" and not under(root, judged) and
-          not under(scratch, judged) then
+          not under(scratch, judged) and not cached then
         local made_here = false
         for _, dir in ipairs(made) do
           if under(dir, judged) or (real ~= nil and
@@ -1010,6 +1018,10 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   end
   local function own(path: string): boolean
     if Fs.within(path, scratch) then return true end
+    -- A declared cache, the test's to read and write (`build.caches`).
+    for _, cache in ipairs(effective.cache_paths or {}) do
+      if Fs.within(path, cache) then return true end
+    end
     for _, dir in ipairs(made) do
       if Fs.within(path, dir) or Fs.within(path, observations.resolution(dir)) then
         return true
@@ -1021,6 +1033,9 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   -- what it is, or where it leads, is part of reaching them.
   local function on_the_way(path: string): boolean
     if Fs.within(scratch, path) or Fs.within(root, path) then return true end
+    for _, cache in ipairs(effective.cache_paths or {}) do
+      if Fs.within(cache, path) then return true end
+    end
     for _, dir in ipairs(made) do
       if Fs.within(dir, path) or Fs.within(observations.resolution(dir), path) then
         return true
@@ -1538,6 +1553,9 @@ local record Recording
   --- are given, by module path.
   sandbox: boolean
   views: {string:{string:string}}
+  --- Where the host caches each module declares are (`build.caches`),
+  --- by module path, as `caches_of` resolves them.
+  caches: {string:{string}}
   --- Each selected module's import closure, by path: the names of its
   --- modules, which its worker holds its `require`s to
   --- (`test_inputs.modules`, `build.test_worker`).
@@ -1555,6 +1573,19 @@ local function view_of(rec: Recording, m: importer.Module): {string:string} | ni
     rec.views[m.path] = view
   end
   return view
+end
+
+--- Where the host caches `m` declares are (`build.caches`), as every
+--- worker's environment locates them: what its test may read and write
+--- that no key holds.
+local function caches_of(rec: Recording, m: importer.Module): {string}
+  local found = rec.caches[m.path]
+  if found == nil then
+    local declared = m.inputs
+    found = declared ~= nil and host_caches.all(declared.caches or {}, rec.root, worker_view()) or {}
+    rec.caches[m.path] = found
+  end
+  return found
 end
 
 --- What names this checkout among the shared rows: an id made the
@@ -1852,7 +1883,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
         rec.tool)
     end
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads)
+    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads, caches_of(rec, job.m))
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
@@ -2038,6 +2069,10 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     if plan.over > 0 then
       finish(rec, job, nil, string.format("its sandbox would give it %d paths more than " ..
         "the most one holds", plan.over), limits)
+      return false
+    end
+    if plan.trouble ~= "" then
+      finish(rec, job, nil, plan.trouble, limits)
       return false
     end
     job.plan = plan
@@ -2551,7 +2586,7 @@ function test.run(argv: {integer:string}): integer
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
-    sandbox = sandboxed, views = {},
+    sandbox = sandboxed, views = {}, caches = {},
   }
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
@@ -2592,7 +2627,9 @@ function test.run(argv: {integer:string}): integer
   if audit or sandboxed then
     rec.effective = {}
     for _, m in ipairs(selected_modules) do
-      rec.effective[m.path] = test_inputs.effective(m, by_path, declarations)
+      local effective = test_inputs.effective(m, by_path, declarations)
+      effective.cache_paths = caches_of(rec, m)
+      rec.effective[m.path] = effective
     end
   end
   local jobs: {Job} = {}

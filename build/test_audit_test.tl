@@ -118,6 +118,28 @@ local function test_audited_names_what_the_inputs_do_not_hold(tmp: string)
   }, "\n"), table.concat(said, "\n"))
 end
 
+--- What a test reads or writes beneath a host cache its module
+--- declares (`build.caches`) is covered: the audit names none of it.
+local function test_a_declared_cache_is_covered(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/root"
+  local scratch = assert(Fs.absolute(tmp)) .. "/scratch"
+  local cache = assert(Fs.absolute(tmp)) .. "/cache/cosmic/zig-global"
+  local m: positions.Module = { path = "a.thing_test", file = "a/thing_test.tl", kind = "test",
+    requires = {}, tests = { "test_x" } }
+  local effective = test_inputs.effective(m, { [m.path] = m }, {})
+  assert(Fs.mkdirs(cache .. "/o"))
+  assert(Fs.write(cache .. "/o/x.h", "x"))
+  local reads: {observations.Observation} = {
+    { kind = "o", path = cache .. "/o/x.h", answer = "" },
+    { kind = "s", path = cache .. "/o", answer = "ok 1 2 dir" },
+    { kind = "s", path = assert(Fs.absolute(tmp)) .. "/cache/cosmic", answer = "ok 1 2 dir" },
+  }
+  assert(#test.audited(root, scratch, effective, reads, {}) > 0)
+  effective.cache_paths = { cache }
+  local found = test.audited(root, scratch, effective, reads, {})
+  assert(#found == 0, found[1] ~= nil and (found[1].field .. " " .. found[1].value) or "")
+end
+
 --- A read through a link in the test's own directory is judged by
 --- where the link leads: out of it, the read is of what it leads to,
 --- which a sandbox would not show undeclared. A stat of a directory

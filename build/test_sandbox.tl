@@ -16,6 +16,9 @@
 ---   the test's own directory (/tmp/tmp, a link to /tmp/real), where
 ---   the processes it starts write their coverage (/tmp/children), and
 ---   its TMPDIR;
+--- - the host caches the module declares (`build.caches`), writable,
+---   each at its own name, made first where missing, and the variables
+---   that locate them;
 --- - the system's own paths, the program, its core and the stamp that
 ---   says the core was verified (`observations.worker_unveil`), and the
 ---   `host` paths the module declares, each at its own name;
@@ -36,6 +39,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
+local caches = require("build.caches")
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
@@ -54,6 +58,9 @@ local record test_sandbox
     env: {string:string}
     --- The paths it was given beyond the most a sandbox holds, or 0.
     over: integer
+    --- Why it cannot start as planned -- a cache it declares that could
+    --- not be made -- or "".
+    trouble: string
   end
 end
 
@@ -154,20 +161,19 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   for _, path in ipairs(effective.host) do
     if path:sub(1, 1) == "/" then give(trimmed(path)) end
   end
-  -- TODO: give a worker the host caches its module declares it writes --
-  -- the bootstrap cosmic's and zig's, under `Fs.cache_path` -- once
-  -- `cosmic.test`'s Needs can declare one (a cache by name, which the
-  -- runner resolves, since a literal path cannot name HOME): today
-  -- build/c/rules_test.tl's tests, which run bin/zig, fail sandboxed,
-  -- where ~/.cache/cosmic/bootstrap is not there to make.
   local writes: {string} = { scratch }
   at[scratch] = test_sandbox.scratch
+  -- Each host cache the module declares, writable at its own name, made
+  -- first where it is not there yet, so a fresh host has one to bind.
+  local made, trouble = caches.make(effective.cache_paths or {})
+  for _, path in ipairs(effective.cache_paths or {}) do writes[#writes + 1] = path end
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
   local offline = next(effective.network) == nil
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
     env = test_sandbox.environment(environment, effective),
     over = over,
+    trouble = made and "" or "a cache it declares: " .. trouble,
   }
 end
 
