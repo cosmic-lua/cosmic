@@ -276,9 +276,9 @@ local function moved(encoded: string, move: function(string): string): string | 
     for i, observation in ipairs(reads) do
       local kind = observation.kind
       local path = observation.path
-      -- A variable's name, and the working directory's or the
-      -- program's own "", are no paths.
-      if kind ~= "e" and kind ~= "c" and kind ~= "b" then path = move(path) end
+      -- A variable's name, the working directory's or the program's
+      -- own "", and a declaration's "", are no paths.
+      if kind ~= "e" and kind ~= "c" and kind ~= "b" and kind ~= "z" then path = move(path) end
       out[i] = { kind = kind, path = path, answer = observation.answer }
     end
     return out

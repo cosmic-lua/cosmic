@@ -843,3 +843,34 @@ local function test_a_resolution_is_the_one_the_observations_told(tmp: string)
     end
   end
 end
+
+--- A test's declaration that it reads stat's times is noted by the
+--- capture it is made in, and kept through a stored run's encoding, so
+--- the key a later run is looked up under sees it before it runs.
+local function test_a_declaration_of_stat_s_times_is_noted_and_kept()
+  local run: observations.Run = nil
+  -- Every capture running notes it, the one around the test's too.
+  local outer = observations.capture(function()
+    run = observations.call(function()
+      observations.reads_stat_times()
+    end, nil)
+  end)
+  assert(outer.ok, tostring(outer.produced))
+  assert(run.passed, run.message)
+  local around = false
+  for _, observation in ipairs(outer.reads) do
+    if observation.kind == "z" then around = true end
+  end
+  assert(around, "the capture around the test's did not note the declaration")
+  local declared = false
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "z" then declared = true end
+  end
+  assert(declared, "the declaration was not noted")
+  local back = assert(observations.decode(observations.encode(run.reads)))
+  local kept = false
+  for _, observation in ipairs(back) do
+    if observation.kind == "z" then kept = true end
+  end
+  assert(kept, "the declaration did not survive encoding")
+end

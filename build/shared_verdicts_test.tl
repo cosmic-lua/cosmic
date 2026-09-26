@@ -495,3 +495,28 @@ end
   local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
   assert(alone:find("1 of 1 failed", 1, true), alone)
 end
+
+--- A declared test's run (`observations.reads_stat_times`) keeps its
+--- declaration through the cache: its paths are moved to the checkout
+--- that asks, and its "z", which names no path, is left as it is, so
+--- the key that checkout reaches is a declared one.
+local function test_a_declaration_is_kept_as_it_is_through_the_cache(tmp: string)
+  local cache = assert(shared_verdicts.open(tmp .. "/cache/verdicts.db"))
+  local first, second = tmp .. "/first", tmp .. "/second"
+  local reads = observations.encode({
+    { kind = "z", path = "", answer = "" },
+    { kind = "s", path = first .. "/f", answer = "" },
+  })
+  assert(shared_verdicts.settle(cache, first, "first", { kept = { {
+    key = "shared", test = "suite/t_test.tl test_t", module_key = "module", reads = reads,
+    hits = "", elapsed_ns = 1 } }, used = {}, failed = {} }, Time.now_ns()))
+  local found = assert(shared_verdicts.candidates(cache, second, "suite/t_test.tl test_t",
+    "module"))
+  shared_verdicts.close(cache)
+  assert(#found == 1, "the verdict was not kept")
+  local back = assert(observations.decode(found[1].reads))
+  assert(#back == 2, found[1].reads)
+  assert(back[1].kind == "z" and back[1].path == "" and back[1].answer == "",
+    "the declaration was moved: " .. back[1].kind .. " " .. back[1].path)
+  assert(back[2].kind == "s" and back[2].path == second .. "/f", back[2].path)
+end
