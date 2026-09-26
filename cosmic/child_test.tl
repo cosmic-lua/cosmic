@@ -416,6 +416,47 @@ local function test_writing_to_a_gone_stdin_stream_fails()
   assert(h:close())
 end
 
+--- A wait holds a streamed output to its limit, even while a writer
+--- outside the group goes on filling the pipe: the rest waits in the
+--- pipe for the reader, which reads on after the wait.
+local function test_a_wait_holds_a_streamed_output_to_its_limit()
+  local h = assert(Child.start({ "/bin/sh", "-c", "head -c 4000000 /dev/zero & exit 0" },
+    { stdout = "stream", capture_limit = 1024, process_group = false }))
+  assert(assert(h:wait(5000)).ok)
+  Time.sleep_ns(100 * 1000 * 1000)
+  assert(assert(h:try_wait()).finished)
+  local queued = 0
+  for _, stream in ipairs(h._streams) do queued = queued + stream.size end
+  assert(queued <= 1024, "the wait queued " .. tostring(queued) .. " bytes")
+  local chunk = assert(assert(h.stdout_stream):read())
+  assert(#chunk > 0)
+  assert(h:close())
+  -- The reader reads what was queued, then ends with the pipe closed.
+  local rest = read_all(assert(h.stdout_stream))
+  assert(#rest <= 1024)
+end
+
+local function test_a_streamed_read_of_nothing_is_refused()
+  local h = assert(Child.start({ "/bin/sh", "-c", "printf x" }, { stdout = "stream" }))
+  local stdout = assert(h.stdout_stream)
+  assert(not pcall(stdout.read, stdout, 0))
+  assert(read_all(stdout) == "x")
+  assert(assert(h:wait(5000)).ok)
+end
+
+--- A write after the wait says the child has gone; one after its own
+--- close says it is closed.
+local function test_a_stdin_stream_write_after_the_wait_says_why()
+  local h = assert(Child.start({ "/bin/sh", "-c", "exit 0" }, { stdin = "stream" }))
+  local stdin = assert(h.stdin_stream)
+  assert(assert(h:wait(5000)).ok)
+  local wrote, trouble = stdin:write("late")
+  assert(not wrote and trouble == "the child has exited", trouble)
+  assert(stdin:close())
+  local again, again_trouble = stdin:write("later")
+  assert(not again and again_trouble:find("closed", 1, true) ~= nil, again_trouble)
+end
+
 local function test_run_refuses_a_stream()
   for _, opts in ipairs({
     { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },

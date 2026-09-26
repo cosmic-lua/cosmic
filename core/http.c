@@ -115,6 +115,8 @@ struct transfer {
   size_t upload_at;
   size_t upload_len;
   size_t upload_cap;
+  curl_off_t upload_size;  /* `body_size`, or -1 when not given */
+  curl_off_t upload_taken; /* every byte `write` has taken */
 
   int ready;  /* the final response's headers are known, or it is over */
   int headed; /* the final response's header block has ended */
@@ -890,6 +892,11 @@ static int handle_write (lua_State *L) {
   size_t len;
   const char *data = luaL_checklstring(L, 2, &len);
   if (t->done) return upload_over(L, t);
+  if (t->upload_size >= 0 && (curl_off_t)len > t->upload_size - t->upload_taken) {
+    lua_pushfstring(L, "the body is longer than its body_size of %I bytes",
+                    (lua_Integer)t->upload_size);
+    return upload_failed(L);
+  }
   if (len == 0) {
     lua_pushboolean(L, 1);
     return succeeded(L);
@@ -904,8 +911,12 @@ static int handle_write (lua_State *L) {
   }
   memcpy(t->upload + t->upload_len, data, len);
   t->upload_len += len;
+  t->upload_taken += (curl_off_t)len;
   resume(t);
-  while (t->upload_len > 0 && !t->done) {
+  /* A final response that came first and filled the body buffer has
+   * paused the transfer, which sends no more until the caller reads it:
+   * the write stops there rather than wait on itself. */
+  while (t->upload_len > 0 && !t->done && !(t->ready && t->paused)) {
     const char *which = NULL;
     CURLMcode mc = pump_once(&which);
     if (mc != CURLM_OK) {
@@ -920,9 +931,15 @@ static int handle_write (lua_State *L) {
 
 /* finish(): ends the streamed body and drives the transfer until the
  * final response's headers are known. True and "", or false and why
- * when the request failed before them. */
+ * when the body is short of its `body_size` or the request failed
+ * before them. */
 static int handle_finish (lua_State *L) {
   struct transfer *t = uploading(L);
+  if (t->upload_size >= 0 && t->upload_taken < t->upload_size) {
+    lua_pushfstring(L, "the body is shorter than its body_size of %I bytes: %I written",
+                    (lua_Integer)t->upload_size, (lua_Integer)t->upload_taken);
+    return upload_failed(L);
+  }
   t->upload_ended = 1;
   resume(t);
   while (!t->ready) {
@@ -1026,8 +1043,13 @@ static CURLcode set_method (struct transfer *t, const struct request *r,
     SET(CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)0);
     SET(CURLOPT_POSTFIELDS, "");
   }
-  if (method != NULL && strcmp(method, "GET") != 0 &&
-      strcmp(method, "POST") != 0) {
+  /* A streamed body is sent with CURLOPT_POST, so any other method,
+   * GET included, is named.
+   * TODO: a string `body` with `method = "GET"` goes as a POST, since
+   * CURLOPT_POSTFIELDS makes it one and GET is not named: name it too,
+   * as a streamed body's is, once a caller sends a GET with a body. */
+  if (method != NULL && strcmp(method, "POST") != 0 &&
+      (r->streamed || strcmp(method, "GET") != 0)) {
     SET(CURLOPT_CUSTOMREQUEST, method);
   }
   return CURLE_OK;
@@ -1245,6 +1267,7 @@ static int open_request (lua_State *L, int streamed) {
   }
   t->follow = r.follow;
   t->streamed = streamed;
+  t->upload_size = (curl_off_t)r.body_size;
   const char *which = NULL;
   CURLcode rc = configure(t, &r, &which);
   if (rc != CURLE_OK) return setopt_failed(L, t, which, rc);

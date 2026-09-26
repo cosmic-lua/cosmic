@@ -25,14 +25,17 @@ local record http
     read: function(Handle, max?: integer): string | nil, string
     -- A started request's next chunk of body: drives the transfer
     -- until curl has taken all of it. True and "", or false and why
-    -- once the request failed, or the server answered before the body
-    -- was all sent. Raises on a handle `open` made, after `finish`, or
-    -- when there is no memory to hold the chunk.
+    -- when it would take the body past `body_size` (none of it is
+    -- taken), once the request failed, or once the server answered
+    -- before the body was all sent -- an answer too large to buffer
+    -- unread included. Raises on a handle `open` made, after `finish`,
+    -- or when there is no memory to hold the chunk.
     write: function(Handle, data: string): boolean, string
     -- Ends a started request's body and blocks until the final
     -- response's headers have arrived; `status`, `url`, `headers` and
     -- `read` answer for it from then on. True and "", or false and why
-    -- when the request failed before them. Raises where `write` does.
+    -- when the body is short of `body_size` or the request failed
+    -- before them. Raises where `write` does.
     finish: function(Handle): boolean, string
     -- What curl has written to a scripted transfer's connections so
     -- far; "" for one over the network. Raises if recording it ran

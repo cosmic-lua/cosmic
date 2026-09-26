@@ -110,8 +110,11 @@ local record Http
   --- response over, or why there is none; asked before `close`, it
   --- closes first. A `write` fails once the request has, or once the
   --- server has answered before the body was all sent -- `response`
-  --- then says what it answered. `abort` gives up on the request.
+  --- then says what it answered, as it does once a server's early
+  --- answer is too large to wait on unread. `abort` gives up on the
+  --- request, and so does a `<close>` variable left before `close`.
   record Upload is Stream.Writer
+    metamethod __close: function(Upload)
     response: function(Upload): Response | nil, string
   end
 
@@ -169,13 +172,21 @@ end
 
 local closed_message <const> = "http: the request body is already closed"
 
+local upload_mt: metatable<Http.Upload> = {
+  __close = function(self: Http.Upload)
+    local _, _ = self:abort()
+  end,
+}
+
 --- Starts a request to `url` whose body is written to the Upload it
 --- returns, as a POST unless `opts.method` names another. Its size,
 --- when `opts.body_size` gives it, is sent as the Content-Length --
---- a body that then comes out another size fails the request -- and
+--- a write that would take the body past it fails, taking none of its
+--- bytes, and a `close` short of it fails the request -- and
 --- otherwise the body goes chunked. `opts.body` is refused, and a HEAD
---- is `nil, err`, as neither has a body to write. Nothing is sent
---- before the first `write` (or `close`). A redirect that would send
+--- is `nil, err`, as neither has a body to write. The request may
+--- connect and send its headers as soon as any transfer is driven,
+--- before its own first write. A redirect that would send
 --- the body again (a 307 or 308) fails the request, since what was
 --- written cannot be written again.
 -- TODO: follow a 307 or 308 with a streamed body by asking the caller
@@ -190,6 +201,7 @@ function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, strin
   end
   local handle: raw_http.Handle = started
   local closed = false
+  local aborted = false
   local answered: Http.Response
   local failure = ""
   local up: Http.Upload = {}
@@ -199,7 +211,7 @@ function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, strin
   end
   up.close = function(_self: Stream.Writer): boolean, string
     if closed then
-      if failure ~= "" then return false, failure end
+      if failure ~= "" and not aborted then return false, failure end
       return true, ""
     end
     closed = true
@@ -214,7 +226,7 @@ function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, strin
   end
   up.abort = function(_self: Stream.Writer): boolean, string
     if closed then return true, "" end
-    closed = true
+    closed, aborted = true, true
     failure = "http: the request was aborted"
     handle:close()
     return true, ""
@@ -226,6 +238,7 @@ function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, strin
     if answered == nil then return nil, failure end
     return answered, ""
   end
+  setmetatable(up, upload_mt)
   return up, ""
 end
 

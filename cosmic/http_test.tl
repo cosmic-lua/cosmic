@@ -715,9 +715,9 @@ end
 local function test_a_failed_upload_says_why()
   local up = assert(Http.upload(url, { script = {} }))
   local wrote, trouble = up:write("x")
+  assert(not wrote and trouble ~= "", "a write with nowhere to go succeeded")
   local closed, close_trouble = up:close()
   assert(not closed and close_trouble ~= "", close_trouble)
-  assert(wrote or trouble ~= "")
   local response, why = up:response()
   assert(response == nil and why == close_trouble, why)
   local again, again_trouble = up:write("y")
@@ -730,6 +730,7 @@ local function test_an_aborted_upload_has_no_response()
   assert(up:write("partial"))
   assert(up:abort())
   assert(up:abort())
+  assert(up:close(), "a close after abort is harmless, as a second abort is")
   local response, why = up:response()
   assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
   assert(not up:write("more"))
@@ -775,4 +776,70 @@ local function test_an_upload_redirected_by_a_303_follows_as_a_get()
   assert(response.status == 200 and body == "fetched")
   assert(sent:find("POST / HTTP/1.1\r\n", 1, true) == 1, sent)
   assert(sent:find("GET /again HTTP/1.1\r\n", 1, true) ~= nil, sent)
+end
+
+--- A write that would take the body past its given size fails and
+--- takes none of it; the body then written to its size goes through.
+local function test_an_upload_refuses_a_body_past_its_size()
+  local up = assert(Http.upload(url, { body_size = 4,
+    script = { kept_open("200 OK", "ok") } }))
+  assert(up:write("ab"))
+  local wrote, trouble = up:write("cdef")
+  assert(not wrote and trouble:find("longer than its body_size of 4", 1, true) ~= nil, trouble)
+  assert(up:write("cd"))
+  assert(up:close())
+  local response = assert(up:response())
+  assert(response:sent():sub(-8) == "\r\n\r\nabcd", response:sent())
+  assert(response:close())
+end
+
+--- A body short of its given size fails the request at `close`.
+local function test_an_upload_short_of_its_size_fails()
+  local up = assert(Http.upload(url, { body_size = 10,
+    script = { kept_open("200 OK", "ok") } }))
+  assert(up:write("abc"))
+  local closed, trouble = up:close()
+  assert(not closed and trouble:find("shorter than its body_size of 10 bytes: 3 written",
+    1, true) ~= nil, trouble)
+end
+
+--- A GET named with a streamed body goes as a GET, not a POST.
+local function test_an_upload_names_its_method()
+  local _, _, sent = upload({ kept_open("200 OK", "") }, { "q" }, { method = "GET" })
+  assert(sent:find("GET / HTTP/1.1\r\n", 1, true) == 1, sent)
+end
+
+--- A server that answers first with more than the body buffer holds,
+--- keeping the connection open, cannot hold a write up: the transfer is
+--- paused on the unread answer, so the write stops and says so, and the
+--- response is there to read.
+local function test_a_large_early_answer_does_not_hang_a_write()
+  local answer = string.rep("x", 3 * 1024 * 1024)
+  local up = assert(Http.upload(url, { script = { kept_open("413 Content Too Large", answer) } }))
+  local chunk = string.rep("y", 1 << 20)
+  local refused = ""
+  for _ = 1, 64 do
+    local ok, trouble = up:write(chunk)
+    if not ok then
+      refused = trouble
+      break
+    end
+  end
+  assert(refused:find("answered before", 1, true) ~= nil, refused)
+  local response = assert(up:response())
+  assert(response.status == 413)
+  assert(#assert(Stream.read_all(response)) == #answer)
+  assert(response:close())
+end
+
+--- An upload left in a `<close>` variable before its `close` is aborted.
+local function test_a_close_variable_aborts_an_upload()
+  local kept: Http.Upload
+  do
+    local up <close> = assert(Http.upload(url, { script = { kept_open("200 OK", "") } }))
+    assert(up:write("partial"))
+    kept = up
+  end
+  local response, why = kept:response()
+  assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
 end

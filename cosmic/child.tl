@@ -135,11 +135,19 @@ local record Handle
   --- Readers of stdout and stderr, when each was "stream". Each reads
   --- until the child's end of the pipe closes, or until the child has
   --- exited and nothing more is waiting: a descendant that escaped the
-  --- group still holding it cannot hold a read up.
+  --- group still holding it cannot hold a read up. A wait leaves them
+  --- to read on; `close` ends them once what is queued is read. While
+  --- the open guard has caught a signal, a read or a write fails with
+  --- "cancelled by signal N", as a wait does.
   stdout_stream: Stream.Reader | nil
   stderr_stream: Stream.Reader | nil
   --- A Writer to stdin, when it was "stream"; its `close` (or `abort`)
-  --- closes the child's stdin. A write fails once the child has exited.
+  --- closes the child's stdin. A write fails once the child has closed
+  --- its stdin, or has exited and nothing else holds it, and after a
+  --- wait. A write the child does not read waits for it, however long:
+  --- a child that stops reading until its streamed stdout is read,
+  --- which sits unread at `capture_limit`, waits forever -- read the
+  --- outputs as the input goes in, or bound the child with a timeout.
   stdin_stream: Stream.Writer | nil
   _feed_fd: integer | nil
   _result: Result
@@ -301,11 +309,10 @@ end
 --- Services every open stream and pending input of `handles` once:
 --- waits up to `timeout_ms` for any of them to be ready, then reads
 --- what is there and writes what fits. Returns whether anything moved.
---- A streamed output holding `_limit` unread bytes is left alone unless
---- `uncapped`. `writable`, a stdin stream's descriptor, is waited on
---- for room too, only to end the wait; its writer does the writing.
-local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
-    uncapped?: boolean): boolean
+--- A streamed output holding `_limit` unread bytes is left alone.
+--- `writable`, a stdin stream's descriptor, is waited on for room too,
+--- only to end the wait; its writer does the writing.
+local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer): boolean
   local fds: {integer} = {}
   local events: {integer} = {}
   local owners: {Handle} = {}
@@ -316,7 +323,7 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
   for _, h in ipairs(handles) do
     if h._streams then
       for index, stream in ipairs(h._streams) do
-        if stream.fd ~= nil and (uncapped or not stream.streamed or stream.size < h._limit) then
+        if stream.fd ~= nil and (not stream.streamed or stream.size < h._limit) then
           fds[#fds + 1] = stream.fd
           events[#events + 1] = raw.POLLIN
           owners[#owners + 1] = h
@@ -368,7 +375,10 @@ local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
         end
       else
         local stream = h._streams[which[i]]
-        local data, _, errno = sys.read(stream.fd, CHUNK)
+        -- A streamed output takes no more than its limit leaves room for.
+        local want = CHUNK
+        if stream.streamed and h._limit - stream.size < want then want = h._limit - stream.size end
+        local data, _, errno = sys.read(stream.fd, want)
         if data == nil then
           if errno ~= sys.EAGAIN and errno ~= sys.EINTR then end_stream(h, which[i]) end
         elseif data == "" then
@@ -430,12 +440,12 @@ local function settle(self: Handle, timed_out: boolean, killed?: boolean): Resul
     -- Anything still buffered in a pipe is there for the taking now;
     -- a writer that escaped the group can keep it open, so stop at the
     -- first round that finds nothing rather than wait for end of file.
-    -- A streamed output takes it all, past its limit: its reader reads
-    -- the rest from memory once the pipe is closed.
-    while pump({ self }, 0, nil, true) do end
+    -- A streamed output is left open, and no fuller than its limit: its
+    -- reader reads on from the pipe, and ends it (see `pipe_reader`).
+    while pump({ self }, 0) do end
     for index, stream in ipairs(self._streams) do
-      end_stream(self, index)
       if not stream.streamed then
+        end_stream(self, index)
         local text = text_of(self, stream)
         r.captured[stream.child_fd] = text
         if stream.truncated then r.truncated = true end
@@ -542,6 +552,7 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local failed: string
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    if max ~= nil and max < 1 then error("stream: a read needs a max of at least 1", 2) end
     if failed then return nil, failed end
     if closed then return nil, closed_message end
     while pipe.size == 0 do
@@ -555,7 +566,7 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
         -- The child is gone: what it wrote is in the pipe already, and
         -- a round that finds nothing ready means only an escaped
         -- descendant holds it open, which this read does not wait for.
-        pump({ self }, 0, nil, true)
+        pump({ self }, 0)
         if pipe.size == 0 and pipe.fd ~= nil then end_stream(self, index) end
       else
         pump({ self }, POLL_MS)
@@ -588,11 +599,14 @@ end
 --- pumping the child's streams while its stdin is full.
 local function feed_writer(self: Handle): Stream.Writer
   local failed: string
+  local closed = false
   local w: Stream.Writer = {}
   w.write = function(_self: Stream.Writer, data: string): boolean, string
     if failed then return false, failed end
+    if closed then return false, closed_message end
     local fd = self._feed_fd
-    if fd == nil then return false, closed_message end
+    -- Only a settled child's stdin is closed from under its writer.
+    if fd == nil then return false, "the child has exited" end
     local at = 0
     while at < #data do
       local written, trouble, errno = sys.write(fd, data:sub(at + 1, at + CHUNK))
@@ -615,6 +629,7 @@ local function feed_writer(self: Handle): Stream.Writer
     return true, ""
   end
   w.close = function(_self: Stream.Writer): boolean, string
+    closed = true
     local fd = self._feed_fd
     if fd == nil then return true, "" end
     self._feed_fd = nil
@@ -626,12 +641,23 @@ local function feed_writer(self: Handle): Stream.Writer
   return w
 end
 
+--- Closes every streamed output a settle left open for its reader,
+--- which then reads what is queued and ends.
+local function end_streamed(self: Handle)
+  if not self._streams then return end
+  for index, stream in ipairs(self._streams) do
+    if stream.streamed then end_stream(self, index) end
+  end
+end
+
 local handle_mt: metatable<Handle> = {
   __close = function(self: Handle)
     if not self._closed then local _, _ = terminate(self) end
+    end_streamed(self)
   end,
   __gc = function(self: Handle)
     if not self._closed then local _, _ = terminate(self) end
+    end_streamed(self)
   end,
 }
 
@@ -693,9 +719,11 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   end
 
   function h:close(): boolean, string
-    if self._closed then return true, "" end
-    local r, trouble = terminate(self)
-    if not r then return false, trouble end
+    if not self._closed then
+      local r, trouble = terminate(self)
+      if not r then return false, trouble end
+    end
+    end_streamed(self)
     return true, ""
   end
 
@@ -796,8 +824,9 @@ end
 --- guard closes, either signal is caught rather than acted on:
 --- `g:cancelled()` answers the last one delivered, 0 until one is.
 --- Only `h:wait` reads the guard -- it ends its child and answers
---- "cancelled by signal N" once a signal is caught; `Child.wait_any`
---- and `h:try_wait` do not, so a loop over them asks `g:cancelled()`
+--- "cancelled by signal N" once a signal is caught -- and a stream's
+--- read or write, which fails with the same message and leaves the
+--- child running; `Child.wait_any` and `h:try_wait` do not, so a loop over them asks `g:cancelled()`
 --- each round. `g:take()` answers the last signal delivered since the
 --- previous take, or 0, and clears it, so a caller that passes signals
 --- on to its child passes each one on, a repeat included; signals
