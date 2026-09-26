@@ -296,6 +296,57 @@ local function test_a_read_before_the_m_that_made_its_directory_is_keyable(tmp: 
   assert(test.keyable(root, scratch, reads))
 end
 
+--- A stat and an lstat of one path resolve it apart: a stat follows a
+--- link in the test's own directory to the tree's file it leads to,
+--- while an lstat reads the link itself, the test's own. Resolved alike,
+--- the lstat would be keyed as the tree file's, which is no link, and
+--- the verdict would never stand.
+local function test_a_stat_and_an_lstat_of_one_link_are_resolved_apart(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local root, own = real .. "/root", real .. "/own"
+  assert(Fs.mkdirs(root))
+  assert(Fs.mkdirs(own))
+  assert(Fs.write(root .. "/f", "tree"))
+  assert(Fs.symlink(root .. "/f", own .. "/link"))
+  local resolving: observations.Resolving = { tree = root, own = { own } }
+  local run = observations.call(function()
+    assert(sys.stat(own .. "/link"))
+    assert(sys.lstat(own .. "/link"))
+  end, nil, resolving)
+  assert(run.passed, run.message)
+  assert(test.keyable(root, own, run.reads))
+  local reached = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", run.reads, {})
+  assert(reached.stable, "the verdict of a stat and an lstat of one link is not kept")
+  assert(Fs.write(root .. "/f", "the tree's file, grown"))
+  local grown = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", run.reads, {})
+  assert(not grown.stable, "the stat of the tree's file is not keyed")
+end
+
+--- A test that asks where the program is keys that it answered, not
+--- where: what the program is, the runtime identity keys, and a
+--- verdict one copy of it reached stands under another copy at another
+--- path, as ci/fixtures/identity_test.tl's "application" run needs of
+--- another artifact over the same core and basis.
+local function test_where_the_program_is_is_no_input_to_a_key(tmp: string)
+  local root = assert(sys.realpath(tmp))
+  local program = assert(sys.executable())
+  local run = observations.call(function()
+    assert(sys.executable() == program)
+  end, nil, { tree = root, own = {} })
+  assert(run.passed, run.message)
+  local asked = false
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "b" then
+      asked = true
+      assert(observation.answer == "ok", "the program's path is noted: " .. observation.answer)
+    end
+  end
+  assert(asked, "the program's path is not observed")
+  assert(test.keyable(root, root .. "/scratch", run.reads))
+  local reached = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", run.reads, {})
+  assert(reached.stable, "a verdict that asked where the program is is not kept")
+end
+
 local function test_a_read_under_root_o_is_keyable(tmp: string)
   local scratch = tmp .. "/scratch"
   local reads: {observations.Observation} =

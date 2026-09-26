@@ -166,6 +166,9 @@ local parsing: {string: string} = {
 local casts: {string: string} = {
   ["build/filesystem_observations.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
+  ["build/filesystem_observations.tl:drain_syscalls"] =
+    "a logged call's answers, which the syscall table's log keeps untyped, " ..
+    "as the call it records declares them",
   ["build/ast/match.tl:arr"] =
     "tl's AST reached by reflection: a node's own array part, " ..
     "whose elements' shape depends on their kind",

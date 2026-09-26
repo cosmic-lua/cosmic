@@ -49,15 +49,16 @@ if [ "${1-}" = zig-cache ]; then
   # when that changes; doc/design.md's "before CI stands on
   # shared verdicts" is the checklist.
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
-  # here and in ci/cosmic_ci/orchestration.tl) once the key holds
-  # the tree's location (build/filesystem_observations.tl:868), a
+  # here and in ci/cosmic_ci/orchestration.tl) once CI holds a test
+  # to the tree's location being no input to it
+  # (build/filesystem_observations.tl:979) and the key holds a
   # stat's times and inode where a test turns on them
-  # (build/test.tl:519), a database a connection opened before the
-  # test reads (build/filesystem_observations.tl:529),
-  # lstat, readlink, realpath and getcwd answers
-  # (build/filesystem_observations.tl:536), a read resolved as it is
-  # made (build/filesystem_observations.tl:579) and an in-tree path
-  # that crosses a link out (build/test.tl:461).
+  # (build/test.tl:536), a database a connection opened before the
+  # test reads (build/filesystem_observations.tl:598), a call a module
+  # took before the capture (build/filesystem_observations.tl:616), a
+  # read resolved as it is made (build/filesystem_observations.tl:624
+  # and :695) and an in-tree path that crosses a link out
+  # (build/test.tl:461).
   echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
   # TODO: save what the product suite from fresh tracked source
   # reaches too: it runs after the zig-build cache is saved, so

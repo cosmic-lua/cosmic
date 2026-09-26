@@ -26,6 +26,7 @@
 #include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
+#include "observed.h"
 #include "psa/crypto.h"
 #include "syscalls.h"
 
@@ -272,6 +273,13 @@ COSMIC_SYSCALL(stat, 1) {
 }
 
 COSMIC_SYSCALL(lstat, 1) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_LSTAT, cosmic_query_lstat);
+  }
+  return cosmic_query_lstat(L);
+}
+
+int cosmic_query_lstat (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
@@ -400,6 +408,13 @@ COSMIC_SYSCALL(readdir, 1) {
 }
 
 COSMIC_SYSCALL(getcwd, 0) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_GETCWD, cosmic_query_getcwd);
+  }
+  return cosmic_query_getcwd(L);
+}
+
+int cosmic_query_getcwd (lua_State *L) {
   char room[PATH_MAX];
   if (getcwd(room, sizeof room) == NULL) {
     return cosmic_fail(L, errno);
@@ -418,6 +433,13 @@ COSMIC_SYSCALL(chdir, 1) {
 }
 
 COSMIC_SYSCALL(realpath, 1) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_REALPATH, cosmic_query_realpath);
+  }
+  return cosmic_query_realpath(L);
+}
+
+int cosmic_query_realpath (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   char room[PATH_MAX];
@@ -463,6 +485,13 @@ COSMIC_SYSCALL(symlink, 2) {
 }
 
 COSMIC_SYSCALL(readlink, 1) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_READLINK, cosmic_query_readlink);
+  }
+  return cosmic_query_readlink(L);
+}
+
+int cosmic_query_readlink (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   char room[PATH_MAX];

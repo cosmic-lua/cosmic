@@ -163,6 +163,49 @@ end
   assert(changed:find("FAIL (1 of 1 failed", 1, true), changed)
 end
 
+--- What `lstat` and `readlink` answer of a file of the tree is keyed,
+--- logged by those bindings themselves: a checkout whose link leads
+--- elsewhere, or is a file, runs what read it again, and fails it,
+--- while one the same stands on the first one's verdicts.
+local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.COSMIC_TEST_ALL = nil
+  local function link_checkout(root: string, target: string | nil)
+    assert(Fs.mkdirs(root .. "/suite"))
+    if target ~= nil then
+      assert(Fs.symlink(target, root .. "/suite/link"))
+    else
+      assert(Fs.write(root .. "/suite/link", "a"))
+    end
+    assert(Fs.write(root .. "/suite/link_test.tl", [[
+local sys = require("cosmic.sys")
+
+local function test_reads_the_links_target()
+  local target = sys.readlink("suite/link")
+  assert(target == "a", tostring(target))
+end
+
+local function test_reads_what_the_link_is()
+  local st = assert(sys.lstat("suite/link"))
+  assert(st.kind == "link", st.kind)
+end
+]]))
+  end
+  link_checkout(tmp .. "/first", "a")
+  local first = run(tmp .. "/first", tmp .. "/first.out", env)
+  assert(first:find("2 ran, 0 stood", 1, true), first)
+  link_checkout(tmp .. "/same", "a")
+  local same = run(tmp .. "/same", tmp .. "/same.out", env)
+  assert(same:find("0 ran, 2 stood", 1, true), same)
+  link_checkout(tmp .. "/retargeted", "b")
+  local retargeted = run(tmp .. "/retargeted", tmp .. "/retargeted.out", env, nil, true)
+  assert(retargeted:find("FAIL (1 of 2 failed", 1, true), retargeted)
+  link_checkout(tmp .. "/file", nil)
+  local file = run(tmp .. "/file", tmp .. "/file.out", env, nil, true)
+  assert(file:find("FAIL (2 of 2 failed", 1, true), file)
+end
+
 --- A database a test attaches through the store (`cosmic.store`'s
 --- `attach`) is read by SQLite in C too: a checkout whose database
 --- holds something else runs the test again, and fails it, while one
