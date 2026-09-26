@@ -223,14 +223,16 @@ exit 9
   assert(Fs.exists(from .. "/named") == false, "the build wrote the cache it copied")
 end
 
---- The sandbox phase fails where the probe says a confined test's parts
---- did not all hold, and passes where they did, writing the report to
---- the summary either way.
+--- Where COSMIC_CI_REQUIRE_SANDBOX=1 (ci.yml's Linux legs), the sandbox
+--- phase fails where the probe says a confined test's parts did not all
+--- hold, and passes where they did; without it (a local run) it passes
+--- either way. It writes the report to the summary in every case.
 local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
-    { name = "unavailable", said = "Confinement: **unavailable** (unveil).", ok = false },
-    { name = "available", said = "Confinement: available.", ok = true },
+    { name = "unavailable", said = "Confinement: **unavailable** (unveil).", require = "1", ok = false },
+    { name = "available", said = "Confinement: available.", require = "1", ok = true },
+    { name = "unrequired", said = "Confinement: **unavailable** (unveil).", require = "", ok = true },
   }) do
     local fake = tmp .. "/" .. case.name
     local runner_temp = fake .. "-runner-temp"
@@ -242,6 +244,7 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
     local outcome = Fixture.call("sandbox-" .. case.name, append(base, { "platform", "sandbox" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", GITHUB_STEP_SUMMARY = summary,
+        COSMIC_CI_REQUIRE_SANDBOX = case.require,
       }))
     assert(outcome.result.ok == case.ok, "the sandbox phase answered " ..
       tostring(outcome.result.ok) .. " where the probe said " .. case.said)

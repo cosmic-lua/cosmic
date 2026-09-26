@@ -38,6 +38,15 @@ fixtures against the same products. Each phase's log is under
 keyed by the checkout's path, so worktrees can run at once; a removed
 worktree's state stays until deleted).
 
+The `sandbox` phase writes what spawn's sandbox can hold on this machine
+(`build/sandbox_probe.tl`) to its log and the summary, and fails only when
+`COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold.
+ci.yml sets it on the Linux legs, whose container is given what the sandbox
+needs; run-local leaves it unset, since many a development host refuses an
+unprivileged user namespace (Ubuntu 24.04's
+`kernel.apparmor_restrict_unprivileged_userns=1`, most containers), so the
+phases after it still run there. Set it to hold a local run to the same.
+
 CI runs the driver unprivileged, and as root a permission a fixture expects
 to be refused may be granted. So invoked as root, run-local runs the driver
 as `$COSMIC_CI_LOCAL_USER` (default `$SUDO_USER` under sudo, else `nobody`)

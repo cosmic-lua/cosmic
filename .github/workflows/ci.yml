@@ -123,6 +123,11 @@
         # linux-x86_64 alone; every leg still builds and verifies the
         # checked core. See orchestration.tl's checked_suite.
         COSMIC_CI_CHECKED_SUITE: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
+        # A Linux leg fails where the sandbox probe finds a confined
+        # test's parts do not all hold: its container is given what they
+        # need (see "start the leg's container"). See orchestration.tl's
+        # phase_sandbox.
+        COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
       },
       steps: [
         {
@@ -136,11 +141,12 @@
         # removed; it tried each image on its host, as uid 65534, under
         # Docker's defaults, seccomp narrowed or unconfined and AppArmor
         # unconfined, with the switch below on and off) found every part
-        # -- landlock, pledge, offline, unveil, unveil+offline -- held in
-        # the ubuntu and alpine images on ubuntu-24.04 (x86_64) with all
-        # three, and each item below says what failed without it;
-        # linux-aarch64's host takes the same, which the probe step holds
-        # it to. The runners are ephemeral VMs, discarded after the job.
+        # -- landlock, pledge, offline, unveil, unveil+offline -- held
+        # with all three in the ubuntu and alpine images on ubuntu-24.04
+        # (x86_64) and in the ubuntu image on ubuntu-24.04-arm (aarch64;
+        # run 36251237863, job 108429542562), and each item below says
+        # what failed without it. The runners are ephemeral VMs,
+        # discarded after the job.
         #
         # 1. The host's kernel.apparmor_restrict_unprivileged_userns=1
         # (the GitHub hosts set it) withholds a new user namespace's
@@ -161,9 +167,10 @@
         # umount2 and mount_setattr only to a container holding
         # CAP_SYS_ADMIN, and pivot_root to none, so a new user namespace
         # is refused with EPERM. The profile here is that default with
-        # just those five calls allowed
-        # (.github/scripts/seccomp-profile.sh), not seccomp=unconfined,
-        # which held too but drops every other rule of the filter.
+        # just those five calls allowed (.github/scripts/seccomp-profile.sh
+        # narrows .github/seccomp/default.json, moby's default at a pinned
+        # commit, checked by its sha256), not seccomp=unconfined, which
+        # held too but drops every other rule of the filter.
         #
         # 3. Docker's default AppArmor profile (docker-default) denies
         # mount: with the narrowed profile alone, unveil still failed
@@ -317,9 +324,9 @@
         # build/sandbox_probe.tl starts a trivial child under each part
         # of spawn's sandbox and writes what held, and each refusal's
         # errno, to the run's summary, and the leg fails where a part a
-        # confined test needs did not hold (cosmic_ci/orchestration.tl's
-        # phase_sandbox): its container lost what "start the leg's
-        # container" gave it.
+        # confined test needs did not hold (COSMIC_CI_REQUIRE_SANDBOX,
+        # cosmic_ci/orchestration.tl's phase_sandbox): its container lost
+        # what "start the leg's container" gave it.
         {
           name: "probe the sandbox a confined test runs in",
           if: "runner.os == 'Linux'",
@@ -344,6 +351,23 @@
         # stand, even on failure; what the phases below compile is not.
         # zig's own content addressing makes restored entries safe to
         # validate and reuse.
+        #
+        # actions/cache archives with `tar -C $GITHUB_WORKSPACE` and the
+        # path relative to it (../../_temp/zig-build): tar follows the
+        # link place-tree.sh left there, to a tree one to three
+        # directories deep, where that path names nothing unless the tree
+        # is one deep ("Cannot stat", "Cache save failed"). So the tree
+        # is put back where it was checked out for the save, as the last
+        # step does, and moved to its own path again after, where the
+        # steps below run. The restores above ran before it moved.
+        {
+          name: "put the tree back for the zig cache save",
+          if: "always()",
+          "working-directory": ".",
+          shell: "sh",
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+        },
+
         {
           name: "upload zig build outputs",
           if: "always() && steps.driver.outcome == 'success' && (github.ref == 'refs/heads/main' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, steps.zig-cache-key.outputs.prefix))",
@@ -352,6 +376,12 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
           },
+        },
+
+        {
+          name: "move the tree to its own path again",
+          "working-directory": ".",
+          run: "sh .github/scripts/place-tree.sh",
         },
 
         {
@@ -416,6 +446,27 @@
             path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
             "if-no-files-found": "ignore",
           },
+        },
+
+        # What the leg's container said and how it stood, where the job
+        # failed: a step it ran that stopped, or the container itself.
+        {
+          name: "describe the leg's container",
+          if: "failure() && matrix.image",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker inspect cosmic-leg || :; docker logs cosmic-leg || :",
+        },
+
+        # Whatever came before, so nothing a step left running there (a
+        # cancelled one's processes) writes to the tree the next step
+        # moves back.
+        {
+          name: "remove the leg's container",
+          if: "always() && matrix.image",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker rm -f cosmic-leg || :",
         },
 
         # The last step, whatever failed before it, so the checkout's post

@@ -17,7 +17,10 @@
 # the checkout, the caches the host restored, the runner's script and
 # file-command files (GITHUB_ENV, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY,
 # ...) are where a step and an action alike find them; --init puts a
-# reaper at PID 1, as the job's container had.
+# reaper at PID 1, as the job's container had. It runs on Docker's
+# default bridge network, as a job container's network of its own
+# would, with nothing else on it. ci.yml removes it (`docker rm -f
+# cosmic-leg`) before the job's last step.
 #
 # `leg-shell SCRIPT`, a step's shell (`leg-shell {0}`), runs `sh -e
 # SCRIPT` in the container as `runner`, the unprivileged builder a
@@ -27,8 +30,13 @@
 # GITHUB_*, RUNNER_*, COSMIC_*, CI, TARGET, XDG_CACHE_HOME -- as a job
 # container's steps took them; a step's variable named otherwise does
 # not reach the container, so add its name below. PATH is the image's,
-# after what earlier steps added to the job's ($GITHUB_PATH), as a job
-# container's was.
+# after what steps from `start` on added to the job's ($GITHUB_PATH),
+# as a job container's was: a step's PATH is those additions, then the
+# PATH `start` ran with, which `start` records. So a directory a step
+# added before `start` is part of that record and never reaches the
+# container, which is right, as it names the host's; one added after
+# `start` does, and must be where the container has it too (under
+# $RUNNER_TEMP or the workspace, as cosmic-driver.sh's is).
 set -eu
 
 container=cosmic-leg
@@ -45,12 +53,12 @@ if [ "${1-}" = start ]; then
   [ "$pulled" -eq 0 ] || exit "$pulled"
   mkdir -p "$state/bin"
   work=$(dirname "$GITHUB_WORKSPACE")
-  docker network create "$container" >/dev/null
-  docker run -d --name "$container" --network "$container" --init \
+  docker run -d --name "$container" --init \
     -v "$work:$work" -v "$RUNNER_TEMP:$RUNNER_TEMP" "$@" \
     --entrypoint tail "$image" -f /dev/null
-  # What a later step's PATH adds to this one's is what earlier steps
-  # added to the job's; the image's own follows it in the container.
+  # What a later step's PATH adds to this one's is what the steps
+  # between added to the job's; the image's own follows it in the
+  # container (see above).
   printf '%s' "$PATH" > "$state/host-path"
   docker exec "$container" sh -c 'printf %s "$PATH"' > "$state/container-path"
   cp .github/scripts/leg-container.sh "$state/bin/leg-shell"
