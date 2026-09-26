@@ -180,6 +180,23 @@ local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   assert(work.close(handle))
 end
 
+--- A link that leads above the root would stage all that lies under
+--- where it leads; staging refuses it and names it, and stages nothing.
+local function test_stage_refuses_a_link_above_the_root(tmp: string)
+  local project = linked_project(tmp)
+  assert(Fs.mkdirs(project .. "/sub"))
+  assert(Fs.symlink("../..", project .. "/sub/ws"))
+  local handle = assert(work.open(project))
+  local staged, trouble = work.stage(handle, false)
+  assert(staged == nil, "a link above the root is refused")
+  assert(trouble:find("sub/ws: a link to ", 1, true), trouble)
+  assert(trouble:find("above the root", 1, true), trouble)
+  local above = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM files WHERE path LIKE 'sub/ws/%'"))
+  assert(above[1][1] == "0", "nothing above the root is staged")
+  assert(work.close(handle))
+end
+
 --- `cosmic test` in such a project compiles the linked modules and runs
 --- the linked test beside its own.
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)

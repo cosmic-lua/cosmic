@@ -368,7 +368,7 @@ local record Pending
 end
 
 --- Both walks: `Fs.walk`, and with `follow`, `Fs.walk_following`.
-local function walk(root: string, skip: function(string, string): boolean,
+local function walk(root: string, skip: function(string, string, string): boolean,
                     follow: boolean): {string} | nil, string
   local found: {string} = {}
   local pending: {Pending} = { { relative = "", above = nil } }
@@ -401,8 +401,8 @@ local function walk(root: string, skip: function(string, string): boolean,
     end
     for _, name in ipairs(sorted_names(entries)) do
       local entry = relative == "" and name or (relative .. "/" .. name)
-      if skip == nil or not skip(entry, name) then
-        local kind = entries[name]
+      local kind = entries[name]
+      if skip == nil or not skip(entry, name, kind) then
         if kind == "link" and follow then
           local st, _ = sys.stat(directory .. "/" .. name)
           kind = st ~= nil and st.kind or "other"
@@ -422,11 +422,12 @@ end
 --- Every file under a root, sorted, as paths relative to that root, as
 --- `find root -type f` lists them: a link is neither listed nor
 --- walked into, whatever it leads to.
---- `skip` is asked about each entry's relative path, and its bare name
---- second, and may refuse a whole directory. The listing says what
---- each entry is, so nothing here is stat'd.
+--- `skip` is asked about each entry's relative path, its bare name
+--- second, and what the listing says it is third (`"file"`, `"dir"`,
+--- `"link"` or `"other"`), and may refuse a whole directory. The
+--- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
-                 skip?: function(string, string): boolean): {string} | nil, string
+                 skip?: function(string, string, string): boolean): {string} | nil, string
   return walk(root, skip, false)
 end
 
@@ -440,10 +441,11 @@ end
 --- than failing it. As with `find -L`, a file reached along several
 --- paths (a diamond of links) is listed once per path, and a link to a
 --- directory above the root is walked in full, but for the directories
---- the walk is already inside. `skip` is asked as `Fs.walk` asks it.
---- Each directory, and each link, is stat'd.
+--- the walk is already inside. `skip` is asked as `Fs.walk` asks it,
+--- before a link is followed, so it is told `"link"` and may refuse
+--- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
-                           skip?: function(string, string): boolean): {string} | nil, string
+                           skip?: function(string, string, string): boolean): {string} | nil, string
   return walk(root, skip, true)
 end
 

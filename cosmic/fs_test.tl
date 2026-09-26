@@ -525,6 +525,24 @@ local function test_walk_following_takes_a_link_for_what_it_leads_to(tmp: string
   assert(listed == "away/o g sub/f to_dir/f to_file", "as find -L -type f lists: " .. listed)
 end
 
+--- `skip` is told what the listing says each entry is, a link before
+--- it is followed, so it may refuse one by what it is.
+local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/sub"))
+  assert(Fs.write(root .. "/sub/f", "f"))
+  assert(Fs.symlink("sub", root .. "/to_dir"))
+  local kinds: {string} = {}
+  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: string): boolean
+    kinds[#kinds + 1] = entry .. "=" .. kind
+    return kind == "link"
+  end)
+  assert(found ~= nil, trouble)
+  assert(table.concat(found, " ") == "sub/f", table.concat(found, " "))
+  table.sort(kinds)
+  assert(table.concat(kinds, " ") == "sub/f=file sub=dir to_dir=link", table.concat(kinds, " "))
+end
+
 --- A link back to a directory the walk is already inside is not walked
 --- again, however far down it is, and the walk still finds the rest.
 local function test_walk_following_ends_a_loop_of_links(tmp: string)
