@@ -77,6 +77,12 @@
    across checkouts: a test whose verdict turns on a file's times, inode,
    device, link count or owner calls `observations.reads_stat_times()`,
    which keys them whole, so it stands only in its own checkout.
+   Where the kernel cannot confine a process, `confine` starts it
+   unconfined; `observations.must_confine` fails the spawn, and the
+   test, instead, naming the part of the sandbox refused and its errno.
+   `COSMIC_SANDBOX=must` makes every `confine` one, and fails
+   `core/syscalls_test.tl`'s sandbox tests rather than letting them
+   return unchecked; it is off by default.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
