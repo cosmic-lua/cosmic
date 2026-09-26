@@ -500,3 +500,23 @@ local function test_each_workflow_and_action_is_laid_out()
   end
   assert(count > 0, "no workflow or action")
 end
+
+--- Each of CI's images is pinned to one digest in every workflow that
+--- names it -- the platform job's legs, the sandbox-options job's and
+--- fuzz.yml's -- so moving one leaves none of them on the old one.
+local function test_each_image_has_one_digest_everywhere()
+  local seen: {string: string} = {}
+  local where: {string: string} = {}
+  local count = 0
+  for path, text in pairs(flow_workflows()) do
+    for image, digest in text:gmatch("(ghcr%.io/[%w%-_./]+)@sha256:(%x+)") do
+      count = count + 1
+      local before = seen[image]
+      if before ~= nil and before ~= digest then
+        error(path .. " pins " .. image .. " to " .. digest .. ", " .. where[image] .. " to " .. before)
+      end
+      seen[image], where[image] = digest, path
+    end
+  end
+  assert(count > 0, "no workflow pins an image by digest")
+end

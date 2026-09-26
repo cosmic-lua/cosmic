@@ -132,8 +132,10 @@
         # creates this container before any step, so the profile's file
         # is not on the host yet, and seccomp=unconfined drops every
         # filter to allow five calls. The sandbox-options job, below,
-        # says which options each runner needs; the probe step says
-        # what this container holds.
+        # says which options each runner host needs, for ubuntu's image
+        # on both and alpine's on x86_64, which shares its host: the
+        # options are the host's docker's, so alpine-x86_64 takes the
+        # same ones. The probe step says what each leg's container holds.
         # TODO: give the Linux legs the options a sandbox needs, once the
         # sandbox-options job's first reports say which the runners
         # need (seccomp alone, or AppArmor too, and whether the host's
@@ -305,6 +307,9 @@
         {
           name: "probe the sandbox a confined test runs in",
           if: "runner.os == 'Linux'",
+          # Report-only: a bug of the probe's must not stop the steps
+          # whose results the leg exists for.
+          "continue-on-error": true,
           run: "cosmic-driver cosmic_ci/driver.tl platform sandbox",
         },
 
@@ -417,42 +422,63 @@
       ],
     },
 
-    # Which `docker create` options would let the Linux legs' container
+    # Which `docker create` options would let the Linux legs' containers
     # run spawn's sandbox, tried on each runner's host, where those
-    # options take effect: a report in the run's summary, which no
-    # check requires (see the platform job's container options).
+    # options take effect: build/sandbox_probe.tl, run by the pinned
+    # cosmic, in each leg's image under each set of options, reported in
+    # the run's summary, which no check requires (see the platform job's
+    # container options). The x86_64 host runs both linux-x86_64's and
+    # alpine-x86_64's images, as the platform job does; linux-aarch64's
+    # runs ubuntu's. Only on this repository, where the images can be
+    # pulled, and not in the merge queue, whose entries run the same
+    # hosts again.
     "sandbox-options": {
       name: "sandbox-options-${{ matrix.arch }}",
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event_name != 'merge_group'",
       strategy: {
         "fail-fast": false,
         matrix: {
           include: [
-            {arch: "x86_64", runner: "ubuntu-24.04"},
-            {arch: "aarch64", runner: "ubuntu-24.04-arm"},
+            {
+              arch: "x86_64",
+              runner: "ubuntu-24.04",
+              # The platform job's ubuntu and alpine images; move them
+              # with those (build/workflows_test.tl holds them alike).
+              images: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72",
+            },
+            {
+              arch: "aarch64",
+              runner: "ubuntu-24.04-arm",
+              images: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
+            },
           ],
         },
       },
       "runs-on": "${{ matrix.runner }}",
       permissions: {
         contents: "read",
-        # To pull the Linux legs' image from GHCR.
+        # To pull the Linux legs' images from GHCR.
         packages: "read",
       },
-      "timeout-minutes": 10,
+      "timeout-minutes": 15,
       steps: [
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-          with: {"sparse-checkout": ".github/scripts"},
+          with: {
+            "sparse-checkout": "/.github/scripts/\n/ci/cosmic-driver.pin\n/build/sandbox_probe.tl\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
         },
         {
           name: "try the container options a sandbox could need",
           env: {
             TOKEN: "${{ github.token }}",
             ACTOR: "${{ github.actor }}",
-            # The platform job's ubuntu image; move it with that one.
-            IMAGE: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
+            IMAGES: "${{ matrix.images }}",
           },
-          run: "echo \"$TOKEN\" | docker login ghcr.io -u \"$ACTOR\" --password-stdin && docker pull -q \"$IMAGE\" && sh .github/scripts/sandbox-options.sh \"$IMAGE\"",
+          # Logged out after, whatever the report found.
+          run: "echo \"$TOKEN\" | docker login ghcr.io -u \"$ACTOR\" --password-stdin && sh .github/scripts/sandbox-options.sh $IMAGES; docker logout ghcr.io",
         },
       ],
     },

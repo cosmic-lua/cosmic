@@ -18,6 +18,10 @@ local type Searcher = function(string): any, any
 --- The raw process table, as the store's searcher hands it to
 --- `cosmic.child`'s loader (core/syscalls_test.tl finds it the same
 --- way): no module requires it by name but under boot.
+-- TODO: start each child with cosmic.child's sandbox option and drop
+-- this function and its cast (build/contracts.tl's `casts`), once
+-- cosmic.child offers spawn's sandbox as a Child option (the TODO in
+-- cosmic/child.tl's start).
 local function raw_process_table(): raw_process
   for _, searcher in ipairs(package.searchers as {Searcher}) do
     local loader, extra = searcher("cosmic.child")
@@ -150,6 +154,14 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local no_out = "! cat " .. outside .. "/f 2>/dev/null"
   local unseen = "test ! -e " .. outside .. "/f"
   local lone_loopback = "test \"$(grep -c : /proc/self/net/dev)\" = 1"
+  -- Pledged, it runs under a seccomp filter, one more than this
+  -- process's own (a container's runtime may have given it some).
+  local status, _ = Fs.read("/proc/self/status")
+  local filters: string | nil = nil
+  if status ~= nil then filters = status:match("\nSeccomp_filters:%s*(%d+)") end
+  local filtered = "grep -q '^Seccomp:[[:space:]]*2' /proc/self/status" ..
+    (filters and " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt "
+      .. filters or "")
   local parts: {SandboxProbe.Part} = {}
   local function add(name: string, needed: boolean, held: boolean, why: string)
     parts[#parts + 1] = { name = name, needed = needed, held = held,
@@ -164,7 +176,7 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
     local held, said = tried(root, reads_in .. " && " .. no_out, { ruleset = ruleset })
     add("landlock", false, held, said)
   end
-  local held, said = tried(root, reads_in, { pledge = {} })
+  local held, said = tried(root, reads_in .. " && " .. filtered, { pledge = {} })
   add("pledge", false, held, said)
   held, said = tried(root, lone_loopback, { offline = true })
   add("offline", true, held, said)
@@ -177,8 +189,8 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   if ruleset == nil then
     add("all four", false, false, "no landlock ruleset to hold it to")
   else
-    held, said = tried(root, reads_in .. " && " .. unseen .. " && " .. lone_loopback,
-      { ruleset = ruleset, unveil = { reads = reads, writes = {} }, offline = true,
+    held, said = tried(root, reads_in .. " && " .. unseen .. " && " .. lone_loopback .. " && " ..
+      filtered, { ruleset = ruleset, unveil = { reads = reads, writes = {} }, offline = true,
         pledge = {} })
     add("all four", false, held, said)
     local _, _ = sys.close(ruleset)
