@@ -619,6 +619,15 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         kind == "a" or kind == "g" or kind == "j" then
       local relative = under_root(root, observation.path,
         resolved_for(kind, followed, unfollowed))
+      -- An lstat, a readlink or a walk of a path that ends in "/"
+      -- follows a link its last name is, which `Fs.relative` would drop:
+      -- kept, so the key asks what the test asked.
+      if relative ~= nil and relative ~= "." and
+          (kind == "l" or kind == "k" or kind == "g" or kind == "j") and
+          observation.path:sub(-1) == "/" and Fs.within(observation.path, root) and
+          not climbs(observation.path) then
+        relative = relative .. "/"
+      end
       if relative ~= nil and working_database(relative) then stable = false end
       local identified = kind .. " " .. (relative or "")
       if relative ~= nil and not seen[identified] then
@@ -751,7 +760,17 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       -- once `sys.tree_digest` can answer its entries' lines rather
       -- than their digest alone: today such a link keys the checkout's
       -- location, and the verdict stands only in the checkout that ran it.
-      current = observations.digest_answer(root .. "/" .. relative, kind == "g")
+      -- Walked once a run, as a path a confined process was given is,
+      -- and late for a test that started before the walk.
+      local memo_key = "\1" .. kind .. "\0" .. relative
+      current = key_parts[memo_key]
+      if current == nil then
+        current = observations.digest_answer(root .. "/" .. relative, kind == "g")
+        key_parts[memo_key] = current
+        key_parts["\2" .. kind .. "\0" .. relative] = tostring(Time.monotonic_ns())
+      end
+      local walked = math.tointeger(key_parts["\2" .. kind .. "\0" .. relative]) or 0
+      if started_ns ~= nil and walked >= started_ns then late = true end
     else
       current = observations.directory_answer(root .. "/" .. relative)
     end
@@ -871,8 +890,13 @@ function test.keyable(root: string, scratch: string,
   end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
-        kind == "a" or kind == "g" or kind == "j") and not constant_devices[observation.path] and not own_process(observation.path) then
+    -- A device whose every answer is the same, and the test's own
+    -- process in /proc, are no input to a read of them -- but a walk
+    -- goes beneath them, and a walk by stamps reads a device's times.
+    local read = kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+      kind == "a"
+    if (read and not constant_devices[observation.path] and not own_process(observation.path)) or
+        kind == "g" or kind == "j" then
       local path = observation.path
       local real = resolved_for(kind, followed, unfollowed)[path]
       if real == "" or (real == nil and climbs(path)) then return false end

@@ -736,6 +736,7 @@ local function test_a_tree_digest_of_the_tree_is_keyed_by_its_walk(tmp: string)
       local st = assert(sys.stat(file))
       assert(sys.utimensat(file, nil, nil, st.mtime + 1, st.mtime_ns))
       local after = key(stored)
+      assert(after.key ~= before.key, "a walk's stamps entered no key")
       assert(after.shared ~= before.shared, "a walk's stamps entered no shared key")
     end
   end
@@ -755,4 +756,41 @@ local function test_the_walk_a_key_makes_is_none_of_the_tests(tmp: string)
     assert(read.kind ~= "g" and read.kind ~= "j" and read.kind ~= "s",
       "the key's walk was noted " .. read.kind)
   end
+end
+
+--- A walk goes beneath what a read of one path does not: a walk of the
+--- test's own process in /proc reaches its threads, and one of a
+--- constant device by its stamps reads its times, neither of which a
+--- key holds.
+local function test_a_walk_outside_the_tree_is_never_keyable(tmp: string)
+  for _, kind in ipairs({ "g", "j" }) do
+    for _, path in ipairs({ "/proc/self/task", "/proc/self/status", "/dev/null" }) do
+      assert(not test.keyable(tmp, tmp .. "/scratch", {
+        { kind = kind, path = path, answer = "" },
+      }), kind .. " " .. path)
+    end
+  end
+end
+
+--- A walk of a path ending in "/" follows a link its last name is: the
+--- key walks the same, so the verdict stands.
+local function test_a_walk_through_a_trailing_slash_is_keyed_as_asked(tmp: string)
+  local root = assert(sys.realpath(tmp))
+  assert(Fs.mkdirs(root .. "/target"))
+  assert(Fs.write(root .. "/target/f", "held"))
+  assert(sys.symlink("target", root .. "/link"))
+  local captured = observations.capture(function()
+    assert(sys.tree_digest(root .. "/link/", true))
+  end, { tree = root, own = {} })
+  assert(captured.ok, tostring(captured.produced))
+  local keyed = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", captured.reads, {})
+  assert(keyed.stable, "a walk through a trailing slash was keyed as another")
+  -- Walked once a run: a walk first made after the test started is late.
+  local walks: {string:string} = {}
+  local late = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", captured.reads,
+    walks, Time.monotonic_ns())
+  assert(late.late and not late.stable, "a walk made after the test started stood")
+  local again = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", captured.reads,
+    walks)
+  assert(again.stable and again.key == late.key, "a walk remembered keys otherwise")
 end
