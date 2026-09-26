@@ -179,8 +179,8 @@ end
 --- `argv[0]` directly. A record whose `main` field is a function is
 --- called the same way, through that field. What the function returns
 --- is the exit code as a built program's is -- see build/exit_status.tl: nil
---- is 0, and anything but a whole number from 0 to 255 exits 2. No
---- function at all is 0.
+--- is 0, and anything but a whole number from 0 to 255, or text naming
+--- one, exits 2. No function at all is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`

@@ -120,7 +120,7 @@ local exempt: {string: string} = {
     "every argv and environment value it reads once argv is taken was checked " ..
     "to be a string before the calloc, so lua_tolstring converts nothing and " ..
     "cannot raise",
-  ["core/syscalls.c cosmic_sys_spawn held-across-raise"] =
+  ["core/syscalls.c cosmic_spawn_unobserved held-across-raise"] =
     "every value it reads once argv is taken was checked to be a string first, " ..
     "so lua_tolstring converts nothing and cannot raise",
   ["core/syscalls_fs.c cosmic_sys_open_temporary held-across-raise"] =

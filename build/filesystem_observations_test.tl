@@ -671,3 +671,175 @@ local function test_a_query_of_the_tests_own_directory_is_judged_by_where_it_lea
   local through = assert(noted(out.reads, "w", tmp .. "/out/etc"))
   assert(through.answer == "/etc", through.answer)
 end
+
+--- Every call the observations once stood in for is logged by its
+--- binding itself: a reference to it taken before the capture began,
+--- as `local open = sys.open`, is observed as the table's own is.
+local function test_a_reference_taken_before_the_capture_is_observed(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  assert(Fs.write(real .. "/f", "x"))
+  local open, stat, readdir = sys.open, sys.stat, sys.readdir
+  local getenv, environ = sys.getenv, sys.environ
+  local mkdir, mkdtemp, chdir = sys.mkdir, sys.mkdtemp, sys.chdir
+  local http_open = Http.open
+  local here = assert(sys.getcwd())
+  local made: string = nil
+  local c = observations.capture(function()
+    sys.close((assert(open(real .. "/f", sys.O_RDONLY))))
+    assert(stat(real .. "/f"))
+    assert(readdir(real))
+    local _ = getenv("COSMIC_OBSERVED_PROBE")
+    assert(environ())
+    assert(mkdir(real .. "/made"))
+    made = assert(mkdtemp(real .. "/temporary-XXXXXX"))
+    assert(chdir(real))
+    assert(chdir(here))
+    local _, _ = http_open("http://127.0.0.1:1/")
+  end)
+  assert(c.ok, tostring(c.produced))
+  local function answer(kind: string, path: string): string
+    local found = noted(c.reads, kind, path)
+    assert(found ~= nil, kind .. " " .. path .. " is not noted")
+    return found.answer
+  end
+  assert(answer("o", real .. "/f") == "")
+  assert(answer("s", real .. "/f") == observations.stat_answer(real .. "/f"))
+  assert(answer("d", real) ~= "")
+  assert(answer("e", "COSMIC_OBSERVED_PROBE") == observations.getenv_current("COSMIC_OBSERVED_PROBE"))
+  assert(answer("e", "\0environ") == observations.getenv_current("\0environ"))
+  assert(answer("m", real .. "/made") == "")
+  assert(answer("m", made) == "")
+  -- A change of directory is a stat of where it went.
+  assert(answer("s", real) == observations.stat_answer(real))
+  assert(answer("x", "http://127.0.0.1:1/") == "")
+end
+
+--- A directory made, and a change of directory, that failed are no
+--- directory of the test's own and no stat: the log keeps only what was
+--- made, and a stat of where a change was asked to go whatever it did.
+local function test_a_failed_mkdir_is_not_the_tests_own(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local c = observations.capture(function()
+    assert(not sys.mkdir(real .. "/missing/made"))
+    assert(not sys.chdir(real .. "/missing"))
+  end)
+  assert(c.ok, tostring(c.produced))
+  assert(noted(c.reads, "m", real .. "/missing/made") == nil)
+  local went = assert(noted(c.reads, "s", real .. "/missing"))
+  assert(went.answer:sub(1, 6) == "error ", went.answer)
+end
+
+--- The process table's own `spawn`, called past the stand-in for it --
+--- here through a stand-in kept after its capture ended -- is logged,
+--- and the process noted "p" by the capture running then.
+local function test_a_process_started_past_the_stand_in_is_noted()
+  local process = raw_process_table()
+  local held = process.spawn
+  local first = observations.capture(function() held = process.spawn end)
+  assert(first.ok, tostring(first.produced))
+  local c = observations.capture(function()
+    local pid = assert(held("/bin/sh", { "sh", "-c", "exit 0" }, nil, nil, nil, nil, nil, false))
+    assert(process.waitpid(pid, false))
+  end)
+  assert(c.ok, tostring(c.produced))
+  assert(noted(c.reads, "p", "/bin/sh") ~= nil)
+end
+
+--- The path of a read outside the tree is resolved as the call is made,
+--- in C beside its record, not when the capture ends: a test that
+--- retargets a link of its own directory after reading through it is
+--- keyed by where the link led when it read, each kind of read alike.
+local function test_a_read_is_resolved_as_it_is_made(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  for _, dir in ipairs({ "/one", "/two" }) do
+    assert(Fs.mkdirs(real .. dir))
+    assert(Fs.write(real .. dir .. "/f", "x"))
+  end
+  local link = real .. "/own/link"
+  assert(Fs.mkdirs(real .. "/own"))
+  assert(Fs.symlink(real .. "/one", link))
+  local resolving: observations.Resolving = { tree = real .. "/tree", own = { real .. "/own" } }
+  local run = observations.call(function()
+    sys.close((assert(sys.open(link .. "/f", sys.O_RDONLY))))
+    assert(sys.stat(link .. "/f"))
+    assert(sys.readdir(link))
+    assert(sys.realpath(link .. "/f"))
+    assert(sys.lstat(link .. "/f"))
+    assert(sys.readlink(link))
+    assert(sys.unlink(link))
+    assert(Fs.symlink(real .. "/two", link))
+  end, nil, resolving)
+  assert(run.passed, run.message)
+  local function resolved(kind: string, path: string): string
+    local found = noted(run.reads, kind, path)
+    assert(found ~= nil, kind .. " " .. path .. " is not noted")
+    return found.answer
+  end
+  assert(resolved("t", link .. "/f") == real .. "/one/f")
+  assert(resolved("t", link) == real .. "/one")
+  assert(resolved("w", link .. "/f") == real .. "/one/f")
+  -- A readlink stops short of the link it reads, which is the test's own.
+  assert(noted(run.reads, "w", link) == nil)
+  for _, observation in ipairs(run.reads) do
+    assert(observation.kind ~= "x", observation.path)
+  end
+end
+
+--- What a path resolved to, as the observations told it before the log
+--- resolved it in C: the oracle `observations.resolution` must agree
+--- with.
+local function resolved_before(path: string, link: boolean): string
+  if path:sub(1, 1) ~= "/" then return "" end
+  if link then
+    local name = Fs.basename(path)
+    local parent = Fs.dirname(path)
+    if not (path:sub(-1) == "/" or name == "." or name == ".." or name == "" or
+        parent == path) then
+      local up = resolved_before(parent, false)
+      if up == "" then return "" end
+      return (up == "/" and "" or up) .. "/" .. name
+    end
+  end
+  local missing: {string} = {}
+  local at = path
+  while true do
+    local real, _ = sys.realpath(at)
+    if real ~= nil then
+      for i = #missing, 1, -1 do
+        real = (real == "/" and "" or real) .. "/" .. missing[i]
+      end
+      return real
+    end
+    local parent = Fs.dirname(at)
+    if parent == at then return "" end
+    missing[#missing + 1] = Fs.basename(at)
+    at = parent
+  end
+end
+
+--- The log resolves a path as the observations did in Teal: through
+--- links, a missing name and all after it as written, "." and ".."
+--- included, each run of slashes as one, and a link it ends in followed
+--- or not.
+local function test_a_resolution_is_the_one_the_observations_told(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  assert(Fs.mkdirs(real .. "/d/e"))
+  assert(Fs.write(real .. "/d/f", "x"))
+  assert(Fs.symlink(real .. "/d", real .. "/link"))
+  assert(Fs.symlink("missing", real .. "/dangling"))
+  local long = real .. "/" .. string.rep("n", 200)
+  for _ = 1, 25 do long = long .. "/" .. string.rep("n", 200) end
+  local paths: {string} = { "/", "//", "", "relative/path", "/nowhere/at/all", tmp,
+    tmp .. "/", tmp .. "//d///f", real .. "/link", real .. "/link/", real .. "/link/.",
+    real .. "/link/..", real .. "/link/e/../f", real .. "/missing/../d/f", real .. "/d/f/",
+    real .. "/d/f/g", real .. "/dangling", real .. "/dangling/x", real .. "/./d/./e",
+    real .. "/link//", long, long .. "/../f" }
+  for _, path in ipairs(paths) do
+    for _, link in ipairs({ false, true }) do
+      local told = link and observations.link_resolution(path) or observations.resolution(path)
+      local want = resolved_before(path, link)
+      assert(told == want, (link and "link " or "") .. path:sub(1, 80) .. ": " ..
+        told:sub(1, 80) .. " ~= " .. want:sub(1, 80))
+    end
+  end
+end
