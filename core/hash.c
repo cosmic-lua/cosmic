@@ -166,8 +166,6 @@ int cosmic_open_hash (lua_State *L) {
   lua_setfield(L, -2, "__gc");
   lua_pushcfunction(L, hasher_gc);
   lua_setfield(L, -2, "__close");
-  lua_pushstring(L, HASHER_TYPE);
-  lua_setfield(L, -2, "__name");
   lua_newtable(L);
   luaL_setfuncs(L, hasher_methods, 0);
   lua_setfield(L, -2, "__index");

@@ -10,7 +10,7 @@
 # checks a restored cache against the pin first. The driver is linked in
 # as cosmic-driver on the job's PATH. `zig-cache` also points the job's
 # later steps at the caches the platform job restores.
-set -e
+set -eu
 
 case "${1-}" in
   "" | zig-cache) ;;
@@ -49,13 +49,13 @@ if [ "${1-}" = zig-cache ]; then
   # shared verdicts" is the checklist.
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
-  # stat's times and inode where a test turns on them
-  # (build/test.tl:536), a database a connection opened before the
-  # test reads (build/filesystem_observations.tl:613), a call a module
-  # took before the capture (build/filesystem_observations.tl:631), a
-  # read resolved as it is made (build/filesystem_observations.tl:639
-  # and :710) and an in-tree path that crosses a link out
-  # (build/test.tl:461).
+  # stat's times and inode where a test turns on them (the TODO above
+  # build/test.tl's `held_stat`), a database a connection opened before
+  # the test reads, a call a module took before the capture and a read
+  # resolved as it is made (the TODOs above
+  # build/filesystem_observations.tl's `start`, and the one inside its
+  # `capture`) and an in-tree path that crosses a link out (the TODO
+  # above build/test.tl's `under_root`).
   echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
   # TODO: save what the product suite from fresh tracked source
   # reaches too: it runs after the zig-build cache is saved, so

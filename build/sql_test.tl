@@ -219,7 +219,7 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   -- The binary's own database answers, and still refuses a write.
   local opened = assert(sql.open(chosen))
   assert(not opened.owned)
-  local lines = assert(sql.query(opened.db, "SELECT count(*) > 0 AS any FROM sqlite_master"))
+  local lines = assert(sql.query(opened.db, "SELECT count(*) > 0 AS any FROM sqlite_schema"))
   assert(#lines == 2 and lines[1] == "any" and lines[2] == "1", table.concat(lines, "|"))
   -- A PRAGMA it refuses is answered with what a query can tell instead.
   local code, said = run(root, { "--store", "PRAGMA table_info(modules)" })

@@ -655,15 +655,6 @@ static int statement_finalize (lua_State *L) {
   return 0;
 }
 
-static int statement_gc (lua_State *L) {
-  struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
-  if (s->stmt != NULL) {
-    sqlite3_finalize(s->stmt);
-    s->stmt = NULL;
-  }
-  return 0;
-}
-
 static const luaL_Reg handle_methods[] = {
   {"exec", handle_exec},     {"prepare", handle_prepare},
   {"close", handle_close},   {"changes", handle_changes},
@@ -695,8 +686,6 @@ static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
   luaL_newmetatable(L, name);
   lua_pushcfunction(L, collect);
   lua_setfield(L, -2, "__gc");
-  lua_pushstring(L, name);
-  lua_setfield(L, -2, "__name");
   lua_newtable(L);
   luaL_setfuncs(L, methods, 0);
   lua_setfield(L, -2, "__index");
@@ -716,7 +705,7 @@ int cosmic_open_sqlite (lua_State *L) {
     return luaL_error(L, "cannot register SQLite's observed VFS");
   }
   make_type(L, HANDLE_TYPE, handle_methods, handle_gc);
-  make_type(L, STATEMENT_TYPE, statement_methods, statement_gc);
+  make_type(L, STATEMENT_TYPE, statement_methods, statement_finalize);
   luaL_newlib(L, module);
   lua_pushstring(L, sqlite3_libversion());
   lua_setfield(L, -2, "version");

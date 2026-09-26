@@ -317,16 +317,16 @@ static int reads_only (void *unused, int action, const char *first,
 
 static void release_database (void *db) { sqlite3_close_v2(db); }
 
+/* Whether `store_alone` has set the attached databases aside: nothing is
+ * attached until it puts them back, so its restore never grows the list. */
+static int set_aside;
+
 /* Opens another database and searches it ahead of every other, which is
  * what a project's own build database needs. The connection is held by a
  * guard until the list holds it: the message a failure copies out and the
  * list's growth both allocate, and an allocation can raise past the
  * close. SQLite hands back a connection even when it fails to open one,
  * and that one must be closed too. */
-/* Whether `store_alone` has set the attached databases aside: nothing is
- * attached until it puts them back, so its restore never grows the list. */
-static int set_aside;
-
 static int store_attach (lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -387,16 +387,16 @@ static int lookup (lua_State *L, sqlite3 *db, const char *sql,
   sqlite3_stmt *stmt = NULL;
   int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
   guard->resource = stmt;
-  if (rc != SQLITE_OK && out_of_memory(rc)) {
-    return luaL_error(L, "not enough memory");
+  if (rc != SQLITE_OK) {
+    if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+    die_unreadable(db);
   }
-  if (rc != SQLITE_OK) die_unreadable(db);
   sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
   rc = sqlite3_step(stmt);
-  if (rc != SQLITE_ROW && rc != SQLITE_DONE && out_of_memory(rc)) {
-    return luaL_error(L, "not enough memory");
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+    if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+    die_unreadable(db);
   }
-  if (rc != SQLITE_ROW && rc != SQLITE_DONE) die_unreadable(db);
   int found = rc == SQLITE_ROW;
   if (found) {
     /* The blob first, then its length; a NULL pointer with a length is
@@ -646,14 +646,6 @@ static int store_meta (lua_State *L) {
   return 1;
 }
 
-/* Every database `require` searches, in search order, each as a
- * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
- * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
- * path to any of them, since the binary's own is inside the binary.
- * The handles read only -- `reads_only` refuses anything but a query on
- * the store's connections, a temp table and ATTACH included; `close` on
- * one is a no-op, and the store keeps the connections for as long as
- * the process runs. */
 /* Calls the function at 1 with the arguments after it, searching only the
  * binary's own database, as a process that attached none would; then
  * puts every other back where it was, whether the call returned or
@@ -699,6 +691,14 @@ static int store_alone (lua_State *L) {
   return 0;
 }
 
+/* Every database `require` searches, in search order, each as a
+ * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
+ * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
+ * path to any of them, since the binary's own is inside the binary.
+ * The handles read only -- `reads_only` refuses anything but a query on
+ * the store's connections, a temp table and ATTACH included; `close` on
+ * one is a no-op, and the store keeps the connections for as long as
+ * the process runs. */
 static int store_databases (lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);

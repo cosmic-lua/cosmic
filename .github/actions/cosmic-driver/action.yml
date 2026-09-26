@@ -6,7 +6,8 @@
 # .github/scripts/cosmic-driver.sh from ci/, which checks what was
 # restored against the pin, fetches it where it is missing and puts it
 # on the job's PATH as cosmic-driver. A job uses it after its checkout,
-# as one step with `id: driver`, whose outcome says the driver is there.
+# as one step; one that later asks whether the driver is there gives it
+# `id: driver` and reads its outcome.
 #
 # Neither a job's `defaults.run` nor its `working-directory` reaches a
 # composite action's steps, so each says its own. A job whose steps run

@@ -88,7 +88,8 @@ target: run `ci/run-local` (a few minutes) before pushing a change that
 touches the launcher, startup, the artifact format, or a fixture, and
 `ci/run-local fixtures` to re-run edited fixtures after that. CI's runners are
 unprivileged; invoked as root, run-local runs the driver as an unprivileged
-user (`COSMIC_CI_LOCAL_USER`, default `nobody`). The launcher fixture's core
+user (`COSMIC_CI_LOCAL_USER`, default `$SUDO_USER` under sudo, else
+`nobody`). The launcher fixture's core
 is a stand-in payload that checks nothing; a case about what the real core
 does (its digest, its startup errors) belongs in `runtime_test.tl`.
 

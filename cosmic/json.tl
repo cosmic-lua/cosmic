@@ -60,7 +60,7 @@
 --- the same value always encodes to the same text.
 
 --- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace -- see cosmic/sqlite.tl for why this
+--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
 --- indirection exists.
 local type raw_json = require("cosmic.internal.json")
 
@@ -71,6 +71,8 @@ if type(extra) == "table" then
 else
   raw = require("cosmic.internal.json")
 end
+
+local String = require("cosmic.string")
 
 local record Json
   --- What `encode` may be told. Every field is optional.
@@ -236,7 +238,7 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
   local number = 0
   local count = 0
   local line_opts: Json.DecodeOptions = opts or {}
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(text) do
     number = number + 1
     if line:find("%S") then
       count = count + 1

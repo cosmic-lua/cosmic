@@ -356,6 +356,15 @@ local function test_a_file_run_refuses_an_exit_status_out_of_range(tmp: string)
     result.stderr)
 end
 
+--- A directory's own `init.tl` is the module named for the directory,
+--- as the build names it, not `<dir>.init`.
+local function test_a_file_run_of_an_init_is_its_directory(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/lib"))
+  assert(Fs.write(tmp .. "/lib/init.tl", "return function(): integer\n  return 3\nend\n"))
+  local result = cosmic(tmp, { "lib/init.tl" })
+  assert(result.code == 3, result.stderr)
+end
+
 --- A tree with two programs and a module that reads a file.
 local function write_programs(tmp: string): string
   local tree = tmp .. "/programs"
