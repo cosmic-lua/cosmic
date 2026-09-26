@@ -332,6 +332,13 @@ function Actionlint.ensure_installed(cache: string, install: string, pin: Action
       return binary, ""
     end
     log:complain(binary .. " " .. wrong .. "; installing it again")
+    -- TODO: two runs repairing the same install can race: one's
+    -- remove_tree can delete the directory the other has just renamed
+    -- its record and binary into, so the other answers a binary that is
+    -- gone. Hold a lock on the cache across the check and the repair
+    -- once cosmic.sys carries flock (the pinned bootstrap release has
+    -- none); renaming the bad install aside instead would still move a
+    -- concurrent run's fresh one.
     local removed, rtrouble = Fs.remove_tree(install)
     if not removed then
       return nil, install .. ": " .. tostring(rtrouble) .. "; remove it and run again"

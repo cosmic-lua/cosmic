@@ -198,6 +198,8 @@ local function test_ensure_installed_replaces_an_empty_or_unexecutable_cached_bi
   for _, c in ipairs(cached) do
     assert(Fs.mkdirs(install))
     assert(Fs.write(install .. "/actionlint", c.body as string, c.mode as integer))
+    -- A matching record, so only the size or the mode is wrong.
+    assert(Fs.write(install .. "/actionlint.sha256", Hash.hex_sha256(c.body as string) .. "\n"))
     local binary = assert(Actionlint.ensure_installed(cache, install, pin, "x86_64-linux",
       serving("#!/bin/sh\necho fresh\n", calls)))
     assert(assert(Fs.read(binary)) == "#!/bin/sh\necho fresh\n")
