@@ -17,6 +17,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
+local log = require("build.verdict").log
 
 local record worker
   --- What one worker found, as the runner reads it back.
@@ -62,9 +63,12 @@ end
 -- fuzz test's reads overran it under FUZZ_ITERS=2000 while every read
 -- of the test's own directory was noted twice, and its extraction
 -- property still does past about 5000 (fuzz.yml runs 2000 until this
--- is fixed). Drop repeated
--- observations here, as
--- `observations.join` does on the runner's side, or stream the report.
+-- is fixed). So does a test of distinct reads alone: 20000 stats of
+-- distinct paths outside the tree, each noted with its resolution,
+-- report about 30 MB and fail so, which dropping repeats cannot help.
+-- Stream the report, read as it arrives, rather than capture it
+-- whole; dropping repeated observations here, as `observations.join`
+-- does on the runner's side, shrinks the rest.
 local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
   for _, observation in ipairs(found) do
     lines[#lines + 1] = tag .. " " ..
@@ -197,13 +201,12 @@ function worker.run(argv: {integer:string}): integer
   local children_path = argv[7]
   if root == nil or module_path == nil or name == nil or tmp == nil or
       children_path == nil then
-    local _, _ = Fs.put(Fs.stderr,
-      "cosmic: test --worker needs a root, a module, a test and two directories\n")
+    log:complain("test --worker needs a root, a module, a test and two directories")
     return 2
   end
   local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")
   if not attached then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. attach_trouble .. "\n")
+    log:complain(attach_trouble)
     return 2
   end
   local report: worker.Report = {
@@ -260,7 +263,7 @@ function worker.run(argv: {integer:string}): integer
   end
   local written, trouble = Fs.put(worker.report_fd, worker.encode(report))
   if not written then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: the test report: " .. trouble .. "\n")
+    log:complain("the test report: " .. trouble)
     return 2
   end
   return 0

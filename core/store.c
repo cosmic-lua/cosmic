@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fail.h"
 #include "lauxlib.h"
 #include "compress.h"
 #include "coverage.h"
@@ -144,10 +145,10 @@ static int raw_value (lua_State *L, const char *name) {
 }
 
 /* `build.filesystem_observations`' raw value: the process table, whose
- * `spawn` it stands in for to note each child a test starts; SQLite's,
+ * `spawn` it stands in for to confine each child a test starts; SQLite's,
  * whose record of the files SQLite opens it drains; and the syscall
- * table's log of what its queries answered (core/syscalls.c's
- * `cosmic_open_observed`), which it drains too. The first two are
+ * table's log of what its calls were asked and answered
+ * (core/observed.c's `cosmic_open_observed`), which it drains too. The first two are
  * registered by entries above its own in `raw_modules`, which
  * `cosmic_store_open_raw` opens in order. */
 static int open_observations (lua_State *L) {
@@ -316,16 +317,16 @@ static int reads_only (void *unused, int action, const char *first,
 
 static void release_database (void *db) { sqlite3_close_v2(db); }
 
+/* Whether `store_alone` has set the attached databases aside: nothing is
+ * attached until it puts them back, so its restore never grows the list. */
+static int set_aside;
+
 /* Opens another database and searches it ahead of every other, which is
  * what a project's own build database needs. The connection is held by a
  * guard until the list holds it: the message a failure copies out and the
  * list's growth both allocate, and an allocation can raise past the
  * close. SQLite hands back a connection even when it fails to open one,
  * and that one must be closed too. */
-/* Whether `store_alone` has set the attached databases aside: nothing is
- * attached until it puts them back, so its restore never grows the list. */
-static int set_aside;
-
 static int store_attach (lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -368,8 +369,7 @@ static int store_attach (lua_State *L) {
   guard->resource = NULL;
 
   lua_pushboolean(L, 1);
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 static void release_statement (void *stmt) { sqlite3_finalize(stmt); }
@@ -387,16 +387,16 @@ static int lookup (lua_State *L, sqlite3 *db, const char *sql,
   sqlite3_stmt *stmt = NULL;
   int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
   guard->resource = stmt;
-  if (rc != SQLITE_OK && out_of_memory(rc)) {
-    return luaL_error(L, "not enough memory");
+  if (rc != SQLITE_OK) {
+    if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+    die_unreadable(db);
   }
-  if (rc != SQLITE_OK) die_unreadable(db);
   sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
   rc = sqlite3_step(stmt);
-  if (rc != SQLITE_ROW && rc != SQLITE_DONE && out_of_memory(rc)) {
-    return luaL_error(L, "not enough memory");
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+    if (out_of_memory(rc)) return luaL_error(L, "not enough memory");
+    die_unreadable(db);
   }
-  if (rc != SQLITE_ROW && rc != SQLITE_DONE) die_unreadable(db);
   int found = rc == SQLITE_ROW;
   if (found) {
     /* The blob first, then its length; a NULL pointer with a length is
@@ -427,8 +427,7 @@ static int store_bytecode (lua_State *L) {
   for (lua_Integer i = 1; i <= count; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db != NULL && lookup(L, db, query, name)) {
-      lua_pushliteral(L, "");
-      return 2;
+      return cosmic_succeeded(L);
     }
   }
   lua_pushnil(L);
@@ -484,8 +483,7 @@ static int store_source (lua_State *L) {
         lua_pushfstring(L, "the source of '%s' in the binary: %s", name, why);
         return 2;
       }
-      lua_pushliteral(L, "");
-      return 2;
+      return cosmic_succeeded(L);
     }
   }
   lua_pushnil(L);
@@ -512,13 +510,10 @@ static void big_endian_64 (unsigned char *out, uint64_t value) {
 }
 
 static void push_hex (lua_State *L, const unsigned char *bytes, size_t length) {
-  static const char hex[] = "0123456789abcdef";
   luaL_Buffer buffer;
-  char *text = luaL_buffinitsize(L, &buffer, length * 2);
-  for (size_t i = 0; i < length; i++) {
-    text[i * 2] = hex[bytes[i] >> 4];
-    text[i * 2 + 1] = hex[bytes[i] & 15];
-  }
+  /* One more than the text for cosmic_hex's NUL, which the result leaves out. */
+  char *text = luaL_buffinitsize(L, &buffer, length * 2 + 1);
+  cosmic_hex(text, bytes, length);
   luaL_pushresultsize(&buffer, length * 2);
 }
 
@@ -651,14 +646,6 @@ static int store_meta (lua_State *L) {
   return 1;
 }
 
-/* Every database `require` searches, in search order, each as a
- * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
- * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
- * path to any of them, since the binary's own is inside the binary.
- * The handles read only -- `reads_only` refuses anything but a query on
- * the store's connections, a temp table and ATTACH included; `close` on
- * one is a no-op, and the store keeps the connections for as long as
- * the process runs. */
 /* Calls the function at 1 with the arguments after it, searching only the
  * binary's own database, as a process that attached none would; then
  * puts every other back where it was, whether the call returned or
@@ -704,6 +691,14 @@ static int store_alone (lua_State *L) {
   return 0;
 }
 
+/* Every database `require` searches, in search order, each as a
+ * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
+ * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
+ * path to any of them, since the binary's own is inside the binary.
+ * The handles read only -- `reads_only` refuses anything but a query on
+ * the store's connections, a temp table and ATTACH included; `close` on
+ * one is a no-op, and the store keeps the connections for as long as
+ * the process runs. */
 static int store_databases (lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
@@ -747,12 +742,8 @@ static int store_trusted_prefix (lua_State *L) {
    * run commands that do not reuse a corrupt artifact prefix. */
   for (uint32_t i = 0; i < artifact->portable.entry_count; i++) {
     const struct cosmic_portable_entry *entry = &artifact->portable.entries[i];
-    unsigned char digest[COSMIC_DIGEST_MAX];
-    size_t digest_length = 0;
-    if (cosmic_digest_fd("sha256", artifact->fd, entry->offset, entry->length,
-                         digest, &digest_length) != 0 ||
-        digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
-        memcmp(digest, entry->sha256, digest_length) != 0) {
+    if (!cosmic_sha256_range_matches(artifact->fd, entry->offset,
+                                     entry->length, entry->sha256)) {
       lua_pushnil(L);
       lua_pushfstring(L,
                       "retained portable core range %d digest differs from manifest",
@@ -770,8 +761,7 @@ static int store_trusted_prefix (lua_State *L) {
     return 2;
   }
   luaL_pushresultsize(&buffer, (size_t)length);
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 /* Private capability handed only to the trusted build.artifact chunk: the
@@ -815,8 +805,7 @@ static int store_trusted_core (lua_State *L) {
   lua_setfield(L, -2, "configuration_id");
   lua_pushlstring(L, (const char *)entry->sha256, COSMIC_PORTABLE_SHA256_LENGTH);
   lua_setfield(L, -2, "digest");
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 static int open_store_module (lua_State *L,

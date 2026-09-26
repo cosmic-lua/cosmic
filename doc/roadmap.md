@@ -37,8 +37,8 @@ defines the target; once something ships, it leaves this file.
 ## untrusted input
 
 design.md promises that the parsers facing untrusted input are fuzzed.
-`build.fuzz` runs the tar, zip, archive, codec and shape properties and the
-host-program locator's on every `cosmic test`, and CI reruns them deep on the checked core.
+`build.fuzz` runs every `*_fuzz_test.tl` property on every `cosmic test`, and
+`fuzz.yml` reruns them deep on the checked core each night.
 curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
 rather than fuzzing them here. `core/json.c`'s own walk into Lua values and
 its encoder are fuzzed here, in `cosmic/json_fuzz_test.tl`.
@@ -70,16 +70,16 @@ port but not a remote address. old's `cosmic/quicksand/` is a reference for a
 network namespace, guarded proxy, and declarative child runner; it should not
 be folded into the portable sandbox contract.
 
-Open the remaining `fopen` path with `O_CLOEXEC` (`"e"` in the mode):
-`core/boot.c`'s read.
+Open the remaining `fopen` paths with `O_CLOEXEC` (`"e"` in the mode):
+`core/boot.c`'s read and `core/http.c`'s `SSL_CERT_FILE` read.
 
 ## surface
 
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- `shape` in use. `cosmic.shape` and `cosmic.json` both exist, and nothing in
-  the tree calls `Shape.into` yet. Convert the sites that read fields off a
+- `shape` in use. `cosmic.shape` and `cosmic.json` both exist, and only
+  `build/refresh.tl`'s PyPI index read calls `Shape.into` so far. Convert the sites that read fields off a
   decoded value through `as` casts, starting with those under `build/` and
   `ci/`; their call shapes decide whether the inference limit in shape.tl's
   module comment needs a helper, and whether `decode_into` (a TODO in
@@ -124,10 +124,8 @@ behind `cosmic docs` and `cosmic uses`; API guidance goes in the indexed doc
 comment beside the source, and a guide is only for a task larger than one
 symbol.
 
-- add focused `*_example.tl` files beside the ones `cosmic/` already has:
-  filesystem, environment, process, time, errors, and store first, then
-  `http`, `archive` (with `tar`, `zip` and `stream`), compression, and
-  coverage.
+- add focused `*_example.tl` files for the public modules `cosmic/` has
+  none for yet: `env` and `store`.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance (`Errors.guidance` in `cosmic/errors.tl`) is

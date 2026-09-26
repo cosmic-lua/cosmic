@@ -640,9 +640,14 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- Generation 8 keys what the syscall table's queries answered -- an
   -- lstat, a readlink, a realpath, the working directory, whether the
   -- program's own path answered -- which generation 7 never observed.
+  -- Generation 9 observes every call in its binding (core/observed.h),
+  -- a reference a module took before the capture included, and resolves
+  -- a read's path as the call is made: generation 8 missed the one and
+  -- resolved an lstat's, a readlink's or a realpath's path as the
+  -- capture ended.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-8", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-2", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-9", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-3", "module-load-reads-v1", header }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -2018,7 +2023,7 @@ function test.run(argv: {integer:string}): integer
   log:say("build: " .. #result.modules .. " modules (" .. result.compiled ..
     " compiled, " .. result.cached .. " cached; " .. staged.files ..
     " files staged, " .. staged.read .. " read) in " ..
-    clock.elapsed_ms(started) .. " ms")
+    clock.took(started))
 
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word, and
@@ -2290,7 +2295,7 @@ function test.run(argv: {integer:string}): integer
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 0
   end
   table.sort(failures)
@@ -2322,7 +2327,7 @@ function test.run(argv: {integer:string}): integer
   end
   log:verdict("test", false, #failures .. " of " ..
     (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
-    clock.elapsed_ms(started) .. " ms")
+    clock.took(started))
   return 1
 end
 

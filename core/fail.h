@@ -32,4 +32,11 @@ static inline int cosmic_ok (lua_State *L) {
   return 1;
 }
 
+/* A success in the `value, ""` shape the Teal wrappers return: the
+ * value already on top, then "" in the error's slot. */
+static inline int cosmic_succeeded (lua_State *L) {
+  lua_pushliteral(L, "");
+  return 2;
+}
+
 #endif

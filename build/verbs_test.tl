@@ -229,7 +229,8 @@ local function test_a_mistyped_verb_is_named(tmp: string)
   local result = cosmic(tmp, { "tset" })
   local err = result.stderr or ""
   assert(result.code == 2, err)
-  assert(err:find("no such verb or file: tset", 1, true), err)
+  -- The whole of stderr: one line, prefixed once.
+  assert(err == "cosmic: no such verb or file: tset; see `cosmic help`\n", err)
 end
 
 local function test_each_selector_must_match(tmp: string)
@@ -352,8 +353,17 @@ local function test_a_file_run_refuses_an_exit_status_out_of_range(tmp: string)
   assert(Fs.write(tmp .. "/far.tl", "return function(): integer\n  return 300\nend\n"))
   local result = cosmic(tmp, { "far.tl" })
   assert(result.code == 2, result.stderr)
-  assert((result.stderr or ""):find("far.tl returned 300, not an exit status 0-255", 1, true),
+  assert(result.stderr == "cosmic: far.tl returned 300, not an exit status 0-255\n",
     result.stderr)
+end
+
+--- A directory's own `init.tl` is the module named for the directory,
+--- as the build names it, not `<dir>.init`.
+local function test_a_file_run_of_an_init_is_its_directory(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/lib"))
+  assert(Fs.write(tmp .. "/lib/init.tl", "return function(): integer\n  return 3\nend\n"))
+  local result = cosmic(tmp, { "lib/init.tl" })
+  assert(result.code == 3, result.stderr)
 end
 
 --- A tree with two programs and a module that reads a file.

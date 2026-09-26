@@ -83,9 +83,11 @@ int cosmic_digest (const char *name, const void *data, size_t len,
                                out_len);
 }
 
-int cosmic_digest_fd (const char *name, int fd, uint64_t offset,
-                      uint64_t length,
-                      unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
+/* Streaming digest of exactly `length` bytes from a positioned descriptor.
+ * Same returns as `cosmic_digest`. */
+static int digest_fd (const char *name, int fd, uint64_t offset,
+                      uint64_t length, unsigned char out[COSMIC_DIGEST_MAX],
+                      size_t *out_len) {
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) return -1;
   if (offset > (uint64_t)INT64_MAX || length > (uint64_t)INT64_MAX - offset)
@@ -157,4 +159,14 @@ int cosmic_hmac (const char *name, const void *key, size_t key_len,
                            COSMIC_DIGEST_MAX, out_len);
   psa_destroy_key(id);
   return (int)status;
+}
+
+bool cosmic_sha256_range_matches (int fd, uint64_t offset, uint64_t length,
+                                  const unsigned char want[COSMIC_SHA256_LENGTH]) {
+  unsigned char digest[COSMIC_DIGEST_MAX];
+  size_t digest_length = 0;
+  return digest_fd("sha256", fd, offset, length, digest,
+                          &digest_length) == 0 &&
+         digest_length == COSMIC_SHA256_LENGTH &&
+         memcmp(digest, want, COSMIC_SHA256_LENGTH) == 0;
 }

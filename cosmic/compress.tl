@@ -3,7 +3,7 @@
 --- streaming codecs for deflate/zlib/gzip, xz and bzip2.
 
 --- The raw module behind the streaming codecs lives under the reserved
---- `cosmic.internal.` namespace -- see cosmic/sqlite.tl for why this
+--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
 --- indirection exists.
 local type raw_compress = require("cosmic.internal.compress")
 

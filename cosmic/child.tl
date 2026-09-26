@@ -38,7 +38,7 @@ local Time = require("cosmic.time")
 
 --- The calls that start, feed and reap a child, and hold this process's
 --- signals while it does, live in the raw process table, under the
---- reserved `cosmic.internal.` namespace -- see cosmic/sqlite.tl for
+--- reserved `cosmic.internal.` namespace -- see cosmic/store.tl for
 --- why this indirection exists. It is off the public surface so that
 --- nothing but a handle reaps a child a handle owns: in an adopting
 --- process `collect` reaps every child with `waitpid(-1)`, and a
@@ -700,6 +700,9 @@ local function make_handle(pid: integer, process_group: boolean): Handle
       if not status then return nil, trouble end
       return settled(self, false)
     end
+    -- TODO: raise on a negative timeout, as `validate` does for Child.run's
+    -- `timeout_ms` and as `Child.wait_any` should too: a wrong shape is a
+    -- mistake, not a failure to report.
     if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end
     local deadline: integer
     if timeout_ms ~= nil then deadline = now() + timeout_ms * 1000000 end
@@ -856,6 +859,8 @@ function Child.guard(): Guard | nil, string
   return make_guard(), ""
 end
 
+--- Raises at level 4, the caller of `Child.start` or `Child.run`: it and
+--- `without_nul` run under `validate`, which runs under either one.
 local function descriptor(value: integer | string, name: string, words: {string:boolean}):
     integer | string
   if value == nil then return "inherit" end
@@ -864,7 +869,7 @@ local function descriptor(value: integer | string, name: string, words: {string:
   local allowed: {string} = {}
   for word in pairs(words) do allowed[#allowed + 1] = "'" .. word .. "'" end
   table.sort(allowed)
-  error(name .. " must be a file descriptor or one of " .. table.concat(allowed, ", "), 3)
+  error(name .. " must be a file descriptor or one of " .. table.concat(allowed, ", "), 4)
 end
 
 local STDIN_WORDS <const> = { inherit = true, null = true, pipe = true, stream = true }
@@ -875,7 +880,7 @@ local STDERR_WORDS <const> = {
 local FD_WORDS <const> = { capture = true }
 
 local function without_nul(value: string, name: string)
-  if value:find("\0", 1, true) then error(name .. " contains a NUL byte", 3) end
+  if value:find("\0", 1, true) then error(name .. " contains a NUL byte", 4) end
 end
 
 local function validate(argv: {string}, opts: Options): boolean
@@ -916,7 +921,7 @@ local function validate(argv: {string}, opts: Options): boolean
     error("capture_limit is out of range", 3)
   end
   if opts.timeout_ms ~= nil and (opts.timeout_ms < 0 or opts.timeout_ms > INT_MAX) then
-    error("timeout is out of range", 3)
+    error("timeout_ms is out of range", 3)
   end
   return true
 end
@@ -1041,7 +1046,6 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
   return slots, ""
 end
 
---- `Child.start` on options already validated.
 --- Whether `name` is a bare name -- no slash -- that is not there in
 --- `cwd` (this process's own when nil), which does exist: most often a
 --- program meant to be found on PATH. Not when the directory is what
@@ -1056,6 +1060,7 @@ local function unfound_name(name: string, cwd?: string): boolean
   return found == nil
 end
 
+--- `Child.start` on options already validated.
 local function start(argv: {string}, opts: Options): Handle | nil, string
   local grouped = opts.process_group
   if grouped == nil then grouped = true end

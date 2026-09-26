@@ -4,7 +4,7 @@
 --- file run and `-e` (build/dispatch.tl) and `--standalone`
 --- (build/standalone.tl).
 
-local Fs = require("cosmic.fs")
+local log = require("build.verdict").log
 
 local record exit_status
 end
@@ -12,15 +12,19 @@ end
 --- nil is 0, and a whole number from 0 to 255 is itself. Anything else
 --- -- a boolean, text, a table, 1.5, -1, 256 -- is complained about on
 --- stderr as `what`'s (a file's name, or `-e`), and exits 2.
+-- TODO: take a numeric string as `cosmic_tostatus` (core/check.h) and
+-- build/invoke.tl's `status_of` do, so a file run that returns "3"
+-- exits 3 as a built program does rather than 2; then have invoke call
+-- one shared status-or-nil function here instead of its own copy.
 function exit_status.of(what: string, value: any): integer
   if value == nil then
     return 0
   end
   local whole = value is number and math.tointeger(value) or nil
   if whole == nil or whole < 0 or whole > 255 then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. what .. " returned " ..
+    log:complain(what .. " returned " ..
       (value is string and string.format("%q", value) or tostring(value)) ..
-      ", not an exit status 0-255\n")
+      ", not an exit status 0-255")
     return 2
   end
   return whole

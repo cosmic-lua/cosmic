@@ -49,8 +49,10 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
+#include "fail.h"
 #include "fault.h"
 #include "memory.h"
+#include "observed.h"
 #include "store.h"
 
 #define HANDLE_TYPE "cosmic.http.handle"
@@ -158,6 +160,8 @@ static int roots_ready;
  * file, to `roots`. A certificate there that does not parse is left
  * out, trusted no more than one missing. False only when there was no
  * memory to read the file into. */
+/* TODO: open with O_CLOEXEC ("rbe", or open(2) and fdopen where a libc
+ * lacks "e"), so a child started meanwhile inherits no descriptor. */
 static bool add_cert_file (void) {
   const char *path = getenv("SSL_CERT_FILE");
   FILE *f = path != NULL && path[0] != '\0' ? fopen(path, "rb") : NULL;
@@ -226,7 +230,7 @@ static const char *load_roots (lua_State *L) {
   }
   sqlite3_finalize(stmt);
   if (trouble == NULL && trusted == 0) {
-    trouble = "no CA roots: the binary's database holds none; `cosmic refresh cacert " \
+    trouble = "no CA roots: the binary's database holds none; `cosmic refresh cacert "
       "--binary <this program> -o <copy>` writes a copy that has them";
   }
   if (trouble == NULL && !add_cert_file()) {
@@ -804,14 +808,6 @@ static int handle_headers (lua_State *L) {
   return 1;
 }
 
-/* Every fallible function here returns `value, ""` on success and
- * `nil, err` on failure, as core/sqlite.c's do: the second slot is
- * always a string. */
-static int succeeded (lua_State *L) {
-  lua_pushliteral(L, "");
-  return 2;
-}
-
 static int failed (lua_State *L, const char *why) {
   lua_pushnil(L);
   lua_pushstring(L, why);
@@ -853,7 +849,7 @@ static int handle_read (lua_State *L) {
   memmove(t->body, t->body + n, t->body_len - n);
   t->body_len -= n;
   if (t->body_len < BODY_PAUSE_THRESHOLD) resume(t);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 /* `false, err` for a streamed body's failure. */
@@ -899,7 +895,7 @@ static int handle_write (lua_State *L) {
   }
   if (len == 0) {
     lua_pushboolean(L, 1);
-    return succeeded(L);
+    return cosmic_succeeded(L);
   }
   if (t->upload == NULL || t->upload_len + len > t->upload_cap) {
     size_t want = t->upload_cap == 0 ? 16384 : t->upload_cap;
@@ -926,7 +922,7 @@ static int handle_write (lua_State *L) {
   }
   if (t->upload_len > 0) return upload_over(L, t);
   lua_pushboolean(L, 1);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 /* finish(): ends the streamed body and drives the transfer until the
@@ -955,7 +951,7 @@ static int handle_finish (lua_State *L) {
     return upload_failed(L);
   }
   lua_pushboolean(L, 1);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 /* What curl has written to a scripted transfer's connections so far,
@@ -975,15 +971,9 @@ static int handle_sent (lua_State *L) {
   return 1;
 }
 
+/* `close`, and both __gc and __close: a handle closed any way, even one
+ * a finalizer elsewhere revives, is `closed`, and its methods raise. */
 static int handle_close (lua_State *L) {
-  struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
-  transfer_release(t);
-  return 0;
-}
-
-/* Both __gc and __close: a handle closed either way, even one a
- * finalizer elsewhere revives, is `closed`, and its methods raise. */
-static int handle_gc (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   transfer_release(t);
   return 0;
@@ -1235,6 +1225,12 @@ static int open_request (lua_State *L, int streamed) {
   if (memchr(r.url, '\0', url_len) != NULL) {
     return failed(L, "invalid url: contains a NUL byte");
   }
+  /* A request that could reach past the process is noted before it
+   * connects (core/observed.h); a scripted one connects nowhere. */
+  if (cosmic_observing && !has_script &&
+      !cosmic_observed_note(COSMIC_OBSERVED_HTTP, r.url, url_len)) {
+    return failed(L, "not enough memory to observe the request");
+  }
   if (has_headers) {
     lua_pushvalue(L, 5);
     if (headers_problem(L)) {
@@ -1345,7 +1341,7 @@ static int open_request (lua_State *L, int streamed) {
     return 2;
   }
   lua_settop(L, 7);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int http_open (lua_State *L) {
@@ -1393,8 +1389,7 @@ static int http_check_certificate (lua_State *L) {
     return 2;
   }
   lua_pushboolean(L, 1);
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 static const luaL_Reg module[] = {
@@ -1406,9 +1401,9 @@ static const luaL_Reg module[] = {
 
 int cosmic_open_http (lua_State *L) {
   luaL_newmetatable(L, HANDLE_TYPE);
-  lua_pushcfunction(L, handle_gc);
+  lua_pushcfunction(L, handle_close);
   lua_setfield(L, -2, "__gc");
-  lua_pushcfunction(L, handle_gc);
+  lua_pushcfunction(L, handle_close);
   lua_setfield(L, -2, "__close");
   lua_newtable(L);
   luaL_setfuncs(L, handle_methods, 0);

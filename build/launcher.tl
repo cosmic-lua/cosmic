@@ -2,7 +2,10 @@
 ---
 --- This is a Teal module, rather than a loose build-time asset, because a
 --- shipped Cosmic reads `build.artifact` and its dependencies from its Store
---- projection. Only the generated target arms are substituted into it.
+--- projection. `render` substitutes the generated target arms into it,
+--- and, for a test build, the portable test hook and its call sites.
+
+local String = require("cosmic.string")
 
 local record launcher
 end
@@ -469,7 +472,7 @@ end
 --- the `#!` interpreter line and stays.
 local function without_comments(text: string): string
   local kept: {string} = {}
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(text) do
     if #kept == 0 or not line:match("^%s*#") then kept[#kept + 1] = line end
   end
   return table.concat(kept, "\n")

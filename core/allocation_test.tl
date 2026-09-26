@@ -23,6 +23,7 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Observations = require("build.filesystem_observations")
 local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
@@ -352,10 +353,12 @@ local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails
   assert_c_heap(bytes, blocks, "observing SQLite's files under refusal")
 end
 
---- What the syscall table's queries answer while observed is kept on
---- the C heap until drained: under every refusal, no call answers what
---- the log did not keep, a drain refused keeps every record, and nothing
---- is left once drained. A refusal here raises where Lua asks next, so
+--- What the syscall table's queries answer while observed is kept, on
+--- a heap of the log's own, until drained: under every refusal, no call
+--- answers what the log did not keep, a drain refused keeps every
+--- record, and the core's own heap holds nothing more once drained --
+--- nor while the log holds records, which a test that counts that heap
+--- makes as any other does. A refusal here raises where Lua asks next, so
 --- the answer a call gives when its record alone is refused is
 --- `test_a_query_whose_record_is_refused_fails_as_memory_does`'s.
 local function test_observing_the_syscall_table_leaves_nothing_whenever_an_allocation_fails(
@@ -430,6 +433,57 @@ local function test_a_query_whose_record_is_refused_fails_as_memory_does(tmp: st
   assert(again == "target")
   assert(#drained == 1 and drained[1].call == "readlink" and drained[1].path == link and
     drained[1][1] == "target", tostring(#drained))
+end
+
+--- A call that acts, whose record the log cannot keep, fails as memory
+--- does and leaves nothing done: an open makes no file, a change of
+--- directory goes nowhere, a request connects nowhere and a process is
+--- never started, each refused before it acts; a directory made is
+--- taken back.
+local function test_a_call_whose_record_is_refused_does_nothing(tmp: string)
+  if not checked then return end
+  local raw = observations_table().syscalls
+  -- The process table's own spawn, which logs, reached through a
+  -- stand-in kept after its capture ended: every test runs under one of
+  -- the runner's own, which starts a process past the log.
+  local held = process.spawn
+  local taken = Observations.capture(function() held = process.spawn end)
+  assert(taken.ok, tostring(taken.produced))
+  local here = assert(sys.getcwd())
+  local refusals: {string: function(): any, any, integer} = {
+    open = function(): any, any, integer
+      return sys.open(tmp .. "/created", sys.O_CREAT | sys.O_WRONLY, 420)
+    end,
+    mkdir = function(): any, any, integer return sys.mkdir(tmp .. "/made") end,
+    mkdtemp = function(): any, any, integer return sys.mkdtemp(tmp .. "/temporary-XXXXXX") end,
+    chdir = function(): any, any, integer return sys.chdir(tmp) end,
+    spawn = function(): any, any, integer
+      return held("/bin/sh", { "sh", "-c", "exit 0" }, nil, nil, nil, nil, nil, false)
+    end,
+    http = function(): any, any, integer
+      local response, trouble = Http.open("http://127.0.0.1:1/")
+      return response, trouble, nil
+    end,
+  }
+  for name, call in pairs(refusals) do
+    raw.observed()
+    raw.observe(true)
+    testing.fail_at("observed_log")
+    local answer, trouble, number = call()
+    local unfired = testing.fail_at()
+    raw.observe(false)
+    assert(not unfired, name .. ": the log never grew")
+    assert(not answer, name .. " answered " .. tostring(answer))
+    if name == "http" then
+      assert(tostring(trouble):find("observe", 1, true), tostring(trouble))
+    else
+      assert(sys.errno_name(number) == "ENOMEM", name .. ": " .. tostring(trouble))
+    end
+    assert(#raw.observed() == 0, name .. " kept a record")
+  end
+  local left = assert(sys.readdir(tmp))
+  assert(next(left) == nil, "a refused call left something in " .. tmp)
+  assert(sys.getcwd() == here)
 end
 
 --- The C heap counts what the core's C allocates and frees, and a

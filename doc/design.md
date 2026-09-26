@@ -149,13 +149,13 @@ zig anything runs.
 the three shipped images are built ReleaseFast with `.strip = true`,
 which is what makes a build byte-identical across build paths on ELF
 and Mach-O alike; debug info carries the absolute path and a
-content-derived Mach-O UUID follows it. the Linux lane builds a
-fourth core in ReleaseSafe with `sanitize_c = .full`, which is
+content-derived Mach-O UUID follows it. every lane builds a
+fourth core for its own host in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
 bare trap. `bin/zig build sanitized` boots with that core and embeds
 it in `o/sanitized/bin/cosmic`; every full CI run (merge queue, main,
 or a manual run) verifies the embedded core bytes and, on the Linux
-x86-64 leg, runs the whole test suite under a 90-second limit, with
+x86-64 leg, runs the whole test suite under a 180-second limit, with
 full undefined-behavior checking and coverage collection enabled. zig
 ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
@@ -211,11 +211,13 @@ binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
 table itself, which answers as the binding it replaces. a syscall
-log, when asked, is kept by the five queries a test's key turns on
-(`getcwd`, `executable`, `lstat`, `readlink`, `realpath`): each of
-those bindings checks the log's flag itself (`core/observed.h`), so a
-reference taken before logging began is logged too, and every other
-binding is untouched.
+log, when asked, is kept by the fourteen calls a test's key turns on
+(`getcwd`, `executable`, `lstat`, `readlink`, `realpath`, `open`,
+`stat`, `readdir`, `getenv`, `environ`, `mkdir`, `mkdtemp` and
+`chdir`, the process table's `spawn`, and cosmic.http's `open` of a
+request that is not scripted): each of those bindings checks the log's
+flag itself (`core/observed.h`), so a reference taken before logging
+began is logged too, and every other binding is untouched.
 
 `posix` is a reserved name of a different kind: not privacy, but
 scope. a module lives under `cosmic.posix.` when its whole job is
@@ -491,7 +493,7 @@ method. the build is single-threaded, so SQLite compiles with
 `SQLITE_THREADSAFE=0` and without extension loading, shared cache,
 double-quoted strings, or deprecated interfaces, and with the
 `dbstat` virtual table, so `cosmic db` can say what every table in
-both databases costs in rows, pages, and bytes.
+each database costs in rows, pages, and bytes.
 
 ### the build
 
@@ -591,7 +593,7 @@ that does run runs in a worker process of its own:
   child subreaper, also ends what a dead worker's descendants left behind.
 - *reproducible*: the shipped database is a host-neutral projection of the
   working database into a fresh schema, filled in one transaction, with every
-  table `WITHOUT ROWID` on a natural key and the file produced by `VACUUM
+  table but those named above `WITHOUT ROWID` on a natural key and the file produced by `VACUUM
   INTO`. target identity comes from the selected, validated manifest entry;
   it is absent from database rows. `bin/zig build cores` cross-compiles every
   target from any host, so the complete artifact, its database and both test
@@ -608,7 +610,7 @@ attestations.
 #### before CI stands on shared verdicts
 
 CI writes the shared verdicts but stands only on what it runs itself
-(`COSMIC_TEST_NO_SHARED=1`, set in `.github/workflows/ci.yml` and
+(`COSMIC_TEST_NO_SHARED=1`, set in `.github/scripts/cosmic-driver.sh` and
 `ci/cosmic_ci/orchestration.tl`): a verdict another checkout reached stands
 wherever its key is reached again, so everything a test's verdict turns on that
 the key leaves out is a way for a sibling's pass to answer for a failure. each
@@ -649,16 +651,19 @@ are closed:
   (core/observed.h), whoever calls it; a capture drains the log and notes each,
   an lstat, a readlink or a realpath as a stat is, and `executable` by whether
   it answered: where the program is, like where the tree is, is no input.
-- [ ] *a read resolved beside the call* (`build/filesystem_observations.tl`, in
-  `start`): another process retargeting a link between the read and its
-  resolution goes unseen; resolve by the descriptor the call opened. a query the
-  table's log keeps (above `start`) is resolved later still, as the capture
-  ends: resolve it in C, beside its record.
-- [ ] *a call taken before the capture* (`build/filesystem_observations.tl`,
-  above `start`): `open`, `stat`, `readdir`, `getenv` and the other calls still
-  observed by standing in for a field of `cosmic.sys` go unseen through a
-  reference a module took before the capture began. move them onto the table's
-  log.
+- [x] *a call taken before the capture*: `open`, `stat`, `readdir`, `getenv`,
+  `environ`, `mkdir`, `mkdtemp` and `chdir` of `cosmic.sys`, the process
+  table's `spawn` and cosmic.http's `open` log in their own bindings too, so a
+  reference a module took before the capture began is observed as the table's
+  own is. only `spawn` is still stood in for, to confine what a test starts; a
+  process started past the stand-in is logged and never stands.
+- [ ] *a read resolved beside the call* (`core/observed.c`, above
+  `log_resolution`): a read's path is resolved in C beside its record, as the
+  call is made, so a link a test retargets afterwards no longer moves it; but
+  another process retargeting a link between the call and its resolution goes
+  unseen. resolve by the descriptor the call opened. a file SQLite opens is
+  resolved later still, as it is drained (`build/filesystem_observations.tl`,
+  above `drain_sqlite`): resolve it in the VFS, beside its record.
 - [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
   `under_root`): keyed by where the link leads at the end, not when read.
   resolve such a read as it is made, from a set of the tree's links.
@@ -734,8 +739,9 @@ no justification comments, no ledger in the target policy. this cast
 restriction is not implemented. record-field narrowing has landed as
 carried patches; container covariance was dropped (see the roadmap).
 there is no planned `cosmic check` verb: compilation performs checking,
-while `cosmic fix` currently operates on syntax and has no production
-rewrite rules.
+while `cosmic fix`'s structural rule list (`build/fix/rule.tl`) is still
+empty: its one type-driven fix wraps a multi-value `assert(...)` in
+parentheses.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
@@ -847,7 +853,8 @@ builds too and a tree with binaries ships from the one verb. every verb
 takes paths to narrow it (`uses` after its symbol), except `docs`,
 which takes words to search for; `sql`, which takes one statement
 and names its database by option, since a statement already says
-which rows it reads; and `help`, which takes a verb. every verb ends
+which rows it reads; `refresh`, which takes the datasets to fetch;
+`bom`, which takes nothing; and `help`, which takes a verb. every verb ends
 in a verdict line
 and an exit code; a file run, `--standalone` and `-e` are programs,
 not verbs, and print only what they print and exit with what they

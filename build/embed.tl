@@ -52,10 +52,10 @@ local function value_at(statement: Sqlite.Statement, index: integer): Sqlite.Val
     return { blob = statement:bytes(index) }
   end
   if kind == "integer" then
-    return { integer = math.tointeger(tonumber(statement:bytes(index))) or 0 }
+    return { integer = statement:integer(index) }
   end
   if kind == "number" then
-    return { number = tonumber(statement:bytes(index)) or 0 }
+    return { number = statement:number(index) }
   end
   return text(statement:bytes(index))
 end
@@ -442,7 +442,7 @@ function embed.run(argv: {integer:string}): integer
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  log:verdict("build", true, wrote .. ", " .. clock.elapsed_ms(started) .. " ms")
+  log:verdict("build", true, wrote .. ", " .. clock.took(started))
   return 0
 end
 

@@ -238,7 +238,7 @@ local function boot(root: string, argv: {integer:string},
 
   log:verdict("boot", true, #targets .. " targets, " .. staged.files ..
     " files staged, " .. result.compiled .. " modules compiled, " ..
-    #database .. " database bytes, " .. clock.elapsed_ms(started) .. " ms")
+    #database .. " database bytes, " .. clock.took(started))
   return 0
 end
 

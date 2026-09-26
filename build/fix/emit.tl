@@ -64,6 +64,8 @@
 --- distance ITS LINE travels, and every line continuing the statement
 --- travels the same distance with it.
 
+local String = require("cosmic.string")
+
 local type compiler = require("build.compiler")
 
 local record Emitter
@@ -125,7 +127,7 @@ local function new(source: string, tokens: {compiler.Token}): Emitter
   local blank: {integer:boolean} = {}
   local wrote: {integer:string} = {}
   local y = 1
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(source) do
     blank[y] = line:match("^%s*$") ~= nil
     wrote[y] = line
     y = y + 1

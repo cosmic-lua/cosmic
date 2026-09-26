@@ -14,6 +14,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local narrow = require("build.narrow")
@@ -420,7 +421,7 @@ end
 --- before they existed answers no query here.
 local function has_docs(db: Sqlite.Handle): boolean | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
   if rows == nil then return nil, trouble end
   return #rows > 0, ""
 end
@@ -888,10 +889,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     local ex = entry.related[1]
     lines[#lines + 1] = entry.module .. " example " .. ex.name .. " (" ..
       ex.file .. ":" .. ex.line .. ")"
-    for line in (ex.text .. "\n"):gmatch("(.-)\n") do
+    for line in String.lines(ex.text) do
       lines[#lines + 1] = #line > 0 and "  " .. line or ""
     end
-    for line in (ex.source .. "\n"):gmatch("(.-)\n") do
+    for line in String.lines(ex.source) do
       lines[#lines + 1] = #line > 0 and "    " .. line or ""
     end
     return lines, ""
@@ -909,15 +910,15 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, ex in ipairs(entry.related) do
       lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
         ex.line .. "):"
-      for line in (ex.text .. "\n"):gmatch("(.-)\n") do
+      for line in String.lines(ex.text) do
         lines[#lines + 1] = #line > 0 and "  " .. line or ""
       end
-      for line in (ex.source .. "\n"):gmatch("(.-)\n") do
+      for line in String.lines(ex.source) do
         lines[#lines + 1] = #line > 0 and "    " .. line or ""
       end
     end
   end
-  for line in (entry.text .. "\n"):gmatch("(.-)\n") do
+  for line in String.lines(entry.text) do
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
   end
   -- A verb's options are data, `Cli.options`, not prose: shown under
@@ -926,7 +927,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
   if verb ~= nil and Cli.options[verb] ~= nil then
     lines[#lines + 1] = "  options:"
-    for line in (Flags.options(Cli.options[verb]) .. "\n"):gmatch("(.-)\n") do
+    for line in String.lines(Flags.options(Cli.options[verb])) do
       lines[#lines + 1] = "  " .. line
     end
   end
@@ -969,10 +970,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, ex in ipairs(examples) do
       lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
         ex.line .. "):"
-      for line in (ex.text .. "\n"):gmatch("(.-)\n") do
+      for line in String.lines(ex.text) do
         lines[#lines + 1] = #line > 0 and "  " .. line or ""
       end
-      for line in (ex.source .. "\n"):gmatch("(.-)\n") do
+      for line in String.lines(ex.source) do
         lines[#lines + 1] = #line > 0 and "    " .. line or ""
       end
     end
@@ -1022,7 +1023,7 @@ function docs.run(argv: {integer:string}): integer
     log:say("`cosmic docs <module>` shows one, with what it offers; " ..
       "`cosmic docs <words>` searches them all.")
     log:verdict("docs", true, #index .. " modules, " .. #view.databases ..
-      " databases, " .. clock.elapsed_ms(started) .. " ms")
+      " databases, " .. clock.took(started))
     return 0
   end
   local found, trouble = docs.lookup(view, query)
@@ -1032,7 +1033,7 @@ function docs.run(argv: {integer:string}): integer
   end
   if #found == 0 then
     log:verdict("docs", false, "nothing named or documented as '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
   if not found.exact then
@@ -1058,7 +1059,7 @@ function docs.run(argv: {integer:string}): integer
     counted = counted .. ", " .. (#found - found.named) .. " standing in"
   end
   log:verdict("docs", true, counted ..
-    ", " .. #view.databases .. " databases, " .. clock.elapsed_ms(started) .. " ms")
+    ", " .. #view.databases .. " databases, " .. clock.took(started))
   return 0
 end
 
@@ -1110,10 +1111,10 @@ function docs.run_uses(argv: {integer:string}): integer
   if shown == 0 then
     local where = #paths > 0 and " under " .. table.concat(paths, ", ") or ""
     log:verdict("uses", false, "nothing" .. where .. " refers to '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
-  log:verdict("uses", true, shown .. " places, " .. clock.elapsed_ms(started) .. " ms")
+  log:verdict("uses", true, shown .. " places, " .. clock.took(started))
   return 0
 end
 

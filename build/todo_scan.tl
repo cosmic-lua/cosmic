@@ -13,6 +13,8 @@
 --- -- is not one, so a test can hold the text of a TODO without being
 --- listed.
 
+local String = require("cosmic.string")
+
 local record todo_scan
   --- One TODO where it is written: its first line, its last, and its
   --- text, the paragraph's lines joined by single spaces.
@@ -70,7 +72,7 @@ end
 --- Every TODO in one file's text, in order.
 function todo_scan.scan(source: string): {todo_scan.Found}
   local lines: {string} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(source) do
     lines[#lines + 1] = (line:gsub("\r$", ""))
   end
   if source:sub(-1) == "\n" then

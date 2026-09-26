@@ -43,7 +43,7 @@ local function describe(path: string): integer | nil, string
     return nil, size_trouble
   end
   local tables, table_trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_master WHERE type = 'table'")
+    "SELECT name FROM sqlite_schema WHERE type = 'table'")
   if tables == nil then
     local _, _ = db:close()
     return nil, table_trouble
@@ -178,7 +178,7 @@ local function describe_under(path: string, about: function(string): boolean): i
     return nil, open_trouble
   end
   local tables, table_trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if tables == nil then
     local _, _ = db:close()
     return nil, table_trouble
@@ -309,22 +309,22 @@ function databases.run(argv: {integer:string}): integer
   end
   if seen == 0 then
     log:verdict("db", false, "no database under " .. root .. "/o; build first, " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
   if #paths > 0 then
     local under = table.concat(paths, ", ")
     if rows == 0 then
       log:verdict("db", false, "no row is about " .. under .. ", " ..
-        clock.elapsed_ms(started) .. " ms")
+        clock.took(started))
       return 1
     end
     log:verdict("db", true, rows .. " rows about " .. under .. " in " .. seen ..
-      " databases, " .. clock.elapsed_ms(started) .. " ms")
+      " databases, " .. clock.took(started))
     return 0
   end
   log:verdict("db", true, tables .. " tables in " .. seen .. " databases, " ..
-    clock.elapsed_ms(started) .. " ms")
+    clock.took(started))
   return 0
 end
 
