@@ -4,6 +4,7 @@
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
 
 --- A plain-table stand-in for a `cosmic.compress` codec, cast to one
 --- where `transform` takes it.
@@ -499,8 +500,11 @@ end
 --- A line may be as long as the limit, and no longer, ended by "\n" or
 --- by the end of the stream; once it fails, it keeps failing.
 local function test_lines_hold_a_line_to_the_limit()
-  local got, trouble = all_lines(Stream.from_string("12345\n1234"), 5)
-  assert(trouble == "" and got[1] == "12345" and got[2] == "1234", trouble)
+  for _, reader in ipairs({ Stream.from_string("12345\n1234"), trickle("12345\n1234"),
+      trickle("12345") }) do
+    local got, trouble = all_lines(reader, 5)
+    assert(trouble == "" and got[1] == "12345", trouble)
+  end
   for _, text in ipairs({ "ok\n123456\nafter", "ok\n123456" }) do
     local lines = Stream.lines(trickle(text), 5)
     assert(lines:read() == "ok")
@@ -509,7 +513,9 @@ local function test_lines_hold_a_line_to_the_limit()
     local again, again_why = lines:read()
     assert(again == nil and again_why == why)
   end
-  assert(not pcall(Stream.lines, Stream.from_string(""), 0))
+  for _, bad in ipairs({ 0, -1, 2.5, 0 / 0 } as {number}) do
+    assert(not pcall(Stream.lines, Stream.from_string(""), bad as integer))
+  end
 end
 
 --- A line spread over many small chunks is joined once, not re-copied
@@ -517,8 +523,12 @@ end
 --- copying the partial line per byte would move some 32 GB.
 local function test_a_long_line_in_small_chunks_costs_linear_time()
   local long = string.rep("x", 1 << 18)
+  local started = Time.monotonic_ns()
   local got, trouble = all_lines(trickle(long .. "\nend"))
+  local elapsed = Time.monotonic_ns() - started
   assert(trouble == "" and #got == 2 and got[1] == long and got[2] == "end", trouble)
+  -- About a tenth of a second here; copying per byte takes some fifteen.
+  assert(elapsed < 5 * 1000 * 1000 * 1000, "took " .. tostring(elapsed // 1000000) .. " ms")
 end
 
 --- A Reader's failure ends the lines with it, after the ones before.

@@ -353,15 +353,21 @@ local default_line_limit <const> = 1 << 20
 --- ending in "\n", without the "\n", and the piece after the last "\n"
 --- when that is not empty, so "a\nb\n" and "a\nb" are both two lines.
 --- A "\r" before the "\n" stays on its line, as `String.lines` keeps
---- it. A line longer than `max` bytes (1 MiB by default) fails rather
---- than grow without bound. `reader` is not closed.
+--- it; unlike `String.lines`, text ending in "\n" has no empty last
+--- line, and "" has no lines at all. A line longer than `max` bytes
+--- (1 MiB by default) fails rather than grow without bound; a `max`
+--- that is no integer of at least 1 raises. `reader` is not closed.
 ---
----     local lines = Stream.lines(assert(Stream.open("log.txt")))
+---     local reader = assert(Stream.open("log.txt"))
+---     local lines = Stream.lines(reader)
 ---     for line in lines:each() do print(line) end
 ---     assert(lines:failure() == "", lines:failure())
+---     assert(reader:close())
 function Stream.lines(reader: Stream.Reader, max?: integer): Stream.Lines
   local limit = max or default_line_limit
-  if limit < 1 then error("stream: a line limit must be at least 1", 2) end
+  if math.type(limit) ~= "integer" or limit < 1 then
+    error("stream: a line limit must be an integer of at least 1", 2)
+  end
   -- `chunk` is the last one read, given out from `at`; `parts` holds
   -- the pieces of a line no chunk has ended yet, `held` bytes of them,
   -- joined once its "\n" comes, so a line spread over many small
@@ -406,6 +412,7 @@ function Stream.lines(reader: Stream.Reader, max?: integer): Stream.Lines
         parts, held = {}, 0
         return line, ""
       end
+      -- A Reader answers a non-empty chunk or nil, so each round moves.
       local read, trouble = reader:read(chunk_size)
       if read == nil then
         if trouble ~= "" then return fail(trouble) end
