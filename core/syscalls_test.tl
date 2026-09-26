@@ -1163,6 +1163,30 @@ local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: strin
   assert(said == "sys-read-only\nname-read-only\n", said)
 end
 
+--- Starting and waiting for a confined child costs milliseconds, not the
+--- second `waitpid` gives a sandbox's init to end once its program has
+--- (core/syscalls.c's `end_sandbox_init`): a run of `cosmic test` that
+--- confines each of its processes, as build/shared_verdicts_test.tl's
+--- nested runs do, would pay that second for every one. Each of a few
+--- runs of a confined /bin/sh that exits at once takes well under half
+--- a second, and leaves no init behind.
+local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: string)
+  local reads = shell_reads()
+  if reads == nil then return end
+  local slowest = 0
+  for _ = 1, 5 do
+    local started = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
+    local status = run_confined(tmp, reads, "true")
+    if status == nil then return end
+    local took = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) - started
+    assert(status.code == 0)
+    assert(#process.sandbox_inits() == 0, "an init outlived the wait for its program")
+    if took > slowest then slowest = took end
+  end
+  assert(slowest < 500 * 1000000, "a confined start and wait took " ..
+    tostring(slowest // 1000000) .. " ms")
+end
+
 --- An offline child's loopback is up, as a host's is: the kernel gives
 --- lo its 127.0.0.1 only when lo comes up, so the child's own routing
 --- table (/proc/self/net is the reader's network namespace) holds that
