@@ -33,7 +33,10 @@ end
 
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
 local sandbox_only <const> =
-  "runs only in a sandboxed child that made a user namespace, which a host refusing unprivileged ones never starts"
+  "runs only in a sandboxed child that made a user namespace and mapped its ids, which a host refusing unprivileged ones never starts"
+local maps_ids <const> =
+  "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
+  "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
 
 --- The C functions no test can enter, by `key_of`, and why.
 local exempt: {string: string} = {
@@ -44,10 +47,11 @@ local exempt: {string: string} = {
   ["core/vfs.c:file_unlock"] = read_only,
   ["core/vfs.c:file_check_reserved"] = read_only,
   ["core/vfs.c:file_sector_size"] = read_only,
-  ["core/syscalls.c:write_whole"] = sandbox_only,
+  ["core/syscalls.c:write_whole"] = maps_ids,
   ["core/syscalls.c:make_parents"] = sandbox_only,
   ["core/syscalls.c:make_link"] = sandbox_only,
-  ["core/syscalls.c:mirrored_mode"] = sandbox_only,
+  -- mirrored_mode is inlined into it on every core, so has no entry of
+  -- its own; the checked core keeps this one out of line.
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",

@@ -773,8 +773,10 @@ static int unveil (const char *root, char *const *paths, char *const *names,
 
 /* Everything a spawned child reads between starting and exec, made ready
  * by the parent: the child shares the parent's memory (`spawn_child`), so
- * it allocates nothing and writes nothing of the parent's; it only reads
- * this, which the parent holds, unchanged, until the child has exec'd or
+ * it allocates nothing and writes nothing of the parent's but the one
+ * thing it means to -- the coverage flags of the functions it enters,
+ * and on the checked core UBSan's own state -- and reads only this,
+ * which the parent holds, unchanged, until the child has exec'd or
  * ended. */
 struct spawn_plan {
   const char *path;
@@ -843,8 +845,13 @@ static void default_signals (void) {
  * this execs or ends. So it neither allocates nor touches the Lua state,
  * writes only its own stack and descriptors, the kernel's side of the
  * process, and errno (which is the parent's too; the parent reads none
- * after a start that succeeded), and leaves by exec or _exit, never by
- * returning, so no atexit handler or stdio flush runs. A failure goes to
+ * after a start that succeeded) -- and, deliberately, the parent's
+ * memory in one place: the coverage flag of each function it enters
+ * (core/coverage.h), so a test is credited with what its child ran, and
+ * on the checked core the sanitizer runtime's state (UBSan's report
+ * dedup), which a report from here would write -- and leaves by exec
+ * or _exit, never by returning, so no atexit handler or stdio flush
+ * runs. A failure goes to
  * the parent over the status pipe as an errno. */
 static _Noreturn int spawn_child (void *argument) {
   const struct spawn_plan *plan = argument;
@@ -959,7 +966,19 @@ static _Noreturn int spawn_child (void *argument) {
  * namespace, a pivoted root, Landlock or a seccomp filter. On Linux,
  * clone(CLONE_VM | CLONE_VFORK) rather than vfork: the child runs on a
  * stack of its own, so nothing it calls can overwrite a frame the
- * parent returns to, and the static analyzer has no vfork to refuse. */
+ * parent returns to, and the static analyzer has no vfork to refuse.
+ * posix_spawn is refused on Linux alone: Darwin's covers every step its
+ * child takes (descriptors, cwd through posix_spawn_file_actions_addchdir_np,
+ * a process group, the mask and defaults), having no sandbox to set up.
+ * Its vfork child instead calls functions POSIX leaves undefined after
+ * vfork (sigaction, fcntl, dup2, chdir, snprintf), which XNU's vfork
+ * permits, and shares the parent's uthread and so its signal mask:
+ * the mask the child restores before exec is the parent's again when
+ * it returns, which the parent's own restore then repeats.
+ * Every signal is blocked across the whole start, not only its first
+ * steps, so a child hung in setup -- a chdir or an unveiled path on a
+ * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
+ * pending for as long as it hangs, and only SIGKILL ends it. */
 static pid_t start_child (struct spawn_plan *plan, int *error) {
   sigset_t every;
   sigfillset(&every);
@@ -985,6 +1004,10 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
     munmap(stack, size);
   }
 #else
+  /* TODO: start the child through posix_spawn on Darwin, which covers
+   * every step `spawn_child` takes there, rather than vfork, once a
+   * macOS host can run core/syscalls_test.tl and CI's macOS job against
+   * it: this path is compiled and started only there. */
   pid = vfork();
   if (pid == 0) spawn_child(plan);
   if (pid < 0) *error = errno;
