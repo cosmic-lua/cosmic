@@ -475,11 +475,8 @@ local verbs: {string: function({integer:string}): integer} = {
   -- Never stale-checked, unlike `db`: a staleness check stages the tree,
   -- and this verb reads o/ and nothing else under it. It gives its own
   -- verdict on every exit, a usage error included, so the check main
-  -- runs after a verdictless exit 2 never runs for it.
-  -- TODO: test that this dispatch neither stale-checks nor scans the
-  -- working directory -- run `cosmic sql` in a directory whose tree
-  -- would fail to stage -- beside build/verbs_test.tl, which runs this
-  -- dispatch through build.invoke; build/sql_test.tl calls sql.run.
+  -- runs after a verdictless exit 2 never runs for it
+  -- (build/verbs_test.tl's test_sql_never_stages_the_tree).
   sql = function(argv: {integer:string}): integer
     return require("build.sql").run(argv)
   end,

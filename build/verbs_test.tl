@@ -421,3 +421,24 @@ local function test_db_takes_paths_to_narrow_it(tmp: string)
   local none = expect(tree, "db", { "db", "nowhere" }, 1).stdout or ""
   assert(none:find("no row is about nowhere", 1, true), none)
 end
+
+--- `sql` reads o/ and nothing else: it never checks the tool is as new
+--- as the tree, which would stage it, not even after refusing its
+--- command line. Here that check would fail: the directory is cosmic's
+--- own tree, structurally, and its working database will not open.
+local function test_sql_never_stages_the_tree(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/importer.tl", ""))
+  assert(Fs.mkdirs(tmp .. "/o"))
+  local garbage = string.rep("not a database. ", 16)
+  assert(Fs.write(tmp .. "/o/build.db", garbage))
+  local staged = expect(tmp, "db", { "db" }, 1)
+  assert((staged.stderr or ""):find("file is not a database", 1, true), staged.stderr)
+  local asked = expect(tmp, "sql", { "sql", "SELECT 1" }, 0).stdout or ""
+  assert(asked:find("^1\n1\n"), asked)
+  local _ = expect(tmp, "sql", { "sql", "--no-such-flag" }, 2)
+  assert(Fs.read(tmp .. "/o/build.db") == garbage)
+  local names = assert(Fs.list(tmp .. "/o"))
+  assert(#names == 1, table.concat(names, " "))
+end
