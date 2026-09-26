@@ -175,7 +175,7 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
 end
 
 --- What main returns is judged as a file run's is: a whole number
---- outside 0-255, text or a float that is not whole exits 2, the
+--- outside 0-255, text naming none or a float that is not whole exits 2, the
 --- complaint naming the file rather than cmd.cosmic.main; one that has
 --- a whole value is that value.
 local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
@@ -200,6 +200,8 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   end
   local whole = run("4.0")
   assert(whole.code == 4, tostring(whole.stderr))
+  local text = run("\"4\"")
+  assert(text.code == 4, tostring(text.stderr))
 end
 
 local function test_a_run_without_a_file_is_a_usage_error()
