@@ -53,10 +53,10 @@
         # The bootstrap cosmic bin/actionlint runs on is the CI driver's
         # release: the action restores it and checks it against the pin
         # (it also links it on PATH as cosmic-driver, which nothing here
-        # runs). bin/actionlint holds what it downloads to the pin, but a
-        # restored actionlint cache only to being a non-empty executable
-        # (see the TODO in build/actionlint.tl); the cache key is the
-        # pin's hash, and only this workflow writes it.
+        # runs). bin/actionlint holds what it downloads to the pin, and a
+        # restored actionlint cache to the sha256 recorded beside the
+        # binary at install (see the TODO in build/actionlint.tl); the
+        # cache key is the pin's hash, and only this workflow writes it.
         {
           name: "restore and verify the pinned bootstrap cosmic",
           uses: "./.github/actions/cosmic-driver",

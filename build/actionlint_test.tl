@@ -4,6 +4,7 @@
 
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
@@ -77,6 +78,7 @@ local function test_ensure_installed_is_a_cache_hit_when_the_binary_is_there(tmp
   local install = tmp .. "/cache/1.7.12-x86_64-linux"
   assert(Fs.mkdirs(install))
   assert(Fs.write(install .. "/actionlint", "#!/bin/sh\n", 0x1ed))
+  assert(Fs.write(install .. "/actionlint.sha256", Hash.hex_sha256("#!/bin/sh\n") .. "\n"))
   local pin: Actionlint.Pin = { version = "1.7.12", shas = {} }
   local binary = assert(Actionlint.ensure_installed(tmp .. "/cache", install, pin, "x86_64-linux",
     function(_: string, _: string, _: Http.Options): boolean, string
@@ -176,6 +178,8 @@ local function test_ensure_installed_unpacks_the_release_into_the_cache(tmp: str
   assert(st.mode & 0x40 ~= 0, "the installed binary is not executable")
   assert(#calls == 1)
   assert(table.concat(assert(Fs.list(cache)), " ") == "1.7.12-x86_64-linux")
+  assert(assert(Fs.read(binary .. ".sha256")) ==
+    Hash.hex_sha256("#!/bin/sh\necho stand-in\n") .. "\n")
   -- The second run is a cache hit.
   assert(Actionlint.ensure_installed(cache, install, pin, "x86_64-linux",
     serving("other", calls)) == binary)
@@ -194,6 +198,38 @@ local function test_ensure_installed_replaces_an_empty_or_unexecutable_cached_bi
   for _, c in ipairs(cached) do
     assert(Fs.mkdirs(install))
     assert(Fs.write(install .. "/actionlint", c.body as string, c.mode as integer))
+    local binary = assert(Actionlint.ensure_installed(cache, install, pin, "x86_64-linux",
+      serving("#!/bin/sh\necho fresh\n", calls)))
+    assert(assert(Fs.read(binary)) == "#!/bin/sh\necho fresh\n")
+    assert(Fs.remove_tree(install))
+  end
+  assert(#calls == 2)
+end
+
+local function test_install_name_carries_the_pins_digest()
+  local sha = "8ACA8DB96F1B94770F1B0D72B6DDDCB1EBB8123CB3712530B08CC387B349A3D8"
+  local pin: Actionlint.Pin = { version = "1.7.12", shas = { ["x86_64-linux"] = sha } }
+  assert(Actionlint.install_name(pin, "x86_64-linux") == "1.7.12-x86_64-linux-8aca8db96f1b9477")
+  local none, trouble = Actionlint.install_name(pin, "aarch64-macos")
+  assert(none == nil and trouble:find("aarch64-macos", 1, true) ~= nil)
+  pin.shas["aarch64-macos"] = "abc"
+  none, trouble = Actionlint.install_name(pin, "aarch64-macos")
+  assert(none == nil and trouble:find("64 hex", 1, true) ~= nil)
+end
+
+local function test_ensure_installed_replaces_a_binary_its_record_does_not_match(tmp: string)
+  local cache = tmp .. "/cache"
+  local install = cache .. "/1.7.12-x86_64-linux"
+  local pin: Actionlint.Pin = { version = "1.7.12", shas = { ["x86_64-linux"] = "abc" } }
+  local calls: {string} = {}
+  -- A record that names other bytes, and none at all.
+  local records: {string | boolean} = { Hash.hex_sha256("#!/bin/sh\necho verified\n"), false }
+  for _, record in ipairs(records) do
+    assert(Fs.mkdirs(install))
+    assert(Fs.write(install .. "/actionlint", "#!/bin/sh\necho swapped\n", 0x1ed))
+    if record is string then
+      assert(Fs.write(install .. "/actionlint.sha256", record .. "\n"))
+    end
     local binary = assert(Actionlint.ensure_installed(cache, install, pin, "x86_64-linux",
       serving("#!/bin/sh\necho fresh\n", calls)))
     assert(assert(Fs.read(binary)) == "#!/bin/sh\necho fresh\n")

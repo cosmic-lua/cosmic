@@ -14,16 +14,21 @@
 --- host (`x86_64-linux`, `aarch64-linux`, `x86_64-macos`,
 --- `aarch64-macos`) naming the sha256 of that host's release tarball,
 --- copied from the release's own `actionlint_<version>_checksums.txt`.
---- The binary is cached at `$XDG_CACHE_HOME/cosmic/actionlint/<version>-<host>/actionlint`
---- (see `Fs.cache_dir`): when it is there it is used as is; otherwise
---- the tarball is downloaded from the GitHub release with
---- `Http.download`'s own `sha256` check into a scratch `.work.<pid>`
+--- The binary is cached at
+--- `$XDG_CACHE_HOME/cosmic/actionlint/<version>-<host>-<sha>/actionlint`,
+--- the sha the first 16 hex digits of the host's tarball sha256
+--- (`Actionlint.install_name`; see `Fs.cache_dir`), beside
+--- `actionlint.sha256`, the binary's own sha256 as it was extracted.
+--- When the binary is there and still hashes to that record it is used
+--- as is; otherwise the tarball is downloaded from the GitHub release
+--- with `Http.download`'s own `sha256` check into a scratch `.work.<pid>`
 --- directory under the cache, extracted with `cosmic.archive`, and its
---- `actionlint` renamed into place, tolerating a concurrent winner. The
---- scratch directory is removed on every path out. A cached file that is
---- empty or not executable -- what a killed copy or a bad cache restore
---- leaves -- is removed and installed afresh, once; an exec that still
---- fails names the directory to remove.
+--- record then its `actionlint` renamed into place, tolerating a
+--- concurrent winner. The scratch directory is removed on every path
+--- out. A cached binary that is empty, not executable, or unrecorded or
+--- other than its record -- what a killed copy, a bad cache restore or
+--- a swapped binary leaves -- is removed and installed afresh, once; an
+--- exec that still fails names the directory to remove.
 ---
 --- actionlint runs with its shellcheck and pyflakes integrations off
 --- (`Actionlint.args`): it runs whichever of them it finds on `PATH`, so
@@ -49,12 +54,10 @@
 -- aarch64 and darwin aarch64 tarballs) and pass -shellcheck=<its path>,
 -- so `run:` scripts are checked too, the same on every host.
 
--- TODO: record the extracted binary's own sha256 beside it at install
--- (the pin's digest is the tarball's, which a binary cannot be checked
--- against) and check it on every run, so a cache CI restores (or a
--- binary swapped after install) is held to what was verified, not only
--- an empty or non-executable one; it waits on nothing but the cost of
--- hashing the ~5 MB binary each run (Hash.sha256 over Fs.read).
+-- TODO: pin each host's binary sha256 in bin/actionlint.pin too (taken
+-- from its tarball), and check a cached binary against that rather than
+-- against the record installed beside it, so a cache whose binary and
+-- record were both replaced is caught as well.
 
 -- TODO: actionlint 1.7.12 accepts `${{ github.token }}` in a
 -- strategy.matrix value (the github context is available there), but a
@@ -66,6 +69,7 @@
 local Archive = require("cosmic.archive")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
@@ -177,11 +181,54 @@ function Actionlint.names_files(argv: {string}): boolean
   return false
 end
 
---- Whether the file at `path` can be the cached binary: there, not
---- empty, and executable by someone.
-local function usable(path: string): boolean
-  local st, _ = sys.stat(path)
-  return st ~= nil and st.size > 0 and st.mode & 0x49 ~= 0
+--- How many hex digits of the pin's sha256 name an install.
+local INSTALL_SHA_DIGITS <const> = 16
+
+--- The directory under the cache `pin`'s release for `host` installs
+--- into: `<version>-<host>-<sha>`, the sha the first `INSTALL_SHA_DIGITS`
+--- of the host's sha256, so a pin whose sha256 changes and whose version
+--- does not names a new install rather than finding the old one in
+--- place. Nil and why when the pin names no sha256 for `host`, or one
+--- that is not 64 hex digits. The same name as `Zig.install_name`'s.
+-- TODO: remove installs no pin names any more, as `Zig.install_name`'s
+-- own TODO asks for zig's: each stays until it is removed by hand,
+-- including the `<version>-<host>` ones from before the sha was part of
+-- the name.
+function Actionlint.install_name(pin: Actionlint.Pin, host: string): string | nil, string
+  local sha256 = pin.shas[host]
+  if sha256 == nil then
+    return nil, "names no sha256 for " .. host
+  end
+  if #sha256 ~= 64 or sha256:match("^%x+$") == nil then
+    return nil, "names a sha256 for " .. host .. " that is not 64 hex digits"
+  end
+  return pin.version .. "-" .. host .. "-" .. sha256:sub(1, INSTALL_SHA_DIGITS):lower(), ""
+end
+
+--- Where the binary at `binary` records its own sha256.
+local function record_path(binary: string): string
+  return binary .. ".sha256"
+end
+
+--- Whether the file at `binary` can be the cached binary: there, not
+--- empty, executable by someone, and hashing to the sha256 recorded
+--- beside it at install. The empty string when it can, else what is
+--- wrong with it.
+local function unusable(binary: string): string
+  local st, _ = sys.stat(binary)
+  if st == nil or st.size == 0 or st.mode & 0x49 == 0 then
+    return "is empty or not executable"
+  end
+  local recorded, _ = Fs.read(record_path(binary))
+  local want = recorded ~= nil and recorded:match("^(%x+)%s*$") or nil
+  if want == nil then
+    return "has no sha256 recorded beside it"
+  end
+  local body, _ = Fs.read(binary)
+  if body == nil or Hash.hex_sha256(body) ~= want:lower() then
+    return "does not match the sha256 recorded beside it"
+  end
+  return ""
 end
 
 --- The repository root, from this script's own path, `argv[0]`.
@@ -218,7 +265,8 @@ local function sweep(cache: string)
 end
 
 --- Downloads, verifies and extracts `pin`'s release for `host` into
---- `work`, returning the extracted binary's path.
+--- `work`, returning the extracted binary's path, its sha256 recorded
+--- beside it (`record_path`).
 local function unpack(work: string, pin: Actionlint.Pin, host: string,
     download: Actionlint.Download): string | nil, string
   local sha256 = pin.shas[host]
@@ -256,11 +304,20 @@ local function unpack(work: string, pin: Actionlint.Pin, host: string,
   if not has then
     return nil, asset .. " holds no actionlint binary"
   end
+  local body, rtrouble = Fs.read(binary)
+  if body == nil then
+    return nil, rtrouble
+  end
+  local recorded, wtrouble = Fs.write(record_path(binary), Hash.hex_sha256(body) .. "\n")
+  if not recorded then
+    return nil, wtrouble
+  end
   return binary, ""
 end
 
 --- `install/actionlint`, fetching the release into it first unless it is
---- already there -- the cache hit, which never touches the network.
+--- already there and matches the sha256 recorded beside it -- the cache
+--- hit, which never touches the network.
 --- `download` is `Http.download` unless a test says otherwise.
 function Actionlint.ensure_installed(cache: string, install: string, pin: Actionlint.Pin,
     host: string, download?: Actionlint.Download): string | nil, string
@@ -270,10 +327,11 @@ function Actionlint.ensure_installed(cache: string, install: string, pin: Action
     return nil, look_trouble
   end
   if installed then
-    if usable(binary) then
+    local wrong = unusable(binary)
+    if wrong == "" then
       return binary, ""
     end
-    log:complain(binary .. " is empty or not executable; installing it again")
+    log:complain(binary .. " " .. wrong .. "; installing it again")
     local removed, rtrouble = Fs.remove_tree(install)
     if not removed then
       return nil, install .. ": " .. tostring(rtrouble) .. "; remove it and run again"
@@ -290,6 +348,8 @@ function Actionlint.ensure_installed(cache: string, install: string, pin: Action
   if extracted ~= nil then
     -- A concurrent install may have won; its copy is the same bytes,
     -- so a failed rename is fine as long as a binary ends up in place.
+    -- The record goes first, so a binary in place always has one.
+    local _, _ = Fs.rename(record_path(extracted), record_path(binary))
     local _, _ = Fs.rename(extracted, binary)
   end
   local _, _ = Fs.remove_tree(work)
@@ -329,10 +389,11 @@ local function locate(root: string): string | nil, string
   if cache == nil then
     return nil, ctrouble
   end
-  -- TODO: name the install by the pin's digest too, as `Zig.install_name`
-  -- does (<version>-<host>-<sha16>), so a re-released tarball under the
-  -- same version is not answered by a stale install.
-  return Actionlint.ensure_installed(cache, cache .. "/" .. pin.version .. "-" .. host, pin, host)
+  local name, ntrouble = Actionlint.install_name(pin, host)
+  if name == nil then
+    return nil, root .. "/bin/actionlint.pin " .. ntrouble
+  end
+  return Actionlint.ensure_installed(cache, cache .. "/" .. name, pin, host)
 end
 
 --- The exit status a failed exec means, as a shell reports it.
