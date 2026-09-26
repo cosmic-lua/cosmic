@@ -43,8 +43,9 @@
 3. A tool older than the tree rebuilds itself and re-enters the command the
    moment it notices, so `o/bin/cosmic test` after an edit is enough. An
    edit to Teal rebuilds its database; a change to the core's C under
-   `core/`, to `build.zig` or `build/launcher.tl`, or to a vendored library's
-   pin or patches runs `bin/zig build boot` first, its output on stderr.
+   `core/`, to `build.zig`, `build/launcher.tl` or `build/artifact.tl`, or
+   to a vendored library's pin or patches runs `bin/zig build boot` first,
+   its output on stderr.
    `COSMIC_AUTO_BOOT=0` makes the tool refuse instead, exiting 3 (CI's
    driver sets it). A boot that fails stops the command: check its exit
    status rather than piping it away. Only the tree's own tool (under
