@@ -21,7 +21,19 @@
 --- together with `Child.wait_any`. Completion is the child's exit, never
 --- end of file: a descendant that escaped the group and still holds a
 --- captured pipe cannot hold up a wait.
+---
+--- A stream redirected to "stream" is the caller's to read or write
+--- while the child runs, through the handle's `stdout_stream`,
+--- `stderr_stream` (each a `cosmic.stream` Reader) or `stdin_stream` (a
+--- Writer). While one of them waits, it services the child's other
+--- streams too, so reading stdout cannot stall on a child blocked
+--- writing a full stderr, nor writing stdin on one blocked writing a
+--- full stdout: what arrives on a streamed output meanwhile waits in
+--- memory, up to `capture_limit` unread bytes of each, after which the
+--- child is left to wait until the caller reads. Nothing streamed is
+--- dropped, and nothing is kept for the Result.
 local sys = require("cosmic.sys")
+local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 
 --- The calls that start, feed and reap a child, and hold this process's
@@ -65,22 +77,26 @@ local record Options
   --- write and to close with `close_stdin`. A pipe to stdin, this one
   --- or `input`'s, makes this process ignore SIGPIPE from then on, so a
   --- write to a child that has gone fails with EPIPE instead of ending
-  --- it.
+  --- it. With "stream" the handle's `stdin_stream` is a Writer to it,
+  --- which ignores SIGPIPE the same way.
   stdin: integer | string
   --- Bytes fed to the child's stdin, which is then closed. Excludes a
   --- `stdin` other than "pipe".
   input: string
-  --- A descriptor, "inherit" (the default), "null", or "capture".
-  stdout: integer | string
   --- A descriptor, "inherit" (the default), "null", "capture", or
-  --- "stdout", which shares stdout's destination, capture included.
+  --- "stream", which the handle's `stdout_stream` reads.
+  stdout: integer | string
+  --- A descriptor, "inherit" (the default), "null", "capture", "stream"
+  --- (read by the handle's `stderr_stream`), or "stdout", which shares
+  --- stdout's destination, capture or stream included.
   stderr: integer | string
   --- More descriptors the child gets, by the number it sees them as
   --- (3 to 255): a descriptor of this process, or "capture". Every other
   --- descriptor above 2 is closed in the child.
   fds: {integer:integer | string}
-  --- How many bytes of each captured stream are kept, the newest ones;
-  --- 16 MiB by default.
+  --- How many bytes of each captured stream are kept, the newest ones,
+  --- and how many unread bytes of each streamed one are held before the
+  --- child is left to wait for the caller to read; 16 MiB by default.
   capture_limit: integer
   process_group: boolean
   --- How long `Child.run` lets the child run before ending it, as
@@ -94,13 +110,19 @@ local record TryWait
   result: Result
 end
 
---- One captured stream of one child.
-local record Stream
+--- One captured or streamed output of one child.
+local record Pipe
   fd: integer
   child_fd: integer
   chunks: {string}
   size: integer
   truncated: boolean
+  --- A stream the caller reads, not one kept for the Result: `chunks`
+  --- is then a queue, read from `head` and written at `tail`, and
+  --- `size` is how much of it is unread.
+  streamed: boolean
+  head: integer
+  tail: integer
 end
 
 local record Handle
@@ -110,10 +132,20 @@ local record Handle
   --- The writable end of the child's stdin when `stdin` was "pipe", until
   --- `close_stdin`.
   stdin: integer | nil
+  --- Readers of stdout and stderr, when each was "stream". Each reads
+  --- until the child's end of the pipe closes, or until the child has
+  --- exited and nothing more is waiting: a descendant that escaped the
+  --- group still holding it cannot hold a read up.
+  stdout_stream: Stream.Reader | nil
+  stderr_stream: Stream.Reader | nil
+  --- A Writer to stdin, when it was "stream"; its `close` (or `abort`)
+  --- closes the child's stdin. A write fails once the child has exited.
+  stdin_stream: Stream.Writer | nil
+  _feed_fd: integer | nil
   _result: Result
   _status: raw_process.ChildStatus
   _closed: boolean
-  _streams: {Stream}
+  _streams: {Pipe}
   _input_fd: integer | nil
   _input: string
   _input_at: integer
@@ -227,7 +259,13 @@ end
 --- Appends one chunk to a stream, dropping its oldest bytes past the
 --- limit. Chunks are joined only when the kept size doubles, so a long
 --- stream costs amortized linear time.
-local function keep(self: Handle, stream: Stream, data: string)
+local function keep(self: Handle, stream: Pipe, data: string)
+  if stream.streamed then
+    stream.tail = stream.tail + 1
+    stream.chunks[stream.tail] = data
+    stream.size = stream.size + #data
+    return
+  end
   stream.chunks[#stream.chunks + 1] = data
   stream.size = stream.size + #data
   if stream.size > 2 * self._limit then
@@ -238,7 +276,7 @@ local function keep(self: Handle, stream: Stream, data: string)
   end
 end
 
-local function text_of(self: Handle, stream: Stream): string
+local function text_of(self: Handle, stream: Pipe): string
   local whole = table.concat(stream.chunks)
   if #whole > self._limit then
     stream.truncated = true
@@ -263,15 +301,22 @@ end
 --- Services every open stream and pending input of `handles` once:
 --- waits up to `timeout_ms` for any of them to be ready, then reads
 --- what is there and writes what fits. Returns whether anything moved.
-local function pump(handles: {Handle}, timeout_ms: integer): boolean
+--- A streamed output holding `_limit` unread bytes is left alone unless
+--- `uncapped`. `writable`, a stdin stream's descriptor, is waited on
+--- for room too, only to end the wait; its writer does the writing.
+local function pump(handles: {Handle}, timeout_ms: integer, writable?: integer,
+    uncapped?: boolean): boolean
   local fds: {integer} = {}
   local events: {integer} = {}
   local owners: {Handle} = {}
   local which: {integer} = {}
+  if writable ~= nil then
+    fds[1], events[1], owners[1], which[1] = writable, raw.POLLOUT, handles[1], -1
+  end
   for _, h in ipairs(handles) do
     if h._streams then
       for index, stream in ipairs(h._streams) do
-        if stream.fd ~= nil then
+        if stream.fd ~= nil and (uncapped or not stream.streamed or stream.size < h._limit) then
           fds[#fds + 1] = stream.fd
           events[#events + 1] = raw.POLLIN
           owners[#owners + 1] = h
@@ -295,7 +340,11 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
     -- A descriptor that went bad under us cannot be serviced; close
     -- every stream rather than spin on it.
     for i = 1, #fds do
-      if which[i] == 0 then end_input(owners[i]) else end_stream(owners[i], which[i]) end
+      if which[i] == 0 then
+        end_input(owners[i])
+      elseif which[i] > 0 then
+        end_stream(owners[i], which[i])
+      end
     end
     return true
   end
@@ -304,7 +353,9 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
     if happened ~= 0 then
       moved = true
       local h = owners[i]
-      if which[i] == 0 then
+      if which[i] < 0 then
+        -- The stdin stream has room: its writer, waiting on this, writes.
+      elseif which[i] == 0 then
         local offset = h._input_at
         local written, _, errno = sys.write(h._input_fd,
           h._input:sub(offset + 1, offset + CHUNK))
@@ -373,16 +424,22 @@ local function settle(self: Handle, timed_out: boolean, killed?: boolean): Resul
   end_input(self)
   close_fd(self.stdin)
   self.stdin = nil
+  close_fd(self._feed_fd)
+  self._feed_fd = nil
   if self._streams then
     -- Anything still buffered in a pipe is there for the taking now;
     -- a writer that escaped the group can keep it open, so stop at the
     -- first round that finds nothing rather than wait for end of file.
-    while pump({ self }, 0) do end
+    -- A streamed output takes it all, past its limit: its reader reads
+    -- the rest from memory once the pipe is closed.
+    while pump({ self }, 0, nil, true) do end
     for index, stream in ipairs(self._streams) do
       end_stream(self, index)
-      local text = text_of(self, stream)
-      r.captured[stream.child_fd] = text
-      if stream.truncated then r.truncated = true end
+      if not stream.streamed then
+        local text = text_of(self, stream)
+        r.captured[stream.child_fd] = text
+        if stream.truncated then r.truncated = true end
+      end
     end
     r.stdout = r.captured[1]
     r.stderr = r.captured[2]
@@ -462,6 +519,111 @@ local function emergency_cleanup(self: Handle)
     end
     local _, _ = sys.nanosleep(POLL_NS)
   end
+end
+
+local closed_message <const> = "stream: already closed"
+
+--- Why a stream's wait should stop now, beyond its own data: the open
+--- guard caught a signal, or the child could not be asked about.
+local function interrupted(self: Handle): string
+  if active ~= nil then
+    local cancelled = active:cancelled()
+    if cancelled ~= 0 then return cancelled_by(cancelled) end
+  end
+  local _, trouble = exited(self)
+  return trouble
+end
+
+--- The Reader of `self`'s streamed output at `index`: it takes what
+--- `pump` queued, pumping every stream of the child while it waits.
+local function pipe_reader(self: Handle, index: integer): Stream.Reader
+  local pipe = self._streams[index]
+  local closed = false
+  local failed: string
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    if failed then return nil, failed end
+    if closed then return nil, closed_message end
+    while pipe.size == 0 do
+      if pipe.fd == nil then return nil, "" end
+      local why = interrupted(self)
+      if why ~= "" then
+        failed = why
+        return nil, failed
+      end
+      if self._status ~= nil then
+        -- The child is gone: what it wrote is in the pipe already, and
+        -- a round that finds nothing ready means only an escaped
+        -- descendant holds it open, which this read does not wait for.
+        pump({ self }, 0, nil, true)
+        if pipe.size == 0 and pipe.fd ~= nil then end_stream(self, index) end
+      else
+        pump({ self }, POLL_MS)
+      end
+    end
+    local want = max or CHUNK
+    local chunk = pipe.chunks[pipe.head]
+    if #chunk <= want then
+      pipe.chunks[pipe.head] = nil
+      pipe.head = pipe.head + 1
+      pipe.size = pipe.size - #chunk
+      return chunk, ""
+    end
+    pipe.chunks[pipe.head] = chunk:sub(want + 1)
+    pipe.size = pipe.size - want
+    return chunk:sub(1, want), ""
+  end
+  r.close = function(_self: Stream.Reader): boolean, string
+    if closed then return true, "" end
+    closed = true
+    -- The child's next write to it fails, as it would into `head`.
+    end_stream(self, index)
+    pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
+    return true, ""
+  end
+  return r
+end
+
+--- The Writer of `self`'s stdin stream: each write goes out whole,
+--- pumping the child's streams while its stdin is full.
+local function feed_writer(self: Handle): Stream.Writer
+  local failed: string
+  local w: Stream.Writer = {}
+  w.write = function(_self: Stream.Writer, data: string): boolean, string
+    if failed then return false, failed end
+    local fd = self._feed_fd
+    if fd == nil then return false, closed_message end
+    local at = 0
+    while at < #data do
+      local written, trouble, errno = sys.write(fd, data:sub(at + 1, at + CHUNK))
+      if written ~= nil then
+        at = at + written
+      elseif errno == sys.EAGAIN or errno == sys.EINTR then
+        local why = interrupted(self)
+        if why == "" and self._status ~= nil then why = "the child has exited" end
+        if why ~= "" then
+          failed = why
+          return false, failed
+        end
+        pump({ self }, POLL_MS, fd)
+      else
+        -- EPIPE included: the child closed its stdin, or exited.
+        failed = trouble
+        return false, failed
+      end
+    end
+    return true, ""
+  end
+  w.close = function(_self: Stream.Writer): boolean, string
+    local fd = self._feed_fd
+    if fd == nil then return true, "" end
+    self._feed_fd = nil
+    local ok, trouble = sys.close(fd)
+    if not ok then return false, trouble end
+    return true, ""
+  end
+  w.abort = w.close
+  return w
 end
 
 local handle_mt: metatable<Handle> = {
@@ -676,9 +838,11 @@ local function descriptor(value: integer | string, name: string, words: {string:
   error(name .. " must be a file descriptor or one of " .. table.concat(allowed, ", "), 3)
 end
 
-local STDIN_WORDS <const> = { inherit = true, null = true, pipe = true }
-local STDOUT_WORDS <const> = { inherit = true, null = true, capture = true }
-local STDERR_WORDS <const> = { inherit = true, null = true, capture = true, stdout = true }
+local STDIN_WORDS <const> = { inherit = true, null = true, pipe = true, stream = true }
+local STDOUT_WORDS <const> = { inherit = true, null = true, capture = true, stream = true }
+local STDERR_WORDS <const> = {
+  inherit = true, null = true, capture = true, stdout = true, stream = true,
+}
 local FD_WORDS <const> = { capture = true }
 
 local function without_nul(value: string, name: string)
@@ -733,9 +897,10 @@ end
 local record Wiring
   child_ends: {integer}
   ours: {integer}
-  streams: {Stream}
+  streams: {Pipe}
   input_fd: integer | nil
   stdin_fd: integer | nil
+  feed_fd: integer | nil
 end
 
 local function unwire(wiring: Wiring, keep_ours: boolean)
@@ -746,8 +911,9 @@ local function unwire(wiring: Wiring, keep_ours: boolean)
 end
 
 --- A pipe whose read end is ours and whose write end the child gets
---- as `child_fd`; the stream records it.
-local function capture(wiring: Wiring, child_fd: integer): integer | nil, string
+--- as `child_fd`; the stream records it, as the caller's to read when
+--- `streamed`.
+local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): integer | nil, string
   local ends, trouble = raw.pipe()
   if ends == nil then return nil, trouble end
   wiring.child_ends[#wiring.child_ends + 1] = ends.writer
@@ -756,6 +922,7 @@ local function capture(wiring: Wiring, child_fd: integer): integer | nil, string
   if not nonblocking then return nil, nonblocking_trouble end
   wiring.streams[#wiring.streams + 1] = {
     fd = ends.reader, child_fd = child_fd, chunks = {}, size = 0, truncated = false,
+    streamed = streamed or false, head = 1, tail = 0,
   }
   return ends.writer, ""
 end
@@ -772,7 +939,7 @@ end
 local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, string
   local slots: {integer:integer} = {}
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
-  if opts.input ~= nil or stdin == "pipe" then
+  if opts.input ~= nil or stdin == "pipe" or stdin == "stream" then
     local ends, trouble = raw.pipe()
     if ends == nil then return nil, trouble end
     wiring.child_ends[#wiring.child_ends + 1] = ends.reader
@@ -783,10 +950,14 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
     -- `input`, or the caller writing to `h.stdin`.
     local ignored, ignore_trouble = raw.ignore_sigpipe()
     if not ignored then return nil, ignore_trouble end
-    if opts.input ~= nil then
+    if opts.input ~= nil or stdin == "stream" then
       local nonblocking, nonblocking_trouble = raw.set_nonblocking(ends.writer, true)
       if not nonblocking then return nil, nonblocking_trouble end
-      wiring.input_fd = ends.writer
+      if opts.input ~= nil then
+        wiring.input_fd = ends.writer
+      else
+        wiring.feed_fd = ends.writer
+      end
     else
       wiring.stdin_fd = ends.writer
     end
@@ -798,8 +969,8 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
     slots[0] = stdin
   end
   local stdout = descriptor(opts.stdout, "stdout", STDOUT_WORDS)
-  if stdout == "capture" then
-    local fd, trouble = capture(wiring, 1)
+  if stdout == "capture" or stdout == "stream" then
+    local fd, trouble = capture(wiring, 1, stdout == "stream")
     if fd == nil then return nil, trouble end
     slots[1] = fd
   elseif stdout == "null" then
@@ -812,8 +983,8 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
   local stderr = descriptor(opts.stderr, "stderr", STDERR_WORDS)
   if stderr == "stdout" then
     slots[2] = slots[1] or 1
-  elseif stderr == "capture" then
-    local fd, trouble = capture(wiring, 2)
+  elseif stderr == "capture" or stderr == "stream" then
+    local fd, trouble = capture(wiring, 2, stderr == "stream")
     if fd == nil then return nil, trouble end
     slots[2] = fd
   elseif stderr == "null" then
@@ -900,6 +1071,16 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
     if #opts.input == 0 then end_input(h) end
   end
   h.stdin = wiring.stdin_fd
+  if wiring.feed_fd ~= nil then
+    h._feed_fd = wiring.feed_fd
+    h.stdin_stream = feed_writer(h)
+  end
+  for index, stream in ipairs(wiring.streams) do
+    if stream.streamed then
+      local reader = pipe_reader(h, index)
+      if stream.child_fd == 1 then h.stdout_stream = reader else h.stderr_stream = reader end
+    end
+  end
   return h, ""
 end
 
@@ -1006,7 +1187,8 @@ end
 --- name. A nil environment inherits this process's
 --- environment; a table replaces it exactly. Standard streams inherit by
 --- default, or accept caller-owned descriptors (which remain open here),
---- "null", or "capture". Children own a new process group by default so
+--- "null", or "capture"; "stream" is refused, as nothing could read or
+--- write it before the run returns. Children own a new process group by default so
 --- timeout cleanup includes descendants. start returns that ownership as a
 --- Handle; run additionally holds SIGINT and SIGTERM in a `Child.guard`
 --- while the child runs: either one ends the child and its group, then
@@ -1014,6 +1196,9 @@ end
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}
   validate(argv, opts)
+  if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
+    error("a \"stream\" is read or written while the child runs: use Child.start", 2)
+  end
   local guarded, guard_trouble = raw.guard_child_signals()
   if not guarded then return nil, "signal guard: " .. guard_trouble end
   local guard = make_guard()

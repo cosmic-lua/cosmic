@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
@@ -298,6 +299,131 @@ local function test_stdin_pipe_belongs_to_the_caller()
   assert(not h:close_stdin())
   local r = assert(h:wait(5000))
   assert(r.ok and r.stdout == "typed")
+end
+
+local function read_all(reader: Stream.Reader): string
+  return (assert(Stream.read_all(reader)))
+end
+
+--- A streamed stdout is read while the child still runs: the child
+--- answers what it is sent, through the stdin stream, only after its
+--- first output has been read.
+local function test_streams_are_read_and_written_while_the_child_runs()
+  local h = assert(Child.start({ "/bin/sh", "-c", "printf first; read x; printf second-$x" },
+    { stdin = "stream", stdout = "stream" }))
+  local stdout = assert(h.stdout_stream)
+  local stdin = assert(h.stdin_stream)
+  assert(h.stdin == nil and h.stderr_stream == nil)
+  assert(assert(stdout:read()) == "first")
+  assert(stdin:write("go\n"))
+  assert(stdin:close())
+  assert(read_all(stdout) == "second-go")
+  local chunk, trouble = stdout:read()
+  assert(chunk == nil and trouble == "")
+  local r = assert(h:wait(5000))
+  assert(r.ok and r.stdout == nil and r.captured[1] == nil)
+  assert(not stdin:write("late"))
+end
+
+--- Reading stdout services stderr meanwhile, so a child that fills
+--- stderr before it writes stdout does not stall the read.
+local function test_reading_stdout_does_not_stall_on_a_full_stderr()
+  local h = assert(Child.start({ "/bin/sh", "-c",
+    "i=0; while [ $i -lt 20000 ]; do printf 0123456789 >&2; i=$((i+1)); done; printf done" },
+    { stdout = "stream", stderr = "stream" }))
+  assert(read_all(assert(h.stdout_stream)) == "done")
+  assert(#read_all(assert(h.stderr_stream)) == 200000)
+  assert(assert(h:wait(5000)).ok)
+end
+
+--- Writing stdin services stdout meanwhile, so a child echoing far more
+--- than a pipe holds does not stall the write.
+local function test_writing_stdin_does_not_stall_on_a_full_stdout()
+  local input = string.rep("0123456789abcdef", 256 * 1024)
+  local h = assert(Child.start({ "/bin/cat" }, { stdin = "stream", stdout = "stream" }))
+  local stdin = assert(h.stdin_stream)
+  assert(stdin:write(input))
+  assert(stdin:close())
+  assert(read_all(assert(h.stdout_stream)) == input)
+  assert(assert(h:wait(5000)).ok)
+end
+
+--- Unread output is held up to `capture_limit`, and then the child
+--- waits for the reader: nothing is dropped.
+local function test_a_streamed_output_holds_the_child_at_its_limit()
+  local h = assert(Child.start({ "/bin/sh", "-c",
+    "i=0; while [ $i -lt 20000 ]; do printf 0123456789; i=$((i+1)); done" },
+    { stdout = "stream", capture_limit = 100 }))
+  local deadline = Time.monotonic_ns() + 300 * 1000 * 1000
+  while Time.monotonic_ns() < deadline do
+    assert(not assert(h:try_wait()).finished, "the child ran past its reader")
+    Time.sleep_ns(10 * 1000 * 1000)
+  end
+  assert(read_all(assert(h.stdout_stream)) == string.rep("0123456789", 20000))
+  assert(assert(h:wait(5000)).ok)
+end
+
+--- What the child wrote before a wait settled it is still there to
+--- read afterward.
+local function test_a_streamed_output_is_read_after_the_wait()
+  local h = assert(Child.start({ "/bin/sh", "-c", "printf hello; printf there >&2" },
+    { stdout = "stream", stderr = "stdout" }))
+  assert(assert(h:wait(5000)).ok)
+  assert(read_all(assert(h.stdout_stream)) == "hellothere")
+end
+
+--- A streamed output ends once the child has exited and nothing more
+--- is waiting, though a descendant that left the group holds it open.
+local function test_an_escaped_writer_does_not_hold_up_a_read()
+  local started = Time.monotonic_ns()
+  local h = assert(Child.start({ "/bin/sh", "-c",
+    "if command -v setsid >/dev/null; then setsid sleep 3 & fi; printf done" },
+    { stdout = "stream" }))
+  assert(read_all(assert(h.stdout_stream)):sub(1, 4) == "done")
+  assert(Time.monotonic_ns() - started < 2 * 1000 * 1000 * 1000)
+  assert(assert(h:wait(5000)).ok)
+end
+
+--- Closing a streamed output early closes the pipe: a child still
+--- writing to it is ended by SIGPIPE, not left blocked.
+local function test_closing_a_streamed_output_ends_a_writer()
+  local h = assert(Child.start({ "/bin/sh", "-c", "while :; do printf 0123456789; done" },
+    { stdout = "stream" }))
+  local stdout = assert(h.stdout_stream)
+  assert(stdout:read(10))
+  assert(stdout:close())
+  local chunk, trouble = stdout:read()
+  assert(chunk == nil and trouble ~= "")
+  local r = assert(h:wait(5000))
+  assert(not r.timed_out and not r.ok)
+end
+
+--- A write to a child that has closed its stdin fails instead of ending
+--- this process, and keeps failing.
+local function test_writing_to_a_gone_stdin_stream_fails()
+  local h = assert(Child.start({ "/bin/sh", "-c", "exec 0<&-; sleep 5" },
+    { stdin = "stream" }))
+  local stdin = assert(h.stdin_stream)
+  local chunk = string.rep("x", 1 << 20)
+  local ok, trouble = true, ""
+  for _ = 1, 8 do
+    ok, trouble = stdin:write(chunk)
+    if not ok then break end
+  end
+  assert(not ok and trouble ~= "")
+  local again, again_trouble = stdin:write("x")
+  assert(not again and again_trouble == trouble)
+  assert(h:close())
+end
+
+local function test_run_refuses_a_stream()
+  for _, opts in ipairs({
+    { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
+  } as {Child.Options}) do
+    local ok, message = pcall(Child.run, { "/bin/sh", "-c", "exit 0" }, opts)
+    assert(not ok and tostring(message):find("Child.start", 1, true), tostring(message))
+  end
+  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "stream", input = "x" } as Child.Options))
 end
 
 --- A caller writing to a `stdin = "pipe"` child that has gone gets
