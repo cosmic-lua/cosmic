@@ -180,7 +180,7 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       what .. " should be reported as missing, not judged on its suffix: " ..
       picked.refused[i])
   end
-  assert(picked.refused[3]:find("not a Teal or C source", 1, true) ~= nil,
+  assert(picked.refused[3]:find("not a Teal or C source, or YAML", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
     picked.refused[3])
 end
@@ -291,4 +291,74 @@ local function test_notes_name_what_the_library_already_has(tmp: string)
   assert(#notes == 1, table.concat(notes, "\n"))
   assert(notes[1]:find(tmp .. "/tree/tools/paths/init.tl:5: Paths.which: Proc.find (cosmic.proc) " ..
     "stands in for `which`", 1, true) == 1, notes[1])
+end
+
+--- A YAML file named is laid out by `build.flow`, in any tree; one
+--- under `.github/` is found only in cosmic's own tree, and only when it
+--- is in flow style.
+local function test_yaml_in_flow_style_is_taken(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/.github/workflows"))
+  assert(Fs.write(tmp .. "/.github/workflows/a.yml", "{a: 1}\n"))
+  assert(Fs.write(tmp .. "/.github/workflows/b.yml", "a: 1\n"))
+  local picked = assert(fix.chosen(tmp, { tmp .. "/.github/workflows/b.yml", tmp }))
+  assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/.github/workflows/b.yml",
+    table.concat(picked.flow_files, " "))
+
+  assert(Fs.mkdirs(tmp .. "/own/core"))
+  assert(Fs.mkdirs(tmp .. "/own/build"))
+  assert(Fs.mkdirs(tmp .. "/own/vendor/lua"))
+  assert(Fs.mkdirs(tmp .. "/own/.github/actions/x"))
+  assert(Fs.write(tmp .. "/own/build/importer.tl", "return {}\n"))
+  assert(Fs.write(tmp .. "/own/.github/actions/x/action.yml", "# c\n{a: 1}\n"))
+  assert(Fs.write(tmp .. "/own/.github/block.yml", "a: 1\n"))
+  picked = assert(fix.chosen(tmp .. "/own", { tmp .. "/own" }))
+  assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/own/.github/actions/x/action.yml",
+    table.concat(picked.flow_files, " "))
+  -- `.github/` named, or a directory under it, covers what it holds.
+  for _, dir in ipairs({ tmp .. "/own/.github", tmp .. "/own/.github/actions", tmp .. "/own/.github/actions/" }) do
+    picked = assert(fix.chosen(tmp .. "/own", { dir }))
+    assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$"),
+      dir .. ": " .. table.concat(picked.flow_files, " "))
+    assert(not picked.flow_files[1]:find("//", 1, true), picked.flow_files[1])
+  end
+  -- Whether a directory lies under `.github/` is read off its path in
+  -- the tree, not above it; and `vendor/` is never covered.
+  assert(Fs.mkdirs(tmp .. "/.github/own/core"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/build"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/vendor/lua/.github"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/.github/workflows"))
+  assert(Fs.mkdirs(tmp .. "/.github/own/docs"))
+  assert(Fs.write(tmp .. "/.github/own/build/importer.tl", "return {}\n"))
+  assert(Fs.write(tmp .. "/.github/own/.github/workflows/w.yml", "{a: 1}\n"))
+  assert(Fs.write(tmp .. "/.github/own/docs/d.yml", "{a: 1}\n"))
+  assert(Fs.write(tmp .. "/.github/own/vendor/lua/.github/v.yml", "{a: 1}\n"))
+  local nested = tmp .. "/.github/own"
+  for _, named in ipairs({ {}, { nested } }) do
+    picked = assert(fix.chosen(nested, named))
+    local got = table.concat(picked.flow_files, " ")
+    assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$"), got)
+  end
+  for _, dir in ipairs({ nested .. "/vendor/lua", nested .. "/docs" }) do
+    picked = assert(fix.chosen(nested, { dir }))
+    assert(#picked.flow_files == 0, dir .. ": " .. table.concat(picked.flow_files, " "))
+  end
+end
+
+--- A YAML file is laid out in place, not written under `--check`, and
+--- refused in block style.
+local function test_yaml_is_laid_out_in_place(tmp: string)
+  local path = tmp .. "/a.yml"
+  assert(Fs.write(path, "{a:  1,b: [1,2]}\n"))
+  assert(Fs.write(tmp .. "/b.yml", "a: 1\n"))
+  local changed, failures: {string}, {string} = {}, {}
+  fix.lay_out({ path }, true, changed, failures)
+  assert(#changed == 1 and #failures == 0 and Fs.read(path) == "{a:  1,b: [1,2]}\n", "--check writes nothing")
+  changed = {}
+  fix.lay_out({ path, tmp .. "/b.yml" }, false, changed, failures)
+  assert(#changed == 1 and (Fs.read(path)) == "{a: 1, b: [1, 2]}\n", (Fs.read(path)))
+  assert(#failures == 1 and failures[1]:find("not in flow style", 1, true), failures[1])
+  assert(Fs.read(tmp .. "/b.yml") == "a: 1\n")
+  changed = {}
+  fix.lay_out({ path }, true, changed, {})
+  assert(#changed == 0, "a laid-out file is left alone")
 end
