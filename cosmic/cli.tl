@@ -174,6 +174,8 @@ local module: Module = {
     test = {
       ["--all"] = { about = "run the tests no key can hold rather than assume they pass " ..
         "as they last did, in this checkout or another (COSMIC_TEST_ALL=1)" },
+      ["--audit"] = { about = "run every test, then name what each read beyond its " ..
+        "default and declared inputs (build.inputs), and fail if any did" },
       ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
         "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
       ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },

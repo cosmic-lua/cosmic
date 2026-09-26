@@ -1,5 +1,7 @@
 # the command line
 
+<!-- needs: processes = true -->
+
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
 path to a file to run. Each example here starts the `cosmic` that runs
 it, through `cosmic.child`, and shows what it prints.

@@ -100,7 +100,16 @@ local record observations
     produced: any
     reads: {Observation}
   end
+
+  --- The variables `environment` passes on: what a process of this
+  --- very program reads of its environment to run at all.
+  runtime_environment: {string}
 end
+
+observations.runtime_environment = {
+  "HOME", "XDG_CACHE_HOME", "PATH", "TMPDIR", "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE",
+  "COSMIC_AUTO_BOOT",
+}
 
 --- Returns both lists in observation order, without changing either input.
 --- Repeated identical observations carry no more information, but different
@@ -456,6 +465,21 @@ function observations.itself(): {string}
   local launched, _ = Proc.relaunch()
   if launched ~= nil then program[#program + 1] = launched.argv[1] end
   return program
+end
+
+--- What of the environment a process of this very program needs, for a
+--- test to start one with rather than all of its own: where its caches
+--- are, where temporary files go and programs are found, which shared
+--- verdicts it keeps and whether it may boot -- each of
+--- `runtime_environment` this process has, read by name, so the test
+--- reads no more of the environment than these. The core hands a child
+--- the directory its coverage goes to whatever environment it is given.
+function observations.environment(): {string:string}
+  local out: {string:string} = {}
+  for _, name in ipairs(observations.runtime_environment) do
+    out[name] = sys.getenv(name)
+  end
+  return out
 end
 
 --- The errnos a confined spawn fails with where the kernel cannot

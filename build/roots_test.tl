@@ -2,8 +2,12 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local roots = require("build.roots")
 local schema = require("build.schema")
+
+--- The tree's CA bundle.
+Test.needs{ reads = { "vendor/cacert/cacert.pem" } }
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle

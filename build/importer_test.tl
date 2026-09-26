@@ -4,12 +4,16 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 local docs = require("build.docs")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local schema = require("build.schema")
+
+--- The projection, asked directly, and whether the tree is cosmic's own.
+Test.needs{ reads = { "core" }, store = true }
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -1217,4 +1221,24 @@ local function test_a_passing_unjudged_compile_is_cached()
   assert(result ~= nil, trouble)
   assert(result.compiled == 0 and result.cached == unjudged.compiled,
     result.compiled .. " compiled, " .. result.cached .. " cached")
+end
+
+--- A declaration of what a test reads holds for its own module's tests,
+--- so a module no test is refused one, naming its line.
+local function test_only_a_test_module_declares_its_inputs()
+  local root = assert(write_fixture("inputs-kind", {
+    ["lib/helper.tl"] = "local Test = require(\"cosmic.test\")\n" ..
+      "Test.needs { reads = { \"data/\" } }\nreturn {}\n",
+    ["lib/helper_test.tl"] = "local helper = require(\"lib.helper\")\n" ..
+      "local Test = require(\"cosmic.test\")\n" ..
+      "Test.needs { reads = { \"data/\" } }\n" ..
+      "local function test_x() assert(helper) end\n",
+  }))
+  local requires, trouble = requires_of_fixture(root, "lib.helper_test")
+  assert(requires == nil, "a module no test's declared its inputs")
+  assert(trouble:find("lib/helper.tl:2: test.needs: only a test or example module", 1, true),
+    trouble)
+  assert(Fs.write(root .. "/lib/helper.tl", "return {}\n"))
+  local again = assert(requires_of_fixture(root, "lib.helper_test"))
+  assert(again[1] == "lib.helper")
 end

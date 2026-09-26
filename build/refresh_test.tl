@@ -6,19 +6,23 @@
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Compress = require("cosmic.compress")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
+local Test = require("cosmic.test")
 local Vendor = require("build.vendor")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
 local observations = require("build.filesystem_observations")
 local refresh = require("build.refresh")
+
+--- The vendored bundle and zones a refresh replaces, and the tool it
+--- refreshes.
+Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true }
 
 -- What these tests start is a program built from this very one.
 observations.confine({ reads = observations.itself() })
@@ -119,7 +123,8 @@ local function test_a_new_bundle_replaces_the_roots(tmp: string)
   assert(component[3] == Hash.hex_sha256(smaller), component[3])
   assert(after:close())
 
-  local ran = assert(Child.run({ out }, { stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  local ran = assert(Child.run({ out }, { env = observations.environment(), stdout = "capture",
+    stderr = "capture", timeout_ms = 30000 }))
   assert(ran.ok and ran.stdout == "ok\n", tostring(ran.stderr))
 end
 
@@ -202,7 +207,7 @@ local function test_reads_a_zone()
   assert(Time.zone("Europe/Paris"))
 end
 ]]))
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil

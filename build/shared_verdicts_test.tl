@@ -6,7 +6,6 @@
 --- assumed, runs it again.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
@@ -75,7 +74,7 @@ end
 local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: string)
   assert(Fs.mkdirs(tmp .. "/outside"))
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.OUTSIDE = tmp .. "/outside"
   env.FLAVOUR = "sweet"
@@ -134,7 +133,7 @@ end
 --- something else runs the test again, and fails it, while one whose
 --- database is the same stands on the first one's verdict.
 local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -170,7 +169,7 @@ end
 --- elsewhere, or is a file, runs what read it again, and fails it,
 --- while one the same stands on the first one's verdicts.
 local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -217,7 +216,7 @@ end
 --- bytes would too: the case covers that attaching it is noted, not
 --- that the verdict is unkept rather than keyed.
 local function test_a_database_attached_through_the_store_is_keyed_by_its_contents(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -260,7 +259,7 @@ end
 local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_stands(tmp: string)
   assert(Fs.mkdirs(tmp .. "/real-temp"))
   assert(Fs.symlink("real-temp", tmp .. "/temp"))
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -288,7 +287,7 @@ end
 --- it, and a test that read the working database, which every run
 --- rewrites, runs every time.
 local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -323,7 +322,7 @@ end
 --- whose key differs, its test and module the same, runs.
 local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(tmp: string)
   local cache = tmp .. "/cache/verdicts.db"
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = cache
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
@@ -345,7 +344,7 @@ end
 --- format's table in another shape -- is said so once and done without:
 --- the run runs what it must and passes.
 local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
   local corrupt = tmp .. "/corrupt/verdicts.db"
@@ -394,7 +393,7 @@ end
 --- the shared cache on as off: the row its own last run wrote does not
 --- answer for it.
 local function test_a_touched_file_runs_what_stated_it(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
@@ -415,7 +414,7 @@ end
 --- A checkout made again at the path of one removed is another
 --- checkout: it stands on what the removed one reached.
 local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
@@ -433,7 +432,7 @@ end
 --- again, whatever another checkout reached under the same key, and the
 --- shared row goes.
 local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -470,7 +469,7 @@ end
 --- failing run stopped short of a read the passing one elsewhere made,
 --- so no key of its own matches that one's.
 local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp: string)
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil

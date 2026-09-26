@@ -88,7 +88,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "25"
+local version <const> = "26"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -130,6 +130,10 @@ local version <const> = "25"
 --- function of the bytes alone, so a rename costs nothing and a row
 --- can never be wrong. A row whose source no longer hashes among the
 --- inputs is pruned, and every row goes when the analyzer changes.
+--- `test_inputs` is the same parse's reading of a test module's
+--- `needs` declaration (`cosmic.test`), one row per value a field
+--- lists (`true` for a flag, `*` for any network host, and the line
+--- the declaration starts on under `line`).
 ---
 --- `executable` is `build.coverage.lines.executable`'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
@@ -335,6 +339,11 @@ work.schema = {
                                          source TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS test_inputs (source_hash TEXT NOT NULL,
+                                            ordinal INTEGER NOT NULL,
+                                            field TEXT NOT NULL,
+                                            value TEXT NOT NULL,
+                                            PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
                                       sha256 TEXT NOT NULL,
                                       line INTEGER NOT NULL,

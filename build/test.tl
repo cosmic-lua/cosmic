@@ -63,6 +63,16 @@
 --- `open` field, so the worker wraps it, and the other queries a
 --- verdict depends on, for the duration of loading the module and of
 --- calling the test; see `build.filesystem_observations`.
+---
+--- A test's inputs are its default ones -- its module's import closure,
+--- as source files, the corpora of the fuzz properties it names, and a
+--- pinned environment -- and what its module declares in a top-level
+--- `Test.needs { ... }` (`cosmic.test`): paths of the tree and the host,
+--- variables, the network, processes no sandbox holds, the tool, the
+--- projection. `--audit` runs every test it chooses and names, module by
+--- module, whatever one read beyond them (`build.test_inputs`), with the
+--- declaration that would hold it, and fails the run when any did.
+--- Nothing enforces them yet, nor keys a verdict by them.
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
@@ -89,6 +99,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
+local test_inputs = require("build.test_inputs")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
@@ -921,6 +932,152 @@ function test.keyable(root: string, scratch: string,
   return true
 end
 
+--- The files of the tree a worker's own store reads beside the
+--- projection it attached before any test began: SQLite's journal and
+--- WAL, which it asks after as it reads a page. No test's input.
+local function store_probe(relative: string): boolean
+  return relative == "o/cosmic.db-journal" or relative == "o/cosmic.db-wal"
+end
+
+--- Whether a read found nothing there: what it answered is ENOENT or
+--- ENOTDIR, or, for an open, whose answer no observation keeps, what
+--- `lstat` says of `path` now is. A sandbox that shows a test only its
+--- inputs answers such a read the same whether the path is declared or
+--- not, so the audit asks no declaration of it. Not quite the same
+--- answer: where the host has a file on the way that the sandbox does
+--- not show, ENOTDIR here is ENOENT there, which a test telling the two
+--- apart would see.
+-- TODO: judge an open by what it answered, once the syscall log keeps
+-- an open's errno (core/observed.c) as it keeps a stat's: a file the
+-- test made and removed again reads as one never there.
+-- TODO: a read that found nothing today may find something tomorrow,
+-- when the path appears -- an optional config, a cache not yet made --
+-- and a sandbox hides it then too, so a test whose behaviour turns on
+-- such a path must declare it though the audit asks nothing of it.
+-- Flag an absent path the test's behaviour depends on once the audit
+-- can tell one (a read under a declared-optional list in `cosmic.test`,
+-- or the audit run again with the path made present).
+local function found_nothing(observation: observations.Observation, path: string): boolean
+  local function nothing(errno: integer): boolean
+    return errno == sys.ENOENT or errno == sys.ENOTDIR
+  end
+  local errno = observation.answer:match("^error %x* (%d+)$")
+  if errno ~= nil then return nothing(math.tointeger(tonumber(errno)) or 0) end
+  if observation.kind ~= "o" or path:sub(1, 1) ~= "/" then return false end
+  local st, _, number = sys.lstat(path)
+  return st == nil and nothing(number)
+end
+
+--- What of `reads`, one test's observations, `effective` does not hold
+--- (`build.test_inputs`): each read of the tree or the host beyond it,
+--- each variable, each request and each process no sandbox holds, as
+--- the field of `cosmic.test`'s `Needs` that would declare it, once each. What
+--- no test declares is left out, as `test.keyable` leaves it out of a
+--- key: what a read landed on in the test's own directory, `scratch`,
+--- or one it made -- a link there that leads out is judged by where it
+--- leads -- and what a stat asks of a directory above them or the tree;
+--- a device whose every answer is the same, and the test's own process
+--- in /proc; each path a confined process was given, which
+--- `observations.confine` declares already; and a read that found
+--- nothing there (`found_nothing`). `tool` names the program running
+--- the tests, a read of which is a `tool` finding, as one of
+--- o/bin/cosmic is. Exposed so build/test_audit_test.tl
+--- can hold it to observations directly.
+function test.audited(root: string, scratch: string, effective: test_inputs.Effective,
+                      reads: {observations.Observation},
+                      tool: {string}): {test_inputs.Finding}
+  local followed, unfollowed = resolutions_of(reads)
+  local made: {string} = {}
+  for _, observation in ipairs(reads) do
+    if observation.kind == "m" then made[#made + 1] = observation.path end
+  end
+  local out: {test_inputs.Finding} = {}
+  local seen: {string:boolean} = {}
+  local function add(field: string, value: string)
+    if seen[field .. "\0" .. value] then return end
+    seen[field .. "\0" .. value] = true
+    out[#out + 1] = { field = field, value = value }
+  end
+  local function own(path: string): boolean
+    if Fs.within(path, scratch) then return true end
+    for _, dir in ipairs(made) do
+      if Fs.within(path, dir) or Fs.within(path, observations.resolution(dir)) then
+        return true
+      end
+    end
+    return false
+  end
+  -- A directory above the test's own, one it made, or the tree: asking
+  -- what it is, or where it leads, is part of reaching them.
+  local function on_the_way(path: string): boolean
+    if Fs.within(scratch, path) or Fs.within(root, path) then return true end
+    for _, dir in ipairs(made) do
+      if Fs.within(dir, path) or Fs.within(observations.resolution(dir), path) then
+        return true
+      end
+    end
+    return false
+  end
+  -- TODO: hold each path a confined process was given ("u") to the
+  -- effective inputs too, once `observations.confine` narrows a
+  -- worker's own inputs rather than adding to them: a sandboxed worker
+  -- can give its process only what it has (nested confinement).
+  local function the_tool(path: string): boolean
+    for _, program in ipairs(tool) do
+      if path == program then return true end
+    end
+    return false
+  end
+  for _, observation in ipairs(reads) do
+    local kind, path = observation.kind, observation.path
+    if kind == "p" then
+      if not effective.processes then add("processes", path) end
+    elseif kind == "x" then
+      -- A request's URL, which names its scheme; any other is what no
+      -- observation could account for, which a process is handed.
+      if path:match("^%s*%a[%w+.-]*:") ~= nil then
+        if not test_inputs.covers_network(effective, path) then add("network", path) end
+      elseif not effective.processes then
+        add("processes", "unobservable: " .. path)
+      end
+    elseif kind == "e" then
+      -- A name no variable can have: the whole environment.
+      local name = path:sub(1, 1) == "\0" and "*" or path
+      if not test_inputs.covers_env(effective, name) then add("env", name) end
+    elseif (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+        kind == "a" or kind == "g" or kind == "j") and not constant_devices[path] and
+        not own_process(path) then
+      local resolved = resolved_for(kind, followed, unfollowed)
+      local relative = under_root(root, path, resolved)
+      local real = resolved[path]
+      local judged = (real ~= nil and real ~= "") and real or path
+      if relative ~= nil then relative = test_inputs.plain(relative) end
+      -- Where the read landed, not the name it was asked by: a link in
+      -- the test's own directory that leads out reads what it leads to.
+      if own(judged) or found_nothing(observation, judged) or
+          ((kind == "s" or kind == "l" or kind == "a") and on_the_way(judged)) then
+        -- The test's own, on the way to it, or nothing there.
+      elseif relative ~= nil then
+        if not store_probe(relative) and
+            not test_inputs.covers_tree(effective, relative, kind) then
+          if relative == "o/bin/cosmic" then
+            add("tool", relative)
+          elseif relative == "o/cosmic.db" then
+            add("store", relative)
+          else
+            add("reads", relative)
+          end
+        end
+      elseif the_tool(judged) or the_tool(path) then
+        if not effective.tool then add("tool", judged) end
+      elseif not test_inputs.covers_host(effective, test_inputs.plain(judged), kind) then
+        add("host", test_inputs.plain(judged))
+      end
+    end
+  end
+  return out
+end
+
 --- One test's hits as `coverage_by_test` holds them: a line per module,
 --- in path order, the path, a tab, then the lines it hit, ascending and
 --- comma-separated. Module paths hold neither tabs nor newlines.
@@ -1356,6 +1513,13 @@ local record Recording
   shared_keys: {string:string}
   --- What names this checkout among the rows it shares (`checkout_id`).
   origin: string
+  --- For `--audit`: each test's findings (`test.audited`), by module
+  --- path and test name; each selected module's effective inputs, by
+  --- path; and the program running the tests, which `tool` declares.
+  --- Nil on any other run.
+  audit: {string:{string:{test_inputs.Finding}}}
+  effective: {string:test_inputs.Effective}
+  tool: {string}
 end
 
 --- What names this checkout among the shared rows: an id made the
@@ -1640,6 +1804,12 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if reported ~= nil then
     passed, message = reported.passed, reported.message
     reads = observations.join(reported.load_reads, reported.test_reads)
+    if rec.audit ~= nil then
+      local by_test = rec.audit[job.m.path] or {}
+      rec.audit[job.m.path] = by_test
+      by_test[job.name] = test.audited(rec.root, job.scratch, rec.effective[job.m.path], reads,
+        rec.tool)
+    end
     elapsed = reported.elapsed_ns
     cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads)
     local hit: Coverage.Hits = {}
@@ -1819,8 +1989,10 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   local argv: {string} = {}
   for i, value in ipairs(start.argv) do argv[i] = value end
+  -- What the build read of the module's `needs`, which the worker holds
+  -- the call to.
   for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp,
-                           scratch .. "/children" }) do
+                           scratch .. "/children", test_inputs.canonical(job.m.inputs) }) do
     argv[#argv + 1] = value
   end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
@@ -2056,12 +2228,14 @@ function test.run(argv: {integer:string}): integer
   -- them: one assumed may have passed with a process that fell back to
   -- running unconfined, which the mode refuses
   -- (build.filesystem_observations' `must_confine`).
-  local everything = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1" or
+  -- An audit runs every test it chooses, to observe what each reads.
+  local audit = parsed.set["--audit"] == true
+  local everything = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1" or
     Env.get("COSMIC_SANDBOX") == "must"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
-  local consult = not (parsed.set["--no-shared"] == true or
+  local consult = not (audit or parsed.set["--no-shared"] == true or
     Env.get("COSMIC_TEST_NO_SHARED") == "1")
   local naming: {string} = {}
   for _, selector in ipairs(selectors) do
@@ -2278,11 +2452,31 @@ function test.run(argv: {integer:string}): integer
     end
     log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them" .. aside)
   end
+  if audit then
+    rec.audit, rec.effective, rec.tool = {}, {}, observations.itself()
+    for i = 1, #rec.tool do rec.tool[#rec.tool + 1] = observations.resolution(rec.tool[i]) end
+    local by_path: {string:importer.Module} = {}
+    for _, m in ipairs(result.modules) do by_path[m.path] = m end
+    local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
+      "SELECT path, file FROM inputs WHERE kind = 'decl'")
+    if declaration_rows == nil then
+      local _, _ = work.rollback(handle)
+      local _, _ = work.close(handle)
+      log:complain(records_path .. ": " .. declaration_trouble)
+      return 1
+    end
+    local declarations: {string:string} = {}
+    for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
+    for _, m in ipairs(selected_modules) do
+      rec.effective[m.path] = test_inputs.effective(m, by_path, declarations)
+    end
+  end
   local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
-      local stood, reads, key = standing(rec, previous, verdicts, m, id)
+      local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
+      if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
       local assumed: Assumed = nil
       local asked = everything
       for _, selector in ipairs(naming) do
@@ -2405,6 +2599,29 @@ function test.run(argv: {integer:string}): integer
     failures[#failures + 1] = line
   end
 
+  -- What each test read beyond its inputs, module by module.
+  local undeclared = 0
+  if rec.audit ~= nil then
+    local audited_tests = 0
+    local modules_undeclared = 0
+    for _, m in ipairs(selected_modules) do
+      local per_test = rec.audit[m.path] or {}
+      for _, findings in pairs(per_test) do
+        audited_tests = audited_tests + 1
+        if #findings > 0 then undeclared = undeclared + 1 end
+      end
+      local lines = test_inputs.report(m, per_test)
+      if #lines > 0 then modules_undeclared = modules_undeclared + 1 end
+      for _, line in ipairs(lines) do log:say(line) end
+    end
+    if undeclared > 0 then
+      log:say(string.format("audit: %d of %d tests, in %d modules, read what they do not " ..
+        "declare; see cosmic.test", undeclared, audited_tests, modules_undeclared))
+    else
+      log:say(string.format("audit: %d tests read only their inputs", audited_tests))
+    end
+  end
+
   local cov_pct = cov_total > 0 and (cov_hit * 100.0 / cov_total) or 0.0
   local cov_line = string.format("test: coverage %.1f%% (%d/%d lines; informational, never a failure)",
     cov_pct, cov_hit, cov_total)
@@ -2422,7 +2639,7 @@ function test.run(argv: {integer:string}): integer
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
       clock.took(started))
-    return 0
+    return undeclared > 0 and 1 or 0
   end
   say_failures(rec, failures)
   for _, line in ipairs(errors) do

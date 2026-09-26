@@ -4,7 +4,11 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
 local invoke = require("build.invoke")
+
+--- The tool itself, whose digest the version is.
+Test.needs{ tool = true }
 
 local function test_version_is_the_digest_of_the_binarys_own_file(tmp: string)
   local path = assert(Proc.executable())
