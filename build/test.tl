@@ -1803,7 +1803,13 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
         -- guard's signal came first. `close` makes sure it is gone.
         local result, stop_trouble = job.handle:wait(0)
         if result == nil then local _, _ = job.handle:close() end
-        finish(rec, job, result, stop_trouble, limits)
+        if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
+          -- The signal ended it before its timeout could: it is one of
+          -- the workers the cancelled run ended, reported on by none.
+          still[#still + 1] = job
+        else
+          finish(rec, job, result, stop_trouble, limits)
+        end
       else
         still[#still + 1] = job
       end
@@ -1887,6 +1893,32 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
     limits.jobs = jobs
   end
   return limits, ""
+end
+
+--- Says each of `failures`, sorted, with the selector that reruns its
+--- test and what the test printed; a failed test's message names the
+--- directory it kept (`finish`).
+local function say_failures(rec: Recording, failures: {string})
+  table.sort(failures)
+  for _, failure in ipairs(failures) do
+    -- The line keeps its `<module> <name>: <message>` shape; the
+    -- selector that reruns that one test follows it on a line of its own.
+    log:say("test: FAIL  " .. failure)
+    local id = rec.failed[failure]
+    local rerun = id ~= nil and rec.reruns[id] or nil
+    if rerun ~= nil then
+      log:say("  rerun: cosmic test " .. test.shell_word(rerun))
+    end
+    local printed = id ~= nil and rec.outputs[id] or nil
+    if printed ~= nil then
+      if #printed > 4096 then
+        printed = "..." .. printed:sub(-4096)
+      end
+      for printed_line in String.lines((printed:gsub("\n$", ""))) do
+        log:say("  | " .. printed_line)
+      end
+    end
+  end
 end
 
 --- Builds the tree in the working directory and runs every test it
@@ -2201,9 +2233,10 @@ function test.run(argv: {integer:string}): integer
       if run_jobs(rec, jobs, limits, guard) ~= 0 then
         local _, _ = work.abort(handle)
         if rec.shared ~= nil then shared_verdicts.close(rec.shared) end
-        -- TODO: name the directories a cancelled run kept for the tests
-        -- that failed before the signal, as a finished run's report does;
-        -- only the run's errors are said here.
+        -- A test that failed before the signal keeps its directory,
+        -- named as a finished run's report names it: the failures on
+        -- stdout, as there, and the errors and the cancellation on stderr.
+        say_failures(rec, failures)
         for _, line in ipairs(errors) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
         return 130
@@ -2298,26 +2331,7 @@ function test.run(argv: {integer:string}): integer
       clock.took(started))
     return 0
   end
-  table.sort(failures)
-  for _, failure in ipairs(failures) do
-    -- The line keeps its `<module> <name>: <message>` shape; the
-    -- selector that reruns that one test follows it on a line of its own.
-    log:say("test: FAIL  " .. failure)
-    local id = rec.failed[failure]
-    local rerun = id ~= nil and rec.reruns[id] or nil
-    if rerun ~= nil then
-      log:say("  rerun: cosmic test " .. test.shell_word(rerun))
-    end
-    local printed = id ~= nil and rec.outputs[id] or nil
-    if printed ~= nil then
-      if #printed > 4096 then
-        printed = "..." .. printed:sub(-4096)
-      end
-      for printed_line in String.lines((printed:gsub("\n$", ""))) do
-        log:say("  | " .. printed_line)
-      end
-    end
-  end
+  say_failures(rec, failures)
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. records_path .. ": " .. line)
   end
