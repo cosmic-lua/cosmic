@@ -52,6 +52,8 @@ local exempt: {string: string} = {
   ["core/syscalls.c:make_parents"] = sandbox_only,
   ["core/syscalls.c:make_link"] = sandbox_only,
   ["core/syscalls.c:loopback_up"] = sandbox_only,
+  ["core/syscalls.c:guard_proc"] = sandbox_only,
+  ["core/syscalls.c:proc_own"] = sandbox_only,
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.
   ["core/syscalls.c:make_mirrored"] = sandbox_only,

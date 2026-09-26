@@ -680,6 +680,77 @@ static int loopback_up (void) {
   return number;
 }
 
+/* One entry getdents64(2) writes, which a libc may not declare. */
+struct cosmic_dirent64 {
+  uint64_t d_ino;
+  int64_t d_off;
+  unsigned short d_reclen;
+  unsigned char d_type;
+  char d_name[];
+};
+
+/* Whether `name`, an entry of /proc, is a process's own -- its pid -- or
+ * the directory itself or its parent. */
+static bool proc_own (const char *name) {
+  if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return true;
+  for (const char *at = name; *at != '\0'; at++) {
+    if (*at < '0' || *at > '9') return false;
+  }
+  return true;
+}
+
+/* Makes read-only, in the root being built, what of the host's /proc --
+ * bound read-write at `target`, `length` bytes long, in a buffer of
+ * PATH_MAX -- is not a process's own: each entry of it that is a
+ * directory, or a file anyone may write (/proc/sys, /proc/sysrq-trigger,
+ * /proc/irq, /proc/bus and the like, which a child mapped to root could
+ * otherwise write), is bound over itself read-only, and every mount
+ * beneath it too. A process's own, and the links into them (self,
+ * thread-self, net, mounts), stay writable, so a child of the child can
+ * map its ids in a user namespace of its own, which it writes its own
+ * /proc/self/uid_map for. 0, or an errno. */
+static int guard_proc (char *target, size_t length) {
+  int dir = open("/proc", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (dir < 0) return errno;
+  _Alignas(8) char entries[4096];
+  char source[PATH_MAX];
+  int number = 0;
+  while (number == 0) {
+    long got = syscall(SYS_getdents64, dir, entries, sizeof entries);
+    if (got <= 0) {
+      if (got < 0) number = errno;
+      break;
+    }
+    for (long at = 0; number == 0 && at < got;) {
+      const struct cosmic_dirent64 *entry = (const struct cosmic_dirent64 *)(entries + at);
+      at += entry->d_reclen;
+      const char *name = entry->d_name;
+      if (proc_own(name)) continue;
+      struct stat st;
+      if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+        if (errno != ENOENT) number = errno;
+        continue;
+      }
+      if (S_ISLNK(st.st_mode) || (!S_ISDIR(st.st_mode) && (st.st_mode & 0222) == 0)) continue;
+      int made = snprintf(source, sizeof source, "/proc/%s", name);
+      int placed = snprintf(target + length, PATH_MAX - length, "/%s", name);
+      if (made < 0 || (size_t)made >= sizeof source || placed < 0 ||
+          (size_t)placed >= PATH_MAX - length) {
+        number = ENAMETOOLONG;
+      } else if (mount(source, target, NULL, MS_BIND | MS_REC, NULL) != 0) {
+        number = errno;
+      } else {
+        struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
+        if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
+          number = errno;
+      }
+    }
+  }
+  target[length] = '\0';
+  close(dir);
+  return number;
+}
+
 /* In the child, before anything else of the sandbox: a user namespace of
  * its own, mapping its user and group to themselves; with `offline`, a
  * network namespace of its own, which has nothing but a loopback, brought
@@ -687,7 +758,8 @@ static int loopback_up (void) {
  * its own in a mount namespace, with a /tmp of its own unless /tmp or
  * / is among the paths,
  * holding the `count` paths at their own names -- read-only, and every
- * mount beneath them too, but where `writable` says -- and nothing else,
+ * mount beneath them too, but where `writable` says, and but a /proc's
+ * processes' own entries (`guard_proc`) -- and nothing else,
  * so a path outside them is not there at all, to stat as to open. The
  * paths are resolved, with no link or `..` left in them, and a shorter
  * comes before a longer; `names` holds the names they were given by where
@@ -696,9 +768,17 @@ static int loopback_up (void) {
  * `root` is an empty directory the parent made to build on. Last, the child gives up every capability the namespace gave
  * it, so a caller's root cannot undo a read-only mount or make one of its
  * own. 0, or an errno.
+ * TODO: remove the directory an unmapped child's root is built on once
+ * the child ends: its root and its /tmp are that directory, in its
+ * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
+ * behind with what the child wrote to its /tmp. Removing it sooner
+ * would take the child's mounts from under it, so this waits on the
+ * process table's `waitpid` removing a directory its `spawn` handed the
+ * reaped child's pid.
  * TODO: a pid namespace too, so an unveiled /proc shows the child's own
- * processes rather than the host's, and a confined child cannot kill()
- * a process of the same user outside it, as today it can; the child that unshares one is not
+ * processes rather than the host's, and a confined child can neither
+ * kill() a process of the same user outside it nor write what its user
+ * may of one's /proc entries (`guard_proc`), as today it can; the child that unshares one is not
  * in it, so this waits on starting the program from a second fork. A
  * UTS namespace would change nothing a child sees: its host's name and
  * kernel stay what `uname` answers, which no key holds. */
@@ -709,12 +789,30 @@ static int unveil (const char *root, char *const *paths, char *const *names,
   if (syscall(SYS_unshare, flags) != 0) return errno;
   int number = write_whole("/proc/self/setgroups", "deny");
   if (number != 0 && number != ENOENT) return number;
-  if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) return number;
+  /* A user the kernel will not let it map stays unmapped -- the kernel's
+   * overflow id, inside -- with the same access to every file: root,
+   * which may map root only holding CAP_SETFCAP, which a sandbox's child
+   * gave up.
+   * TODO: let a child left unmapped confine one of its own in turn, as a
+   * mapped one can at any depth: the kernel refuses a user namespace to
+   * a user its own does not map, so root confines only two deep. The
+   * fix would run root's sandboxed tests as a user of their own, mapped
+   * from outside by a parent holding CAP_SETUID. */
+  int mapped = 1;
+  if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) {
+    if (number != EPERM) return number;
+    mapped = 0;
+  }
   if ((number = write_whole("/proc/self/gid_map", gid_map)) != 0) return number;
   if (offline && (number = loopback_up()) != 0) return number;
   if (unveiling) {
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
-    if (mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0) return errno;
+    /* A tmpfs of this namespace takes no file from a user it does not
+     * map: an unmapped one builds on `root` itself, which its parent's
+     * namespace maps it on. */
+    if (mapped ? mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0
+               : mount(root, root, NULL, MS_BIND, NULL) != 0)
+      return errno;
     char target[PATH_MAX];
     /* A /tmp of its own, writable and empty but for the paths given
      * beneath the host's, which a program takes for granted -- unless
@@ -731,7 +829,9 @@ static int unveil (const char *root, char *const *paths, char *const *names,
       int made = snprintf(target, sizeof target, "%s/tmp", root);
       if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
       if (mkdir(target, 01777) != 0) return errno;
-      if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0) return errno;
+      if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
+                 : chmod(target, 01777) != 0 || mount(target, target, NULL, MS_BIND, NULL) != 0)
+        return errno;
     }
     for (int i = 0; i < count; i++) {
       struct stat st;
@@ -750,7 +850,9 @@ static int unveil (const char *root, char *const *paths, char *const *names,
         }
       }
       if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
-      if (!writable[i]) {
+      if (!writable[i] && strcmp(paths[i], "/proc") == 0) {
+        if ((number = guard_proc(target, (size_t)length)) != 0) return number;
+      } else if (!writable[i]) {
         struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
         if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
           return errno;

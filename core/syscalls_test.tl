@@ -662,9 +662,9 @@ end
 
 --- An unveiled child has a root of its own holding only the paths it was
 --- given, at their own names once resolved: a path outside them is not
---- there to stat, one given to read is read-only, one given to write is
---- written, it keeps no capability, and an offline one has no network
---- but a loopback. An empty unveiling leaves it nothing, not even a
+--- there to stat, one given to read is read-only -- /proc but for the
+--- processes' own entries -- one given to write is written, it keeps no
+--- capability, and an offline one has no network but a loopback. An empty unveiling leaves it nothing, not even a
 --- program to run. Where unprivileged namespaces are refused, spawning
 --- one says so.
 local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
@@ -728,16 +728,20 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local second = create(tmp .. "/second")
   local again = assert(process.spawn("/bin/sh", { "sh", "-c",
     "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
-    "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f" },
+    "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f; " ..
+    "test -w /proc/self/uid_map && echo own-writable; " ..
+    "test -w /proc/sys/vm/swappiness || echo sys-read-only" },
     nil, "/", nil, second, second, false, nil,
     { unveil = { reads = mirrored }, offline = true }))
   assert(assert(process.waitpid(again, false)).code == 0)
   local seen = assert(sys.pread(second, 4096, 0))
   sys.close(second)
   -- And a /tmp of its own, empty but for the paths given beneath the
-  -- host's, which it can write to.
+  -- host's, which it can write to; and of /proc, its own entries it can
+  -- write, so it can confine a child in turn, and not the host's state.
   local given_under_tmp = assert(sys.realpath(private)):sub(1, 5) == "/tmp/" and 1 or 0
-  assert(seen == "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n", seen)
+  assert(seen == "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n" ..
+    "own-writable\nsys-read-only\n", seen)
   local nothing, _, nothing_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
