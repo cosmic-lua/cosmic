@@ -1171,8 +1171,21 @@ function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, 
   end
 end
 
+--- Whether the child `pid` is a sandbox's init: pid 1 of the pid
+--- namespace of a child spawn unveiled, which core/syscalls.c starts as
+--- this process's child beside it, and which ends when that child does
+--- -- no stray, and ending it would end that child.
+local function sandbox_init(pid: integer): boolean
+  local fd, _ = sys.open("/proc/" .. tostring(pid) .. "/comm", sys.O_RDONLY)
+  if fd == nil then return false end
+  local name, _ = sys.read(fd, 64)
+  local _, _ = sys.close(fd)
+  return name == "cosmic-init\n"
+end
+
 --- The children of this process that no handle owns, from Linux's
---- per-thread `children` list; nil where there is no such list.
+--- per-thread `children` list, but for sandboxes' inits
+--- (`sandbox_init`); nil where there is no such list.
 local function strays(): {integer} | nil
   local path = "/proc/self/task/" .. tostring(sys.getpid()) .. "/children"
   local fd, _ = sys.open(path, sys.O_RDONLY)
@@ -1187,7 +1200,7 @@ local function strays(): {integer} | nil
   local found: {integer} = {}
   for number in table.concat(parts):gmatch("%d+") do
     local pid = math.tointeger(tonumber(number))
-    if pid ~= nil and not owned[pid] then found[#found + 1] = pid end
+    if pid ~= nil and not owned[pid] and not sandbox_init(pid) then found[#found + 1] = pid end
   end
   return found
 end

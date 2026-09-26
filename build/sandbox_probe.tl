@@ -138,7 +138,11 @@ end
 --- Tries each part of the sandbox, and all of them together, in `tmp`,
 --- a fresh directory of the caller's: a child held to a Landlock
 --- ruleset, a pledge, no network, an unveiled filesystem, the last two
---- as `observations.confine` holds a test's processes, and all four.
+--- as `observations.confine` holds a test's processes, and all four;
+--- and, unveiled, whether the child is in a pid namespace of its own,
+--- and whether its /proc is that namespace's own procfs or, where the
+--- kernel refuses one (a container masking parts of its /proc), the
+--- host's.
 function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local root = assert(sys.realpath(tmp))
   local inside, outside = root .. "/in", root .. "/out"
@@ -154,6 +158,10 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local no_out = "! cat " .. outside .. "/f 2>/dev/null"
   local unseen = "test ! -e " .. outside .. "/f"
   local lone_loopback = "test \"$(grep -c : /proc/self/net/dev)\" = 1"
+  -- Unveiled, it is pid 2 of a pid namespace of its own, beneath the
+  -- sandbox's init; its own procfs has no /proc/sys.
+  local own_pids = "test \"$$\" = 2"
+  local own_proc = "test ! -e /proc/sys && test \"$(cat /proc/1/comm)\" = cosmic-init"
   -- Pledged, it runs under a seccomp filter, one more than this
   -- process's own (a container's runtime may have given it some).
   local status, _ = Fs.read("/proc/self/status")
@@ -186,12 +194,17 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   held, said = tried(root, reads_in .. " && " .. unseen .. " && " .. lone_loopback,
     { unveil = { reads = reads, writes = {} }, offline = true })
   add("unveil + offline (a confined test)", true, held, said)
+  held, said = tried(root, own_pids, { unveil = { reads = reads, writes = {} }, offline = true })
+  add("unveiled: a pid namespace of its own", false, held, said)
+  held, said = tried(root, own_proc, { unveil = { reads = reads, writes = {} }, offline = true })
+  add("unveiled: a /proc of its own", false, held, said)
   if ruleset == nil then
     add("all four", false, false, "no landlock ruleset to hold it to")
   else
-    held, said = tried(root, reads_in .. " && " .. unseen .. " && " .. lone_loopback .. " && " ..
-      filtered, { ruleset = ruleset, unveil = { reads = reads, writes = {} }, offline = true,
-        pledge = {} })
+    -- The ruleset does not reach a /proc of the child's own, so this
+    -- one reads none.
+    held, said = tried(root, reads_in .. " && " .. unseen, { ruleset = ruleset,
+      unveil = { reads = reads, writes = {} }, offline = true, pledge = {} })
     add("all four", false, held, said)
     local _, _ = sys.close(ruleset)
   end

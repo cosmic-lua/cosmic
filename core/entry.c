@@ -5,8 +5,12 @@
 
 #include "executable.h"
 #include "portable.h"
+#include "process.h"
 
 int main (int argc, char **argv) {
+#if defined(__linux__)
+  if (argc == 1 && strcmp(argv[0], COSMIC_SANDBOX_INIT) == 0) cosmic_sandbox_init();
+#endif
   struct cosmic_startup startup;
   int artifact_argument = argc >= 2 && strcmp(argv[1], "--artifact") == 0;
   if (artifact_argument || cosmic_startup_has_private_environment()) {

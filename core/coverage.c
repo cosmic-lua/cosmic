@@ -2,7 +2,6 @@
 
 #include "coverage.h"
 
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -236,11 +235,14 @@ void cosmic_coverage_report (void) {
 #ifdef COSMIC_NATIVE_COVERAGE
   static unsigned reported; /* a process can report more than once: before a failed execve */
   if (!reports || !native_flags || cosmic_native_coverage_blocks != native_count) return;
+  /* A name no other report takes: the pid alone is not one, since every
+   * process a sandbox starts in a pid namespace of its own is pid 2
+   * there (core/syscalls.c's `start_unveiled`). */
   char path[4096];
-  int length = snprintf(path, sizeof path, "%s/%ld.%u", children_entry + sizeof CHILDREN_NAME,
-                        (long)getpid(), reported++);
+  int length = snprintf(path, sizeof path, "%s/%ld.%u.XXXXXX",
+                        children_entry + sizeof CHILDREN_NAME, (long)getpid(), reported++);
   if (length < 0 || (size_t)length >= sizeof path) return;
-  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+  int fd = mkstemp(path);
   if (fd < 0) return;
   /* One "path TAB line" per hit block; a line hit twice is read once. */
   char buffer[8192];

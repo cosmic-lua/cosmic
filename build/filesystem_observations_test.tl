@@ -686,14 +686,16 @@ local function test_an_unveiled_sandbox_is_read_as_the_core_reads_it(tmp: string
   assert(not notes:find("u //proc", 1, true), notes)
 end
 
---- What a sandboxed worker's chunk says: whether its core found the
---- stamp beside it in the cache that spares hashing it again, and what
---- the grandchild it confines to `...`'s first path read of that path and
---- of the second, which it was not given.
+--- What a sandboxed worker's chunk says: whether its /proc is a procfs
+--- of its own pid namespace (which has no /proc/sys) or the host's;
+--- whether its core found the stamp beside it in the cache that spares
+--- hashing it again; and what the grandchild it confines to `...`'s
+--- first path read of that path and of the second, which it was not
+--- given.
 local worker_chunk <const> = [==[
 local sys = require("cosmic.sys")
 local given, hidden = ...
-local said = {}
+local said = { sys.stat("/proc/sys") == nil and "own-proc" or "host-proc" }
 local core = assert(sys.readlink("/proc/self/exe"))
 local directory, name = core:match("^(.*)/(core%-[^/]*)$")
 if directory == nil then
@@ -727,26 +729,38 @@ end
 print(table.concat(said, "\n"))
 ]==]
 
---- A worker of this very program sandboxed to `worker_unveil`'s paths,
---- and no more, starts, finds the stamp that says its core was verified
---- (where the cache has one), so hashes nothing again, and can confine a
---- process of its own in turn to a part of what it was given: that
---- process reads its part and has nothing else -- run by root too, whose
---- worker, having given up the CAP_SETFCAP that mapping root takes,
---- starts it unmapped.
-local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
+--- Whether this host gives a sandbox a procfs of its own pid namespace:
+--- whether its /proc, as this process sees it, is writable and has
+--- nothing mounted beneath it but on /proc/sys/fs/binfmt_misc, which the
+--- kernel keeps empty. A user namespace may mount a procfs only where one
+--- is wholly visible, which a container's masked /proc paths are not.
+local function own_proc_given(): boolean
+  local text = Fs.read("/proc/self/mountinfo")
+  if text == nil then return false end
+  for line in text:gmatch("[^\n]+") do
+    local point, options = line:match("^%S+ %S+ %S+ %S+ (%S+) (%S+)")
+    if point == "/proc" and ("," .. options .. ","):find(",ro,", 1, true) then return false end
+    if point ~= nil and point:sub(1, 6) == "/proc/" and point ~= "/proc/sys/fs/binfmt_misc" then
+      return false
+    end
+  end
+  return true
+end
+
+--- Runs `worker_chunk` in a worker of this very program sandboxed to
+--- `worker_unveil`'s paths, nesting as `nest` says, in `tmp`: the lines
+--- it said, or nil where there is no portable artifact to start again,
+--- or no sandbox to be had.
+local function sandboxed_worker(tmp: string, nest: boolean): {string} | nil
   local relaunch = Proc.relaunch()
-  if relaunch == nil then return end -- no portable artifact to start again
+  if relaunch == nil then return nil end -- no portable artifact to start again
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
   for _, dir in ipairs({ given, hidden }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
   local tree = assert(sys.getcwd())
   local unveil = observations.worker_unveil(tree, tree, tmp)
-  -- Whether the cache holds a stamp for the core, which the worker
-  -- then has to find.
-  local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$")
-  local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil
+  unveil.nest = nest
   local argv: {string} = {}
   for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
   for _, word in ipairs({ "-e", worker_chunk, given, hidden }) do argv[#argv + 1] = word end
@@ -764,7 +778,7 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
     -- the set left out.
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return
+    return nil
   end
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(output, 65536, 0))
@@ -772,8 +786,44 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   assert(status.code == 0, said)
   local lines: {string} = {}
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
-  assert(not stamped or lines[1] == "stamped", said)
-  assert(lines[2] == "exited 0" and lines[3] == "in" and lines[4] == "hidden-absent", said)
+  return lines
+end
+
+--- A worker of this very program sandboxed to `worker_unveil`'s paths,
+--- and no more, starts, finds the stamp that says its core was verified
+--- (where the cache has one), so hashes nothing again, and can confine a
+--- process of its own in turn to a part of what it was given: that
+--- process reads its part and has nothing else -- run by root too, whose
+--- worker, having given up the CAP_SETFCAP that mapping root takes,
+--- starts it unmapped.
+local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
+  local lines = sandboxed_worker(tmp, true)
+  if lines == nil then return end
+  local said = table.concat(lines, "\n")
+  -- Whether the cache holds a stamp for the core, which the worker
+  -- then has to find.
+  local relaunch = assert(Proc.relaunch())
+  local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$")
+  local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil
+  assert(not stamped or lines[2] == "stamped", said)
+  assert(lines[3] == "exited 0" and lines[4] == "in" and lines[5] == "hidden-absent", said)
+end
+
+--- A sandboxed worker that does not `nest` confines a process of its own
+--- all the same, having a procfs of its own pid namespace, whose
+--- processes' entries it may write; where the kernel refuses it one (a
+--- container masking parts of its /proc), its /proc is the host's,
+--- read-only whole, so the uid_map its process writes is too.
+local function test_a_sandboxed_worker_confines_its_own_without_nesting(tmp: string)
+  local lines = sandboxed_worker(tmp, false)
+  if lines == nil then return end
+  local said = table.concat(lines, "\n")
+  if own_proc_given() then
+    assert(lines[1] == "own-proc" and lines[3] == "exited 0" and lines[4] == "in" and
+      lines[5] == "hidden-absent", said)
+  else
+    assert(lines[1] == "host-proc" and lines[3]:find("^refused EROFS") ~= nil, said)
+  end
 end
 
 --- The observation of `kind` of `path` in `found`, or nil.
