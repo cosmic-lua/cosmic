@@ -11,6 +11,8 @@
 --- A fence opens with a backtick or tilde run of at least three. It
 --- closes with the same marker in a run at least as long as the opener.
 
+local String = require("cosmic.string")
+
 local record Modifiers
   continue: boolean
   file: string | nil
@@ -142,7 +144,7 @@ end
 --- @return string why, naming the source line
 function markdown.parse_blocks(source: string): {Block} | nil, string
   local lines: {string} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(source) do
     lines[#lines + 1] = line
   end
   local blocks: {Block} = {}
