@@ -1,3 +1,4 @@
+/* fdopen is POSIX, which -std=c11 hides without asking for it. */
 #define _POSIX_C_SOURCE 200809L
 
 #include "boot.h"

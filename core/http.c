@@ -1,3 +1,5 @@
+/* O_CLOEXEC is POSIX.1-2008, which -std=c11 hides without asking for it;
+ * Darwin then hides its own extensions unless asked for them too. */
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
 
@@ -37,6 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <curl/curl.h>
@@ -140,40 +143,44 @@ static mbedtls_x509_crt roots;
 static int roots_ready;
 
 /* Adds the certificates in $SSL_CERT_FILE, when it names a readable
- * file, to `roots`. A certificate there that does not parse is left
- * out, trusted no more than one missing. False only when there was no
- * memory to read the file with. The file is opened close-on-exec,
- * through open(2) since not every libc's fopen takes "e", so a child
- * started meanwhile inherits no descriptor. */
+ * regular file, to `roots`. A certificate there that does not parse is
+ * left out, trusted no more than one missing. False only when there was
+ * no memory to read the file into. The file is opened close-on-exec, so
+ * a child started meanwhile inherits no descriptor, and without
+ * blocking, so a FIFO named there is skipped rather than waited on; a
+ * regular file's reads ignore O_NONBLOCK. Read through open(2), since
+ * not every libc's fopen takes "e". */
 static bool add_cert_file (void) {
   const char *path = getenv("SSL_CERT_FILE");
-  int fd = path != NULL && path[0] != '\0' ? open(path, O_RDONLY | O_CLOEXEC)
-                                           : -1;
+  if (path == NULL || path[0] == '\0') return true;
+  int fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
   if (fd < 0) return true;
-  /* fdopen fails only for want of memory, the mode being valid. */
-  FILE *f = fdopen(fd, "rb");
-  if (f == NULL) {
-    close(fd);
-    return false;
-  }
   bool ok = true;
-  if (fseek(f, 0, SEEK_END) == 0) {
-    long size = ftell(f);
-    if (size > 0 && fseek(f, 0, SEEK_SET) == 0) {
-      /* NUL-terminated: mbedtls reads PEM only from such a buffer, its
-       * length counting the NUL. */
-      unsigned char *text = cosmic_malloc((size_t)size + 1);
-      if (text == NULL) {
-        ok = false;
-      } else {
-        size_t got = fread(text, 1, (size_t)size, f);
-        text[got] = '\0';
-        (void)mbedtls_x509_crt_parse(&roots, text, got + 1);
-        cosmic_free(text);
+  struct stat st;
+  /* A directory, whose size says nothing of what it holds, and a device
+   * or a FIFO, which has none, hold no certificates. */
+  if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+    size_t size = (size_t)st.st_size;
+    /* NUL-terminated: mbedtls reads PEM only from such a buffer, its
+     * length counting the NUL. */
+    unsigned char *text = cosmic_malloc(size + 1);
+    if (text == NULL) {
+      ok = false;
+    } else {
+      /* A file that shrank meanwhile is read as far as it goes. */
+      size_t got = 0;
+      while (got < size) {
+        ssize_t n = read(fd, text + got, size - got);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        got += (size_t)n;
       }
+      text[got] = '\0';
+      (void)mbedtls_x509_crt_parse(&roots, text, got + 1);
+      cosmic_free(text);
     }
   }
-  fclose(f);
+  close(fd);
   return ok;
 }
 
