@@ -133,9 +133,7 @@ local version <const> = "26"
 --- `test_inputs` is the same parse's reading of a test module's
 --- `_inputs` declaration (`build.inputs`), one row per value a field
 --- lists (`true` for a flag, `*` for any network host, and the line
---- the declaration starts on under `line`), and of the `build.fuzz`
---- properties it names, `fuzz`, whose corpora are its default inputs
---- (`build.test_inputs`).
+--- the declaration starts on under `line`).
 ---
 --- `executable` is `build.coverage.lines.executable`'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines

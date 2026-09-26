@@ -21,7 +21,8 @@
 --- literals, or `true` or `false`. A declaration the build cannot read
 --- so -- a field it does not know, a value computed, a path that climbs
 --- -- fails the build, naming its line (`build.analyzer`). A module's
---- declaration holds for each of its tests. A doc guide declares its
+--- declaration holds for each of its tests, and only a test or example
+--- module declares one, once. A doc guide declares its
 --- examples' in a line of its own outside any fence, which renders as
 --- nothing: `<!-- inputs: processes = true -->` (doc/meta.md).
 local record inputs

@@ -942,10 +942,20 @@ end
 --- ENOTDIR, or, for an open, whose answer no observation keeps, what
 --- `lstat` says of `path` now is. A sandbox that shows a test only its
 --- inputs answers such a read the same whether the path is declared or
---- not, so the audit asks no declaration of it.
+--- not, so the audit asks no declaration of it. Not quite the same
+--- answer: where the host has a file on the way that the sandbox does
+--- not show, ENOTDIR here is ENOENT there, which a test telling the two
+--- apart would see.
 -- TODO: judge an open by what it answered, once the syscall log keeps
 -- an open's errno (core/observed.c) as it keeps a stat's: a file the
 -- test made and removed again reads as one never there.
+-- TODO: a read that found nothing today may find something tomorrow,
+-- when the path appears -- an optional config, a cache not yet made --
+-- and a sandbox hides it then too, so a test whose behaviour turns on
+-- such a path must declare it though the audit asks nothing of it.
+-- Flag an absent path the test's behaviour depends on once the audit
+-- can tell one (a read under a declared-optional list in `build.inputs`,
+-- or the audit run again with the path made present).
 local function found_nothing(observation: observations.Observation, path: string): boolean
   local function nothing(errno: integer): boolean
     return errno == sys.ENOENT or errno == sys.ENOTDIR
@@ -962,13 +972,15 @@ end
 --- each variable, each request and each process no sandbox holds, as
 --- the field of `build.inputs` that would declare it, once each. What
 --- no test declares is left out, as `test.keyable` leaves it out of a
---- key: the test's own directory, `scratch`, and each one it made; a
---- device whose every answer is the same, and the test's own process in
---- /proc; the working directory and the program's own path; each path a
---- confined process was given, which `observations.confine` declares
---- already; and a read that found nothing there (`found_nothing`).
---- `tool` names the program running the tests, which the `tool` field
---- declares, as it does o/bin/cosmic. Exposed so build/test_audit_test.tl
+--- key: what a read landed on in the test's own directory, `scratch`,
+--- or one it made -- a link there that leads out is judged by where it
+--- leads -- and what a stat asks of a directory above them or the tree;
+--- a device whose every answer is the same, and the test's own process
+--- in /proc; each path a confined process was given, which
+--- `observations.confine` declares already; and a read that found
+--- nothing there (`found_nothing`). `tool` names the program running
+--- the tests, a read of which is a `tool` finding, as one of
+--- o/bin/cosmic is. Exposed so build/test_audit_test.tl
 --- can hold it to observations directly.
 function test.audited(root: string, scratch: string, effective: test_inputs.Effective,
                       reads: {observations.Observation},
@@ -989,6 +1001,17 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
     if Fs.within(path, scratch) then return true end
     for _, dir in ipairs(made) do
       if Fs.within(path, dir) or Fs.within(path, observations.resolution(dir)) then
+        return true
+      end
+    end
+    return false
+  end
+  -- A directory above the test's own, one it made, or the tree: asking
+  -- what it is, or where it leads, is part of reaching them.
+  local function on_the_way(path: string): boolean
+    if Fs.within(scratch, path) or Fs.within(root, path) then return true end
+    for _, dir in ipairs(made) do
+      if Fs.within(dir, path) or Fs.within(observations.resolution(dir), path) then
         return true
       end
     end
@@ -1028,8 +1051,11 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
       local real = resolved[path]
       local judged = (real ~= nil and real ~= "") and real or path
       if relative ~= nil then relative = test_inputs.plain(relative) end
-      if own(judged) or own(path) or found_nothing(observation, judged) then
-        -- The test's own, or nothing there.
+      -- Where the read landed, not the name it was asked by: a link in
+      -- the test's own directory that leads out reads what it leads to.
+      if own(judged) or found_nothing(observation, judged) or
+          ((kind == "s" or kind == "l" or kind == "a") and on_the_way(judged)) then
+        -- The test's own, on the way to it, or nothing there.
       elseif relative ~= nil then
         if not store_probe(relative) and
             not test_inputs.covers_tree(effective, relative, kind) then
@@ -2424,8 +2450,18 @@ function test.run(argv: {integer:string}): integer
     for i = 1, #rec.tool do rec.tool[#rec.tool + 1] = observations.resolution(rec.tool[i]) end
     local by_path: {string:importer.Module} = {}
     for _, m in ipairs(result.modules) do by_path[m.path] = m end
+    local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
+      "SELECT path, file FROM inputs WHERE kind = 'decl'")
+    if declaration_rows == nil then
+      local _, _ = work.rollback(handle)
+      local _, _ = work.close(handle)
+      log:complain(records_path .. ": " .. declaration_trouble)
+      return 1
+    end
+    local declarations: {string:string} = {}
+    for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
     for _, m in ipairs(selected_modules) do
-      rec.effective[m.path] = test_inputs.effective(m, by_path, hashes)
+      rec.effective[m.path] = test_inputs.effective(m, by_path, declarations)
     end
   end
   local jobs: {Job} = {}

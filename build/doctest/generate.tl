@@ -221,6 +221,41 @@ end
 ---   assertion's failure message and in the header comment; never
 ---   prefixed onto an error this function itself returns -- the caller
 ---   already does that for every module, doc-derived or not
+--- Why `fields`, a doc's `inputs` line, cannot stand between the braces
+--- of a table literal as it is, or "" when it can: a brace closing one
+--- it did not open, one left open, or a comment or long bracket that
+--- would swallow the close. Strings are skipped; the build reads what
+--- is left field by field (`build.analyzer`), so this holds only that
+--- the line stays one literal.
+local function unspliceable(fields: string): string
+  local depth = 0
+  local i = 1
+  while i <= #fields do
+    local c = fields:sub(i, i)
+    if c == '"' or c == "'" then
+      local j = i + 1
+      while j <= #fields and fields:sub(j, j) ~= c do
+        if fields:sub(j, j) == "\\" then j = j + 1 end
+        j = j + 1
+      end
+      if j > #fields then return "leaves a string open" end
+      i = j
+    elseif c == "{" then
+      depth = depth + 1
+    elseif c == "}" then
+      depth = depth - 1
+      if depth < 0 then return "closes a brace it never opened" end
+    elseif fields:sub(i, i + 1) == "--" then
+      return "holds a comment"
+    elseif fields:sub(i, i + 1) == "[[" or fields:sub(i, i + 1) == "[=" then
+      return "holds a long bracket"
+    end
+    i = i + 1
+  end
+  if depth ~= 0 then return "leaves a brace open" end
+  return ""
+end
+
 --- A doc's `inputs` block (`build.doctest.markdown`) becomes the
 --- module's top-level `_inputs` declaration, which the build reads
 --- (`build.inputs`); without the type, which another project's doc
@@ -241,6 +276,10 @@ function generate.from_blocks(blocks: {Block}, file: string): string | nil, stri
       return nil, "line " .. b.line .. ": a doc declares its inputs once; line " ..
         declared.line .. " did already"
     elseif b.lang == "inputs" then
+      local why = unspliceable(b.content)
+      if why ~= "" then
+        return nil, "line " .. b.line .. ": the inputs line " .. why
+      end
       declared = b
     end
   end

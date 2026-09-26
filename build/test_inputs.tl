@@ -9,8 +9,8 @@
 ---   the file of every module it requires, directly or not, as the
 ---   build's module graph has them, or the declaration file of one
 ---   only a declaration answers for;
---- - the corpus of each fuzz property it names by a literal
----   (`testdata/fuzz/<property>/`, where `build.fuzz` looks); and
+--- - every fuzz corpus (`testdata/fuzz/`, where `build.fuzz` looks),
+---   when the closure holds `build.fuzz`; and
 --- - a pinned environment, `pinned_env`: what the checker and the
 ---   fuzzer read of it, and what a process of this program needs.
 ---
@@ -65,23 +65,27 @@ end
 local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE" }
 for _, name in ipairs(observations.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
---- The corpus a `build.fuzz` property named `name` checks when it names
---- none: `testdata/fuzz/` and its name, slugged, as `build.fuzz` names
---- it (its `slug`, which build/test_inputs_test.tl holds this to).
-local function corpus(name: string): string
-  local s = name:gsub("[^%w]+", "-"):gsub("^-+", ""):gsub("-+$", "")
-  if s == "" then s = "property" end
-  return "testdata/fuzz/" .. s
-end
+--- Where `build.fuzz` keeps the corpus of every property.
+local corpora <const> = "testdata/fuzz/"
 
 --- Every module `m` requires, directly or not, and itself, that `by_path`
 --- holds -- a module the binary carries rather than the tree is no file
 --- of it -- as the files they are read from, sorted; and the declaration
---- (`<path>.d.tl`) of each it requires that `staged`, the tree's files
---- by path, holds instead.
-local function closure(m: Module, by_path: {string:Module}, staged: {string:any}): {string}
+--- file of each it requires that only `declarations`, the tree's
+--- declaration files by import path, answers for. Whether `build.fuzz`
+--- is among them rides along.
+-- TODO: follow a require the parse cannot name -- `require(name)` of a
+-- computed name, `pcall(require, ...)` (build/test_worker.tl,
+-- build/dispatch.tl, cosmic/removed_test.tl, cosmic/coverage_test.tl)
+-- -- once the worker records what a test's `require` loaded, as
+-- observation records what it opened: `requires` holds only literal
+-- names, so such a module is read outside the closure, and phase 2's
+-- keys, built from this closure, inherit the miss.
+local function closure(m: Module, by_path: {string:Module},
+                       declarations: {string:string}): {string}, boolean
   local seen: {string:boolean} = {}
   local files: {string} = {}
+  local fuzzes = false
   local stack: {Module} = { m }
   while #stack > 0 do
     local here = table.remove(stack)
@@ -90,44 +94,34 @@ local function closure(m: Module, by_path: {string:Module}, staged: {string:any}
       files[#files + 1] = here.file
       for _, name in ipairs(here.requires) do
         local other = by_path[name]
-        local declaration = name:gsub("%.", "/") .. ".d.tl"
+        if name == "build.fuzz" then fuzzes = true end
         if other ~= nil and not seen[name] then
           stack[#stack + 1] = other
-        elseif other == nil and staged[declaration] ~= nil and not seen[name] then
+        elseif other == nil and declarations[name] ~= nil and not seen[name] then
           seen[name] = true
-          files[#files + 1] = declaration
+          files[#files + 1] = declarations[name]
         end
       end
     end
   end
   table.sort(files)
-  return files
-end
-
---- The corpus of each fuzz property `m` names by a literal, when it
---- requires `build.fuzz` itself: a module that runs no property has
---- none, whatever it names `.run`.
-local function corpora(m: Module): {string}
-  local fuzzes = false
-  for _, name in ipairs(m.requires) do
-    if name == "build.fuzz" then fuzzes = true end
-  end
-  local out: {string} = {}
-  if not fuzzes then return out end
-  for _, name in ipairs(m.fuzz or {}) do out[#out + 1] = corpus(name) end
-  return out
+  return files, fuzzes
 end
 
 --- `m`'s default inputs and its declared ones together: `by_path` is
---- every module the build compiled, by path, and `staged` every file of
---- the tree, by path.
+--- every module the build compiled, by path, and `declarations` every
+--- declaration file of the tree (`<path>.d.tl`), by import path.
 function test_inputs.effective(m: Module, by_path: {string:Module},
-                               staged: {string:any}): test_inputs.Effective
+                               declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
-    files = {}, reads = corpora(m), host = {}, env = {}, network = {},
+    files = {}, reads = {}, host = {}, env = {}, network = {},
     processes = false, tool = false, store = false,
   }
-  for _, file in ipairs(closure(m, by_path, staged)) do out.files[file] = true end
+  local files, fuzzes = closure(m, by_path, declarations)
+  for _, file in ipairs(files) do out.files[file] = true end
+  -- Every corpus, not only the ones the module names: a property's
+  -- name may be computed, and corpora are small.
+  if fuzzes then out.reads[1] = corpora end
   for _, name in ipairs(pinned_env) do out.env[name] = true end
   local declared: analyzer.Declared = m.inputs
   if declared ~= nil then

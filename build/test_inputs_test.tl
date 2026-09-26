@@ -6,11 +6,11 @@ local type positions = require("build.positions")
 local type Module = positions.Module
 
 --- A module of a small tree: its path, file, what it requires, and what
---- it declares and names as fuzz properties.
+--- it declares.
 local function module(path: string, file: string, requires: {string},
-                      inputs?: analyzer.Declared, fuzz?: {string}): Module
+                      inputs?: analyzer.Declared): Module
   return { path = path, file = file, kind = "test", requires = requires,
-    tests = { "test_one", "test_two" }, inputs = inputs, fuzz = fuzz or {} }
+    tests = { "test_one", "test_two" }, inputs = inputs }
 end
 
 --- A declaration of what `fields` names, the rest left out.
@@ -21,18 +21,21 @@ local function declaring(fields: analyzer.Declared): analyzer.Declared
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
---- module of its own and one only a declaration file answers for.
-local function tree(inputs?: analyzer.Declared, fuzz?: {string}): Module, {string:Module}
-  local helper = module("lib.helper", "lib/helper.tl", { "lib.deep", "lib.declared" })
+--- module of its own and one only a declaration file answers for; the
+--- helper runs fuzz properties when `fuzzes` says so.
+local function tree(inputs?: analyzer.Declared, fuzzes?: boolean): Module, {string:Module}
+  local helper_requires = { "lib.deep", "lib.declared" }
+  if fuzzes then helper_requires[#helper_requires + 1] = "build.fuzz" end
+  local helper = module("lib.helper", "lib/helper.tl", helper_requires)
   local deep = module("lib.deep", "lib/deep/init.tl", {})
   local other = module("lib.other", "lib/other.tl", {})
-  local requires = { "lib.helper", "cosmic.fs" }
-  if fuzz ~= nil then requires[#requires + 1] = "build.fuzz" end
-  local m = module("lib.thing_test", "lib/thing_test.tl", requires, inputs, fuzz)
+  local m = module("lib.thing_test", "lib/thing_test.tl", { "lib.helper", "cosmic.fs" }, inputs)
   return m, { [m.path] = m, [helper.path] = helper, [deep.path] = deep, [other.path] = other }
 end
 
-local staged: {string:string} = { ["lib/declared.d.tl"] = "hash" }
+--- The tree's declaration files, by import path, as the build's
+--- `inputs` view names them.
+local staged: {string:string} = { ["lib.declared"] = "lib/declared.d.tl" }
 
 --- A test's default inputs are its module's import closure, as files --
 --- a declaration file for a module only it answers for included, and a
@@ -83,25 +86,27 @@ local function test_a_declaration_adds_to_the_defaults()
   assert(effective.processes)
 end
 
---- The corpus of each property a fuzz test names is a default input,
---- where `build.fuzz` looks for it -- and only for a module that runs
---- properties.
+--- Every fuzz corpus is a default input of a test whose closure runs
+--- properties, where `build.fuzz` looks for one -- a property's name
+--- may be computed -- and of no other test.
 local function test_a_fuzz_tests_corpora_are_default_inputs(tmp: string)
-  local m, by_path = tree(nil, { "Keep me!" })
+  local m, by_path = tree(nil, true)
   local effective = test_inputs.effective(m, by_path, staged)
-  assert(#effective.reads == 1, tostring(#effective.reads))
-  local corpus = effective.reads[1]
-  assert(test_inputs.covers_tree(effective, corpus .. "/0123.input", "o"))
-  -- `build.fuzz` names the same directory in its report of a failure.
+  local name = "Keep " .. string.rep("me", 1) .. "!"
+  -- `build.fuzz` names the directory it looks in, in its report of a
+  -- failure.
   local ok, report = pcall(Fuzz.run, {
-    name = "Keep me!", dir = tmp, iters = 1,
+    name = name, dir = tmp, iters = 1,
     gen = function(_: Fuzz.Source): string return "x" end,
     check = function(_: string): boolean, string return false, "no" end,
   })
-  assert(not ok and tostring(report):find("mkdir -p " .. corpus .. " ", 1, true) ~= nil,
-    corpus .. ": " .. tostring(report))
-  local plain = module("lib.plain_test", "lib/plain_test.tl", {}, nil, { "Keep me!" })
-  assert(#test_inputs.effective(plain, { [plain.path] = plain }, {}).reads == 0)
+  local corpus = tostring(report):match("mkdir %-p (%S+) ")
+  assert(not ok and corpus ~= nil, tostring(report))
+  assert(test_inputs.covers_tree(effective, corpus .. "/0123.input", "o"), corpus)
+  assert(test_inputs.covers_tree(effective, test_inputs.plain(corpus), "d"), corpus)
+  local plain, plain_by_path = tree()
+  assert(not test_inputs.covers_tree(test_inputs.effective(plain, plain_by_path, staged),
+    corpus .. "/0123.input", "o"))
 end
 
 --- A path as a declaration spells it.

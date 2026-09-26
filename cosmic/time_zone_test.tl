@@ -11,6 +11,10 @@ local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
 local type Declared = require("build.inputs").Declared
 
+-- TODO: name these host paths per platform once a declaration can
+-- (a `host` entry for Linux and one for macOS, or a path the sandbox
+-- resolves): the zone database (/var/db/timezone/zoneinfo) differs on macOS, where the audit would find these
+-- reads undeclared; only Linux enforces declarations for now.
 --- The host's own zones, which a test compares the carried ones with.
 local _inputs: Declared = { host = { "/usr/share/zoneinfo/" } }
 

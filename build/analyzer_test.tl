@@ -982,26 +982,15 @@ local function test_a_malformed_inputs_declaration_is_refused()
     { 'local _inputs = { env = { "" } }', "env: an empty name" },
     { "local _inputs = setmetatable({}, {})", "declare it alone, as one table literal" },
     { 'local _inputs, other = { tool = true }, 1', "declare it alone" },
+    { 'local _inputs = { ["reads"] = { "a" } }', "write the field as a name, reads = ..." },
+    { 'local _inputs = { tool = true }\nlocal _inputs = { store = true }',
+      "fixture_test.tl:3: _inputs: a module declares its inputs once; line 2 did already" },
   }
   for _, case in ipairs(cases) do
     local got, trouble = declared("local name = 'x'\n" .. case[1] .. "\n")
     assert(got == nil, case[1] .. " was read")
     assert(trouble:find(case[2], 1, true) ~= nil, case[1] .. ": " .. trouble)
-    assert(trouble:find("fixture_test.tl:2: _inputs: ", 1, true) ~= nil, trouble)
+    local line = case[2]:match("^fixture_test.tl:%d+: ") or "fixture_test.tl:2: "
+    assert(trouble:find(line .. "_inputs: ", 1, true) ~= nil, trouble)
   end
-end
-
---- The literal name of each property a `.run` call is handed names its
---- default corpus; a computed one names none.
-local function test_a_fuzz_property_named_by_a_literal_is_found()
-  local found = assert(analyzer.analyze(built, lines({
-    'local Fuzz = require("build.fuzz")',
-    "local function test_a()",
-    '  Fuzz.run({ name = "json decode total", gen = g, check = c })',
-    '  Fuzz.run({ name = "json " .. "encode", gen = g, check = c })',
-    '  Other.walk({ name = "not a property" })',
-    '  Fuzz.run({ name = "json decode total" })',
-    "end",
-  }), "fixture_test.tl"))
-  assert(#found.fuzz == 1 and found.fuzz[1] == "json decode total", table.concat(found.fuzz, ","))
 end

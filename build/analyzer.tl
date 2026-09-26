@@ -98,10 +98,6 @@ local record analyzer
     tests: {string}
     --- The chunk's top-level `_inputs` declaration, or nil for none.
     inputs: Declared | nil
-    --- The literal `name` of each property a `.run({ name = ... })`
-    --- call hands a table literal to -- a `build.fuzz` property, whose
-    --- corpus is `testdata/fuzz/<its name, slugged>/` -- in order.
-    fuzz: {string}
     has_top_level_return: boolean
     --- The name the chunk's top-level `return` hands back, when it is a
     --- plain name (`return Fs`): what a reference through an alias of
@@ -958,7 +954,12 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   for _, stmt in ipairs(parsed.node) do
     if stmt.kind == "local_declaration" and stmt.vars ~= nil then
       for _, var in ipairs(stmt.vars) do
-        if var.tk == "_inputs" then found = stmt end
+        if var.tk == "_inputs" and found ~= nil then
+          return nil, (stmt.f or "") .. ":" .. tostring(stmt.y) .. ": _inputs: " ..
+            "a module declares its inputs once; line " .. tostring(found.y) .. " did already"
+        elseif var.tk == "_inputs" then
+          found = stmt
+        end
       end
     end
   end
@@ -981,6 +982,10 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     local field = item.key_parsed == "short" and key ~= nil and key.conststr or nil
     local at = (item.f or "") .. ":" .. tostring(item.y) .. ": _inputs: "
     local takes = field ~= nil and input_fields[field] or nil
+    if item.key_parsed ~= "short" and key ~= nil and key.kind == "string" then
+      return nil, at .. "write the field as a name, " .. tostring(key.conststr) ..
+        " = ..., not in brackets"
+    end
     if takes == nil then
       return nil, at .. (field ~= nil and ("no field " .. field) or "an entry with no name") ..
         "; it has " .. table.concat(input_field_order, ", ")
@@ -1035,38 +1040,6 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   return out, ""
 end
 
---- The literal `name` of every table literal handed straight to a call
---- of some `.run` -- `Fuzz.run({ name = "json decode total", ... })` --
---- in source order, each once. A name computed rather than written is
---- none: its corpus is no default input, and its module declares it.
-local function fuzz_properties_of(parsed: ast.Parsed): {string}
-  local out: {string} = {}
-  local seen: {string:boolean} = {}
-  ast.walk(parsed.node, function(node: ast.Node)
-    if node.kind ~= "op" or node.op == nil or node.op.op ~= "@funcall" then return end
-    local callee: ast.Node = node.e1
-    local index = callee ~= nil and callee.op or nil
-    local member: ast.Node = callee ~= nil and callee.e2 or nil
-    if callee == nil or callee.kind ~= "op" or index == nil or index.op ~= "." or
-        member == nil or member.tk ~= "run" then
-      return
-    end
-    local args = node.e2
-    local first = args ~= nil and args[1] or nil
-    if first == nil or first.kind ~= "literal_table" then return end
-    for _, item in ipairs(first) do
-      local key, value = item.key, item.value
-      if item.key_parsed == "short" and key ~= nil and key.conststr == "name" and
-          value ~= nil and value.kind == "string" and value.conststr ~= nil and
-          not seen[value.conststr] then
-        seen[value.conststr] = true
-        out[#out + 1] = value.conststr
-      end
-    end
-  end)
-  return out
-end
-
 --- The same facts, read off a chunk something else already parsed, so a
 --- caller that needs the parse for another question too pays for it
 --- once. `built` is needed only to compile the patterns the catalog
@@ -1112,7 +1085,7 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   local doc_entries = docs_of(lines, parsed)
   canonicalize_docs(doc_entries, parsed, export, returned)
   return {
-    tests = names, inputs = declared, fuzz = fuzz_properties_of(parsed),
+    tests = names, inputs = declared,
     has_top_level_return = has_return, export = export,
     catalog = catalog, docs = doc_entries,
     examples = examples_of(lines, parsed), references = references,

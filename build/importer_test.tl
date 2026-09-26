@@ -1222,3 +1222,21 @@ local function test_a_passing_unjudged_compile_is_cached()
   assert(result.compiled == 0 and result.cached == unjudged.compiled,
     result.compiled .. " compiled, " .. result.cached .. " cached")
 end
+
+--- A declaration of what a test reads holds for its own module's tests,
+--- so a module no test is refused one, naming its line.
+local function test_only_a_test_module_declares_its_inputs()
+  local root = assert(write_fixture("inputs-kind", {
+    ["lib/helper.tl"] = "local _inputs = { reads = { \"data/\" } }\nreturn {}\n",
+    ["lib/helper_test.tl"] = "local helper = require(\"lib.helper\")\n" ..
+      "local _inputs = { reads = { \"data/\" } }\n" ..
+      "local function test_x() assert(helper) end\n",
+  }))
+  local requires, trouble = requires_of_fixture(root, "lib.helper_test")
+  assert(requires == nil, "a module no test's declared its inputs")
+  assert(trouble:find("lib/helper.tl:1: _inputs: only a test or example module", 1, true),
+    trouble)
+  assert(Fs.write(root .. "/lib/helper.tl", "return {}\n"))
+  local again = assert(requires_of_fixture(root, "lib.helper_test"))
+  assert(again[1] == "lib.helper")
+end

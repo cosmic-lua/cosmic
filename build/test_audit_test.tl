@@ -75,7 +75,7 @@ local function test_audited_names_what_the_inputs_do_not_hold(tmp: string)
   local root = assert(Fs.absolute(tmp)) .. "/root"
   local scratch = assert(Fs.absolute(tmp)) .. "/scratch"
   local m: positions.Module = { path = "a.thing_test", file = "a/thing_test.tl", kind = "test",
-    requires = {}, tests = { "test_x" }, fuzz = {} }
+    requires = {}, tests = { "test_x" } }
   local effective = test_inputs.effective(m, { [m.path] = m }, {})
   -- An open is judged by what is there now, which it does not record.
   assert(Fs.mkdirs(root .. "/o/bin"))
@@ -115,4 +115,34 @@ local function test_audited_names_what_the_inputs_do_not_hold(tmp: string)
     "tool o/bin/cosmic",
     "store o/cosmic.db",
   }, "\n"), table.concat(said, "\n"))
+end
+
+--- A read through a link in the test's own directory is judged by
+--- where the link leads: out of it, the read is of what it leads to,
+--- which a sandbox would not show undeclared. A stat of a directory
+--- above the test's own, or the tree, is on the way to them.
+local function test_a_link_in_the_tests_own_directory_that_leads_out_is_named(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local root, scratch, outside = base .. "/root", base .. "/scratch", base .. "/outside"
+  assert(Fs.mkdirs(root))
+  assert(Fs.mkdirs(scratch))
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(outside .. "/f", "x"))
+  local m: positions.Module = { path = "a.thing_test", file = "a/thing_test.tl", kind = "test",
+    requires = {}, tests = { "test_x" } }
+  local effective = test_inputs.effective(m, { [m.path] = m }, {})
+  local found = test.audited(root, scratch, effective, {
+    { kind = "r", path = scratch .. "/l", answer = outside .. "/f" },
+    { kind = "o", path = scratch .. "/l", answer = "" },
+    { kind = "s", path = base, answer = "ok 1 2 dir" },
+    { kind = "l", path = "/", answer = "ok 1 2 dir" },
+    { kind = "a", path = base, answer = "" },
+  }, {})
+  local said: {string} = {}
+  for _, finding in ipairs(found) do said[#said + 1] = finding.field .. " " .. finding.value end
+  assert(table.concat(said, "\n") == "host " .. outside .. "/f", table.concat(said, "\n"))
+  -- A listing of a directory above them reads more than the way there.
+  found = test.audited(root, scratch, effective,
+    { { kind = "d", path = base, answer = "ok" } }, {})
+  assert(#found == 1 and found[1].field == "host" and found[1].value == base)
 end

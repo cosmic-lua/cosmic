@@ -1,5 +1,14 @@
 local SandboxProbe = require("build.sandbox_probe")
 local sys = require("cosmic.sys")
+local type Declared = require("build.inputs").Declared
+
+--- What the probe reads of the host, and the shell it starts under each
+--- sandbox, which inherits the environment: it asks what the host holds.
+local _inputs: Declared = {
+  host = { "/etc", "/proc", "/usr/" },
+  env = { "*" },
+  processes = true,
+}
 
 --- A report of a host where every part held but the unveiling.
 local function without_unveil(): SandboxProbe.Report

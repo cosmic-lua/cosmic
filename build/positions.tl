@@ -31,10 +31,8 @@ local record positions
     --- never mix in one module, since a file is only ever one kind.
     tests: {string}
     --- A test or example module's `_inputs` declaration (`build.inputs`),
-    --- or nil for none, and the fuzz properties it names by a literal
-    --- (see `build.test_inputs`).
+    --- or nil for none (see `build.test_inputs`).
     inputs: analyzer.Declared | nil
-    fuzz: {string}
     has_top_level_return: boolean
     --- True only for a module `build.doctest` produced from a
     --- `doc/guides/*.md` file rather than read off disk as `.tl`

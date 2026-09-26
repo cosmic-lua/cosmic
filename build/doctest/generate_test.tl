@@ -201,3 +201,30 @@ local function test_a_docs_inputs_become_its_declaration()
   assert(again_trouble == "line 9: a doc declares its inputs once; line 3 did already",
     again_trouble)
 end
+
+--- A doc's `inputs` line stands between the braces of one table
+--- literal or is refused: nothing in it closes the literal early or
+--- swallows its close.
+local function test_a_docs_inputs_line_that_would_escape_its_literal_is_refused()
+  local cases: {{string}} = {
+    { "tool = true }, _x = { store = true", "closes a brace it never opened" },
+    { "env = { \"A\"", "leaves a brace open" },
+    { "tool = true -- }", "holds a comment" },
+    { "reads = { [[a}]] }", "holds a long bracket" },
+    { "reads = { \"a }", "leaves a string open" },
+  }
+  for _, case in ipairs(cases) do
+    local blocks: {Block} = {
+      { lang = "inputs", modifiers = no_mods, content = case[1], line = 4 },
+      block("teal", "local x = 1", no_mods),
+    }
+    local code, trouble = generate.from_blocks(blocks, "fixture.md")
+    assert(code == nil, case[1] .. " was spliced")
+    assert(trouble == "line 4: the inputs line " .. case[2], case[1] .. ": " .. trouble)
+  end
+  local ok = generate.from_blocks({
+    { lang = "inputs", modifiers = no_mods, content = 'env = { "}{" }, tool = true', line = 4 },
+  }, "fixture.md")
+  assert(ok ~= nil and ok:find('local _inputs = { env = { "}{" }, tool = true }', 1, true) ~= nil,
+    tostring(ok))
+end

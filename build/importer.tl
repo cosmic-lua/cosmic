@@ -221,8 +221,7 @@ local function origin_lines(source: string): {string: integer} | nil
 end
 
 --- The rows `test_inputs` keeps of one parse (see `build.work`): its
---- `_inputs` declaration, field by field, and the fuzz properties it
---- names.
+--- `_inputs` declaration, field by field.
 local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
                                   found: analyzer.Analysis): boolean, string
   local rows: {{string}} = {}
@@ -240,7 +239,6 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
     if declared.tool then rows[#rows + 1] = { "tool", "true" } end
     if declared.store then rows[#rows + 1] = { "store", "true" } end
   end
-  each("fuzz", found.fuzz)
   for ordinal, row in ipairs(rows) do
     local ok, why = Sqlite.run(db,
       "INSERT INTO test_inputs (source_hash, ordinal, field, value) VALUES (?1, ?2, ?3, ?4)",
@@ -560,49 +558,41 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
 end
 
 --- What `test_inputs` holds, by source hash: each `_inputs`
---- declaration, and each list of fuzz properties.
-local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil,
-                                                       {string:{string}}, string
+--- declaration.
+local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
   if rows == nil then
-    return nil, nil, trouble
+    return nil, trouble
   end
   local declared: {string:analyzer.Declared} = {}
-  local fuzz: {string:{string}} = {}
   for _, row in ipairs(rows) do
     local hash, field, value = row[1], row[2], row[3]
-    if field == "fuzz" then
-      local list = fuzz[hash] or {}
-      fuzz[hash] = list
-      list[#list + 1] = value
-    else
-      local one = declared[hash]
-      if one == nil then
-        one = { line = 0, reads = {}, host = {}, env = {}, network = {},
-          processes = false, tool = false, store = false }
-        declared[hash] = one
-      end
-      if field == "line" then
-        one.line = math.tointeger(tonumber(value)) or 0
-      elseif field == "reads" then
-        one.reads[#one.reads + 1] = value
-      elseif field == "host" then
-        one.host[#one.host + 1] = value
-      elseif field == "env" then
-        one.env[#one.env + 1] = value
-      elseif field == "network" then
-        one.network[#one.network + 1] = value
-      elseif field == "processes" then
-        one.processes = true
-      elseif field == "tool" then
-        one.tool = true
-      elseif field == "store" then
-        one.store = true
-      end
+    local one = declared[hash]
+    if one == nil then
+      one = { line = 0, reads = {}, host = {}, env = {}, network = {},
+        processes = false, tool = false, store = false }
+      declared[hash] = one
+    end
+    if field == "line" then
+      one.line = math.tointeger(tonumber(value)) or 0
+    elseif field == "reads" then
+      one.reads[#one.reads + 1] = value
+    elseif field == "host" then
+      one.host[#one.host + 1] = value
+    elseif field == "env" then
+      one.env[#one.env + 1] = value
+    elseif field == "network" then
+      one.network[#one.network + 1] = value
+    elseif field == "processes" then
+      one.processes = true
+    elseif field == "tool" then
+      one.tool = true
+    elseif field == "store" then
+      one.store = true
     end
   end
-  return declared, fuzz, ""
+  return declared, ""
 end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
@@ -785,7 +775,7 @@ local function collect(handle: work.Handle, self_tree: boolean,
   if examples == nil then
     return nil, examples_trouble
   end
-  local declared, fuzz, inputs_trouble = test_inputs_by_hash(db)
+  local declared, inputs_trouble = test_inputs_by_hash(db)
   if declared == nil then
     return nil, inputs_trouble
   end
@@ -793,6 +783,15 @@ local function collect(handle: work.Handle, self_tree: boolean,
   for _, row in ipairs(rows) do
     local path, file, kind, origin = row[1], row[2], row[3], row[4]
     local source, source_hash, has_return = row[5], row[6], row[7]
+    local inputs = declared[source_hash]
+    if inputs ~= nil and kind ~= "test" and kind ~= "example" then
+      -- A declaration holds for the tests of its own module, and a
+      -- module that is no test's has none: what a module it requires
+      -- reads, the test declares.
+      return nil, file .. ":" .. inputs.line .. ": _inputs: only a test or example " ..
+        "module declares what its tests read; declare it in each test module that " ..
+        "requires this one"
+    end
     out[#out + 1] = {
       path = path,
       file = file,
@@ -803,8 +802,7 @@ local function collect(handle: work.Handle, self_tree: boolean,
       tests = kind == "test" and (tests[source_hash] or {})
         or kind == "example" and (examples[source_hash] or {})
         or {},
-      inputs = declared[source_hash],
-      fuzz = fuzz[source_hash] or {},
+      inputs = inputs,
       has_top_level_return = has_return == "1",
       generated = origin == "doctest",
       key = "",

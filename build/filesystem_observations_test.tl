@@ -10,6 +10,10 @@ local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
 local type Declared = require("build.inputs").Declared
 
+-- TODO: name these host paths per platform once a declaration can
+-- (a `host` entry for Linux and one for macOS, or a path the sandbox
+-- resolves): /etc (a link to /private/etc) differs on macOS, where the audit would find these
+-- reads undeclared; only Linux enforces declarations for now.
 --- What the observer is tested observing: processes it cannot confine, the
 --- system's own directories, the environment, and requests to closed local
 --- ports.
