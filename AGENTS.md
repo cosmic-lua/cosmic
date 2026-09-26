@@ -59,7 +59,8 @@
    worktree runs only what no checkout has run on the same content and core,
    and a test that failed in this checkout never stands on another's pass.
    So a test must not depend on where the tree is (its absolute path); CI
-   moves the checkout to a random path each run to catch one that does.
+   moves the checkout to a path chosen by the commit and the leg to catch
+   one that does: a re-run meets the same path, a new commit a new one.
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.

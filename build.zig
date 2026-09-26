@@ -434,7 +434,7 @@ const core_sources = [_][]const u8{
 /// vendor/ is (see the head of `build`): zig keys a C object by its
 /// source's absolute path and its flags' bytes, an include directory's
 /// among them, so a file compiled where the tree is would be compiled
-/// again for every path a checkout sits at -- CI's is a new one each run
+/// again for every path a checkout sits at -- CI's is a new one each commit
 /// (.github/scripts/place-tree.sh). A copy sits in a directory named by
 /// its contents, so its path is the same from every checkout.
 ///

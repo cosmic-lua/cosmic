@@ -251,9 +251,10 @@
 
         # After the driver's bootstrap, whose cache key hashes a file in
         # the checkout: from here on the checkout is at a path of this
-        # run's own, which the log names, and $GITHUB_WORKSPACE links to it.
+        # commit's and this leg's own (COSMIC_WORKER), which the log names,
+        # and $GITHUB_WORKSPACE links to it.
         {
-          name: "move the tree to a path of this run's own",
+          name: "move the tree to a path of this commit's own",
           "working-directory": ".",
           run: "sh .github/scripts/place-tree.sh",
         },

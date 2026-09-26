@@ -65,7 +65,7 @@ local function operation(c: Context, phase: string, command: {string},
   -- (build/zig.tl). A candidate uses the zig-cache under
   -- COSMIC_ZIG_CACHE_SEED where CI restored it, else keeps its own under
   -- o/, which the build phase seeds. zig keys what it compiles by its
-  -- own cache's path too, and CI puts the checkout at a path of the run's
+  -- own cache's path too, and CI puts the checkout at a path of the commit's
   -- own (.github/scripts/place-tree.sh), so a cache under o/ would never
   -- be reused there: CI saves the seed's as it stands.
   if (child_environment.COSMIC_ZIG_CACHE or "") == "" then

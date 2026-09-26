@@ -109,9 +109,11 @@
         },
 
         # As ci.yml's platform legs: after the driver's bootstrap, the
-        # checkout moves to a path of this run's own, which the log names.
+        # checkout moves to a path of this commit's own, which the log
+        # names; this job is the leg the path is chosen for.
         {
-          name: "move the tree to a path of this run's own",
+          name: "move the tree to a path of this commit's own",
+          env: {COSMIC_WORKER: "fuzz"},
           run: "sh .github/scripts/place-tree.sh",
         },
 

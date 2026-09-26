@@ -993,11 +993,11 @@ local tree_marker <const> = "\0tree"
 --- `Proc.executable` answered is keyed nowhere (`program_answer`), only
 --- that it answered. Nothing here can see a test break either rule;
 --- CI enforces both by moving its checkout, and the tool it runs,
---- o/bin/cosmic, with it, to a path of each run's own
---- (.github/scripts/place-tree.sh). That catches a test that breaks one
---- only on a run that runs the test: every run while CI stands only on
---- what it runs itself, and once it stands on shared verdicts, only a
---- run where the test's key changed.
+--- o/bin/cosmic, with it, to a path the commit and the leg choose, a
+--- new one each commit (.github/scripts/place-tree.sh). That catches a
+--- test that breaks one only on a run that runs the test: every run
+--- while CI stands only on what it runs itself, and once it stands on
+--- shared verdicts, only a run where the test's key changed.
 function observations.tree_name(path: string, tree: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
   local rest, _ = Fs.relative(path, tree)
