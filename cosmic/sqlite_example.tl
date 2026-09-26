@@ -32,6 +32,24 @@ function Example.rowid_and_changes()
   assert(db:close())
 end
 
+--- A result too large to hold whole, read a row at a time: `query`
+--- gives the rows `rows` would, one by one, and a `<close>` variable
+--- finalizes the statement however the loop ends, so the handle closes.
+function Example.query()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE events (id INTEGER PRIMARY KEY, level TEXT)"))
+  for _, level in ipairs({ "info", "warn", "info", "warn" }) do
+    assert(Sqlite.run(db, "INSERT INTO events (level) VALUES (?1)", { { text = level } }))
+  end
+  do
+    local q <close> = assert(Sqlite.query(db,
+      "SELECT id FROM events WHERE level = ?1 ORDER BY id", { { text = "warn" } }))
+    for row in q:each() do print(row[1].integer) end
+    assert(q:failure() == "", q:failure())
+  end
+  assert(db:close())
+end
+
 --- The SQLite the core carries, for a report or a feature check.
 function Example.version()
   print(Sqlite.version)

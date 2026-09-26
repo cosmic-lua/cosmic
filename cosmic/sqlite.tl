@@ -3,8 +3,9 @@
 --- The C boundary keeps a value's type: text and bytes are separate
 --- calls, and a parameter is bound by naming what it is. This module
 --- keeps that property and adds the shapes a caller wants: a query that
---- yields rows, a statement run once, and a transaction that rolls back
---- when the work inside it fails.
+--- yields rows, all at once (`rows`) or one at a time (`query`), a
+--- statement run once, and a transaction that rolls back when the work
+--- inside it fails.
 ---
 --- A parameter is a one-field table naming its type, one per `?N`, in
 --- order; a result cell carries its `kind` and the matching field:
@@ -70,6 +71,25 @@ local record Sqlite
 
   type Row = {Cell}
   type Rows = {Row}
+
+  --- A query's rows read one at a time: see `Sqlite.query`.
+  record Query
+    metamethod __close: function(Query)
+    --- The next row, and ""; nil and "" after the last; nil and why
+    --- when stepping failed, the same again on every later read.
+    read: function(Query): Row | nil, string
+    --- An iterator for a `for` loop over the rows still to come. It
+    --- ends at the last one or at a failure, which `failure` then says.
+    each: function(Query): function(): Row
+    --- Why the rows ended early, or "" when they have not: after an
+    --- `each` loop that ran out, "" means every row was read. A `break`,
+    --- or a `close` inside the loop, ends it early with no failure.
+    failure: function(Query): string
+    --- Finalizes the statement, so the handle can close; the last
+    --- row, a failure and a `<close>` variable each do it too. A read
+    --- afterward fails. Closing again does nothing.
+    close: function(Query)
+  end
 
   --- The version of SQLite the core carries.
   version: string
@@ -197,7 +217,6 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
     return nil, why
   end
   local out: Sqlite.Rows = {}
-  local width = statement:columns()
   while true do
     local state, failure = statement:step()
     if state == nil then
@@ -208,13 +227,101 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
       break
     end
     local row: Sqlite.Row = {}
-    for index = 0, width - 1 do
+    -- Asked after each step: a schema change re-prepares the
+    -- statement, and its columns with it.
+    for index = 0, statement:columns() - 1 do
       row[index + 1] = Sqlite.cell(statement, index)
     end
     out[#out + 1] = row
   end
   statement:finalize()
   return out, ""
+end
+
+local query_mt: metatable<Sqlite.Query> = {
+  __close = function(self: Sqlite.Query)
+    self:close()
+  end,
+}
+
+--- Parameters follow the same complete-list contract as run.
+--- A query whose rows are read one at a time, as `rows` gives them but
+--- never all held at once: nil and why when the statement does not
+--- prepare or bind. The statement stays open, and the handle cannot
+--- close, until the last row is read, a step fails, or the query is
+--- closed; hold it in a `<close>` variable to close it on a `break` or
+--- an error too.
+---
+--- An open query holds SQLite's read lock on a file database between
+--- reads, so a writer on another connection waits for it (in rollback
+--- mode, up to the busy timeout, then fails): read it out promptly. A
+--- write on the same connection to a table the query reads may be
+--- read back by it, without end for an insert into a table scanned
+--- whole; collect what to write first. The statement runs at the first
+--- read, not before: `Sqlite.run` is for one that yields no rows.
+---
+---     local q <close> = assert(Sqlite.query(db, "SELECT id, body FROM t"))
+---     for row in q:each() do print(row[1].integer, row[2].text) end
+---     assert(q:failure() == "", q:failure())
+function Sqlite.query(handle: Sqlite.Handle, sql: string,
+                      values?: {Sqlite.Value}): Sqlite.Query | nil, string
+  local prepared, trouble = handle:prepare(sql)
+  if prepared == nil then
+    return nil, trouble
+  end
+  local statement: Sqlite.Statement = prepared
+  local bound, why = bind(statement, values or {})
+  if not bound then
+    statement:finalize()
+    return nil, why
+  end
+  local open = true
+  local ended = false
+  local failed = ""
+  local q: Sqlite.Query = {}
+  local function finish()
+    if open then
+      open = false
+      statement:finalize()
+    end
+  end
+  q.read = function(_self: Sqlite.Query): Sqlite.Row | nil, string
+    if failed ~= "" then return nil, failed end
+    if ended then return nil, "" end
+    if not open then return nil, "sqlite: the query is closed" end
+    local state, failure = statement:step()
+    if state == nil then
+      failed = failure ~= "" and failure or "sqlite: the step failed"
+      finish()
+      return nil, failed
+    end
+    if state == "done" then
+      ended = true
+      finish()
+      return nil, ""
+    end
+    local row: Sqlite.Row = {}
+    -- Asked after each step: a schema change re-prepares the
+    -- statement, and its columns with it.
+    for index = 0, statement:columns() - 1 do
+      row[index + 1] = Sqlite.cell(statement, index)
+    end
+    return row, ""
+  end
+  q.each = function(self: Sqlite.Query): function(): Sqlite.Row
+    return function(): Sqlite.Row
+      local row, _ = self:read()
+      return row
+    end
+  end
+  q.failure = function(_self: Sqlite.Query): string
+    return failed
+  end
+  q.close = function(_self: Sqlite.Query)
+    finish()
+  end
+  setmetatable(q, query_mt)
+  return q, ""
 end
 
 --- A direct text projection for callers whose SQL already defines the desired
@@ -233,7 +340,6 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
     return nil, why
   end
   local out: {{string}} = {}
-  local width = statement:columns()
   while true do
     local state, failure = statement:step()
     if state == nil then
@@ -244,7 +350,9 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
       break
     end
     local row: {string} = {}
-    for index = 0, width - 1 do
+    -- Asked after each step: a schema change re-prepares the
+    -- statement, and its columns with it.
+    for index = 0, statement:columns() - 1 do
       row[index + 1] = statement:bytes(index)
     end
     out[#out + 1] = row
