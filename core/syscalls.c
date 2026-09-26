@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #if defined(__linux__)
@@ -27,9 +28,11 @@
 #include <stddef.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
-/* _XOPEN_SOURCE intentionally hides this libc escape hatch. It is used only
- * for close_range, whose wrapper musl does not expose. */
+/* _XOPEN_SOURCE intentionally hides these libc escape hatches: syscall,
+ * for the calls musl has no wrapper for, and clone, which starts a child
+ * on this process's memory (`start_child`). */
 extern long syscall (long, ...);
+extern int clone (int (*)(void *), void *, int, void *, ...);
 #endif
 #include <string.h>
 #include <time.h>
@@ -768,6 +771,254 @@ static int unveil (const char *root, char *const *paths, char *const *names,
 }
 #endif
 
+/* Everything a spawned child reads between starting and exec, made ready
+ * by the parent: the child shares the parent's memory on Linux
+ * (`spawn_child`), so it allocates nothing and writes nothing of the
+ * parent's but the one thing it means to -- the coverage flags of the
+ * functions it enters, and on the checked core UBSan's own state -- and
+ * reads only this, which the parent holds, unchanged, until the child
+ * has exec'd or ended. On Darwin the child is a copy (`start_child`),
+ * which holds it to the same rules all the same. */
+struct spawn_plan {
+  const char *path;
+  char **argv;
+  char **envp;
+  const char *cwd;
+  /* source[t] is the parent descriptor the child sees as t, or -1: for
+   * 0..2 that means inherit, above that it means closed. */
+  const int *source;
+  int top;
+  int status_read;
+  int status_write;
+  long descriptor_limit;
+  int process_group;
+  /* The Landlock ruleset to restrict the child to, or -1. */
+  int confine;
+  int pledged;
+#if defined(PLEDGE_ARCH)
+  const struct sock_fprog *pledge;
+#endif
+  int unveiling;
+  int offline;
+  const char *root_dir;
+  char *const *resolved_paths;
+  char *const *given_names;
+  const int *unveiled_writable;
+  int unveil_count;
+  const char *uid_map;
+  const char *gid_map;
+  /* The parent's signal mask from before it blocked every signal to
+   * start the child, which the program is to start with. */
+  sigset_t mask;
+};
+
+/* One past the highest signal number: Linux's real-time signals end at
+ * 64, and Darwin's run to 31. */
+#if defined(__linux__)
+#define SIGNAL_LIMIT 65
+#else
+#define SIGNAL_LIMIT 32
+#endif
+
+/* In the child, with every signal blocked: every signal this process
+ * catches is set back to its default, so none can run a handler of the
+ * parent's -- in the parent's memory -- before exec. One ignored stays
+ * ignored across exec, as it would through fork, but SIGPIPE when cosmic
+ * itself ignored it. A signal the kernel will not change (SIGKILL,
+ * SIGSTOP) or a libc keeps for itself is refused and left alone. */
+static void default_signals (void) {
+  struct sigaction initial;
+  memset(&initial, 0, sizeof initial);
+  initial.sa_handler = SIG_DFL;
+  sigemptyset(&initial.sa_mask);
+  for (int number = 1; number < SIGNAL_LIMIT; number++) {
+    struct sigaction current;
+    if (sigaction(number, NULL, &current) != 0) continue;
+    int reset = current.sa_handler != SIG_DFL && current.sa_handler != SIG_IGN;
+    if (number == SIGPIPE && sigpipe_ignored_here) reset = 1;
+    if (reset) sigaction(number, &initial, NULL);
+  }
+}
+
+/* The child `cosmic_spawn_unobserved` starts, from its start to exec:
+ * on Linux on the parent's memory, through clone(CLONE_VM | CLONE_VFORK)
+ * on a stack of its own, the parent stopped until this execs or ends;
+ * on Darwin through fork, so on a copy. So it neither allocates nor touches the Lua state, writes only
+ * its own stack and descriptors, the kernel's side of the process, and
+ * errno (which is the parent's too on Linux; the parent reads none after
+ * a start that succeeded) -- and, deliberately, the parent's memory in
+ * one place on Linux: the coverage flag of each function it enters
+ * (core/coverage.h), so a test is credited with what its child ran, and
+ * on the checked core the sanitizer runtime's state (UBSan's report
+ * dedup), which a report from here would write. On Darwin those flags
+ * land in the copy and are lost with it, so build/c_functions.tl
+ * exempts this function there. It leaves by exec or _exit, never by
+ * returning, so no atexit handler or stdio flush runs. A failure goes to
+ * the parent over the status pipe as an errno. */
+static _Noreturn int spawn_child (void *argument) {
+  const struct spawn_plan *plan = argument;
+  int top = plan->top;
+  default_signals();
+  close(plan->status_read);
+  int failure = 0;
+  /* dup2 onto a target can overwrite another mapping's source, so every
+   * source is first pinned above everything the child is handed. A
+   * source that is its own target is pinned too: the copy is what makes
+   * the final dup2 clear CLOEXEC on it. Inherited stdio is left alone,
+   * so a closed one stays closed. */
+  int pinned[CHILD_FD_MAX + 1];
+  for (int t = 0; t <= top; t++) {
+    pinned[t] = -1;
+    if (!failure && plan->source[t] >= 0) {
+      pinned[t] = fcntl(plan->source[t], F_DUPFD_CLOEXEC, top + 2);
+      if (pinned[t] < 0) failure = errno;
+    }
+  }
+  /* The ruleset is pinned with them, before the exec-status descriptor
+   * takes top + 1 -- which the ruleset may be -- and before any mapping
+   * can land on it. */
+  int confined = -1;
+  if (!failure && plan->confine >= 0) {
+    confined = fcntl(plan->confine, F_DUPFD_CLOEXEC, top + 2);
+    if (confined < 0) failure = errno;
+  }
+  /* The exec-status descriptor sits just above the child's own. */
+  int status_fd = plan->status_write;
+  if (!failure && status_fd != top + 1) {
+    if (dup2(status_fd, top + 1) < 0) {
+      failure = errno;
+    } else {
+      close(status_fd);
+      status_fd = top + 1;
+    }
+  }
+  if (!failure && fcntl(status_fd, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
+  if (failure) {
+    report_child_error(status_fd, failure);
+    _exit(127);
+  }
+  /* The sandbox's own namespaces first: the root the rest resolves in,
+   * and mounting, which Landlock and a pledge would refuse. */
+#if defined(__linux__)
+  if (plan->unveiling || plan->offline) {
+    failure = unveil(plan->root_dir, plan->resolved_paths, plan->given_names,
+                     plan->unveiled_writable, plan->unveil_count, plan->unveiling,
+                     plan->offline, plan->uid_map, plan->gid_map);
+  }
+#endif
+  if (!failure && plan->process_group && setpgid(0, 0) != 0) failure = errno;
+  if (!failure && plan->cwd != NULL && chdir(plan->cwd) != 0) failure = errno;
+  for (int t = 0; !failure && t <= top; t++) {
+    if (pinned[t] >= 0) {
+      if (dup2(pinned[t], t) < 0) failure = errno;
+    } else if (t < 3) {
+      /* An inherited stdio descriptor must be as safe for exec as a
+       * mapped one. */
+      int flags = fcntl(t, F_GETFD);
+      if (flags >= 0) {
+        if (fcntl(t, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
+      } else if (errno != EBADF) {
+        failure = errno;
+      }
+    } else {
+      close(t);
+    }
+  }
+  /* Confined last, just before exec: what the child and every process
+   * it starts may reach is the ruleset's, and nothing lets it off. */
+  if (!failure && confined >= 0) {
+#if defined(__linux__)
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
+    else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
+#else
+    failure = ENOSYS;
+#endif
+  }
+  /* A pledge last of all: the filter would refuse nothing above, but
+   * it is the one a later step could trip over. */
+  if (!failure && plan->pledged) {
+#if defined(PLEDGE_ARCH)
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
+    else if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, plan->pledge) != 0) failure = errno;
+#else
+    failure = ENOSYS;
+#endif
+  }
+  close_child_descriptors(top + 2, plan->descriptor_limit);
+  /* The program starts with the parent's own mask; a signal pending
+   * since the start is delivered now, at its default. */
+  if (!failure && sigprocmask(SIG_SETMASK, &plan->mask, NULL) != 0) failure = errno;
+  if (!failure) execve(plan->path, plan->argv, plan->envp);
+  if (!failure) failure = errno;
+  report_child_error(status_fd, failure);
+  _exit(127);
+}
+
+/* The stack a Linux child runs `spawn_child` on, above a guard page:
+ * the most it needs is `unveil`'s paths and a libc's formatting, well
+ * under this, and only the pages it touches are ever made. */
+#define SPAWN_STACK_SIZE (256 * 1024)
+
+/* Starts the child `plan` describes, with every signal blocked across
+ * its start, so no handler of the parent's runs in the child, which
+ * shares its memory on Linux: the child's pid, or -1 and the errno in
+ * `error`.
+ * Not fork, whose copy of a large parent's page tables costs more than
+ * the rest of a start together (4.4 ms of the test runner's 8.2 ms per
+ * test at 150 MB), and not posix_spawn, which has no step for a
+ * namespace, a pivoted root, Landlock or a seccomp filter. On Linux,
+ * clone(CLONE_VM | CLONE_VFORK) rather than vfork: the child runs on a
+ * stack of its own, so nothing it calls can overwrite a frame the
+ * parent returns to, and the static analyzer has no vfork to refuse.
+ * posix_spawn is refused on Linux alone: Darwin's covers every step its
+ * child takes (descriptors, cwd through posix_spawn_file_actions_addchdir_np,
+ * a process group, the mask and defaults), having no sandbox to set up.
+ * Darwin forks: macOS's libc makes vfork a fork anyway (Libc's
+ * sys/fork.c: "vfork() is now just fork()"), and a plain fork gives the
+ * child all it calls before exec without vfork's undefined behavior, at
+ * fork's cost.
+ * Every signal is blocked across the whole start, not only its first
+ * steps, so a child hung in setup -- a chdir or an unveiled path on a
+ * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
+ * pending for as long as it hangs, and only SIGKILL ends it. */
+static pid_t start_child (struct spawn_plan *plan, int *error) {
+  sigset_t every;
+  sigfillset(&every);
+  if (sigprocmask(SIG_SETMASK, &every, &plan->mask) != 0) {
+    *error = errno;
+    return -1;
+  }
+  pid_t pid = -1;
+#if defined(__linux__)
+  long page = sysconf(_SC_PAGESIZE);
+  if (page <= 0) page = 4096;
+  size_t size = SPAWN_STACK_SIZE + (size_t)page;
+  char *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (stack == MAP_FAILED) {
+    *error = errno;
+  } else if (mprotect(stack, (size_t)page, PROT_NONE) != 0) {
+    *error = errno;
+    munmap(stack, size);
+  } else {
+    pid = clone(spawn_child, stack + size, CLONE_VM | CLONE_VFORK | SIGCHLD, plan);
+    if (pid < 0) *error = errno;
+    /* The child has exec'd or ended: its stack is done with. */
+    munmap(stack, size);
+  }
+#else
+  /* TODO: start the child through posix_spawn on Darwin, which covers
+   * every step `spawn_child` takes there and spares a large parent
+   * fork's copy, as clone spares it on Linux, once a macOS host can run
+   * core/syscalls_test.tl and CI's macOS job against it: this path is
+   * compiled and started only there. */
+  pid = fork();
+  if (pid == 0) spawn_child(plan);
+  if (pid < 0) *error = errno;
+#endif
+  sigprocmask(SIG_SETMASK, &plan->mask, NULL);
+  return pid;
+}
+
 /* Noted before it starts anything: the process table's own `spawn`,
  * called past build.filesystem_observations' stand-in for it -- through
  * a reference taken before a capture began -- starts a process the
@@ -1075,96 +1326,21 @@ int cosmic_spawn_unobserved (lua_State *L) {
     }
   }
   char **given = cosmic_coverage_environment(envp);
-  pid_t pid = fork();
-  if (pid == 0) {
-    close(status_read);
-    int failure = 0;
-    /* dup2 onto a target can overwrite another mapping's source, so every
-     * source is first pinned above everything the child is handed. A
-     * source that is its own target is pinned too: the copy is what makes
-     * the final dup2 clear CLOEXEC on it. Inherited stdio is left alone,
-     * so a closed one stays closed. */
-    int pinned[CHILD_FD_MAX + 1];
-    for (int t = 0; t <= top; t++) {
-      pinned[t] = -1;
-      if (!failure && source[t] >= 0) {
-        pinned[t] = fcntl(source[t], F_DUPFD_CLOEXEC, top + 2);
-        if (pinned[t] < 0) failure = errno;
-      }
-    }
-    /* The ruleset is pinned with them, before the exec-status descriptor
-     * takes top + 1 -- which the ruleset may be -- and before any mapping
-     * can land on it. */
-    int confined = -1;
-    if (!failure && confine >= 0) {
-      confined = fcntl(confine, F_DUPFD_CLOEXEC, top + 2);
-      if (confined < 0) failure = errno;
-    }
-    /* The exec-status descriptor sits just above the child's own. */
-    if (!failure && status_write != top + 1) {
-      if (dup2(status_write, top + 1) < 0) failure = errno;
-      else close(status_write);
-    }
-    int status_fd = failure ? status_write : top + 1;
-    if (!failure && fcntl(status_fd, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
-    if (failure) {
-      report_child_error(status_fd, failure);
-      _exit(127);
-    }
-    /* The sandbox's own namespaces first: the root the rest resolves in,
-     * and mounting, which Landlock and a pledge would refuse. */
-#if defined(__linux__)
-    if (unveiling || offline) {
-      failure = unveil(root_dir, resolved_paths, given_names, unveiled_writable, unveil_count,
-                       unveiling, offline, uid_map, gid_map);
-    }
-#endif
-    if (!failure && process_group && setpgid(0, 0) != 0) failure = errno;
-    if (!failure && cwd != NULL && chdir(cwd) != 0) failure = errno;
-    if (!failure && sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
-    for (int t = 0; !failure && t <= top; t++) {
-      if (pinned[t] >= 0) {
-        if (dup2(pinned[t], t) < 0) failure = errno;
-      } else if (t < 3) {
-        /* An inherited stdio descriptor must be as safe for exec as a
-         * mapped one. */
-        int flags = fcntl(t, F_GETFD);
-        if (flags >= 0) {
-          if (fcntl(t, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
-        } else if (errno != EBADF) {
-          failure = errno;
-        }
-      } else {
-        close(t);
-      }
-    }
-    /* Confined last, just before exec: what the child and every process
-     * it starts may reach is the ruleset's, and nothing lets it off. */
-    if (!failure && confined >= 0) {
-#if defined(__linux__)
-      if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
-      else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
-#else
-      failure = ENOSYS;
-#endif
-    }
-    /* A pledge last of all: the filter would refuse nothing above, but
-     * it is the one a later step could trip over. */
-    if (!failure && pledged) {
+  struct spawn_plan plan = {
+    .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
+    .status_read = status_read, .status_write = status_write,
+    .descriptor_limit = descriptor_limit, .process_group = process_group,
+    .confine = confine, .pledged = pledged,
 #if defined(PLEDGE_ARCH)
-      if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
-      else if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &pledge) != 0) failure = errno;
-#else
-      failure = ENOSYS;
+    .pledge = &pledge,
 #endif
-    }
-    close_child_descriptors(top + 2, descriptor_limit);
-    if (!failure) execve(path, argv, given);
-    if (!failure) failure = errno;
-    report_child_error(status_fd, failure);
-    _exit(127);
-  }
-  int fork_error = errno;
+    .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
+    .resolved_paths = resolved_paths, .given_names = given_names,
+    .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
+    .uid_map = uid_map, .gid_map = gid_map,
+  };
+  int fork_error = 0;
+  pid_t pid = start_child(&plan, &fork_error);
   close(status_write);
   if (given != envp) free(given);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);

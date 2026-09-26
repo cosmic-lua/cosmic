@@ -4,7 +4,8 @@
 --- cosmic's own tree -- locally, on the release core, and in CI, on the
 --- sanitized one too -- fails for any function no test enters, in its own
 --- process or in one it starts (see `Coverage.children`), unless `exempt`
---- names it with the reason no test can.
+--- names it with the reason no test can, or `exempt_on` does for the
+--- host the run is on.
 ---
 --- A header's `static inline` helper is left out: every file that uses it
 --- compiles its own copy and inlines it where it is small, so whether one
@@ -32,7 +33,11 @@ local record c_functions
 end
 
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
-local before_exec <const> = "runs in a forked child before exec, which reports nothing"
+local sandbox_only <const> =
+  "runs only in a sandboxed child that made a user namespace and mapped its ids, which a host refusing unprivileged ones never starts"
+local maps_ids <const> =
+  "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
+  "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
 
 --- The C functions no test can enter, by `key_of`, and why.
 local exempt: {string: string} = {
@@ -43,14 +48,12 @@ local exempt: {string: string} = {
   ["core/vfs.c:file_unlock"] = read_only,
   ["core/vfs.c:file_check_reserved"] = read_only,
   ["core/vfs.c:file_sector_size"] = read_only,
-  ["core/syscalls.c:report_child_error"] = before_exec,
-  ["core/syscalls.c:close_child_descriptors"] = before_exec,
-  ["core/syscalls.c:unveil"] = before_exec,
-  ["core/syscalls.c:write_whole"] = before_exec,
-  ["core/syscalls.c:make_parents"] = before_exec,
-  ["core/syscalls.c:make_link"] = before_exec,
-  ["core/syscalls.c:mirrored_mode"] = before_exec,
-  ["core/syscalls.c:make_mirrored"] = before_exec,
+  ["core/syscalls.c:write_whole"] = maps_ids,
+  ["core/syscalls.c:make_parents"] = sandbox_only,
+  ["core/syscalls.c:make_link"] = sandbox_only,
+  -- mirrored_mode is inlined into it on every core, so has no entry of
+  -- its own; the checked core keeps this one out of line.
+  ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs_wrap.c:forward_access"] =
@@ -62,6 +65,21 @@ local exempt: {string: string} = {
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
   ["core/strnlen.c:strnlen"] = "a host libc's own strnlen can win the link; bin/zig build boot's strnlen check covers the core's",
+}
+
+--- The C functions no test can enter on one kind of host, by its
+--- uname(2) sysname and then by `key_of`, and why: another host's run
+--- still holds them to being entered.
+local exempt_on: {string: {string: string}} = {
+  Darwin = {
+    -- TODO: drop these once Darwin's child starts through posix_spawn
+    -- (the TODO at core/syscalls.c's fork), or once a child's hits reach
+    -- the parent some other way, such as its own report before exec.
+    ["core/syscalls.c:spawn_child"] = "Darwin's child is a fork, so the flags it sets land in its own copy of the " ..
+      "parent's memory, which it never reports; Linux's clone(CLONE_VM) child's reach the parent",
+    ["core/syscalls.c:report_child_error"] = "called only from spawn_child, whose child's hits never reach the parent " ..
+      "on macOS (see spawn_child)",
+  },
 }
 
 --- How `function` is named in `exempt` and in a failure.
@@ -141,8 +159,15 @@ end
 --- run from that line up to the next function's, which overreaches when
 --- the function after it was inlined everywhere and so is not among
 --- `functions` at all.
+---
+--- `sysname`, the host's uname(2) sysname, adds that host's own
+--- exemptions (`exempt_on`) to those every host shares.
 function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
-                           sources?: {string: {string}}): c_functions.Tally
+                           sources?: {string: {string}}, sysname?: string): c_functions.Tally
+  local here_exempt = sysname ~= nil and exempt_on[sysname] or {}
+  local function exempts(key: string): boolean
+    return exempt[key] ~= nil or here_exempt[key] ~= nil
+  end
   local starts: {string: {integer}} = {}
   for _, fn in ipairs(functions) do
     local lines = starts[fn.path]
@@ -186,10 +211,10 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   for _, key in ipairs(keys) do
     if entered[key] then
       tally.entered = tally.entered + 1
-      if exempt[key] ~= nil then
+      if exempts(key) then
         tally.stale[#tally.stale + 1] = key
       end
-    elseif exempt[key] ~= nil then
+    elseif exempts(key) then
       tally.exempted = tally.exempted + 1
     else
       tally.unentered[#tally.unentered + 1] = key
