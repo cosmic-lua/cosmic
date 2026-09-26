@@ -56,6 +56,8 @@ allowed["build.test_worker.encode"] = "tested directly: the test checks that a "
   "report survives the trip through descriptor 3"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
   "as an older binary would"
+allowed["cosmic.http.open"] = "the public way to read a response as it arrives: " ..
+  "the tree's own callers read theirs whole, through Http.get and Http.download"
 
 --- Every export the tree's database `db` holds that nothing earns, as
 --- `<file>:<line>: <module>.<member>`, sorted.

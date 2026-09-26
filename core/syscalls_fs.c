@@ -87,6 +87,11 @@ COSMIC_SYSCALL(open, 3) {
   if (path == NULL) return cosmic_fail(L, EINVAL);
   int flags = cosmic_checkint(L, 2);
   int mode = cosmic_optint(L, 3, 0644);
+  /* Noted before it opens: an open may make the file it names. */
+  if (cosmic_observing &&
+      !cosmic_observed_note(COSMIC_OBSERVED_OPEN, path, strlen(path))) {
+    return cosmic_fail(L, ENOMEM);
+  }
   int fd;
   do {
     /* Every descriptor this table opens is close-on-exec: a child
@@ -262,6 +267,13 @@ COSMIC_SYSCALL(fstat, 1) {
 }
 
 COSMIC_SYSCALL(stat, 1) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_STAT, cosmic_query_stat);
+  }
+  return cosmic_query_stat(L);
+}
+
+int cosmic_query_stat (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
@@ -296,6 +308,13 @@ COSMIC_SYSCALL(mkdir, 2) {
   int mode = cosmic_optint(L, 2, 0755);
   if (mkdir(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
+  }
+  /* Noted once it is made, as the test's own; one the log cannot keep
+   * is taken back. */
+  if (cosmic_observing &&
+      !cosmic_observed_note(COSMIC_OBSERVED_MKDIR, path, strlen(path))) {
+    rmdir(path);
+    return cosmic_fail_effect(L, ENOMEM);
   }
   return cosmic_ok(L);
 }
@@ -342,6 +361,13 @@ COSMIC_SYSCALL(chmod, 2) {
 static void release_dir (void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_READDIR, cosmic_query_readdir);
+  }
+  return cosmic_query_readdir(L);
+}
+
+int cosmic_query_readdir (lua_State *L) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   /* Filling the table allocates, and an allocation can raise: the guard
@@ -426,6 +452,12 @@ int cosmic_query_getcwd (lua_State *L) {
 COSMIC_SYSCALL(chdir, 1) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  /* Noted as a stat of where it goes, from where it was made, before it
+   * goes. */
+  if (cosmic_observing &&
+      !cosmic_observed_ask(L, COSMIC_OBSERVED_STAT, cosmic_query_stat)) {
+    return cosmic_fail_effect(L, ENOMEM);
+  }
   if (chdir(path) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -468,6 +500,13 @@ COSMIC_SYSCALL(mkdtemp, 1) {
   memcpy(room, template, len + 1);
   if (mkdtemp(room) == NULL) {
     return cosmic_fail(L, errno);
+  }
+  /* Noted once it is made, as the test's own; one the log cannot keep
+   * is taken back. */
+  if (cosmic_observing &&
+      !cosmic_observed_note(COSMIC_OBSERVED_MKDTEMP, room, len)) {
+    rmdir(room);
+    return cosmic_fail(L, ENOMEM);
   }
   lua_pushstring(L, room);
   return 1;

@@ -92,6 +92,13 @@ int cosmic_query_executable (lua_State *L) {
 }
 
 COSMIC_SYSCALL(getenv, 1) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_GETENV, cosmic_query_getenv);
+  }
+  return cosmic_query_getenv(L);
+}
+
+int cosmic_query_getenv (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   const char *value = getenv(name);
   if (value == NULL) {
@@ -103,6 +110,13 @@ COSMIC_SYSCALL(getenv, 1) {
 }
 
 COSMIC_SYSCALL(environ, 0) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_ENVIRON, cosmic_query_environ);
+  }
+  return cosmic_query_environ(L);
+}
+
+int cosmic_query_environ (lua_State *L) {
   lua_newtable(L);
   char **at = COSMIC_ENVIRON;
   for (; at != NULL && *at != NULL; at++) {
@@ -761,7 +775,24 @@ static int unveil (const char *root, char *const *paths, char *const *names,
 }
 #endif
 
+/* Noted before it starts anything: the process table's own `spawn`,
+ * called past build.filesystem_observations' stand-in for it -- through
+ * a reference taken before a capture began -- starts a process the
+ * observer never judged. */
 COSMIC_SYSCALL(spawn, 10) {
+  if (cosmic_observing) {
+    size_t length = 0;
+    const char *path = lua_type(L, 1) == LUA_TSTRING
+                           ? lua_tolstring(L, 1, &length)
+                           : NULL;
+    if (!cosmic_observed_note(COSMIC_OBSERVED_SPAWN, path, length)) {
+      return cosmic_fail(L, ENOMEM);
+    }
+  }
+  return cosmic_spawn_unobserved(L);
+}
+
+int cosmic_spawn_unobserved (lua_State *L) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
