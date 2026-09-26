@@ -19,6 +19,7 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 local bind = require("build.bind")
 
 local record roots
@@ -42,7 +43,7 @@ function roots.parse(pem: string): {roots.Root} | nil, string
   local previous = ""
   local body: {string} | nil = nil
   local number = 0
-  for line in (pem:gsub("\r\n", "\n") .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines((pem:gsub("\r\n", "\n"))) do
     number = number + 1
     if body ~= nil then
       if line == "-----END CERTIFICATE-----" then

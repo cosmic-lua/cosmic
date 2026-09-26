@@ -3,6 +3,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local docs = require("build.docs")
 local importer = require("build.importer")
 local teal = require("build.teal")
@@ -695,7 +696,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   work.close(handle)
   assert(lua ~= nil, "lines did not compile")
   local generated: {string} = {}
-  for line in (lua .. "\n"):gmatch("(.-)\n") do
+  for line in String.lines(lua) do
     generated[#generated + 1] = line
   end
   assert(generated[9]:find("function lines.add", 1, true), "line 9: " .. generated[9])

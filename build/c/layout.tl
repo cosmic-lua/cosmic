@@ -24,6 +24,8 @@
 --- what went in token for token (`same`), and a file that fails is left
 --- as it was.
 
+local String = require("cosmic.string")
+
 local record layout
 end
 
@@ -133,7 +135,7 @@ end
 local function meaning(t: Token): string
   if t.kind ~= "comment" then return t.text end
   local lines: {string} = {}
-  for line in (t.text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(t.text) do
     lines[#lines + 1] = (line:gsub("^[ \t]+", ""):gsub("[ \t]+$", ""))
   end
   return table.concat(lines, "\n")
