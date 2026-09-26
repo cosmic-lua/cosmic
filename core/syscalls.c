@@ -1538,16 +1538,24 @@ static bool sandbox_room (void) {
 static void end_sandbox_init (size_t at) {
   pid_t init = pairs[at].init;
   pairs[at].program = -1;
+  /* Its end is waited for on a pidfd where the kernel gives one, and
+   * looked for every tenth of a millisecond where not. */
+  int watched = (int)syscall(SYS_pidfd_open, init, 0);
   kill(init, SIGKILL);
-  for (int tries = 0; tries < 1000; tries++) {
+  if (watched >= 0) {
+    struct pollfd ended = { watched, POLLIN, 0 };
+    while (poll(&ended, 1, 1000) < 0 && errno == EINTR) {}
+    close(watched);
+  }
+  for (int tries = 0; tries < (watched >= 0 ? 1 : 10000); tries++) {
     int ignored;
     pid_t answer = waitpid(init, &ignored, WNOHANG);
     if (answer == init || (answer < 0 && errno == ECHILD)) {
       pairs[at] = pairs[--pair_count];
       return;
     }
-    struct timespec pause = { 0, 1000000 };
-    nanosleep(&pause, NULL);
+    struct timespec pause = { 0, 100000 };
+    if (watched < 0) nanosleep(&pause, NULL);
   }
 }
 
