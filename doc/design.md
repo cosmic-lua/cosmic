@@ -649,16 +649,19 @@ are closed:
   (core/observed.h), whoever calls it; a capture drains the log and notes each,
   an lstat, a readlink or a realpath as a stat is, and `executable` by whether
   it answered: where the program is, like where the tree is, is no input.
-- [ ] *a read resolved beside the call* (`build/filesystem_observations.tl`, in
-  `start`): another process retargeting a link between the read and its
-  resolution goes unseen; resolve by the descriptor the call opened. a query the
-  table's log keeps (above `start`) is resolved later still, as the capture
-  ends: resolve it in C, beside its record.
-- [ ] *a call taken before the capture* (`build/filesystem_observations.tl`,
-  above `start`): `open`, `stat`, `readdir`, `getenv` and the other calls still
-  observed by standing in for a field of `cosmic.sys` go unseen through a
-  reference a module took before the capture began. move them onto the table's
-  log.
+- [x] *a call taken before the capture*: `open`, `stat`, `readdir`, `getenv`,
+  `environ`, `mkdir`, `mkdtemp` and `chdir` of `cosmic.sys`, the process
+  table's `spawn` and cosmic.http's `open` log in their own bindings too, so a
+  reference a module took before the capture began is observed as the table's
+  own is. only `spawn` is still stood in for, to confine what a test starts; a
+  process started past the stand-in is logged and never stands.
+- [ ] *a read resolved beside the call* (`core/observed.c`, above
+  `log_resolution`): a read's path is resolved in C beside its record, as the
+  call is made, so a link a test retargets afterwards no longer moves it; but
+  another process retargeting a link between the call and its resolution goes
+  unseen. resolve by the descriptor the call opened. a file SQLite opens is
+  resolved later still, as it is drained (`build/filesystem_observations.tl`,
+  above `drain_sqlite`): resolve it in the VFS, beside its record.
 - [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
   `under_root`): keyed by where the link leads at the end, not when read.
   resolve such a read as it is made, from a set of the tree's links.
