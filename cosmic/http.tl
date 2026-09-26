@@ -9,9 +9,11 @@
 ---
 --- `Http.open` blocks until the final response's headers have arrived
 --- (following every redirect `opts.follow` allows) and hands back a
---- `Response` whose body is read a chunk at a time; `Http.get` reads
---- the whole body for the common case, and `Http.download` streams it
---- straight to a file, verifying a checksum while it goes.
+--- `Response` whose body is read a chunk at a time -- a
+--- `cosmic.stream` Reader, so `Stream.copy`, `Stream.transform` and the
+--- rest take it as they take a file; `Http.get` reads the whole body
+--- for the common case, and `Http.download` streams it straight to a
+--- file, verifying a checksum while it goes.
 
 local Codec = require("cosmic.codec")
 
@@ -33,7 +35,7 @@ else
 end
 
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
+local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
 local record Http
@@ -47,7 +49,7 @@ local record Http
   --- `low_speed_bytes` (default 1) per second for `low_speed_seconds`
   --- (default 60) straight; 0 turns either check off. `timeout_ms`
   --- bounds the whole request and has no default. `sha256` is read
-  --- only by `Http.download`.
+  --- only by `Http.download`, and `body_size` only by `Http.upload`.
   ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
@@ -69,6 +71,7 @@ local record Http
     method: string
     headers: {string:string}
     body: string
+    body_size: integer
     follow: boolean
     max_redirects: integer
     connect_timeout_ms: integer
@@ -81,23 +84,39 @@ local record Http
     sha256: string
   end
 
-  --- An open response. `status`, `headers` and `url` (the effective
-  --- URL, after every redirect taken) are already known when
-  --- `Http.open` returns them; `read` pulls the body a chunk at a
-  --- time. `headers` is keyed by lowercased name, and a name the
-  --- response repeats has its values joined with ", " (RFC 9110
-  --- 5.3) -- Set-Cookie's, which may hold commas themselves, with
-  --- "\n" instead. `close` is idempotent, and a `<close>` variable
-  --- closes the response when it goes out of scope; a method called
-  --- on the raw handle after close raises.
-  record Response
+  --- An open response, and a `cosmic.stream` Reader of its body.
+  --- `status`, `headers` and `url` (the effective URL, after every
+  --- redirect taken) are already known when `Http.open` returns them;
+  --- `read` pulls the body a chunk at a time, `nil, ""` at its clean
+  --- end and the same error again after a failure. `headers` is keyed
+  --- by lowercased name, and a name the response repeats has its
+  --- values joined with ", " (RFC 9110 5.3) -- Set-Cookie's, which may
+  --- hold commas themselves, with "\n" instead. `close` always
+  --- succeeds and is idempotent, a `<close>` variable closes the
+  --- response when it goes out of scope, and a `read` after either
+  --- fails. `sent` after close raises.
+  record Response is Stream.Reader
     metamethod __close: function(Response)
     status: integer
     headers: {string:string}
     url: string
-    read: function(Response, max?: integer): string | nil, string
-    close: function(Response)
     sent: function(Response): string
+  end
+
+  --- A request whose body is written a chunk at a time: a
+  --- `cosmic.stream` Writer, so `Stream.copy` fills it from a file, a
+  --- child's output or another response. Each `write` blocks until curl
+  --- has taken the chunk. `close` ends the body and blocks until the
+  --- final response's headers arrive, and `response` then hands the
+  --- response over, or why there is none; asked before `close`, it
+  --- closes first. A `write` fails once the request has, or once the
+  --- server has answered before the body was all sent -- `response`
+  --- then says what it answered, as it does once a server's early
+  --- answer is too large to wait on unread. `abort` gives up on the
+  --- request, and so does a `<close>` variable left before `close`.
+  record Upload is Stream.Writer
+    metamethod __close: function(Upload)
+    response: function(Upload): Response | nil, string
   end
 
   --- What `Http.get` returns: a status, a whole body, and headers,
@@ -112,9 +131,33 @@ end
 
 local response_mt: metatable<Http.Response> = {
   __close = function(self: Http.Response)
-    self:close()
+    local _, _ = self:close()
   end,
 }
+
+--- The Response over a handle whose final headers are known.
+local function respond(handle: raw_http.Handle): Http.Response
+  local closed = false
+  local response: Http.Response = {
+    status = handle:status(),
+    headers = handle:headers(),
+    url = handle:url(),
+    read = function(_self: Stream.Reader, max?: integer): string | nil, string
+      if closed then return nil, "http: the response is closed" end
+      return handle:read(max)
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      closed = true
+      handle:close()
+      return true, ""
+    end,
+    sent = function(_self: Http.Response): string
+      return handle:sent()
+    end,
+  }
+  setmetatable(response, response_mt)
+  return response
+end
 
 --- Opens `url`, blocking until the final response's headers arrive.
 --- The body is not read yet -- call `response:read(max)` until it
@@ -125,22 +168,79 @@ function Http.open(url: string, opts?: Http.Options): Http.Response | nil, strin
   if handle == nil then
     return nil, trouble
   end
-  local response: Http.Response = {
-    status = handle:status(),
-    headers = handle:headers(),
-    url = handle:url(),
-    read = function(_self: Http.Response, max?: integer): string | nil, string
-      return handle:read(max)
-    end,
-    close = function(_self: Http.Response)
+  return respond(handle), ""
+end
+
+local closed_message <const> = "http: the request body is already closed"
+
+local upload_mt: metatable<Http.Upload> = {
+  __close = function(self: Http.Upload)
+    local _, _ = self:abort()
+  end,
+}
+
+--- Starts a request to `url` whose body is written to the Upload it
+--- returns, as a POST unless `opts.method` names another. Its size,
+--- when `opts.body_size` gives it, is sent as the Content-Length --
+--- a write that would take the body past it fails, taking none of its
+--- bytes, and a `close` short of it fails the request -- and
+--- otherwise the body goes chunked. `opts.body` is refused, and a HEAD
+--- is `nil, err`, as neither has a body to write. The request may
+--- connect and send its headers as soon as any transfer is driven,
+--- before its own first write. A redirect that would send
+--- the body again (a 307 or 308) fails the request, since what was
+--- written cannot be written again.
+-- TODO: follow a 307 or 308 with a streamed body by asking the caller
+-- for it again (a function answering a fresh Reader, say) behind a
+-- CURLOPT_SEEKFUNCTION that rewinds to it, once a caller must upload
+-- through such a redirect; curl answers "necessary data rewind was not
+-- possible" for one today.
+function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, string
+  local started, trouble = http.start(url, opts)
+  if started == nil then
+    return nil, trouble
+  end
+  local handle: raw_http.Handle = started
+  local closed = false
+  local aborted = false
+  local answered: Http.Response
+  local failure = ""
+  local up: Http.Upload = {}
+  up.write = function(_self: Stream.Writer, data: string): boolean, string
+    if closed then return false, closed_message end
+    return handle:write(data)
+  end
+  up.close = function(_self: Stream.Writer): boolean, string
+    if closed then
+      if failure ~= "" and not aborted then return false, failure end
+      return true, ""
+    end
+    closed = true
+    local finished, why = handle:finish()
+    if not finished then
+      failure = why
       handle:close()
-    end,
-    sent = function(_self: Http.Response): string
-      return handle:sent()
-    end,
-  }
-  setmetatable(response, response_mt)
-  return response, ""
+      return false, failure
+    end
+    answered = respond(handle)
+    return true, ""
+  end
+  up.abort = function(_self: Stream.Writer): boolean, string
+    if closed then return true, "" end
+    closed, aborted = true, true
+    failure = "http: the request was aborted"
+    handle:close()
+    return true, ""
+  end
+  up.response = function(self: Http.Upload): Http.Response | nil, string
+    if not closed then
+      local _, _ = self:close()
+    end
+    if answered == nil then return nil, failure end
+    return answered, ""
+  end
+  setmetatable(up, upload_mt)
+  return up, ""
 end
 
 --- `Http.open`, then the whole body read at once. Fails on a
@@ -151,39 +251,12 @@ function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
   if response == nil then
     return nil, trouble
   end
-  local parts: {string} = {}
-  while true do
-    local chunk, read_trouble = response:read()
-    if chunk == nil then
-      response:close()
-      if read_trouble ~= "" then
-        return nil, read_trouble
-      end
-      break
-    end
-    parts[#parts + 1] = chunk
+  local body, read_trouble = Stream.read_all(response)
+  local _, _ = response:close()
+  if body == nil then
+    return nil, read_trouble
   end
-  return { status = response.status, body = table.concat(parts),
-    headers = response.headers }, ""
-end
-
---- Copies `response`'s body to `fd`, feeding `hasher` (when there is
---- one) as it goes.
-local function copy_body(response: Http.Response, fd: integer, hasher: Hash.Hasher): boolean, string
-  while true do
-    local chunk, trouble = response:read()
-    if chunk == nil then
-      if trouble ~= "" then return false, trouble end
-      return true, ""
-    end
-    if hasher ~= nil then
-      hasher:update(chunk)
-    end
-    local put, put_trouble = Fs.put(fd, chunk)
-    if not put then
-      return false, put_trouble
-    end
-  end
+  return { status = response.status, body = body, headers = response.headers }, ""
 end
 
 --- Downloads `url` to `path`, as `curl -fLo` or `wget` would, streaming
@@ -196,31 +269,34 @@ end
 --- mismatch, and removes the temporary file on every failure.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
   local want = opts ~= nil and opts.sha256 or ""
-  local hasher: Hash.Hasher = nil
+  local hashing: Stream.Hashing = nil
   if want ~= "" then
-    local made, hasher_trouble = Hash.hasher("sha256")
+    local made, hasher_trouble = Stream.hashing("sha256")
     if made == nil then
       return false, hasher_trouble
     end
-    hasher = made
+    hashing = made
   end
   local response, open_trouble = Http.open(url, opts)
   if response == nil then
     return false, open_trouble
   end
   if response.status < 200 or response.status >= 300 then
-    response:close()
+    local _, _ = response:close()
     return false, url .. ": HTTP " .. tostring(response.status)
   end
 
   local temporary, open_write_trouble = sys.open_temporary(path, 0x1a4)
   if temporary == nil then
-    response:close()
+    local _, _ = response:close()
     return false, path .. ": " .. open_write_trouble
   end
   local part, fd = temporary.path, temporary.fd
-  local ok, trouble = copy_body(response, fd, hasher)
-  response:close()
+  local writer = Stream.to_fd(fd)
+  if hashing ~= nil then writer = Stream.tee(writer, hashing) end
+  local copied, trouble = Stream.copy(response, writer)
+  local _, _ = response:close()
+  local ok = copied ~= nil
   if ok then
     ok, trouble = Fs.fsync(fd)
   end
@@ -228,8 +304,8 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
   if ok and not closed then
     ok, trouble = false, close_trouble
   end
-  if ok and hasher ~= nil then
-    local digest, digest_trouble = hasher:digest()
+  if ok and hashing ~= nil then
+    local digest, digest_trouble = hashing:digest()
     if digest == nil then
       ok, trouble = false, digest_trouble
     elseif Codec.hex(digest) ~= want:lower() then

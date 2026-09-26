@@ -24,6 +24,7 @@ local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Observations = require("build.filesystem_observations")
+local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -350,6 +351,105 @@ local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails
   end)
   assert(ended > 0, "observing allocates")
   assert_c_heap(bytes, blocks, "observing SQLite's files under refusal")
+end
+
+--- A file a connection holds open is linked through the block SQLite
+--- allocates for it, which costs the C heap nothing; turning recording
+--- on hands each over onto it, which can be refused: `observe` answers
+--- false, and what it kept drains whole. An open whose record was
+--- refused, or that failed, is not held: once every connection has
+--- closed, turning recording on hands nothing over.
+local function test_handing_over_held_files_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local raw = sqlite_table()
+  local path = tmp .. "/held.db"
+  local real = assert(sys.realpath(tmp)) .. "/held.db"
+  local made = assert(Sqlite.open(path, true))
+  assert(made:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('held')"))
+  assert(made:close())
+  local _, _ = raw.observe(false)
+  raw.observed()
+  local db = assert(Sqlite.open(path, false))
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local handed_over = under_every_failure(function()
+    local handed, trouble, number = raw.observe(true)
+    local _, _ = raw.observe(false)
+    local seen = raw.observed()
+    if handed then
+      assert(#seen == 1 and seen[1] == real, tostring(seen[1]))
+    else
+      -- A record refused: said as memory's failure, and nothing kept.
+      assert(sys.errno_name(number) == "ENOMEM", tostring(trouble))
+      assert(#seen == 0, tostring(seen[1]))
+    end
+  end, function()
+    local _, _ = raw.observe(false)
+    raw.observed()
+  end)
+  assert(handed_over > 0, "handing over allocates")
+  assert_c_heap(bytes, blocks, "handing held files over under refusal")
+  assert(db:close())
+  local reopened: Sqlite.Handle = nil
+  under_every_failure(function()
+    local _, _ = raw.observe(true)
+    reopened = assert(Sqlite.open(path, false))
+    assert(Sqlite.text_rows(reopened, "SELECT v FROM t"))
+  end, function()
+    local _, _ = raw.observe(false)
+    collectgarbage("collect")
+    if reopened ~= nil then assert(reopened:close()) end
+    reopened = nil
+    raw.observed()
+  end)
+  local missing, _ = Sqlite.open(tmp .. "/missing.db", false)
+  assert(missing == nil)
+  local handed, trouble = raw.observe(true)
+  assert(handed, trouble)
+  local _, _ = raw.observe(false)
+  local left = raw.observed()
+  for _, name in ipairs(left) do
+    assert(name ~= real, "a closed database is held still")
+    assert(name:sub(-#"/missing.db") ~= "/missing.db", "a failed open is held")
+  end
+  assert_c_heap(bytes, blocks, "opening held files under refusal")
+end
+
+--- A held file whose record is refused is said, not raised: `observe`
+--- answers false with ENOMEM and turns recording on regardless, and a
+--- capture that starts so is one no key holds, noted "x".
+local function test_a_held_file_whose_record_is_refused_is_said_not_raised(tmp: string)
+  if not checked then return end
+  local raw = sqlite_table()
+  local path = assert(sys.realpath(tmp)) .. "/held.db"
+  local made = assert(Sqlite.open(path, true))
+  assert(made:exec("CREATE TABLE t (v TEXT)"))
+  -- Drained first, so that handing it over must record it anew.
+  raw.observed()
+  testing.fail_at("sqlite_observed")
+  local ok, handed, trouble, number = pcall(raw.observe, true)
+  testing.fail_at()
+  local _, _ = raw.observe(false)
+  raw.observed()
+  assert(ok, tostring(handed))
+  assert(handed == false and sys.errno_name(number) == "ENOMEM", tostring(trouble))
+  -- The capture drains the record as it starts, so the refusal falls
+  -- on handing the held file over.
+  local c: Observations.Captured = nil
+  local unfired = false
+  local outer = Observations.capture(function()
+    testing.fail_at("sqlite_observed")
+    c = Observations.capture(function() end)
+    unfired = testing.fail_at()
+  end)
+  assert(outer.ok, tostring(outer.produced))
+  assert(not unfired, "the hand-over was never refused")
+  local refused = false
+  for _, observation in ipairs(c.reads) do
+    if observation.kind == "x" and observation.path == "sqlite" then refused = true end
+  end
+  assert(refused, "a capture handed over nothing it holds is keyed as though it were")
+  assert(made:close())
 end
 
 --- What the syscall table's queries answer while observed is kept, on
@@ -775,4 +875,36 @@ local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string
     assert(after == before, case.name .. " left descriptor " .. before .. " open")
   end
   assert(ended > 0, "a request allocates")
+end
+
+--- An upload -- `start`, `write` twice, `finish`, then the response read
+--- to its end -- whenever an allocation fails: nothing is left behind,
+--- as with `open`, and the run with nothing refused reads the body.
+local function test_an_upload_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  -- A reply that leaves the connection open, so curl sends the whole
+  -- body though the reply comes first.
+  local script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#hello) ..
+    "\r\n\r\n" .. hello }
+  local function upload(): string
+    local up = assert(Http.upload("http://cosmic.test/",
+      { headers = { ["X-One"] = "1" }, script = script }))
+    assert(up:write("pay"))
+    assert(up:write("load"))
+    local response = assert(up:response())
+    local body = assert(Stream.read_all(response))
+    assert(response:close())
+    return body
+  end
+  assert(upload() == hello)
+  collectgarbage("collect")
+  local before = next_descriptor(tmp)
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    assert(upload() == hello, "an upload reads the whole body")
+  end)
+  assert(ended > 0, "an upload allocates")
+  assert(testing.live_transfers() == 0, "an upload left a transfer alive")
+  assert_c_heap(bytes, blocks, "an upload under refusal")
+  assert(next_descriptor(tmp) == before, "an upload left descriptor " .. before .. " open")
 end

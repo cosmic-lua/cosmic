@@ -903,13 +903,63 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   -- A link is taken for what it leads to, so a project whose modules
   -- or tests are reached through one (`lib -> ../shared/lib`) builds
   -- them; a loop of links ends its branch rather than the stage.
-  -- TODO: refuse, or warn on, a link that leads above the root (`sub/ws
-  -- -> ../..`): the walk stages everything above it, which `skip`, asked
-  -- only about paths under the root, does not stop.
-  local walked, walk_trouble =
-    Fs.walk_following(root, own_tree and skip_in_own_tree or skip_input)
+  -- A link to a directory above the root is refused: the walk would
+  -- stage everything under that directory but the root, where `skip`,
+  -- asked only about paths under the root, stops nothing. The root's
+  -- ancestors are known by device and inode, as the walk knows a loop,
+  -- so a spelling of one that differs (another case, a bind mount)
+  -- is still one. A link to the root itself is a loop, and ends there;
+  -- a link to a tree beside the root, or to an unrelated one (`sys ->
+  -- /usr`), is staged whole, by design. Only a link is stat'd, so a
+  -- tree with none costs nothing more.
+  local skip_path = own_tree and skip_in_own_tree or skip_input
+  local ancestors: {string:boolean} = nil
+  local above = ""
+  local function skip(entry: string, name: string, kind: string): boolean
+    if skip_path(entry, name) then
+      return true
+    end
+    if kind ~= "link" then
+      return false
+    end
+    if ancestors == nil then
+      ancestors = {}
+      local path = root
+      local last = ""
+      while true do
+        local st, _ = Fs.stat(path)
+        if st == nil then
+          break
+        end
+        local key = tostring(st.dev) .. ":" .. tostring(st.ino)
+        if key == last then
+          break
+        end
+        if last ~= "" then
+          ancestors[key] = true
+        end
+        last = key
+        path = path .. "/.."
+      end
+    end
+    -- One that leads nowhere is not walked, so it is let be.
+    local st, _ = Fs.stat(root .. "/" .. entry)
+    if st ~= nil and ancestors[tostring(st.dev) .. ":" .. tostring(st.ino)] then
+      if above == "" then
+        local target, _ = Fs.absolute(root .. "/" .. entry)
+        above = root .. "/" .. entry .. ": a link to " .. (target or "a directory") ..
+          ", above the root, whose whole tree would be staged"
+      end
+      return true
+    end
+    return false
+  end
+  local walked, walk_trouble = Fs.walk_following(root, skip)
   if walked == nil then
     return nil, walk_trouble
+  end
+  if above ~= "" then
+    return nil, above
   end
   local files: {string} = walked
   local known: {string:{string:Known}} = {}

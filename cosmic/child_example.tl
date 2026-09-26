@@ -3,6 +3,8 @@
 --- test -- see doc/design.md's `examples` table.
 
 local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
@@ -66,6 +68,19 @@ function Example.release()
     assert(sys.kill(sys.getpid(), caught))
   end
   print(tostring(result.code))
+end
+
+--- A child's output read as it comes rather than once it has exited:
+--- a filter fed through its stdin stream while its stdout stream is
+--- read, neither side stalling on the other however much goes through.
+function Example.start()
+  local h <close> = assert(Child.start({ "/bin/sh", "-c", "tr a-z A-Z" },
+    { stdin = "stream", stdout = "stream" }))
+  local stdin = assert(h.stdin_stream)
+  assert(stdin:write("streamed\n"))
+  assert(stdin:close())
+  assert(Stream.copy(assert(h.stdout_stream), Stream.to_fd(Fs.stdout)))
+  assert(assert(h:wait()).ok)
 end
 
 return Example

@@ -270,7 +270,7 @@ end
 --- generated doctests.
 -- TODO: hold ci/'s modules to it too. ci/ builds as a tree of its own,
 -- never cosmic's, so the importer never asks; and it runs on the
--- release ci/cosmic-driver.pin names, so a fix there must suit both.
+-- bootstrap pin's release, so a fix there must suit both.
 --- @param kind the module's kind as the importer staged it
 --- @param generated whether a generator wrote it
 function contracts.applies(kind: string, generated: boolean): boolean

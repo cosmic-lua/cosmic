@@ -671,12 +671,14 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- stamps, for a test that declares it reads them
   -- (`observations.reads_stat_times`): generation 9 recorded no change
   -- time, and kept a declared test's times out of its shared key.
-  -- Generation 11 keys a test's `sys.tree_digest` of a path of the tree
-  -- by what the walk answers ("g" and "j"), which generation 10 never
+  -- Generation 11 notes each file a connection opened before the capture
+  -- holds as it begins, which generation 10 never keyed.
+  -- Generation 12 keys a test's `sys.tree_digest` of a path of the tree
+  -- by what the walk answers ("g" and "j"), which generation 11 never
   -- observed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-11", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-5", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-12", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-6", "module-load-reads-v1", header }
   if whole then
     lines[#lines + 1] = "stat-times"
     shared_lines[#shared_lines + 1] = "stat-times"

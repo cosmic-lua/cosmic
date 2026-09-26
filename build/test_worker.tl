@@ -209,6 +209,10 @@ function worker.run(argv: {integer:string}): integer
     log:complain(attach_trouble)
     return 2
   end
+  -- The worker's own connection: no test is keyed by all of it (see
+  -- `observations.exclude_held_files`; a query of it is the TODO above
+  -- core/sqlite.c's `cosmic_sqlite_push_borrowed`).
+  observations.exclude_held_files()
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
     load_reads = {}, test_reads = {},

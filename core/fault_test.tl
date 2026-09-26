@@ -150,6 +150,63 @@ local function test_a_fault_point_in_read_fails_the_read_cleanly(tmp: string)
   end
 end
 
+--- Every point `start` passes beyond `open`'s: the options a streamed
+--- body sets, and the slist append taken a second time, for the
+--- `Expect:` that keeps curl from waiting on a 100 Continue.
+local start_faults: {Fault} = {
+  { point = "curl_easy_setopt(CURLOPT_POST)" },
+  { point = "curl_easy_setopt(CURLOPT_READFUNCTION)" },
+  { point = "curl_easy_setopt(CURLOPT_READDATA)" },
+  { point = "curl_easy_setopt(CURLOPT_POSTFIELDSIZE_LARGE)" },
+  { point = "curl_easy_setopt(CURLOPT_HTTPHEADER)" },
+  { point = "curl_slist_append", skip = 1 },
+  { point = "curl_multi_add_handle" },
+}
+
+local kept_open = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"
+
+local function test_each_fault_point_in_start_fails_the_upload_cleanly(tmp: string)
+  if not checked then return end
+  succeeds("nothing")
+  local before = held(tmp)
+  for _, fault in ipairs(start_faults) do
+    local what = fault.point .. " (skipping " .. tostring(fault.skip or 0) .. ")"
+    testing.fail_at(fault.point, fault.skip)
+    local up, trouble = Http.upload(url, { headers = { ["X-One"] = "1" },
+      script = { kept_open } })
+    assert(not testing.fail_at(), what .. " was never reached")
+    assert(up == nil, what .. " did not fail the upload")
+    local call = fault.point:match("^[%w_]+")
+    assert(trouble:find(call, 1, true) ~= nil, what .. ": the message does not name " ..
+      call .. ": " .. trouble)
+    assert_released(tmp, before, what)
+    succeeds(what)
+  end
+end
+
+--- A multi call that fails in `write` or `finish` fails that call,
+--- naming it; the upload is then the caller's to abort.
+local function test_a_fault_point_in_write_or_finish_fails_it_cleanly(tmp: string)
+  if not checked then return end
+  succeeds("nothing")
+  local before = held(tmp)
+  for _, point in ipairs({ "curl_multi_poll", "curl_multi_perform" }) do
+    for _, step in ipairs({ "write", "close" }) do
+      local what = point .. " in " .. step
+      local up = assert(Http.upload(url, { script = { kept_open } }))
+      testing.fail_at(point)
+      local ok, trouble: boolean, string
+      if step == "write" then ok, trouble = up:write("payload") else ok, trouble = up:close() end
+      assert(not testing.fail_at(), what .. " was never reached")
+      assert(not ok and trouble:find(point, 1, true) ~= nil,
+        what .. ": it did not fail naming it: " .. tostring(trouble))
+      assert(up:abort())
+      assert_released(tmp, before, what)
+      succeeds(what)
+    end
+  end
+end
+
 --- A fault armed at a point no call passes stays armed, and disarming
 --- says so; arming a new one replaces it.
 local function test_fail_at_reports_a_fault_left_unfired()

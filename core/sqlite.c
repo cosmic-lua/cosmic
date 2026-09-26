@@ -7,6 +7,7 @@
 #include "check.h"
 #include "compress.h"
 #include "fail.h"
+#include "fault.h"
 #include "lauxlib.h"
 #include "crypto.h"
 #include "memory.h"
@@ -254,24 +255,245 @@ static bool observe_path (const char *name) {
     observing.room = room;
   }
   size_t length = strlen(name);
-  char *copy = cosmic_malloc(length + 1);
+  char *copy = COSMIC_FAULT("sqlite_observed") ? NULL : cosmic_malloc(length + 1);
   if (copy == NULL) return false;
   memcpy(copy, name, length + 1);
   observing.paths[observing.count++] = copy;
   return true;
 }
 
+/* A file the observed VFS opened: the `sqlite3_file` SQLite holds, with
+ * `observed_methods` for its methods, over the default VFS's own file,
+ * which follows it in the same block (`OBSERVED_FILE_ROOM` bytes in) and
+ * is handed every call. SQLite keeps `name` unchanged until xClose. */
+struct observed_file {
+  sqlite3_file file;
+  sqlite3_file *real;
+  const char *name;
+  /* Its links in `held`, while it is there. */
+  struct observed_file *prev;
+  struct observed_file *next;
+  bool listed;
+  /* Set by `exclude_held`: `observe` never hands it over. */
+  bool excluded;
+};
+
+/* Where the default VFS's file starts in an observed one's block, at an
+ * offset any of its fields can be aligned to. */
+#define OBSERVED_FILE_ROOM \
+  ((sizeof(struct observed_file) + sizeof(sqlite3_int64) - 1) & \
+   ~(sizeof(sqlite3_int64) - 1))
+
+/* Every file the observed VFS holds open, but a temporary one it deletes
+ * on close, newest first. Linked through the files' own blocks, which
+ * SQLite allocates, so holding one allocates nothing: a connection
+ * opened before a capture reads its files in C, where no binding sees
+ * it, and `observe` hands them over when a capture turns recording on. */
+static struct observed_file *held;
+
+static void hold (struct observed_file *f) {
+  f->prev = NULL;
+  f->next = held;
+  if (held != NULL) held->prev = f;
+  held = f;
+  f->listed = true;
+}
+
+static void release (struct observed_file *f) {
+  if (!f->listed) return;
+  if (f->prev != NULL) f->prev->next = f->next;
+  else held = f->next;
+  if (f->next != NULL) f->next->prev = f->prev;
+  f->listed = false;
+}
+
+static sqlite3_file *real_of (sqlite3_file *file) {
+  return ((struct observed_file *)file)->real;
+}
+
+/* The default VFS's methods for `file`, when they are of `version` or
+ * later: a file whose methods its own VFS replaced with older ones since
+ * it opened (Apple's proxy locking does) has none of the later calls.
+ * `observed_file_control` follows such a change, so SQLite, which asks
+ * the outer file's version, stays out of WAL as it would unwrapped
+ * rather than fail with SQLITE_IOERR_SHMMAP; this check is the guard. */
+static const sqlite3_io_methods *methods_of (sqlite3_file *file, int version) {
+  const sqlite3_io_methods *methods = real_of(file)->pMethods;
+  return methods->iVersion >= version ? methods : NULL;
+}
+
+static int observed_close (sqlite3_file *file) {
+  release((struct observed_file *)file);
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xClose(real);
+}
+
+static int observed_read (sqlite3_file *file, void *out, int amount,
+                          sqlite3_int64 offset) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xRead(real, out, amount, offset);
+}
+
+static int observed_write (sqlite3_file *file, const void *data, int amount,
+                           sqlite3_int64 offset) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xWrite(real, data, amount, offset);
+}
+
+static int observed_truncate (sqlite3_file *file, sqlite3_int64 size) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xTruncate(real, size);
+}
+
+static int observed_sync (sqlite3_file *file, int flags) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xSync(real, flags);
+}
+
+static int observed_file_size (sqlite3_file *file, sqlite3_int64 *out) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xFileSize(real, out);
+}
+
+static int observed_lock (sqlite3_file *file, int level) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xLock(real, level);
+}
+
+static int observed_unlock (sqlite3_file *file, int level) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xUnlock(real, level);
+}
+
+static int observed_check_reserved (sqlite3_file *file, int *out) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xCheckReservedLock(real, out);
+}
+
+/* The version the default VFS's file offers, as SQLite defines them. */
+static const sqlite3_io_methods *observed_methods_for (const sqlite3_io_methods *real);
+
+/* A file control can replace the default VFS's methods for the file
+ * (macOS's `lock_proxy_file` swaps in proxy locking, of version 1):
+ * the outer file then offers the version the inner one now does. */
+static int observed_file_control (sqlite3_file *file, int op, void *arg) {
+  sqlite3_file *real = real_of(file);
+  int rc = real->pMethods->xFileControl(real, op, arg);
+  if (real->pMethods != NULL) file->pMethods = observed_methods_for(real->pMethods);
+  return rc;
+}
+
+static int observed_sector_size (sqlite3_file *file) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xSectorSize(real);
+}
+
+static int observed_device (sqlite3_file *file) {
+  sqlite3_file *real = real_of(file);
+  return real->pMethods->xDeviceCharacteristics(real);
+}
+
+static int observed_shm_map (sqlite3_file *file, int region, int size,
+                             int extend, void volatile **out) {
+  const sqlite3_io_methods *methods = methods_of(file, 2);
+  if (methods == NULL) return SQLITE_IOERR_SHMMAP;
+  return methods->xShmMap(real_of(file), region, size, extend, out);
+}
+
+static int observed_shm_lock (sqlite3_file *file, int offset, int count,
+                              int flags) {
+  const sqlite3_io_methods *methods = methods_of(file, 2);
+  if (methods == NULL) return SQLITE_IOERR_SHMLOCK;
+  return methods->xShmLock(real_of(file), offset, count, flags);
+}
+
+static void observed_shm_barrier (sqlite3_file *file) {
+  const sqlite3_io_methods *methods = methods_of(file, 2);
+  if (methods != NULL) methods->xShmBarrier(real_of(file));
+}
+
+static int observed_shm_unmap (sqlite3_file *file, int drop) {
+  const sqlite3_io_methods *methods = methods_of(file, 2);
+  if (methods == NULL) return SQLITE_OK;
+  return methods->xShmUnmap(real_of(file), drop);
+}
+
+/* Without the later calls, nothing is mapped: SQLite reads instead. */
+static int observed_fetch (sqlite3_file *file, sqlite3_int64 offset,
+                           int amount, void **out) {
+  const sqlite3_io_methods *methods = methods_of(file, 3);
+  if (methods == NULL) {
+    *out = NULL;
+    return SQLITE_OK;
+  }
+  return methods->xFetch(real_of(file), offset, amount, out);
+}
+
+static int observed_unfetch (sqlite3_file *file, sqlite3_int64 offset,
+                             void *page) {
+  const sqlite3_io_methods *methods = methods_of(file, 3);
+  if (methods == NULL) return SQLITE_OK;
+  return methods->xUnfetch(real_of(file), offset, page);
+}
+
+/* One set of methods per version SQLite defines, so an observed file
+ * offers what the default VFS's does and no more: SQLite takes a file of
+ * version 1 to have no shared memory, and so no WAL. */
+#define OBSERVED_METHODS(version)                                          \
+  {                                                                        \
+    .iVersion = (version), .xClose = observed_close,                      \
+    .xRead = observed_read, .xWrite = observed_write,                     \
+    .xTruncate = observed_truncate, .xSync = observed_sync,               \
+    .xFileSize = observed_file_size, .xLock = observed_lock,              \
+    .xUnlock = observed_unlock,                                           \
+    .xCheckReservedLock = observed_check_reserved,                        \
+    .xFileControl = observed_file_control,                                \
+    .xSectorSize = observed_sector_size,                                  \
+    .xDeviceCharacteristics = observed_device,                            \
+    .xShmMap = (version) >= 2 ? observed_shm_map : NULL,                  \
+    .xShmLock = (version) >= 2 ? observed_shm_lock : NULL,                \
+    .xShmBarrier = (version) >= 2 ? observed_shm_barrier : NULL,          \
+    .xShmUnmap = (version) >= 2 ? observed_shm_unmap : NULL,              \
+    .xFetch = (version) >= 3 ? observed_fetch : NULL,                     \
+    .xUnfetch = (version) >= 3 ? observed_unfetch : NULL,                 \
+  }
+
+static const sqlite3_io_methods observed_methods[3] = {
+  OBSERVED_METHODS(1), OBSERVED_METHODS(2), OBSERVED_METHODS(3),
+};
+
+static const sqlite3_io_methods *observed_methods_for (const sqlite3_io_methods *real) {
+  int version = real->iVersion < 1 ? 1 : real->iVersion > 3 ? 3 : real->iVersion;
+  return &observed_methods[version - 1];
+}
+
 /* A file SQLite deletes when it is closed -- a temporary database or
- * journal -- is the connection's own, never an input; any other it
- * opens (the database, its journal, its WAL, an attached database) is. */
+ * journal -- is the connection's own, never an input, and is neither
+ * recorded nor held; any other it opens (the database, its journal, its
+ * WAL, an attached database) is recorded while recording is on, and
+ * held until it is closed whether or not it is. */
 static int observed_open (sqlite3_vfs *vfs, sqlite3_filename name,
                           sqlite3_file *file, int flags, int *out_flags) {
-  if ((flags & SQLITE_OPEN_DELETEONCLOSE) == 0 && !observe_path(name)) {
-    file->pMethods = NULL;
-    return SQLITE_NOMEM;
-  }
+  struct observed_file *f = (struct observed_file *)file;
+  f->file.pMethods = NULL;
+  f->real = (sqlite3_file *)((char *)file + OBSERVED_FILE_ROOM);
+  f->real->pMethods = NULL;
+  f->name = name;
+  f->prev = NULL;
+  f->next = NULL;
+  f->listed = false;
+  f->excluded = false;
+  bool temporary = (flags & SQLITE_OPEN_DELETEONCLOSE) != 0;
+  if (!temporary && !observe_path(name)) return SQLITE_NOMEM;
   sqlite3_vfs *base = cosmic_vfs_base(vfs);
-  return base->xOpen(base, name, file, flags, out_flags);
+  int rc = base->xOpen(base, name, f->real, flags, out_flags);
+  /* SQLite closes a file whose open failed if it has methods: it has
+   * ours exactly when the default VFS's file has its own to close. */
+  const sqlite3_io_methods *methods = f->real->pMethods;
+  if (methods == NULL) return rc;
+  f->file.pMethods = observed_methods_for(methods);
+  if (rc == SQLITE_OK && !temporary && name != NULL) hold(f);
+  return rc;
 }
 
 /* Whether a journal or a WAL is there turns what SQLite reads too. */
@@ -293,16 +515,41 @@ static int register_observed_vfs (void) {
   /* SQLite's registry holds the pointer for the life of the process. */
   static sqlite3_vfs vfs;
   vfs = cosmic_vfs_wrapping(sqlite3_vfs_find(NULL), COSMIC_SQLITE_OBSERVED_VFS,
-                            0, observed_open);
+                            (int)OBSERVED_FILE_ROOM, observed_open);
   if (vfs.zName == NULL) return SQLITE_ERROR;
   vfs.xAccess = observed_access;
   return sqlite3_vfs_register(&vfs, 0);
 }
 
-/* Turns recording on or off; what was recorded stays until drained. */
+/* Turns recording on or off; what was recorded stays until drained.
+ * Turning it on records every file held open now, but those excluded,
+ * as though it were opened now: a connection opened before reads it
+ * from here on. False, and ENOMEM, when one could not be kept: recording
+ * is on regardless, and what the capture turning it on reads is unknown.
+ * Nothing here allocates on Lua's heap while `held` is walked, so no
+ * collection can close a file under the walk. */
 static int sqlite_observe (lua_State *L) {
   luaL_checktype(L, 1, LUA_TBOOLEAN);
   observing.on = lua_toboolean(L, 1);
+  bool kept = true;
+  for (struct observed_file *f = held; observing.on && f != NULL; f = f->next) {
+    if (!f->excluded && !observe_path(f->name)) kept = false;
+  }
+  if (!kept) return cosmic_fail_effect(L, ENOMEM);
+  return cosmic_ok(L);
+}
+
+/* Excludes every file held open at this moment -- files, not the
+ * connections holding them: `observe` never hands one over, though a
+ * capture still records what it opens again. A journal or WAL such a
+ * connection opens later is a file of its own, held and handed over,
+ * which is harmless while the one connection excluded (the worker's
+ * o/cosmic.db) is read-only in rollback mode and makes neither. For the
+ * process running the captures, whose own connections are no test's
+ * input. */
+static int sqlite_exclude_held (lua_State *L) {
+  (void)L;
+  for (struct observed_file *f = held; f != NULL; f = f->next) f->excluded = true;
   return 0;
 }
 
@@ -463,6 +710,14 @@ static int handle_gc (lua_State *L) {
   return 0;
 }
 
+/* TODO: key a test that reads a store connection through a borrowed
+ * handle by what it read: the worker's o/cosmic.db is excluded from
+ * every capture (build/test_worker.tl, `exclude_held_files`), so a query of
+ * it goes unrecorded -- cosmic/errors_test.tl's `Errors.guidance`
+ * walks `Store.databases()`, o/cosmic.db's catalog included, and its
+ * verdict holds nothing of it. Mark the handle here, and have `prepare`
+ * on one record the files of its connection (sqlite3_db_filename and
+ * its journal and WAL) while recording is on. */
 void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;
@@ -696,6 +951,7 @@ static const luaL_Reg module[] = {
   {"open", sqlite_open},
   {"observe", sqlite_observe},
   {"observed", sqlite_observed},
+  {"exclude_held", sqlite_exclude_held},
   {NULL, NULL},
 };
 

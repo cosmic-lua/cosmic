@@ -5,6 +5,7 @@ local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local test = require("build.test")
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
 
@@ -97,8 +98,9 @@ local function test_a_file_sqlite_opens_is_noted(tmp: string)
   assert(opened(outer.reads, real .. "/main.db"))
   assert(opened(outer.reads, real .. "/attached.db"))
   assert(opened(outer.reads, real .. "/attached.db-journal"))
-  -- The inner capture began after the main database was opened.
-  assert(not opened(inner.reads, real .. "/main.db"))
+  -- The inner capture began after the main database was opened, and
+  -- is handed it, held open still, as it begins.
+  assert(opened(inner.reads, real .. "/main.db"))
   assert(opened(inner.reads, real .. "/attached.db"))
   -- A database opened while no capture runs is noted by none: not by
   -- the next one to start.
@@ -106,6 +108,64 @@ local function test_a_file_sqlite_opens_is_noted(tmp: string)
   assert(db:close())
   local after = observations.capture(function() end)
   assert(not opened(after.reads, real .. "/main.db"))
+end
+
+--- A database a connection opened before the capture began, and holds
+--- open still, may be read at any page during it: the capture notes it
+--- an open as it begins, so what the test reads of it is keyed by its
+--- bytes, and other contents key the verdict otherwise. Once closed, it
+--- is handed to no capture.
+local function test_a_database_opened_before_the_capture_is_keyed_by_its_contents(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local path = real .. "/held.db"
+  local writer = assert(Sqlite.open(path, true))
+  assert(writer:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('one')"))
+  local db = assert(Sqlite.open(path, false))
+  -- One whose open failed is not held.
+  local missing, _ = Sqlite.open(real .. "/missing.db", false)
+  assert(missing == nil)
+  local function key(): string
+    local c = observations.capture(function()
+      assert(Sqlite.text_rows(db, "SELECT v FROM t"))
+    end)
+    assert(c.ok, tostring(c.produced))
+    assert(opened(c.reads, path), "the held database was not noted")
+    return test.verdict_key(real, {}, "mod.tl name", "modkey", "runtime", c.reads, {}).key
+  end
+  local before = key()
+  assert(key() == before)
+  local held = observations.capture(function() end)
+  assert(not opened(held.reads, real .. "/missing.db"))
+  assert(writer:exec("UPDATE t SET v = 'two'"))
+  assert(key() ~= before, "a held database's contents are not in the key")
+  assert(writer:close())
+  assert(db:close())
+  local after = observations.capture(function() end)
+  assert(not opened(after.reads, path))
+end
+
+--- A runner's own connection's file, excluded, is handed to no capture
+--- for being held, though one it opens again is noted; one opened after
+--- the exclusion is handed over.
+local function test_a_file_excluded_is_not_handed_over(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local own = assert(Sqlite.open(real .. "/own.db", true))
+  assert(own:exec("CREATE TABLE t (v TEXT)"))
+  observations.exclude_held_files()
+  local later = assert(Sqlite.open(real .. "/later.db", true))
+  local c = observations.capture(function()
+    assert(Sqlite.text_rows(own, "SELECT v FROM t"))
+  end)
+  assert(c.ok, tostring(c.produced))
+  assert(not opened(c.reads, real .. "/own.db"))
+  assert(opened(c.reads, real .. "/later.db"))
+  local again = observations.capture(function()
+    local db = assert(Sqlite.open(real .. "/own.db", false))
+    assert(db:close())
+  end)
+  assert(opened(again.reads, real .. "/own.db"))
+  assert(own:close())
+  assert(later:close())
 end
 
 --- A file SQLite fails to open is a read too, whose answer is that it
@@ -236,7 +296,7 @@ end
 --- A request over the network is an answer no key can hold; a scripted
 --- request connects nowhere and is not one.
 local function test_a_network_request_is_an_unkeyable_observation()
-  local open = Http.open
+  local open, upload = Http.open, Http.upload
   local run = observations.call(function()
     -- A request that could connect is noted, refused or not: the
     -- wrapper cannot tell what answered -- curl takes "http:/host" for
@@ -246,6 +306,11 @@ local function test_a_network_request_is_an_unkeyable_observation()
     Http.open("HTTP:/127.0.0.1:1/")
     Http.open("ftp://example.invalid/")
     Http.open("Gopher://example.invalid/")
+    -- An upload may connect before its first write, so its binding
+    -- notes it as it starts, as `open`'s does.
+    local up = assert(Http.upload("http://127.0.0.2:1/"))
+    assert(up:abort())
+    assert(assert(Http.upload("http://example.invalid/", { script = {} })):abort())
     local scripted = assert(Http.get("http://example.invalid/",
       { script = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" } }))
     assert(scripted.status == 200)
@@ -255,9 +320,10 @@ local function test_a_network_request_is_an_unkeyable_observation()
   for _, observation in ipairs(run.reads) do
     if observation.kind == "x" then unkeyable[#unkeyable + 1] = observation.path end
   end
-  assert(#unkeyable == 2 and unkeyable[1] == "http://127.0.0.1:1/" and
-    unkeyable[2] == "HTTP:/127.0.0.1:1/", table.concat(unkeyable, " "))
-  assert(Http.open == open, "a wrapper was left installed")
+  assert(#unkeyable == 3 and unkeyable[1] == "http://127.0.0.1:1/" and
+    unkeyable[2] == "HTTP:/127.0.0.1:1/" and unkeyable[3] == "http://127.0.0.2:1/",
+    table.concat(unkeyable, " "))
+  assert(Http.open == open and Http.upload == upload, "a wrapper was left installed")
 end
 
 --- A change of directory is a stat of where it went, and a relative

@@ -40,16 +40,30 @@ local function test_no_patch_directory_leaves_the_copy_pristine(dir: string)
   assert(Fs.read(dir .. "/out/PIN") ~= nil)
 end
 
---- A file keeps its permission bits, which a patched one keeps too.
+--- A file keeps its permission bits, which a patched one keeps too; one
+--- its owner cannot write is still written whole. (Whether anything was
+--- synced is not seen here.)
 local function test_a_copy_keeps_each_files_mode(dir: string)
-  checkout(dir .. "/root", { ["run.sh"] = "echo old\n", ["plain.h"] = "x\n" },
+  checkout(dir .. "/root", { ["run.sh"] = "echo old\n", ["plain.h"] = "x\n",
+    ["fixed.h"] = "y\n" },
     { ["01-run.txt"] = record("run.sh", "echo old", "echo new") })
   assert(Fs.chmod(dir .. "/root/vendor/lib/run.sh", 0x1ed))
   assert(Fs.chmod(dir .. "/root/vendor/lib/plain.h", 0x180))
+  assert(Fs.chmod(dir .. "/root/vendor/lib/fixed.h", 0x124))
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(assert(Fs.stat(dir .. "/out/run.sh")).mode & 0x1ff == 0x1ed)
   assert(assert(Fs.stat(dir .. "/out/plain.h")).mode & 0x1ff == 0x180)
+  assert(assert(Fs.stat(dir .. "/out/fixed.h")).mode & 0x1ff == 0x124)
+  assert(Fs.read(dir .. "/out/fixed.h") == "y\n")
   assert(Fs.read(dir .. "/out/run.sh") == "echo new\n")
+end
+
+--- A file that cannot be written fails the tree, naming the path.
+local function test_an_unwritable_file_fails_the_tree(dir: string)
+  checkout(dir .. "/root", { ["a.h"] = "x\n" })
+  assert(Fs.mkdirs(dir .. "/out/a.h"))
+  local ok, err = Patch.tree(dir .. "/root", "lib", dir .. "/out")
+  assert(not ok and err:find(dir .. "/out/a.h", 1, true), err)
 end
 
 local function test_a_find_must_match_exactly_once(dir: string)

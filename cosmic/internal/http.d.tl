@@ -23,6 +23,20 @@ local record http
     -- omitted), and "". `nil, ""` at a clean end of body; `nil, err`
     -- on failure.
     read: function(Handle, max?: integer): string | nil, string
+    -- A started request's next chunk of body: drives the transfer
+    -- until curl has taken all of it. True and "", or false and why
+    -- when it would take the body past `body_size` (none of it is
+    -- taken), once the request failed, or once the server answered
+    -- before the body was all sent -- an answer too large to buffer
+    -- unread included. Raises on a handle `open` made, after `finish`,
+    -- or when there is no memory to hold the chunk.
+    write: function(Handle, data: string): boolean, string
+    -- Ends a started request's body and blocks until the final
+    -- response's headers have arrived; `status`, `url`, `headers` and
+    -- `read` answer for it from then on. True and "", or false and why
+    -- when the body is short of `body_size` or the request failed
+    -- before them. Raises where `write` does.
+    finish: function(Handle): boolean, string
     -- What curl has written to a scripted transfer's connections so
     -- far; "" for one over the network. Raises if recording it ran
     -- out of memory.
@@ -36,6 +50,9 @@ local record http
     method: string
     headers: {string:string}
     body: string
+    -- `start` only: how long the body `write` will send, as its
+    -- Content-Length; the body goes chunked when it is not given.
+    body_size: integer
     follow: boolean
     max_redirects: integer
     connect_timeout_ms: integer
@@ -60,6 +77,12 @@ local record http
   -- header name or value holding CR, LF or NUL, an empty header name
   -- or one holding ':', a URL holding NUL.
   open: function(url: string, opts?: Options): Handle | nil, string
+
+  -- A request whose body is written through the handle's `write` and
+  -- ended by its `finish`: checked as `open` checks it, but returned
+  -- before anything is sent. It reads `body_size`, a `body` raises,
+  -- and a HEAD, which has no body to write, is `nil, err`.
+  start: function(url: string, opts?: Options): Handle | nil, string
 
   -- True and "" when the TLS stack reads `der` as one X.509
   -- certificate, as it reads each CA root the binary carries; false

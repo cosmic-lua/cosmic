@@ -215,6 +215,31 @@ local function test_a_nul_byte_in_a_path_or_exec_sql_is_refused(tmp: string)
   db:close()
 end
 
+--- The observed VFS wraps every file a connection opens and passes each
+--- call on to the default VFS's file underneath. Reads and writes work
+--- through it whatever the file needs: shared memory for a WAL database,
+--- a memory map, a checkpoint, and a rollback journal truncated rather
+--- than deleted, which the next reader checks for.
+local function test_the_observed_vfs_hands_every_call_on(tmp: string)
+  local wal = assert(Sqlite.open(tmp .. "/wal.db", true))
+  assert(wal:exec("PRAGMA journal_mode = WAL; PRAGMA mmap_size = 1048576; " ..
+    "CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('wal')"))
+  local rows = assert(Sqlite.text_rows(wal, "SELECT v FROM t"))
+  assert(rows[1][1] == "wal")
+  assert(wal:exec("PRAGMA wal_checkpoint(TRUNCATE)"))
+  assert(wal:close())
+  local truncated = assert(Sqlite.open(tmp .. "/truncated.db", true))
+  assert(truncated:exec("PRAGMA journal_mode = TRUNCATE; " ..
+    "CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept')"))
+  assert(truncated:close())
+  -- Read through a memory map, which only a page outside the WAL is.
+  local reader = assert(Sqlite.open(tmp .. "/truncated.db", false))
+  assert(reader:exec("PRAGMA mmap_size = 1048576"))
+  rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
+  assert(rows[1][1] == "kept")
+  assert(reader:close())
+end
+
 local function test_a_file_database_persists(tmp: string)
   local path = tmp .. "/a.db"
   local handle, trouble = Sqlite.open(path, true)

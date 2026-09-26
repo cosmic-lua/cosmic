@@ -113,34 +113,43 @@ local insert_typed_uses =
 
 --- The worked examples (`build.analyzer.ExampleEntry`) found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
---- against the module its file name pairs with (the `_example` suffix
---- stripped), which is a planned module or a declaration, as
---- `cosmic.sys` is -- nothing here decides which symbol an example is FOR.
+--- against the module its file name pairs with, which is a planned
+--- module or a declaration, as `cosmic.sys` is, but never a test or
+--- another example. The name less `_example` pairs with the longest
+--- such module it is or starts with followed by `_`, so a module's examples can be split by topic into files of their
+--- own: `cosmic/json_yaml_example.tl` pairs with `cosmic.json` beside
+--- `cosmic/json_example.tl` -- or with `cosmic.json_yaml`, were there
+--- one -- and `cosmic/jsonx_example.tl` with neither. Nothing here
+--- decides which symbol an example is FOR.
 --- `build.docs` answers that at read time, by matching an example's
 --- own text and source against a symbol's name through
 --- `examples_fts`: an example calls the real function it demonstrates,
 --- so the symbol's own name is already in its code, and a query never
 --- needs `<name>` to encode an association a build-time join would
 --- only have to guess at anyway once more than one example can be FOR
---- one symbol. `OR IGNORE` guards `examples`'s `UNIQUE (module, name)`
+--- one symbol. `OR IGNORE` guards `examples`'s `UNIQUE (file, name)`
 --- against a literal duplicate declaration; `<name>` is otherwise free
---- -- there is no convention left for it to hold to.
--- TODO: pair a `<module>_<topic>_example.tl` with `<module>` too, taking
--- the longest planned module or declaration its name starts with, so a
--- module's examples can be split by topic into smaller files
--- (`cosmic/json_yaml_example.tl` beside `cosmic/json_example.tl`)
--- rather than all living in one; the join below matches the path less
--- `_example` exactly, and work.tl's `*_example.tl` glob already takes
--- such a file as an example.
+--- -- there is no convention left for it to hold to, and two topics'
+--- files may each use one. `k` and `c` are materialized once, since
+--- `inputs` is an unindexed view each example's lookup would scan again.
 local insert_examples =
+  "WITH k AS MATERIALIZED (SELECT path, kind, file, source_hash FROM inputs " ..
+  "WHERE path IN (SELECT path FROM plan) OR kind = 'decl'), " ..
+  "c(path) AS MATERIALIZED (SELECT DISTINCT path FROM k " ..
+  "WHERE kind NOT IN ('test', 'example')) " ..
   "INSERT OR IGNORE INTO out.examples (module, name, text, file, line, " ..
   "source) " ..
-  "SELECT t.path, e.name, e.text, i.file, e.line, e.source " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'example' " ..
-  "JOIN examples e ON e.source_hash = i.source_hash " ..
-  "JOIN inputs t ON t.path = substr(p.path, 1, length(p.path) - length('_example')) " ..
-  "WHERE t.path IN (SELECT path FROM plan) OR t.kind = 'decl' " ..
-  "ORDER BY t.path, e.line"
+  "SELECT x.module, e.name, e.text, x.file, e.line, e.source " ..
+  "FROM (SELECT s.file, s.source_hash, " ..
+  "(SELECT c.path FROM c WHERE c.path = s.stem " ..
+  "OR substr(s.stem, 1, length(c.path) + 1) = c.path || '_' " ..
+  "ORDER BY length(c.path) DESC LIMIT 1) AS module " ..
+  "FROM (SELECT file, source_hash, " ..
+  "substr(path, 1, length(path) - length('_example')) AS stem " ..
+  "FROM k WHERE kind = 'example') s) x " ..
+  "JOIN examples e ON e.source_hash = x.source_hash " ..
+  "WHERE x.module IS NOT NULL " ..
+  "ORDER BY x.module, x.file, e.line"
 
 --- The catalog entries (`build.analyzer.CatalogEntry`) found while parsing
 --- each planned module: every literal `return nil, ...` under a
