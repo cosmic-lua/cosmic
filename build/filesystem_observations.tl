@@ -3,18 +3,18 @@
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 --- The raw process table, whose `spawn` `cosmic.child` starts every
 --- child with; SQLite's, which records the files SQLite opens in C;
---- and the syscall table's log of what its queries answered: this
---- module is handed all three (core/store.c's `open_observations`) to
---- note each child a test starts, by standing in for that call, each
---- file SQLite reads for it and each query of `cosmic.sys` it makes,
---- by draining those records. Boot mode falls back to requiring them
---- by name, which only boot's own preload answers.
+--- and the syscall table's log of what its calls were asked and
+--- answered: this module is handed all three (core/store.c's
+--- `open_observations`) to confine each child a test starts, by
+--- standing in for that call, and to note each file SQLite reads for it
+--- and each call of `cosmic.sys`, the process table and cosmic.http it
+--- makes, by draining those records. Boot mode falls back to requiring
+--- them by name, which only boot's own preload answers.
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
 
@@ -33,12 +33,21 @@ local syscalls = raws.syscalls
 -- the syscall table's log, so the observer's own questions are none of
 -- the test's; and taken when this module loads -- before any test's
 -- module does -- so a test cannot bend where its own reads are keyed.
--- TODO: take the `Fs` functions a note calls (`within`, `dirname`,
--- `basename`) the same way: a test that replaces one on the shared
--- `Fs` table can still move a read in or out of the tree.
+-- TODO: take `Fs.within`, which a note calls, the same way (a path's
+-- resolution is the log's own, in C): a test that replaces it on the
+-- shared `Fs` table can still move a read in or out of the tree.
 local getcwd = syscalls.getcwd
 local realpath = syscalls.realpath
 local lstat = syscalls.lstat
+local stat = syscalls.stat
+local getenv = syscalls.getenv
+local environ = syscalls.environ
+
+--- The process table's own `spawn`, which logs a process it starts as
+--- one no key holds, and the same call past the log, which the stand-in
+--- for it (see `start`) starts one with once it has noted it itself.
+local logged_spawn = process.spawn
+local unlogged_spawn = syscalls.spawn
 
 local record observations
   record Observation
@@ -130,24 +139,10 @@ end
 --- the first of them is missing, so nothing after it is reached, and
 --- the answer is that ancestor's. "" for a relative path. Nothing is
 --- remembered between calls, since a link can be retargeted between
---- two reads.
+--- two reads. The log resolves a read's path the same way as the call
+--- is made (core/observed.c's `resolution`).
 function observations.resolution(path: string): string
-  if path:sub(1, 1) ~= "/" then return "" end
-  local missing: {string} = {}
-  local at = path
-  while true do
-    local real, _ = realpath(at)
-    if real ~= nil then
-      for i = #missing, 1, -1 do
-        real = (real == "/" and "" or real) .. "/" .. missing[i]
-      end
-      return real
-    end
-    local parent = Fs.dirname(at)
-    if parent == at then return "" end
-    missing[#missing + 1] = Fs.basename(at)
-    at = parent
-  end
+  return syscalls.resolve(path)
 end
 
 --- What a path names without following a link at its end, as `lstat`
@@ -156,15 +151,7 @@ end
 --- path for one whose last name is "." or "..", or that ends in "/",
 --- which the call follows. "" for a relative path.
 function observations.link_resolution(path: string): string
-  if path:sub(1, 1) ~= "/" then return "" end
-  local name = Fs.basename(path)
-  local parent = Fs.dirname(path)
-  if path:sub(-1) == "/" or name == "." or name == ".." or name == "" or parent == path then
-    return observations.resolution(path)
-  end
-  local real = observations.resolution(parent)
-  if real == "" then return "" end
-  return (real == "/" and "" or real) .. "/" .. name
+  return syscalls.resolve(path, true)
 end
 
 --- A versioned, line-safe representation. Paths may themselves contain
@@ -508,53 +495,103 @@ end
 --- "p". `noting` holds every running capture's own `note` -- one wraps
 --- another when a test captures its own calls -- for a declaration that
 --- did not hold, which each of them must hear.
+local type Note = function(kind: string, given: any, answer: string, resolved?: string)
 local declaring = 0
-local noting: {function(string, any, string)} = {}
+local noting: {Note} = {}
 
 --- Notes each file SQLite opened or asked after since the last drain as
 --- an open by every running capture: it read them in C, through
---- `cosmic.sqlite`'s VFS, where no stand-in here sees it. What a
+--- `cosmic.sqlite`'s VFS, past every binding of the syscall table. What a
 --- capture that began later read is noted by it and by those around it;
---- what none was running for is dropped.
+--- what none was running for is dropped. Each is resolved as it is
+--- drained, not as SQLite opened it.
+-- TODO: resolve a file SQLite opens as it opens it, beside its record
+-- in the VFS (core/sqlite.c's `observe_path`, through the resolution
+-- core/observed.c keeps a syscall's path with): SQLite names a file
+-- with its links resolved as it opens it, but a directory on its path
+-- replaced by a link before the drain moves where the read is keyed.
 local function drain_sqlite()
   for _, path in ipairs(sqlite.observed()) do
-    for _, note in ipairs(noting) do note("o", path, "") end
+    local resolved = observations.resolution(path)
+    for _, note in ipairs(noting) do note("o", path, "", resolved) end
   end
 end
 
---- The kind each query the syscall table logs is noted as: "l" an
---- lstat, "k" a readlink and "a" a realpath, each of a path as a stat
---- is; "c" the working directory the run started in, whatever it
---- answered -- what a test's own change of directory made it answer is
---- noted as that change -- and "b" the program's own path, keyed by
+--- The kind each call the syscall table logs is noted as: "o" an
+--- open, "s" a stat, "d" a listing, "l" an lstat, "k" a readlink and
+--- "a" a realpath, each of its path; "e" a variable read by name, or,
+--- as `environ_path`, the whole environment; "m" a directory made,
+--- the test's own; "p" a process started past the stand-in for `spawn`
+--- -- through a reference to the process table's own taken before the
+--- capture began -- which nothing confined or judged; "x" a request
+--- that could reach the network (see `reaches`); "c" the working
+--- directory the run started in, whatever it answered -- what a test's
+--- own change of directory made it answer is noted as that change, a
+--- stat of where it went -- and "b" the program's own path, keyed by
 --- whether it answered (`program_answer`), not where the program is.
 local call_kinds: {string:string} = {
   lstat = "l", readlink = "k", realpath = "a", getcwd = "c", executable = "b",
+  open = "o", stat = "s", readdir = "d", getenv = "e", environ = "e", mkdir = "m",
+  mkdtemp = "m", spawn = "p", http = "x",
 }
 
---- Notes each query of `cosmic.sys` the syscall table logged since the
---- last drain by every running capture, as `drain_sqlite` does SQLite's
---- files: it logs them in C, in each of those bindings, whoever made the
---- call -- a module that took it before any stand-in here was
---- installed, or a Teal function over it. One whose answer the log
---- could not hold, or whose relative path's working directory could not
---- be told, is noted "x".
+--- The kinds whose path is one a key places: absolute, or none at all.
+local placed: {string:boolean} = {
+  o = true, s = true, d = true, l = true, k = true, a = true, m = true,
+}
+
+--- Notes each call the syscall table logged since the last drain by
+--- every running capture, as `drain_sqlite` does SQLite's files: it
+--- logs them in C, in each of those bindings, whoever made the call --
+--- a module that took it before the capture began, as `local stat =
+--- sys.stat`, or a Teal function over it -- with what it answered and,
+--- where the capture asked for it, what its path resolved to as it was
+--- made. One whose answer the log could not hold, or whose relative
+--- path's working directory could not be told, is noted "x".
 local function drain_syscalls()
   for _, call in ipairs(syscalls.observed()) do
     local kind = call_kinds[call.call] or "x"
     local path = call.path or ""
     local answer = ""
-    if call.partial or kind == "x" or (call.path ~= nil and path:sub(1, 1) ~= "/") then
+    if call.call == "http" and not reaches(path) then
+      kind = ""
+    elseif call.partial or kind == "x" or (placed[kind] and path:sub(1, 1) ~= "/") then
       kind = "x"
       if path == "" then path = call.call end
-    elseif kind == "l" then
+    elseif kind == "l" or kind == "s" then
       answer = stat_result_answer(call[1] as sys.Stat, call[2] as string, call[3] as integer)
+    elseif kind == "d" then
+      answer = directory_result_answer(call[1] as {string:string}, call[2] as string,
+        call[3] as integer)
+    elseif call.call == "getenv" then
+      answer = getenv_answer(call[1] as string)
+    elseif call.call == "environ" then
+      path = environ_path
+      answer = environ_answer(call[1] as {string:string})
     elseif kind == "b" then
       answer = program_answer(call[1] as string, call[2] as string, call[3] as integer)
-    elseif kind ~= "c" then
+    elseif kind == "k" or kind == "a" then
       answer = value_answer(call[1] as string, call[2] as string, call[3] as integer)
+    elseif kind == "p" and path == "" then
+      path = call.call
     end
-    for _, note in ipairs(noting) do note(kind, path, answer) end
+    if kind ~= "" then
+      for _, note in ipairs(noting) do note(kind, path, answer, call.resolved) end
+    end
+  end
+end
+
+--- Drains SQLite's record and the syscall table's log into every
+--- running capture. Draining allocates, and can raise on memory: a
+--- drain that fails may have taken records out of C before noting them
+--- all, so every capture still running is made one no key holds.
+local function drain_all()
+  for _, drain in ipairs({ drain_sqlite, drain_syscalls }) do
+    if not pcall(drain) then
+      for _, each in ipairs(noting) do
+        local _ = pcall(each, "x", drain == drain_sqlite and "sqlite" or "syscalls", "")
+      end
+    end
   end
 end
 
@@ -581,28 +618,60 @@ function observations.declared(what: string, fn: function(): boolean)
   end
 end
 
---- Installs observers until `restore` is called. The wrappers record failed
---- queries too: absence and errors are answers a test can depend on.
+--- The tree each running capture resolves paths outside of, by its
+--- `note`: none for one given no `resolving`.
+local trees: {any:string} = {}
+
+--- Which paths the log resolves as the calls are made (the syscall
+--- table's `resolving`): those outside the tree every running capture
+--- that resolves shares, every absolute one ("") when they share none,
+--- and none (nil) when no capture resolves.
+local function resolving_tree(): string | nil
+  local tree: string = nil
+  for _, each in ipairs(noting) do
+    local mine = trees[each]
+    if mine ~= nil and tree == nil then
+      tree = mine
+    elseif mine ~= nil and mine ~= tree then
+      return ""
+    end
+  end
+  return tree
+end
+
+--- Observes the calls a test makes until `restore` is called, failed
+--- ones too: absence and errors are answers a test can depend on.
 ---
 --- A "p" (a process started, not `declared`) or an "x" (a query no key can hold: a
 --- request over the network, or a relative path when the working
 --- directory cannot be told) makes the run's verdict one that
 --- never stands.
 ---
---- A relative path is noted as the absolute one it names from the
---- working directory the call was made in, asked of the process itself
---- rather than tracked: a change of directory made while the module
---- loaded, or through a reference to `sys.chdir` taken then, moves the
---- test's own reads too. A change of directory is itself noted as a
---- stat of where it went.
+--- What `cosmic.sys`'s `open`, `stat`, `readdir`, `lstat`, `readlink`,
+--- `realpath`, `getcwd`, `executable`, `getenv`, `environ`, `mkdir`,
+--- `mkdtemp` and `chdir`, the process table's `spawn` and cosmic.http's
+--- `open` are asked and answer while the capture runs is logged by each
+--- of those bindings itself (core/observed.h), whoever calls it -- a
+--- module that took one before the capture began, as `local stat =
+--- sys.stat`, included -- and noted when the capture ends, or before a
+--- process starts (see `drain_syscalls`). A relative path is noted as
+--- the absolute one it names from the working directory the call was
+--- made in, asked of the process itself rather than tracked: a change
+--- of directory made while the module loaded moves the test's own
+--- reads too. A change of directory is itself noted as a stat of where
+--- it went.
 ---
---- Given `resolving`, an absolute path an open, a stat or a listing
---- names outside its tree, or that climbs with "..", is noted a second
---- time, as an "r" (a "t" under the test's own directory, and only
---- when it leads out of it or climbs) whose answer is
---- `observations.resolution` of it then: a file of the tree may be
---- named through a link outside it, and what the link led to when the
---- test read it is what its verdict describes.
+--- Given `resolving`, an absolute path an open, a stat, a listing, a
+--- realpath, an lstat or a readlink names outside its tree, or that
+--- climbs with "..", is noted a second time, as an "r" (a "t" under the
+--- test's own directory, and only when it leads out of it or climbs)
+--- whose answer is what the log resolved it to as the call was made
+--- (`observations.resolution`): a file of the tree may be named through
+--- a link outside it, and what the link led to when the test read it
+--- is what its verdict describes. An lstat's and a readlink's is
+--- resolved only as far as its last name
+--- (`observations.link_resolution`) and noted "v", or "w" under the
+--- test's own directory.
 ---
 --- A file SQLite opens through `cosmic.sqlite` while the capture runs
 --- -- a database, its journal or WAL, an attached one, or one it only
@@ -618,47 +687,29 @@ end
 -- attached before the capture (the worker's o/cosmic.db, whose reads a
 -- test's `require` makes are held by its module keys instead).
 ---
---- What `cosmic.sys`'s `lstat`, `readlink`, `realpath`, `getcwd` and
---- `executable` answer while the capture runs is logged by each of
---- those bindings itself (core/observed.h), whoever calls it, and noted
---- when the capture ends (see `drain_syscalls`): an lstat, a readlink
---- or a realpath as a stat is -- an lstat's and a readlink's path
---- resolved, given `resolving`, only as far as its last name
---- (`observations.link_resolution`) and noted "v", or "w" under the
---- test's own directory, as "r" and "t" are another read's -- the
---- working directory as an environment read is, and the program's own
---- path by whether it answered (`program_answer`).
--- TODO: move the calls still observed by standing in for them here --
--- `open`, `stat`, `readdir`, `getenv`, `environ`, `mkdtemp`, `mkdir`
--- and `chdir` of `cosmic.sys`, `spawn` and `Http.open` -- onto the
--- syscall table's log, once it resolves a path as the call is made (a
--- drained record is resolved as the capture ends, where a stand-in
--- resolves it beside the call) and the process table and cosmic.http
--- log as those bindings do: a module that took one of them before the
--- capture began, as `local stat = sys.stat`, reads unobserved.
--- TODO: resolve the path of an lstat, a readlink or a realpath as the
--- call is made, in C beside the log's record, rather than as the
--- capture ends: a test that retargets a link of its own directory
--- between the two keys the read by where the link leads at the end.
+--- The process table's `spawn` alone is also stood in for, since a
+--- process the test starts is confined (`observations.confine`) or
+--- noted by what its own sandbox gives it, which the stand-in decides;
+--- one started past it, through a reference taken before the capture,
+--- is logged and noted "p".
 local function start(resolving: observations.Resolving | nil):
                      {observations.Observation}, function()
-  drain_sqlite()
-  drain_syscalls()
+  drain_all()
   local found: {observations.Observation} = {}
-  local open = sys.open
-  local stat = sys.stat
-  local readdir = sys.readdir
-  local getenv = sys.getenv
-  local environ = sys.environ
+  -- The call the stand-in wraps: what `spawn` was as the capture
+  -- began, past the log when it is the process table's own, since the
+  -- stand-in notes what it starts itself.
   local spawn = process.spawn
-  local mkdtemp = sys.mkdtemp
-  local mkdir = sys.mkdir
-  local chdir = sys.chdir
-  local http_open = Http.open
+  if spawn == logged_spawn then spawn = unlogged_spawn end
+  -- Once the capture ends, a reference to the stand-in taken while it
+  -- ran starts a process as the process table's own does, logged for
+  -- whichever capture runs then.
+  local ended = false
   -- The test's own: its directory, and every directory it made for
   -- itself and that is a directory still -- one put back as a link
   -- would lead elsewhere -- which a key never holds either.
   local function test_own(): {string}
+    drain_all()
     local own: {string} = {}
     for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
       own[#own + 1] = directory
@@ -680,75 +731,40 @@ local function start(resolving: observations.Resolving | nil):
   -- A test holding a call to its argument checks may hand it a path
   -- that is no string at all, which the call itself raises for; only a
   -- path is an observation, and encoding anything else into a key would
-  -- end the worker before the test could report.
-  local function note(kind: string, given: any, answer: string)
-    if given is string then
-      local path = given
-      if path:sub(1, 1) ~= "/" and
-          (kind == "o" or kind == "s" or kind == "d" or kind == "m") then
-        local here, _ = getcwd()
-        if here == nil then
-          found[#found + 1] = { kind = "x", path = path, answer = "" }
-          return
-        end
-        path = (here == "/" and "" or here) .. "/" .. path
+  -- end the worker before the test could report. `resolved` is what the
+  -- log resolved the path to as the call was made.
+  local function note(kind: string, given: any, answer: string, resolved?: string)
+    if not given is string then return end
+    local path = given
+    found[#found + 1] = { kind = kind, path = path, answer = answer }
+    if resolving ~= nil and
+        (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+          kind == "a") and
+        path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
+          ("/" .. path .. "/"):find("/%.%./") ~= nil) then
+      if resolved == nil then
+        -- The log resolved nothing for it: where it led is unknown.
+        found[#found + 1] = { kind = "x", path = path, answer = "" }
+        return
       end
-      found[#found + 1] = { kind = kind, path = path, answer = answer }
-      if resolving ~= nil and
-          (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
-            kind == "a") and
-          path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
-            ("/" .. path .. "/"):find("/%.%./") ~= nil) then
-        -- An lstat's or a readlink's is kept apart, as "v" or "w": it
-        -- stops short of a link its path ends in, which a stat's of the
-        -- same path follows.
-        local link = kind == "l" or kind == "k"
-        local noted = link and "v" or "r"
+      -- An lstat's or a readlink's is kept apart, as "v" or "w": it
+      -- stops short of a link its path ends in, which a stat's of the
+      -- same path follows.
+      local link = kind == "l" or kind == "k"
+      local noted = link and "v" or "r"
+      for _, directory in ipairs(resolving.own) do
+        if Fs.within(path, directory) then noted = link and "w" or "t" end
+      end
+      if (noted == "t" or noted == "w") and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
+        -- Most of a test's reads are of its own directory; only one
+        -- that leads out of it, or that climbs (which only its
+        -- resolution can place), is worth a line.
         for _, directory in ipairs(resolving.own) do
-          if Fs.within(path, directory) then noted = link and "w" or "t" end
+          if Fs.within(resolved, directory) then return end
         end
-        -- TODO: resolve by the call itself, not beside it (the path an
-        -- opened descriptor names, once cosmic.sys carries one): another
-        -- process retargeting a link between the two goes unseen.
-        local resolved = link and observations.link_resolution(path) or
-          observations.resolution(path)
-        if (noted == "t" or noted == "w") and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
-          -- Most of a test's reads are of its own directory; only one
-          -- that leads out of it, or that climbs (which only its
-          -- resolution can place), is worth a line.
-          for _, directory in ipairs(resolving.own) do
-            if Fs.within(resolved, directory) then return end
-          end
-        end
-        found[#found + 1] = { kind = noted, path = path, answer = resolved }
       end
+      found[#found + 1] = { kind = noted, path = path, answer = resolved }
     end
-  end
-  sys.open = function(path: string, flags: integer,
-                      mode?: integer): integer | nil, string, integer
-    note("o", path, "")
-    return open(path, flags, mode)
-  end
-  sys.stat = function(path: string): sys.Stat | nil, string, integer
-    local st, trouble, errno = stat(path)
-    note("s", path, stat_result_answer(st, trouble, errno))
-    return st, trouble, errno
-  end
-  sys.readdir = function(path: string): {string:string} | nil, string, integer
-    local entries, trouble, errno = readdir(path)
-    note("d", path, directory_result_answer(entries, trouble, errno))
-    return entries, trouble, errno
-  end
-  sys.getenv = function(name: string): string | nil
-    local value = getenv(name)
-    note("e", name, getenv_answer(value))
-    return value
-  end
-  sys.environ = function(): {string:string}
-    local environment = environ()
-    found[#found + 1] = { kind = "e", path = environ_path,
-      answer = environ_answer(environment) }
-    return environment
   end
   --- Notes what a process started unveiled and offline had: each path
   --- it read, unless the test's own; each it could change beyond the
@@ -798,6 +814,10 @@ local function start(resolving: observations.Resolving | nil):
                            stderr: integer | nil, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
                            integer | nil, string, integer
+    if ended then
+      return logged_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,
+        fds, sandbox)
+    end
     -- A sandbox of its own that unveils and takes the network holds a
     -- process as a confinement does, and is noted the same. It is read
     -- as the core reads it, raw, and a plain copy is what the core is
@@ -874,62 +894,22 @@ local function start(resolving: observations.Resolving | nil):
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
       sandbox)
   end
-  sys.mkdtemp = function(template: string): string | nil, string, integer
-    local path, trouble, errno = mkdtemp(template)
-    if path ~= nil then
-      note("m", path, "")
-    end
-    return path, trouble, errno
-  end
-  sys.mkdir = function(path: string, mode?: integer): boolean, string, integer
-    local ok, trouble, errno = mkdir(path, mode)
-    if ok then
-      note("m", path, "")
-    end
-    return ok, trouble, errno
-  end
-  sys.chdir = function(path: string): boolean, string, integer
-    note("s", path, stat_result_answer(stat(path)))
-    return chdir(path)
-  end
-  -- A scripted request answers from the test's own text and connects
-  -- nowhere; any other is the network's answer.
-  Http.open = function(url: string, opts?: Http.Options): Http.Response | nil, string
-    -- An `opts` that is no table is Http.open's own error to raise.
-    local given: any = opts
-    if (type(given) ~= "table" or opts.script == nil) and reaches(url) then
-      note("x", url, "")
-    end
-    return http_open(url, opts)
-  end
   noting[#noting + 1] = note
+  trees[note] = resolving ~= nil and resolving.tree or nil
+  syscalls.resolving(resolving_tree())
   sqlite.observe(true)
   syscalls.observe(true)
   return found, function()
-    sys.chdir = chdir
-    Http.open = http_open
-    sys.open = open
-    sys.stat = stat
-    sys.readdir = readdir
-    sys.getenv = getenv
-    sys.environ = environ
-    process.spawn = spawn
-    sys.mkdtemp = mkdtemp
-    sys.mkdir = mkdir
-    -- Draining allocates, and can raise on memory: every wrapper is put
-    -- back first. A drain that fails may have taken records out of C
-    -- before noting them all, so every capture still running -- this one
-    -- and each that encloses it -- is made one no key holds.
-    for _, drain in ipairs({ drain_sqlite, drain_syscalls }) do
-      if not pcall(drain) then
-        for _, each in ipairs(noting) do
-          local _ = pcall(each, "x", drain == drain_sqlite and "sqlite" or "syscalls", "")
-        end
-      end
-    end
+    ended = true
+    process.spawn = spawn == unlogged_spawn and logged_spawn or spawn
+    -- Draining can raise on memory (see `drain_all`): the stand-in is
+    -- put back first.
+    drain_all()
     for at = #noting, 1, -1 do
       if noting[at] == note then table.remove(noting, at) break end
     end
+    trees[note] = nil
+    syscalls.resolving(resolving_tree())
     if #noting == 0 then
       sqlite.observe(false)
       syscalls.observe(false)
@@ -937,7 +917,7 @@ local function start(resolving: observations.Resolving | nil):
   end
 end
 
---- Calls a function and restores every wrapper even when it raises. The value
+--- Calls a function and ends the capture even when it raises. The value
 --- is left intact so callers such as `require` can consume a produced table.
 --- Given `resolving`, a path read outside its tree is also resolved as
 --- it is read; see `start`.

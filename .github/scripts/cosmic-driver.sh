@@ -51,11 +51,12 @@ if [ "${1-}" = zig-cache ]; then
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
   # stat's times and inode where a test turns on them (the TODO above
   # build/test.tl's `held_stat`), a database a connection opened before
-  # the test reads, a call a module took before the capture and a read
-  # resolved as it is made (the TODOs above
-  # build/filesystem_observations.tl's `start`, and the one inside its
-  # `capture`) and an in-tree path that crosses a link out (the TODO
-  # above build/test.tl's `under_root`).
+  # the test reads (the TODO above build/filesystem_observations.tl's
+  # `start`), a read resolved by the call itself (the TODO above
+  # core/observed.c's `log_resolution`), a file SQLite opens resolved as
+  # it opens it (the TODO above build/filesystem_observations.tl's
+  # `drain_sqlite`) and an in-tree path that crosses a link out (the
+  # TODO above build/test.tl's `under_root`).
   echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
   # TODO: save what the product suite from fresh tracked source
   # reaches too: it runs after the zig-build cache is saved, so
