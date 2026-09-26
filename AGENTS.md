@@ -77,6 +77,13 @@
    across checkouts: a test whose verdict turns on a file's times, inode,
    device, link count or owner calls `observations.reads_stat_times()`,
    which keys them whole, so it stands only in its own checkout.
+   A test module declares what it reads beyond its import closure, its
+   fuzz corpora and a pinned environment in a top-level `_inputs` literal
+   (`o/bin/cosmic docs build.inputs`); `o/bin/cosmic test --audit` runs
+   every test and names what each read undeclared, with the `_inputs`
+   that would hold it. Keep it clean, narrowing a test before declaring
+   a large set: a process it starts is given `observations.environment()`
+   rather than the whole environment.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
