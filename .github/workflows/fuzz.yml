@@ -149,6 +149,17 @@
             "if-no-files-found": "ignore",
           },
         },
+
+        # As ci.yml's platform legs: the last step, as root, puts the tree
+        # back before the checkout's post step reads it.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always()",
+          "working-directory": ".",
+          shell: "sh",
+          env: {COSMIC_WORKER: "fuzz"},
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+        },
       ],
     },
   },
