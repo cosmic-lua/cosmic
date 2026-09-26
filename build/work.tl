@@ -1028,7 +1028,7 @@ end
 --- database-only rebuild reuses its existing shell bytes. So does
 --- `build/artifact.tl`, which lays the artifact out: a rebuild lays it
 --- out with the running tool's own copy, so an edit to it boots too.
---- Both are written into `meta` for the projection to carry into the
+--- Both fingerprints are written into `meta` for the projection to carry into the
 --- binary, which is how a binary knows what it was built from, so a
 --- project reads them rather than computing any. Returns the
 --- fingerprint written; `work.recorded_boot_hash` reads it back.
