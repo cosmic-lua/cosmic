@@ -3,8 +3,9 @@
 --- The C boundary keeps a value's type: text and bytes are separate
 --- calls, and a parameter is bound by naming what it is. This module
 --- keeps that property and adds the shapes a caller wants: a query that
---- yields rows, a statement run once, and a transaction that rolls back
---- when the work inside it fails.
+--- yields rows, all at once (`rows`) or one at a time (`query`), a
+--- statement run once, and a transaction that rolls back when the work
+--- inside it fails.
 ---
 --- A parameter is a one-field table naming its type, one per `?N`, in
 --- order; a result cell carries its `kind` and the matching field:
@@ -70,6 +71,24 @@ local record Sqlite
 
   type Row = {Cell}
   type Rows = {Row}
+
+  --- A query's rows read one at a time: see `Sqlite.query`.
+  record Query
+    metamethod __close: function(Query)
+    --- The next row, and ""; nil and "" after the last; nil and why
+    --- when stepping failed, the same again on every later read.
+    read: function(Query): Row | nil, string
+    --- An iterator for a `for` loop over the rows still to come. It
+    --- ends at the last one or at a failure, which `failure` then says.
+    each: function(Query): function(): Row
+    --- Why the rows ended early, or "" when they have not: after an
+    --- `each` loop, "" means every row was read.
+    failure: function(Query): string
+    --- Finalizes the statement, so the handle can close; the last
+    --- row, a failure and a `<close>` variable each do it too. A read
+    --- afterward fails. Closing again does nothing.
+    close: function(Query)
+  end
 
   --- The version of SQLite the core carries.
   version: string
@@ -215,6 +234,83 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
   end
   statement:finalize()
   return out, ""
+end
+
+local query_mt: metatable<Sqlite.Query> = {
+  __close = function(self: Sqlite.Query)
+    self:close()
+  end,
+}
+
+--- Parameters follow the same complete-list contract as run.
+--- A query whose rows are read one at a time, as `rows` gives them but
+--- never all held at once: nil and why when the statement does not
+--- prepare or bind. The statement stays open, and the handle cannot
+--- close, until the last row is read, a step fails, or the query is
+--- closed; hold it in a `<close>` variable to close it on a `break` or
+--- an error too.
+---
+---     local q <close> = assert(Sqlite.query(db, "SELECT id, body FROM t"))
+---     for row in q:each() do print(row[1].integer, row[2].text) end
+---     assert(q:failure() == "", q:failure())
+function Sqlite.query(handle: Sqlite.Handle, sql: string,
+                      values?: {Sqlite.Value}): Sqlite.Query | nil, string
+  local prepared, trouble = handle:prepare(sql)
+  if prepared == nil then
+    return nil, trouble
+  end
+  local statement: Sqlite.Statement = prepared
+  local bound, why = bind(statement, values or {})
+  if not bound then
+    statement:finalize()
+    return nil, why
+  end
+  local width = statement:columns()
+  local open = true
+  local ended = false
+  local failed = ""
+  local q: Sqlite.Query = {}
+  local function finish()
+    if open then
+      open = false
+      statement:finalize()
+    end
+  end
+  q.read = function(_self: Sqlite.Query): Sqlite.Row | nil, string
+    if failed ~= "" then return nil, failed end
+    if ended then return nil, "" end
+    if not open then return nil, "sqlite: the query is closed" end
+    local state, failure = statement:step()
+    if state == nil then
+      failed = failure ~= "" and failure or "sqlite: the step failed"
+      finish()
+      return nil, failed
+    end
+    if state == "done" then
+      ended = true
+      finish()
+      return nil, ""
+    end
+    local row: Sqlite.Row = {}
+    for index = 0, width - 1 do
+      row[index + 1] = Sqlite.cell(statement, index)
+    end
+    return row, ""
+  end
+  q.each = function(self: Sqlite.Query): function(): Sqlite.Row
+    return function(): Sqlite.Row
+      local row, _ = self:read()
+      return row
+    end
+  end
+  q.failure = function(_self: Sqlite.Query): string
+    return failed
+  end
+  q.close = function(_self: Sqlite.Query)
+    finish()
+  end
+  setmetatable(q, query_mt)
+  return q, ""
 end
 
 --- A direct text projection for callers whose SQL already defines the desired
