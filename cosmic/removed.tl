@@ -76,6 +76,7 @@ local errors <const> = 'local Errors = require("cosmic.errors")'
 local codec <const> = 'local Codec = require("cosmic.codec")'
 local archive <const> = 'local Archive = require("cosmic.archive")'
 local zip <const> = 'local Zip = require("cosmic.zip")'
+local string_ <const> = 'local String = require("cosmic.string")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
 local hash <const> = 'local Hash = require("cosmic.hash")'
 local sqlite <const> = 'local Sqlite = require("cosmic.sqlite")'
@@ -100,8 +101,8 @@ local module: Module = {
     ["io.open"] = "use Fs.read(path) or Fs.write(path, data) for a whole file, " ..
       "or Fs.open_read(path) or Fs.open_write(path) for a descriptor (" .. fs ..
       "); Stream.open(path) and Stream.create(path) work in chunks (" .. stream .. ")",
-    ["io.lines"] = "use Fs.read(path) and text:gmatch(\"[^\\n]+\") (" .. fs ..
-      "), or Stream.open(path) to read in chunks (" .. stream .. ")",
+    ["io.lines"] = "use Fs.read(path) and String.lines(text) (" .. fs .. "; " ..
+      string_ .. "), or Stream.open(path) to read in chunks (" .. stream .. ")",
     ["io.close"] = "use Fs.close(fd) (" .. fs .. ")",
     ["io.output"] = "use Fs.put(Fs.stdout, text), or Fs.put(fd, text) for a " ..
       "descriptor from Fs.open_write(path) (" .. fs .. ")",

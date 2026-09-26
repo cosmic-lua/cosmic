@@ -229,14 +229,6 @@ end
 -- extraction
 ------------------------------------------------------------------
 
---- Whether `path` has a drive letter ("C:") or a UNC prefix ("\\\\"):
---- Windows path forms that a `/`-only escape check would miss.
-local function has_drive_or_unc(path: string): boolean
-  if path:sub(1, 2):match("^%a:$") ~= nil then return true end
-  if path:sub(1, 2) == "\\\\" then return true end
-  return false
-end
-
 --- False for an absolute path, a `\`-separated or drive/UNC path, one
 --- holding a NUL byte (which every system call would silently cut the
 --- path at), or one with a `..` component -- the archive path itself,
@@ -293,9 +285,8 @@ end
 --- symlink, which would make this lexical walk meaningless.
 local function stays_inside(rel_dir: string, target: string): boolean
   if target == "" or target:sub(1, 1) == "/" then return false end
-  if target:find("\0", 1, true) ~= nil then return false end
-  if target:find("\\", 1, true) ~= nil then return false end
-  if has_drive_or_unc(target) then return false end
+  -- A NUL or a backslash anywhere, or a drive letter up front.
+  if target:find("[%z\\]") ~= nil or target:find("^%a:") ~= nil then return false end
   local depth = #components(rel_dir)
   for seg in (target .. "/"):gmatch("([^/]*)/") do
     if seg == "" or seg == "." then

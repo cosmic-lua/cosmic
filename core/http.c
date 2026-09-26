@@ -206,7 +206,7 @@ static const char *load_roots (lua_State *L) {
   }
   sqlite3_finalize(stmt);
   if (trouble == NULL && trusted == 0) {
-    trouble = "no CA roots: the binary's database holds none; `cosmic refresh cacert " \
+    trouble = "no CA roots: the binary's database holds none; `cosmic refresh cacert "
       "--binary <this program> -o <copy>` writes a copy that has them";
   }
   if (trouble == NULL && !add_cert_file()) {
@@ -830,15 +830,9 @@ static int handle_sent (lua_State *L) {
   return 1;
 }
 
+/* `close`, and both __gc and __close: a handle closed any way, even one
+ * a finalizer elsewhere revives, is `closed`, and its methods raise. */
 static int handle_close (lua_State *L) {
-  struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
-  transfer_release(t);
-  return 0;
-}
-
-/* Both __gc and __close: a handle closed either way, even one a
- * finalizer elsewhere revives, is `closed`, and its methods raise. */
-static int handle_gc (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   transfer_release(t);
   return 0;
@@ -1209,9 +1203,9 @@ static const luaL_Reg module[] = {
 
 int cosmic_open_http (lua_State *L) {
   luaL_newmetatable(L, HANDLE_TYPE);
-  lua_pushcfunction(L, handle_gc);
+  lua_pushcfunction(L, handle_close);
   lua_setfield(L, -2, "__gc");
-  lua_pushcfunction(L, handle_gc);
+  lua_pushcfunction(L, handle_close);
   lua_setfield(L, -2, "__close");
   lua_newtable(L);
   luaL_setfuncs(L, handle_methods, 0);

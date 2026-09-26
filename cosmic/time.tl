@@ -16,6 +16,7 @@
 --- each take one, and read the UTC calendar without.
 
 local Fs = require("cosmic.fs")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
 local record Time
@@ -959,8 +960,8 @@ local function written_name(path: string): string
   local text, _ = Fs.read(path)
   if text == nil then return nil end
   text = text:gsub("^\239\187\191", "")
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    local name = line:match("^%s*(.-)%s*$")
+  for line in String.lines(text) do
+    local name = String.trim(line)
     if name ~= "" and name:sub(1, 1) ~= "#" then
       if name_problem(name) ~= nil then return nil end
       return name
@@ -1256,9 +1257,8 @@ end
 --- function here made.
 function Time.format_rfc3339(ns: integer, opts?: Time.FormatOptions): string
   local digits = opts ~= nil and opts.digits or nil
-  if digits ~= nil and outside("digits", digits, 0, 9) ~= nil then
-    error("time: " .. outside("digits", digits, 0, 9), 2)
-  end
+  local bad = digits ~= nil and outside("digits", digits, 0, 9) or nil
+  if bad ~= nil then error("time: " .. bad, 2) end
   local zone = opts ~= nil and opts.zone or nil
   local zone_name = opts ~= nil and opts.zone_name or false
   local s, n = ns // NS, ns % NS
