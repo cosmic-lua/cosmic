@@ -36,7 +36,8 @@
 --- verdict a key can hold: its run records what it was compiled from
 --- and ran under instead, and while that is unchanged and it last
 --- passed, it is assumed to pass again rather than run -- unless the
---- run is `--all` (or `COSMIC_TEST_ALL=1`) or names it.
+--- run is `--all` (or `COSMIC_TEST_ALL=1`, or `COSMIC_SANDBOX=must`) or
+--- names it.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -2223,10 +2224,14 @@ function test.run(argv: {integer:string}): integer
   end
   -- A test no key can hold is assumed to pass as it last did unless
   -- asked for: by --all, or by name -- a selector narrower than the
-  -- whole tree that chooses it.
+  -- whole tree that chooses it. COSMIC_SANDBOX=must asks for all of
+  -- them: one assumed may have passed with a process that fell back to
+  -- running unconfined, which the mode refuses
+  -- (build.filesystem_observations' `must_confine`).
   -- An audit runs every test it chooses, to observe what each reads.
   local audit = parsed.set["--audit"] == true
-  local everything = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  local everything = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1" or
+    Env.get("COSMIC_SANDBOX") == "must"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
