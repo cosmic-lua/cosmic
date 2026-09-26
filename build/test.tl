@@ -2343,7 +2343,11 @@ function test.run(argv: {integer:string}): integer
   local function_lines: {string} = {}
   local functions = Coverage.native_functions()
   if own_tree and #selectors == 0 and #functions > 0 then
-    local entered = c_functions.tally(functions, hits, c_functions.sources(root, functions))
+    -- A host whose name cannot be had is held to every function.
+    local names, uname_trouble = sys.uname()
+    if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
+    local entered = c_functions.tally(functions, hits, c_functions.sources(root, functions),
+      names ~= nil and names.sysname or nil)
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end

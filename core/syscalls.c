@@ -772,12 +772,13 @@ static int unveil (const char *root, char *const *paths, char *const *names,
 #endif
 
 /* Everything a spawned child reads between starting and exec, made ready
- * by the parent: the child shares the parent's memory (`spawn_child`), so
- * it allocates nothing and writes nothing of the parent's but the one
- * thing it means to -- the coverage flags of the functions it enters,
- * and on the checked core UBSan's own state -- and reads only this,
- * which the parent holds, unchanged, until the child has exec'd or
- * ended. */
+ * by the parent: the child shares the parent's memory on Linux
+ * (`spawn_child`), so it allocates nothing and writes nothing of the
+ * parent's but the one thing it means to -- the coverage flags of the
+ * functions it enters, and on the checked core UBSan's own state -- and
+ * reads only this, which the parent holds, unchanged, until the child
+ * has exec'd or ended. On Darwin the child is a copy (`start_child`),
+ * which holds it to the same rules all the same. */
 struct spawn_plan {
   const char *path;
   char **argv;
@@ -839,19 +840,21 @@ static void default_signals (void) {
   }
 }
 
-/* The child `cosmic_spawn_unobserved` starts, from its start to exec, on
- * the parent's memory: through clone(CLONE_VM | CLONE_VFORK) on a stack
- * of its own on Linux, and vfork on Darwin, the parent stopped until
- * this execs or ends. So it neither allocates nor touches the Lua state,
- * writes only its own stack and descriptors, the kernel's side of the
- * process, and errno (which is the parent's too; the parent reads none
- * after a start that succeeded) -- and, deliberately, the parent's
- * memory in one place: the coverage flag of each function it enters
+/* The child `cosmic_spawn_unobserved` starts, from its start to exec:
+ * on Linux on the parent's memory, through clone(CLONE_VM | CLONE_VFORK)
+ * on a stack of its own, the parent stopped until this execs or ends;
+ * on Darwin through vfork, which macOS's libc makes a fork, so on a
+ * copy. So it neither allocates nor touches the Lua state, writes only
+ * its own stack and descriptors, the kernel's side of the process, and
+ * errno (which is the parent's too on Linux; the parent reads none after
+ * a start that succeeded) -- and, deliberately, the parent's memory in
+ * one place on Linux: the coverage flag of each function it enters
  * (core/coverage.h), so a test is credited with what its child ran, and
  * on the checked core the sanitizer runtime's state (UBSan's report
- * dedup), which a report from here would write -- and leaves by exec
- * or _exit, never by returning, so no atexit handler or stdio flush
- * runs. A failure goes to
+ * dedup), which a report from here would write. On Darwin those flags
+ * land in the copy and are lost with it, so build/c_functions.tl
+ * exempts this function there. It leaves by exec or _exit, never by
+ * returning, so no atexit handler or stdio flush runs. A failure goes to
  * the parent over the status pipe as an errno. */
 static _Noreturn int spawn_child (void *argument) {
   const struct spawn_plan *plan = argument;
@@ -959,7 +962,8 @@ static _Noreturn int spawn_child (void *argument) {
 
 /* Starts the child `plan` describes, with every signal blocked across
  * its start, so no handler of the parent's runs in the child, which
- * shares its memory: the child's pid, or -1 and the errno in `error`.
+ * shares its memory on Linux: the child's pid, or -1 and the errno in
+ * `error`.
  * Not fork, whose copy of a large parent's page tables costs more than
  * the rest of a start together (4.4 ms of the test runner's 8.2 ms per
  * test at 150 MB), and not posix_spawn, which has no step for a
@@ -970,11 +974,12 @@ static _Noreturn int spawn_child (void *argument) {
  * posix_spawn is refused on Linux alone: Darwin's covers every step its
  * child takes (descriptors, cwd through posix_spawn_file_actions_addchdir_np,
  * a process group, the mask and defaults), having no sandbox to set up.
- * Its vfork child instead calls functions POSIX leaves undefined after
- * vfork (sigaction, fcntl, dup2, chdir, snprintf), which XNU's vfork
- * permits, and shares the parent's uthread and so its signal mask:
- * the mask the child restores before exec is the parent's again when
- * it returns, which the parent's own restore then repeats.
+ * Darwin calls vfork instead, which POSIX leaves undefined for a child
+ * that calls anything but exec or _exit (this one calls sigaction,
+ * fcntl, dup2, chdir and snprintf); macOS's libc makes vfork a fork
+ * (Libc's sys/fork.c: "vfork() is now just fork()"), so the child is a
+ * copy with a mask of its own, safe for all of that, and a start costs
+ * there what fork does.
  * Every signal is blocked across the whole start, not only its first
  * steps, so a child hung in setup -- a chdir or an unveiled path on a
  * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
