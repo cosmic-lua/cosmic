@@ -23,6 +23,9 @@
 #include <linux/landlock.h>
 #include <linux/seccomp.h>
 #include <linux/sched.h>
+#include <linux/if.h>
+#include <linux/sockios.h>
+#include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/socket.h>
 #include <stddef.h>
@@ -656,10 +659,31 @@ struct cosmic_mount_attr {
   uint64_t attr_set, attr_clr, propagation, userns_fd;
 };
 
+/* Brings up the loopback of the network namespace the child has just made
+ * its own, which the kernel makes down: a connection to 127.0.0.1 is then
+ * refused, or reaches a listener the child's own processes opened, as
+ * on a host, rather than finding no network at all. 0, or an errno. */
+static int loopback_up (void) {
+  int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+  if (fd < 0) return errno;
+  struct ifreq request;
+  memset(&request, 0, sizeof request);
+  memcpy(request.ifr_name, "lo", sizeof "lo");
+  int number = 0;
+  if (ioctl(fd, SIOCGIFFLAGS, &request) != 0) {
+    number = errno;
+  } else {
+    request.ifr_flags |= IFF_UP;
+    if (ioctl(fd, SIOCSIFFLAGS, &request) != 0) number = errno;
+  }
+  close(fd);
+  return number;
+}
+
 /* In the child, before anything else of the sandbox: a user namespace of
  * its own, mapping its user and group to themselves; with `offline`, a
- * network namespace of its own, which has nothing but a loopback that is
- * down; and with `unveiling`, System V IPC of its own, and a root of
+ * network namespace of its own, which has nothing but a loopback, brought
+ * up; and with `unveiling`, System V IPC of its own, and a root of
  * its own in a mount namespace, with a /tmp of its own unless /tmp or
  * / is among the paths,
  * holding the `count` paths at their own names -- read-only, and every
@@ -687,6 +711,7 @@ static int unveil (const char *root, char *const *paths, char *const *names,
   if (number != 0 && number != ENOENT) return number;
   if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) return number;
   if ((number = write_whole("/proc/self/gid_map", gid_map)) != 0) return number;
+  if (offline && (number = loopback_up()) != 0) return number;
   if (unveiling) {
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
     if (mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0) return errno;

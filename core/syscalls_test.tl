@@ -745,6 +745,36 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
 end
 
+--- An offline child's loopback is up, as a host's is: a connection to a
+--- closed port of 127.0.0.1 is refused, not unreachable, and one to a
+--- listener the child opened there is taken. Perl, which the host has
+--- nearly everywhere, opens the sockets: cosmic has none of its own, and
+--- curl words a refused connection and an unreachable network alike.
+local function test_an_offline_child_s_loopback_is_up(tmp: string)
+  local perl = "/usr/bin/perl"
+  if sys.stat(perl) == nil then return end -- nothing here to open a socket with
+  local report = create(tmp .. "/report")
+  local pid, trouble, errno = process.spawn(perl, { "perl", "-MIO::Socket::INET", "-e",
+    "my $s = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => 1, Proto => 'tcp'); " ..
+    "print $s ? \"open\\n\" : ($!{ECONNREFUSED} ? \"refused\\n\" : \"failed: $!\\n\"); " ..
+    "my $l = IO::Socket::INET->new(Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0, " ..
+    "Proto => 'tcp') or die \"listen: $!\\n\"; " ..
+    "IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $l->sockport, Proto => 'tcp') " ..
+    "or die \"connect: $!\\n\"; print \"reached\\n\"" },
+    nil, tmp, nil, report, report, false, nil, { offline = true })
+  if pid == nil then
+    sys.close(report)
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no network namespace: " .. trouble)
+    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    return
+  end
+  local status = assert(process.waitpid(pid, false))
+  local said = assert(sys.pread(report, 4096, 0))
+  sys.close(report)
+  assert(status.code == 0 and said == "refused\nreached\n", said)
+end
+
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
   assert(math.type(count) == "integer" and count >= 1)
