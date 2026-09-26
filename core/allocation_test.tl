@@ -352,6 +352,63 @@ local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails
   assert_c_heap(bytes, blocks, "observing SQLite's files under refusal")
 end
 
+--- A file a connection holds open is linked through the block SQLite
+--- allocates for it, which costs the C heap nothing; turning recording
+--- on hands each over onto it, which can be refused: `observe` answers
+--- false, and what it kept drains whole. An open whose record was
+--- refused, or that failed, is not held: once every connection has
+--- closed, turning recording on hands nothing over.
+local function test_handing_over_held_files_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local raw = sqlite_table()
+  local path = tmp .. "/held.db"
+  local real = assert(sys.realpath(tmp)) .. "/held.db"
+  local made = assert(Sqlite.open(path, true))
+  assert(made:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('held')"))
+  assert(made:close())
+  local _, _ = raw.observe(false)
+  raw.observed()
+  local db = assert(Sqlite.open(path, false))
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local handed_over = under_every_failure(function()
+    local handed, trouble = raw.observe(true)
+    assert(handed, trouble)
+    local _, _ = raw.observe(false)
+    local seen = raw.observed()
+    assert(#seen == 1 and seen[1] == real, tostring(seen[1]))
+  end, function()
+    local _, _ = raw.observe(false)
+    raw.observed()
+  end)
+  assert(handed_over > 0, "handing over allocates")
+  assert_c_heap(bytes, blocks, "handing held files over under refusal")
+  assert(db:close())
+  local reopened: Sqlite.Handle = nil
+  under_every_failure(function()
+    local _, _ = raw.observe(true)
+    reopened = assert(Sqlite.open(path, false))
+    assert(Sqlite.text_rows(reopened, "SELECT v FROM t"))
+  end, function()
+    local _, _ = raw.observe(false)
+    collectgarbage("collect")
+    if reopened ~= nil then assert(reopened:close()) end
+    reopened = nil
+    raw.observed()
+  end)
+  local missing, _ = Sqlite.open(tmp .. "/missing.db", false)
+  assert(missing == nil)
+  local handed, trouble = raw.observe(true)
+  assert(handed, trouble)
+  local _, _ = raw.observe(false)
+  local left = raw.observed()
+  for _, name in ipairs(left) do
+    assert(name ~= real, "a closed database is held still")
+    assert(name:sub(-#"/missing.db") ~= "/missing.db", "a failed open is held")
+  end
+  assert_c_heap(bytes, blocks, "opening held files under refusal")
+end
+
 --- What the syscall table's queries answer while observed is kept, on
 --- a heap of the log's own, until drained: under every refusal, no call
 --- answers what the log did not keep, a drain refused keeps every

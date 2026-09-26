@@ -645,9 +645,11 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- a read's path as the call is made: generation 8 missed the one and
   -- resolved an lstat's, a readlink's or a realpath's path as the
   -- capture ended.
+  -- Generation 10 notes each file a connection opened before the capture
+  -- holds as it begins, which generation 9 never keyed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-9", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-3", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-10", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-4", "module-load-reads-v1", header }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string

@@ -57,6 +57,8 @@ local exempt: {string: string} = {
     "the observed VFS answers xAccess itself, and SQLite never asks the store's read-only one",
   ["core/vfs_wrap.c:forward_randomness"] =
     "SQLite seeds its randomness through the default VFS, never a wrapping one",
+  ["core/sqlite.c:observed_sector_size"] =
+    "the default VFS's files overwrite safely on power loss, so SQLite never asks their sector size; only a URI's psow=0 would, and no connection takes a URI",
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
   ["core/strnlen.c:strnlen"] = "a host libc's own strnlen can win the link; bin/zig build boot's strnlen check covers the core's",

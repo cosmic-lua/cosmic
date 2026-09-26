@@ -209,6 +209,14 @@ function worker.run(argv: {integer:string}): integer
     log:complain(attach_trouble)
     return 2
   end
+  -- The worker's own connection: no test is keyed by all of it (see
+  -- `observations.set_aside_connections`).
+  -- TODO: key a test that queries o/cosmic.db itself through the
+  -- worker's connection (`Store.databases()`' borrowed handle, which
+  -- core/sqlite.c's `cosmic_sqlite_push_borrowed` makes) by its bytes,
+  -- noting the files of a store connection a statement is prepared on
+  -- while a capture runs: set aside here, its reads go unrecorded.
+  observations.set_aside_connections()
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
     load_reads = {}, test_reads = {},
