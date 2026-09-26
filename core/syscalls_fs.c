@@ -603,6 +603,42 @@ COSMIC_SYSCALL(ftruncate, 2) {
   return cosmic_ok(L);
 }
 
+COSMIC_SYSCALL(access, 2) {
+  const char *path = cosmic_path(L, 1);
+  int mode = cosmic_checkint(L, 2);
+  luaL_argcheck(L, (mode & ~(R_OK | W_OK | X_OK)) == 0, 2,
+                "not 0 or R_OK, W_OK and X_OK or'd together");
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  /* Noted as a stat of the path, which holds its mode and owner.
+   * TODO: key what else the answer turns on -- the process's ids, a
+   * mount's noexec or read-only flag, an ACL -- which no stat record
+   * holds, and the shared verdict cache keys a stat by its kind, size
+   * and mode alone. */
+  if (cosmic_observing &&
+      !cosmic_observed_ask(L, COSMIC_OBSERVED_STAT, cosmic_query_stat)) {
+    return cosmic_fail_effect(L, ENOMEM);
+  }
+  /* AT_EACCESS only where the effective ids differ from the real ones,
+   * where alone it changes the answer: musl asks faccessat2 for any
+   * flag, which an older container's seccomp profile refuses with
+   * EPERM rather than ENOSYS, so plain faccessat is asked otherwise. */
+  int flags = (getuid() != geteuid() || getgid() != getegid()) ? AT_EACCESS : 0;
+  if (faccessat(AT_FDCWD, path, mode, flags) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(mkfifo, 2) {
+  const char *path = cosmic_path(L, 1);
+  int mode = cosmic_optint(L, 2, 0644);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  if (mkfifo(path, (mode_t)mode) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
 COSMIC_SYSCALL(fsync, 1) {
   int fd = cosmic_checkint(L, 1);
   if (fsync(fd) != 0) {

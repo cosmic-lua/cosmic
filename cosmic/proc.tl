@@ -114,11 +114,10 @@ function Proc.find(name: string, path?: string): string | nil, string
     local candidate = (dir == "" and "." or dir) .. "/" .. name
     local st, _ = sys.stat(candidate)
     if st ~= nil and st.kind == "file" then
-      -- TODO: ask whether this process may run the file --
-      -- faccessat(AT_EACCESS, X_OK) -- once cosmic.sys carries it; an
-      -- execute bit for anyone is taken for one this user holds, so a
-      -- file only others may run is answered where execvp would skip it.
-      if st.mode & 0x49 ~= 0 then
+      -- Asked of this process, as execvp asks: an execute bit only
+      -- others hold is no use to it.
+      local runnable, _ = sys.access(candidate, sys.X_OK)
+      if runnable then
         return candidate, ""
       end
       unrunnable = unrunnable or candidate

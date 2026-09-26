@@ -415,6 +415,16 @@ COSMIC_SYSCALL(dup, 1);
 COSMIC_SYSCALL(dup2, 2);
 
 /*
+ * --- A descriptor's own flags, `fcntl(fd, F_GETFD)`: FD_CLOEXEC is set
+ * --- when it is closed on exec.
+ * ---@param fd integer the descriptor to ask about
+ * ---@return integer|nil flags the descriptor's flags, or nil on failure
+ * ---@return string error what went wrong, when flags is nil
+ * ---@return integer errno the error number, when flags is nil
+ */
+COSMIC_SYSCALL(fd_flags, 1);
+
+/*
  * --- How many processors are online, at least one.
  * ---@return integer count the number of online processors
  */
@@ -540,6 +550,30 @@ COSMIC_SYSCALL(fsync, 1);
 COSMIC_SYSCALL(ftruncate, 2);
 
 /*
+ * --- Whether this process may reach `path` as `mode` asks: 0 for only
+ * --- that it exists, else R_OK, W_OK and X_OK or'd together. It is
+ * --- asked with the effective ids, as `execvp` and `open` ask, and
+ * --- follows a link. A refusal is a failure, EACCES its errno.
+ * ---@param path string the path to ask about
+ * ---@param mode integer 0, or R_OK, W_OK and X_OK or'd together
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(access, 2);
+
+/*
+ * --- Makes a named pipe at `path`, with the permission bits `mode` less
+ * --- the umask.
+ * ---@param path string the pipe to make
+ * ---@param mode? integer its permission bits, default 0o644
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(mkfifo, 2);
+
+/*
  * --- The numbers the calls above take and give back. They come from
  * --- this libc, so nothing above the table carries a platform's own.
  * ---@class Constants
@@ -550,6 +584,13 @@ COSMIC_SYSCALL(ftruncate, 2);
  * ---@field O_EXCL integer with O_CREAT, refuse an existing file
  * ---@field O_TRUNC integer empty the file on open
  * ---@field O_APPEND integer every write goes to the end
+ * ---@field O_NOFOLLOW integer refuse a path whose last part is a link
+ * ---@field O_NONBLOCK integer never wait: open a named pipe with no writer, read what is there
+ * ---@field O_NOCTTY integer never make a terminal opened the controlling one
+ * ---@field R_OK integer for `access`: may read it
+ * ---@field W_OK integer for `access`: may write it
+ * ---@field X_OK integer for `access`: may run it, or search it as a directory
+ * ---@field FD_CLOEXEC integer in `fd_flags`: closed on exec
  * ---@field SEEK_SET integer seek from the start
  * ---@field SEEK_CUR integer seek from where the descriptor is
  * ---@field SEEK_END integer seek from the end
@@ -588,6 +629,13 @@ COSMIC_CONSTANT(O_CREAT)
 COSMIC_CONSTANT(O_EXCL)
 COSMIC_CONSTANT(O_TRUNC)
 COSMIC_CONSTANT(O_APPEND)
+COSMIC_CONSTANT(O_NOFOLLOW)
+COSMIC_CONSTANT(O_NONBLOCK)
+COSMIC_CONSTANT(O_NOCTTY)
+COSMIC_CONSTANT(R_OK)
+COSMIC_CONSTANT(W_OK)
+COSMIC_CONSTANT(X_OK)
+COSMIC_CONSTANT(FD_CLOEXEC)
 COSMIC_CONSTANT(SEEK_SET)
 COSMIC_CONSTANT(SEEK_CUR)
 COSMIC_CONSTANT(SEEK_END)

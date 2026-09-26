@@ -1335,6 +1335,14 @@ COSMIC_SYSCALL(dup, 1) {
   return 1;
 }
 
+COSMIC_SYSCALL(fd_flags, 1) {
+  int fd = cosmic_checkint(L, 1);
+  int flags = fcntl(fd, F_GETFD);
+  if (flags < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, flags);
+  return 1;
+}
+
 COSMIC_SYSCALL(dup2, 2) {
   int fd = cosmic_checkint(L, 1);
   int to = cosmic_checkint(L, 2);
