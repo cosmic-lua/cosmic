@@ -270,16 +270,20 @@ end
 
 --- The values of JSON Lines read from `reader` a line at a time, as
 --- `decode_lines` reads them from text: a blank line is skipped, a line
---- may end in `\r\n`, and a failure names its line. A `null` line
+--- may end in `\r\n`, and a line that is not JSON is named by its
+--- number, as there. A `null` line
 --- reads as `Json.null`, or as `opts.null_value` when that is given, so
 --- a value is never taken for the end. A line longer than `max` bytes
---- (1 MiB by default) fails, as `Stream.lines` says. `reader` is not
---- closed.
+--- (1 MiB by default) fails, as `Stream.lines` says, and a `max` that
+--- is no integer of at least 1 raises. `reader` is not closed.
 ---
 ---     local lines = Json.lines(reader)
 ---     for event in lines:each() do handle(event) end
 ---     assert(lines:failure() == "", lines:failure())
 function Json.lines(reader: Stream.Reader, opts?: Json.DecodeOptions, max?: integer): Json.Lines
+  if max ~= nil and (math.type(max) ~= "integer" or max < 1) then
+    error("json: a line limit must be an integer of at least 1", 2)
+  end
   local text = Stream.lines(reader, max)
   local given: Json.DecodeOptions = opts or {}
   local line_opts: Json.DecodeOptions = {

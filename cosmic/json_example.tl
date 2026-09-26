@@ -66,7 +66,7 @@ function Example.decode_lines()
 end
 
 --- JSON Lines read from a stream a value at a time, in bounded memory
---- however long it runs -- here a string, as well a file
+--- however long it runs -- here a string, as well as a file
 --- (`Stream.open(path)`), a child's output or an HTTP response --
 --- and written back a line at a time to any Writer.
 function Example.lines()

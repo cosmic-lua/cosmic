@@ -691,3 +691,23 @@ local function test_lines_decodes_each_line_under_the_options()
   assert(trouble == "" and #got == 2, trouble)
   assert((got[1] as {string:integer}).a == 1)
 end
+
+--- A Writer's failure is write_line's, and a bad limit is the caller's
+--- to hear about, named where it called.
+local function test_write_line_answers_a_writer_failure_and_lines_a_bad_limit()
+  local w: Stream.Writer = {}
+  w.write = function(_self: Stream.Writer, _data: string): boolean, string
+    return false, "disk full"
+  end
+  w.close = function(_self: Stream.Writer): boolean, string return true, "" end
+  w.abort = w.close
+  local wrote, trouble = Json.write_line(w, { 1 })
+  assert(not wrote and trouble == "disk full", trouble)
+  local function bad_limit(): Json.Lines
+    -- Not a tail call, which would leave no frame here to name.
+    local lines = Json.lines(Stream.from_string(""), nil, 0)
+    return lines
+  end
+  local ok, message = pcall(bad_limit)
+  assert(not ok and tostring(message):find("json_test", 1, true) ~= nil, tostring(message))
+end
