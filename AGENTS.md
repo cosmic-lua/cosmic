@@ -96,6 +96,11 @@
    finds `require`d by a literal name, and a test's `require` of any
    other module of the tree (a computed name, `pcall(require, ...)`)
    fails, naming it: require it statically, at the top level.
+   `COSMIC_TEST_SANDBOX=1` (off by default) runs each worker sandboxed
+   to those inputs (`build/test_sandbox.tl`): the tree at /tree, its
+   directory at /tmp, and nothing else of either, so a test that reads
+   what it does not declare fails there; CI's Linux legs run the suite
+   so as a shadow that gates nothing yet.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and

@@ -880,6 +880,24 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   end
   assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { tree }, at = { [scratch] = "/tmp" } } }), "at a path not unveiled")
+  -- The host's /proc bound at another name is the host's state, and
+  -- mounted read-only, given to write as it may be.
+  local without_proc: {string} = {}
+  for _, path in ipairs(reads) do
+    if path ~= "/proc" then without_proc[#without_proc + 1] = path end
+  end
+  local proc_report = create(tmp .. "/proc-report")
+  local proc_pid = process.spawn("/bin/sh", { "sh", "-c",
+    "grep -q ' /host-proc ro[, ]' /host-proc/self/mountinfo && echo read-only || echo writable" },
+    nil, "/", nil, proc_report, proc_report, false, nil,
+    { unveil = { reads = without_proc, writes = { "/proc" }, at = { ["/proc"] = "/host-proc" } },
+      offline = true })
+  if proc_pid ~= nil then
+    assert(assert(process.waitpid(proc_pid, false)).code == 0)
+    local proc_said = assert(sys.pread(proc_report, 4096, 0))
+    assert(proc_said == "read-only\n", proc_said)
+  end
+  sys.close(proc_report)
 end
 
 --- An unveiled child is pid 2 of a pid namespace of its own, beneath the

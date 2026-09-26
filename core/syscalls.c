@@ -796,11 +796,11 @@ static int place_proc (const char *target, int *own) {
  * its name or its path, a shorter coming before a longer. `names` holds
  * the names they were given by where one differs from its path and it
  * has no `at`, and NULL elsewhere, and each such name is a link in the
- * root to its path, where no path placed holds it already. `root` is an empty directory the parent made
- * to build on; `mapped` says whether the child's user is mapped
- * (`map_ids`). The root is this process's own and its working
- * directory's, and every process's in the namespace whose root was the
- * old one. 0, or an errno.
+ * root to its path, where no path placed holds it already. `root` is an
+ * empty directory the parent made to build on; `mapped` says whether
+ * the child's user is mapped (`map_ids`). The root is this process's
+ * own and its working directory's, and every process's in the namespace
+ * whose root was the old one. 0, or an errno.
  * TODO: remove the directory an unmapped child's root is built on once
  * the child ends: its root and its /tmp are that directory, in its
  * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
@@ -868,8 +868,9 @@ static int build_root (const char *root, char *const *paths, char *const *names,
       continue;
     }
     if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
-    /* A path in the host's /proc is its state, read-only whoever asks. */
-    if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0) {
+    /* A path in the host's /proc is its state, read-only whoever asks:
+     * /proc itself too, bound at another name (`at`). */
+    if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0 || strcmp(paths[i], "/proc") == 0) {
       struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
       if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
         return errno;
