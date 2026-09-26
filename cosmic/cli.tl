@@ -24,8 +24,8 @@ local record Cli
   --- otherwise -- then runs it: requires the file, and if what it
   --- returns is a function, calls it with one argument -- see argv --
   --- and exits with what it returns, as `eval` does: nothing is 0, a
-  --- whole number from 0 to 255 is itself, and anything else is
-  --- complained about and exits 2
+  --- whole number from 0 to 255, or text naming one, is itself, and
+  --- anything else is complained about and exits 2
   run: string
   --- `cosmic --standalone <file.tl>`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing
@@ -43,7 +43,8 @@ local record Cli
   --- written, and no staleness check. The words after the chunk are its
   --- `...`; it prints only what it prints. What it returns is the exit
   --- code, as a built program's is: nothing is 0, a whole number from 0
-  --- to 255 is itself, and anything else is complained about and exits 2
+  --- to 255, or text naming one, is itself, and anything else is
+  --- complained about and exits 2
   eval: string
   --- `cosmic --version`: prints `cosmic <hex>`, the SHA-256 of the file
   --- this binary runs from -- the digest a release's SHA256SUMS names

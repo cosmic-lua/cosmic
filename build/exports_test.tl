@@ -40,6 +40,8 @@ allowed["build.filesystem_observations.itself"] = "a test's own declaration: " .
   "what a process of this very program needs, which only a test declares"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
+allowed["build.filesystem_observations.reads_stat_times"] = "a test's own declaration: " ..
+  "that its verdict turns on stat's times, which only a test makes"
 allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..
   "line in the checker's own words"
 allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..

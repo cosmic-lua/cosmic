@@ -179,8 +179,8 @@ end
 --- `argv[0]` directly. A record whose `main` field is a function is
 --- called the same way, through that field. What the function returns
 --- is the exit code as a built program's is -- see build/exit_status.tl: nil
---- is 0, and anything but a whole number from 0 to 255 exits 2. No
---- function at all is 0.
+--- is 0, and anything but a whole number from 0 to 255, or text naming
+--- one, exits 2. No function at all is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
@@ -475,11 +475,8 @@ local verbs: {string: function({integer:string}): integer} = {
   -- Never stale-checked, unlike `db`: a staleness check stages the tree,
   -- and this verb reads o/ and nothing else under it. It gives its own
   -- verdict on every exit, a usage error included, so the check main
-  -- runs after a verdictless exit 2 never runs for it.
-  -- TODO: test that this dispatch neither stale-checks nor scans the
-  -- working directory -- run `cosmic sql` in a directory whose tree
-  -- would fail to stage -- beside build/verbs_test.tl, which runs this
-  -- dispatch through build.invoke; build/sql_test.tl calls sql.run.
+  -- runs after a verdictless exit 2 never runs for it
+  -- (build/verbs_test.tl's test_sql_never_stages_the_tree).
   sql = function(argv: {integer:string}): integer
     return require("build.sql").run(argv)
   end,

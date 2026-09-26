@@ -102,7 +102,8 @@ local record test
     key: string
     --- The key every checkout of the tree computes alike, which a
     --- verdict is shared under (`build.shared_verdicts`): `key` but for
-    --- a stat, keyed by what `held_stat` keeps of it.
+    --- a stat, keyed by what `held_stat` keeps of it, unless the test
+    --- declared it reads stat's times.
     shared: string
     stable: boolean
     --- A path a confined process was given was first walked after the
@@ -532,13 +533,18 @@ local worker_view: function(): {string:string}
 --- given are no part of what the tree holds, and would keep a verdict
 --- from standing in any checkout but the one that reached it; a
 --- checkout's own key keeps them, so a file touched there runs what
---- stat'd it again -- but for one under o/, which the build rewrites.
--- TODO: a test whose verdict turns on an in-tree file's times or inode
--- (a staleness check comparing a file of the tree against another)
--- stands on a sibling's verdict where they differ, and, for a file
--- under o/, on its own checkout's. Key such a test's stats whole in
--- both keys, once a test can declare it reads them (as
--- `observations.confine` declares what its processes read).
+--- stat'd it again -- but for one under o/, which the build rewrites. A
+--- test that declares it reads them (`observations.reads_stat_times`)
+--- is keyed by every field instead, in both keys, o/ included.
+-- TODO: infer the declaration rather than trust a test to make it: a
+-- test that reads an in-tree file's times, inode, device, link count or
+-- owner without declaring it -- through a stat, or an fstat of a
+-- descriptor it opened -- stands on a sibling's verdict where they
+-- differ, and, for a file under o/, on its own checkout's. Have `stat`,
+-- `lstat` and `fstat` note "z" themselves when a capture runs and any
+-- field of what they answered but its kind, size and mode is read
+-- (their answer a table whose other fields are looked up through its
+-- metatable, in core/syscalls_fs.c), and retire the declaration.
 local function held_stat(answer: string): string
   local size, mode, kind = answer:match("^ok (%S+) (%S+) (%S+)")
   if size == nil then return answer end
@@ -559,7 +565,10 @@ end
 --- it; its `shared` key keeps of a stat only what `held_stat` does,
 --- so another checkout of the same content computes the same shared
 --- key, and a verdict one reached stands in the other
---- (`build.shared_verdicts`).
+--- (`build.shared_verdicts`). A test that declares it reads stat's
+--- times (`observations.reads_stat_times`) is keyed by every field of
+--- each stat in both keys, and by the stat of each file of the tree it
+--- opened: its shared key is effectively its checkout's alone.
 ---
 --- Exposed as `test.verdict_key` (`standing` and `finish` use it the
 --- same as any other caller would) so `test_test.tl` can pin two
@@ -581,6 +590,13 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local stable = true
   local late = false
   local paths: {string} = {}
+  -- Whether the test declared it reads stat's times
+  -- (`observations.reads_stat_times`): its stats are keyed whole, and
+  -- each file of the tree it opened is keyed by its stat too.
+  local whole = false
+  for _, observation in ipairs(reads) do
+    if observation.kind == "z" then whole = true end
+  end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     local keyed = kind == "e" or kind == "u" or kind == "c" or kind == "b"
@@ -614,6 +630,11 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         if before ~= nil and before ~= observation.answer then stable = false end
         answers[identified] = observation.answer
       end
+      local stated = "s " .. (relative or "")
+      if whole and kind == "o" and relative ~= nil and not seen[stated] then
+        seen[stated] = true
+        paths[#paths + 1] = stated
+      end
     end
   end
   table.sort(paths)
@@ -645,11 +666,20 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- a read's path as the call is made: generation 8 missed the one and
   -- resolved an lstat's, a readlink's or a realpath's path as the
   -- capture ended.
-  -- Generation 10 notes each file a connection opened before the capture
-  -- holds as it begins, which generation 9 never keyed.
+  -- Generation 10 records a stat's change time, and keys a stat's every
+  -- field, and each path a confined process was given by its entries'
+  -- stamps, for a test that declares it reads them
+  -- (`observations.reads_stat_times`): generation 9 recorded no change
+  -- time, and kept a declared test's times out of its shared key.
+  -- Generation 11 notes each file a connection opened before the capture
+  -- holds as it begins, which generation 10 never keyed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-10", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-4", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-11", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-5", "module-load-reads-v1", header }
+  if whole then
+    lines[#lines + 1] = "stat-times"
+    shared_lines[#shared_lines + 1] = "stat-times"
+  end
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -662,19 +692,30 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     elseif kind == "u" then
       -- A path a confined process was given may be a whole directory,
       -- one most of a run's tests give theirs (the system's own), so
-      -- what it holds is walked once a run.
-      local memo_key = "\1u\0" .. relative
-      current = key_parts[memo_key]
-      if current == nil then
-        current = observations.unveiled_answer(relative, root)
-        key_parts[memo_key] = current
-        key_parts["\2u\0" .. relative] = tostring(Time.monotonic_ns())
+      -- what it holds is walked once a run. For a declared test, one
+      -- under the tree is walked a second time, by what `lstat` says of
+      -- each entry beneath it -- its times and inode -- and remembered
+      -- apart from the walk of its contents every other test shares.
+      local function walk(tag: string, stamped: boolean): string
+        local memo_key = "\1u" .. tag .. "\0" .. relative
+        local walked_answer = key_parts[memo_key]
+        if walked_answer == nil then
+          walked_answer = observations.unveiled_answer(relative, root, stamped)
+          key_parts[memo_key] = walked_answer
+          key_parts["\2u" .. tag .. "\0" .. relative] = tostring(Time.monotonic_ns())
+        end
+        -- Walked only after the test started, the answer may be of what
+        -- the path became since its process read it: such a verdict is
+        -- not kept, and the next run, which walks it first, keeps one.
+        local walked = math.tointeger(key_parts["\2u" .. tag .. "\0" .. relative]) or 0
+        if started_ns ~= nil and walked >= started_ns then late = true end
+        return walked_answer
       end
-      -- Walked only after the test started, the answer may be of what
-      -- the path became since its process read it: such a verdict is
-      -- not kept, and the next run, which walks it first, keeps one.
-      local walked = math.tointeger(key_parts["\2u\0" .. relative]) or 0
-      if started_ns ~= nil and walked >= started_ns then late = true end
+      current = walk("", false)
+      if whole then
+        local stamps = walk("s", true)
+        if stamps ~= current then current = current .. "\0" .. stamps end
+      end
       if current:sub(1, 10) == "unkeyable " then stable = false end
     elseif kind == "o" then
       current = hashes[relative]
@@ -713,6 +754,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         key_parts[memo_held] = held
       end
       answer = held
+    elseif (kind == "s" or kind == "l") and whole then
+      -- Declared: whole in both keys, o/ included.
     elseif (kind == "s" or kind == "l") and output(relative) then
       -- When the build last wrote a file is its own, not the tree's:
       -- held as the shared key holds it here too, lest a test that
@@ -1805,7 +1848,13 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
         -- guard's signal came first. `close` makes sure it is gone.
         local result, stop_trouble = job.handle:wait(0)
         if result == nil then local _, _ = job.handle:close() end
-        finish(rec, job, result, stop_trouble, limits)
+        if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
+          -- The signal ended it before its timeout could: it is one of
+          -- the workers the cancelled run ended, reported on by none.
+          still[#still + 1] = job
+        else
+          finish(rec, job, result, stop_trouble, limits)
+        end
       else
         still[#still + 1] = job
       end
@@ -1889,6 +1938,32 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
     limits.jobs = jobs
   end
   return limits, ""
+end
+
+--- Says each of `failures`, sorted, with the selector that reruns its
+--- test and what the test printed; a failed test's message names the
+--- directory it kept (`finish`).
+local function say_failures(rec: Recording, failures: {string})
+  table.sort(failures)
+  for _, failure in ipairs(failures) do
+    -- The line keeps its `<module> <name>: <message>` shape; the
+    -- selector that reruns that one test follows it on a line of its own.
+    log:say("test: FAIL  " .. failure)
+    local id = rec.failed[failure]
+    local rerun = id ~= nil and rec.reruns[id] or nil
+    if rerun ~= nil then
+      log:say("  rerun: cosmic test " .. test.shell_word(rerun))
+    end
+    local printed = id ~= nil and rec.outputs[id] or nil
+    if printed ~= nil then
+      if #printed > 4096 then
+        printed = "..." .. printed:sub(-4096)
+      end
+      for printed_line in String.lines((printed:gsub("\n$", ""))) do
+        log:say("  | " .. printed_line)
+      end
+    end
+  end
 end
 
 --- Builds the tree in the working directory and runs every test it
@@ -2203,9 +2278,10 @@ function test.run(argv: {integer:string}): integer
       if run_jobs(rec, jobs, limits, guard) ~= 0 then
         local _, _ = work.abort(handle)
         if rec.shared ~= nil then shared_verdicts.close(rec.shared) end
-        -- TODO: name the directories a cancelled run kept for the tests
-        -- that failed before the signal, as a finished run's report does;
-        -- only the run's errors are said here.
+        -- A test that failed before the signal keeps its directory,
+        -- named as a finished run's report names it: the failures on
+        -- stdout, as there, and the errors and the cancellation on stderr.
+        say_failures(rec, failures)
         for _, line in ipairs(errors) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
         return 130
@@ -2300,26 +2376,7 @@ function test.run(argv: {integer:string}): integer
       clock.took(started))
     return 0
   end
-  table.sort(failures)
-  for _, failure in ipairs(failures) do
-    -- The line keeps its `<module> <name>: <message>` shape; the
-    -- selector that reruns that one test follows it on a line of its own.
-    log:say("test: FAIL  " .. failure)
-    local id = rec.failed[failure]
-    local rerun = id ~= nil and rec.reruns[id] or nil
-    if rerun ~= nil then
-      log:say("  rerun: cosmic test " .. test.shell_word(rerun))
-    end
-    local printed = id ~= nil and rec.outputs[id] or nil
-    if printed ~= nil then
-      if #printed > 4096 then
-        printed = "..." .. printed:sub(-4096)
-      end
-      for printed_line in String.lines((printed:gsub("\n$", ""))) do
-        log:say("  | " .. printed_line)
-      end
-    end
-  end
+  say_failures(rec, failures)
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. records_path .. ": " .. line)
   end

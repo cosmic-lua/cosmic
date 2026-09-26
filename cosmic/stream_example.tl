@@ -45,6 +45,24 @@ function Example.from_fd()
   assert(Fs.remove_tree(dir))
 end
 
+--- A file read a line at a time, in bounded memory however large it
+--- is; `failure` says afterward whether the loop saw every line.
+function Example.lines()
+  local dir = assert(Fs.mkdtemp("cosmic-stream-example-"))
+  assert(Fs.write(dir .. "/log.txt", "start\nwarn: disk\nstop\n"))
+  local reader = assert(Stream.open(dir .. "/log.txt"))
+  local lines = Stream.lines(reader)
+  local warnings = 0
+  for line in lines:each() do
+    if line:sub(1, 5) == "warn:" then warnings = warnings + 1 end
+  end
+  assert(lines:failure() == "", lines:failure())
+  assert(reader:close())
+  print(warnings)
+  assert(warnings == 1)
+  assert(Fs.remove_tree(dir))
+end
+
 --- A stream written to an open descriptor: here standard output.
 function Example.to_fd()
   local w = Stream.to_fd(Fs.stdout)

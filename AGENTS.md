@@ -43,8 +43,9 @@
 3. A tool older than the tree rebuilds itself and re-enters the command the
    moment it notices, so `o/bin/cosmic test` after an edit is enough. An
    edit to Teal rebuilds its database; a change to the core's C under
-   `core/`, to `build.zig` or `build/launcher.tl`, or to a vendored library's
-   pin or patches runs `bin/zig build boot` first, its output on stderr.
+   `core/`, to `build.zig`, `build/launcher.tl` or `build/artifact.tl`, or
+   to a vendored library's pin or patches runs `bin/zig build boot` first,
+   its output on stderr.
    `COSMIC_AUTO_BOOT=0` makes the tool refuse instead, exiting 3 (CI's
    driver sets it). A boot that fails stops the command: check its exit
    status rather than piping it away. Only the tree's own tool (under
@@ -72,7 +73,10 @@
    the summary counts it "assumed" -- and runs when named, or on `--all`
    (`COSMIC_TEST_ALL=1`),
    as CI's driver passes. Run `--all` before pushing a change such a test
-   covers.
+   covers. A key holds of a stat of the tree only its kind, size and mode
+   across checkouts: a test whose verdict turns on a file's times, inode,
+   device, link count or owner calls `observations.reads_stat_times()`,
+   which keys them whole, so it stands only in its own checkout.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
