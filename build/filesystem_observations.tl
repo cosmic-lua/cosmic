@@ -448,14 +448,52 @@ end
 
 --- What a confined process of this very program needs to start, for a
 --- test's `confine`: the program, and the core its launcher runs it on
---- where it is a portable artifact.
+--- where it is a portable artifact, with the stamp beside it in the
+--- cache that says it was verified, where there is one: without it,
+--- the launcher and the core hash the whole core again at every start
+--- (core/startup.c's `stamp_path`).
 function observations.itself(): {string}
   local program: {string} = {}
   local executable, _ = Proc.executable()
   if executable ~= nil then program[#program + 1] = executable end
   local launched, _ = Proc.relaunch()
-  if launched ~= nil then program[#program + 1] = launched.argv[1] end
+  if launched ~= nil then
+    local core = launched.argv[1]
+    program[#program + 1] = core
+    local directory, name = core:match("^(.*)/(core%-[^/]*)$")
+    if directory ~= nil then
+      local stamp = directory .. "/.verified-" .. name
+      local there, _ = lstat(stamp)
+      if there ~= nil and there.kind == "file" then program[#program + 1] = stamp end
+    end
+  end
   return program
+end
+
+--- What a sandboxed worker of this very program -- `cosmic test`'s,
+--- started as `Proc.relaunch` says, in `cwd` -- has to be given to start
+--- and run a test of the tree at `tree`, beside what the test itself
+--- reads: to read, `system` (/proc and /dev/null among it) where this
+--- host has it, the program, its core and the stamp that spares
+--- hashing it again (`itself`), the tree's store (o/cosmic.db, which a
+--- worker attaches), and `cwd`; to change, `scratch`, its temporary
+--- directory. Each is there as it is given, so each may be handed to
+--- `process.spawn`'s `unveil` whole.
+function observations.worker_unveil(tree: string, cwd: string, scratch: string): raw_process.Unveil
+  local reads: {string} = {}
+  local seen: {string:boolean} = {}
+  local function add(path: string)
+    if seen[path] then return end
+    local there, _ = stat(path)
+    if there == nil then return end
+    seen[path] = true
+    reads[#reads + 1] = path
+  end
+  for _, path in ipairs(system) do add(path) end
+  for _, path in ipairs(observations.itself()) do add(path) end
+  add((tree == "/" and "" or tree) .. "/o/cosmic.db")
+  add(cwd)
+  return { reads = reads, writes = { scratch } }
 end
 
 --- The errnos a confined spawn fails with where the kernel cannot
