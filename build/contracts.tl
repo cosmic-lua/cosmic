@@ -164,6 +164,10 @@ local parsing: {string: string} = {
 }
 
 local casts: {string: string} = {
+  ["build/sandbox_probe.tl:raw_process_table"] =
+    "the store's searcher hands cosmic.child's loader the raw process " ..
+    "table as its extra value, untyped as package.searchers returns it; " ..
+    "cosmic.internal.process declares that table, core/process.h defines it",
   ["build/filesystem_observations.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/filesystem_observations.tl:drain_syscalls"] =
