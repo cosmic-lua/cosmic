@@ -213,6 +213,57 @@ local function test_second(tmp: string) hold(tmp, "second") end
   assert(#left == 0, table.concat(left, ", ") .. "\n" .. text)
 end
 
+--- A run cancelled after a test failed names that test's directory,
+--- which it keeps, as a finished run's report does.
+local function test_a_cancelled_run_names_a_failed_tests_directory(tmp: string)
+  local root = tmp .. "/project"
+  local temp = tmp .. "/temp"
+  local marks = tmp .. "/marks"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(temp))
+  assert(Fs.mkdirs(marks))
+  -- One job at a time: the held test starts only once the failed one's
+  -- result is collected.
+  assert(Fs.write(root .. "/suite/failed_test.tl", [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function test_a_fails(tmp: string)
+  assert(Fs.write(tmp .. "/kept", "x"))
+  error("fails")
+end
+local function test_b_holds()
+  assert(Fs.write(assert(Env.get("MARKS")) .. "/held", "x"))
+  while true do end
+end
+]]))
+  local env = Env.all()
+  env.TMPDIR = temp
+  env.MARKS = marks
+  local output = tmp .. "/cancelled.out"
+  local fd = assert(Fs.open_write(output))
+  local runner, trouble = Child.start(
+    { assert(Proc.executable()), "test", "--jobs", "1", "--timeout", "60", "suite/failed_test.tl" },
+    { cwd = root, env = env, stdout = fd, stderr = fd })
+  assert(Fs.close(fd))
+  local handle <close> = assert(runner, trouble)
+  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
+  while not Fs.exists(marks .. "/held") do
+    assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
+    local done, _ = Child.wait_any({ handle }, 50)
+    assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
+  end
+  assert(handle:stop(sys.SIGTERM))
+  local result = assert(handle:wait(30000))
+  local text = assert(Fs.read(output))
+  assert(not result.timed_out and result.signal == sys.SIGTERM, text)
+  assert(text:find("test: cancelled; every running test was ended", 1, true), text)
+  assert(text:find("test: FAIL  suite.failed_test test_a_fails: ", 1, true), text)
+  local named = text:match("its directory is kept: ([^\n]+)/real")
+  assert(named ~= nil and named:find(assert(Fs.absolute(temp)) .. "/cosmic-test-", 1, true) == 1,
+    text)
+  assert(assert(Fs.read(named .. "/real/kept")) == "x", text)
+end
+
 --- A file under the tree named through a link outside it is still the
 --- tree's: a test that writes a counter the environment names by such
 --- a path stands on its second run, as it does named from the root.
