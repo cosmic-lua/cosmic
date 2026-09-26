@@ -180,21 +180,42 @@ local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   assert(work.close(handle))
 end
 
+--- Stages `project`, then refuses once `link` leads to `target`: the
+--- refusal names the link and leaves what the first stage staged.
+local function refused_above(project: string, target: string, link: string)
+  local handle = assert(work.open(project))
+  assert(work.stage(handle, false))
+  local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
+  assert(before[1][1] ~= "0")
+  assert(Fs.symlink(target, project .. "/" .. link))
+  local staged, trouble = work.stage(handle, false)
+  assert(staged == nil, "a link above the root is refused")
+  assert(trouble:find(link .. ": a link to ", 1, true), trouble)
+  assert(trouble:find("above the root", 1, true), trouble)
+  local after = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files"))
+  assert(after[1][1] == before[1][1], "the refusal leaves the rows staged before")
+  assert(work.close(handle))
+end
+
 --- A link that leads above the root would stage all that lies under
---- where it leads; staging refuses it and names it, and stages nothing.
+--- where it leads; staging refuses it and names it.
 local function test_stage_refuses_a_link_above_the_root(tmp: string)
   local project = linked_project(tmp)
   assert(Fs.mkdirs(project .. "/sub"))
-  assert(Fs.symlink("../..", project .. "/sub/ws"))
-  local handle = assert(work.open(project))
-  local staged, trouble = work.stage(handle, false)
-  assert(staged == nil, "a link above the root is refused")
-  assert(trouble:find("sub/ws: a link to ", 1, true), trouble)
-  assert(trouble:find("above the root", 1, true), trouble)
-  local above = assert(Sqlite.text_rows(handle.db,
-    "SELECT count(*) FROM files WHERE path LIKE 'sub/ws/%'"))
-  assert(above[1][1] == "0", "nothing above the root is staged")
-  assert(work.close(handle))
+  refused_above(project, "../..", "sub/ws")
+end
+
+--- As it refuses one reached through another link, and one to `/`.
+local function test_stage_refuses_a_link_above_the_root_through_a_link(tmp: string)
+  local project = linked_project(tmp)
+  assert(Fs.mkdirs(tmp .. "/x"))
+  assert(Fs.symlink("../x", project .. "/a"))
+  refused_above(project, "../..", "a/up")
+end
+
+local function test_stage_refuses_a_link_to_the_file_system_root(tmp: string)
+  local project = linked_project(tmp)
+  refused_above(project, "/", "top")
 end
 
 --- `cosmic test` in such a project compiles the linked modules and runs
