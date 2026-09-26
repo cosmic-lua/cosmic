@@ -99,19 +99,8 @@ PY
   fi
 done
 
-{
-  printf '## Container options for a sandbox (%s)\n\n' "$(uname -m)"
-  printf '| Host | |\n|---|---|\n'
-  printf '| kernel | %s |\n' "$(uname -r)"
-  printf '| docker | %s |\n' "$version"
-  printf '| cosmic probing | %s |\n' "$cosmic"
-  printf '| default seccomp profile narrowed | %s |\n' "$source"
-  printf '| its sha256 | %s |\n' "$digest"
-  printf '| AppArmor enabled | %s |\n' "$(switch /sys/module/apparmor/parameters/enabled)"
-  for name in kernel/apparmor_restrict_unprivileged_userns kernel/unprivileged_userns_clone \
-      user/max_user_namespaces; do
-    printf '| %s | %s |\n' "$(echo "$name" | tr / .)" "$(switch "/proc/sys/$name")"
-  done
+# Each image under each set of options.
+pass() {
   for image in "$@"; do
     for options in "" "--security-opt seccomp=unconfined" "--security-opt apparmor=unconfined" \
         "--security-opt seccomp=unconfined --security-opt apparmor=unconfined" \
@@ -126,4 +115,27 @@ done
       esac
     done
   done
+}
+
+{
+  printf '## Container options for a sandbox (%s)\n\n' "$(uname -m)"
+  printf '| Host | |\n|---|---|\n'
+  printf '| kernel | %s |\n' "$(uname -r)"
+  printf '| docker | %s |\n' "$version"
+  printf '| cosmic probing | %s |\n' "$cosmic"
+  printf '| default seccomp profile narrowed | %s |\n' "$source"
+  printf '| its sha256 | %s |\n' "$digest"
+  printf '| AppArmor enabled | %s |\n' "$(switch /sys/module/apparmor/parameters/enabled)"
+  for name in kernel/apparmor_restrict_unprivileged_userns kernel/unprivileged_userns_clone \
+      user/max_user_namespaces; do
+    printf '| %s | %s |\n' "$(echo "$name" | tr / .)" "$(switch "/proc/sys/$name")"
+  done
+  pass "$@"
+  # The hosts refuse an unprivileged user namespace through AppArmor
+  # (kernel.apparmor_restrict_unprivileged_userns) whatever a container's
+  # options: so each set again with that switch off, where sudo can.
+  if sudo -n sysctl -qw kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null; then
+    printf '\n## With kernel.apparmor_restrict_unprivileged_userns=0 (%s)\n' "$(uname -m)"
+    pass "$@"
+  fi
 } | tee -a "$summary"
