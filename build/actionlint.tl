@@ -329,6 +329,9 @@ local function locate(root: string): string | nil, string
   if cache == nil then
     return nil, ctrouble
   end
+  -- TODO: name the install by the pin's digest too, as `Zig.install_name`
+  -- does (<version>-<host>-<sha16>), so a re-released tarball under the
+  -- same version is not answered by a stale install.
   return Actionlint.ensure_installed(cache, cache .. "/" .. pin.version .. "-" .. host, pin, host)
 end
 

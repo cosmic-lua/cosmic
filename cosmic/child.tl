@@ -512,6 +512,9 @@ local function make_handle(pid: integer, process_group: boolean): Handle
       if not status then return nil, trouble end
       return settled(self, false)
     end
+    -- TODO: raise on a negative timeout, as `validate` does for Child.run's
+    -- `timeout_ms` and as `Child.wait_any` should too: a wrong shape is a
+    -- mistake, not a failure to report.
     if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end
     local deadline: integer
     if timeout_ms ~= nil then deadline = now() + timeout_ms * 1000000 end

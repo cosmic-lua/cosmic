@@ -80,7 +80,7 @@ local record Archive
     --- bytes. Unlimited by default; a negative limit raises.
     max_bytes: integer
     --- Fails once more than this many entries would be written.
-    --- Unlimited by default.
+    --- Unlimited by default; a negative limit raises.
     max_entries: integer
   end
 end
@@ -331,6 +331,9 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   opts = opts or {}
   if opts.max_bytes ~= nil and opts.max_bytes < 0 then
     error("archive: max_bytes is negative", 2)
+  end
+  if opts.max_entries ~= nil and opts.max_entries < 0 then
+    error("archive: max_entries is negative", 2)
   end
   local count = opts.strip_components
   if count ~= nil and math.tointeger(count) == nil then
