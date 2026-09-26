@@ -843,8 +843,7 @@ static void default_signals (void) {
 /* The child `cosmic_spawn_unobserved` starts, from its start to exec:
  * on Linux on the parent's memory, through clone(CLONE_VM | CLONE_VFORK)
  * on a stack of its own, the parent stopped until this execs or ends;
- * on Darwin through vfork, which macOS's libc makes a fork, so on a
- * copy. So it neither allocates nor touches the Lua state, writes only
+ * on Darwin through fork, so on a copy. So it neither allocates nor touches the Lua state, writes only
  * its own stack and descriptors, the kernel's side of the process, and
  * errno (which is the parent's too on Linux; the parent reads none after
  * a start that succeeded) -- and, deliberately, the parent's memory in
@@ -974,12 +973,10 @@ static _Noreturn int spawn_child (void *argument) {
  * posix_spawn is refused on Linux alone: Darwin's covers every step its
  * child takes (descriptors, cwd through posix_spawn_file_actions_addchdir_np,
  * a process group, the mask and defaults), having no sandbox to set up.
- * Darwin calls vfork instead, which POSIX leaves undefined for a child
- * that calls anything but exec or _exit (this one calls sigaction,
- * fcntl, dup2, chdir and snprintf); macOS's libc makes vfork a fork
- * (Libc's sys/fork.c: "vfork() is now just fork()"), so the child is a
- * copy with a mask of its own, safe for all of that, and a start costs
- * there what fork does.
+ * Darwin forks: macOS's libc makes vfork a fork anyway (Libc's
+ * sys/fork.c: "vfork() is now just fork()"), and a plain fork gives the
+ * child all it calls before exec without vfork's undefined behavior, at
+ * fork's cost.
  * Every signal is blocked across the whole start, not only its first
  * steps, so a child hung in setup -- a chdir or an unveiled path on a
  * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
@@ -1010,10 +1007,11 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
   }
 #else
   /* TODO: start the child through posix_spawn on Darwin, which covers
-   * every step `spawn_child` takes there, rather than vfork, once a
-   * macOS host can run core/syscalls_test.tl and CI's macOS job against
-   * it: this path is compiled and started only there. */
-  pid = vfork();
+   * every step `spawn_child` takes there and spares a large parent
+   * fork's copy, as clone spares it on Linux, once a macOS host can run
+   * core/syscalls_test.tl and CI's macOS job against it: this path is
+   * compiled and started only there. */
+  pid = fork();
   if (pid == 0) spawn_child(plan);
   if (pid < 0) *error = errno;
 #endif
