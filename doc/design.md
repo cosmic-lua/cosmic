@@ -642,7 +642,8 @@ are closed:
 - [x] *lstat, readlink, realpath and getcwd*: each of those bindings, and
   `executable`, logs what it was asked and answered in C while a capture runs
   (core/observed.h), whoever calls it; a capture drains the log and notes each,
-  an lstat, a readlink or a realpath as a stat is.
+  an lstat, a readlink or a realpath as a stat is, and `executable` by whether
+  it answered: where the program is, like where the tree is, is no input.
 - [ ] *a read resolved beside the call* (`build/filesystem_observations.tl`, in
   `start`): another process retargeting a link between the read and its
   resolution goes unseen; resolve by the descriptor the call opened. a query the

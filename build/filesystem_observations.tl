@@ -292,6 +292,19 @@ local function value_answer(value: string | nil, trouble: string, errno: integer
   return "ok " .. value
 end
 
+--- What a "b" observation holds of the program's own path: that the
+--- query answered, and its error whole where it failed, but not where
+--- the program is. What the program is, a verdict's key holds already
+--- (its runtime identity, `build.work`'s `Identities`); where it is,
+--- like where the tree is, is no input a test may turn on (see
+--- `observations.tree_name`), so a verdict one copy of a program
+--- reached stands under another at another path -- another artifact
+--- over the same core and basis, a release beside the tree's own.
+local function program_answer(value: string | nil, trouble: string, errno: integer): string
+  if value == nil then return value_answer(value, trouble, errno) end
+  return "ok"
+end
+
 --- A directory answer includes names, kinds, and errors. Length-prefixing each
 --- name makes this unambiguous for every name the filesystem permits.
 local function directory_result_answer(entries: {string:string} | nil,
@@ -513,8 +526,8 @@ end
 --- lstat, "k" a readlink and "a" a realpath, each of a path as a stat
 --- is; "c" the working directory the run started in, whatever it
 --- answered -- what a test's own change of directory made it answer is
---- noted as that change -- and "b" the program's own path, each keyed
---- by its answer, as an environment read is.
+--- noted as that change -- and "b" the program's own path, keyed by
+--- whether it answered (`program_answer`), not where the program is.
 local call_kinds: {string:string} = {
   lstat = "l", readlink = "k", realpath = "a", getcwd = "c", executable = "b",
 }
@@ -536,6 +549,8 @@ local function drain_syscalls()
       if path == "" then path = call.call end
     elseif kind == "l" then
       answer = stat_result_answer(call[1] as sys.Stat, call[2] as string, call[3] as integer)
+    elseif kind == "b" then
+      answer = program_answer(call[1] as string, call[2] as string, call[3] as integer)
     elseif kind ~= "c" then
       answer = value_answer(call[1] as string, call[2] as string, call[3] as integer)
     end
@@ -610,9 +625,9 @@ end
 --- or a realpath as a stat is -- an lstat's and a readlink's path
 --- resolved, given `resolving`, only as far as its last name
 --- (`observations.link_resolution`) and noted "v", or "w" under the
---- test's own directory, as "r" and "t" are another read's -- and the
---- working directory and the program's own path as an environment read
---- is.
+--- test's own directory, as "r" and "t" are another read's -- the
+--- working directory as an environment read is, and the program's own
+--- path by whether it answered (`program_answer`).
 -- TODO: move the calls still observed by standing in for them here --
 -- `open`, `stat`, `readdir`, `getenv`, `environ`, `mkdtemp`, `mkdir`
 -- and `chdir` of `cosmic.sys`, `spawn` and `Http.open` -- onto the
@@ -970,14 +985,17 @@ local tree_marker <const> = "\0tree"
 --- That is a rule, not an accident of keying: a test may not turn on
 --- where the tree is -- a path length limit, a name it prints and
 --- compares. The answers that name it which a capture observes (the
---- working directory, a realpath, a readlink, `Proc.executable`, a
---- path under the tree read or given) are keyed by `tree_name` in the
---- shared key and whole only in a checkout's own; one it does not (the
---- artifact path `Proc.relaunch` and the process table's `relaunch`
---- answer) is keyed nowhere. Nothing here can see a test break the
---- rule, and nothing yet catches one that does.
--- TODO: enforce by checking the tree out at a path of its own in CI,
--- once the random-checkout-path change merges.
+--- working directory, a realpath, a readlink, a path under the tree
+--- read or given) are keyed by `tree_name` in the shared key and whole
+--- only in a checkout's own; one it does not (the artifact path
+--- `Proc.relaunch` and the process table's `relaunch` answer) is keyed
+--- nowhere. The same rule holds of where the running program is: what
+--- `Proc.executable` answered is keyed nowhere (`program_answer`), only
+--- that it answered. Nothing here can see a test break either rule,
+--- and nothing yet catches one that does.
+-- TODO: enforce both by checking the tree out at a path of its own in
+-- CI -- the tool it runs, o/bin/cosmic, moving with it -- once the
+-- random-checkout-path change merges.
 function observations.tree_name(path: string, tree: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
   local rest, _ = Fs.relative(path, tree)
@@ -1083,7 +1101,7 @@ end
 
 --- What `executable` answers now, as a "b" observation holds it.
 function observations.executable_answer(): string
-  return value_answer(syscalls.executable())
+  return program_answer(syscalls.executable())
 end
 
 function observations.directory_answer(path: string): string

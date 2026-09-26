@@ -322,6 +322,31 @@ local function test_a_stat_and_an_lstat_of_one_link_are_resolved_apart(tmp: stri
   assert(not grown.stable, "the stat of the tree's file is not keyed")
 end
 
+--- A test that asks where the program is keys that it answered, not
+--- where: what the program is, the runtime identity keys, and a
+--- verdict one copy of it reached stands under another copy at another
+--- path, as ci/fixtures/identity_test.tl's "application" run needs of
+--- another artifact over the same core and basis.
+local function test_where_the_program_is_is_no_input_to_a_key(tmp: string)
+  local root = assert(sys.realpath(tmp))
+  local program = assert(sys.executable())
+  local run = observations.call(function()
+    assert(sys.executable() == program)
+  end, nil, { tree = root, own = {} })
+  assert(run.passed, run.message)
+  local asked = false
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "b" then
+      asked = true
+      assert(observation.answer == "ok", "the program's path is noted: " .. observation.answer)
+    end
+  end
+  assert(asked, "the program's path is not observed")
+  assert(test.keyable(root, root .. "/scratch", run.reads))
+  local reached = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", run.reads, {})
+  assert(reached.stable, "a verdict that asked where the program is is not kept")
+end
+
 local function test_a_read_under_root_o_is_keyable(tmp: string)
   local scratch = tmp .. "/scratch"
   local reads: {observations.Observation} =

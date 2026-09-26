@@ -610,6 +610,8 @@ local function test_a_query_of_the_syscall_table_is_noted_whoever_made_it(tmp: s
   -- it answered.
   assert(answer("c", "") == "")
   assert(answer("b", "") == observations.executable_answer())
+  -- The program is keyed by what it is, not where: see `tree_name`.
+  assert(answer("b", "") == "ok")
   assert(lstat(real .. "/f"))
   local after = observations.capture(function() end)
   assert(noted(after.reads, "l", real .. "/f") == nil)

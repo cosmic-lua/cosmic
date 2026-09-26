@@ -638,8 +638,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- Generation 7 names nothing of where the tree is (see above), so
   -- every checkout of one tree computes the same key.
   -- Generation 8 keys what the syscall table's queries answered -- an
-  -- lstat, a readlink, a realpath, the working directory, the program's
-  -- own path -- which generation 7 never observed.
+  -- lstat, a readlink, a realpath, the working directory, whether the
+  -- program's own path answered -- which generation 7 never observed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
   local lines: {string} = { "recording-8", "module-load-reads-v1", header }
   local shared_lines: {string} = { "shared-recording-2", "module-load-reads-v1", header }
@@ -713,7 +713,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       answer = held_stat(answer)
     elseif kind == "s" or kind == "l" then
       shared_answer = held_stat(answer)
-    elseif kind == "k" or kind == "a" or kind == "c" or kind == "b" then
+    elseif kind == "k" or kind == "a" or kind == "c" then
       -- A path a query answered names where the tree is: whole in the
       -- checkout's own key, and by `tree_name` in the shared one, as
       -- every checkout of the tree answers alike.
