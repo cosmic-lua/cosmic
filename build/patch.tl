@@ -256,8 +256,54 @@ local function read_inputs(root: string, name: string): Inputs | nil, string
   return inputs, ""
 end
 
+--- Writes `data` to a new file at `path` with exactly `mode`, and syncs
+--- it, its mode included, before closing it.
+local function write_synced(path: string, data: string,
+                            mode: integer): boolean, string
+  local fd, trouble = Fs.open_write(path, mode)
+  if fd == nil then
+    return false, trouble
+  end
+  local ok, failure = Fs.put(fd, data)
+  if ok then
+    -- Its failure names the path already; the rest are prefixed below.
+    local moded, mode_trouble = Fs.chmod(path, mode)
+    if not moded then
+      local _, _ = Fs.close(fd)
+      return false, mode_trouble
+    end
+    ok, failure = Fs.fsync(fd)
+  end
+  local closed, close_trouble = Fs.close(fd)
+  if ok and not closed then
+    ok, failure = false, close_trouble
+  end
+  if not ok then
+    return false, path .. ": " .. failure
+  end
+  return true, ""
+end
+
+--- Syncs the directory at `path`: its entries and its mode.
+local function sync_dir(path: string): boolean, string
+  local fd, trouble = Fs.open_read(path)
+  if fd == nil then
+    return false, trouble
+  end
+  local ok, failure = Fs.fsync(fd)
+  local closed, close_trouble = Fs.close(fd)
+  if ok and not closed then
+    ok, failure = false, close_trouble
+  end
+  if not ok then
+    return false, path .. ": " .. failure
+  end
+  return true, ""
+end
+
 --- Writes `inputs` into `out`, which must not exist, with the records
---- applied. Modes are set outright, whatever the umask.
+--- applied, and syncs every file and directory it wrote. Modes are set
+--- outright, whatever the umask.
 local function write_tree(inputs: Inputs, out: string): boolean, string
   local dirs: {string} = { out }
   for _, dir in ipairs(inputs.dirs) do
@@ -296,13 +342,16 @@ local function write_tree(inputs: Inputs, out: string): boolean, string
   end
   for _, file in ipairs(inputs.files) do
     local path = out .. "/" .. file.path
-    local written, write_trouble = Fs.write(path, contents[file.path], modes[file.path])
+    local written, write_trouble = write_synced(path, contents[file.path],
+      modes[file.path])
     if not written then
       return false, write_trouble
     end
-    local moded, mode_trouble = Fs.chmod(path, modes[file.path])
-    if not moded then
-      return false, mode_trouble
+  end
+  for _, dir in ipairs(dirs) do
+    local synced, sync_trouble = sync_dir(dir)
+    if not synced then
+      return false, sync_trouble
     end
   end
   return true, ""
@@ -358,16 +407,14 @@ local function sweep(cache: string)
 end
 
 --- The directory under `cache` holding `name`'s patched tree, written
---- there first when it is not yet.
+--- there first when it is not yet. The tree is synced whole before it
+--- takes its name, so after a crash of the machine a tree at its name
+--- is never one with empty or missing files.
 -- TODO: nothing removes a tree no build names any more, and each edit to
 -- a vendored tree, a record or this file leaves one behind (tens of MB
 -- for every tree at once); remove the ones older than the newest of each
 -- name, or those no manifest (o/patched.tsv) names, as zig leaves its
 -- own cache to be deleted whole.
--- TODO: the files are not synced before the rename, so after a crash of
--- the machine (not of this process) a directory at its final name can
--- hold empty files and be trusted; sync each file and the directory
--- once cosmic.fs can (an fsync binding).
 function Patch.prepare(root: string, name: string, cache: string,
                        applier: string): string | nil, string
   local inputs, trouble = read_inputs(root, name)
@@ -403,6 +450,12 @@ function Patch.prepare(root: string, name: string, cache: string,
       return dir, ""
     end
     return nil, move_trouble
+  end
+  -- The rename itself, so the next build finds the tree rather than
+  -- writing it again; the tree at its name is whole whether it did.
+  local synced, sync_trouble = sync_dir(cache)
+  if not synced then
+    return nil, sync_trouble
   end
   return dir, ""
 end

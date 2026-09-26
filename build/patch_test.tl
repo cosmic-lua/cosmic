@@ -40,15 +40,20 @@ local function test_no_patch_directory_leaves_the_copy_pristine(dir: string)
   assert(Fs.read(dir .. "/out/PIN") ~= nil)
 end
 
---- A file keeps its permission bits, which a patched one keeps too.
+--- A file keeps its permission bits, which a patched one keeps too; one
+--- its owner cannot write is still written whole.
 local function test_a_copy_keeps_each_files_mode(dir: string)
-  checkout(dir .. "/root", { ["run.sh"] = "echo old\n", ["plain.h"] = "x\n" },
+  checkout(dir .. "/root", { ["run.sh"] = "echo old\n", ["plain.h"] = "x\n",
+    ["fixed.h"] = "y\n" },
     { ["01-run.txt"] = record("run.sh", "echo old", "echo new") })
   assert(Fs.chmod(dir .. "/root/vendor/lib/run.sh", 0x1ed))
   assert(Fs.chmod(dir .. "/root/vendor/lib/plain.h", 0x180))
+  assert(Fs.chmod(dir .. "/root/vendor/lib/fixed.h", 0x124))
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(assert(Fs.stat(dir .. "/out/run.sh")).mode & 0x1ff == 0x1ed)
   assert(assert(Fs.stat(dir .. "/out/plain.h")).mode & 0x1ff == 0x180)
+  assert(assert(Fs.stat(dir .. "/out/fixed.h")).mode & 0x1ff == 0x124)
+  assert(Fs.read(dir .. "/out/fixed.h") == "y\n")
   assert(Fs.read(dir .. "/out/run.sh") == "echo new\n")
 end
 
