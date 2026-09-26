@@ -2,6 +2,7 @@
 --- `cosmic test`.
 
 local Json = require("cosmic.json")
+local Stream = require("cosmic.stream")
 
 local Example = {}
 
@@ -62,6 +63,23 @@ function Example.decode_lines()
   assert(events ~= nil, err)
   assert(#events == 2)
   print(Json.encode_lines(events))
+end
+
+--- JSON Lines read from a stream a value at a time, in bounded memory
+--- however long it runs -- here a string, as well a file
+--- (`Stream.open(path)`), a child's output or an HTTP response --
+--- and written back a line at a time to any Writer.
+function Example.lines()
+  local reader = Stream.from_string('{"level":"info"}\n{"level":"warn"}\n')
+  local lines = Json.lines(reader)
+  local out = Stream.collect()
+  for event in lines:each() do
+    local record = event as {string:string}
+    if record.level == "warn" then assert(Json.write_line(out, record)) end
+  end
+  assert(lines:failure() == "", lines:failure())
+  print(out:result())
+  assert(out:result() == '{"level":"warn"}\n')
 end
 
 --- A value that cannot be encoded is named by where it is.

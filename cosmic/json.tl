@@ -72,6 +72,7 @@ else
   raw = require("cosmic.internal.json")
 end
 
+local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 
 local record Json
@@ -134,6 +135,20 @@ local record Json
     --- that differ only in their lone surrogates become the same key,
     --- and the last one stands.
     lone_surrogates: boolean
+  end
+
+  --- The values of a JSON Lines Reader, one at a time: see `Json.lines`.
+  record Lines
+    --- The next value, and ""; nil and "" after the last; nil and why
+    --- when a line is not JSON, runs past the limit, or the Reader
+    --- failed, the same again on every later read.
+    read: function(Lines): any | nil, string
+    --- An iterator for a `for` loop over the values still to come. It
+    --- ends at the last one or at a failure, which `failure` then says.
+    each: function(Lines): function(): any
+    --- Why the values ended early, or "" when they have not: after an
+    --- `each` loop, "" means every value was read.
+    failure: function(Lines): string
   end
 
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a
@@ -229,11 +244,9 @@ end
 --- in a marked array, and "". A blank line is skipped, and a line may
 --- end in `\r\n`. nil and a message naming the line when one is not
 --- JSON. `opts` applies to every line; a `null` line leaves a hole
---- unless `null_value` is given.
+--- unless `null_value` is given. `Json.lines` reads them from a
+--- `cosmic.stream` Reader instead, one at a time, in bounded memory.
 function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil, string
-  -- TODO: this reads the whole text into memory first. A value iterator
-  -- over `Stream.lines` of a `cosmic.stream` Reader would take logs
-  -- larger than memory, one value at a time.
   local values = raw.array()
   local number = 0
   local count = 0
@@ -255,22 +268,91 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
   return values, ""
 end
 
+--- The values of JSON Lines read from `reader` a line at a time, as
+--- `decode_lines` reads them from text: a blank line is skipped, a line
+--- may end in `\r\n`, and a failure names its line. A `null` line
+--- reads as `Json.null`, or as `opts.null_value` when that is given, so
+--- a value is never taken for the end. A line longer than `max` bytes
+--- (1 MiB by default) fails, as `Stream.lines` says. `reader` is not
+--- closed.
+---
+---     local lines = Json.lines(reader)
+---     for event in lines:each() do handle(event) end
+---     assert(lines:failure() == "", lines:failure())
+function Json.lines(reader: Stream.Reader, opts?: Json.DecodeOptions, max?: integer): Json.Lines
+  local text = Stream.lines(reader, max)
+  local given: Json.DecodeOptions = opts or {}
+  local line_opts: Json.DecodeOptions = {
+    null_value = given.null_value, max_depth = given.max_depth, json5 = given.json5,
+    hash_comments = given.hash_comments,
+    big_numbers_as_strings = given.big_numbers_as_strings,
+    lone_surrogates = given.lone_surrogates,
+  }
+  if line_opts.null_value == nil then line_opts.null_value = Json.null end
+  local number = 0
+  local failed = ""
+  local lines: Json.Lines = {}
+  lines.read = function(_self: Json.Lines): any | nil, string
+    if failed ~= "" then return nil, failed end
+    while true do
+      local line, trouble = text:read()
+      if line == nil then
+        if trouble ~= "" then failed = trouble end
+        return nil, trouble
+      end
+      number = number + 1
+      if line:find("%S") then
+        local value, err = decode_with(line, line_opts, number)
+        if err ~= "" then
+          failed = err
+          return nil, failed
+        end
+        return value, ""
+      end
+    end
+  end
+  lines.each = function(self: Json.Lines): function(): any
+    return function(): any
+      local value, _ = self:read()
+      return value
+    end
+  end
+  lines.failure = function(_self: Json.Lines): string
+    return failed
+  end
+  return lines
+end
+
+--- `opts` for one line of JSON Lines: raises when `pretty` is true,
+--- since a value must keep to its line.
+local function line_encode_options(opts: Json.EncodeOptions | nil): Json.EncodeOptions
+  if opts == nil then return {} end
+  if opts.pretty then
+    error("pretty cannot apply to JSON Lines: each value keeps to its line", 3)
+  end
+  return {
+    sorted = opts.sorted, max_depth = opts.max_depth,
+    nan_as_null = opts.nan_as_null, sparse_as_null = opts.sparse_as_null,
+    ascii = opts.ascii,
+  }
+end
+
+--- Writes `value` to `writer` as one line of JSON Lines: its compact
+--- JSON and a newline, and true and "". False and why when the value
+--- cannot be encoded, nothing written then, or the write fails. Raises
+--- when `pretty` is true, as `encode_lines` does.
+function Json.write_line(writer: Stream.Writer, value: any, opts?: Json.EncodeOptions): boolean, string
+  local text, err = Json.encode(value, line_encode_options(opts))
+  if text == nil then return false, err end
+  return writer:write(text .. "\n")
+end
+
 --- `values[1]` to `values[#values]` as JSON Lines text: each value's
 --- compact JSON on its own line, every line ending in a newline, and
 --- "". nil and a message naming the value when one cannot be encoded.
 --- Raises when `pretty` is true, since a value must keep to its line.
 function Json.encode_lines(values: {any}, opts?: Json.EncodeOptions): string | nil, string
-  local line_opts: Json.EncodeOptions = {}
-  if opts ~= nil then
-    if opts.pretty then
-      error("pretty cannot apply to JSON Lines: each value keeps to its line", 2)
-    end
-    line_opts = {
-      sorted = opts.sorted, max_depth = opts.max_depth,
-      nan_as_null = opts.nan_as_null, sparse_as_null = opts.sparse_as_null,
-      ascii = opts.ascii,
-    }
-  end
+  local line_opts = line_encode_options(opts)
   local lines: {string} = {}
   for i = 1, #values do
     local text, err = Json.encode(values[i], line_opts)

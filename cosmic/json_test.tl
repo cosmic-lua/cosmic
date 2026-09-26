@@ -5,6 +5,7 @@
 
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Stream = require("cosmic.stream")
 
 --- The value and an empty message, or a failed assertion naming the
 --- message.
@@ -624,4 +625,69 @@ local function test_lone_surrogates_read_as_the_replacement_character()
   assert(refused:find("surrogate", 1, true), refused)
   local still = decode_failure('["a\\ud83d", tru]', opts)
   assert(still:find("invalid literal", 1, true), still)
+end
+
+--- Every value `Json.lines` reads, and why it stopped.
+local function stream_values(text: string, opts?: Json.DecodeOptions, max?: integer): {any}, string
+  local lines = Json.lines(Stream.from_string(text), opts, max)
+  local got: {any} = {}
+  for value in lines:each() do got[#got + 1] = value end
+  return got, lines:failure()
+end
+
+local function test_lines_reads_json_lines_from_a_reader()
+  local got, trouble = stream_values('{"a":1}\r\n\n  \n[2,3]\n"four"')
+  assert(trouble == "", trouble)
+  assert(#got == 3)
+  assert((got[1] as {string:integer}).a == 1)
+  assert((got[2] as {integer})[2] == 3 and Json.is_array(got[2]))
+  assert(got[3] == "four")
+end
+
+--- A null line is a value, never the end: `Json.null` by default, or
+--- the `null_value` given.
+local function test_lines_reads_a_null_line_as_a_value()
+  local got, trouble = stream_values("1\nnull\n2\n")
+  assert(trouble == "" and #got == 3 and got[2] == Json.null, trouble)
+  local marked, marked_trouble = stream_values("null\n", { null_value = "none" })
+  assert(marked_trouble == "" and marked[1] == "none", marked_trouble)
+end
+
+--- A line that is not JSON ends the values with a message naming it,
+--- blank lines counted, and keeps failing.
+local function test_lines_names_the_line_that_is_not_json()
+  local lines = Json.lines(Stream.from_string('1\n\n{oops}\n4\n'))
+  assert(lines:read() == 1)
+  local value, trouble = lines:read()
+  assert(value == nil and trouble:find("line 3", 1, true) ~= nil, trouble)
+  local again, again_trouble = lines:read()
+  assert(again == nil and again_trouble == trouble)
+  assert(lines:failure() == trouble)
+end
+
+local function test_lines_holds_a_line_to_the_limit()
+  local got, trouble = stream_values('"12345"\n' .. '"123456"\n', nil, 7)
+  assert(#got == 1 and trouble:find("longer than 7 bytes", 1, true) ~= nil, trouble)
+end
+
+--- Values written a line at a time read back the same, and one that
+--- cannot be encoded writes nothing.
+local function test_write_line_writes_what_lines_reads()
+  local out = Stream.collect()
+  assert(Json.write_line(out, { b = 1, a = { 2, 3 } }, { sorted = true }))
+  assert(Json.write_line(out, "x"))
+  local wrote, trouble = Json.write_line(out, { [1] = 1, [3] = 3 })
+  assert(not wrote and trouble ~= "")
+  assert(out:result() == '{"a":[2,3],"b":1}\n"x"\n', out:result())
+  local got, read_trouble = stream_values(out:result())
+  assert(read_trouble == "" and #got == 2 and got[2] == "x")
+  assert(not pcall(Json.write_line, out, 1, { pretty = true }))
+end
+
+--- The decode options reach every line.
+local function test_lines_decodes_each_line_under_the_options()
+  local got, trouble = stream_values("{a: 1} # one\n[2,] # two\n",
+    { json5 = true, hash_comments = true })
+  assert(trouble == "" and #got == 2, trouble)
+  assert((got[1] as {string:integer}).a == 1)
 end
