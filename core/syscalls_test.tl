@@ -676,9 +676,9 @@ end
 
 --- An unveiled child has a root of its own holding only the paths it was
 --- given, at their own names once resolved: a path outside them is not
---- there to stat, one given to read is read-only, one given to write is
---- written, it keeps no capability, and an offline one has no network
---- but a loopback. An empty unveiling leaves it nothing, not even a
+--- there to stat, one given to read is read-only -- /proc too, but for
+--- the processes' own entries where it nests -- one given to write is written, it keeps no
+--- capability, and an offline one has no network but a loopback. An empty unveiling leaves it nothing, not even a
 --- program to run. Where unprivileged namespaces are refused, spawning
 --- one says so.
 local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
@@ -739,24 +739,63 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   assert(sys.mkdir(private .. "/inner", 0x1ed))
   local mirrored: {string} = { "/proc", private .. "/inner" }
   for _, path in ipairs(reads) do mirrored[#mirrored + 1] = path end
-  local second = create(tmp .. "/second")
-  local again = assert(process.spawn("/bin/sh", { "sh", "-c",
-    "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
-    "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f" },
-    nil, "/", nil, second, second, false, nil,
-    { unveil = { reads = mirrored }, offline = true }))
-  assert(assert(process.waitpid(again, false)).code == 0)
-  local seen = assert(sys.pread(second, 4096, 0))
-  sys.close(second)
+  local function mirror(nest: boolean): string
+    local second = create(tmp .. "/second")
+    local again = assert(process.spawn("/bin/sh", { "sh", "-c",
+      "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
+      "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f; " ..
+      "test -w /proc/self/uid_map && echo own-writable || echo own-read-only; " ..
+      "test -w /proc/sys/vm/swappiness || echo sys-read-only" },
+      nil, "/", nil, second, second, false, nil,
+      { unveil = { reads = mirrored, nest = nest }, offline = true }))
+    assert(assert(process.waitpid(again, false)).code == 0)
+    local seen = assert(sys.pread(second, 4096, 0))
+    sys.close(second)
+    return seen
+  end
   -- And a /tmp of its own, empty but for the paths given beneath the
-  -- host's, which it can write to.
+  -- host's, which it can write to; /proc read-only whole, its own
+  -- entries too; and, where it nests, those alone writable, so it can
+  -- confine a child in turn, and never the host's state.
   local given_under_tmp = assert(sys.realpath(private)):sub(1, 5) == "/tmp/" and 1 or 0
-  assert(seen == "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n", seen)
+  local common = "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n"
+  local plain = mirror(false)
+  assert(plain == common .. "own-read-only\nsys-read-only\n", plain)
+  local nesting = mirror(true)
+  assert(nesting == common .. "own-writable\nsys-read-only\n", nesting)
   local nothing, _, nothing_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
   assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
+end
+
+--- An offline child's loopback is up, as a host's is: the kernel gives
+--- lo its 127.0.0.1 only when lo comes up, so the child's own routing
+--- table (/proc/self/net is the reader's network namespace) holds that
+--- address as a local route. The child is this program, reading it.
+-- TODO: connect to a closed port of 127.0.0.1 and hold the child to
+-- ECONNREFUSED, not ENETUNREACH, once cosmic.sys can open a socket or
+-- core/http.c answers a failed request with CURLINFO_OS_ERRNO: curl's own
+-- message words the two alike.
+local function test_an_offline_child_s_loopback_is_up(tmp: string)
+  local report = create(tmp .. "/report")
+  local cosmic = assert(sys.executable())
+  local pid, trouble, errno = process.spawn(cosmic, { "cosmic", "-e",
+    "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
+    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" },
+    nil, tmp, nil, report, report, false, nil, { offline = true })
+  if pid == nil then
+    sys.close(report)
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no network namespace: " .. trouble)
+    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    return
+  end
+  local status = assert(process.waitpid(pid, false))
+  local said = assert(sys.pread(report, 4096, 0))
+  sys.close(report)
+  assert(status.code == 0 and said == "up\n", said)
 end
 
 local function test_cpu_count_is_at_least_one()
