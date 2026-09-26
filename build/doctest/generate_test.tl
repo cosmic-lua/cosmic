@@ -183,3 +183,21 @@ local function test_each_example_names_its_doc_line()
   assert(code:find("\n-- line example_1 1\n", 1, true) ~= nil, "got:\n" .. code)
   assert(code:find("\n-- line test_2 12\n", 1, true) ~= nil, "got:\n" .. code)
 end
+
+--- A doc's `inputs` line becomes its module's top-level declaration,
+--- which the build reads as a test module's; a second is refused.
+local function test_a_docs_inputs_become_its_declaration()
+  local blocks: {Block} = {
+    { lang = "inputs", modifiers = no_mods, content = "processes = true", line = 3 },
+    block("teal", "local x = 1", no_mods),
+  }
+  local code, trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  assert(code:find("\nlocal _inputs = { processes = true }\n", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("local function example_1", 1, true) ~= nil, "got:\n" .. code)
+  blocks[#blocks + 1] = { lang = "inputs", modifiers = no_mods, content = "tool = true", line = 9 }
+  local again, again_trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(again == nil, "a second declaration was taken")
+  assert(again_trouble == "line 9: a doc declares its inputs once; line 3 did already",
+    again_trouble)
+end

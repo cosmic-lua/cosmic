@@ -6,7 +6,10 @@
 --- `build.doctest.generate` never re-parses a tag string.
 ---
 --- Prose outside a fence is not read at all: a line only matters here
---- once it opens or closes a fence.
+--- once it opens or closes a fence, or is a whole line
+--- `<!-- inputs: <fields> -->`, what the doc's examples read beyond
+--- their default inputs (`build.inputs`), which renders as nothing and
+--- comes back as a block of its own, `inputs`, holding `<fields>`.
 ---
 --- A fence opens with a backtick or tilde run of at least three. It
 --- closes with the same marker in a run at least as long as the opener.
@@ -20,7 +23,7 @@ local record Modifiers
 end
 
 local record Block
-  --- `"text"`, `"output"`, `"teal"`, or `"lua"`.
+  --- `"text"`, `"output"`, `"teal"`, `"lua"`, or `"inputs"`.
   lang: string
   modifiers: Modifiers
   --- The block's body, its lines joined by `"\n"`, with neither fence
@@ -151,7 +154,17 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
   local i = 1
   while i <= #lines do
     local fence = open_fence(lines[i])
-    if fence == nil then
+    local declared = fence == nil and
+      lines[i]:match("^<!%-%-%s*inputs:%s*(.-)%s*%-%->%s*$") or nil
+    if declared ~= nil then
+      blocks[#blocks + 1] = {
+        lang = "inputs",
+        modifiers = { continue = false, file = nil, skip = nil },
+        content = declared,
+        line = i,
+      }
+      i = i + 1
+    elseif fence == nil then
       if looks_like_an_indented_fence(lines[i]) then
         return nil, "line " .. i .. ": this line looks like a fenced code " ..
           "block opener but is indented; indented fences are not " ..

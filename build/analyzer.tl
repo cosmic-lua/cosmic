@@ -79,8 +79,29 @@ local record analyzer
   --- first return admits nil (source that fails to lex or parse), and
   --- a fallible return may declare at most two slots -- the extras
   --- ride on the value's record instead.
+  --- A test module's `_inputs` declaration (`build.inputs`), read as
+  --- data -- see `inputs_of`. `network` holds `"*"` for `true`, and a
+  --- flag declared `false` reads as one never declared.
+  record Declared
+    --- The line the declaration starts on.
+    line: integer
+    reads: {string}
+    host: {string}
+    env: {string}
+    network: {string}
+    processes: boolean
+    tool: boolean
+    store: boolean
+  end
+
   record Analysis
     tests: {string}
+    --- The chunk's top-level `_inputs` declaration, or nil for none.
+    inputs: Declared | nil
+    --- The literal `name` of each property a `.run({ name = ... })`
+    --- call hands a table literal to -- a `build.fuzz` property, whose
+    --- corpus is `testdata/fuzz/<its name, slugged>/` -- in order.
+    fuzz: {string}
     has_top_level_return: boolean
     --- The name the chunk's top-level `return` hands back, when it is a
     --- plain name (`return Fs`): what a reference through an alias of
@@ -888,6 +909,164 @@ local function references_of(built: compiler, parsed: ast.Parsed): {analyzer.Ref
   return out, ""
 end
 
+--- What each field of an `_inputs` declaration takes: a list of string
+--- literals ("list"), `true` or `false` ("flag"), or either ("either").
+local input_fields: {string:string} = {
+  reads = "list", host = "list", env = "list", network = "either",
+  processes = "flag", tool = "flag", store = "flag",
+}
+
+--- The fields `input_fields` names, in the order a message lists them.
+local input_field_order: {string} = {
+  "reads", "host", "env", "network", "processes", "tool", "store",
+}
+
+--- A path of `reads` or `host` that names something a prefix can hold:
+--- relative to the tree for `reads`, absolute for `host`, and never
+--- climbing with "..", nor spelled with "." or an empty name, which a
+--- match by prefix would read as another path. "" when it is one, else
+--- why not.
+local function input_path_trouble(field: string, path: string): string
+  if path == "" then return "an empty path" end
+  local absolute = path:sub(1, 1) == "/"
+  if field == "reads" and absolute then
+    return "\"" .. path .. "\" is absolute; a path of the tree is relative to its root " ..
+      "(one outside it goes in host)"
+  elseif field == "host" and not absolute then
+    return "\"" .. path .. "\" is relative; host names absolute paths " ..
+      "(one of the tree goes in reads)"
+  end
+  local inner = path:gsub("^/", ""):gsub("/$", "")
+  for name in (inner .. "/"):gmatch("([^/]*)/") do
+    if name == "" or name == "." or name == ".." then
+      return "\"" .. path .. "\" names \"" .. name .. "\"; spell the path plainly"
+    end
+  end
+  return ""
+end
+
+--- The chunk's top-level `local _inputs: Declared = { ... }` (see
+--- `build.inputs`), read as data, never run: nil and "" when there is
+--- none, and nil and why, naming the line, for one that is no plain
+--- literal -- a field the declaration does not have, a value computed
+--- rather than written, a path that climbs. Each field is held to its
+--- shape here, annotated or not: a module generated from a doc
+--- (`build.doctest`) declares its inputs without the type, which
+--- another project's doc could not reach.
+local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
+  local found: ast.Node = nil
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "local_declaration" and stmt.vars ~= nil then
+      for _, var in ipairs(stmt.vars) do
+        if var.tk == "_inputs" then found = stmt end
+      end
+    end
+  end
+  if found == nil then return nil, "" end
+  local where = (found.f or "") .. ":" .. tostring(found.y) .. ": _inputs: "
+  local vars: ast.Node = found.vars
+  local exps: ast.Node = found.exps
+  local value = exps ~= nil and exps[1] or nil
+  if #vars ~= 1 or exps == nil or #exps ~= 1 or value.kind ~= "literal_table" then
+    return nil, where .. "declare it alone, as one table literal: " ..
+      "local _inputs: Declared = { reads = { ... } }"
+  end
+  local out: analyzer.Declared = {
+    line = found.y, reads = {}, host = {}, env = {}, network = {},
+    processes = false, tool = false, store = false,
+  }
+  local seen: {string:boolean} = {}
+  for _, item in ipairs(value) do
+    local key = item.key
+    local field = item.key_parsed == "short" and key ~= nil and key.conststr or nil
+    local at = (item.f or "") .. ":" .. tostring(item.y) .. ": _inputs: "
+    local takes = field ~= nil and input_fields[field] or nil
+    if takes == nil then
+      return nil, at .. (field ~= nil and ("no field " .. field) or "an entry with no name") ..
+        "; it has " .. table.concat(input_field_order, ", ")
+    end
+    if seen[field] then return nil, at .. field .. " is declared twice" end
+    seen[field] = true
+    local given = item.value
+    if given ~= nil and given.kind == "boolean" and takes ~= "list" then
+      local on = given.tk == "true"
+      if field == "network" then
+        if on then out.network = { "*" } end
+      elseif field == "processes" then
+        out.processes = on
+      elseif field == "tool" then
+        out.tool = on
+      else
+        out.store = on
+      end
+    elseif given ~= nil and given.kind == "literal_table" and takes ~= "flag" then
+      local list: {string} = {}
+      for _, entry in ipairs(given) do
+        local text = entry.value
+        if entry.key_parsed ~= "implicit" or text == nil or text.kind ~= "string" or
+            text.conststr == nil then
+          return nil, (entry.f or "") .. ":" .. tostring(entry.y) .. ": _inputs: " .. field ..
+            " lists string literals only"
+        end
+        local path_trouble = (field == "reads" or field == "host") and
+          input_path_trouble(field, text.conststr) or ""
+        if field == "env" and text.conststr == "" then path_trouble = "an empty name" end
+        if path_trouble ~= "" then
+          return nil, (entry.f or "") .. ":" .. tostring(entry.y) .. ": _inputs: " .. field ..
+            ": " .. path_trouble
+        end
+        list[#list + 1] = text.conststr
+      end
+      if field == "reads" then
+        out.reads = list
+      elseif field == "host" then
+        out.host = list
+      elseif field == "env" then
+        out.env = list
+      else
+        out.network = list
+      end
+    else
+      local wanted = takes == "list" and "a list of string literals" or
+        takes == "flag" and "true or false" or "true, false or a list of hosts"
+      return nil, at .. field .. " takes " .. wanted .. ", written out"
+    end
+  end
+  return out, ""
+end
+
+--- The literal `name` of every table literal handed straight to a call
+--- of some `.run` -- `Fuzz.run({ name = "json decode total", ... })` --
+--- in source order, each once. A name computed rather than written is
+--- none: its corpus is no default input, and its module declares it.
+local function fuzz_properties_of(parsed: ast.Parsed): {string}
+  local out: {string} = {}
+  local seen: {string:boolean} = {}
+  ast.walk(parsed.node, function(node: ast.Node)
+    if node.kind ~= "op" or node.op == nil or node.op.op ~= "@funcall" then return end
+    local callee: ast.Node = node.e1
+    local index = callee ~= nil and callee.op or nil
+    local member: ast.Node = callee ~= nil and callee.e2 or nil
+    if callee == nil or callee.kind ~= "op" or index == nil or index.op ~= "." or
+        member == nil or member.tk ~= "run" then
+      return
+    end
+    local args = node.e2
+    local first = args ~= nil and args[1] or nil
+    if first == nil or first.kind ~= "literal_table" then return end
+    for _, item in ipairs(first) do
+      local key, value = item.key, item.value
+      if item.key_parsed == "short" and key ~= nil and key.conststr == "name" and
+          value ~= nil and value.kind == "string" and value.conststr ~= nil and
+          not seen[value.conststr] then
+        seen[value.conststr] = true
+        out[#out + 1] = value.conststr
+      end
+    end
+  end)
+  return out
+end
+
 --- The same facts, read off a chunk something else already parsed, so a
 --- caller that needs the parse for another question too pays for it
 --- once. `built` is needed only to compile the patterns the catalog
@@ -925,11 +1104,16 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   if reference_trouble ~= "" then
     return nil, reference_trouble
   end
+  local declared, inputs_trouble = inputs_of(parsed)
+  if inputs_trouble ~= "" then
+    return nil, inputs_trouble
+  end
   local lines = lines_of(source)
   local doc_entries = docs_of(lines, parsed)
   canonicalize_docs(doc_entries, parsed, export, returned)
   return {
-    tests = names, has_top_level_return = has_return, export = export,
+    tests = names, inputs = declared, fuzz = fuzz_properties_of(parsed),
+    has_top_level_return = has_return, export = export,
     catalog = catalog, docs = doc_entries,
     examples = examples_of(lines, parsed), references = references,
   }, ""

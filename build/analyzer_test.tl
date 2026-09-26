@@ -930,3 +930,78 @@ local function test_an_example_is_not_also_an_ordinary_doc_entry()
     assert(entry.symbol ~= "Example.read", "Example.read leaked into docs")
   end
 end
+
+--- `analyze` on `source`, answering its `_inputs` declaration and what it
+--- refused, as `analysis_of` does.
+local function declared(source: string): analyzer.Declared | nil, string
+  local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
+  if found == nil then return nil, trouble end
+  return found.inputs, ""
+end
+
+--- A top-level `_inputs` literal is read as data, field by field, with
+--- `network = true` as any host and the line it starts on.
+local function test_an_inputs_declaration_is_read_as_data()
+  local got, trouble = declared(lines({
+    'local type Declared = require("build.inputs").Declared',
+    "",
+    "local _inputs: Declared = {",
+    '  reads = { "vendor/cacert/", "bin/zig.pin" },',
+    '  host = { "/etc/localtime" },',
+    '  env = { "PATH" },',
+    "  network = true,",
+    "  processes = true, tool = false, store = true,",
+    "}",
+  }))
+  assert(got ~= nil, trouble)
+  assert(got.line == 3, tostring(got.line))
+  assert(#got.reads == 2 and got.reads[1] == "vendor/cacert/" and got.reads[2] == "bin/zig.pin")
+  assert(#got.host == 1 and got.host[1] == "/etc/localtime")
+  assert(#got.env == 1 and got.env[1] == "PATH")
+  assert(#got.network == 1 and got.network[1] == "*")
+  assert(got.processes and not got.tool and got.store)
+  local hosts = assert(declared('local _inputs = { network = { "127.0.0.1" } }\n'))
+  assert(hosts.network[1] == "127.0.0.1" and not hosts.processes)
+  local none, none_trouble = declared("local function test_x() end\n")
+  assert(none == nil and none_trouble == "", none_trouble)
+end
+
+--- A declaration the build cannot read without running the module is
+--- refused, naming its line and what is wrong with it.
+local function test_a_malformed_inputs_declaration_is_refused()
+  local cases: {{string}} = {
+    { 'local _inputs = { reeds = { "a" } }', "no field reeds; it has reads, host, env" },
+    { 'local _inputs = { reads = { "/etc" } }', "is absolute" },
+    { 'local _inputs = { host = { "etc" } }', "is relative" },
+    { 'local _inputs = { reads = { "a/../b" } }', "names \"..\"" },
+    { 'local _inputs = { reads = { "./a" } }', "names \".\"" },
+    { 'local _inputs = { reads = { name } }', "reads lists string literals only" },
+    { 'local _inputs = { reads = "a" }', "reads takes a list of string literals" },
+    { 'local _inputs = { tool = "yes" }', "tool takes true or false" },
+    { 'local _inputs = { tool = true, tool = false }', "tool is declared twice" },
+    { 'local _inputs = { env = { "" } }', "env: an empty name" },
+    { "local _inputs = setmetatable({}, {})", "declare it alone, as one table literal" },
+    { 'local _inputs, other = { tool = true }, 1', "declare it alone" },
+  }
+  for _, case in ipairs(cases) do
+    local got, trouble = declared("local name = 'x'\n" .. case[1] .. "\n")
+    assert(got == nil, case[1] .. " was read")
+    assert(trouble:find(case[2], 1, true) ~= nil, case[1] .. ": " .. trouble)
+    assert(trouble:find("fixture_test.tl:2: _inputs: ", 1, true) ~= nil, trouble)
+  end
+end
+
+--- The literal name of each property a `.run` call is handed names its
+--- default corpus; a computed one names none.
+local function test_a_fuzz_property_named_by_a_literal_is_found()
+  local found = assert(analyzer.analyze(built, lines({
+    'local Fuzz = require("build.fuzz")',
+    "local function test_a()",
+    '  Fuzz.run({ name = "json decode total", gen = g, check = c })',
+    '  Fuzz.run({ name = "json " .. "encode", gen = g, check = c })',
+    '  Other.walk({ name = "not a property" })',
+    '  Fuzz.run({ name = "json decode total" })',
+    "end",
+  }), "fixture_test.tl"))
+  assert(#found.fuzz == 1 and found.fuzz[1] == "json decode total", table.concat(found.fuzz, ","))
+end

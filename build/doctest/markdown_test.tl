@@ -257,3 +257,24 @@ local function test_refuses_an_indented_tilde_fence()
   assert(trouble:find("indented fences are not supported", 1, true) ~= nil,
     "got: " .. trouble)
 end
+
+--- A line `<!-- inputs: ... -->` outside a fence is the doc's inputs
+--- declaration, a block of its own; the same line inside a fence is the
+--- fence's text, and any other comment is prose.
+local function test_reads_an_inputs_line_outside_a_fence()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "# a guide",
+    "",
+    "<!--   inputs: processes = true   -->",
+    "<!-- a comment -->",
+    "```teal",
+    "<!-- inputs: tool = true -->",
+    "```",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(#blocks == 2, "expected 2 blocks, got " .. #blocks)
+  assert(blocks[1].lang == "inputs" and blocks[1].content == "processes = true",
+    blocks[1].lang .. ": " .. blocks[1].content)
+  assert(blocks[1].line == 3)
+  assert(blocks[2].lang == "teal" and blocks[2].content == "<!-- inputs: tool = true -->")
+end
