@@ -174,6 +174,11 @@ local record Handle
   close: function(Handle): boolean, string
 end
 
+-- TODO: a child's exit is seen only at the next poll, up to POLL_MS after
+-- it happens: `Child.run` of /bin/true takes about 10 ms in all though its
+-- spawn takes 0.2 ms. Wait on the exit itself -- a pidfd in the poll set
+-- on Linux, kqueue's EVFILT_PROC on Darwin -- once core/process.h carries
+-- pidfd_open and a kqueue binding.
 local POLL_MS <const> = 10
 local POLL_NS <const> = POLL_MS * 1000 * 1000
 local TERM_GRACE_NS <const> = 250 * 1000 * 1000

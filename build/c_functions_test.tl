@@ -35,6 +35,22 @@ local function test_an_exempt_function_entered_is_stale()
   assert(#tally.stale == 1 and tally.stale[1] == exempt)
 end
 
+--- A host's own exemption holds on that host alone: spawn_child's hits
+--- never reach the parent on macOS, but a run on Linux still has to
+--- enter it.
+local function test_a_host_s_own_exemption_holds_on_that_host_alone()
+  local only = fn("core/syscalls.c", 1, "spawn_child")
+  local darwin = c_functions.tally({ only }, {}, nil, "Darwin")
+  assert(darwin.exempted == 1 and #darwin.unentered == 0)
+  local linux = c_functions.tally({ only }, {}, nil, "Linux")
+  assert(linux.exempted == 0 and #linux.unentered == 1 and
+    linux.unentered[1] == "core/syscalls.c:spawn_child")
+  local unknown = c_functions.tally({ only }, {})
+  assert(unknown.exempted == 0 and #unknown.unentered == 1)
+  local entered = c_functions.tally({ only }, { ["core/syscalls.c"] = { [1] = true } }, nil, "Darwin")
+  assert(entered.entered == 1 and #entered.stale == 1)
+end
+
 local function test_a_header_helper_is_left_out()
   local tally = c_functions.tally({ fn("core/check.h", 5, "helper") }, {})
   assert(tally.total == 0 and #tally.unentered == 0)
