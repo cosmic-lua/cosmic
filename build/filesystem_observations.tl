@@ -494,6 +494,27 @@ end
 --- The most paths a sandbox unveils (core/syscalls.c's UNVEIL_MAX).
 local UNVEIL_MAX <const> = 64
 
+--- Where the absolute `path` leads, with no link or `..` left in it:
+--- its longest leading part that is there, resolved, then the rest as
+--- named, since a directory a process is to make need not be there yet.
+--- Nil for a relative path, or one no part of which resolves.
+local function led_to(path: string): string | nil
+  if path:sub(1, 1) ~= "/" then return nil end
+  local head, rest = path:gsub("/+$", ""), ""
+  while head ~= "" do
+    local real, _ = realpath(head)
+    if real ~= nil then
+      if rest == "" then return real end
+      return (real == "/" and "" or real) .. "/" .. rest
+    end
+    local parent, last = head:match("^(.*)/([^/]+)$")
+    if parent == nil or last == ".." then return nil end
+    rest = rest == "" and last or last .. "/" .. rest
+    head = parent
+  end
+  return nil
+end
+
 --- Whether a process can run confined to `reads` and `writes`: few
 --- enough of them, and its program among them -- where the system's
 --- own shell lives elsewhere (/nix/store), it starts unconfined.
@@ -929,6 +950,32 @@ local function start(resolving: observations.Resolving | nil):
           given_environment = {}
           for name, value in pairs(environment or environ()) do given_environment[name] = value end
           given_environment.TMPDIR = writes[1]
+        end
+        -- A portable program's launcher looks for its core in the cache
+        -- COSMIC_PORTABLE_CACHE names, and makes the cache there when it
+        -- is not. The root a confined process has holds each path it was
+        -- given at the name that path resolves to, so a cache named
+        -- through a link above it -- under a test's own directory, which
+        -- is one -- is not there, and the launcher, which cannot make it
+        -- on that read-only root, ends. So the cache is named by where it
+        -- leads: the same directory, under which the core this program
+        -- runs on (`itself`) is bound, or which the launcher makes. No
+        -- key holds the name it leads to, as none holds the host's
+        -- TMPDIR: the variable's value is keyed with the environment, and
+        -- what the process reads there, by what it was given.
+        -- TODO: give a confined process each link on a path it was given
+        -- as the host has it (core/syscalls.c's unveil links a name only
+        -- at its last part, where the launcher refuses a link for its
+        -- cache), and declare in `itself` the cache a launcher finds by
+        -- default, from XDG_CACHE_HOME or HOME: a default cache reached
+        -- through a link is still not there.
+        local cache = (given_environment or environ()).COSMIC_PORTABLE_CACHE
+        local leads = cache ~= nil and led_to(cache) or nil
+        if leads ~= nil and leads ~= cache then
+          local renamed: {string:string} = {}
+          for name, value in pairs(given_environment or environ()) do renamed[name] = value end
+          renamed.COSMIC_PORTABLE_CACHE = leads
+          given_environment = renamed
         end
         local pid, trouble, errno = spawn(path, argv, given_environment, start_in, stdin, stdout,
           stderr, process_group, fds, { unveil = { reads = reads, writes = writes },

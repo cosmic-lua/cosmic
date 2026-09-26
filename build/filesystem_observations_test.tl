@@ -560,6 +560,42 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   end
 end
 
+--- A confined process is given the portable cache its environment
+--- names by where that leads, which its root holds, not through a link
+--- its root does not: a launcher there found no cache and ended, and
+--- could not make one. One not made yet is named by where its parent
+--- leads, and one named without a link is kept as named. What it leads
+--- to is no read a key must place: the run stays keyable.
+local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(tmp: string)
+  local own = tmp .. "/own"
+  local real = own .. "/real/cache"
+  assert(Fs.mkdirs(real))
+  assert(Fs.write(real .. "/core", "core"))
+  assert(Fs.symlink(own .. "/real", tmp .. "/linked"))
+  local resolved = assert(sys.realpath(real))
+  local said: {string} = {}
+  local run = observations.call(function()
+    observations.confine({ reads = { real .. "/core" } })
+    for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do
+      local r = assert(Child.run({ "/bin/sh", "-c",
+        "mkdir -p \"$COSMIC_PORTABLE_CACHE\" && ls \"$COSMIC_PORTABLE_CACHE\"; " ..
+        "echo \"$COSMIC_PORTABLE_CACHE\"" },
+        { env = { PATH = "/usr/bin:/bin", COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
+      said[#said + 1] = assert(r.stdout)
+    end
+    observations.confine(nil)
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  local notes, unconfined = confined_notes(run)
+  assert(not ("\n" .. notes):find("\nx ", 1, true), notes)
+  if unconfined then return end
+  assert(said[1] == "core\n" .. resolved .. "\n", said[1])
+  assert(said[2] == "core\n" .. resolved .. "\n", said[2])
+  local fresh = assert(sys.realpath(own .. "/real")) .. "/fresh/cache"
+  assert(said[3] == fresh .. "\n", said[3])
+  assert(Fs.is_dir(fresh), "the launcher's cache is made where its name leads")
+end
+
 --- A process started with a sandbox of its own that unveils and takes
 --- the network is noted by what it was given, as a confined one is; one
 --- held only by a pledge is not held to what it reads, and is a "p".
