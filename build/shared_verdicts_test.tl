@@ -80,6 +80,7 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   env.OUTSIDE = tmp .. "/outside"
   env.FLAVOUR = "sweet"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   local function said(name: string, root: string, wanted: string, words?: {string}): string
     local text = run(root, tmp .. "/" .. name .. ".out", env, words)
     assert(text:find(wanted, 1, true), name .. ": " .. text)
@@ -136,6 +137,7 @@ local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   local function database_checkout(root: string, value: string)
     assert(Fs.mkdirs(root .. "/suite"))
     local db = assert(Sqlite.open(root .. "/suite/data.db", true))
@@ -171,6 +173,7 @@ local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   local function link_checkout(root: string, target: string | nil)
     assert(Fs.mkdirs(root .. "/suite"))
     if target ~= nil then
@@ -217,6 +220,7 @@ local function test_a_database_attached_through_the_store_is_keyed_by_its_conten
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   local function attached_checkout(root: string, value: string)
     assert(Fs.mkdirs(root .. "/suite"))
     local db = assert(Sqlite.open(root .. "/suite/data.db", true))
@@ -259,6 +263,7 @@ local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_st
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   env.TMPDIR = tmp .. "/temp"
   local root = tmp .. "/checkout"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -286,6 +291,7 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   local function said(name: string, tool: string, wanted: string)
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
@@ -430,6 +436,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   env.FLAVOUR = "sweet"
   assert(Fs.mkdirs(tmp .. "/outside"))
   env.OUTSIDE = tmp .. "/outside"
@@ -466,6 +473,7 @@ local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp:
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   assert(Fs.mkdirs(tmp .. "/outside"))
   env.OUTSIDE = tmp .. "/outside"
   for _, name in ipairs({ "first", "second" }) do

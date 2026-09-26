@@ -30,6 +30,19 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
+--- Whether the run holds this host to confining a process: with
+--- COSMIC_SANDBOX=must (see build.filesystem_observations'
+--- `must_confine`), a sandbox the kernel refuses -- no Landlock, no
+--- pledge, no unveiling -- fails its test here rather than passing it
+--- unchecked.
+-- TODO: count each sandbox test that returns early here as skipped, in
+-- the run's summary beside ran, stood and assumed, once build/test.tl's
+-- tally has a skipped verdict: today, without COSMIC_SANDBOX=must, a
+-- host that cannot sandbox passes them as though it had checked them.
+local function sandbox_required(): boolean
+  return sys.getenv("COSMIC_SANDBOX") == "must"
+end
+
 --- Asserts `value, message, number` is the failure shape: `nil` or
 --- `false` first, a non-empty message, then a positive errno. The call
 --- under test goes last, so every value it returns arrives here.
@@ -472,6 +485,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   if ruleset == nil then
     -- No Landlock: not built in, turned off, or refused by a filter (a
     -- container's seccomp profile).
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no Landlock ruleset: " .. trouble)
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
     return
   end
@@ -534,6 +548,8 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
       nil, nil, nil, output, output, false, nil, sandbox)
     if pid == nil then
       sys.close(output)
+      assert(not sandbox_required() or sandbox == nil,
+        "COSMIC_SANDBOX=must, but no pledge: " .. trouble)
       assert(errno == sys.ENOSYS, trouble)
       return "unsupported"
     end
@@ -545,9 +561,14 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local status_file = sys.open("/proc/self/status", sys.O_RDONLY)
   if status_file == nil then
     -- No /proc to ask: a pledge is at most refused as unsupported.
-    local ok, _, errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil,
-      false, nil, { pledge = {} })
-    if ok == nil then assert(errno == sys.ENOSYS) else process.waitpid(ok, false) end
+    local ok, trouble, errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil,
+      nil, nil, false, nil, { pledge = {} })
+    if ok == nil then
+      assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no pledge: " .. trouble)
+      assert(errno == sys.ENOSYS)
+    else
+      process.waitpid(ok, false)
+    end
     return
   end
   local own = assert(sys.read(status_file, 65536)):match("Seccomp:%s*(%d)")
@@ -653,7 +674,12 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   for _, dir in ipairs(standard) do
     if shell ~= nil and shell:sub(1, #dir + 1) == dir .. "/" then reachable = true end
   end
-  if not reachable then return end -- a /bin/sh from elsewhere (/nix/store)
+  if not reachable then
+    -- A /bin/sh from elsewhere (/nix/store): none to run unveiled.
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but /bin/sh is " ..
+      tostring(shell) .. ", beneath none of the paths this test unveils")
+    return
+  end
   local inside, outside, out = tmp .. "/in", tmp .. "/out", tmp .. "/w"
   for _, dir in ipairs({ inside, outside, out }) do assert(sys.mkdir(dir, 0x1c0)) end
   local written = create(inside .. "/f")
@@ -679,10 +705,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     { unveil = { reads = reads, writes = { out } }, offline = true })
   if pid == nil then
     sys.close(report)
-    -- TODO: fail rather than return on a host known to allow unprivileged
-    -- user namespaces (CI's Linux runners), where any of these errnos is a
-    -- regression: a hard check keyed to COSMIC_SANDBOX=must, once the
-    -- must-sandbox branch (32bb9f2c, "build: must_confine") merges.
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return

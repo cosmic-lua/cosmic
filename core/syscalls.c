@@ -367,7 +367,16 @@ static void close_child_descriptors (int from, long limit) {
  * readlink, statfs or chdir, so a confined child still learns whether a
  * path outside the ruleset is there, and its size and times -- nor its
  * reach beyond: a unix socket named by a path, and UDP. A sandbox's
- * `unveil` closes the first and the socket paths, and `offline` the rest. */
+ * `unveil` closes the first and the socket paths, and `offline` the rest.
+ * TODO: a strict form, for a sandbox that must hold whole, refusing
+ * with EOPNOTSUPP where the kernel's ABI or this build's headers leave
+ * out a right the ruleset otherwise handles -- truncate below ABI 3,
+ * TCP below 4, device ioctls below 5, abstract unix sockets and signals
+ * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
+ * child to a ruleset under build.filesystem_observations'
+ * `must_confine`: today it handles what the kernel knows and says
+ * nothing of the rest, so a child on an older kernel may truncate a
+ * file it was given only to read. */
 COSMIC_SYSCALL(landlock_ruleset, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -664,7 +673,8 @@ struct cosmic_mount_attr {
  * it, so a caller's root cannot undo a read-only mount or make one of its
  * own. 0, or an errno.
  * TODO: a pid namespace too, so an unveiled /proc shows the child's own
- * processes rather than the host's; the child that unshares one is not
+ * processes rather than the host's, and a confined child cannot kill()
+ * a process of the same user outside it, as today it can; the child that unshares one is not
  * in it, so this waits on starting the program from a second fork. A
  * UTS namespace would change nothing a child sees: its host's name and
  * kernel stay what `uname` answers, which no key holds. */

@@ -205,6 +205,7 @@ end
   local env = Env.all()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   local function run(binary: string, name: string): boolean, string
     local output = tmp .. "/" .. name .. ".out"
     local fd = assert(Fs.open_write(output))
