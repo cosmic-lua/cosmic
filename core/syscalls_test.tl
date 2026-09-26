@@ -744,8 +744,8 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     local again = assert(process.spawn("/bin/sh", { "sh", "-c",
       "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
       "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f; " ..
-      "test -w /proc/self/uid_map && echo own-writable || echo own-read-only; " ..
-      "test -w /proc/sys/vm/swappiness || echo sys-read-only" },
+      "(: >> /proc/self/uid_map) 2>/dev/null && echo own-writable || echo own-read-only; " ..
+      "(: >> /proc/sys/vm/swappiness) 2>/dev/null || echo sys-read-only" },
       nil, "/", nil, second, second, false, nil,
       { unveil = { reads = mirrored, nest = nest }, offline = true }))
     assert(assert(process.waitpid(again, false)).code == 0)
@@ -756,7 +756,9 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   -- And a /tmp of its own, empty but for the paths given beneath the
   -- host's, which it can write to; /proc read-only whole, its own
   -- entries too; and, where it nests, those alone writable, so it can
-  -- confine a child in turn, and never the host's state.
+  -- confine a child in turn, and never the host's state. Each is asked
+  -- by opening the file to write, which writes nothing: busybox's
+  -- `test -w` judges by the mode alone, and a read-only mount is not in it.
   local given_under_tmp = assert(sys.realpath(private)):sub(1, 5) == "/tmp/" and 1 or 0
   local common = "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n"
   local plain = mirror(false)
