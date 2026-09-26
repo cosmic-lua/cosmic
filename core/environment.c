@@ -5,14 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__APPLE__)
-#include <crt_externs.h>
-#define COSMIC_ENVIRON (*_NSGetEnviron())
-#else
-extern char **environ;
-#define COSMIC_ENVIRON environ
-#endif
-
 #define COSMIC_PORTABLE_ENV_PREFIX "COSMIC_PORTABLE_"
 #define COSMIC_PORTABLE_ENV_CACHE "COSMIC_PORTABLE_CACHE"
 

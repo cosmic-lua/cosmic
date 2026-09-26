@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fail.h"
 #include "lauxlib.h"
 #include "compress.h"
 #include "coverage.h"
@@ -368,8 +369,7 @@ static int store_attach (lua_State *L) {
   guard->resource = NULL;
 
   lua_pushboolean(L, 1);
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 static void release_statement (void *stmt) { sqlite3_finalize(stmt); }
@@ -427,8 +427,7 @@ static int store_bytecode (lua_State *L) {
   for (lua_Integer i = 1; i <= count; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db != NULL && lookup(L, db, query, name)) {
-      lua_pushliteral(L, "");
-      return 2;
+      return cosmic_succeeded(L);
     }
   }
   lua_pushnil(L);
@@ -484,8 +483,7 @@ static int store_source (lua_State *L) {
         lua_pushfstring(L, "the source of '%s' in the binary: %s", name, why);
         return 2;
       }
-      lua_pushliteral(L, "");
-      return 2;
+      return cosmic_succeeded(L);
     }
   }
   lua_pushnil(L);
@@ -512,13 +510,10 @@ static void big_endian_64 (unsigned char *out, uint64_t value) {
 }
 
 static void push_hex (lua_State *L, const unsigned char *bytes, size_t length) {
-  static const char hex[] = "0123456789abcdef";
   luaL_Buffer buffer;
-  char *text = luaL_buffinitsize(L, &buffer, length * 2);
-  for (size_t i = 0; i < length; i++) {
-    text[i * 2] = hex[bytes[i] >> 4];
-    text[i * 2 + 1] = hex[bytes[i] & 15];
-  }
+  /* One more than the text for cosmic_hex's NUL, which the result leaves out. */
+  char *text = luaL_buffinitsize(L, &buffer, length * 2 + 1);
+  cosmic_hex(text, bytes, length);
   luaL_pushresultsize(&buffer, length * 2);
 }
 
@@ -747,12 +742,8 @@ static int store_trusted_prefix (lua_State *L) {
    * run commands that do not reuse a corrupt artifact prefix. */
   for (uint32_t i = 0; i < artifact->portable.entry_count; i++) {
     const struct cosmic_portable_entry *entry = &artifact->portable.entries[i];
-    unsigned char digest[COSMIC_DIGEST_MAX];
-    size_t digest_length = 0;
-    if (cosmic_digest_fd("sha256", artifact->fd, entry->offset, entry->length,
-                         digest, &digest_length) != 0 ||
-        digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
-        memcmp(digest, entry->sha256, digest_length) != 0) {
+    if (!cosmic_sha256_range_matches(artifact->fd, entry->offset,
+                                     entry->length, entry->sha256)) {
       lua_pushnil(L);
       lua_pushfstring(L,
                       "retained portable core range %d digest differs from manifest",
@@ -770,8 +761,7 @@ static int store_trusted_prefix (lua_State *L) {
     return 2;
   }
   luaL_pushresultsize(&buffer, (size_t)length);
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 /* Private capability handed only to the trusted build.artifact chunk: the
@@ -815,8 +805,7 @@ static int store_trusted_core (lua_State *L) {
   lua_setfield(L, -2, "configuration_id");
   lua_pushlstring(L, (const char *)entry->sha256, COSMIC_PORTABLE_SHA256_LENGTH);
   lua_setfield(L, -2, "digest");
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 static int open_store_module (lua_State *L,

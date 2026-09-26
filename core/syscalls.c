@@ -46,19 +46,12 @@ extern long syscall (long, ...);
 #include "lauxlib.h"
 #include "executable.h"
 #include "crypto.h"
+#include "environment.h"
 #include "syscalls.h"
 #include "portable.h"
 #include "process.h"
 #include "startup.h"
 #include "store.h"
-
-#if defined(__APPLE__)
-#include <crt_externs.h>
-#define COSMIC_ENVIRON (*_NSGetEnviron())
-#else
-extern char **environ;
-#define COSMIC_ENVIRON environ
-#endif
 
 const char *cosmic_path (lua_State *L, int index) {
   size_t length;
@@ -1263,8 +1256,7 @@ COSMIC_SYSCALL(relaunch, 2) {
   set_decimal(L, COSMIC_PORTABLE_ENV_CORE_OFFSET, selected->offset);
   set_decimal(L, COSMIC_PORTABLE_ENV_CORE_LENGTH, selected->length);
   char digest[COSMIC_PORTABLE_SHA256_LENGTH * 2 + 1];
-  for (size_t i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++)
-    snprintf(digest + i * 2, 3, "%02x", selected->sha256[i]);
+  cosmic_hex(digest, selected->sha256, COSMIC_PORTABLE_SHA256_LENGTH);
   lua_pushstring(L, digest);
   lua_setfield(L, -2, COSMIC_PORTABLE_ENV_CORE_SHA256);
   lua_setfield(L, -2, "environment");

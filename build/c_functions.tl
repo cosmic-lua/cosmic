@@ -33,7 +33,6 @@ end
 
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
 local before_exec <const> = "runs in a forked child before exec, which reports nothing"
-local forwarded <const> = "passes to the base VFS a call SQLite never makes on the store's read-only database"
 
 --- The C functions no test can enter, by `key_of`, and why.
 local exempt: {string: string} = {
@@ -54,13 +53,10 @@ local exempt: {string: string} = {
   ["core/syscalls.c:make_mirrored"] = before_exec,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
-  ["core/vfs.c:vfs_delete"] = forwarded,
-  ["core/vfs.c:vfs_access"] = forwarded,
-  ["core/vfs.c:vfs_randomness"] = forwarded,
-  ["core/vfs.c:vfs_sleep"] = forwarded,
-  ["core/vfs.c:vfs_last_error"] = forwarded,
-  ["core/sqlite.c:observed_randomness"] =
-    "SQLite seeds its randomness through the default VFS, never a connection's",
+  ["core/vfs_wrap.c:forward_access"] =
+    "the observed VFS answers xAccess itself, and SQLite never asks the store's read-only one",
+  ["core/vfs_wrap.c:forward_randomness"] =
+    "SQLite seeds its randomness through the default VFS, never a wrapping one",
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
   ["core/strnlen.c:strnlen"] = "a host libc's own strnlen can win the link; bin/zig build boot's strnlen check covers the core's",

@@ -41,6 +41,7 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
+#include "fail.h"
 #include "fault.h"
 #include "memory.h"
 #include "store.h"
@@ -763,14 +764,6 @@ static int handle_headers (lua_State *L) {
   return 1;
 }
 
-/* Every fallible function here returns `value, ""` on success and
- * `nil, err` on failure, as core/sqlite.c's do: the second slot is
- * always a string. */
-static int succeeded (lua_State *L) {
-  lua_pushliteral(L, "");
-  return 2;
-}
-
 static int failed (lua_State *L, const char *why) {
   lua_pushnil(L);
   lua_pushstring(L, why);
@@ -812,7 +805,7 @@ static int handle_read (lua_State *L) {
   memmove(t->body, t->body + n, t->body_len - n);
   t->body_len -= n;
   if (t->body_len < BODY_PAUSE_THRESHOLD) resume(t);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 /* What curl has written to a scripted transfer's connections so far,
@@ -1154,7 +1147,7 @@ static int http_open (lua_State *L) {
     return 2;
   }
   lua_settop(L, 7);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static const luaL_Reg handle_methods[] = {
@@ -1193,8 +1186,7 @@ static int http_check_certificate (lua_State *L) {
     return 2;
   }
   lua_pushboolean(L, 1);
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 static const luaL_Reg module[] = {
