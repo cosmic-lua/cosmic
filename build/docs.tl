@@ -420,7 +420,7 @@ end
 --- before they existed answers no query here.
 local function has_docs(db: Sqlite.Handle): boolean | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
   if rows == nil then return nil, trouble end
   return #rows > 0, ""
 end

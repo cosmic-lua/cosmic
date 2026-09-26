@@ -43,7 +43,7 @@ local function describe(path: string): integer | nil, string
     return nil, size_trouble
   end
   local tables, table_trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_master WHERE type = 'table'")
+    "SELECT name FROM sqlite_schema WHERE type = 'table'")
   if tables == nil then
     local _, _ = db:close()
     return nil, table_trouble
@@ -178,7 +178,7 @@ local function describe_under(path: string, about: function(string): boolean): i
     return nil, open_trouble
   end
   local tables, table_trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if tables == nil then
     local _, _ = db:close()
     return nil, table_trouble

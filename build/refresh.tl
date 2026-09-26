@@ -212,11 +212,12 @@ local cacert: refresh.Dataset = {
     -- names what it holds.
     local url = cacert_dated:format(date)
     local path = scratch .. "/cacert.pem"
-    local ok, download_trouble = Http.download(url, path, { sha256 = Hash.hex_sha256(pem) })
+    local sha256 = Hash.hex_sha256(pem)
+    local ok, download_trouble = Http.download(url, path, { sha256 = sha256 })
     if not ok then
       return nil, url .. ": " .. download_trouble
     end
-    return { path = path, url = url, version = date, sha256 = Hash.hex_sha256(pem) }, ""
+    return { path = path, url = url, version = date, sha256 = sha256 }, ""
   end,
   read = function(path: string, _scratch: string): refresh.Release | nil, string
     local pem, trouble = Fs.read(path)
