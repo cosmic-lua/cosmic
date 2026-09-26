@@ -58,6 +58,10 @@ static const struct observed_call {
   [COSMIC_OBSERVED_MKDTEMP] = {"mkdtemp", ARGUMENT_PATH, RESOLVE_NONE},
   [COSMIC_OBSERVED_SPAWN] = {"spawn", ARGUMENT_TEXT, RESOLVE_NONE},
   [COSMIC_OBSERVED_HTTP] = {"http", ARGUMENT_TEXT, RESOLVE_NONE},
+  /* A walk from a path not followed where it is a link, by contents
+   * or by stamps. */
+  [COSMIC_OBSERVED_TREE_DIGEST] = {"tree_digest", ARGUMENT_PATH, RESOLVE_LINK},
+  [COSMIC_OBSERVED_TREE_STAMPS] = {"tree_stamps", ARGUMENT_PATH, RESOLVE_LINK},
 };
 
 /* A record is the call's index and its count of answers, then its
@@ -570,7 +574,7 @@ static int resolve (lua_State *L) {
 }
 
 int cosmic_open_observed (lua_State *L) {
-  lua_createtable(L, 0, 14);
+  lua_createtable(L, 0, 15);
   lua_pushcfunction(L, observe);
   lua_setfield(L, -2, "observe");
   lua_pushcfunction(L, observed);
@@ -591,6 +595,7 @@ int cosmic_open_observed (lua_State *L) {
     {"readdir", cosmic_query_readdir},
     {"getenv", cosmic_query_getenv},
     {"environ", cosmic_query_environ},
+    {"tree_digest", cosmic_query_tree_digest},
     {"spawn", cosmic_spawn_unobserved},
     {NULL, NULL},
   };

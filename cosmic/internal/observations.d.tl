@@ -12,7 +12,9 @@ local record observations
   record Call is {any}
     --- The call's name: "getcwd", "executable", "lstat", "readlink",
     --- "realpath", "open", "stat", "readdir", "getenv", "environ",
-    --- "mkdir" or "mkdtemp" of `cosmic.sys`; "spawn", the process
+    --- "mkdir" or "mkdtemp" of `cosmic.sys`; "tree_digest" or
+    --- "tree_stamps", `cosmic.sys`'s `tree_digest` with contents or
+    --- without; "spawn", the process
     --- table's own, called past the stand-in for it; or "http",
     --- cosmic.http's `open` of a request that is not scripted.
     call: string
@@ -24,7 +26,7 @@ local record observations
     --- that takes none, or given no string.
     path: string | nil
     --- What an absolute path an open, a stat, a listing, a realpath, an
-    --- lstat or a readlink was given resolved to as the call was made
+    --- lstat, a readlink or a tree digest was given resolved to as the call was made
     --- (see `resolve`), "" where it resolved to nothing, where
     --- `resolving` asked for it; nil otherwise.
     resolved: string | nil
@@ -69,6 +71,7 @@ local record observations
     readdir: function(path: string): {string:string} | nil, string, integer
     getenv: function(name: string): string | nil
     environ: function(): {string:string}
+    tree_digest: function(path: string, contents: boolean): sys.TreeDigest | nil, string, integer
     spawn: function(path: string, argv: {string}, environment?: {string:string},
                     cwd?: string, stdin?: integer, stdout?: integer, stderr?: integer,
                     process_group?: boolean, fds?: {integer:integer},

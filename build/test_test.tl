@@ -692,3 +692,67 @@ local function test_a_declared_test_keys_the_times_a_confined_process_was_given(
   assert(undeclared_after.shared == undeclared.shared,
     "an undeclared shared key holds a given path's times")
 end
+
+--- A test that digests a path of the tree (`sys.tree_digest`) is keyed
+--- by what the walk answers, once, not by a read of each entry: a file
+--- beneath it whose contents change runs it again, and, walked by its
+--- stamps, one whose modification time alone moved does, in its shared
+--- key too, declared or not.
+local function test_a_tree_digest_of_the_tree_is_keyed_by_its_walk(tmp: string)
+  local root = assert(sys.realpath(tmp))
+  assert(Fs.mkdirs(root .. "/walked/deeper"))
+  local file = root .. "/walked/deeper/f"
+  assert(Fs.write(file, "before"))
+  local resolving: observations.Resolving = { tree = root, own = {} }
+  for _, contents in ipairs({ true, false }) do
+    local captured = observations.capture(function()
+      assert(sys.tree_digest(root .. "/walked", contents))
+    end, resolving)
+    assert(captured.ok, tostring(captured.produced))
+    local walks = 0
+    for _, read in ipairs(captured.reads) do
+      if read.kind == "g" or read.kind == "j" then
+        walks = walks + 1
+        assert(read.kind == (contents and "g" or "j"), read.kind)
+      end
+    end
+    assert(walks == 1, "a walk noted " .. tostring(walks) .. " times")
+    -- As a stored run gives its reads back: without their answers, each
+    -- walked again for the key.
+    local stored = assert(observations.decode(observations.encode(captured.reads)))
+    local function key(reads: {observations.Observation}): test.VerdictKey
+      return test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", reads, {})
+    end
+    local before = key(stored)
+    assert(key(captured.reads).stable, "a walk of what did not change is unstable")
+    assert(key(captured.reads).key == before.key, "a walk keyed apart from its answer")
+    if contents then
+      assert(Fs.write(file, "after!"))
+      local after = key(stored)
+      assert(after.key ~= before.key, "a file's contents beneath a walk entered no key")
+      assert(after.shared ~= before.shared, "a file's contents entered no shared key")
+      assert(not key(captured.reads).stable, "a walk that answers otherwise now stands")
+    else
+      local st = assert(sys.stat(file))
+      assert(sys.utimensat(file, nil, nil, st.mtime + 1, st.mtime_ns))
+      local after = key(stored)
+      assert(after.shared ~= before.shared, "a walk's stamps entered no shared key")
+    end
+  end
+end
+
+--- The walk a key makes of a path a confined process was given is the
+--- key's own, not the test's: a capture around it notes no digest.
+local function test_the_walk_a_key_makes_is_none_of_the_tests(tmp: string)
+  local root = assert(sys.realpath(tmp))
+  assert(Fs.mkdirs(root .. "/given"))
+  local captured = observations.capture(function()
+    observations.unveiled_answer(root .. "/given", root)
+    observations.digest_answer(root .. "/given", true)
+  end, { tree = root, own = {} })
+  assert(captured.ok, tostring(captured.produced))
+  for _, read in ipairs(captured.reads) do
+    assert(read.kind ~= "g" and read.kind ~= "j" and read.kind ~= "s",
+      "the key's walk was noted " .. read.kind)
+  end
+end

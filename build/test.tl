@@ -514,10 +514,10 @@ local function resolutions_of(reads: {observations.Observation}): {string:string
 end
 
 --- Which of `resolutions_of`'s two answers judges a read of `kind`:
---- the second for an lstat or a readlink.
+--- the second for an lstat, a readlink or a tree digest.
 local function resolved_for(kind: string, followed: {string:string},
                             unfollowed: {string:string}): {string:string}
-  if kind == "l" or kind == "k" then return unfollowed end
+  if kind == "l" or kind == "k" or kind == "g" or kind == "j" then return unfollowed end
   return followed
 end
 
@@ -616,7 +616,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         answers[identified] = observation.answer
       end
     elseif kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
-        kind == "a" then
+        kind == "a" or kind == "g" or kind == "j" then
       local relative = under_root(root, observation.path,
         resolved_for(kind, followed, unfollowed))
       if relative ~= nil and working_database(relative) then stable = false end
@@ -671,9 +671,12 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- stamps, for a test that declares it reads them
   -- (`observations.reads_stat_times`): generation 9 recorded no change
   -- time, and kept a declared test's times out of its shared key.
+  -- Generation 11 keys a test's `sys.tree_digest` of a path of the tree
+  -- by what the walk answers ("g" and "j"), which generation 10 never
+  -- observed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-10", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-4", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-11", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-5", "module-load-reads-v1", header }
   if whole then
     lines[#lines + 1] = "stat-times"
     shared_lines[#shared_lines + 1] = "stat-times"
@@ -735,6 +738,18 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       current = observations.cwd_answer()
     elseif kind == "b" then
       current = observations.executable_answer()
+    elseif kind == "g" or kind == "j" then
+      -- The walk itself, again: by contents for "g", and by what
+      -- `lstat` says of each entry for "j" -- stamps a test that walks
+      -- by them reads, so keyed whole in both keys, declared
+      -- (`observations.reads_stat_times`) or not, and never standing in
+      -- another checkout, whose inodes and times are its own.
+      -- TODO: key a link beneath the path whose target names the tree
+      -- by `tree_name` in the shared key, as a readlink's answer is,
+      -- once `sys.tree_digest` can answer its entries' lines rather
+      -- than their digest alone: today such a link keys the checkout's
+      -- location, and the verdict stands only in the checkout that ran it.
+      current = observations.digest_answer(root .. "/" .. relative, kind == "g")
     else
       current = observations.directory_answer(root .. "/" .. relative)
     end
@@ -855,7 +870,7 @@ function test.keyable(root: string, scratch: string,
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     if (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
-        kind == "a") and not constant_devices[observation.path] and not own_process(observation.path) then
+        kind == "a" or kind == "g" or kind == "j") and not constant_devices[observation.path] and not own_process(observation.path) then
       local path = observation.path
       local real = resolved_for(kind, followed, unfollowed)[path]
       if real == "" or (real == nil and climbs(path)) then return false end

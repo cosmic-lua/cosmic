@@ -10,10 +10,13 @@
  * Three shapes of record, by what the call does:
  *   - a query, which changes nothing and answers `value|nil, error,
  *     errno` (`getcwd`, `executable`, `lstat`, `readlink`, `realpath`,
- *     `stat`, `readdir`, `getenv`, `environ`): kept after it answers,
- *     with what it answered; one whose record cannot be kept fails as
- *     memory does (`cosmic_observed_call`). `chdir` keeps a stat's of
- *     where it goes before it goes (`cosmic_observed_ask`).
+ *     `stat`, `readdir`, `getenv`, `environ`, `tree_digest`): kept
+ *     after it answers, with what it answered -- a walk of a tree one
+ *     record of its root, as "tree_digest" by contents or "tree_stamps"
+ *     by what `lstat` says of each entry; one whose record cannot be
+ *     kept fails as memory does (`cosmic_observed_call`). `chdir`
+ *     keeps a stat's of where it goes before it goes
+ *     (`cosmic_observed_ask`).
  *   - a call that reaches past the process (`open`, the process table's
  *     `spawn`, cosmic.http's `open`): kept before it acts, with what it
  *     was given alone; one whose record cannot be kept fails, having
@@ -53,6 +56,8 @@ enum cosmic_observed_call {
   COSMIC_OBSERVED_MKDTEMP,
   COSMIC_OBSERVED_SPAWN,
   COSMIC_OBSERVED_HTTP,
+  COSMIC_OBSERVED_TREE_DIGEST,
+  COSMIC_OBSERVED_TREE_STAMPS,
 };
 
 /* Whether the log is on: `observe` sets it. */
@@ -86,6 +91,7 @@ int cosmic_query_stat (lua_State *L);
 int cosmic_query_readdir (lua_State *L);
 int cosmic_query_getenv (lua_State *L);
 int cosmic_query_environ (lua_State *L);
+int cosmic_query_tree_digest (lua_State *L);
 int cosmic_spawn_unobserved (lua_State *L);
 
 /* Opens the table build.filesystem_observations reads the log through:
