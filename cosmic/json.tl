@@ -231,9 +231,9 @@ end
 --- JSON. `opts` applies to every line; a `null` line leaves a hole
 --- unless `null_value` is given.
 function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil, string
-  -- TODO: this reads the whole text into memory first. A line iterator
-  -- over a `cosmic.stream` Reader would take logs larger than memory, one
-  -- value at a time.
+  -- TODO: this reads the whole text into memory first. A value iterator
+  -- over `Stream.lines` of a `cosmic.stream` Reader would take logs
+  -- larger than memory, one value at a time.
   local values = raw.array()
   local number = 0
   local count = 0

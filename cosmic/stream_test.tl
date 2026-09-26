@@ -450,3 +450,97 @@ local function test_transform_drains_a_pending_codec_before_feeding_it_more()
   local transformed = Stream.transform(Stream.from_string("abc"), codec as Stream.Codec)
   assert(drain(transformed) == string.rep("a", 10) .. string.rep("b", 10) .. string.rep("c", 10))
 end
+
+--- Every line `Stream.lines` gives `reader`, through `read`, and why it
+--- stopped.
+local function all_lines(reader: Stream.Reader, max?: integer): {string}, string
+  local lines = Stream.lines(reader, max)
+  local got: {string} = {}
+  while true do
+    local line, trouble = lines:read()
+    if line == nil then return got, trouble end
+    got[#got + 1] = line
+  end
+end
+
+--- A Reader handing out `s` a byte at a time, whatever it is asked for.
+local function trickle(s: string): Stream.Reader
+  local inner = Stream.from_string(s)
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    return inner:read(1)
+  end
+  r.close = function(_self: Stream.Reader): boolean, string
+    return inner:close()
+  end
+  return r
+end
+
+local function test_lines_split_on_newlines_whatever_the_chunks()
+  local cases: {{string}} = {
+    { "a\nb\n", "a", "b" },
+    { "a\nb", "a", "b" },
+    { "" },
+    { "\n\n", "", "" },
+    { "a\r\nb", "a\r", "b" },
+    { "one\n\nthree", "one", "", "three" },
+  }
+  for _, case in ipairs(cases) do
+    local want = table.concat(case, "|", 2)
+    for _, reader in ipairs({ Stream.from_string(case[1]), trickle(case[1]) }) do
+      local got, trouble = all_lines(reader)
+      assert(trouble == "", trouble)
+      assert(table.concat(got, "|") == want, string.format("%q: %s", case[1],
+        table.concat(got, "|")))
+    end
+  end
+end
+
+--- A line may be as long as the limit, and no longer, ended by "\n" or
+--- by the end of the stream; once it fails, it keeps failing.
+local function test_lines_hold_a_line_to_the_limit()
+  local got, trouble = all_lines(Stream.from_string("12345\n1234"), 5)
+  assert(trouble == "" and got[1] == "12345" and got[2] == "1234", trouble)
+  for _, text in ipairs({ "ok\n123456\nafter", "ok\n123456" }) do
+    local lines = Stream.lines(trickle(text), 5)
+    assert(lines:read() == "ok")
+    local line, why = lines:read()
+    assert(line == nil and why:find("longer than 5 bytes", 1, true) ~= nil, why)
+    local again, again_why = lines:read()
+    assert(again == nil and again_why == why)
+  end
+  assert(not pcall(Stream.lines, Stream.from_string(""), 0))
+end
+
+--- A line spread over many small chunks is joined once, not re-copied
+--- per chunk: a 256 KiB line a byte at a time finishes promptly, where
+--- copying the partial line per byte would move some 32 GB.
+local function test_a_long_line_in_small_chunks_costs_linear_time()
+  local long = string.rep("x", 1 << 18)
+  local got, trouble = all_lines(trickle(long .. "\nend"))
+  assert(trouble == "" and #got == 2 and got[1] == long and got[2] == "end", trouble)
+end
+
+--- A Reader's failure ends the lines with it, after the ones before.
+local function test_lines_stop_at_a_reader_failure()
+  local inner = Stream.from_string("a\nb")
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    local chunk, trouble = inner:read(max)
+    if chunk == nil and trouble == "" then return nil, "boom" end
+    return chunk, trouble
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local lines = Stream.lines(r)
+  local seen: {string} = {}
+  for line in lines:each() do seen[#seen + 1] = line end
+  assert(#seen == 1 and seen[1] == "a", table.concat(seen, "|"))
+  assert(lines:failure() == "boom", lines:failure())
+end
+
+local function test_each_reads_every_line_and_leaves_no_failure()
+  local lines = Stream.lines(Stream.from_string("x\ny\n"))
+  local seen: {string} = {}
+  for line in lines:each() do seen[#seen + 1] = line end
+  assert(table.concat(seen, "|") == "x|y" and lines:failure() == "")
+end

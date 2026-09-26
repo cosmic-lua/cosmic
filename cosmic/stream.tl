@@ -14,7 +14,7 @@
 --- after either fails. Every constructor here gives `close` (and each
 --- Writer `abort`), even where it does nothing, and each is safe to
 --- call more than once, so a caller never has to ask which kind it
---- holds.
+--- holds. `Stream.lines` reads a Reader a line at a time.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -49,6 +49,20 @@ local record Stream
     --- the hasher could not finish; the Writer takes no more writes
     --- afterward, and asking again answers the same.
     digest: function(Hashing): string | nil, string
+  end
+
+  --- The lines of a Reader, one at a time: see `Stream.lines`.
+  record Lines
+    --- The next line, without its "\n", and ""; nil and "" after the
+    --- last; nil and why when the Reader failed or a line ran past the
+    --- limit, the same again on every later read.
+    read: function(Lines): string | nil, string
+    --- An iterator for a `for` loop over the lines still to come. It
+    --- ends at the last one or at a failure, which `failure` then says.
+    each: function(Lines): function(): string
+    --- Why the lines ended early, or "" when they have not: after an
+    --- `each` loop, "" means every line was read.
+    failure: function(Lines): string
   end
 
   --- The incremental codec `transform` and `transform_writer` drive:
@@ -331,6 +345,86 @@ function Stream.read_all(reader: Stream.Reader): string | nil, string
     end
     parts[#parts + 1] = chunk
   end
+end
+
+local default_line_limit <const> = 1 << 20
+
+--- The lines of `reader`, read a chunk at a time: each piece of it
+--- ending in "\n", without the "\n", and the piece after the last "\n"
+--- when that is not empty, so "a\nb\n" and "a\nb" are both two lines.
+--- A "\r" before the "\n" stays on its line, as `String.lines` keeps
+--- it. A line longer than `max` bytes (1 MiB by default) fails rather
+--- than grow without bound. `reader` is not closed.
+---
+---     local lines = Stream.lines(assert(Stream.open("log.txt")))
+---     for line in lines:each() do print(line) end
+---     assert(lines:failure() == "", lines:failure())
+function Stream.lines(reader: Stream.Reader, max?: integer): Stream.Lines
+  local limit = max or default_line_limit
+  if limit < 1 then error("stream: a line limit must be at least 1", 2) end
+  -- `chunk` is the last one read, given out from `at`; `parts` holds
+  -- the pieces of a line no chunk has ended yet, `held` bytes of them,
+  -- joined once its "\n" comes, so a line spread over many small
+  -- chunks costs linear time.
+  local chunk = ""
+  local at = 1
+  local parts: {string} = {}
+  local held = 0
+  local ended = false
+  local failed = ""
+  local function fail(why: string): nil, string
+    failed = why
+    chunk, at, parts, held = "", 1, {}, 0
+    return nil, failed
+  end
+  local too_long = "stream: a line is longer than " .. tostring(limit) .. " bytes"
+  local lines: Stream.Lines = {}
+  lines.read = function(_self: Stream.Lines): string | nil, string
+    if failed ~= "" then return nil, failed end
+    while true do
+      local newline = chunk:find("\n", at, true)
+      if newline ~= nil then
+        if held + newline - at > limit then return fail(too_long) end
+        local line = chunk:sub(at, newline - 1)
+        at = newline + 1
+        if held > 0 then
+          parts[#parts + 1] = line
+          line = table.concat(parts)
+          parts, held = {}, 0
+        end
+        return line, ""
+      end
+      if at <= #chunk then
+        held = held + #chunk - at + 1
+        if held > limit then return fail(too_long) end
+        parts[#parts + 1] = at == 1 and chunk or chunk:sub(at)
+      end
+      chunk, at = "", 1
+      if ended then
+        if held == 0 then return nil, "" end
+        local line = table.concat(parts)
+        parts, held = {}, 0
+        return line, ""
+      end
+      local read, trouble = reader:read(chunk_size)
+      if read == nil then
+        if trouble ~= "" then return fail(trouble) end
+        ended = true
+      else
+        chunk = read
+      end
+    end
+  end
+  lines.each = function(self: Stream.Lines): function(): string
+    return function(): string
+      local line, _ = self:read()
+      return line
+    end
+  end
+  lines.failure = function(_self: Stream.Lines): string
+    return failed
+  end
+  return lines
 end
 
 --- Copies `reader` to `writer` until `reader`'s end of file, and
