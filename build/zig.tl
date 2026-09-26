@@ -43,9 +43,9 @@
 --- `zig-global` and `zig-project` in this user's cosmic cache directory,
 --- else (no cache directory at all) `o/zig-global` and `o/zig-cache`.
 --- zig keys a C object by its source's path, and a file in a checkout
---- has an absolute path of its own; build.zig compiles everything under
---- vendor/ from copies in the project cache, so a fresh worktree compiles
---- none of it again, only the core's own C. Every other subcommand
+--- has an absolute path of its own; build.zig compiles every C file,
+--- vendor/'s and the tree's own, from copies in the project cache, so a
+--- fresh worktree compiles none of it again. Every other subcommand
 --- passes through unchanged. zig runs in the caller's own working
 --- directory.
 ---

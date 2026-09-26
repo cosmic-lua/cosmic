@@ -612,10 +612,12 @@ the key leaves out is a way for a sibling's pass to answer for a failure. each
 gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
 are closed:
 
-- [ ] *the tree's location* (`build/filesystem_observations.tl`, above
+- [x] *the tree's location* (`build/filesystem_observations.tl`, above
   `tree_name`): `getcwd`, `Fs.absolute`, `realpath` and `Proc.executable` are
-  not observed. note each answer, named relative to the tree in the shared key,
-  once the syscall table's dispatch observes them.
+  not observed, so the location is no input a verdict may turn on: a test must
+  not depend on where the tree is (AGENTS.md), and CI moves its checkout to a
+  path of each run's own (`.github/scripts/place-tree.sh`), so a test that does
+  fails some run.
 - [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
   anything under `o/` is keyed by its bytes, hashed once a run while its stat
   holds; a read of the working database, which every run rewrites, is never

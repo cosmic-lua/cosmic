@@ -40,6 +40,11 @@ local function context(candidate: string, runner_temp: string,
     GITHUB_RUN_ATTEMPT = "1",
     RUNNER_TEMP = runner_temp,
     COSMIC_WORKER = "worker",
+    -- A developer's own caches are none of a test's: the driver would
+    -- build in the one these name, not the test's own.
+    COSMIC_ZIG_CACHE = "",
+    COSMIC_ZIG_CACHE_SEED = "",
+    COSMIC_ZIG_CACHE_FROM = "",
   }
   if extra then for name, value in pairs(extra) do env[name] = value end end
   return env

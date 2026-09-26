@@ -49,8 +49,7 @@ if [ "${1-}" = zig-cache ]; then
   # shared verdicts" is the checklist.
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds
-  # the tree's location (build/filesystem_observations.tl:866), a
-  # stat's times and inode where a test turns on them
+  # a stat's times and inode where a test turns on them
   # (build/test.tl:519), a database a connection opened before the
   # test reads (build/filesystem_observations.tl:529) or one attached
   # through the store (core/store.c:315),

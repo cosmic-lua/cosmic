@@ -181,14 +181,10 @@
         # cosmic_ci/orchestration.tl), its zig-global zig's global cache
         # (COSMIC_ZIG_GLOBAL_CACHE, set with XDG_CACHE_HOME below), and saves
         # them back once every native build this job runs has had a chance
-        # to update them. zig keys what it compiles by its cache's path, so
-        # that path is the same each run, unlike the tree's (below), and by
-        # the path of what it compiles: vendor/ is compiled from copies in
-        # the project cache, but the core's own C is compiled again each run.
-        # TODO: compile the core's own C from copies in the project cache
-        # too, as build.zig does vendor/, so a run at a path of its own
-        # reuses it; each leg recompiles it now (about 160 objects, a third
-        # of a boot's time locally).
+        # to update them. zig keys what it compiles by the path of what it
+        # compiles and of its include directories, so the cache is at the
+        # same path each run, unlike the tree (below), and build.zig compiles
+        # vendor/ and the tree's own C alike from copies in it (`Own`).
         # The key
         # includes `matrix.name`, one entry per leg, even though
         # linux-x86_64 and alpine-x86_64 target the same

@@ -68,7 +68,7 @@ local function operation(c: Context, phase: string, command: {string},
   -- own cache's path too, and CI puts the checkout at a path of the run's
   -- own (.github/scripts/place-tree.sh), so a cache under o/ would never
   -- be reused there: CI saves the seed's as it stands.
-  if not child_environment.COSMIC_ZIG_CACHE then
+  if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
     child_environment.COSMIC_ZIG_CACHE = seed and seed .. "/zig-cache" or c.root .. "/o/zig-cache"
   end
