@@ -10,8 +10,13 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
+local Test = require("cosmic.test")
 local Zig = require("build.zig")
 local observations = require("build.filesystem_observations")
+
+--- A source whose build a test interrupts, and the environment the module
+--- under test starts its child with.
+Test.needs{ reads = { "build/patch.tl" }, env = { "*" } }
 
 -- What these tests start is this very program, running build/zig.tl.
 local program = observations.itself()

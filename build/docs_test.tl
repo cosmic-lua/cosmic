@@ -1,9 +1,13 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+
+--- The projection, asked directly, and whether the tree is cosmic's own.
+Test.needs{ reads = { "core" }, store = true }
 
 --- Lines as one source file's text.
 local function source(...: string): string

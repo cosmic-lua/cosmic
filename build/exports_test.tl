@@ -16,7 +16,11 @@
 --- (`build.receivers`).
 
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local fixture = require("build.docs_fixture")
+
+--- A whole-tree question, asked of the projection itself.
+Test.needs{ store = true }
 
 --- The exports kept although nothing outside their module but a test
 --- uses them, by `<module>.<member>`, and why each is kept.
@@ -36,8 +40,6 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
 end
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
-allowed["build.filesystem_observations.itself"] = "a test's own declaration: " ..
-  "what a process of this very program needs, which only a test declares"
 -- TODO: drop this once build/test.tl's `worker_start` starts each worker
 -- sandboxed to what this answers, which then uses it outside a test.
 allowed["build.filesystem_observations.worker_unveil"] = "what a sandboxed test " ..
@@ -45,6 +47,8 @@ allowed["build.filesystem_observations.worker_unveil"] = "what a sandboxed test 
   "to starting one"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
+allowed["build.filesystem_observations.environment"] = "a test's own declaration: " ..
+  "what of the environment a process of this very program needs, which only a test starts"
 allowed["build.filesystem_observations.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
 allowed["build.filesystem_observations.reads_stat_times"] = "a test's own declaration: " ..

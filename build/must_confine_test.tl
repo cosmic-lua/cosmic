@@ -31,10 +31,10 @@ local function run(root: string, output: string, env: {string:string},
   return text, result.ok
 end
 
---- The environment a suite runs in: this one's, with no verdict cache
+--- The environment a suite runs in: the pinned one, with no verdict cache
 --- shared, and COSMIC_SANDBOX as `mode` has it.
 local function environment(mode: string | nil): {string:string}
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = mode

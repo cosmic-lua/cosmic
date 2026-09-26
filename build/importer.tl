@@ -220,6 +220,34 @@ local function origin_lines(source: string): {string: integer} | nil
   return lines
 end
 
+--- The rows `test_inputs` keeps of one parse (see `build.work`): its
+--- `needs` declaration (`cosmic.test`), field by field.
+local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
+                                  found: analyzer.Analysis): boolean, string
+  local rows: {{string}} = {}
+  local function each(field: string, list: {string})
+    for _, value in ipairs(list) do rows[#rows + 1] = { field, value } end
+  end
+  local declared = found.inputs
+  if declared ~= nil then
+    rows[#rows + 1] = { "line", tostring(declared.line) }
+    each("reads", declared.reads)
+    each("host", declared.host)
+    each("env", declared.env)
+    each("network", declared.network)
+    if declared.processes then rows[#rows + 1] = { "processes", "true" } end
+    if declared.tool then rows[#rows + 1] = { "tool", "true" } end
+    if declared.store then rows[#rows + 1] = { "store", "true" } end
+  end
+  for ordinal, row in ipairs(rows) do
+    local ok, why = Sqlite.run(db,
+      "INSERT INTO test_inputs (source_hash, ordinal, field, value) VALUES (?1, ?2, ?3, ?4)",
+      { text(source_hash), { integer = ordinal }, text(row[1]), text(row[2]) })
+    if not ok then return false, why end
+  end
+  return true, ""
+end
+
 --- One parse of every source no parse has seen: what it requires, in
 --- order, the tests it defines, and whether it returns its own value.
 --- Structural, over the real AST, never a regex over text: a
@@ -272,6 +300,10 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
       if not ok then
         return false, file .. ": " .. why
       end
+    end
+    ok, why = insert_test_inputs(db, source_hash, found)
+    if not ok then
+      return false, file .. ": " .. why
     end
     for ordinal, entry in ipairs(found.catalog) do
       ok, why = Sqlite.run(db,
@@ -328,7 +360,7 @@ end
 --- came from: rows in them are only ever as right as the code that
 --- derived them.
 local analysis_tables: {string} = {
-  "parsed", "requires", "tests", "catalog", "docs", "refs", "examples",
+  "parsed", "requires", "tests", "catalog", "docs", "refs", "examples", "test_inputs",
 }
 
 --- The identity of the analyzer that is running: the compiler, and the
@@ -525,6 +557,44 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
   return true, ""
 end
 
+--- What `test_inputs` holds, by source hash: each `_inputs`
+--- declaration.
+local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
+  if rows == nil then
+    return nil, trouble
+  end
+  local declared: {string:analyzer.Declared} = {}
+  for _, row in ipairs(rows) do
+    local hash, field, value = row[1], row[2], row[3]
+    local one = declared[hash]
+    if one == nil then
+      one = { line = 0, reads = {}, host = {}, env = {}, network = {},
+        processes = false, tool = false, store = false }
+      declared[hash] = one
+    end
+    if field == "line" then
+      one.line = math.tointeger(tonumber(value)) or 0
+    elseif field == "reads" then
+      one.reads[#one.reads + 1] = value
+    elseif field == "host" then
+      one.host[#one.host + 1] = value
+    elseif field == "env" then
+      one.env[#one.env + 1] = value
+    elseif field == "network" then
+      one.network[#one.network + 1] = value
+    elseif field == "processes" then
+      one.processes = true
+    elseif field == "tool" then
+      one.tool = true
+    elseif field == "store" then
+      one.store = true
+    end
+  end
+  return declared, ""
+end
+
 --- Every name a table keyed by source hash lists, in order, by hash.
 local function names_by_hash(db: Sqlite.Handle,
                              table_name: string): {string:{string}} | nil, string
@@ -705,10 +775,23 @@ local function collect(handle: work.Handle, self_tree: boolean,
   if examples == nil then
     return nil, examples_trouble
   end
+  local declared, inputs_trouble = test_inputs_by_hash(db)
+  if declared == nil then
+    return nil, inputs_trouble
+  end
   local out: {Module} = {}
   for _, row in ipairs(rows) do
     local path, file, kind, origin = row[1], row[2], row[3], row[4]
     local source, source_hash, has_return = row[5], row[6], row[7]
+    local inputs = declared[source_hash]
+    if inputs ~= nil and kind ~= "test" and kind ~= "example" then
+      -- A declaration holds for the tests of its own module, and a
+      -- module that is no test's has none: what a module it requires
+      -- reads, the test declares.
+      return nil, file .. ":" .. inputs.line .. ": test.needs: only a test or example " ..
+        "module declares what its tests read; call it in each test module that " ..
+        "requires this one"
+    end
     out[#out + 1] = {
       path = path,
       file = file,
@@ -719,6 +802,7 @@ local function collect(handle: work.Handle, self_tree: boolean,
       tests = kind == "test" and (tests[source_hash] or {})
         or kind == "example" and (examples[source_hash] or {})
         or {},
+      inputs = inputs,
       has_top_level_return = has_return == "1",
       generated = origin == "doctest",
       key = "",

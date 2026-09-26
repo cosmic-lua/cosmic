@@ -5,10 +5,25 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
+
+-- TODO: name these host paths per platform once a declaration can
+-- (a `host` entry for Linux and one for macOS, or a path the sandbox
+-- resolves): /etc (a link to /private/etc) differs on macOS, where the audit would find these
+-- reads undeclared; only Linux enforces declarations for now.
+--- What the observer is tested observing: processes it cannot confine, the
+--- system's own directories, the environment, and requests to closed local
+--- ports.
+Test.needs{
+  host = { "/etc", "/usr" },
+  env = { "*" },
+  network = { "127.0.0.1", "127.0.0.2" },
+  processes = true,
+}
 
 local type Searcher = function(string): any, any
 

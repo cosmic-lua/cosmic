@@ -18,8 +18,12 @@
 --- `o/cosmic.db`, as build/exports_test.tl asks its own.
 
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local fixture = require("build.docs_fixture")
 local symbols = require("build.symbols")
+
+--- A whole-tree question, asked of the projection itself.
+Test.needs{ store = true }
 
 --- One row of the public catalog, as read here.
 local record Row

@@ -8,8 +8,12 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local artifact = require("build.artifact")
 local observations = require("build.filesystem_observations")
+
+--- The bridge a stand-in tree boots through.
+Test.needs{ reads = { "core/bridge.lua" } }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
@@ -62,7 +66,8 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.write(tmp .. "/tl/tl.lua", compiler))
   assert(Fs.write(tmp .. "/tl/tl.tl", compiler))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },
-    { stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
+    { env = observations.environment(), stdout = "capture", stderr = "capture",
+      timeout_ms = 30000 })))
 end
 
 local function test_boot_exits_with_the_status_build_boot_returns(tmp: string)

@@ -4,7 +4,6 @@
 --- shown only when it fails.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
@@ -22,7 +21,7 @@ local function invoke(root: string, output: string, args: {string},
   for _, value in ipairs(args) do argv[#argv + 1] = value end
   local fd = assert(Fs.open_write(output))
   local result, trouble = Child.run(argv, {
-    cwd = root, env = env or Env.all(), stdout = fd, stderr = fd, timeout_ms = 60000,
+    cwd = root, env = env or observations.environment(), stdout = fd, stderr = fd, timeout_ms = 60000,
   })
   assert(Fs.close(fd))
   return (assert(result, trouble))
@@ -66,7 +65,7 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
   local root, pidfile = project(tmp)
   local output = tmp .. "/run.out"
   -- The failing tests' directories are kept; they are kept here.
-  local env = Env.all()
+  local env = observations.environment()
   env.TMPDIR = tmp .. "/temp"
   assert(Fs.mkdirs(env.TMPDIR))
   local started = Time.monotonic_ns()
@@ -97,7 +96,7 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   assert(assert(Fs.read(output)):find("--timeout must be a positive whole number", 1, true))
   result = invoke(root, output, { "--jobs", "x", "suite/fine_test.tl" })
   assert(result.code == 2, assert(Fs.read(output)))
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_TEST_TIMEOUT = "soon"
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.code == 2, assert(Fs.read(output)))
@@ -140,7 +139,7 @@ local function test_fails(tmp: string)
   error("fails")
 end
 ]]))
-  local env = Env.all()
+  local env = observations.environment()
   env.TMPDIR = temp
   local output = tmp .. "/left.out"
   local result = invoke(root, output, { "suite/left_test.tl" }, env)
@@ -182,7 +181,7 @@ end
 local function test_first(tmp: string) hold(tmp, "first") end
 local function test_second(tmp: string) hold(tmp, "second") end
 ]]))
-  local env = Env.all()
+  local env = observations.environment()
   env.TMPDIR = temp
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
@@ -236,7 +235,7 @@ local function test_b_holds()
   while true do end
 end
 ]]))
-  local env = Env.all()
+  local env = observations.environment()
   env.TMPDIR = temp
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
@@ -280,7 +279,7 @@ local function test_counts()
 end
 ]]))
   assert(Fs.symlink(root, tmp .. "/link"))
-  local env = Env.all()
+  local env = observations.environment()
   env.TMPDIR = tmp .. "/temp"
   assert(Fs.mkdirs(env.TMPDIR))
   local output = tmp .. "/counts.out"
@@ -312,7 +311,7 @@ local function three_runs(tmp: string, source: string): {string}
   assert(Fs.write(root .. "/a/f", "good\n"))
   assert(Fs.write(root .. "/b/f", "other\n"))
   assert(Fs.write(root .. "/suite/link_test.tl", source))
-  local env = Env.all()
+  local env = observations.environment()
   env.TMPDIR = tmp .. "/temp"
   env.PROJ = root
   env.OUTSIDE = outside
@@ -409,7 +408,7 @@ local function test_no_hooks()
   assert(Env.get("KEPT_BY_THE_WORKER") == "yes")
 end
 ]]))
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = tmp .. "/never"
   env.KEPT_BY_THE_WORKER = "yes"
   local output = tmp .. "/hooks.out"

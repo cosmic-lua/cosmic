@@ -1,6 +1,7 @@
 --- One test, run in a process of its own: the other half of
 --- `build.test`, which starts this as `cosmic test --worker <root>
---- <module> <test> <tmp> <children>` and alone records what it reports.
+--- <module> <test> <tmp> <children> <needs>` and alone records what it
+--- reports.
 ---
 --- The worker never opens the build database. It attaches the tree's
 --- compiled modules, loads the test's module, calls the one test with
@@ -15,8 +16,10 @@ local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
+local test_inputs = require("build.test_inputs")
 local log = require("build.verdict").log
 
 local record worker
@@ -193,12 +196,22 @@ end
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else means there is no report to read.
---- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>`,
---- `children` a directory, not yet there, to collect the coverage of
---- the processes the test starts in.
+--- Installs `runner` as `__runner` on `module`, `cosmic.test`'s table,
+--- where `needs` looks for a runner: no member of its type.
+local function install(module: any, runner: any)
+  if module is {string:any} then module.__runner = runner end
+end
+
+--- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
+--- <needs>`, `children` a directory, not yet there, to collect the
+--- coverage of the processes the test starts in, and `needs` what the
+--- build read of the module's `cosmic.test` declaration
+--- (`test_inputs.canonical`), "" or absent for none: a module whose
+--- `needs` call was handed anything else fails to load.
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
+  local expected_needs = argv[8] or ""
   if root == nil or module_path == nil or name == nil or tmp == nil or
       children_path == nil then
     log:complain("test --worker needs a root, a module, a test and two directories")
@@ -231,15 +244,32 @@ function worker.run(argv: {integer:string}): integer
   if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
   -- A confined process writes its coverage beside the test's own.
   if children ~= nil then resolving.own[#resolving.own + 1] = children end
+  -- What the module's `needs` call is handed as it loads, through the
+  -- hook `cosmic.test` leaves for a runner; once it has loaded, a call
+  -- is refused.
+  local handed: Test.Needs = nil
+  local runner = { loaded = false, handed = function(needs: Test.Needs) handed = needs end }
+  install(Test, runner)
   local captured = observations.capture(function(): any
     return require(module_path)
   end, resolving)
+  runner.loaded = true
   local loaded, produced, load_reads = captured.ok, captured.produced, captured.reads
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits
   end
   report.load_reads = load_reads
+  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed)) or ""
+  if loaded and needs ~= expected_needs then
+    loaded = false
+    produced = "its cosmic.test needs call was handed what the build did not read " ..
+      "from its source -- the build reads only a top-level Test.needs { ... } " ..
+      "on a local bound to require(\"cosmic.test\") (see cosmic.test):\n" ..
+      "  handed:\n    " .. (needs == "" and "nothing" or needs:gsub("\n", "\n    ")) ..
+      "\n  read:\n    " .. (expected_needs == "" and "nothing" or
+        expected_needs:gsub("\n", "\n    "))
+  end
   report.loaded = loaded
   if not loaded then
     report.message = "the module failed to load: " .. tostring(produced)

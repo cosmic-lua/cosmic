@@ -5,7 +5,6 @@
 
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -68,7 +67,7 @@ return function(): integer
   return 0
 end
 ]]))
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
   local r = assert(Child.run({ assert(Proc.executable()), script },

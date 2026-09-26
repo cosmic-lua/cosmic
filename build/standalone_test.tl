@@ -139,7 +139,8 @@ return Script
 ]]))
   local cosmic = assert(Proc.executable())
   local result = assert(Child.run({ cosmic, "--standalone", script, "one", "two" }, {
-    cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    cwd = tmp, env = observations.environment(), stdout = "capture", stderr = "capture",
+    timeout_ms = 30000,
   }))
   assert(result.code == 5, tostring(result.stderr))
   assert(result.stdout == script .. "|one,two\n", tostring(result.stdout))
@@ -207,7 +208,7 @@ end
 local function test_a_run_without_a_file_is_a_usage_error()
   local cosmic = assert(Proc.executable())
   local result = assert(Child.run({ cosmic, "--standalone" }, {
-    stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    env = observations.environment(), stdout = "capture", stderr = "capture", timeout_ms = 30000,
   }))
   assert(result.code == 2)
   assert(tostring(result.stderr):find("usage", 1, true) ~= nil)

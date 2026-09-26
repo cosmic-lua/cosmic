@@ -10,7 +10,14 @@
 --- writes.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Test = require("cosmic.test")
 local flow = require("build.flow")
+
+--- The workflows and actions, and the programs and pins they name.
+Test.needs{
+  reads = { ".github/", "bin/actionlint", "bin/actionlint.pin", "bin/cosmic-bootstrap",
+    "build/actionlint.tl", "ci/cosmic-driver.pin", "ci/cosmic_ci", "ci/images" },
+}
 
 local DIR <const> = ".github/workflows"
 local ACTIONS <const> = ".github/actions"
