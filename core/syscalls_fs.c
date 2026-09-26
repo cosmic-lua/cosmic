@@ -837,13 +837,19 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
   closedir(dir);
 }
 
-/* TODO: log a walk in this binding, as `stat` and `readdir` log theirs
- * (core/observed.h): a test that digests a path of the tree reads
- * everything beneath it, and, without contents, its times and inodes,
- * and no capture notes any of it, so a sibling's verdict stands for it
- * whatever the tree holds. Note it a stat of each entry walked, or one
- * observation keyed by the digest itself. */
+/* Logged as one record of the walk, not one of each entry: its answer is
+ * what a key holds, walked again when the key is made. With contents and
+ * without, it is two calls to the log, as a key walks each its own way. */
 COSMIC_SYSCALL(tree_digest, 2) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, lua_toboolean(L, 2) ? COSMIC_OBSERVED_TREE_DIGEST
+                                                       : COSMIC_OBSERVED_TREE_STAMPS,
+                                cosmic_query_tree_digest);
+  }
+  return cosmic_query_tree_digest(L);
+}
+
+int cosmic_query_tree_digest (lua_State *L) {
   const char *given = cosmic_path(L, 1);
   if (given == NULL) return cosmic_fail(L, EINVAL);
   int contents = lua_toboolean(L, 2);

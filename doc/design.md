@@ -660,10 +660,16 @@ are closed:
   stat, or an fstat of a descriptor it opened -- stands on a sibling's verdict
   where they differ, and, for a file under `o/`, on its own checkout's. infer
   the declaration from the fields of a stat's answer the test reads.
-- [ ] *a tree digest* (`core/syscalls_fs.c`, above `tree_digest`): `sys.tree_digest`
-  is logged nowhere, so a test that digests a path of the tree -- everything
-  beneath it, and, without contents, its times and inodes -- is keyed by none
-  of it. log the walk in its binding.
+- [x] *a tree digest*: `sys.tree_digest` logs its walk in its binding
+  (core/observed.h), one record of the path it was given and what it answered,
+  not one of each entry beneath it, and a capture notes it "g", walked by
+  contents, or "j", by what `lstat` says of each entry. a path of the tree is
+  keyed by the walk made again as the key is: its contents, or its stamps --
+  times and inodes the test asked for, keyed whole in both keys whether it
+  declared them or not. one outside the tree keeps no verdict, as any other
+  read there. the walk a key makes of a path a confined process was given
+  (`observations.unveiled_answer`) is made past the log, and is none of the
+  test's.
 - [x] *files SQLite opens in C*: `cosmic.sqlite` opens through a VFS
   (core/sqlite.c) that records each file SQLite opens or asks after, and a
   capture notes each an open, keyed by its contents like any other.

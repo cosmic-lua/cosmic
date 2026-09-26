@@ -534,6 +534,36 @@ local function test_a_query_whose_record_is_refused_fails_as_memory_does(tmp: st
     drained[1][1] == "target", tostring(#drained))
 end
 
+--- A tree digest whose record the log cannot keep fails as memory does,
+--- having kept nothing, rather than answer a walk no key will hold; the
+--- next is kept as ever, one record of the walk, with or without
+--- contents.
+local function test_a_tree_digest_whose_record_is_refused_fails_as_memory_does(tmp: string)
+  if not checked then return end
+  local raw = observations_table().syscalls
+  local walked = tmp .. "/walked"
+  assert(sys.mkdir(walked))
+  sys.close((assert(sys.open(walked .. "/f", sys.O_CREAT | sys.O_WRONLY, 420))))
+  raw.observed()
+  raw.observe(true)
+  testing.fail_at("observed_log")
+  local digest, trouble, number = sys.tree_digest(walked, true)
+  local unfired = testing.fail_at()
+  local again = sys.tree_digest(walked, true)
+  local stamps = sys.tree_digest(walked, false)
+  raw.observe(false)
+  local drained = raw.observed()
+  assert(not unfired, "the log never grew")
+  assert(digest == nil and sys.errno_name(number) == "ENOMEM",
+    tostring(digest) .. " " .. tostring(trouble))
+  assert(again ~= nil and stamps ~= nil)
+  assert(#drained == 2, tostring(#drained))
+  assert(drained[1].call == "tree_digest" and drained[1].path == walked and
+    (drained[1][1] as {string:any}).digest == again.digest)
+  assert(drained[2].call == "tree_stamps" and drained[2].path == walked and
+    (drained[2][1] as {string:any}).digest == stamps.digest)
+end
+
 --- A call that acts, whose record the log cannot keep, fails as memory
 --- does and leaves nothing done: an open makes no file, a change of
 --- directory goes nowhere, a request connects nowhere and a process is

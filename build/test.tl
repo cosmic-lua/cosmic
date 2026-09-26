@@ -514,10 +514,10 @@ local function resolutions_of(reads: {observations.Observation}): {string:string
 end
 
 --- Which of `resolutions_of`'s two answers judges a read of `kind`:
---- the second for an lstat or a readlink.
+--- the second for an lstat, a readlink or a tree digest.
 local function resolved_for(kind: string, followed: {string:string},
                             unfollowed: {string:string}): {string:string}
-  if kind == "l" or kind == "k" then return unfollowed end
+  if kind == "l" or kind == "k" or kind == "g" or kind == "j" then return unfollowed end
   return followed
 end
 
@@ -616,9 +616,18 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         answers[identified] = observation.answer
       end
     elseif kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
-        kind == "a" then
+        kind == "a" or kind == "g" or kind == "j" then
       local relative = under_root(root, observation.path,
         resolved_for(kind, followed, unfollowed))
+      -- An lstat, a readlink or a walk of a path that ends in "/"
+      -- follows a link its last name is, which `Fs.relative` would drop:
+      -- kept, so the key asks what the test asked.
+      if relative ~= nil and relative ~= "." and
+          (kind == "l" or kind == "k" or kind == "g" or kind == "j") and
+          observation.path:sub(-1) == "/" and Fs.within(observation.path, root) and
+          not climbs(observation.path) then
+        relative = relative .. "/"
+      end
       if relative ~= nil and working_database(relative) then stable = false end
       local identified = kind .. " " .. (relative or "")
       if relative ~= nil and not seen[identified] then
@@ -673,9 +682,12 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- time, and kept a declared test's times out of its shared key.
   -- Generation 11 notes each file a connection opened before the capture
   -- holds as it begins, which generation 10 never keyed.
+  -- Generation 12 keys a test's `sys.tree_digest` of a path of the tree
+  -- by what the walk answers ("g" and "j"), which generation 11 never
+  -- observed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-11", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-5", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-12", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-6", "module-load-reads-v1", header }
   if whole then
     lines[#lines + 1] = "stat-times"
     shared_lines[#shared_lines + 1] = "stat-times"
@@ -737,6 +749,28 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       current = observations.cwd_answer()
     elseif kind == "b" then
       current = observations.executable_answer()
+    elseif kind == "g" or kind == "j" then
+      -- The walk itself, again: by contents for "g", and by what
+      -- `lstat` says of each entry for "j" -- stamps a test that walks
+      -- by them reads, so keyed whole in both keys, declared
+      -- (`observations.reads_stat_times`) or not, and never standing in
+      -- another checkout, whose inodes and times are its own.
+      -- TODO: key a link beneath the path whose target names the tree
+      -- by `tree_name` in the shared key, as a readlink's answer is,
+      -- once `sys.tree_digest` can answer its entries' lines rather
+      -- than their digest alone: today such a link keys the checkout's
+      -- location, and the verdict stands only in the checkout that ran it.
+      -- Walked once a run, as a path a confined process was given is,
+      -- and late for a test that started before the walk.
+      local memo_key = "\1" .. kind .. "\0" .. relative
+      current = key_parts[memo_key]
+      if current == nil then
+        current = observations.digest_answer(root .. "/" .. relative, kind == "g")
+        key_parts[memo_key] = current
+        key_parts["\2" .. kind .. "\0" .. relative] = tostring(Time.monotonic_ns())
+      end
+      local walked = math.tointeger(key_parts["\2" .. kind .. "\0" .. relative]) or 0
+      if started_ns ~= nil and walked >= started_ns then late = true end
     else
       current = observations.directory_answer(root .. "/" .. relative)
     end
@@ -856,8 +890,13 @@ function test.keyable(root: string, scratch: string,
   end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
-        kind == "a") and not constant_devices[observation.path] and not own_process(observation.path) then
+    -- A device whose every answer is the same, and the test's own
+    -- process in /proc, are no input to a read of them -- but a walk
+    -- goes beneath them, and a walk by stamps reads a device's times.
+    local read = kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+      kind == "a"
+    if (read and not constant_devices[observation.path] and not own_process(observation.path)) or
+        kind == "g" or kind == "j" then
       local path = observation.path
       local real = resolved_for(kind, followed, unfollowed)[path]
       if real == "" or (real == nil and climbs(path)) then return false end

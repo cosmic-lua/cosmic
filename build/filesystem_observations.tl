@@ -42,6 +42,7 @@ local lstat = syscalls.lstat
 local stat = syscalls.stat
 local getenv = syscalls.getenv
 local environ = syscalls.environ
+local tree_digest = syscalls.tree_digest
 
 --- The process table's own `spawn`, which logs a process it starts as
 --- one no key holds, and the same call past the log, which the stand-in
@@ -164,14 +165,16 @@ end
 --- the working directory and "b" the program's own path, and "v" and
 --- "w", an lstat's or a readlink's resolution, as "r" and "t" are
 --- another read's; and "z", a test's declaration that it reads stat's
---- times (`observations.reads_stat_times`), later still.
+--- times (`observations.reads_stat_times`), later still; and "g" and
+--- "j", a `sys.tree_digest` of a path by its contents or by its stamps,
+--- after that.
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" or
         kind == "u" or kind == "l" or kind == "k" or kind == "a" or kind == "c" or
-        kind == "b" or kind == "v" or kind == "z" then
+        kind == "b" or kind == "v" or kind == "z" or kind == "g" or kind == "j" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
     elseif kind == "t" or kind == "w" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
@@ -203,7 +206,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v2" then
       local kind, encoded_path, encoded_answer =
-        line:match("^([osdertulkacbvwz]) ([0-9a-f]*) ?([0-9a-f]*)$")
+        line:match("^([osdertulkacbvwzgj]) ([0-9a-f]*) ?([0-9a-f]*)$")
       local path: string = nil
       local answer: string = nil
       if encoded_path ~= nil then
@@ -282,6 +285,17 @@ local function value_answer(value: string | nil, trouble: string, errno: integer
     return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
   end
   return "ok " .. value
+end
+
+--- What `sys.tree_digest` answered, as a "g" or "j" observation holds
+--- it: its digest, and whether what it walked was special, or its
+--- error.
+local function digest_result_answer(walked: sys.TreeDigest | nil, trouble: string,
+                                    errno: integer): string
+  if walked == nil then
+    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
+  end
+  return "ok " .. tostring(walked.digest) .. (walked.special and " special" or "")
 end
 
 --- What a "b" observation holds of the program's own path: that the
@@ -532,17 +546,21 @@ end
 --- that could reach the network (see `reaches`); "c" the working
 --- directory the run started in, whatever it answered -- what a test's
 --- own change of directory made it answer is noted as that change, a
---- stat of where it went -- and "b" the program's own path, keyed by
---- whether it answered (`program_answer`), not where the program is.
+--- stat of where it went -- "b" the program's own path, keyed by
+--- whether it answered (`program_answer`), not where the program is --
+--- and "g" and "j" a walk of a path with `sys.tree_digest`, by its
+--- files' contents or by what `lstat` says of each entry: one
+--- observation of the walk, keyed by what it answers, not one of each
+--- entry beneath it.
 local call_kinds: {string:string} = {
   lstat = "l", readlink = "k", realpath = "a", getcwd = "c", executable = "b",
   open = "o", stat = "s", readdir = "d", getenv = "e", environ = "e", mkdir = "m",
-  mkdtemp = "m", spawn = "p", http = "x",
+  mkdtemp = "m", spawn = "p", http = "x", tree_digest = "g", tree_stamps = "j",
 }
 
 --- The kinds whose path is one a key places: absolute, or none at all.
 local placed: {string:boolean} = {
-  o = true, s = true, d = true, l = true, k = true, a = true, m = true,
+  o = true, s = true, d = true, l = true, k = true, a = true, m = true, g = true, j = true,
 }
 
 --- Notes each call the syscall table logged since the last drain by
@@ -577,6 +595,9 @@ local function drain_syscalls()
       answer = program_answer(call[1] as string, call[2] as string, call[3] as integer)
     elseif kind == "k" or kind == "a" then
       answer = value_answer(call[1] as string, call[2] as string, call[3] as integer)
+    elseif kind == "g" or kind == "j" then
+      answer = digest_result_answer(call[1] as sys.TreeDigest, call[2] as string,
+        call[3] as integer)
     elseif kind == "p" and path == "" then
       path = call.call
     end
@@ -681,7 +702,7 @@ end
 ---
 --- What `cosmic.sys`'s `open`, `stat`, `readdir`, `lstat`, `readlink`,
 --- `realpath`, `getcwd`, `executable`, `getenv`, `environ`, `mkdir`,
---- `mkdtemp` and `chdir`, the process table's `spawn` and cosmic.http's
+--- `mkdtemp`, `chdir` and `tree_digest`, the process table's `spawn` and cosmic.http's
 --- `open` are asked and answer while the capture runs is logged by each
 --- of those bindings itself (core/observed.h), whoever calls it -- a
 --- module that took one before the capture began, as `local stat =
@@ -703,7 +724,8 @@ end
 --- is what its verdict describes. An lstat's and a readlink's is
 --- resolved only as far as its last name
 --- (`observations.link_resolution`) and noted "v", or "w" under the
---- test's own directory.
+--- test's own directory; so is a tree digest's, whose walk does not
+--- follow a link its path ends in.
 ---
 --- A file SQLite opens through `cosmic.sqlite` while the capture runs
 --- -- a database, its journal or WAL, an attached one, or one it only
@@ -767,7 +789,7 @@ local function start(resolving: observations.Resolving | nil):
     found[#found + 1] = { kind = kind, path = path, answer = answer }
     if resolving ~= nil and
         (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
-          kind == "a") and
+          kind == "a" or kind == "g" or kind == "j") and
         path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
           ("/" .. path .. "/"):find("/%.%./") ~= nil) then
       if resolved == nil then
@@ -778,7 +800,7 @@ local function start(resolving: observations.Resolving | nil):
       -- An lstat's or a readlink's is kept apart, as "v" or "w": it
       -- stops short of a link its path ends in, which a stat's of the
       -- same path follows.
-      local link = kind == "l" or kind == "k"
+      local link = kind == "l" or kind == "k" or kind == "g" or kind == "j"
       local noted = link and "v" or "r"
       for _, directory in ipairs(resolving.own) do
         if Fs.within(path, directory) then noted = link and "w" or "t" end
@@ -1083,14 +1105,16 @@ function observations.unveiled_answer(path: string, tree: string, stamped?: bool
   local real_tree, _ = realpath(tree)
   real_tree = real_tree or tree
   local inside = Fs.within(real, real_tree)
-  local walked, trouble = sys.tree_digest(real, inside and not stamped)
+  -- Past the log, as `stat` below is: the walk is the key's, made
+  -- while a capture may run, and none of the test's reads.
+  local walked, trouble = tree_digest(real, inside and not stamped)
   local parts: {string} = { walked ~= nil and walked.digest or ("error " .. trouble) }
   -- The modes of the directories above it, which the root it is bound
   -- into mirrors: a program may check them, as the launcher does its
   -- cache's.
   local above = Fs.dirname(real)
   while true do
-    local st, _ = sys.stat(above)
+    local st, _ = stat(above)
     local name = above
     if inside then
       name = Fs.within(above, real_tree) and observations.tree_name(above, real_tree) or ""
@@ -1103,6 +1127,13 @@ function observations.unveiled_answer(path: string, tree: string, stamped?: bool
   return ((walked ~= nil and walked.special) and "unkeyable " or "") ..
     (inside and observations.tree_name(real, real_tree) or real) .. " " ..
     Hash.hex_sha256(table.concat(parts, "\n"))
+end
+
+--- What `sys.tree_digest` of `path` answers now, by its files' contents
+--- or, not `contents`, by what `lstat` says of each entry, as a "g" or a
+--- "j" observation holds it.
+function observations.digest_answer(path: string, contents: boolean): string
+  return digest_result_answer(tree_digest(path, contents))
 end
 
 function observations.stat_answer(path: string): string

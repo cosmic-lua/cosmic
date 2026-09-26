@@ -50,8 +50,7 @@ if [ "${1-}" = zig-cache ]; then
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
   # stat's times and inode where a test turns on them without declaring
-  # it (the TODO above build/test.tl's `held_stat`), a tree digest (the
-  # TODO above core/syscalls_fs.c's `tree_digest`), a query of the
+  # it (the TODO above build/test.tl's `held_stat`), a query of the
   # worker's own o/cosmic.db (the TODO above core/sqlite.c's
   # `cosmic_sqlite_push_borrowed`), a read resolved by the call itself
   # (the TODO above core/observed.c's `log_resolution`), a file SQLite
