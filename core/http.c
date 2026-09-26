@@ -1,3 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
+#define _DARWIN_C_SOURCE
+
 /* An HTTP/HTTPS client over curl easy handles, all driven by one curl
  * multi handle per process -- see cosmic/http.tl for the typed API this
  * backs and the doc comment there for the shape callers see. Sharing
@@ -138,13 +141,20 @@ static int roots_ready;
 /* Adds the certificates in $SSL_CERT_FILE, when it names a readable
  * file, to `roots`. A certificate there that does not parse is left
  * out, trusted no more than one missing. False only when there was no
- * memory to read the file into. */
-/* TODO: open with O_CLOEXEC ("rbe", or open(2) and fdopen where a libc
- * lacks "e"), so a child started meanwhile inherits no descriptor. */
+ * memory to read the file with. The file is opened close-on-exec,
+ * through open(2) since not every libc's fopen takes "e", so a child
+ * started meanwhile inherits no descriptor. */
 static bool add_cert_file (void) {
   const char *path = getenv("SSL_CERT_FILE");
-  FILE *f = path != NULL && path[0] != '\0' ? fopen(path, "rb") : NULL;
-  if (f == NULL) return true;
+  int fd = path != NULL && path[0] != '\0' ? open(path, O_RDONLY | O_CLOEXEC)
+                                           : -1;
+  if (fd < 0) return true;
+  /* fdopen fails only for want of memory, the mode being valid. */
+  FILE *f = fdopen(fd, "rb");
+  if (f == NULL) {
+    close(fd);
+    return false;
+  }
   bool ok = true;
   if (fseek(f, 0, SEEK_END) == 0) {
     long size = ftell(f);

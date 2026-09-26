@@ -1,7 +1,11 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "boot.h"
 
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include "check.h"
 #include "lauxlib.h"
@@ -71,11 +75,13 @@ static int run_compiler (lua_State *L, const char *tl_dir, int bridge) {
   return 0;
 }
 
-/* Reads a whole file into a Lua string on the stack.
- * TODO: open with O_CLOEXEC, as core/http.c's add_cert_file should too. */
+/* Reads a whole file into a Lua string on the stack. Opened
+ * close-on-exec, through open(2): not every libc's fopen takes "e". */
 static int slurp (lua_State *L, const char *path) {
-  FILE *f = fopen(path, "rb");
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  FILE *f = fd < 0 ? NULL : fdopen(fd, "rb");
   if (f == NULL) {
+    if (fd >= 0) close(fd);
     fprintf(stderr, "cosmic boot: cannot read %s\n", path);
     return 1;
   }
