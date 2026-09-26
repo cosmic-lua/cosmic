@@ -1,12 +1,12 @@
 #!/bin/sh
 # TODO: replace with a Teal script run by `cosmic --standalone`, as bin/zig
-# and bin/vendor are, once cosmic can do what this still needs a tool
-# for: run a child as another user (a uid, gid and no supplementary
-# groups in cosmic.child's options, in place of setpriv or runuser),
-# chown (re-owning the state), and look a user up by name (getpwnam, in
-# place of `id -u`); Proc.find, which the pinned cosmic now carries, takes
-# the place of `command -v`. Until then a port would only call the same
-# tools from Teal.
+# and bin/vendor are, once ci/cosmic-driver.pin names a cosmic that can
+# do what this still needs a tool for: run a child as another user (a
+# uid, gid and no supplementary groups in cosmic.child's options, in
+# place of setpriv or runuser), chown (re-owning the state), and look a
+# user up by name (getpwnam, in place of `id -u`); Proc.find, which the
+# pinned cosmic now carries, takes the place of `command -v`. Until then
+# a port would only call the same tools from Teal.
 # Runs this checkout's CI platform job on this machine, for the host's own
 # target: the same driver phases in the same order, against a fresh
 # candidate snapshot of the working tree, with the environment a workflow

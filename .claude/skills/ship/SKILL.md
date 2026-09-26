@@ -98,9 +98,9 @@ this branch. The ones it resolved are the removed lines in
 release `ci/cosmic-driver.pin` names, not on the tree, so what a change
 adds reaches them only once the pin moves -- and it can only move after
 the change merges and main publishes its `next-<commit>` prerelease.
-When the change adds what a `TODO:` waiting on the pin needs (`grep -rn
--B2 'cosmic-driver.pin' --include='*.tl' .` finds them; the pin is often
-named on a TODO's second line), or API those scripts would use now, open
+When the change adds what a `TODO:` waiting on the pin needs
+(`o/bin/cosmic todos '"cosmic-driver.pin"'` lists them, whichever line of
+the comment names the pin), or API those scripts would use now, open
 a follow-up once that prerelease exists: move the pin to it (its commit,
 URL and SHA-256, checked against the digest the release records) and
 drop the workarounds, as #2061 did. Otherwise say in the summary that

@@ -519,8 +519,8 @@ end
 
 --- The exit status a shell gives for what `resolve` could not find.
 -- TODO: tell none from not executable by something other than
--- Proc.find's message, once it reports which case it hit apart from
--- the text.
+-- Proc.find's message, once ci/cosmic-driver.pin names a cosmic whose
+-- Proc.find reports which case it hit apart from the text.
 local function status_of(why: string): integer
   return String.ends_with(why, ": not executable") and 126 or 127
 end
@@ -852,10 +852,11 @@ function Zig.run(argv: {string}): integer
   -- A signal the child never got: re-raised only when it is SIGTERM,
   -- which a terminal never sends, so a child's own Ctrl-C it caught and
   -- exited from cleanly is answered by its status, as bash answers it.
-  -- TODO: re-raise a never-passed SIGINT too, once the guard reports
-  -- whether a signal came from kill() or from the terminal (the
-  -- siginfo's si_code, which core/syscalls.c's catch_child_cancel would
-  -- record): only one sent to this process alone went unanswered.
+  -- TODO: re-raise a never-passed SIGINT too, once ci/cosmic-driver.pin
+  -- names a cosmic whose guard reports whether a signal came from kill()
+  -- or from the terminal (the siginfo's si_code, which core/syscalls.c's
+  -- catch_child_cancel would record): only one sent to this process
+  -- alone went unanswered.
   local unpassed = untaken ~= 0 and untaken or pending
   if unpassed ~= sys.SIGTERM then
     unpassed = 0

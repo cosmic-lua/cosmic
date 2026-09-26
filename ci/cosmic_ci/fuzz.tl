@@ -208,9 +208,9 @@ end
 --- copy keeps up cannot hold a signal back; it sleeps only once the
 --- copy has caught up, and copies the rest once the child has exited.
 -- TODO: copy the child's output from a pipe as it arrives, rather than
--- polling the file it writes every `poll_ns`, once the pinned cosmic
--- carries one a caller can read from (cosmic.child's "capture" only
--- answers at exit, and cosmic.fs has no pipe).
+-- polling the file it writes every `poll_ns`, once ci/cosmic-driver.pin
+-- names a cosmic that carries one a caller can read from (cosmic.child's
+-- "capture" only answers at exit, and cosmic.fs has no pipe).
 local function streamed(guard: Child.Guard, argv: {string}, cwd: string,
     env: {string:string}, out: string, log: integer): integer
   local out_fd = assert(Fs.open_write(out))
