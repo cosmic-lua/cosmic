@@ -1318,6 +1318,17 @@ local function test_a_pid_past_an_int_raises()
   raises(process.waitpid, 0, true)
 end
 
+--- The inits of the sandboxes this process started and has not seen
+--- the end of: a list of pids, on every system, empty where none runs --
+--- as on one with no sandbox, or once a sandbox's program is reaped.
+local function test_sandbox_inits_lists_the_inits_still_running()
+  local before = process.sandbox_inits()
+  assert(type(before) == "table")
+  for _, pid in ipairs(before) do assert(math.type(pid) == "integer" and pid > 0) end
+  local names = assert(sys.uname())
+  if names.sysname ~= "Linux" then assert(#before == 0) end
+end
+
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
 --- public `cosmic.sys`'s: a public `waitpid(-1)` would take the status

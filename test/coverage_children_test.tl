@@ -6,6 +6,7 @@
 
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
@@ -112,10 +113,12 @@ return function(argv: {string}): integer
   local fds: {integer:integer} = {}
   for target, source in pairs(relaunch.fds) do fds[target] = source end
   local own = sys.stat("/proc/sys") == nil
-  local pid, trouble = process.spawn(words[1], words, relaunch.env, "/", nil, nil, nil, false,
-    fds, { unveil = { reads = reads, writes = { reports } }, offline = true })
+  local pid, trouble, errno = process.spawn(words[1], words, relaunch.env, "/", nil, nil, nil,
+    false, fds, { unveil = { reads = reads, writes = { reports } }, offline = true })
   if pid == nil then
-    print((own and "refused " or "host-proc ") .. trouble)
+    local unconfinable = errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC
+    print((unconfinable and "unconfinable " or own and "refused " or "host-proc ") .. trouble)
     return 0
   end
   print("exited " .. tostring(process.waitpid(pid, false).code))
@@ -129,6 +132,13 @@ end
   assert(r.ok, tostring(r.stderr))
   local said = assert(r.stdout)
   if said:find("^host%-proc ") then return end
+  -- A kernel that confines nothing (no user namespaces for this user, or
+  -- no Linux: ENOSYS), as the sandbox's other tests take it: a failure
+  -- only under COSMIC_SANDBOX=must.
+  if said:find("^unconfinable ") then
+    assert(Env.get("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. said)
+    return
+  end
   assert(said == "exited 0\n", said)
   -- The parent's report and the process's it confined.
   local reported = 0

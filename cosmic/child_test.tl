@@ -630,11 +630,14 @@ end
 --- sandbox's init is (/proc/<pid>/comm), since only the process table's
 --- own record says which children are inits. Unconfined (`unconfined`),
 --- so the stray is orphaned to this process, not to a sandbox's init.
+--- Only where /proc lists a process's children does `end_strays` find
+--- any (Linux, as the guard test's zombie check finds /proc there).
 local function test_end_strays_ends_a_stray_named_as_an_init()
+  if not path_exists("/proc/thread-self/children") then return end
   unconfined(function()
     -- A group started first makes this process the subreaper it adopts
     -- the stray as.
-    assert(Child.run({ "/bin/true" }))
+    assert(Child.run({ "/bin/sh", "-c", "true" }))
     local r = assert(Child.run({ "/bin/sh", "-c",
       "sh -c 'printf cosmic-init > /proc/self/comm; while :; do sleep 1; done' " ..
       ">/dev/null 2>&1 & printf %s $!" }, { stdout = "capture", process_group = false }))
