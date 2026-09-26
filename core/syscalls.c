@@ -751,13 +751,15 @@ static int drop_capabilities (void) {
  * no subset, EINVAL -- the host's /proc is bound there instead,
  * read-only but where given to write. `own` says whether the procfs is
  * the child's own. 0, or an errno.
- * TODO: let a child whose /proc is the host's confine one of its own,
- * which fails with EROFS writing its uid_map there, once the containers
- * the tree is tested in let a user namespace mount a procfs of its own
- * (Docker's --security-opt systempaths=unconfined, once #2228 lands),
- * or else drop the fallback and refuse the sandbox: meanwhile its
- * /proc shows the host's processes and state, whose pids are not the
- * ones it is in (it is pid 2 of its own namespace). */
+ * TODO: refuse the sandbox where the kernel refuses a procfs of its
+ * own (EPERM, which build.filesystem_observations' `unconfinable` falls
+ * back on and `must_confine` fails), rather than bind the host's, once
+ * no container the tree is tested in masks /proc: CI's Linux legs run
+ * with systempaths=unconfined (.github/scripts/leg-container.sh), but a
+ * developer's docker may not. Meanwhile a child with the host's /proc
+ * cannot confine one of its own (EROFS writing its uid_map there), and
+ * sees the host's processes and state, whose pids are not the ones it
+ * is in (it is pid 2 of its own namespace). */
 static int place_proc (const char *target, int writable, int *own) {
   *own = mount("proc", target, "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") == 0;
   if (*own) return 0;

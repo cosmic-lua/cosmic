@@ -353,8 +353,8 @@ end
 -- TODO: keep a confined process from the host's state where the kernel
 -- refuses it a procfs of its own and it has the host's /proc (a
 -- container masking parts of it: core/syscalls.c's `place_proc`), which
--- it can read there without that entering the key, once the containers
--- CI runs in let a user namespace mount one (the TODO there).
+-- it can read there without that entering the key: refused, as the
+-- TODO there asks, once no container the tree is tested in masks /proc.
 local system: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32",
   "/etc", "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
 
