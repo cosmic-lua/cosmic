@@ -4,6 +4,10 @@ local sys = require("cosmic.sys")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local type Declared = require("build.inputs").Declared
+
+--- The projection, asked directly, and whether the tree is cosmic's own.
+local _inputs: Declared = { reads = { "core" }, store = true }
 
 --- Lines as one source file's text.
 local function source(...: string): string

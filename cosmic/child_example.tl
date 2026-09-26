@@ -8,6 +8,11 @@ local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
+--- The processes the examples start, as a program would: a declaration
+--- `build.inputs` reads, left untyped, as a `cosmic/` example cannot reach
+--- `build/`.
+local _inputs = { processes = true }
+
 -- TODO: confine the shell these examples start, so their verdicts can
 -- stand, once an example may declare what its processes need: examples
 -- are shown by `cosmic docs`, and may not import

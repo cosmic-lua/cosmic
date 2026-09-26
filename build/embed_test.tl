@@ -250,8 +250,8 @@ end
 ]]
 
 local function run_program(path: string): Child.Result
-  return (assert(Child.run({ path }, { stdout = "capture", stderr = "capture",
-    timeout_ms = 30000 })))
+  return (assert(Child.run({ path }, { env = observations.environment(),
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
 end
 
 --- `--host` writes this core itself with the program inside: the kernel

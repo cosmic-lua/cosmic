@@ -15,6 +15,10 @@ local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local type Declared = require("build.inputs").Declared
+
+--- Requests to a closed local port, and to a host that names none.
+local _inputs: Declared = { network = { "127.0.0.1", "no-host-here" } }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

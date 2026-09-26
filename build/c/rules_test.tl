@@ -5,6 +5,20 @@ local Fs = require("cosmic.fs")
 local c = require("build.c")
 local observations = require("build.filesystem_observations")
 local rules = require("build.c.rules")
+local type Declared = require("build.inputs").Declared
+
+--- The core's C and the headers it includes, which zig parses to a syntax
+--- tree, and what bin/zig reads to find or fetch zig.
+local _inputs: Declared = {
+  reads = { "bin/cosmic-bootstrap", "bin/zig", "bin/zig.pin", "ci/cosmic-driver.pin", "core/",
+    "vendor/bzip2/", "vendor/cares/include/", "vendor/curl/include/", "vendor/lua/src/",
+    "vendor/mbedtls/include/", "vendor/mbedtls/tf-psa-crypto/", "vendor/miniz/", "vendor/sqlite/",
+    "vendor/xz/src/liblzma/api/", "vendor/yyjson/src/" },
+  env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
+    "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
+    "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
+    "https_proxy", "no_proxy" },
+}
 
 local root = assert(Fs.absolute("."))
 

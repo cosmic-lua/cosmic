@@ -12,6 +12,10 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
+local type Declared = require("build.inputs").Declared
+
+--- The environment a worker is given, which a key over a variable reads.
+local _inputs: Declared = { env = { "*" } }
 
 local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(test.matches("build.test_test", "build.test_test", "build/test_test.tl"))

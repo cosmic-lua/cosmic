@@ -8,6 +8,17 @@ local observations = require("build.filesystem_observations")
 local test = require("build.test")
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
+local type Declared = require("build.inputs").Declared
+
+--- What the observer is tested observing: processes it cannot confine, the
+--- system's own directories, the environment, and requests to closed local
+--- ports.
+local _inputs: Declared = {
+  host = { "/etc", "/usr" },
+  env = { "*" },
+  network = { "127.0.0.1", "127.0.0.2" },
+  processes = true,
+}
 
 local type Searcher = function(string): any, any
 

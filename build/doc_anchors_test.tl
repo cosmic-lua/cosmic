@@ -20,6 +20,10 @@
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local symbols = require("build.symbols")
+local type Declared = require("build.inputs").Declared
+
+--- A whole-tree question, asked of the projection itself.
+local _inputs: Declared = { store = true }
 
 --- One row of the public catalog, as read here.
 local record Row

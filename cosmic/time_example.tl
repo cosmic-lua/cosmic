@@ -5,6 +5,10 @@
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 
+--- The host's own local zone: a declaration `build.inputs` reads, left
+--- untyped, as a `cosmic/` example cannot reach `build/`.
+local _inputs = { host = { "/etc/localtime" }, env = { "TZ" } }
+
 local Example = {}
 
 --- A millisecond's wait, measured on the monotonic clock, which never

@@ -10,6 +10,10 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local schema = require("build.schema")
+local type Declared = require("build.inputs").Declared
+
+--- The projection, asked directly, and whether the tree is cosmic's own.
+local _inputs: Declared = { reads = { "core" }, store = true }
 
 local built, load_trouble = teal.load()
 if built == nil then

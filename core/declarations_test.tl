@@ -22,6 +22,11 @@ local ast = require("build.ast")
 local gen_syscalls = require("build.gen_syscalls")
 local teal = require("build.teal")
 local testing = require("cosmic.internal.testing")
+local type Declared = require("build.inputs").Declared
+
+--- Every declaration of the core's raw modules, and the process table's
+--- header.
+local _inputs: Declared = { reads = { "core/process.h", "cosmic/internal/" } }
 
 local built = assert(teal.load())
 

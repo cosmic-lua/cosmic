@@ -11,7 +11,8 @@ local function run(tmp: string, body: string): string, string
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, 'local Log = require("cosmic.log")\n' .. body))
   local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script },
-    { stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+    { env = observations.environment(), stdout = "capture", stderr = "capture",
+      timeout_ms = 30000 }))
   assert(result.ok, tostring(result.stderr))
   return result.stdout or "", result.stderr or ""
 end

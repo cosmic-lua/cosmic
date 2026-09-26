@@ -14,6 +14,16 @@ local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
+local type Declared = require("build.inputs").Declared
+
+--- What the syscall table is tested on: the system's own directories, the
+--- whole environment, processes it holds and the program itself.
+local _inputs: Declared = {
+  host = { "/etc", "/proc", "/usr" },
+  env = { "*" },
+  processes = true,
+  tool = true,
+}
 
 local type Searcher = function(string): any, any
 

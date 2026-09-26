@@ -8,6 +8,11 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local observations = require("build.filesystem_observations")
+local type Declared = require("build.inputs").Declared
+
+--- The host's own zones, which a test compares the carried ones with.
+local _inputs: Declared = { host = { "/usr/share/zoneinfo/" } }
 
 local NS <const> = 1000000000
 
@@ -648,6 +653,8 @@ end
   local tokyo = assert(Store.zoneinfo("Asia/Tokyo"))
   assert(Fs.write(tmp .. "/tzdir/Test/Here", tokyo))
   assert(Fs.write(tmp .. "/tzdir/Europe/Berlin", tokyo))
+  -- What this test starts is this very program.
+  observations.confine({ reads = observations.itself() })
   for tz, want in pairs({ [""] = "UTC 0 true nil\n", ["Europe/Berlin"] = "Europe/Berlin 3600 true nil\n" }) do
     local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script },
       { env = { TZ = tz, TZDIR = tmp .. "/tzdir", XDG_CACHE_HOME = tmp .. "/cache" },

@@ -11,6 +11,13 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local flow = require("build.flow")
+local type Declared = require("build.inputs").Declared
+
+--- The workflows and actions, and the programs and pins they name.
+local _inputs: Declared = {
+  reads = { ".github/", "bin/actionlint", "bin/actionlint.pin", "bin/cosmic-bootstrap",
+    "build/actionlint.tl", "ci/cosmic-driver.pin", "ci/cosmic_ci", "ci/images" },
+}
 
 local DIR <const> = ".github/workflows"
 local ACTIONS <const> = ".github/actions"

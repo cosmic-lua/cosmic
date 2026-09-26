@@ -5,6 +5,10 @@ local teal = require("build.teal")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
+local type Declared = require("build.inputs").Declared
+
+--- The standard library's sources, which a test holds to earn no note.
+local _inputs: Declared = { reads = { "cosmic/" } }
 
 --- Lines as one source file's text.
 local function joined(...: string): string

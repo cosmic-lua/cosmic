@@ -1,5 +1,4 @@
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
@@ -88,7 +87,7 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local output = tmp .. "/second.out"
   local fd = assert(Fs.open_write(output))
   local second, trouble = Child.start({ assert(Proc.executable()), "main.tl" },
-    { cwd = tmp, env = Env.all(), stdout = fd, stderr = fd })
+    { cwd = tmp, env = observations.environment(), stdout = fd, stderr = fd })
   assert(Fs.close(fd))
   assert(second, trouble)
   assert(Time.sleep_ns(300000000))
@@ -223,7 +222,7 @@ end
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)
   local result = assert(Child.run({ assert(Proc.executable()), "test" }, {
-    cwd = project, env = Env.all(), stdout = "capture", stderr = "capture",
+    cwd = project, env = observations.environment(), stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   }))
   local out = (result.stdout or "") .. (result.stderr or "")

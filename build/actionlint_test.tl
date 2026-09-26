@@ -10,6 +10,10 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Tar = require("cosmic.tar")
 local Actionlint = require("build.actionlint")
+local type Declared = require("build.inputs").Declared
+
+--- The pin bin/actionlint fetches by, which a test holds to every host.
+local _inputs: Declared = { reads = { "bin/actionlint.pin" } }
 
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Actionlint.read_pin(

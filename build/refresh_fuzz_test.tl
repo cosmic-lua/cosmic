@@ -11,6 +11,10 @@ local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local refresh = require("build.refresh")
 local roots = require("build.roots")
+local type Declared = require("build.inputs").Declared
+
+--- The tree's CA bundle, which the parser is fuzzed from.
+local _inputs: Declared = { reads = { "vendor/cacert/cacert.pem" } }
 
 --- A DER sequence around `body`, its length in the short or long form.
 local function sequence(body: string): string

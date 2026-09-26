@@ -6,6 +6,11 @@ local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
+local type Declared = require("build.inputs").Declared
+
+--- The processes Child starts, which inherit the environment unless given
+--- one.
+local _inputs: Declared = { env = { "*" }, processes = true }
 
 -- What these tests start is a shell, the system's own, or this very
 -- program.

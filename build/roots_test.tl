@@ -4,6 +4,10 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local roots = require("build.roots")
 local schema = require("build.schema")
+local type Declared = require("build.inputs").Declared
+
+--- The tree's CA bundle.
+local _inputs: Declared = { reads = { "vendor/cacert/cacert.pem" } }
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle

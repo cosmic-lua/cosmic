@@ -5,6 +5,10 @@ local Fs = require("cosmic.fs")
 local VerifyCodesign = require("build.verify_codesign")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local type Declared = require("build.inputs").Declared
+
+--- The environment the module under test starts codesign with.
+local _inputs: Declared = { env = { "*" } }
 
 -- What these tests start is a stand-in for codesign the test writes.
 observations.confine({})

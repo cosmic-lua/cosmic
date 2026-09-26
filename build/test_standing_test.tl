@@ -6,7 +6,6 @@
 --- read changes, and never stands on a read outside the tree.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -94,7 +93,7 @@ local function test_plain()
 end
 ]]))
   local program = assert(Proc.executable())
-  local env = Env.all()
+  local env = observations.environment()
   env.OUTSIDE = tmp .. "/outside"
   local first = run(program, root, tmp .. "/first.out", env)
   assert(first:find("6 ran, 0 stood", 1, true), first)
@@ -136,7 +135,7 @@ end
 ]]
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
   local program = assert(Proc.executable())
-  local env = Env.all()
+  local env = observations.environment()
   env.OUTSIDE = tmp .. "/outside"
   env.COSMIC_TEST_ALL = nil
   env.FLAVOUR = "sweet"

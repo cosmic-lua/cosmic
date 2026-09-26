@@ -6,12 +6,23 @@
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
-local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local invoke = require("build.invoke")
 local observations = require("build.filesystem_observations")
+local type Declared = require("build.inputs").Declared
+
+--- The tool itself, the CA bundle a file run reads, and what bin/zig reads
+--- to find or fetch zig.
+local _inputs: Declared = {
+  reads = { "vendor/cacert/cacert.pem" },
+  env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
+    "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
+    "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
+    "https_proxy", "no_proxy" },
+  tool = true,
+}
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
@@ -110,7 +121,7 @@ local function cosmic(dir: string, args: {string}): invoke.Result
   local argv: {string} = { (assert(Proc.executable())) }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result, trouble = Child.run(argv, {
-    cwd = dir, env = Env.all(), stdout = "capture", stderr = "capture",
+    cwd = dir, env = observations.environment(), stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
   local ran = assert(result, trouble)

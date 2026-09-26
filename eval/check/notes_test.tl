@@ -4,6 +4,10 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Notes = require("eval.check.notes")
 local observations = require("build.filesystem_observations")
+local type Declared = require("build.inputs").Declared
+
+--- The environment the module under test starts its scripts with.
+local _inputs: Declared = { env = { "*" } }
 
 -- What these tests start is stand-in scripts the test writes.
 observations.confine({})

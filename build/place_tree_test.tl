@@ -6,6 +6,10 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local observations = require("build.filesystem_observations")
+local type Declared = require("build.inputs").Declared
+
+--- The script under test.
+local _inputs: Declared = { reads = { ".github/scripts/place-tree.sh" } }
 
 -- By its whole path: a confined process starts in the test's directory.
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/place-tree.sh"))
