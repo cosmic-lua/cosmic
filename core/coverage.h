@@ -35,7 +35,8 @@ int cosmic_open_budget (lua_State *L);
 /* `envp`, or, once processes this one starts are to report their C to a
  * test (`children`), a new array of the same entries plus the name that
  * tells them where: free it, not its entries, when it differs from `envp`.
- * Built before a fork, since the child may not allocate. */
+ * Built before a child starts, since the child, on this process's memory,
+ * may not allocate. */
 char **cosmic_coverage_environment (char **envp);
 
 /* In a process a test started, arranges for it to report the C it runs

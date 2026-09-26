@@ -32,7 +32,8 @@ local record c_functions
 end
 
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
-local before_exec <const> = "runs in a forked child before exec, which reports nothing"
+local sandbox_only <const> =
+  "runs only in a sandboxed child that made a user namespace, which a host refusing unprivileged ones never starts"
 
 --- The C functions no test can enter, by `key_of`, and why.
 local exempt: {string: string} = {
@@ -43,14 +44,11 @@ local exempt: {string: string} = {
   ["core/vfs.c:file_unlock"] = read_only,
   ["core/vfs.c:file_check_reserved"] = read_only,
   ["core/vfs.c:file_sector_size"] = read_only,
-  ["core/syscalls.c:report_child_error"] = before_exec,
-  ["core/syscalls.c:close_child_descriptors"] = before_exec,
-  ["core/syscalls.c:unveil"] = before_exec,
-  ["core/syscalls.c:write_whole"] = before_exec,
-  ["core/syscalls.c:make_parents"] = before_exec,
-  ["core/syscalls.c:make_link"] = before_exec,
-  ["core/syscalls.c:mirrored_mode"] = before_exec,
-  ["core/syscalls.c:make_mirrored"] = before_exec,
+  ["core/syscalls.c:write_whole"] = sandbox_only,
+  ["core/syscalls.c:make_parents"] = sandbox_only,
+  ["core/syscalls.c:make_link"] = sandbox_only,
+  ["core/syscalls.c:mirrored_mode"] = sandbox_only,
+  ["core/syscalls.c:make_mirrored"] = sandbox_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs_wrap.c:forward_access"] =

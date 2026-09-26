@@ -1340,7 +1340,7 @@ local record Recording
   hits: Coverage.Hits
   --- Each test's own hits, encoded as it finishes. Kept as tables, every
   --- test's lines would stay until the run ends: hundreds of megabytes
-  --- that every test process started after would be forked from.
+  --- held by the runner until the run ends.
   by_test: {string: string}
   --- The core's C when the tree is not cosmic's own: its hits are kept
   --- out of every record of the run (see `write_coverage`).
