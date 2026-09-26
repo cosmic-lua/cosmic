@@ -442,6 +442,15 @@ local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: stri
     "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
 end
 
+local function test_snapshot_follows_a_link_as_staging_does(tmp: string)
+  local root = sources(tmp)
+  assert(Fs.mkdirs(tmp .. "/shared"))
+  assert(Fs.write(tmp .. "/shared/b.c", "text"))
+  assert(Fs.symlink("../../shared", root .. "/core/shared"))
+  local seen = assert(Zig.snapshot(root))
+  assert(seen["core/shared/b.c"] ~= nil, "a file reached through a link was not watched")
+end
+
 local function test_a_file_whose_size_changed_is_named(tmp: string)
   local root = sources(tmp)
   local before = assert(Zig.snapshot(root))
