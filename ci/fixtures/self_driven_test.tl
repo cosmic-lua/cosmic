@@ -6,7 +6,8 @@ local Fixture = require("cosmic_ci.fixture")
 -- drive the boot of the tree it was booted from -- the next pin, proved
 -- before it is one -- and a boot it drives, from another path, must write
 -- the product again, byte for byte. The zig caches are the candidate's,
--- so only the core's own C, keyed by its path, compiles again.
+-- and every C file compiles from a copy there, the same from every path
+-- (build.zig's `Own`), so none of it compiles again: only the tree does.
 local boot_timeout_ms <const> = 450000
 
 local function test_the_product_boots_its_own_tree_to_itself(tmp: string)

@@ -128,7 +128,9 @@ struct stream {
   struct bytes rest;  /* input after the end of the compressed data */
   struct inflate_state *inf;
   int codec_open; /* bz or lzma below is live */
-  union {
+  /* Named, so the checked core's sanitizer names the type by it rather
+     than by where it sits, a path in zig's cache (build.zig's `Own`). */
+  union codec {
     bz_stream bz;
     lzma_stream lzma;
   } u;

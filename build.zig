@@ -6,8 +6,9 @@
 //!
 //! Everything lands under `o/`. Run it through `bin/zig`, which pins the
 //! compiler and names zig's two caches, which every checkout shares
-//! (build/zig.tl): everything vendored compiles from copies in the
-//! project cache, so a fresh worktree compiles only the core's own C.
+//! (build/zig.tl): everything, vendored or the tree's own, compiles from
+//! copies in the project cache, so a checkout at a path no build has seen
+//! compiles nothing another has (`Own`).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -429,6 +430,112 @@ const core_sources = [_][]const u8{
     "startup.c",
 };
 
+/// The tree's own C, compiled from copies in zig's project cache as
+/// vendor/ is (see the head of `build`): zig keys a C object by its
+/// source's absolute path and its flags' bytes, an include directory's
+/// among them, so a file compiled where the tree is would be compiled
+/// again for every path a checkout sits at -- CI's is a new one each commit
+/// (.github/scripts/place-tree.sh). A copy sits in a directory named by
+/// its contents, so its path is the same from every checkout.
+///
+/// Each source file is copied on its own, beside a copy of every header
+/// under core/, laid out as the tree is (`core/x.c` beside `core/x.h`): a
+/// quoted `#include` finds its neighbour first, as in the tree, and an
+/// edit to one file moves only that file's copy, so only its objects
+/// compile again. An edit to any header under core/ moves every copy, so
+/// every core object compiles again (a boot of 19 s locally, against 6 s
+/// after an edit to one .c file): a trade for copies that need no list of
+/// what each file includes. The headers alone are copied once more, the
+/// include directory a file outside core/ reads them from. Only core/'s
+/// own headers sit beside a copy: a quoted `#include` of a neighbouring
+/// .c file, or of a header in a directory under core/, would find nothing
+/// there and fail to compile. Debug information names the copy, which is
+/// there to read, and whose path ends in the tree's own (`.../core/x.c`):
+/// `core/coverage_map.zig` maps a line back to the tree by it. The
+/// checked core's sanitizer names the tree's `core/x.c` (`checked_flags`)
+/// -- except in an unnamed type's name, which holds the copy's path, so
+/// the core's own C names its types -- and the analyzer reads the tree's
+/// own files (`analyze`).
+// TODO: name the tree's file in a compile's error, not its copy in the
+// cache: clang has no flag remapping a diagnostic's path, so bin/zig
+// would rewrite zig's output, `<cache>/o/<digest>/` to the tree's root.
+const Own = struct {
+    b: *std.Build,
+    /// Every header directly under core/, by name, sorted.
+    headers: []const []const u8,
+    /// The headers' copy: the directory whose `core/` holds them.
+    header_root: std.Build.LazyPath,
+    /// Each source file copied so far, by its path in the tree, to the
+    /// directory holding its copy at that path. One copy per file, however
+    /// many compiles read it: two steps writing one directory at once
+    /// could hand a compile a file half written.
+    roots: std.StringArrayHashMapUnmanaged(std.Build.LazyPath),
+
+    fn init(b: *std.Build) *Own {
+        const io = b.graph.io;
+        var names: std.ArrayList([]const u8) = .empty;
+        var dir = b.build_root.handle.openDir(io, "core", .{ .iterate = true }) catch |err| {
+            std.debug.print("build.zig: cannot open core/: {s}\n", .{@errorName(err)});
+            std.process.exit(1);
+        };
+        defer dir.close(io);
+        var it = dir.iterate();
+        while (it.next(io) catch |err| {
+            std.debug.print("build.zig: cannot list core/: {s}\n", .{@errorName(err)});
+            std.process.exit(1);
+        }) |entry| {
+            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".h"))
+                names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+        }
+        std.mem.sort([]const u8, names.items, {}, struct {
+            fn lessThan(_: void, x: []const u8, y: []const u8) bool {
+                return std.mem.lessThan(u8, x, y);
+            }
+        }.lessThan);
+        const own = b.allocator.create(Own) catch @panic("OOM");
+        own.* = .{ .b = b, .headers = names.items, .header_root = undefined, .roots = .empty };
+        own.header_root = own.copyHeaders(b.addWriteFiles());
+        return own;
+    }
+
+    fn copyHeaders(own: *Own, files: *std.Build.Step.WriteFile) std.Build.LazyPath {
+        const b = own.b;
+        for (own.headers) |name| {
+            const at = b.fmt("core/{s}", .{name});
+            _ = files.addCopyFile(b.path(at), at);
+        }
+        return files.getDirectory();
+    }
+
+    /// The directory holding the copy of `path`, a C file of the tree,
+    /// at `path`, beside the headers' copies.
+    fn root(own: *Own, path: []const u8) std.Build.LazyPath {
+        const b = own.b;
+        if (own.roots.get(path)) |found| return found;
+        const files = b.addWriteFiles();
+        _ = files.addCopyFile(b.path(path), path);
+        const copied = own.copyHeaders(files);
+        own.roots.put(b.allocator, b.dupe(path), copied) catch @panic("OOM");
+        return copied;
+    }
+
+    /// The copy of `path`, a C file of the tree, to compile.
+    fn file(own: *Own, path: []const u8) std.Build.LazyPath {
+        return own.root(path).path(own.b, path);
+    }
+
+    /// The include directory holding core/'s headers' copies, in place of
+    /// core/ itself.
+    fn include(own: *Own) std.Build.LazyPath {
+        return own.header_root.path(own.b, "core");
+    }
+
+    /// Each of `paths`, C files of the tree, added to `mod` from its copy.
+    fn add(own: *Own, mod: *std.Build.Module, paths: []const []const u8, flags: []const []const u8) void {
+        for (paths) |path| mod.addCSourceFile(.{ .file = own.file(path), .flags = flags });
+    }
+};
+
 pub fn build(b: *std.Build) void {
     // Everything the vendored libraries are compiled from sits in the zig
     // cache, where its path is the same from every checkout of the tree:
@@ -446,6 +553,7 @@ pub fn build(b: *std.Build) void {
     _ = copies.addCopyFile(b.path("core/xz_config/config.h"), "xz_config/config.h");
     _ = copies.addCopyDirectory(b.path("core/darwin-compat"), "darwin-compat", .{});
     const vendor_config = copies.getDirectory();
+    const own = Own.init(b);
 
     const trees = patchedTrees(b);
     const lua = patched(b, trees, "lua");
@@ -517,6 +625,7 @@ pub fn build(b: *std.Build) void {
     // CI code, which owns fixture orchestration and assertions.
     const native_format_decoder = formatDecoder(
         b,
+        own,
         "format-test-native",
         baselineHostTarget(b),
         .Debug,
@@ -538,6 +647,7 @@ pub fn build(b: *std.Build) void {
         const resolved = b.resolveTargetQuery(t.query);
         const target_format_decoder = formatDecoder(
             b,
+            own,
             b.fmt("format-test-{s}", .{t.name}),
             resolved,
             .ReleaseFast,
@@ -556,6 +666,7 @@ pub fn build(b: *std.Build) void {
 
         const payload = launcherHelper(
             b,
+            own,
             b.fmt("launcher-payload-{s}", .{t.name}),
             "test/portable/launcher_payload.c",
             resolved,
@@ -573,6 +684,7 @@ pub fn build(b: *std.Build) void {
 
         const socket = launcherHelper(
             b,
+            own,
             b.fmt("launcher-socket-{s}", .{t.name}),
             "test/portable/launcher_socket_fd.c",
             resolved,
@@ -601,11 +713,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         }),
     });
-    strnlen_check.root_module.addCSourceFiles(.{
-        .root = b.path("core"),
-        .files = &.{ "strnlen.c", "strnlen_test.c" },
-        .flags = &own_c,
-    });
+    own.add(strnlen_check.root_module, &.{ "core/strnlen.c", "core/strnlen_test.c" }, &own_c);
     boot.dependOn(&b.addRunArtifact(strnlen_check).step);
 
     // Startup's reserved-prefix sweep has no fixed name count or length.
@@ -617,12 +725,8 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         }),
     });
-    environment_check.root_module.addCSourceFiles(.{
-        .root = b.path("core"),
-        .files = &.{ "environment.c", "environment_test.c" },
-        .flags = &own_c,
-    });
-    environment_check.root_module.addIncludePath(b.path("core"));
+    own.add(environment_check.root_module, &.{ "core/environment.c", "core/environment_test.c" }, &own_c);
+    environment_check.root_module.addIncludePath(own.include());
     boot.dependOn(&b.addRunArtifact(environment_check).step);
 
     // Every core but the test fixtures observes its own C: a table from
@@ -638,7 +742,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -679,7 +783,7 @@ pub fn build(b: *std.Build) void {
     // host's configuration-2 entry selected by its private launcher.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const analyzed = b.step("analyze", "run the static analyzer over the tree's own C");
-    analyze(b, analyzed, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson);
+    analyze(b, analyzed, own, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson);
     // The checked build is where CI already looks for what the release
     // build would only do quietly; the analyzer's findings are the same
     // kind of thing, found without running anything.
@@ -741,6 +845,7 @@ fn requiredTargetMask() u64 {
 
 fn formatDecoder(
     b: *std.Build,
+    own: *Own,
     name: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
@@ -755,12 +860,8 @@ fn formatDecoder(
         // decoder keeps its symbols.
         .strip = optimize != .Debug,
     });
-    mod.addCSourceFiles(.{
-        .root = b.path("."),
-        .files = &.{ "core/portable.c", "test/portable/format_test.c" },
-        .flags = &own_c,
-    });
-    mod.addIncludePath(b.path("core"));
+    own.add(mod, &.{ "core/portable.c", "test/portable/format_test.c" }, &own_c);
+    mod.addIncludePath(own.include());
     mod.addCMacro(
         "COSMIC_PORTABLE_REQUIRED_TARGET_MASK",
         b.fmt("UINT64_C({d})", .{requiredTargetMask()}),
@@ -781,6 +882,7 @@ fn formatDecoder(
 
 fn launcherHelper(
     b: *std.Build,
+    own: *Own,
     name: []const u8,
     source: []const u8,
     target: std.Build.ResolvedTarget,
@@ -796,10 +898,7 @@ fn launcherHelper(
         // over a minute per cross target on a cold cache.
         .strip = true,
     });
-    mod.addCSourceFile(.{
-        .file = b.path(source),
-        .flags = &own_c,
-    });
+    own.add(mod, &.{source}, &own_c);
     return b.addExecutable(.{ .name = name, .root_module = mod });
 }
 
@@ -843,6 +942,7 @@ fn patched(b: *std.Build, trees: []const u8, name: []const u8) std.Build.LazyPat
 fn analyze(
     b: *std.Build,
     step: *std.Build.Step,
+    own: *Own,
     lua: std.Build.LazyPath,
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
@@ -875,7 +975,7 @@ fn analyze(
             b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
             b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
         });
-        run.addPrefixedDirectoryArg("-I", b.path("core"));
+        run.addPrefixedDirectoryArg("-I", own.include());
         run.addPrefixedDirectoryArg("-I", lua.path(b, "src"));
         run.addPrefixedDirectoryArg("-I", sqlite);
         run.addPrefixedDirectoryArg("-I", miniz);
@@ -890,6 +990,9 @@ fn analyze(
         run.addPrefixedDirectoryArg("-I", yyjson.path(b, "src"));
         run.addArg("-o");
         _ = run.addOutputFileArg(b.fmt("{s}.analysis", .{file}));
+        // The tree's own file, so a finding names it: a file argument's
+        // key is its path under the build root and its contents, the same
+        // from every checkout, where a compile's is its absolute path.
         run.addFileArg(b.path(b.fmt("core/{s}", .{file})));
         step.dependOn(&run.step);
     }
@@ -897,6 +1000,8 @@ fn analyze(
 
 /// The vendored trees every core is built from.
 const Sources = struct {
+    /// The tree's own C, from its copies.
+    own: *Own,
     lua: std.Build.LazyPath,
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
@@ -930,8 +1035,13 @@ fn observedCore(
     const write_map = b.addRunArtifact(mapper);
     write_map.addArg("write");
     write_map.addFileArg(first.getEmittedBin());
-    write_map.addArg(b.pathFromRoot("."));
     const map = write_map.addOutputFileArg("coverage_map.c");
+    // Where each file the core observes was compiled from, and the
+    // headers' copy a file outside core/ reads.
+    for (ownCoreFiles(b, configuration, false)) |path| {
+        write_map.addDirectoryArg(sources.own.root(path));
+    }
+    write_map.addDirectoryArg(sources.own.header_root);
     const second = core(b, target_record, configuration, target, sources, vendor, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
@@ -1303,6 +1413,23 @@ fn vendorIncludes(
     mod.addIncludePath(sources.curl.path(b, "include"));
 }
 
+/// The tree's own C files a core compiles, in order, before its block
+/// table: core_sources, the entry point, the startup hook -- the test
+/// fixture's in a core built with `portable_startup_test_hooks` -- and
+/// the test instruments, which the checked core alone carries (a failing
+/// allocator, a count of the store's open statements), so no core that
+/// ships has an allocator a program can make fail.
+fn ownCoreFiles(b: *std.Build, configuration: Configuration, portable_startup_test_hooks: bool) []const []const u8 {
+    var paths: std.ArrayList([]const u8) = .empty;
+    for (core_sources) |name| paths.append(b.allocator, b.fmt("core/{s}", .{name})) catch @panic("OOM");
+    paths.appendSlice(b.allocator, &.{
+        "core/entry.c",
+        if (portable_startup_test_hooks) "test/portable/startup_hook.c" else "core/startup_hook.c",
+        if (configuration.sanitize) "core/testing_checked.c" else "core/testing.c",
+    }) catch @panic("OOM");
+    return paths.items;
+}
+
 fn coreOptimize(configuration: Configuration) std.builtin.OptimizeMode {
     return if (configuration.sanitize) .ReleaseSafe else .ReleaseFast;
 }
@@ -1346,22 +1473,19 @@ fn core(
     // COSMIC_CHECKED gives the checked core's own C its instruments:
     // core/memory.h's counted allocator and core/fault.h's fault points.
     // Every other core compiles both to the plain call they wrap.
-    const checked_flags = core_flags ++ lua_checks ++ [_][]const u8{"-DCOSMIC_CHECKED"};
+    // Its sanitizer's reports name a file by its last two components,
+    // `core/x.c`, rather than the copy it was compiled from (`Own`).
+    const checked_flags = core_flags ++ lua_checks ++ [_][]const u8{
+        "-DCOSMIC_CHECKED",
+        "-fsanitize-undefined-strip-path-components=-2",
+    };
     const checked_observed_flags = checked_flags ++ observed;
     const own_flags: []const []const u8 = switch (native_coverage) {
         .off => if (configuration.sanitize) &checked_flags else &core_flags,
         .first_link, .map => if (configuration.sanitize) &checked_observed_flags else &observed_flags,
     };
-    mod.addCSourceFiles(.{
-        .root = b.path("core"),
-        .files = &core_sources,
-        .flags = own_flags,
-    });
-    mod.addCSourceFile(.{
-        .file = b.path("core/entry.c"),
-        .flags = own_flags,
-    });
-    mod.addIncludePath(b.path("core"));
+    sources.own.add(mod, ownCoreFiles(b, configuration, portable_startup_test_hooks), own_flags);
+    mod.addIncludePath(sources.own.include());
 
     mod.addCMacro("COSMIC_TARGET_ID", b.fmt("{d}", .{target_record.id}));
     mod.addCMacro("COSMIC_TARGET_NAME", b.fmt("\"{s}\"", .{target_record.name}));
@@ -1370,28 +1494,11 @@ fn core(
 
     mod.addCMacro("COSMIC_PORTABLE_REQUIRED_TARGET_MASK", b.fmt("UINT64_C({d})", .{requiredTargetMask()}));
     mod.addCMacro("COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID", b.fmt("{d}", .{release_configuration.id}));
-    mod.addCSourceFile(.{
-        .file = b.path(if (portable_startup_test_hooks)
-            "test/portable/startup_hook.c"
-        else
-            "core/startup_hook.c"),
-        .flags = own_flags,
-    });
-    // The checked core alone carries the test instruments -- a failing
-    // allocator, a count of the store's open statements -- so no core
-    // that ships has an allocator a program can make fail.
-    mod.addCSourceFile(.{
-        .file = b.path(if (configuration.sanitize)
-            "core/testing_checked.c"
-        else
-            "core/testing.c"),
-        .flags = own_flags,
-    });
     // Last, and uninstrumented, so both links hold the same blocks in the
     // same order: the table is data and adds none.
     switch (native_coverage) {
         .off => {},
-        .first_link => mod.addCSourceFile(.{ .file = b.path("core/coverage_map_empty.c"), .flags = &.{"-std=c11"} }),
+        .first_link => sources.own.add(mod, &.{"core/coverage_map_empty.c"}, &.{"-std=c11"}),
         .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{"-std=c11"} }),
     }
 

@@ -174,17 +174,18 @@
           },
         },
 
-        # The driver keeps the candidate's project cache under o/
-        # (cosmic_ci/orchestration.tl)
-        # so a fresh checkout starts cold: every leg recompiles vendor/ and
-        # core/ from nothing even when neither changed. This restores that
-        # cache from outside the checkout -- the driver build phase requires
-        # a checkout with no o/ yet, so COSMIC_ZIG_CACHE_SEED below only
-        # names where it landed; the driver seeds its zig-cache into o/
-        # itself, once its own guard has passed -- and saves it back once
-        # every native build this job runs has had a chance to update it.
-        # Its zig-global is zig's global cache, which bin/zig uses in place
-        # (COSMIC_ZIG_GLOBAL_CACHE, set with XDG_CACHE_HOME below). The key
+        # A fresh checkout starts cold: every leg would recompile vendor/
+        # and core/ from nothing even when neither changed. This restores
+        # zig's caches from outside the checkout, where bin/zig uses them in
+        # place: its zig-cache the project cache (COSMIC_ZIG_CACHE_SEED,
+        # cosmic_ci/orchestration.tl), its zig-global zig's global cache
+        # (COSMIC_ZIG_GLOBAL_CACHE, set with XDG_CACHE_HOME below), and saves
+        # them back once every native build this job runs has had a chance
+        # to update them. zig keys what it compiles by the path of what it
+        # compiles and of its include directories, so the cache is at the
+        # same path each run, unlike the tree (below), and build.zig compiles
+        # vendor/ and the tree's own C alike from copies in it (`Own`).
+        # The key
         # includes `matrix.name`, one entry per leg, even though
         # linux-x86_64 and alpine-x86_64 target the same
         # `x86_64-linux-musl` triple: sharing a key between two legs that
@@ -248,6 +249,16 @@
           },
         },
 
+        # After the driver's bootstrap, whose cache key hashes a file in
+        # the checkout: from here on the checkout is at a path of this
+        # commit's and this leg's own (COSMIC_WORKER), which the log names,
+        # and $GITHUB_WORKSPACE links to it.
+        {
+          name: "move the tree to a path of this commit's own",
+          "working-directory": ".",
+          run: "sh .github/scripts/place-tree.sh",
+        },
+
         {
           name: "check the pinned CI driver",
           # Without --all, a run would assume a test no key holds from the
@@ -281,22 +292,13 @@
 
         # The last step above to invoke `bin/zig build` for the candidate (the
         # fixture steps, `sanitized`, and `portable-hook-cores`, inside the
-        # driver's `assemble` phase). The fixtures phase below boots a copy of
-        # the tree at a scratch path too; what that compiles is keyed by its
-        # throwaway path, so it is never saved. Runs even on
-        # failure so the complete local cache is staged before diagnostics.
-        # actions/cache publishes it only when the job succeeds; zig's own
-        # content addressing makes restored entries safe to validate and reuse.
-        {
-          name: "save zig build outputs for next run",
-          id: "cache-save",
-          if: "always() && steps.driver.outcome == 'success'",
-          run: "cosmic-driver cosmic_ci/driver.tl platform cache-save",
-        },
-
+        # driver's `assemble` phase), so the caches are saved here, as they
+        # stand, even on failure; what the phases below compile is not.
+        # zig's own content addressing makes restored entries safe to
+        # validate and reuse.
         {
           name: "upload zig build outputs",
-          if: "always() && steps.cache-save.outcome == 'success' && (github.ref == 'refs/heads/main' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, steps.zig-cache-key.outputs.prefix))",
+          if: "always() && steps.driver.outcome == 'success' && (github.ref == 'refs/heads/main' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, steps.zig-cache-key.outputs.prefix))",
           uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
           with: {
             path: "${{ runner.temp }}/zig-build",
@@ -366,6 +368,21 @@
             path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
             "if-no-files-found": "ignore",
           },
+        },
+
+        # The last step, whatever failed before it, so the checkout's post
+        # step meets the tree where it checked it out: its git refuses a
+        # repository at another path, and leaves its credentials behind
+        # (.github/scripts/place-tree.sh). In a container it runs as root,
+        # as the hand-over does, who can move back what `runner` moved; on
+        # macOS as the host's user, who moved it. A checkout that never
+        # happened has nothing to move back.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always()",
+          "working-directory": ".",
+          shell: "sh",
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
       ],
     },

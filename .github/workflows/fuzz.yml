@@ -108,6 +108,15 @@
           },
         },
 
+        # As ci.yml's platform legs: after the driver's bootstrap, the
+        # checkout moves to a path of this commit's own, which the log
+        # names; this job is the leg the path is chosen for.
+        {
+          name: "move the tree to a path of this commit's own",
+          env: {COSMIC_WORKER: "fuzz"},
+          run: "sh .github/scripts/place-tree.sh",
+        },
+
         # TODO: this compiles vendor/ and core/ cold each night; restoring
         # ci.yml's zig build cache for the linux-x86_64 leg would save it.
         {
@@ -139,6 +148,17 @@
             path: "${{ runner.temp }}/fuzz/*/real/*.input",
             "if-no-files-found": "ignore",
           },
+        },
+
+        # As ci.yml's platform legs: the last step, as root, puts the tree
+        # back before the checkout's post step reads it.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always()",
+          "working-directory": ".",
+          shell: "sh",
+          env: {COSMIC_WORKER: "fuzz"},
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
       ],
     },

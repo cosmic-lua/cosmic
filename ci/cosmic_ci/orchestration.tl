@@ -47,6 +47,13 @@ local record Context
   driver: string
 end
 
+--- The environment variable `name`, or nil when it is unset or empty.
+local function named(name: string): string | nil
+  local value = Env.get(name)
+  if value == "" then return nil end
+  return value
+end
+
 local function operation(c: Context, phase: string, command: {string},
     timeout: integer, cwd?: string, env?: {string:string}, output?: string,
     error_output?: string): integer
@@ -55,10 +62,15 @@ local function operation(c: Context, phase: string, command: {string},
   local child_environment: {string:string}
   if env then child_environment = env else child_environment = environment() end
   -- bin/zig shares one project cache among checkouts unless told otherwise
-  -- (build/zig.tl); a candidate keeps its own under o/, which the build
-  -- phase seeds and cache-save copies back.
-  if not child_environment.COSMIC_ZIG_CACHE then
-    child_environment.COSMIC_ZIG_CACHE = c.root .. "/o/zig-cache"
+  -- (build/zig.tl). A candidate uses the zig-cache under
+  -- COSMIC_ZIG_CACHE_SEED where CI restored it, else keeps its own under
+  -- o/, which the build phase seeds. zig keys what it compiles by its
+  -- own cache's path too, and CI puts the checkout at a path of the commit's
+  -- own (.github/scripts/place-tree.sh), so a cache under o/ would never
+  -- be reused there: CI saves the seed's as it stands.
+  if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
+    local seed = named("COSMIC_ZIG_CACHE_SEED")
+    child_environment.COSMIC_ZIG_CACHE = seed and seed .. "/zig-cache" or c.root .. "/o/zig-cache"
   end
   -- The driver boots the candidate itself; a tool that finds its core
   -- stale is a fault to report, not one to boot past (build/reboot.tl).
@@ -115,8 +127,11 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- alone on four cores), so each runs apart from the self-rebuild file's.
 local fixed_point_test_timeout_ms <const> = 300000
 local fixed_point_per_test_timeout_s <const> = "240"
--- A boot the product drives from another path compiles the core's own C
--- for every target again (about 110 s on four cores), then the tree.
+-- A boot the product drives from another path compiles no C again (it
+-- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
+-- about 110 s for the whole fixture in a local run on four cores, loaded.
+-- TODO: lower these bounds once CI's own runs show the fixture's time
+-- without the core's C compile they were sized for (about 110 s of it).
 local self_driven_test_timeout_ms <const> = 600000
 local self_driven_per_test_timeout_s <const> = "480"
 local runtime_test_timeout_ms <const> = 180000
@@ -355,21 +370,21 @@ local function phase_build(p: PlatformContext): integer
   local root = p.root
   local local_d = p.local_diagnostics
   assert(not exists(root .. "/o"), "build requires fresh checkout without o")
-  -- Only the project cache is seeded into o/: zig's global cache is used
-  -- where it was restored (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl). It
-  -- comes from the zig-cache under COSMIC_ZIG_CACHE_SEED, as CI restored
-  -- it, or from the project cache COSMIC_ZIG_CACHE_FROM names, as a local
-  -- run finds a developer's shared one.
-  local seed = Env.get("COSMIC_ZIG_CACHE_SEED")
-  local from = Env.get("COSMIC_ZIG_CACHE_FROM")
-  if not from and seed then from = seed .. "/zig-cache" end
+  -- zig's caches are used where CI restored them: its global cache
+  -- (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl) and the project cache, the
+  -- zig-cache under COSMIC_ZIG_CACHE_SEED (see `operation`). Only a
+  -- local run's is copied into o/, from the project cache
+  -- COSMIC_ZIG_CACHE_FROM names, a developer's shared one.
+  local seed = named("COSMIC_ZIG_CACHE_SEED")
+  local from = named("COSMIC_ZIG_CACHE_FROM")
+  local cache = seed and seed .. "/zig-cache" or from
   -- A cache named but absent costs a cold compile of vendor/ and core/
   -- (minutes) and fails nothing, so say so where the log shows it.
-  if from and not is_dir(from) then
-    Fs.put(Fs.stderr, "build: no zig-cache at " .. from ..
+  if cache and not is_dir(cache) then
+    Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
       "; compiling from nothing\n")
   end
-  if from and is_dir(from) then
+  if not seed and from and is_dir(from) then
     mkdir(root .. "/o")
     local copied = step(c, "restore zig-cache", function(): boolean, string
       return Fs.copy_tree(from, root .. "/o/zig-cache")
@@ -565,26 +580,6 @@ local function phase_attest(p: PlatformContext): integer
   write(product .. "/executed-cosmic.sha256", digest:sub(1, 64) .. "  cosmic\n"); write(product .. "/expected-platforms", assert(p.trailing) .. "\n"); return 0
 end
 
-local function phase_cache_save(p: PlatformContext): integer
-  local c = p.operation
-  local root = p.root
-  -- Only the project cache is copied back: zig's global cache was used
-  -- in place, under the seed, and is saved as it stands.
-  local seed = assert(Env.get("COSMIC_ZIG_CACHE_SEED"), "cache seed is required")
-  mkdir(seed)
-  local removed = step(c, "remove saved zig-cache", function(): boolean, string
-    return Fs.remove_tree(seed .. "/zig-cache")
-  end)
-  if removed ~= 0 then return removed end
-  if is_dir(root .. "/o/zig-cache") then
-    local copied = step(c, "save zig-cache", function(): boolean, string
-      return Fs.copy_tree(root .. "/o/zig-cache", seed .. "/zig-cache")
-    end)
-    if copied ~= 0 then return copied end
-  end
-  return 0
-end
-
 local function platform_impl(phase: string, p: PlatformContext): integer
   assert(targets[p.target], "unsupported target"); mkdir(p.work)
   if phase == "build" then return phase_build(p)
@@ -595,7 +590,6 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   elseif phase == "portable-boundary" then return phase_portable_boundary(p)
   elseif phase == "fixtures" then return phase_fixtures(p)
   elseif phase == "attest" then return phase_attest(p)
-  elseif phase == "cache-save" then return phase_cache_save(p)
   end
   error("unknown platform phase: " .. phase)
 end
