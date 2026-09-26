@@ -175,6 +175,10 @@
         # 3. Docker's default AppArmor profile (docker-default) denies
         # mount: with the narrowed profile alone, unveil still failed
         # with EACCES. So the container runs unconfined by AppArmor.
+        #
+        # 4. Docker's masked /proc paths keep a confined child from a
+        # procfs of its own; .github/scripts/leg-container.sh starts
+        # every leg's container with systempaths=unconfined, and says why.
         # TODO: run the container under an AppArmor profile of
         # docker-default's with mount allowed in place of
         # apparmor=unconfined, if the runner lets a step load one

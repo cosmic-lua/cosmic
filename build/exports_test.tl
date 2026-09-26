@@ -45,6 +45,8 @@ allowed["build.coverage.lines.executable"] = "tested directly: the test compares
 allowed["build.filesystem_observations.worker_unveil"] = "what a sandboxed test " ..
   "worker needs to start and run, which no worker is started with yet; its test holds it " ..
   "to starting one"
+allowed["build.filesystem_observations.own_proc_given"] = "what the sandbox's tests " ..
+  "ask of the host to know which /proc a sandboxed process gets, which only a test asks"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.filesystem_observations.environment"] = "a test's own declaration: " ..

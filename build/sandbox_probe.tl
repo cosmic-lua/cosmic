@@ -135,10 +135,62 @@ local function tried(tmp: string, script: string, sandbox: raw_process.Sandbox):
   return false, how .. (words ~= "" and ": " .. words:sub(1, 200) or "")
 end
 
+--- `tried`, for a child whose own /proc it cannot read -- one held to a
+--- ruleset, which does not reach a /proc of the child's own
+--- (core/process.h's `ruleset`) -- so what it is held to is read from
+--- outside, from this process's /proc, while it waits on its stdin: that
+--- it runs under a seccomp filter, one more than this process's own
+--- (`filters`), and has no network interface but lo.
+local function tried_from_outside(tmp: string, script: string, filters: string | nil,
+                                  sandbox: raw_process.Sandbox): boolean, string
+  local ends, pipe_trouble = process.pipe()
+  if ends == nil then return false, pipe_trouble end
+  local output, open_trouble = sys.open(tmp .. "/said", sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC,
+    0x180)
+  if output == nil then
+    local _, _ = sys.close(ends.reader)
+    local _, _ = sys.close(ends.writer)
+    return false, open_trouble
+  end
+  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c", script .. " && read _" },
+    nil, tmp, ends.reader, output, output, false, nil, sandbox)
+  local _, _ = sys.close(output)
+  local _, _ = sys.close(ends.reader)
+  if pid == nil then
+    local _, _ = sys.close(ends.writer)
+    return false, SandboxProbe.errno_name(errno) .. " (" .. trouble .. ")"
+  end
+  local status_text, _ = Fs.read("/proc/" .. tostring(pid) .. "/status")
+  local devices, _ = Fs.read("/proc/" .. tostring(pid) .. "/net/dev")
+  local _, _ = sys.write(ends.writer, "\n")
+  local _, _ = sys.close(ends.writer)
+  local seccomp = (status_text or ""):match("\nSeccomp:%s*(%d+)")
+  local count = tonumber((status_text or ""):match("\nSeccomp_filters:%s*(%d+)"))
+  local unfiltered = seccomp ~= "2" or (filters ~= nil and (count == nil or
+    count <= tonumber(filters)))
+  local networked = devices == nil or select(2, devices:gsub(":", ":")) ~= 1
+  local status, wait_trouble = process.waitpid(pid, false)
+  if status == nil then return false, "waitpid: " .. wait_trouble end
+  if status.code ~= 0 then
+    local text, _ = Fs.read(tmp .. "/said")
+    local words = ((text or ""):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
+    return false, (status.code >= 0 and "exited " .. tostring(status.code) or
+      "killed by signal " .. tostring(status.signal)) .. (words ~= "" and ": " ..
+      words:sub(1, 200) or "")
+  end
+  if unfiltered then return false, "no seccomp filter of its own" end
+  if networked then return false, "a network interface besides lo" end
+  return true, ""
+end
+
 --- Tries each part of the sandbox, and all of them together, in `tmp`,
 --- a fresh directory of the caller's: a child held to a Landlock
 --- ruleset, a pledge, no network, an unveiled filesystem, the last two
---- as `observations.confine` holds a test's processes, and all four.
+--- as `observations.confine` holds a test's processes, and all four;
+--- and, unveiled, whether the child is in a pid namespace of its own,
+--- and whether its /proc is that namespace's own procfs or, where the
+--- kernel refuses one (a container masking parts of its /proc), the
+--- host's.
 function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local root = assert(sys.realpath(tmp))
   local inside, outside = root .. "/in", root .. "/out"
@@ -154,6 +206,10 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   local no_out = "! cat " .. outside .. "/f 2>/dev/null"
   local unseen = "test ! -e " .. outside .. "/f"
   local lone_loopback = "test \"$(grep -c : /proc/self/net/dev)\" = 1"
+  -- Unveiled, it is pid 2 of a pid namespace of its own, beneath the
+  -- sandbox's init; its own procfs has no /proc/sys.
+  local own_pids = "test \"$$\" = 2"
+  local own_proc = "test ! -e /proc/sys && test \"$(cat /proc/1/comm)\" = cosmic-init"
   -- Pledged, it runs under a seccomp filter, one more than this
   -- process's own (a container's runtime may have given it some).
   local status, _ = Fs.read("/proc/self/status")
@@ -186,11 +242,22 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   held, said = tried(root, reads_in .. " && " .. unseen .. " && " .. lone_loopback,
     { unveil = { reads = reads, writes = {} }, offline = true })
   add("unveil + offline (a confined test)", true, held, said)
+  held, said = tried(root, own_pids, { unveil = { reads = reads, writes = {} }, offline = true })
+  add("unveiled: a pid namespace of its own", false, held, said)
+  held, said = tried(root, own_proc, { unveil = { reads = reads, writes = {} }, offline = true })
+  -- Needed: without it a confined process's /proc is the host's,
+  -- read-only, so a sandboxed test worker cannot confine what its test
+  -- starts; ci.yml's Linux legs are given it (--security-opt
+  -- systempaths=unconfined, in .github/scripts/leg-container.sh), so
+  -- COSMIC_CI_REQUIRE_SANDBOX=1 fails a leg that loses it.
+  add("unveiled: a /proc of its own", true, held, said)
   if ruleset == nil then
     add("all four", false, false, "no landlock ruleset to hold it to")
   else
-    held, said = tried(root, reads_in .. " && " .. unseen .. " && " .. lone_loopback .. " && " ..
-      filtered, { ruleset = ruleset, unveil = { reads = reads, writes = {} }, offline = true,
+    -- The ruleset does not reach a /proc of the child's own, so its
+    -- filter and its network are read from outside.
+    held, said = tried_from_outside(root, reads_in .. " && " .. unseen, filters,
+      { ruleset = ruleset, unveil = { reads = reads, writes = {} }, offline = true,
         pledge = {} })
     add("all four", false, held, said)
     local _, _ = sys.close(ruleset)

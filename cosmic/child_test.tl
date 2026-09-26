@@ -22,6 +22,40 @@ local function path_exists(path: string): boolean
   return answer
 end
 
+--- The pid, in this process's pid namespace, of the process that `pid`
+--- names in the pid namespace of `within`, a live child of this
+--- process: the same number, unless `within` was started confined, in a
+--- pid namespace of its own (`observations.confine`), where it is found
+--- by the namespace's own pid, the last of its NSpid; nil where none is
+--- found.
+local function host_pid(within: integer, pid: integer): integer | nil
+  local own, _ = sys.readlink("/proc/self/ns/pid")
+  local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
+  if theirs == nil or theirs == own then return pid end
+  local names = assert(Fs.list("/proc"))
+  for _, name in ipairs(names) do
+    local number = math.tointeger(tonumber(name:match("^%d+$")))
+    if number ~= nil and sys.readlink("/proc/" .. name .. "/ns/pid") == theirs then
+      local status = Fs.read("/proc/" .. name .. "/status") or ""
+      local nspid = status:match("\nNSpid:([^\n]*)") or ""
+      if tonumber(nspid:match("(%d+)%s*$")) == pid then return number end
+    end
+  end
+  return nil
+end
+
+--- Runs `fn` with this file's declaration lifted, so what it starts runs
+--- unconfined: a child confined runs in a pid namespace of its own, which
+--- ends everything in it when it ends, and so would pass a check of
+--- `Child`'s own ending of a group that `Child` failed. A test that does
+--- so never stands; the declaration is back once `fn` returns.
+local function unconfined(fn: function())
+  observations.confine(nil)
+  local ok, trouble: boolean, any = pcall(fn)
+  observations.confine({ reads = observations.itself() })
+  if not ok then error(trouble, 0) end
+end
+
 local function output(dir: string, name: string): integer, string
   local path = dir .. "/" .. name
   return assert(Fs.open_write(path)), path
@@ -99,26 +133,42 @@ local function test_nonzero_and_signal_status()
   assert(signaled.code == nil and signaled.signal == sys.SIGTERM)
 end
 
+--- Run unconfined too (`unconfined`), where only `Child` ends the group.
 local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
-  local fd, path = output(tmp, "descendant")
-  local h = assert(Child.start({ "/bin/sh", "-c",
-    "sleep 30 & printf %s $!; wait" },
-    { stdout = fd, stderr = fd }))
-  local deadline = Time.monotonic_ns() + 1000 * 1000 * 1000
-  while assert(Fs.stat(path)).size == 0 and Time.monotonic_ns() < deadline do
-    Time.sleep_ns(10 * 1000 * 1000)
+  local function check(name: string)
+    local fd, path = output(tmp, name)
+    local h = assert(Child.start({ "/bin/sh", "-c",
+      "sleep 30 & printf %s $!; wait" },
+      { stdout = fd, stderr = fd }))
+    local deadline = Time.monotonic_ns() + 1000 * 1000 * 1000
+    while assert(Fs.stat(path)).size == 0 and Time.monotonic_ns() < deadline do
+      Time.sleep_ns(10 * 1000 * 1000)
+    end
+    assert(assert(Fs.stat(path)).size > 0, "child did not report readiness")
+    -- The descendant's pid as the shell saw it, and as this process does,
+    -- found while the shell still runs.
+    local contents = assert(Fs.read(path))
+    local pid = assert(host_pid(h.pid, assert(math.tointeger((assert(tonumber(contents)))))))
+    local r = assert(h:wait(40))
+    assert(Fs.close(fd))
+    assert(r.timed_out and not r.ok)
+    -- A process-group timeout includes descendants. Signal zero would succeed
+    -- for a surviving process (or fail with EPERM, not ESRCH).
+    local alive = sys.kill(pid, 0)
+    assert(not alive)
   end
-  assert(assert(Fs.stat(path)).size > 0, "child did not report readiness")
-  local r = assert(h:wait(40))
-  assert(Fs.close(fd))
-  assert(r.timed_out and not r.ok)
-  -- A process-group timeout includes descendants. Signal zero would succeed
-  -- for a surviving process (or fail with EPERM, not ESRCH).
-  local contents = assert(Fs.read(path))
-  local pid = math.tointeger((assert(tonumber(contents))))
-  assert(pid)
-  local alive = sys.kill(pid, 0)
-  assert(not alive)
+  check("confined")
+  unconfined(function() check("unconfined") end)
+end
+
+--- A shell that catches nothing is ended by a timeout's SIGTERM, not
+--- left for the SIGKILL after the grace period: confined, it is its pid
+--- namespace's pid 2, not the pid 1 that would pass over a signal it does
+--- not catch from outside the namespace.
+local function test_a_timeout_ends_a_shell_that_catches_nothing()
+  local r = assert(Child.run({ "/bin/sh", "-c", "sleep 100" },
+    { timeout_ms = 200, process_group = false }))
+  assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
 end
 
 local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
@@ -189,6 +239,8 @@ end
   end
   assert(path_exists(ready) and Fs.read(ready) == "ready",
     "driver did not report readiness; log=" .. (Fs.read(diagnostic) or "<none>"))
+  local descendant = assert(host_pid(driver.pid, assert(math.tointeger((assert(tonumber(
+    assert(Fs.read(descendant_path)):match("%d+"))))))))
   assert(driver:stop(sys.SIGTERM))
   local stopped = assert(driver:wait(2000))
   assert(Fs.close(fd))
@@ -196,8 +248,6 @@ end
     "driver cancellation result code=" .. tostring(stopped.code) ..
     " signal=" .. tostring(stopped.signal) .. " log=" ..
     (Fs.read(diagnostic) or "<none>"))
-  local descendant = assert(math.tointeger((assert(tonumber(
-    assert(Fs.read(descendant_path)):match("%d+"))))))
   local gone_by = Time.monotonic_ns() + 1000 * 1000 * 1000
   while sys.kill(descendant, 0) and Time.monotonic_ns() < gone_by do
     Time.sleep_ns(10 * 1000 * 1000)
@@ -559,13 +609,50 @@ end
 --- A leader that exits leaves no member of its group behind, and none of
 --- them a zombie: a descendant that outlives the leader is ended and
 --- reaped before the wait answers.
+--- The descendant is looked for by its group, the leader's pid: the pid
+--- it printed is its own pid namespace's where the shell is confined.
+--- Run unconfined too (`unconfined`), where only `Child` ends the group.
 local function test_exit_ends_and_reaps_what_the_group_left_behind()
-  local r = assert(Child.run({ "/bin/sh", "-c", "sleep 30 & printf %s $!" },
-    { stdout = "capture", timeout_ms = 5000 }))
-  assert(r.ok and not r.timed_out)
-  local pid = assert(math.tointeger(tonumber(r.stdout)))
-  local alive, _, errno = sys.kill(pid, 0)
-  assert(not alive and errno == sys.ESRCH, "descendant " .. tostring(pid) .. " survived")
+  local function check()
+    local h = assert(Child.start({ "/bin/sh", "-c", "sleep 30 & printf %s $!" },
+      { stdout = "capture" }))
+    local r = assert(h:wait(5000))
+    assert(r.ok and not r.timed_out and assert(math.tointeger(tonumber(r.stdout))) > 0)
+    local alive, _, errno = sys.kill(-h.pid, 0)
+    assert(not alive and errno == sys.ESRCH, "a member of group " .. tostring(h.pid) ..
+      " survived")
+  end
+  check()
+  unconfined(check)
+end
+
+--- `end_strays` ends a stray whatever it calls itself: one named as a
+--- sandbox's init is (/proc/<pid>/comm), since only the process table's
+--- own record says which children are inits. Unconfined (`unconfined`),
+--- so the stray is orphaned to this process, not to a sandbox's init.
+--- Only where /proc lists a process's children does `end_strays` find
+--- any (Linux, as the guard test's zombie check finds /proc there).
+local function test_end_strays_ends_a_stray_named_as_an_init()
+  if not path_exists("/proc/thread-self/children") then return end
+  unconfined(function()
+    -- A group started first makes this process the subreaper it adopts
+    -- the stray as.
+    assert(Child.run({ "/bin/sh", "-c", "true" }))
+    local r = assert(Child.run({ "/bin/sh", "-c",
+      "sh -c 'printf cosmic-init > /proc/self/comm; while :; do sleep 1; done' " ..
+      ">/dev/null 2>&1 & printf %s $!" }, { stdout = "capture", process_group = false }))
+    local pid = assert(math.tointeger(tonumber(r.stdout)))
+    local name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
+    local by = Time.monotonic_ns() + 5 * 1000 * 1000 * 1000
+    while name ~= "cosmic-init\n" and Time.monotonic_ns() < by do
+      Time.sleep_ns(10 * 1000 * 1000)
+      name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
+    end
+    assert(name == "cosmic-init\n", tostring(name))
+    assert(Child.end_strays() >= 1)
+    local alive, _, errno = sys.kill(pid, 0)
+    assert(not alive and errno == sys.ESRCH, "the stray named cosmic-init survived")
+  end)
 end
 
 --- Completion is the leader's exit: a descendant that left the group

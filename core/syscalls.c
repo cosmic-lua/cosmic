@@ -682,88 +682,6 @@ static int loopback_up (void) {
   return number;
 }
 
-/* One entry getdents64(2) writes, which a libc may not declare. */
-struct cosmic_dirent64 {
-  uint64_t d_ino;
-  int64_t d_off;
-  unsigned short d_reclen;
-  unsigned char d_type;
-  char d_name[];
-};
-
-/* Whether `name`, an entry of /proc, is a process's own -- its pid -- or
- * the directory itself or its parent. */
-static bool proc_own (const char *name) {
-  if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return true;
-  for (const char *at = name; *at != '\0'; at++) {
-    if (*at < '0' || *at > '9') return false;
-  }
-  return true;
-}
-
-/* For a sandbox that `nest`s: makes read-only, in the root being built,
- * what of the host's /proc -- bound read-write at `target`, `length`
- * bytes long, in a buffer of PATH_MAX -- is not a process's own: each
- * entry of it that is a directory, or a file with any write bit
- * (/proc/sys, /proc/sysrq-trigger, /proc/irq, /proc/bus and the like,
- * which a child mapped to root could otherwise write), is bound over
- * itself read-only, and every mount beneath it too. A process's own,
- * and the links into them (self, thread-self, net, mounts), stay
- * writable, so a child of the child can map its ids in a user namespace
- * of its own, which it writes its own /proc/self/uid_map for. 0, or an
- * errno.
- * TODO: an entry /proc gains after this lists it -- a module loaded
- * later adding one -- is writable to the child, and a host process's
- * /proc/<pid>/net shows the host's network namespace, what of it its
- * user may write included; a fresh procfs mounted with subset=pid in a
- * pid namespace of the child's own replaces this whole walk (the pid
- * namespace TODO at `unveil`). */
-static int guard_proc (char *target, size_t length) {
-  int dir = open("/proc", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (dir < 0) return errno;
-  _Alignas(8) char entries[4096];
-  char source[PATH_MAX];
-  int number = 0;
-  while (number == 0) {
-    long got = syscall(SYS_getdents64, dir, entries, sizeof entries);
-    if (got <= 0) {
-      if (got < 0) number = errno;
-      break;
-    }
-    for (long at = 0; number == 0 && at < got;) {
-      const struct cosmic_dirent64 *entry = (const struct cosmic_dirent64 *)(entries + at);
-      if (entry->d_reclen == 0) {
-        number = EIO;
-        break;
-      }
-      at += entry->d_reclen;
-      const char *name = entry->d_name;
-      if (proc_own(name)) continue;
-      struct stat st;
-      if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
-        if (errno != ENOENT) number = errno;
-        continue;
-      }
-      if (S_ISLNK(st.st_mode) || (!S_ISDIR(st.st_mode) && (st.st_mode & 0222) == 0)) continue;
-      int made = snprintf(source, sizeof source, "/proc/%s", name);
-      int placed = snprintf(target + length, PATH_MAX - length, "/%s", name);
-      if (made < 0 || (size_t)made >= sizeof source || placed < 0 ||
-          (size_t)placed >= PATH_MAX - length) {
-        number = ENAMETOOLONG;
-      } else if (mount(source, target, NULL, MS_BIND | MS_REC, NULL) != 0) {
-        number = errno;
-      } else {
-        struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
-        if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
-          number = errno;
-      }
-    }
-  }
-  target[length] = '\0';
-  close(dir);
-  return number;
-}
-
 /* Whether this process is in a user namespace other than the host's:
  * its uid_map maps less than every id to itself. False where it cannot
  * tell, as without /proc. */
@@ -780,48 +698,10 @@ static bool inner_user_namespace (void) {
   return inside != 0 || outside != 0 || count != 4294967295UL;
 }
 
-/* In the child, before anything else of the sandbox: a user namespace of
- * its own, mapping its user and group to themselves; with `offline`, a
- * network namespace of its own, which has nothing but a loopback, brought
- * up; and with `unveiling`, System V IPC of its own, and a root of
- * its own in a mount namespace, with a /tmp of its own unless /tmp or
- * / is among the paths,
- * holding the `count` paths at their own names -- read-only, and every
- * mount beneath them too, but where `writable` says, and, where `nest`
- * says, but a /proc's processes' own entries (`guard_proc`) -- and
- * nothing else,
- * so a path outside them is not there at all, to stat as to open. The
- * paths are resolved, with no link or `..` left in them, and a shorter
- * comes before a longer; `names` holds the names they were given by where
- * one differs from its path, and NULL elsewhere, and each such name is a
- * link in the root to its path, where no path given holds it already.
- * `root` is an empty directory the parent made to build on. Last, the child gives up every capability the namespace gave
- * it, so a caller's root cannot undo a read-only mount or make one of its
- * own. 0, or an errno.
- * TODO: remove the directory an unmapped child's root is built on once
- * the child ends: its root and its /tmp are that directory, in its
- * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
- * behind with what the child wrote to its /tmp. Removing it sooner
- * would take the child's mounts from under it, so this waits on the
- * process table's `waitpid` removing a directory its `spawn` handed the
- * reaped child's pid.
- * TODO: a pid namespace too, so an unveiled /proc shows the child's own
- * processes rather than the host's, and a confined child cannot kill()
- * a process of the same user outside it, as today it can; nor, where it
- * `nest`s, write what its user may of such a process's /proc/<pid>
- * entries (`guard_proc`: oom_score_adj, coredump_filter, clear_refs,
- * sched, autogroup). A fresh procfs mounted with subset=pid in that
- * namespace then replaces `guard_proc`'s writable host /proc. The child
- * that unshares one is not
- * in it, so this waits on starting the program from a second fork. A
- * UTS namespace would change nothing a child sees: its host's name and
- * kernel stay what `uname` answers, which no key holds. */
-static int unveil (const char *root, char *const *paths, char *const *names,
-                   const int *writable, int count, int unveiling, int offline, int nest,
-                   int unmap_root, const char *uid_map, const char *gid_map) {
-  int flags = CLONE_NEWUSER | (unveiling ? CLONE_NEWNS | CLONE_NEWIPC : 0) |
-              (offline ? CLONE_NEWNET : 0);
-  if (syscall(SYS_unshare, flags) != 0) return errno;
+/* In a child whose user namespace is its own and fresh: maps its user
+ * and group to themselves, and refuses it setgroups. `mapped` says
+ * whether its user was mapped (see below). 0, or an errno. */
+static int map_ids (int unmap_root, const char *uid_map, const char *gid_map, int *mapped) {
   int number = write_whole("/proc/self/setgroups", "deny");
   if (number != 0 && number != ENOENT) return number;
   /* Root inside a user namespace not the host's -- a sandbox's child --
@@ -835,113 +715,217 @@ static int unveil (const char *root, char *const *paths, char *const *names,
    * a user its own does not map, so root confines only two deep. The
    * fix would run root's sandboxed tests as a user of their own, mapped
    * from outside by a parent holding CAP_SETUID. */
-  int mapped = 1;
+  *mapped = 1;
   if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) {
     if (number != EPERM || !unmap_root) return number;
-    mapped = 0;
+    *mapped = 0;
   }
-  if ((number = write_whole("/proc/self/gid_map", gid_map)) != 0) return number;
-  if (offline && (number = loopback_up()) != 0) return number;
-  if (unveiling) {
-    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
-    /* A tmpfs of this namespace takes no file from a user it does not
-     * map: an unmapped one builds on `root` itself, which its parent's
-     * namespace maps it on. */
-    if (mapped ? mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0
-               : mount(root, root, NULL, MS_BIND, NULL) != 0)
-      return errno;
-    char target[PATH_MAX];
-    /* A /tmp of its own, writable and empty but for the paths given
-     * beneath the host's, which a program takes for granted -- unless
-     * /tmp or / is given, under its own name or another; mounted first,
-     * so a path given beneath the host's /tmp is bound into it. */
-    int tmp = 1;
-    for (int i = 0; i < count; i++) {
-      if (strcmp(paths[i], "/tmp") == 0 || strcmp(paths[i], "/") == 0 ||
-          (names[i] != NULL && strcmp(names[i], "/tmp") == 0)) {
-        tmp = 0;
-      }
-    }
-    if (tmp) {
-      int made = snprintf(target, sizeof target, "%s/tmp", root);
-      if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
-      if (mkdir(target, 01777) != 0) return errno;
-      if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
-                 : chmod(target, 01777) != 0 || mount(target, target, NULL, MS_BIND, NULL) != 0)
-        return errno;
-    }
-    for (int i = 0; i < count; i++) {
-      struct stat st;
-      if (stat(paths[i], &st) != 0) return errno;
-      int length = snprintf(target, sizeof target, "%s%s", root, paths[i]);
-      if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
-      struct stat there;
-      if (lstat(target, &there) != 0) {
-        if ((number = make_parents(target, strlen(root))) != 0) return number;
-        if (S_ISDIR(st.st_mode)) {
-          if (mkdir(target, 0755) != 0 && errno != EEXIST) return errno;
-        } else {
-          int fd = open(target, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-          if (fd < 0) return errno;
-          close(fd);
-        }
-      }
-      if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
-      if (!writable[i] && nest && strcmp(paths[i], "/proc") == 0) {
-        if ((number = guard_proc(target, (size_t)length)) != 0) return number;
-      } else if (!writable[i]) {
-        struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
-        if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
-          return errno;
-      }
-    }
-    for (int i = 0; i < count; i++) {
-      if (names[i] == NULL) continue;
-      int held = 0;
-      for (int j = 0; j < count && !held; j++) {
-        size_t n = strlen(paths[j]);
-        held = strncmp(names[i], paths[j], n) == 0 &&
-               (names[i][n] == '/' || names[i][n] == '\0' || n == 1);
-      }
-      if (held) continue;
-      int length = snprintf(target, sizeof target, "%s%s", root, names[i]);
-      if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
-      if ((number = make_link(target, strlen(root), paths[i])) != 0) return number;
-    }
-    /* With /proc, the links into it a program expects in /dev, as a
-     * container's root has them. */
-    /* A /dev given whole has its own, or has none to make. */
-    int proc = 0, dev = 0;
-    for (int i = 0; i < count; i++) {
-      proc = proc || strcmp(paths[i], "/proc") == 0;
-      dev = dev || strcmp(paths[i], "/dev") == 0 || strcmp(paths[i], "/") == 0;
-    }
-    static const char *const dev_links[][2] = {
-      { "/dev/fd", "/proc/self/fd" }, { "/dev/stdin", "/proc/self/fd/0" },
-      { "/dev/stdout", "/proc/self/fd/1" }, { "/dev/stderr", "/proc/self/fd/2" },
-    };
-    for (size_t i = 0; proc && !dev && i < sizeof dev_links / sizeof dev_links[0]; i++) {
-      int made = snprintf(target, sizeof target, "%s%s", root, dev_links[i][0]);
-      if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
-      if ((number = make_link(target, strlen(root), dev_links[i][1])) != 0) return number;
-    }
-    int length = snprintf(target, sizeof target, "%s/.old", root);
-    if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
-    if (mkdir(target, 0700) != 0) return errno;
-    if (syscall(SYS_pivot_root, root, target) != 0) return errno;
-    if (chdir("/") != 0) return errno;
-    if (umount2("/.old", MNT_DETACH) != 0) return errno;
-    if (rmdir("/.old") != 0) return errno;
-    /* Nothing is made at the root itself once it is built. */
-    if (mount(NULL, "/", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY | MS_NOSUID | MS_NODEV, NULL) != 0)
-      return errno;
-  }
+  return write_whole("/proc/self/gid_map", gid_map);
+}
+
+/* Gives up every capability a namespace of the child's own gave it, for
+ * good: none is left to pass to a program it executes, so a caller's
+ * root cannot undo a read-only mount or make one of its own. 0, or an
+ * errno. */
+static int drop_capabilities (void) {
   for (int cap = 0; cap < 64; cap++) {
     if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0) != 0 && errno != EINVAL) return errno;
   }
   if (prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) != 0 && errno != EINVAL)
     return errno;
   return 0;
+}
+
+/* Puts at `target` in the root being built the /proc given: a procfs
+ * of the child's pid namespace, which it must already be in, holding
+ * that namespace's processes alone (subset=pid: no /proc/sys, no
+ * /proc/sysrq-trigger, nothing of the host's but those processes') --
+ * writable, so a process in it can map its ids in a user namespace of
+ * its own, and confine one of its own in turn. What it may write there
+ * is its own processes', and its session's autogroup, which is the
+ * sandbox's own (`run_program` starts one, as `cosmic_sandbox_init`
+ * does). Where the kernel refuses one -- a container's runtime masks
+ * parts of its /proc, and a user namespace may mount a procfs only
+ * where one is wholly visible (mount_too_revealing, which subset=pid
+ * does not escape as of Linux 6.18), EPERM; a kernel before 5.8 knows
+ * no subset, EINVAL -- the host's /proc is bound there instead,
+ * read-only even where given to write, since what it holds to write is
+ * the host's (/proc/sys, other processes' entries). `own` says whether
+ * the procfs is the child's own. 0, or an errno.
+ * TODO: keep a child from setting its own audit login id
+ * (/proc/self/loginuid), which it may while that is unset (the kernel
+ * asks no capability to set an unset one, unless audit's
+ * loginuid_immutable is on), so the host's audit log names the uid it
+ * chose for what its processes do: a per-process file cannot be bound
+ * over in a procfs, so this waits on a way to refuse the write -- a
+ * Landlock rule on /proc files, or a seccomp filter able to tell the
+ * path -- or on setting it from here to the parent's own, which the
+ * kernel only lets a process holding CAP_AUDIT_CONTROL do.
+ * TODO: refuse the sandbox where the kernel refuses a procfs of its
+ * own (EPERM, which build.filesystem_observations' `unconfinable` falls
+ * back on and `must_confine` fails), rather than bind the host's, once
+ * no container the tree is tested in masks /proc: CI's Linux legs run
+ * with systempaths=unconfined (.github/scripts/leg-container.sh), but a
+ * developer's docker may not. Meanwhile a child with the host's /proc
+ * cannot confine one of its own (EROFS writing its uid_map there), and
+ * sees the host's processes and state, whose pids are not the ones it
+ * is in (it is pid 2 of its own namespace). */
+static int place_proc (const char *target, int *own) {
+  *own = mount("proc", target, "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, "subset=pid") == 0;
+  if (*own) return 0;
+  if (errno != EPERM && errno != EINVAL) return errno;
+  if (mount("/proc", target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
+  struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
+  if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
+    return errno;
+  return 0;
+}
+
+/* In an unveiled child's program's process (`start_program`), in its
+ * namespaces -- user, pid, mount, System V IPC, and the network with
+ * `offline` -- before anything else of it:
+ * a root of the child's own, with a /tmp of its own unless /tmp or /
+ * is among the paths, holding the `count` paths at their own names --
+ * read-only, and every mount beneath them too, but where `writable`
+ * says; /proc a procfs of its own pid namespace (`place_proc`) -- and
+ * nothing else, so a path outside them is not there at all, to stat as
+ * to open. The paths are resolved, with no link or `..` left in them,
+ * and a shorter comes before a longer; `names` holds the names they
+ * were given by where one differs from its path, and NULL elsewhere,
+ * and each such name is a link in the root to its path, where no path
+ * given holds it already. `root` is an empty directory the parent made
+ * to build on; `mapped` says whether the child's user is mapped
+ * (`map_ids`). The root is this process's own and its working
+ * directory's, and every process's in the namespace whose root was the
+ * old one. 0, or an errno.
+ * TODO: remove the directory an unmapped child's root is built on once
+ * the child ends: its root and its /tmp are that directory, in its
+ * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
+ * behind with what the child wrote to its /tmp. Removing it sooner
+ * would take the child's mounts from under it, so this waits on the
+ * process table's `waitpid` removing a directory its `spawn` handed the
+ * reaped child's pid.
+ * A UTS namespace would change nothing a child sees: its host's name
+ * and kernel stay what `uname` answers, which no key holds. */
+static int build_root (const char *root, char *const *paths, char *const *names,
+                       const int *writable, int count, int mapped) {
+  int number = 0;
+  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
+  /* A tmpfs of this namespace takes no file from a user it does not
+   * map: an unmapped one builds on `root` itself, which its parent's
+   * namespace maps it on. */
+  if (mapped ? mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0
+             : mount(root, root, NULL, MS_BIND, NULL) != 0)
+    return errno;
+  char target[PATH_MAX];
+  /* A /tmp of its own, writable and empty but for the paths given
+   * beneath the host's, which a program takes for granted -- unless
+   * /tmp or / is given, under its own name or another; mounted first,
+   * so a path given beneath the host's /tmp is bound into it. */
+  int tmp = 1;
+  for (int i = 0; i < count; i++) {
+    if (strcmp(paths[i], "/tmp") == 0 || strcmp(paths[i], "/") == 0 ||
+        (names[i] != NULL && strcmp(names[i], "/tmp") == 0)) {
+      tmp = 0;
+    }
+  }
+  if (tmp) {
+    int made = snprintf(target, sizeof target, "%s/tmp", root);
+    if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
+    if (mkdir(target, 01777) != 0) return errno;
+    if (mapped ? mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0
+               : chmod(target, 01777) != 0 || mount(target, target, NULL, MS_BIND, NULL) != 0)
+      return errno;
+  }
+  int own_proc = 0;
+  for (int i = 0; i < count; i++) {
+    /* A procfs of its own holds nothing of the host's to bind: a path
+     * beneath /proc given besides it is not there. */
+    if (own_proc && strncmp(paths[i], "/proc/", 6) == 0) continue;
+    struct stat st;
+    if (stat(paths[i], &st) != 0) return errno;
+    int length = snprintf(target, sizeof target, "%s%s", root, paths[i]);
+    if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
+    struct stat there;
+    if (lstat(target, &there) != 0) {
+      if ((number = make_parents(target, strlen(root))) != 0) return number;
+      if (S_ISDIR(st.st_mode)) {
+        if (mkdir(target, 0755) != 0 && errno != EEXIST) return errno;
+      } else {
+        int fd = open(target, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+        if (fd < 0) return errno;
+        close(fd);
+      }
+    }
+    if (strcmp(paths[i], "/proc") == 0) {
+      number = place_proc(target, &own_proc);
+      if (number != 0) return number;
+      continue;
+    }
+    if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
+    /* A path in the host's /proc is its state, read-only whoever asks. */
+    if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0) {
+      struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
+      if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
+        return errno;
+    }
+  }
+  for (int i = 0; i < count; i++) {
+    if (names[i] == NULL) continue;
+    int held = 0;
+    for (int j = 0; j < count && !held; j++) {
+      size_t n = strlen(paths[j]);
+      held = strncmp(names[i], paths[j], n) == 0 &&
+             (names[i][n] == '/' || names[i][n] == '\0' || n == 1);
+    }
+    if (held) continue;
+    int length = snprintf(target, sizeof target, "%s%s", root, names[i]);
+    if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
+    if ((number = make_link(target, strlen(root), paths[i])) != 0) return number;
+  }
+  /* With /proc, the links into it a program expects in /dev, as a
+   * container's root has them. */
+  /* A /dev given whole has its own, or has none to make. */
+  int proc = 0, dev = 0;
+  for (int i = 0; i < count; i++) {
+    proc = proc || strcmp(paths[i], "/proc") == 0;
+    dev = dev || strcmp(paths[i], "/dev") == 0 || strcmp(paths[i], "/") == 0;
+  }
+  static const char *const dev_links[][2] = {
+    { "/dev/fd", "/proc/self/fd" }, { "/dev/stdin", "/proc/self/fd/0" },
+    { "/dev/stdout", "/proc/self/fd/1" }, { "/dev/stderr", "/proc/self/fd/2" },
+  };
+  for (size_t i = 0; proc && !dev && i < sizeof dev_links / sizeof dev_links[0]; i++) {
+    int made = snprintf(target, sizeof target, "%s%s", root, dev_links[i][0]);
+    if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
+    if ((number = make_link(target, strlen(root), dev_links[i][1])) != 0) return number;
+  }
+  int length = snprintf(target, sizeof target, "%s/.old", root);
+  if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
+  if (mkdir(target, 0700) != 0) return errno;
+  if (syscall(SYS_pivot_root, root, target) != 0) return errno;
+  if (chdir("/") != 0) return errno;
+  if (umount2("/.old", MNT_DETACH) != 0) return errno;
+  if (rmdir("/.old") != 0) return errno;
+  /* Nothing is made at the root itself once it is built. */
+  if (mount(NULL, "/", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY | MS_NOSUID | MS_NODEV, NULL) != 0)
+    return errno;
+  return 0;
+}
+
+/* In a child that is `offline` and unveils nothing, before anything
+ * else of the sandbox: a user namespace of its own, mapping its user
+ * and group to themselves, and a network namespace of its own, which
+ * has nothing but a loopback, brought up; then it gives up every
+ * capability they gave it. It keeps the host's pid namespace, as it
+ * keeps the host's filesystem and /proc with it. 0, or an errno. */
+static int go_offline (int unmap_root, const char *uid_map, const char *gid_map) {
+  if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWNET) != 0) return errno;
+  int mapped = 1;
+  int number = map_ids(unmap_root, uid_map, gid_map, &mapped);
+  if (number == 0) number = loopback_up();
+  if (number == 0) number = drop_capabilities();
+  return number;
 }
 #endif
 
@@ -981,11 +965,19 @@ struct spawn_plan {
   int unveil_count;
   const char *uid_map;
   const char *gid_map;
-  /* Whether /proc is given with its processes' own entries writable
-   * (`guard_proc`), and whether the child is root in a user namespace
-   * not the host's, which may not map root into one of its own. */
-  int nest;
+  /* Whether the child is root in a user namespace not the host's, which
+   * may not map root into one of its own. */
   int unmap_root;
+#if defined(__linux__)
+  /* For an unveiled child: the tops of the stacks its init and its
+   * program start on (`start_unveiled`), and where it writes their
+   * pids, the one thing of the parent's it writes besides its coverage
+   * flags. */
+  char *init_stack;
+  char *program_stack;
+  pid_t *init;
+  pid_t *program;
+#endif
   /* The parent's signal mask from before it blocked every signal to
    * start the child, which the program is to start with. */
   sigset_t mask;
@@ -1019,6 +1011,258 @@ static void default_signals (void) {
   }
 }
 
+/* The rest of a child's start once its sandbox's namespaces are made
+ * (`spawn_child`): its process group -- for an unveiled child, a
+ * session of its own, and so a group of its own whatever
+ * `process_group` says, so the autogroup its writable /proc lets it set
+ * (/proc/self/autogroup) is the sandbox's, not its parent's session's --
+ * its directory, its descriptors moved from where `pinned` holds them,
+ * Landlock's `confined` ruleset and the pledge, the parent's mask, and
+ * exec. A failure goes to the parent over `status_fd` as an errno. */
+static _Noreturn void run_program (const struct spawn_plan *plan, const int *pinned,
+                                   int confined, int status_fd) {
+  int top = plan->top;
+  int failure = 0;
+  if (plan->unveiling) {
+    if (setsid() < 0) failure = errno;
+  } else if (plan->process_group && setpgid(0, 0) != 0) {
+    failure = errno;
+  }
+  if (!failure && plan->cwd != NULL && chdir(plan->cwd) != 0) failure = errno;
+  for (int t = 0; !failure && t <= top; t++) {
+    if (pinned[t] >= 0) {
+      if (dup2(pinned[t], t) < 0) failure = errno;
+    } else if (t < 3) {
+      /* An inherited stdio descriptor must be as safe for exec as a
+       * mapped one. */
+      int flags = fcntl(t, F_GETFD);
+      if (flags >= 0) {
+        if (fcntl(t, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
+      } else if (errno != EBADF) {
+        failure = errno;
+      }
+    } else {
+      close(t);
+    }
+  }
+  /* Confined last, just before exec: what the child and every process
+   * it starts may reach is the ruleset's, and nothing lets it off.
+   * TODO: let a ruleset that names /proc reach an unveiled child's own
+   * /proc, as it reaches the host's where the child has that
+   * (`place_proc`), once `landlock_ruleset` records which paths a
+   * ruleset holds: adding the rule here, in the child, would widen the
+   * caller's ruleset for every later child besides, and a ruleset that
+   * left /proc out would gain it. Until then a child held to one reads
+   * nothing of its own /proc. */
+  if (!failure && confined >= 0) {
+#if defined(__linux__)
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
+    else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
+#else
+    failure = ENOSYS;
+#endif
+  }
+  /* A pledge last of all: the filter would refuse nothing above, but
+   * it is the one a later step could trip over. */
+  if (!failure && plan->pledged) {
+#if defined(PLEDGE_ARCH)
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
+    else if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, plan->pledge) != 0) failure = errno;
+#else
+    failure = ENOSYS;
+#endif
+  }
+  close_child_descriptors(top + 2, plan->descriptor_limit);
+  /* The program starts with the parent's own mask; a signal pending
+   * since the start is delivered now, at its default. */
+  if (!failure && sigprocmask(SIG_SETMASK, &plan->mask, NULL) != 0) failure = errno;
+  if (!failure) execve(plan->path, plan->argv, plan->envp);
+  if (!failure) failure = errno;
+  report_child_error(status_fd, failure);
+  _exit(127);
+}
+
+#if defined(__linux__)
+#ifndef SYS_pidfd_open
+#define SYS_pidfd_open 434
+#endif
+#ifndef AT_EMPTY_PATH
+#define AT_EMPTY_PATH 0x1000
+#endif
+
+/* What an unveiled child (`start_unveiled`) shares with the init and
+ * the program it starts, each on its memory and each while it waits:
+ * the plan, and the descriptors `spawn_child` placed; whether its user
+ * is mapped; this program, the pipe ends the init takes, and the
+ * errno the init failed with before its exec, which the init writes. */
+struct sandbox_start {
+  const struct spawn_plan *plan;
+  const int *pinned;
+  int confined;
+  int status_fd;
+  int mapped;
+  int exe;
+  int started;
+  int ready;
+  int init_error;
+};
+
+/* `fd`, or -1 with errno, moved above every descriptor a child is
+ * handed (`top` + 2 on) and close-on-exec, at `placed`: so none can
+ * land on a descriptor the program is to have, nor reach it. 0, or an
+ * errno. */
+static int raise_descriptor (int fd, int top, int *placed) {
+  *placed = -1;
+  if (fd < 0) return errno;
+  *placed = fcntl(fd, F_DUPFD_CLOEXEC, top + 2);
+  int number = *placed < 0 ? errno : 0;
+  close(fd);
+  return number;
+}
+
+/* The sandbox's init, on the unveiled child's memory from its start to
+ * its exec: the first process in the child's pid namespace, it gives up
+ * its capabilities and executes this very program as
+ * `cosmic_sandbox_init`, holding the started pipe's read end as 0, the
+ * ready pipe's write end as 1 and the parent's status pipe's write end
+ * as 2, and nothing else -- from / as the host has it still, where a
+ * core linked dynamically (the checked one) finds its loader and
+ * libraries, whatever the child is given. Its root and directory move
+ * to the child's own when the program pivots (`start_program`). A
+ * failure before that exec is its errno in the shared `init_error`. */
+static _Noreturn int start_init (void *argument) {
+  struct sandbox_start *start = argument;
+  const struct spawn_plan *plan = start->plan;
+  int failure = drop_capabilities();
+  if (!failure && chdir("/") != 0) failure = errno;
+  /* Each source but the status pipe's is above the child's descriptors
+   * (`raise_descriptor`), and that one, just above them, is moved
+   * before 3 is written: so none is overwritten by the moves. */
+  const int from[4] = { start->started, start->ready, start->status_fd, start->exe };
+  for (int t = 0; !failure && t < 4; t++) {
+    if (dup2(from[t], t) < 0) failure = errno;
+  }
+  if (!failure && fcntl(3, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
+  if (!failure) {
+    close_child_descriptors(4, plan->descriptor_limit);
+    char *argv[] = { (char *)COSMIC_SANDBOX_INIT, NULL };
+    char *envp[] = { NULL };
+    syscall(SYS_execveat, 3, "", argv, envp, AT_EMPTY_PATH);
+    failure = errno;
+  }
+  start->init_error = failure;
+  _exit(127);
+}
+
+/* The program's process, on the unveiled child's memory from its start
+ * to its exec: the second in the pid namespace, and, started with
+ * CLONE_PARENT, the parent's own child, as a child unconfined is. It
+ * builds the root, in the pid namespace as a procfs's mounter must be
+ * to hold it (`build_root`), gives up its capabilities, and runs the
+ * program (`run_program`). */
+static _Noreturn int start_program (void *argument) {
+  const struct sandbox_start *start = argument;
+  const struct spawn_plan *plan = start->plan;
+  int failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
+                           plan->unveiled_writable, plan->unveil_count,
+                           start->mapped);
+  if (!failure) failure = drop_capabilities();
+  if (failure) {
+    report_child_error(start->status_fd, failure);
+    _exit(127);
+  }
+  run_program(plan, start->pinned, start->confined, start->status_fd);
+}
+
+/* An unveiled child, from where `spawn_child` placed its descriptors:
+ * it makes a user namespace of its own, which it maps (`map_ids`), a pid
+ * namespace for what it starts, a mount namespace, System V IPC, and
+ * with `offline` a network namespace with its loopback up
+ * (`loopback_up`). The init it starts first is pid 1 of that namespace
+ * (`start_init`); the program it starts next is pid 2, the parent's
+ * child (`start_program`): signalled, stopped and reaped as any child
+ * is, with the exit status its own, rather than a pid 1's, from which a
+ * signal the program does not catch -- a SIGTERM, its own abort() --
+ * would be dropped. Its pid is the one `spawn` answers. So the
+ * program's own processes see, and signal, none but each other and
+ * that init, which ignores them. The init is the parent's child too
+ * (CLONE_PARENT), so no subreaper adopts it when this process ends, as
+ * one would a stray (`waitpid` ends and reaps it with its program:
+ * `end_sandbox_init`), and it ends if the parent does. This
+ * process waits for the init to be past its exec -- until then it
+ * shares this memory -- and to have made itself undumpable, so no
+ * program of the same user in the sandbox can ptrace it; then it starts
+ * the program, and ends when the program has exec'd: the pipe the init
+ * reads then ends, once the program's copy of it is closed at exec. A
+ * failure goes to the parent over `status_fd` as an errno. */
+static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *pinned,
+                                      int confined, int status_fd) {
+  struct sandbox_start start = { plan, pinned, confined, status_fd, 1, -1, -1, -1, 0 };
+  int top = plan->top;
+  /* Through unshare, not clone's flags, which a container's seccomp
+   * profile refuses where it lets unshare through (Docker's default,
+   * narrowed as CI's is). Each namespace but the user's is the new
+   * user namespace's own. */
+  int flags = CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWIPC |
+              (plan->offline ? CLONE_NEWNET : 0);
+  int failure = 0;
+  if (syscall(SYS_unshare, flags) != 0) failure = errno;
+  if (!failure) failure = map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped);
+  if (!failure && plan->offline) failure = loopback_up();
+  if (!failure)
+    failure = raise_descriptor(open("/proc/self/exe", O_RDONLY | O_CLOEXEC), top, &start.exe);
+  int started[2] = { -1, -1 }, ready[2] = { -1, -1 };
+  for (int p = 0; !failure && p < 2; p++) {
+    int *ends = p == 0 ? started : ready;
+    int made[2];
+    if (pipe(made) != 0) {
+      failure = errno;
+      break;
+    }
+    failure = raise_descriptor(made[0], top, &ends[0]);
+    int other = raise_descriptor(made[1], top, &ends[1]);
+    if (!failure) failure = other;
+  }
+  if (!failure) {
+    start.started = started[0];
+    start.ready = ready[1];
+    pid_t init = clone(start_init, plan->init_stack,
+                       CLONE_VM | CLONE_VFORK | CLONE_PARENT | SIGCHLD, &start);
+    if (init < 0) {
+      failure = errno;
+    } else {
+      *plan->init = init;
+      failure = start.init_error;
+    }
+  }
+  /* Its own copies of what the init took: the ready pipe then ends
+   * when the init has answered, or has died. */
+  if (started[0] >= 0) close(started[0]);
+  if (ready[1] >= 0) close(ready[1]);
+  if (start.exe >= 0) close(start.exe);
+  if (!failure) {
+    int answer = 0;
+    size_t received = 0;
+    while (received < sizeof answer) {
+      ssize_t got = read(ready[0], (char *)&answer + received, sizeof answer - received);
+      if (got < 0 && errno == EINTR) continue;
+      if (got <= 0) break;
+      received += (size_t)got;
+    }
+    failure = received == sizeof answer ? answer : ECHILD;
+  }
+  if (ready[0] >= 0) close(ready[0]);
+  if (!failure) {
+    pid_t program = clone(start_program, plan->program_stack,
+                          CLONE_VM | CLONE_VFORK | CLONE_PARENT | SIGCHLD, &start);
+    if (program < 0) failure = errno;
+    else *plan->program = program;
+  }
+  if (failure) report_child_error(status_fd, failure);
+  _exit(failure ? 127 : 0);
+}
+#endif
+
 /* The child `cosmic_spawn_unobserved` starts, from its start to exec:
  * on Linux on the parent's memory, through clone(CLONE_VM | CLONE_VFORK)
  * on a stack of its own, the parent stopped until this execs or ends;
@@ -1029,7 +1273,8 @@ static void default_signals (void) {
  * one place on Linux: the coverage flag of each function it enters
  * (core/coverage.h), so a test is credited with what its child ran, and
  * on the checked core the sanitizer runtime's state (UBSan's report
- * dedup), which a report from here would write. On Darwin those flags
+ * dedup), which a report from here would write; an unveiled one writes
+ * its program's pid too (`start_unveiled`). On Darwin those flags
  * land in the copy and are lost with it, so build/c_functions.tl
  * exempts this function there. It leaves by exec or _exit, never by
  * returning, so no atexit handler or stdio flush runs. A failure goes to
@@ -1079,63 +1324,99 @@ static _Noreturn int spawn_child (void *argument) {
   /* The sandbox's own namespaces first: the root the rest resolves in,
    * and mounting, which Landlock and a pledge would refuse. */
 #if defined(__linux__)
-  if (plan->unveiling || plan->offline) {
-    failure = unveil(plan->root_dir, plan->resolved_paths, plan->given_names,
-                     plan->unveiled_writable, plan->unveil_count, plan->unveiling,
-                     plan->offline, plan->nest, plan->unmap_root, plan->uid_map,
-                     plan->gid_map);
+  if (plan->unveiling) start_unveiled(plan, pinned, confined, status_fd);
+  if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map)) != 0) {
+    report_child_error(status_fd, failure);
+    _exit(127);
   }
 #endif
-  if (!failure && plan->process_group && setpgid(0, 0) != 0) failure = errno;
-  if (!failure && plan->cwd != NULL && chdir(plan->cwd) != 0) failure = errno;
-  for (int t = 0; !failure && t <= top; t++) {
-    if (pinned[t] >= 0) {
-      if (dup2(pinned[t], t) < 0) failure = errno;
-    } else if (t < 3) {
-      /* An inherited stdio descriptor must be as safe for exec as a
-       * mapped one. */
-      int flags = fcntl(t, F_GETFD);
-      if (flags >= 0) {
-        if (fcntl(t, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
-      } else if (errno != EBADF) {
-        failure = errno;
-      }
-    } else {
-      close(t);
-    }
-  }
-  /* Confined last, just before exec: what the child and every process
-   * it starts may reach is the ruleset's, and nothing lets it off. */
-  if (!failure && confined >= 0) {
-#if defined(__linux__)
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
-    else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
-#else
-    failure = ENOSYS;
-#endif
-  }
-  /* A pledge last of all: the filter would refuse nothing above, but
-   * it is the one a later step could trip over. */
-  if (!failure && plan->pledged) {
-#if defined(PLEDGE_ARCH)
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
-    else if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, plan->pledge) != 0) failure = errno;
-#else
-    failure = ENOSYS;
-#endif
-  }
-  close_child_descriptors(top + 2, plan->descriptor_limit);
-  /* The program starts with the parent's own mask; a signal pending
-   * since the start is delivered now, at its default. */
-  if (!failure && sigprocmask(SIG_SETMASK, &plan->mask, NULL) != 0) failure = errno;
-  if (!failure) execve(plan->path, plan->argv, plan->envp);
-  if (!failure) failure = errno;
-  report_child_error(status_fd, failure);
-  _exit(127);
+  run_program(plan, pinned, confined, status_fd);
 }
 
+#if defined(__linux__)
+/* The kind of descriptor `fd` is (S_IFIFO and the like), or 0 where it
+ * is none. */
+static mode_t descriptor_kind (int fd) {
+  struct stat st;
+  if (fstat(fd, &st) != 0) return 0;
+  return st.st_mode & S_IFMT;
+}
+
+bool cosmic_sandbox_init_asked (int argc, char **argv) {
+  return argc == 1 && strcmp(argv[0], COSMIC_SANDBOX_INIT) == 0 && getpid() == 1 &&
+         (COSMIC_ENVIRON == NULL || COSMIC_ENVIRON[0] == NULL) &&
+         descriptor_kind(0) == S_IFIFO && descriptor_kind(1) == S_IFIFO &&
+         descriptor_kind(2) == S_IFIFO;
+}
+
+/* The sandbox's init, as `start_init` executes this program: pid 1 of
+ * an unveiled child's pid namespace, which ends, and every process left
+ * in it with it, when it does. It starts a session of its own, so the
+ * autogroup a process in the sandbox could set through /proc/1 is not
+ * its parent's session's; makes itself undumpable, so no process in the
+ * sandbox, which has its user, can ptrace it; and ends when its parent
+ * does (PR_SET_PDEATHSIG), so the parent's end -- a runner ended by
+ * Ctrl-C, or killed -- ends the sandbox too: it holds the parent's
+ * status pipe on 2, which the parent reads from until the program has
+ * started, so a parent already gone by the time the signal is set is
+ * seen there, as a pipe with no reader. It says so -- 0, or an errno --
+ * on 1; then it waits for 0 to end, which it does once the program has
+ * exec'd or failed to, and for the program, pid 2, to end, reaping
+ * meanwhile every process the namespace orphans. Every signal stays
+ * blocked, as it started: pid 1 takes none it does not catch from its
+ * own namespace, and from outside it only SIGKILL and SIGSTOP. */
+_Noreturn void cosmic_sandbox_init (void) {
+  sigset_t every;
+  sigfillset(&every);
+  int failure = 0;
+  if (sigprocmask(SIG_SETMASK, &every, NULL) != 0) failure = errno;
+  if (!failure && setsid() < 0) failure = errno;
+  if (!failure && prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0) failure = errno;
+  if (!failure && prctl(PR_SET_NAME, COSMIC_SANDBOX_INIT_COMM, 0, 0, 0) != 0) failure = errno;
+  if (!failure && prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0) failure = errno;
+  if (!failure) {
+    struct pollfd parent = { 2, POLLOUT, 0 };
+    if (poll(&parent, 1, 0) < 0) failure = errno;
+    else if (parent.revents & (POLLERR | POLLHUP)) _exit(127);
+  }
+  close(2);
+  /* The kernel's own signal set, one bit per signal: SIGCHLD alone. */
+  uint64_t chld = (uint64_t)1 << (SIGCHLD - 1);
+  int children = -1;
+  if (!failure) {
+    children = (int)syscall(SYS_signalfd4, -1, &chld, sizeof chld, O_CLOEXEC);
+    if (children < 0) failure = errno;
+  }
+  report_child_error(1, failure);
+  close(1);
+  if (failure) _exit(127);
+  char byte;
+  for (;;) {
+    ssize_t got = read(0, &byte, 1);
+    if (got == 0 || (got < 0 && errno != EINTR)) break;
+  }
+  close(0);
+  int program = (int)syscall(SYS_pidfd_open, 2, 0);
+  if (program < 0 && errno == ESRCH) _exit(0);
+  /* Where a filter refuses pidfd_open, the program is looked for every
+   * tenth of a second instead: it is there, a zombie too, until the
+   * parent reaps it. */
+  struct pollfd waiting[2] = { { program, POLLIN, 0 }, { children, POLLIN, 0 } };
+  for (;;) {
+    while (waitpid(-1, NULL, WNOHANG) > 0) {}
+    if (program < 0 && kill(2, 0) != 0 && errno == ESRCH) _exit(0);
+    if (poll(waiting, 2, program < 0 ? 100 : -1) < 0 && errno != EINTR) _exit(127);
+    if (waiting[0].revents != 0) _exit(0);
+    if (waiting[1].revents != 0) {
+      char info[128];
+      if (read(children, info, sizeof info) < 0 && errno != EINTR) _exit(127);
+    }
+  }
+}
+#endif
+
 /* The stack a Linux child runs `spawn_child` on, above a guard page:
- * the most it needs is `unveil`'s paths and a libc's formatting, well
+ * the most it needs is `build_root`'s paths and a libc's formatting, well
  * under this, and only the pages it touches are ever made. */
 #define SPAWN_STACK_SIZE (256 * 1024)
 
@@ -1172,17 +1453,30 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
 #if defined(__linux__)
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) page = 4096;
-  size_t size = SPAWN_STACK_SIZE + (size_t)page;
+  /* One stack, or, for an unveiled child, three: its own, its init's and
+   * its program's (`start_unveiled`), each above a guard page of its own. */
+  size_t each = SPAWN_STACK_SIZE + (size_t)page;
+  int stacks = plan->unveiling ? 3 : 1;
+  size_t size = each * (size_t)stacks;
   char *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  int guarded = stack != MAP_FAILED;
+  for (int s = 0; guarded && s < stacks; s++) {
+    guarded = mprotect(stack + each * (size_t)s, (size_t)page, PROT_NONE) == 0;
+  }
   if (stack == MAP_FAILED) {
     *error = errno;
-  } else if (mprotect(stack, (size_t)page, PROT_NONE) != 0) {
+  } else if (!guarded) {
     *error = errno;
     munmap(stack, size);
   } else {
-    pid = clone(spawn_child, stack + size, CLONE_VM | CLONE_VFORK | SIGCHLD, plan);
+    if (plan->unveiling) {
+      plan->init_stack = stack + each * 2;
+      plan->program_stack = stack + each * 3;
+    }
+    pid = clone(spawn_child, stack + each, CLONE_VM | CLONE_VFORK | SIGCHLD, plan);
     if (pid < 0) *error = errno;
-    /* The child has exec'd or ended: its stack is done with. */
+    /* The child has exec'd or ended, and an unveiled one has waited for
+     * its init's exec and its program's: every stack is done with. */
     munmap(stack, size);
   }
 #else
@@ -1214,6 +1508,119 @@ COSMIC_SYSCALL(spawn, 10) {
     }
   }
   return cosmic_spawn_unobserved(L);
+}
+
+#if defined(__linux__)
+/* An unveiled child's init and program, each this process's own child
+ * (`start_unveiled`), until the init is reaped: `program` is -1 once the
+ * program has been, and `init` once the init has. */
+struct sandbox_pair {
+  pid_t init;
+  pid_t program;
+};
+
+/* Every such pair this process has not seen the end of, in `pairs`,
+ * `pair_count` of them in room for `pair_room`. Room is made before a
+ * child starts (`sandbox_room`), so recording one never fails. */
+static struct sandbox_pair *pairs;
+static size_t pair_count, pair_room;
+
+/* Room for one more pair: true, or false with errno ENOMEM. */
+static bool sandbox_room (void) {
+  if (pair_count < pair_room) return true;
+  size_t room = pair_room == 0 ? 16 : pair_room * 2;
+  struct sandbox_pair *grown = realloc(pairs, room * sizeof *grown);
+  if (grown == NULL) {
+    errno = ENOMEM;
+    return false;
+  }
+  pairs = grown;
+  pair_room = room;
+  return true;
+}
+
+/* Reaps the init of the pair at `at`, whose program is gone, waiting at
+ * most a second: it is sent SIGKILL -- its pid is still its own, not
+ * reaped -- which ends every process left in its namespace before the
+ * init itself ends, so once it is reaped nothing of the sandbox runs. A
+ * pair whose init is reaped is forgotten; one whose init outlasts the
+ * second -- a process in the namespace the kernel cannot end, stuck in
+ * an uninterruptible wait -- is kept, for `end_sandbox_inits` to reap
+ * later. */
+static void end_sandbox_init (size_t at) {
+  pid_t init = pairs[at].init;
+  pairs[at].program = -1;
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  int64_t deadline = (int64_t)now.tv_sec * 1000000000 + now.tv_nsec + 1000000000;
+  /* Its end is waited for on a pidfd where the kernel gives one, and
+   * looked for every tenth of a millisecond where not, until the second
+   * is up, however often a signal breaks the wait. */
+  int watched = (int)syscall(SYS_pidfd_open, init, 0);
+  kill(init, SIGKILL);
+  for (;;) {
+    int ignored;
+    pid_t answer = waitpid(init, &ignored, WNOHANG);
+    if (answer == init || (answer < 0 && errno == ECHILD)) {
+      pairs[at] = pairs[--pair_count];
+      break;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int64_t left = deadline - ((int64_t)now.tv_sec * 1000000000 + now.tv_nsec);
+    if (left <= 0) break;
+    if (watched >= 0) {
+      struct pollfd ended = { watched, POLLIN, 0 };
+      int milliseconds = (int)((left + 999999) / 1000000);
+      if (poll(&ended, 1, milliseconds) < 0 && errno != EINTR) break;
+    } else {
+      struct timespec pause = { 0, left < 100000 ? (long)left : 100000 };
+      nanosleep(&pause, NULL);
+    }
+  }
+  if (watched >= 0) close(watched);
+}
+
+/* Reaps, without waiting, every init whose program is gone and that a
+ * second was not enough for (`end_sandbox_init`). */
+static void end_sandbox_inits (void) {
+  for (size_t at = 0; at < pair_count;) {
+    int ignored;
+    if (pairs[at].program < 0 && waitpid(pairs[at].init, &ignored, WNOHANG) != 0) {
+      pairs[at] = pairs[--pair_count];
+    } else {
+      at++;
+    }
+  }
+}
+
+/* What a wait that reaped `pid` means for the pairs: a program's reaping
+ * ends its init (`end_sandbox_init`), and an init's forgets its pair. */
+static void sandbox_reaped (pid_t pid) {
+  for (size_t at = 0; at < pair_count; at++) {
+    if (pairs[at].program == pid) {
+      end_sandbox_init(at);
+      return;
+    }
+    if (pairs[at].init == pid) {
+      pairs[at] = pairs[--pair_count];
+      return;
+    }
+  }
+}
+#endif
+
+COSMIC_SYSCALL(sandbox_inits, 0) {
+#if defined(__linux__)
+  if (pair_count > (size_t)INT_MAX) return luaL_error(L, "too many sandboxes");
+  lua_createtable(L, (int)pair_count, 0);
+  for (size_t at = 0; at < pair_count; at++) {
+    lua_pushinteger(L, (lua_Integer)pairs[at].init);
+    lua_rawseti(L, -2, (lua_Integer)at + 1);
+  }
+#else
+  lua_newtable(L);
+#endif
+  return 1;
 }
 
 int cosmic_spawn_unobserved (lua_State *L) {
@@ -1261,7 +1668,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
   int pledged = 0, unix_ok = 0, inet_ok = 0;
   const char *unveiled[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
-  int unveiling = 0, unveil_count = 0, offline = 0, nest = 0;
+  int unveiling = 0, unveil_count = 0, offline = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
     lua_pushliteral(L, "ruleset");
@@ -1318,10 +1725,6 @@ int cosmic_spawn_unobserved (lua_State *L) {
         }
         lua_pop(L, 1);
       }
-      lua_pushliteral(L, "nest");
-      lua_rawget(L, -2);
-      nest = lua_toboolean(L, -1);
-      lua_pop(L, 1);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "offline");
@@ -1331,6 +1734,8 @@ int cosmic_spawn_unobserved (lua_State *L) {
   }
 #if !defined(__linux__)
   if (unveiling || offline) return cosmic_fail(L, ENOSYS);
+#else
+  if (unveiling && !sandbox_room()) return cosmic_fail(L, errno);
 #endif
   char uid_map[64], gid_map[64];
   snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
@@ -1525,8 +1930,15 @@ int cosmic_spawn_unobserved (lua_State *L) {
     .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
     .resolved_paths = resolved_paths, .given_names = given_names,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
-    .uid_map = uid_map, .gid_map = gid_map, .nest = nest, .unmap_root = unmap_root,
+    .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
   };
+  pid_t program = -1;
+#if defined(__linux__)
+  pid_t init = -1;
+  plan.init = &init;
+  plan.program = &program;
+  end_sandbox_inits();
+#endif
   int fork_error = 0;
   pid_t pid = start_child(&plan, &fork_error);
   close(status_write);
@@ -1538,6 +1950,25 @@ int cosmic_spawn_unobserved (lua_State *L) {
     close(status_read);
     if (root_dir[0] != '\0') rmdir(root_dir);
     return cosmic_fail(L, fork_error);
+  }
+  /* An unveiled child has ended once it started its program, which is
+   * this process's child in its place (`start_unveiled`), or failed to. */
+  if (unveiling) {
+    int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+    pid = program;
+#if defined(__linux__)
+    /* Room was made before the child started, but a finalizer the Lua
+     * calls since then ran could have spawned into it: where there is
+     * none left and no more to be had, the init is ended at once, and
+     * its program with it, rather than left for `end_strays` to take
+     * for a stray. */
+    if (init > 0 && (pair_count < pair_room || sandbox_room())) {
+      pairs[pair_count++] = (struct sandbox_pair){ init, program };
+      if (program < 0) end_sandbox_init(pair_count - 1);
+    } else if (init > 0) {
+      kill(init, SIGKILL);
+    }
+#endif
   }
 
   int child_error = 0;
@@ -1554,8 +1985,11 @@ int cosmic_spawn_unobserved (lua_State *L) {
   }
   close(status_read);
   if (root_dir[0] != '\0') rmdir(root_dir);
-  if (received != 0 || read_error != 0) {
-    int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+  if (received != 0 || read_error != 0 || pid < 0) {
+    int ignored; while (pid > 0 && waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+#if defined(__linux__)
+    if (pid > 0) sandbox_reaped(pid);
+#endif
     return cosmic_fail(L, received == sizeof child_error ? child_error :
                        (read_error != 0 ? read_error : EIO));
   }
@@ -1581,6 +2015,10 @@ COSMIC_SYSCALL(waitpid, 2) {
   do { answer = waitpid(pid, &status, nohang ? WNOHANG : 0); }
   while (answer < 0 && errno == EINTR);
   if (answer < 0) return cosmic_fail(L, errno);
+#if defined(__linux__)
+  if (answer > 0) sandbox_reaped(answer);
+  end_sandbox_inits();
+#endif
   lua_pushinteger(L, answer);
   lua_rawset(L, -5);
   lua_pushinteger(L, answer > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1);
