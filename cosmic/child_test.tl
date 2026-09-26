@@ -688,6 +688,34 @@ local function test_options_are_validated()
   assert(not pcall(Child.start, { "/bin/sh" }, { capture_limit = 0 } as Child.Options))
 end
 
+--- A child started with a `sandbox` has only what it unveils, a path
+--- at the name `at` gives it, and is held there with every process it
+--- starts; a relative unveiled path is refused. Where the kernel will not
+--- sandbox a child (not Linux, or no unprivileged user namespaces), the
+--- start fails and says why, but under COSMIC_SANDBOX=must.
+local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
+  local given, hidden = tmp .. "/given", tmp .. "/hidden"
+  assert(Fs.mkdirs(given))
+  assert(Fs.mkdirs(hidden))
+  assert(Fs.write(given .. "/f", "in"))
+  local reads: {string} = { given }
+  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64", "/etc", "/proc", "/dev/null" }) do
+    if path_exists(dir) then reads[#reads + 1] = dir end
+  end
+  local r, trouble = Child.run({ "/bin/sh", "-c",
+    "cat f; echo; pwd; test -e " .. hidden .. " && echo hidden-seen || echo hidden-absent; " ..
+    "sh -c 'test -e " .. given .. " && echo own-name || echo no-own-name'" },
+    { cwd = "/given", stdout = "capture", stderr = "stdout",
+      sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } })
+  if r == nil then
+    assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. trouble)
+    return
+  end
+  assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))
+  assert(not pcall(Child.start, { "/bin/sh" },
+    { sandbox = { unveil = { reads = { "relative" } } } } as Child.Options))
+end
+
 local function test_start_refuses_a_timeout_it_would_not_honour()
   local ok, message = pcall(Child.start, { "/bin/sh", "-c", "exit 0" },
     { timeout_ms = 10 } as Child.Options)

@@ -137,7 +137,7 @@ end
 
 local function test_too_many(tmp: string)
   local many: {string} = {}
-  for i = 1, 70 do many[i] = tmp .. "/many" .. tostring(i) end
+  for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
   observations.must_confine({ reads = many })
   local _, _ = Child.run({ "/bin/sh", "-c", "true" })
   observations.confine(nil)
@@ -168,7 +168,7 @@ end
   assert(raised:sub(1, #refused + 12) == refused .. "; and then: " and
     raised:find("its own failure$"), text)
   assert(assert(failure(text, "test_too_many")):find("^must_confine: /bin/sh could not start " ..
-    "confined: unveil could not be applied: %d+ paths, more than the 64 a sandbox unveils " ..
+    "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
     "%(EINVAL%)$"), text)
   assert(assert(failure(text, "test_pledged_alone")):find("^must_confine: /bin/sh could not " ..
     "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
@@ -252,7 +252,7 @@ local observations = package.loaded["build.filesystem_observations"] as Observat
 
 local function test_falls_back(tmp: string)
   local many: {string} = {}
-  for i = 1, 70 do many[i] = tmp .. "/many" .. tostring(i) end
+  for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
   observations.confine({ reads = many })
   local _, _ = Child.run({ "/bin/sh", "-c", "true" })
   observations.confine(nil)

@@ -252,3 +252,55 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
     if not case.ok then Fixture.contains(outcome.err, "cannot confine a test") end
   end
 end
+
+--- The sandboxed phase runs the native suite with each worker sandboxed,
+--- writes how many tests failed so, and which, to the summary, and
+--- answers the suite's status -- a shadow ci.yml does not let fail a
+--- leg; where no worker was sandboxed and COSMIC_CI_REQUIRE_SANDBOX=1
+--- it fails saying so.
+local function test_the_sandboxed_phase_reports_what_failed_sandboxed(tmp: string)
+  local base, project = command(tmp)
+  for _, case in ipairs({
+    { name = "failing", code = 1, require = "1", ok = false,
+      said = "test: sandbox: each worker is held to its inputs\\n" ..
+        "test: FAIL  a.b_test test_one: it read x\\ntest: FAIL  c_test test_two: y\\n" ..
+        "test: FAIL (2 of 9 failed, 0 infrastructure errors, 3 s; sandboxed)\\n",
+      wanted = "2 tests failed with each worker sandboxed" },
+    { name = "passing", code = 0, require = "1", ok = true,
+      said = "test: PASS (9 tests, 3 modules; 9 ran, 0 stood, 3 s; sandboxed)\\n",
+      wanted = "0 tests failed with each worker sandboxed" },
+    { name = "unsandboxed", code = 0, require = "1", ok = false,
+      said = "test: sandbox: no worker can be sandboxed here: EPERM\\n" ..
+        "test: PASS (9 tests, 3 modules; 9 ran, 0 stood, 3 s; unsandboxed, as no worker " ..
+        "can be sandboxed here)\\n",
+      wanted = "No worker was sandboxed: no worker can be sandboxed here: EPERM" },
+    { name = "unrequired", code = 0, require = "", ok = true,
+      said = "test: sandbox: no worker can be sandboxed here: EPERM\\n" ..
+        "test: PASS (9 tests, 3 modules; 9 ran, 0 stood, 3 s; unsandboxed, as no worker " ..
+        "can be sandboxed here)\\n",
+      wanted = "No worker was sandboxed" },
+  }) do
+    local fake = tmp .. "/" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\n" ..
+      "[ \"$COSMIC_TEST_SANDBOX\" = 1 ] || { echo not asked; exit 7; }\n" ..
+      "printf '" .. case.said .. "'\nexit " .. tostring(case.code) .. "\n", 493)
+    local summary = runner_temp .. "/summary.md"
+    local outcome = Fixture.call("sandboxed-" .. case.name,
+      append(base, { "platform", "sandboxed" }), project, tmp .. "/logs",
+      context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", GITHUB_STEP_SUMMARY = summary,
+        COSMIC_CI_REQUIRE_SANDBOX = case.require,
+      }))
+    assert(outcome.result.ok == case.ok, case.name .. ": the sandboxed phase answered " ..
+      tostring(outcome.result.ok))
+    Fixture.contains(summary, case.wanted)
+    if case.name == "failing" then
+      Fixture.contains(summary, "- `a.b_test test_one`")
+      Fixture.contains(summary, "- `c_test test_two`")
+    end
+    if case.name == "unsandboxed" then Fixture.contains(outcome.err, "no worker was sandboxed") end
+  end
+end

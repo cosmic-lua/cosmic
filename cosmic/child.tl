@@ -10,10 +10,11 @@
 --- here and reaped here too, even on a host whose PID 1 never reaps.
 --- A descendant that leaves the group (`setsid`) leaves supervision
 --- with it. Start a child with `process_group = false` for one meant
---- to outlive the call that started it. A child the test runner
---- confines (build.filesystem_observations' `confine`, through the
---- process table's sandbox) starts a session, and so a group, of its
---- own whatever `process_group` says, in a pid namespace of its own that
+--- to outlive the call that started it. A child started with a
+--- `sandbox` that unveils, or one the test runner confines
+--- (build.filesystem_observations' `confine`, through the process
+--- table's sandbox), starts a session, and so a group, of its own
+--- whatever `process_group` says, in a pid namespace of its own that
 --- ends when it does: nothing it starts outlives it there.
 ---
 --- Standard streams are inherited unless redirected: to a caller-owned
@@ -73,6 +74,36 @@ local record Result
   truncated: boolean
 end
 
+--- The paths a sandbox gives a child (`Sandbox.unveil`), each
+--- absolute; at most 256 in all.
+local record Unveil
+  --- The files and directories the child has, read-only.
+  reads: {string}
+  --- The ones it has to change too.
+  writes: {string}
+  --- For a path of `reads` or `writes`, by that path as given, the
+  --- absolute name it is bound at in the child's root instead of its
+  --- own: not /, and no link to it is made there. Nil for none.
+  at: {string:string}
+end
+
+--- What a child, and every process it starts, is held to from its exec
+--- on: Linux, where unprivileged user namespaces are allowed. Elsewhere,
+--- or where the kernel refuses one, the start fails, with no fallback.
+local record Sandbox
+  --- What alone of the filesystem the child has: a root of its own
+  --- holding these paths, each at the name it resolves to or the one
+  --- `at` gives it, a /proc of its own pid namespace where /proc is
+  --- given and the kernel allows one, and a /tmp of its own unless one
+  --- is given -- and nothing else. The child is pid 2 of a pid namespace
+  --- of its own, whose init ends when it does, ending whatever it left
+  --- running there; and it leads a session, and so a process group, of
+  --- its own whatever `process_group` says.
+  unveil: Unveil
+  --- A network namespace of its own, with nothing but a loopback.
+  offline: boolean
+end
+
 local record Options
   env: {string:string}
   cwd: string
@@ -107,6 +138,8 @@ local record Options
   --- `Handle.wait` does with its own timeout. `Child.start` refuses it:
   --- a started child's time is the caller's to bound, by `h:wait(ms)`.
   timeout_ms: integer
+  --- What the child is held to (see `Sandbox`); nil for nothing.
+  sandbox: Sandbox
 end
 
 local record TryWait
@@ -826,6 +859,8 @@ end
 local record Child
   type Result = Result
   type Options = Options
+  type Sandbox = Sandbox
+  type Unveil = Unveil
   type TryWait = TryWait
   type Handle = Handle
   type Guard = Guard
@@ -931,6 +966,15 @@ local function validate(argv: {string}, opts: Options): boolean
   end
   if opts.timeout_ms ~= nil and (opts.timeout_ms < 0 or opts.timeout_ms > INT_MAX) then
     error("timeout_ms is out of range", 3)
+  end
+  if opts.sandbox ~= nil and opts.sandbox.unveil ~= nil then
+    local unveil = opts.sandbox.unveil
+    for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do
+      for _, path in ipairs(list) do
+        without_nul(path, "an unveiled path")
+        if path:sub(1, 1) ~= "/" then error("an unveiled path must be absolute", 3) end
+      end
+    end
   end
   return true
 end
@@ -1090,13 +1134,19 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
       extra[number] = fd
     end
   end
-  -- TODO: offer spawn's `sandbox` (a ruleset from raw.landlock_ruleset,
-  -- a pledge, an unveiled filesystem, no network) as a Child option
-  -- once a caller wants a child held to what it names -- the test
-  -- runner, holding a test to what it declares it reads, is the one
-  -- #2103 made it for; until then nothing public reaches it.
+  -- TODO: offer the rest of spawn's `sandbox` -- a ruleset from
+  -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
+  -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
+  local sandbox: raw_process.Sandbox = nil
+  if opts.sandbox ~= nil then
+    local given = opts.sandbox.unveil
+    sandbox = { offline = opts.sandbox.offline == true }
+    if given ~= nil then
+      sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at }
+    end
+  end
   local pid, trouble, errno = raw.spawn(argv[1], argv, opts.env, opts.cwd,
-    slots[0], slots[1], slots[2], grouped, extra)
+    slots[0], slots[1], slots[2], grouped, extra, sandbox)
   unwire(wiring, pid ~= nil)
   if not pid then
     if errno == sys.ENOENT and unfound_name(argv[1], opts.cwd) then

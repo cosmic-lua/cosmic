@@ -554,8 +554,9 @@ static int pledge_program (struct sock_filter *out, int unix_ok, int inet_ok) {
 }
 #endif
 
-/* The most paths a sandbox unveils. */
-#define UNVEIL_MAX 64
+/* The most paths a sandbox unveils: a test worker's (build/test_sandbox.tl)
+ * is given each file of its module's import closure by name. */
+#define UNVEIL_MAX 256
 
 /* Whether `name` is absolute with no empty, `.` or `..` component, so it
  * names the same place under another root as under this one. */
@@ -789,11 +790,13 @@ static int place_proc (const char *target, int *own) {
  * read-only, and every mount beneath them too, but where `writable`
  * says; /proc a procfs of its own pid namespace (`place_proc`) -- and
  * nothing else, so a path outside them is not there at all, to stat as
- * to open. The paths are resolved, with no link or `..` left in them,
- * and a shorter comes before a longer; `names` holds the names they
- * were given by where one differs from its path, and NULL elsewhere,
- * and each such name is a link in the root to its path, where no path
- * given holds it already. `root` is an empty directory the parent made
+ * to open. The paths are resolved, with no link or `..` left in them;
+ * `at` holds, for each bound at a name of the caller's choosing rather
+ * than its own, that name, and NULL elsewhere -- where each is placed,
+ * its name or its path, a shorter coming before a longer. `names` holds
+ * the names they were given by where one differs from its path and it
+ * has no `at`, and NULL elsewhere, and each such name is a link in the
+ * root to its path, where no path placed holds it already. `root` is an empty directory the parent made
  * to build on; `mapped` says whether the child's user is mapped
  * (`map_ids`). The root is this process's own and its working
  * directory's, and every process's in the namespace whose root was the
@@ -808,7 +811,7 @@ static int place_proc (const char *target, int *own) {
  * A UTS namespace would change nothing a child sees: its host's name
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
-                       const int *writable, int count, int mapped) {
+                       const char *const *at, const int *writable, int count, int mapped) {
   int number = 0;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
@@ -824,7 +827,8 @@ static int build_root (const char *root, char *const *paths, char *const *names,
    * so a path given beneath the host's /tmp is bound into it. */
   int tmp = 1;
   for (int i = 0; i < count; i++) {
-    if (strcmp(paths[i], "/tmp") == 0 || strcmp(paths[i], "/") == 0 ||
+    const char *placed = at[i] != NULL ? at[i] : paths[i];
+    if (strcmp(placed, "/tmp") == 0 || strcmp(placed, "/") == 0 ||
         (names[i] != NULL && strcmp(names[i], "/tmp") == 0)) {
       tmp = 0;
     }
@@ -839,12 +843,13 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   }
   int own_proc = 0;
   for (int i = 0; i < count; i++) {
+    const char *placed = at[i] != NULL ? at[i] : paths[i];
     /* A procfs of its own holds nothing of the host's to bind: a path
-     * beneath /proc given besides it is not there. */
-    if (own_proc && strncmp(paths[i], "/proc/", 6) == 0) continue;
+     * placed beneath /proc besides it is not there. */
+    if (own_proc && strncmp(placed, "/proc/", 6) == 0) continue;
     struct stat st;
     if (stat(paths[i], &st) != 0) return errno;
-    int length = snprintf(target, sizeof target, "%s%s", root, paths[i]);
+    int length = snprintf(target, sizeof target, "%s%s", root, placed);
     if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
     struct stat there;
     if (lstat(target, &there) != 0) {
@@ -857,7 +862,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
         close(fd);
       }
     }
-    if (strcmp(paths[i], "/proc") == 0) {
+    if (at[i] == NULL && strcmp(paths[i], "/proc") == 0) {
       number = place_proc(target, &own_proc);
       if (number != 0) return number;
       continue;
@@ -874,8 +879,9 @@ static int build_root (const char *root, char *const *paths, char *const *names,
     if (names[i] == NULL) continue;
     int held = 0;
     for (int j = 0; j < count && !held; j++) {
-      size_t n = strlen(paths[j]);
-      held = strncmp(names[i], paths[j], n) == 0 &&
+      const char *placed = at[j] != NULL ? at[j] : paths[j];
+      size_t n = strlen(placed);
+      held = strncmp(names[i], placed, n) == 0 &&
              (names[i][n] == '/' || names[i][n] == '\0' || n == 1);
     }
     if (held) continue;
@@ -888,8 +894,9 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   /* A /dev given whole has its own, or has none to make. */
   int proc = 0, dev = 0;
   for (int i = 0; i < count; i++) {
-    proc = proc || strcmp(paths[i], "/proc") == 0;
-    dev = dev || strcmp(paths[i], "/dev") == 0 || strcmp(paths[i], "/") == 0;
+    const char *placed = at[i] != NULL ? at[i] : paths[i];
+    proc = proc || (at[i] == NULL && strcmp(paths[i], "/proc") == 0);
+    dev = dev || strcmp(placed, "/dev") == 0 || strcmp(placed, "/") == 0;
   }
   static const char *const dev_links[][2] = {
     { "/dev/fd", "/proc/self/fd" }, { "/dev/stdin", "/proc/self/fd/0" },
@@ -961,6 +968,7 @@ struct spawn_plan {
   const char *root_dir;
   char *const *resolved_paths;
   char *const *given_names;
+  const char *const *bound_at;
   const int *unveiled_writable;
   int unveil_count;
   const char *uid_map;
@@ -1164,7 +1172,7 @@ static _Noreturn int start_program (void *argument) {
   const struct sandbox_start *start = argument;
   const struct spawn_plan *plan = start->plan;
   int failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
-                           plan->unveiled_writable, plan->unveil_count,
+                           plan->bound_at, plan->unveiled_writable, plan->unveil_count,
                            start->mapped);
   if (!failure) failure = drop_capabilities();
   if (failure) {
@@ -1667,6 +1675,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
   int confine = -1;
   int pledged = 0, unix_ok = 0, inet_ok = 0;
   const char *unveiled[UNVEIL_MAX];
+  const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0;
   if (!lua_isnoneornil(L, 10)) {
@@ -1718,6 +1727,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
             if (unveil_count >= UNVEIL_MAX)
               return luaL_argerror(L, 10, "too many unveiled paths");
             unveiled[unveil_count] = unveil_path;
+            unveiled_at[unveil_count] = NULL;
             unveiled_writable[unveil_count] = w;
             unveil_count++;
             lua_pop(L, 1);
@@ -1725,6 +1735,30 @@ int cosmic_spawn_unobserved (lua_State *L) {
         }
         lua_pop(L, 1);
       }
+      /* The name each path given is bound at instead of its own. */
+      lua_pushliteral(L, "at");
+      lua_rawget(L, -2);
+      if (!lua_isnil(L, -1)) {
+        if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil's at must be a table");
+        lua_pushnil(L);
+        while (lua_next(L, -2) != 0) {
+          const char *given = plain_string(L, -2, "a path unveil's at names");
+          const char *name = plain_string(L, -1, "the name a path is bound at");
+          size_t length = strlen(name);
+          if (!plain_name(name) || length < 2 || name[length - 1] == '/')
+            return luaL_argerror(L, 10, "a path is bound at an absolute name, plain, and not /");
+          int found = 0;
+          for (int i = 0; i < unveil_count; i++) {
+            if (strcmp(unveiled[i], given) == 0) {
+              unveiled_at[i] = name;
+              found = 1;
+            }
+          }
+          if (!found) return luaL_argerror(L, 10, "unveil's at names a path not unveiled");
+          lua_pop(L, 1);
+        }
+      }
+      lua_pop(L, 1);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "offline");
@@ -1881,16 +1915,25 @@ int cosmic_spawn_unobserved (lua_State *L) {
         char *name = resolved_paths[i] + PATH_MAX;
         memcpy(name, unveiled[i], n);
         name[n] = '\0';
-        if (plain_name(name) && strcmp(name, resolved_paths[i]) != 0) given_names[i] = name;
+        if (unveiled_at[i] == NULL && plain_name(name) && strcmp(name, resolved_paths[i]) != 0)
+          given_names[i] = name;
       }
+      /* Each where it is placed, a shorter first, so one placed inside
+       * another lands on top of it. */
       for (int i = 1; !prepare_error && i < unveil_count; i++) {
-        for (int j = i; j > 0 && strlen(resolved_paths[j]) < strlen(resolved_paths[j - 1]); j--) {
+        for (int j = i; j > 0 &&
+                        strlen(unveiled_at[j] != NULL ? unveiled_at[j] : resolved_paths[j]) <
+                        strlen(unveiled_at[j - 1] != NULL ? unveiled_at[j - 1] : resolved_paths[j - 1]);
+             j--) {
           char *p = resolved_paths[j];
           resolved_paths[j] = resolved_paths[j - 1];
           resolved_paths[j - 1] = p;
           char *q = given_names[j];
           given_names[j] = given_names[j - 1];
           given_names[j - 1] = q;
+          const char *a = unveiled_at[j];
+          unveiled_at[j] = unveiled_at[j - 1];
+          unveiled_at[j - 1] = a;
           int w = unveiled_writable[j];
           unveiled_writable[j] = unveiled_writable[j - 1];
           unveiled_writable[j - 1] = w;
@@ -1928,7 +1971,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
     .pledge = &pledge,
 #endif
     .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
-    .resolved_paths = resolved_paths, .given_names = given_names,
+    .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
   };

@@ -485,7 +485,7 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local many: {string} = {}
-  for i = 1, 70 do many[i] = tmp .. "/many" .. tostring(i) end
+  for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
   local run: observations.Run = nil
   local sandboxed = refusing_sandboxes(function()
     run = observations.call(function()
@@ -814,7 +814,10 @@ end
 --- that mapping root takes, starts it unmapped. Where the kernel refuses
 --- it a procfs of its own (a container masking parts of its /proc), its
 --- /proc is the host's, read-only whole, so the uid_map its process
---- writes is too, and that process is refused.
+--- writes is too, and that process is refused. So is it where this test
+--- runs as root in a sandbox already (a sandboxed `cosmic test` worker's,
+--- build/test_sandbox.tl): the worker it starts is root unmapped, whom
+--- the kernel refuses a user namespace (core/syscalls.c's `map_ids`).
 local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
   local lines = sandboxed_worker(tmp)
   if lines == nil then return end
@@ -825,7 +828,14 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$")
   local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil
   assert(not stamped or lines[2] == "stamped", said)
-  if observations.own_proc_given() then
+  -- Root in a user namespace not the host's maps less than every id.
+  local map = Fs.read("/proc/self/uid_map") or ""
+  local inside, outside, count = map:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+  local inner_root = sys.getuid() == 0 and inside ~= nil and
+    not (inside == "0" and outside == "0" and count == "4294967295")
+  if inner_root then
+    assert(lines[3]:find("^refused EPERM") ~= nil, said)
+  elseif observations.own_proc_given() then
     assert(lines[1] == "own-proc" and lines[3] == "exited 0" and lines[4] == "in" and
       lines[5] == "hidden-absent", said)
   else
