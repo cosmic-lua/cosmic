@@ -34,8 +34,8 @@
 --- `main` field is one -- the shape that lets a test `require` the same
 --- file for its parts. What that returns is the exit status, judged as
 --- a file run's is (build/exit_status.tl): nil is 0, and anything but a
---- whole number from 0 to 255 is complained about with the file's name
---- and exits 2.
+--- whole number from 0 to 255, or text naming one, is complained about
+--- with the file's name and exits 2.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
