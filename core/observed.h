@@ -1,7 +1,7 @@
 /*
  * The syscall table's log of what its queries answered, which
  * build.filesystem_observations drains into the reads of the test
- * running (core/syscalls.c). Five bindings keep a record: `getcwd`,
+ * running (core/observed.c). Five bindings keep a record: `getcwd`,
  * `executable`, `lstat`, `readlink` and `realpath`, each a query that
  * changes nothing and answers `value|nil, error, errno`. Each checks
  * `cosmic_observing` first and, when it is off, is its query and
@@ -17,7 +17,7 @@
 
 #include "lua.h"
 
-/* Which query a record is of: its index in core/syscalls.c's
+/* Which query a record is of: its index in core/observed.c's
  * `observed_calls`. */
 enum cosmic_observed_call {
   COSMIC_OBSERVED_GETCWD,
@@ -38,6 +38,7 @@ int cosmic_observed_call (lua_State *L, enum cosmic_observed_call call,
 
 /* The queries themselves, past the log: each binding's work. */
 int cosmic_query_getcwd (lua_State *L);
+int cosmic_query_executable (lua_State *L);
 int cosmic_query_lstat (lua_State *L);
 int cosmic_query_readlink (lua_State *L);
 int cosmic_query_realpath (lua_State *L);
