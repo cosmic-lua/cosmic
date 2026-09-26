@@ -17,6 +17,9 @@
 #include "executable.h"
 #include "environment.h"
 
+_Static_assert(COSMIC_PORTABLE_SHA256_LENGTH == COSMIC_SHA256_LENGTH,
+               "a manifest names each core by its sha256");
+
 
 #ifndef COSMIC_TARGET_ID
 #error "build.zig must define COSMIC_TARGET_ID"
@@ -117,13 +120,9 @@ bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
   if (artifact == NULL || artifact->fd < 0) return false;
   if (artifact->core_checked == 0) {
     const struct cosmic_portable_entry *entry = &artifact->portable.selected;
-    unsigned char digest[COSMIC_DIGEST_MAX];
-    size_t length = 0;
     artifact->core_checked =
-        cosmic_digest_fd("sha256", artifact->fd, entry->offset, entry->length,
-                         digest, &length) == 0 &&
-                length == COSMIC_PORTABLE_SHA256_LENGTH &&
-                memcmp(digest, entry->sha256, length) == 0
+        cosmic_sha256_range_matches(artifact->fd, entry->offset,
+                                    entry->length, entry->sha256)
             ? 1
             : -1;
   }
@@ -225,8 +224,7 @@ static bool stamp_path (const struct cosmic_portable_entry *entry,
                       (unsigned long long)entry->length);
   if (used < 0 || (size_t)used + 2 * COSMIC_PORTABLE_SHA256_LENGTH >= sizeof key)
     return false;
-  for (unsigned i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++)
-    snprintf(key + used + 2 * i, 3, "%02x", entry->sha256[i]);
+  cosmic_hex(key + used, entry->sha256, COSMIC_PORTABLE_SHA256_LENGTH);
   if (strcmp(slash + 1, key) != 0) return false;
   struct stat path_stat;
   if (lstat(core_path, &path_stat) != 0 ||
@@ -380,14 +378,11 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
   bool stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
                             stamp_directory, sizeof stamp_directory);
-  unsigned char digest[COSMIC_DIGEST_MAX];
-  size_t digest_length = 0;
-  if (stamped && stamp_holds(stamp, &core_stat)) {
-    /* Hashed before, and not written since. */
-  } else if (cosmic_digest_fd("sha256", startup->core_fd, 0, selected->length,
-                              digest, &digest_length) != 0 ||
-             digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
-             memcmp(digest, selected->sha256, digest_length) != 0) {
+  /* Hashed before, and not written since. */
+  bool fresh = stamped && stamp_holds(stamp, &core_stat);
+  if (!fresh && !cosmic_sha256_range_matches(startup->core_fd, 0,
+                                             selected->length,
+                                             selected->sha256)) {
     /* The launcher checks a cached core's kind, owner, mode and length but
      * leaves its digest to this one pass, so a cached core damaged in place
      * stops here. Name the entry: removing it lets the next launch extract
@@ -404,7 +399,7 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
                "cached core to extract it again");
     return fail_adoption(artifact, startup->core_fd, -1, error, corrupt);
   }
-  if (stamped && digest_length != 0)
+  if (stamped && !fresh)
     stamp_write(stamp, stamp_directory, &core_stat);
 
   int physical_fd = cosmic_executable_fd();

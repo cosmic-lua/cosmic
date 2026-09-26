@@ -245,7 +245,7 @@ host programs only.
 ## rebuild without replacing cores
 
 Running a Teal file, `cosmic test`, and the verbs `fix`, `docs`, `uses`, `db`,
-`todos` and `help` compare fingerprints in cosmic's own tree through
+`todos`, `bom`, `refresh` and `help` compare fingerprints in cosmic's own tree through
 [`build.reboot`](../../build/reboot.tl) before going on. A Teal-only change can
 reuse the validated prefix. The rebuild projects a new database, combines it
 with that prefix, atomically replaces the logical artifact, and re-executes the
@@ -273,8 +273,9 @@ answered from a stored verdict. An unchanged application database cannot hide a
 changed core or runtime basis. Verdict and coverage history live only in
 `o/build.db` and are bounded.
 
-The fixtures under [`test/portable`](../../test/portable/) and the pinned CI
-driver's isolated fixture projects (`ci`, see its own README)
+The fixtures under [`ci/fixtures`](../../ci/fixtures/), run by the pinned CI
+driver in isolated projects (see [`ci`](../../ci/)'s own README), with
+`format_test.c` and the helpers under [`test/portable`](../../test/portable/),
 divide the runtime contract into observable boundaries:
 
 - `format_test.tl` and `format_test.c` reject malformed lengths, offsets,

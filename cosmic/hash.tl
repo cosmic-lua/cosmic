@@ -4,7 +4,7 @@
 local Codec = require("cosmic.codec")
 
 --- The raw module behind every function here lives under the reserved
---- `cosmic.internal.` namespace -- see cosmic/sqlite.tl for why this
+--- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
 --- indirection exists.
 local type raw_hash = require("cosmic.internal.hash")
 

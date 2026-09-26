@@ -80,7 +80,7 @@ local record Archive
     --- bytes. Unlimited by default; a negative limit raises.
     max_bytes: integer
     --- Fails once more than this many entries would be written.
-    --- Unlimited by default.
+    --- Unlimited by default; a negative limit raises.
     max_entries: integer
   end
 end
@@ -229,14 +229,6 @@ end
 -- extraction
 ------------------------------------------------------------------
 
---- Whether `path` has a drive letter ("C:") or a UNC prefix ("\\\\"):
---- Windows path forms that a `/`-only escape check would miss.
-local function has_drive_or_unc(path: string): boolean
-  if path:sub(1, 2):match("^%a:$") ~= nil then return true end
-  if path:sub(1, 2) == "\\\\" then return true end
-  return false
-end
-
 --- False for an absolute path, a `\`-separated or drive/UNC path, one
 --- holding a NUL byte (which every system call would silently cut the
 --- path at), or one with a `..` component -- the archive path itself,
@@ -293,9 +285,8 @@ end
 --- symlink, which would make this lexical walk meaningless.
 local function stays_inside(rel_dir: string, target: string): boolean
   if target == "" or target:sub(1, 1) == "/" then return false end
-  if target:find("\0", 1, true) ~= nil then return false end
-  if target:find("\\", 1, true) ~= nil then return false end
-  if has_drive_or_unc(target) then return false end
+  -- A NUL or a backslash anywhere, or a drive letter up front.
+  if target:find("[%z\\]") ~= nil or target:find("^%a:") ~= nil then return false end
   local depth = #components(rel_dir)
   for seg in (target .. "/"):gmatch("([^/]*)/") do
     if seg == "" or seg == "." then
@@ -340,6 +331,9 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   opts = opts or {}
   if opts.max_bytes ~= nil and opts.max_bytes < 0 then
     error("archive: max_bytes is negative", 2)
+  end
+  if opts.max_entries ~= nil and opts.max_entries < 0 then
+    error("archive: max_entries is negative", 2)
   end
   local count = opts.strip_components
   if count ~= nil and math.tointeger(count) == nil then

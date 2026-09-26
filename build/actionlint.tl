@@ -329,6 +329,9 @@ local function locate(root: string): string | nil, string
   if cache == nil then
     return nil, ctrouble
   end
+  -- TODO: name the install by the pin's digest too, as `Zig.install_name`
+  -- does (<version>-<host>-<sha16>), so a re-released tarball under the
+  -- same version is not answered by a stale install.
   return Actionlint.ensure_installed(cache, cache .. "/" .. pin.version .. "-" .. host, pin, host)
 end
 
@@ -371,7 +374,7 @@ function Actionlint.main(argv: {integer:string}): integer
     exec_argv[#exec_argv + 1] = a
   end
   local _, etrouble, number = sys.execve(binary, exec_argv, Env.all())
-  local install = binary:match("^(.*)/[^/]+$") or binary
+  local install = Fs.dirname(binary)
   log:complain(binary .. ": " .. tostring(etrouble) .. "; if the cached copy is broken, remove " ..
     install .. " and run again")
   return Actionlint.exec_status(math.tointeger(number) or 0)

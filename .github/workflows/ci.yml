@@ -369,6 +369,21 @@
             "if-no-files-found": "ignore",
           },
         },
+
+        # The last step, whatever failed before it, so the checkout's post
+        # step meets the tree where it checked it out: its git refuses a
+        # repository at another path, and leaves its credentials behind
+        # (.github/scripts/place-tree.sh). In a container it runs as root,
+        # as the hand-over does, who can move back what `runner` moved; on
+        # macOS as the host's user, who moved it. A checkout that never
+        # happened has nothing to move back.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always()",
+          "working-directory": ".",
+          shell: "sh",
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+        },
       ],
     },
 

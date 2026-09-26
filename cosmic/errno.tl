@@ -38,8 +38,9 @@ local record Errno
 end
 
 --- Each field's own value is the exact message text it stands
---- for -- the thing `Errors.guidance` actually matches an uncaught
---- error's message against, not a description of it.
+--- for, not a description of it: what an uncaught error's message
+--- carries, and what `Errors.guidance` would match once the TODO above
+--- is done.
 local errno: Errno = {
   ENOENT = "No such file or directory",
   EACCES = "Permission denied",

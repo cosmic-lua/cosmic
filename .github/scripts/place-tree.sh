@@ -5,6 +5,7 @@
 #     sh .github/scripts/place-tree.sh           move the checkout there
 #     sh .github/scripts/place-tree.sh --name    only say where, under
 #                                                $GITHUB_WORKSPACE's parent
+#     sh .github/scripts/place-tree.sh --restore move it back, if it moved
 #
 # A test must not depend on where the tree is (AGENTS.md): a verdict is
 # shared between checkouts, which key an in-tree path by its name under
@@ -18,16 +19,25 @@
 #
 # $GITHUB_WORKSPACE becomes a link to it, relative so it resolves both
 # in a job container and on its host: what a job reads from there (a
-# local action, a later step's working directory, the checkout's post
-# step) is the tree, and whatever resolves the path -- the driver's root
+# local action, a later step's working directory) is the tree, and
+# whatever resolves the path -- the driver's root
 # (ci/cosmic_ci/context.tl), a process's working directory -- is the new
 # one. So it moves only what is under $GITHUB_WORKSPACE's parent, which
 # the job's user owns.
+#
+# The job's last step, whatever came before it, runs `--restore`, which
+# puts the tree back at $GITHUB_WORKSPACE before the post steps run: the
+# checkout's resolves the path too, and a git that finds a repository
+# at a path other than the one it was told is safe refuses it (git
+# 2.43's "dubious ownership"), which leaves the checkout's credentials
+# in its config. It removes the link and the directories the move made,
+# and changes nothing when the tree never moved, or is back already, so
+# it can run twice, or after a move that stopped halfway.
 set -e
 
 case "${1-}" in
-  "" | --name) ;;
-  *) echo "usage: place-tree.sh [--name]" >&2; exit 2 ;;
+  "" | --name | --restore) ;;
+  *) echo "usage: place-tree.sh [--name | --restore]" >&2; exit 2 ;;
 esac
 [ -n "${GITHUB_SHA-}" ] || { echo "place-tree.sh: GITHUB_SHA is not set" >&2; exit 2; }
 [ -n "${COSMIC_WORKER-}" ] || { echo "place-tree.sh: COSMIC_WORKER is not set" >&2; exit 2; }
@@ -64,8 +74,33 @@ if [ "${1-}" = --name ]; then
   exit 0
 fi
 
+[ -n "${GITHUB_WORKSPACE-}" ] || { echo "place-tree.sh: GITHUB_WORKSPACE is not set" >&2; exit 2; }
 parent=$(dirname "$GITHUB_WORKSPACE")
 tree="$parent/$relative"
+
+if [ "${1-}" = --restore ]; then
+  if [ -L "$GITHUB_WORKSPACE" ]; then
+    link=$(readlink "$GITHUB_WORKSPACE")
+    if [ "$link" != "$relative" ]; then
+      echo "place-tree.sh: $GITHUB_WORKSPACE links to $link, not $relative" >&2
+      exit 1
+    fi
+    rm "$GITHUB_WORKSPACE"
+  fi
+  if [ ! -e "$GITHUB_WORKSPACE" ] && [ -d "$tree" ]; then
+    mv "$tree" "$GITHUB_WORKSPACE"
+    echo "the tree is back at $GITHUB_WORKSPACE from $tree"
+  fi
+  # The directories the move made above the tree, left empty by now, or
+  # by a restore that stopped before it removed them.
+  above=$(dirname "$relative")
+  while [ "$above" != . ]; do
+    [ ! -d "$parent/$above" ] || rmdir "$parent/$above"
+    above=$(dirname "$above")
+  done
+  exit 0
+fi
+
 mkdir -p "$(dirname "$tree")"
 mv "$GITHUB_WORKSPACE" "$tree"
 ln -s "$relative" "$GITHUB_WORKSPACE"
