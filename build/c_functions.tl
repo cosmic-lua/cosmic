@@ -35,6 +35,12 @@ end
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
 local sandbox_only <const> =
   "runs only in a sandboxed child that made a user namespace and mapped its ids, which a host refusing unprivileged ones never starts"
+local sandbox_started <const> =
+  "runs only in the parent of a sandboxed child that started, which a host refusing unprivileged user namespaces " ..
+  "never starts"
+local init_only <const> =
+  "runs only as a sandbox's init, pid 1 of an unveiled child's pid namespace, which the core executes afresh with " ..
+  "an empty environment, so with no directory to report its coverage to"
 local maps_ids <const> =
   "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
@@ -49,11 +55,19 @@ local exempt: {string: string} = {
   ["core/vfs.c:file_check_reserved"] = read_only,
   ["core/vfs.c:file_sector_size"] = read_only,
   ["core/syscalls.c:write_whole"] = maps_ids,
+  ["core/syscalls.c:map_ids"] = maps_ids,
   ["core/syscalls.c:make_parents"] = sandbox_only,
   ["core/syscalls.c:make_link"] = sandbox_only,
   ["core/syscalls.c:loopback_up"] = sandbox_only,
-  ["core/syscalls.c:guard_proc"] = sandbox_only,
-  ["core/syscalls.c:proc_own"] = sandbox_only,
+  ["core/syscalls.c:drop_capabilities"] = sandbox_only,
+  ["core/syscalls.c:place_proc"] = sandbox_only,
+  ["core/syscalls.c:build_root"] = sandbox_only,
+  ["core/syscalls.c:raise_descriptor"] = sandbox_only,
+  ["core/syscalls.c:start_init"] = sandbox_only,
+  ["core/syscalls.c:start_program"] = sandbox_only,
+  ["core/syscalls.c:end_sandbox_init"] = sandbox_started,
+  ["core/syscalls.c:cosmic_sandbox_init"] = init_only,
+  ["core/syscalls.c:descriptor_kind"] = init_only,
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.
   ["core/syscalls.c:make_mirrored"] = sandbox_only,
@@ -81,6 +95,8 @@ local exempt_on: {string: {string: string}} = {
     ["core/syscalls.c:spawn_child"] = "Darwin's child is a fork, so the flags it sets land in its own copy of the " ..
       "parent's memory, which it never reports; Linux's clone(CLONE_VM) child's reach the parent",
     ["core/syscalls.c:report_child_error"] = "called only from spawn_child, whose child's hits never reach the parent " ..
+      "on macOS (see spawn_child)",
+    ["core/syscalls.c:run_program"] = "called only from spawn_child, whose child's hits never reach the parent " ..
       "on macOS (see spawn_child)",
   },
 }

@@ -10,7 +10,11 @@
 --- here and reaped here too, even on a host whose PID 1 never reaps.
 --- A descendant that leaves the group (`setsid`) leaves supervision
 --- with it. Start a child with `process_group = false` for one meant
---- to outlive the call that started it.
+--- to outlive the call that started it. A child the test runner
+--- confines (build.filesystem_observations' `confine`, through the
+--- process table's sandbox) starts a session, and so a group, of its
+--- own whatever `process_group` says, in a pid namespace of its own that
+--- ends when it does: nothing it starts outlives it there.
 ---
 --- Standard streams are inherited unless redirected: to a caller-owned
 --- descriptor, to "null", or to "capture", which collects the stream in
@@ -1172,10 +1176,14 @@ function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, 
 end
 
 --- The children of this process that no handle owns, from Linux's
---- per-thread `children` list; nil where there is no such list.
+--- per-thread `children` list -- this thread's, which is the one that
+--- starts every child, named /proc/thread-self rather than by
+--- `getpid()`, which in a sandbox whose /proc is the host's names
+--- another process -- but for the sandboxes' inits the process table
+--- started (`sandbox_inits`), each of which ends with the child it was
+--- started for; nil where there is no such list.
 local function strays(): {integer} | nil
-  local path = "/proc/self/task/" .. tostring(sys.getpid()) .. "/children"
-  local fd, _ = sys.open(path, sys.O_RDONLY)
+  local fd, _ = sys.open("/proc/thread-self/children", sys.O_RDONLY)
   if fd == nil then return nil end
   local parts: {string} = {}
   while true do
@@ -1184,10 +1192,12 @@ local function strays(): {integer} | nil
     parts[#parts + 1] = data
   end
   local _, _ = sys.close(fd)
+  local inits: {integer:boolean} = {}
+  for _, pid in ipairs(raw.sandbox_inits()) do inits[pid] = true end
   local found: {integer} = {}
   for number in table.concat(parts):gmatch("%d+") do
     local pid = math.tointeger(tonumber(number))
-    if pid ~= nil and not owned[pid] then found[#found + 1] = pid end
+    if pid ~= nil and not owned[pid] and not inits[pid] then found[#found + 1] = pid end
   end
   return found
 end

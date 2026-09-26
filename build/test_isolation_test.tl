@@ -69,7 +69,16 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
   env.TMPDIR = tmp .. "/temp"
   assert(Fs.mkdirs(env.TMPDIR))
   local started = Time.monotonic_ns()
-  local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" }, env)
+  -- Unconfined: a confined run is pid 2 of a pid namespace of its own,
+  -- which ends every process left in it when it does -- so it would
+  -- pass the check below whatever the runner did -- and the pid the
+  -- nested shell writes is that namespace's, not this process's.
+  observations.confine(nil)
+  local ran, answer: boolean, any = pcall(invoke, root, output,
+    { "--timeout", "1", "--jobs", "2" }, env)
+  observations.confine({ reads = observations.itself() })
+  if not ran then error(answer, 0) end
+  local result = answer as Child.Result
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   assert(Time.monotonic_ns() - started < 30 * 1000 * 1000 * 1000, text)

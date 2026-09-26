@@ -24,6 +24,28 @@
 /* Opens the table as the raw `cosmic.internal.process` module. */
 int cosmic_open_process (lua_State *L);
 
+#if defined(__linux__)
+#include <stdbool.h>
+
+/* The name an unveiled child's init runs this program under, as its
+ * argv[0] and nothing else (core/syscalls.c's `start_init`). */
+#define COSMIC_SANDBOX_INIT "cosmic sandbox init"
+
+/* The name it goes by (/proc/<pid>/comm), for a reader of `ps`. */
+#define COSMIC_SANDBOX_INIT_COMM "cosmic-init"
+
+/* Whether this start is an unveiled child's init: argv is
+ * COSMIC_SANDBOX_INIT alone, this is pid 1 of its pid namespace, its
+ * environment is empty, and 0, 1 and 2 are the pipes `start_init`
+ * hands it -- so a pid 1 started under that name by anything else, as
+ * `exec -a` can, is not taken for one. `main` asks before anything of a
+ * start. */
+bool cosmic_sandbox_init_asked (int argc, char **argv);
+
+/* Pid 1 of an unveiled child's pid namespace (core/syscalls.c). */
+_Noreturn void cosmic_sandbox_init (void);
+#endif
+
 #endif
 
 /* Entries, as core/syscalls.h's are: X-macros core/syscalls.c expands
@@ -40,14 +62,13 @@ int cosmic_open_process (lua_State *L);
  * ---@class Unveil
  * ---@field reads {string} the files and directories the child has, read-only
  * ---@field writes {string} the ones it has to change too
- * ---@field nest boolean true to let the child confine a child of its own to a part of what it has: /proc given to read is then read-only but for the processes' own entries (/proc/<pid> and the links into them, /proc/self among them), which stay writable, so the child's child can write its own /proc/self/uid_map; every other entry that is a directory or a file with any write bit (/proc/sys, /proc/sysrq-trigger and the like) is read-only, and so is every mount beneath it. That lets the child write what its user may of a process of the same user outside it -- its oom_score_adj, coredump_filter, clear_refs, sched or autogroup -- as it can signal one; its memory and environment it may not, being in a user namespace of its own. Nil or false leaves /proc read-only whole, so the child cannot confine one of its own
  */
 
 /*
  * --- What `spawn` holds a child to from its exec on, with every process it starts.
  * ---@class Sandbox
- * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none. It is built in this process, from paths as this process sees them, before the child has a root of its own, and holds the files those paths are: with `unveil`, a rule on a path the child is given reaches it, but none reaches what the child's root is built of -- its own /tmp, the directories above an unveiled path, / itself -- which no path here names, so a child held to one cannot write its own /tmp or list /. With `unveil` and `offline` it holds nothing more that matters of the filesystem or the network -- a narrower ruleset is a narrower unveiling, and the network namespace reaches nothing past the child's own loopback, nor shares an abstract unix socket with any process outside it -- so what it adds is holding a signal to a process outside it, where the kernel's Landlock scopes signals (ABI 6). And a child it holds cannot confine one of its own, since Landlock refuses a mount or pivot_root to a process it holds
- * ---@field unveil Unveil what alone the child has of the filesystem, or nil for all of it: a root of its own, in namespaces of its own, and System V IPC of its own, holding those paths at the names they resolve to, and, for each given through a link, that link there too -- and, with /proc among them and no /dev given whole, /dev/fd and /dev/stdin, /dev/stdout and /dev/stderr as links into it, and, unless /tmp or / is among them, a /tmp of its own that its own children share, empty but for the paths given beneath the host's -- and nothing else, so a path outside them is not there to stat any more than to open. A ruleset with it reaches the unveiled paths alone (see `ruleset`): a rule on a directory above one does not reach into it, since each is a mount of its own, so name the unveiled paths themselves. /proc given to read is read-only, like any path, unless `nest` says otherwise. A child confined from inside another sandbox -- one whose root user has given up the CAP_SETFCAP that mapping root into a user namespace takes -- runs as root unmapped: the kernel's overflow id (65534) inside, owning what root owns but with no capability to override a file's permissions, on a root and a /tmp built in a directory of its TMPDIR, which is left there; unmapped, it cannot confine one of its own again. Linux, where unprivileged user namespaces are allowed; ENOSYS elsewhere, and EPERM or the like where they are not
+ * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none. It is built in this process, from paths as this process sees them, before the child has a root of its own, and holds the files those paths are: with `unveil`, a rule on a path the child is given reaches it, but none reaches what the child's root is built of -- its own /tmp, the directories above an unveiled path, / itself, and its own /proc -- which no path here names, so a child held to one cannot write its own /tmp, list /, or read its own /proc -- though, where the kernel gives it the host's (see `unveil`), a ruleset naming /proc reaches that. With `unveil` and `offline` it holds nothing more that matters of the filesystem, the network or signals -- a narrower ruleset is a narrower unveiling, the network namespace reaches nothing past the child's own loopback, nor shares an abstract unix socket with any process outside it, and the pid namespace holds no process outside it to signal. And a child it holds cannot confine one of its own, since Landlock refuses a mount or pivot_root to a process it holds
+ * ---@field unveil Unveil what alone the child has of the filesystem, or nil for all of it: a root of its own, in namespaces of its own -- a pid namespace among them, of which it is pid 2, beneath an init of its own at pid 1 that ends when it does, ending whatever it left running there, and ends when this process does, so it sees and signals only the processes it starts, while its pid, status and signals here are any child's; and a session of its own, and so a process group of its own whatever `process_group` says, with no controlling terminal -- and System V IPC of its own, holding those paths at the names they resolve to, and, for each given through a link, that link there too -- and, with /proc among them and no /dev given whole, /dev/fd and /dev/stdin, /dev/stdout and /dev/stderr as links into it, and, unless /tmp or / is among them, a /tmp of its own that its own children share, empty but for the paths given beneath the host's -- and nothing else, so a path outside them is not there to stat any more than to open. A ruleset with it reaches the unveiled paths alone (see `ruleset`): a rule on a directory above one does not reach into it, since each is a mount of its own, so name the unveiled paths themselves. /proc given is a procfs of its pid namespace, holding that namespace's processes and nothing of the host's (no /proc/sys and the like; a path beneath /proc given besides it is not there), and writable, so the child can map its own child's ids and confine one of its own in turn: what it can write there is its own processes' and its own session's. Where the kernel refuses one -- a container's runtime masking parts of its /proc, as Docker's does without --security-opt systempaths=unconfined, where a user namespace may not mount a procfs -- it is the host's, read-only like any path given to read, so the child cannot confine one of its own (EROFS); it shows the host's processes and state, and its pids are the host's, not the ones the child is in: /proc/self and /proc/thread-self are the child's own, /proc/<its getpid()> another process's. A child confined from inside another sandbox -- one whose root user has given up the CAP_SETFCAP that mapping root into a user namespace takes -- runs as root unmapped: the kernel's overflow id (65534) inside, owning what root owns but with no capability to override a file's permissions, on a root and a /tmp built in a directory of its TMPDIR, which is left there; unmapped, it cannot confine one of its own again. Linux, where unprivileged user namespaces are allowed; ENOSYS elsewhere, and EPERM or the like where they are not
  * ---@field offline boolean a network namespace of its own, with nothing but a loopback, which is up: a connection to 127.0.0.1 reaches a listener of the child's own processes, or is refused
  * ---@field pledge {string} the promises the child may keep, or nil for no filter: with one, a socket may be only of a family promised -- "unix" for AF_UNIX, "inet" for AF_INET and AF_INET6 -- and the calls that reach past the process (ptrace, pidfd_getfd, mounting, bpf, loading modules, io_uring and the like) fail with EPERM; keeping a child from another process's /proc/<pid>/mem takes a ruleset too. Linux on x86_64 and aarch64; ENOSYS elsewhere
  */
@@ -89,7 +110,7 @@ COSMIC_SYSCALL(landlock_ruleset, 2);
  */
 
 /*
- * --- Reaps a child, optionally returning immediately while it is running.
+ * --- Reaps a child, optionally returning immediately while it is running. A sandbox's program (`spawn`'s `unveil`) reaped, its init is ended and reaped too, waiting at most a second, so nothing of the sandbox runs once this returns.
  * ---@param pid integer the child process id, -1 for any child, or a negated process group for any child in it
  * ---@param nohang boolean true to poll instead of block
  * ---@return ChildStatus|nil status the child's status, or nil on failure
@@ -166,6 +187,12 @@ COSMIC_SYSCALL(poll, 3);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(subreaper, 0);
+
+/*
+ * --- The inits of the sandboxes this process started (`spawn`'s `unveil`) that are still its children: each pid 1 of an unveiled child's pid namespace, which `spawn` starts as this process's child beside the program, and which `waitpid` ends and reaps once it reaps the program. No stray to end: ending one ends the program it was started for. Empty where there are none, and on a system with no sandbox.
+ * ---@return {integer} pids their process ids
+ */
+COSMIC_SYSCALL(sandbox_inits, 0);
 
 /*
  * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back.

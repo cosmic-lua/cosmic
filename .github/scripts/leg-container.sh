@@ -53,7 +53,17 @@ if [ "${1-}" = start ]; then
   [ "$pulled" -eq 0 ] || exit "$pulled"
   mkdir -p "$state/bin"
   work=$(dirname "$GITHUB_WORKSPACE")
-  docker run -d --name "$container" --init \
+  # systempaths=unconfined: Docker masks parts of a container's /proc
+  # (binding /dev/null over /proc/kcore, /proc/keys and the like, and
+  # /proc/sys read-only), and the kernel lets a user namespace mount a
+  # procfs of its own only where the one it has is wholly visible
+  # (mount_too_revealing; subset=pid does not escape it). Without it, a
+  # confined child falls back to the container's /proc, read-only
+  # (core/syscalls.c's `place_proc`), so it sees the container's
+  # processes and cannot confine one of its own. The container's own
+  # user is unprivileged for every step but the builder's creation, and
+  # its /proc/sys is root's to write, as on the host.
+  docker run -d --name "$container" --init --security-opt systempaths=unconfined \
     -v "$work:$work" -v "$RUNNER_TEMP:$RUNNER_TEMP" "$@" \
     --entrypoint tail "$image" -f /dev/null
   # What a later step's PATH adds to this one's is what the steps
