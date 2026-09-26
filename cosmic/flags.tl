@@ -290,7 +290,7 @@ function Flags.help(usage: string, spec: {string:boolean | Flags.Option},
     parts[#parts + 1] = "\n" .. about
   end
   if next(spec) ~= nil then
-    parts[#parts + 1] = "\noptions:\n" .. table.concat(option_lines(spec), "\n")
+    parts[#parts + 1] = "\noptions:\n" .. Flags.options(spec)
   end
   return table.concat(parts, "\n")
 end
@@ -370,7 +370,7 @@ end
 --- command's `about`. `help` given more than one word is refused.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
----     if ran == nil then io.stderr:write("prog: ", why, "\n") return 2 end
+---     if ran == nil then Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
 ---     if ran.help ~= "" then print(ran.help) end
 ---     return ran.code
 --- @param argv {integer:string} The command line

@@ -52,10 +52,10 @@ local function value_at(statement: Sqlite.Statement, index: integer): Sqlite.Val
     return { blob = statement:bytes(index) }
   end
   if kind == "integer" then
-    return { integer = math.tointeger(tonumber(statement:bytes(index))) or 0 }
+    return { integer = statement:integer(index) }
   end
   if kind == "number" then
-    return { number = tonumber(statement:bytes(index)) or 0 }
+    return { number = statement:number(index) }
   end
   return text(statement:bytes(index))
 end

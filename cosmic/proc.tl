@@ -4,8 +4,8 @@ local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 
 --- `relaunch` lives in the raw process table, under the reserved
---- `cosmic.internal.` namespace -- see cosmic/child.tl and
---- cosmic/sqlite.tl for why.
+--- `cosmic.internal.` namespace -- see cosmic/store.tl for
+--- why.
 local type raw_process = require("cosmic.internal.process")
 
 local extra: any = select(2, ...)

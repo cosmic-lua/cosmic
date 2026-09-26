@@ -190,13 +190,12 @@ local function patches_of(root: string, name: string): string | nil, string
     return nil, trouble
   end
   if not exists then
-    return ""
+    return "", ""
   end
   local names, list_trouble = Fs.list(directory)
   if names == nil then
     return nil, list_trouble
   end
-  table.sort(names)
   local lines: {string} = {}
   for _, file in ipairs(names) do
     -- Only what `build/patch.tl` applies: a patch record is a `.txt`.
@@ -208,7 +207,7 @@ local function patches_of(root: string, name: string): string | nil, string
       lines[#lines + 1] = "patch/" .. name .. "/" .. file .. " " .. Hash.hex_sha256(data)
     end
   end
-  return table.concat(lines, "\n")
+  return table.concat(lines, "\n"), ""
 end
 
 --- The entries of `directory`, or none when there is no such directory:
@@ -373,7 +372,7 @@ function bom.notices(db: Sqlite.Handle): string | nil, string
   return table.concat(parts, "\n")
 end
 
---- `text` with every byte a URL query value may not hold as itself
+--- `value` with every byte a URL query value may not hold as itself
 --- written as `%XX`.
 local function escaped(value: string): string
   return (value:gsub("[^%w%-%._~]", function(c: string): string

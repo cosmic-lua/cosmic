@@ -23,8 +23,8 @@ local verdict = require("build.verdict")
 local log = verdict.log
 
 -- Require build modules lazily inside the verb that needs them, so `help`
--- remains fast and loads only `build.docs`, `build.reboot` and
--- `build.verdict`.
+-- remains fast and loads only `build.clock`, `build.docs`,
+-- `build.exit_status`, `build.reboot` and `build.verdict`.
 
 local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 
@@ -61,9 +61,9 @@ local function verb_help(verbs: {string}): string
       end
     end
     if found == nil then
-      lines[#lines + 1] = "(cosmic.cli." .. symbol .. ": " .. trouble .. ")"
+      lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": " .. trouble .. ")"
     elseif text == nil then
-      lines[#lines + 1] = "(cosmic.cli." .. symbol .. ": not found)"
+      lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else
       lines[#lines + 1] = text
       local options = Flags.options(Cli.options[verb] or {})
@@ -156,7 +156,9 @@ local function root_of(file: string): string | nil, string
   return directory_of(file)
 end
 
---- The module a file is, as its path relative to the root says.
+--- The module a file is, as its path relative to the root says: a
+--- directory's `init.tl` is the directory's, as the build's `inputs`
+--- view (build/work.tl) names it.
 local function module_of(root: string, file: string): string | nil, string
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
@@ -169,7 +171,8 @@ local function module_of(root: string, file: string): string | nil, string
   if not String.ends_with(relative, ".tl") then
     return nil, file .. " is not a Teal source"
   end
-  return (relative:gsub("%.tl$", ""):gsub("/", "."))
+  local name = relative:gsub("/init%.tl$", ""):gsub("%.tl$", "")
+  return (name:gsub("/", "."))
 end
 
 --- Runs a file. The file is a module: it is required once its tree is
@@ -414,15 +417,16 @@ local function help(argv: {integer:string}, asked: string | nil): integer
   if #words == 1 then
     local known = false
     for _, verb in ipairs(Cli.order) do
-      if verb == words[1] then known = true end
+      if verb == words[1] then
+        known = true
+        break
+      end
     end
     if not known then
       complain("cosmic: help: no such verb: " .. words[1])
       log:verdict("help", false, "no such verb: " .. words[1])
       return 2
     end
-  end
-  if #words == 1 then
     say(verb_help(words))
     log:verdict("help", true, "1 verb, " .. clock.elapsed_ms(started) .. " ms")
     return 0

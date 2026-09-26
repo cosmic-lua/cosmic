@@ -2,7 +2,8 @@
 ---
 --- This is a Teal module, rather than a loose build-time asset, because a
 --- shipped Cosmic reads `build.artifact` and its dependencies from its Store
---- projection. Only the generated target arms are substituted into it.
+--- projection. `render` substitutes the generated target arms into it,
+--- and, for a test build, the portable test hook and its call sites.
 
 local record launcher
 end

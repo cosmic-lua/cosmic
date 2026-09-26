@@ -16,7 +16,6 @@
 #include "coverage.h"
 #include "crypto.h"
 #include "compress.h"
-#include "lauxlib.h"
 #include "executable.h"
 #include "memory.h"
 #include "sqlite3.h"
@@ -92,7 +91,7 @@ static void print_guidance (lua_State *L) {
  * chunk name is its import path, so the line is one of that module's
  * own Teal lines -- tl's generated Lua keeps the line numbers of the
  * Teal it came from. Prints `cosmic: at <file>:<line>: <that line>`
- * from the first database in `db`'s search order that holds the module,
+ * from the first database, in the store's search order, that holds the module,
  * and says whether it did. */
 static bool source_position (lua_State *L, const char *message) {
   if (message == NULL) {
