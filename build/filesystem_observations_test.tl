@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -613,6 +614,24 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   if inherited ~= nil and not Fs.within(inherited, own) then
     assert(said[3] == "x\n" .. own .. "\n", said[3])
   end
+end
+
+--- What this program needs to start confined holds the verified stamp
+--- beside its cached core, where there is one: without it a confined
+--- start hashes the whole core twice, the launcher's pass and startup's,
+--- which on the checked core cost the suite past its bound.
+local function test_itself_holds_the_cores_verified_stamp()
+  local launched = Proc.relaunch()
+  if launched == nil then return end
+  local core = launched.argv[1]
+  local directory, name = core:match("^(.*)/(core%-[^/]+)$")
+  if directory == nil then return end
+  local stamp = directory .. "/.verified-" .. name
+  local held = false
+  for _, path in ipairs(observations.itself()) do
+    if path == stamp then held = true end
+  end
+  assert(held == (sys.lstat(stamp) ~= nil), "the stamp is held exactly when it is there: " .. stamp)
 end
 
 --- A confined process is given the portable cache its environment

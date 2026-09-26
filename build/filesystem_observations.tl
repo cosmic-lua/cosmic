@@ -457,13 +457,28 @@ end
 
 --- What a confined process of this very program needs to start, for a
 --- test's `confine`: the program, and the core its launcher runs it on
---- where it is a portable artifact.
+--- where it is a portable artifact, with the verified stamp beside it
+--- in the cache when there is one. Without the stamp, both the launcher
+--- and the core's startup hash the whole core again on every start: a
+--- few milliseconds for the release core, but a quarter of a second or
+--- more for the checked one (38 MB, its SHA-256 instrumented), which a
+--- suite that starts this program confined hundreds of times pays each
+--- time.
 function observations.itself(): {string}
   local program: {string} = {}
   local executable, _ = Proc.executable()
   if executable ~= nil then program[#program + 1] = executable end
   local launched, _ = Proc.relaunch()
-  if launched ~= nil then program[#program + 1] = launched.argv[1] end
+  if launched ~= nil then
+    local core = launched.argv[1]
+    program[#program + 1] = core
+    local directory, name = core:match("^(.*)/(core%-[^/]+)$")
+    if directory ~= nil then
+      local stamp = directory .. "/.verified-" .. name
+      local there, _ = lstat(stamp)
+      if there ~= nil and there.kind == "file" then program[#program + 1] = stamp end
+    end
+  end
   return program
 end
 
