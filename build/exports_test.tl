@@ -40,6 +40,11 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
 end
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
+-- TODO: drop this once build/test.tl's `worker_start` starts each worker
+-- sandboxed to what this answers, which then uses it outside a test.
+allowed["build.filesystem_observations.worker_unveil"] = "what a sandboxed test " ..
+  "worker needs to start and run, which no worker is started with yet; its test holds it " ..
+  "to starting one"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.filesystem_observations.environment"] = "a test's own declaration: " ..

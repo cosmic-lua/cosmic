@@ -616,24 +616,6 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   end
 end
 
---- What this program needs to start confined holds the verified stamp
---- beside its cached core, where there is one: without it a confined
---- start hashes the whole core twice, the launcher's pass and startup's,
---- which on the checked core cost the suite past its bound.
-local function test_itself_holds_the_cores_verified_stamp()
-  local launched = Proc.relaunch()
-  if launched == nil then return end
-  local core = launched.argv[1]
-  local directory, name = core:match("^(.*)/(core%-[^/]+)$")
-  if directory == nil then return end
-  local stamp = directory .. "/.verified-" .. name
-  local held = false
-  for _, path in ipairs(observations.itself()) do
-    if path == stamp then held = true end
-  end
-  assert(held == (sys.lstat(stamp) ~= nil), "the stamp is held exactly when it is there: " .. stamp)
-end
-
 --- A confined process is given the portable cache its environment
 --- names by where that leads, which its root holds, not through a link
 --- its root does not: a launcher there found no cache and ended, and
@@ -738,6 +720,96 @@ local function test_an_unveiled_sandbox_is_read_as_the_core_reads_it(tmp: string
   assert(notes:find("x //proc/sys/kernel/random\n", 1, true) or
     notes:find("x /bin/sh\n", 1, true), notes)
   assert(not notes:find("u //proc", 1, true), notes)
+end
+
+--- What a sandboxed worker's chunk says: whether its core found the
+--- stamp beside it in the cache that spares hashing it again, and what
+--- the grandchild it confines to `...`'s first path read of that path and
+--- of the second, which it was not given.
+local worker_chunk <const> = [==[
+local sys = require("cosmic.sys")
+local given, hidden = ...
+local said = {}
+local core = assert(sys.readlink("/proc/self/exe"))
+local directory, name = core:match("^(.*)/(core%-[^/]*)$")
+if directory == nil then
+  said[#said + 1] = "uncached"
+else
+  local st = assert(sys.stat(core))
+  local fd = sys.open(directory .. "/.verified-" .. name, sys.O_RDONLY)
+  local line = fd ~= nil and sys.read(fd, 96) or ""
+  said[#said + 1] = line == string.format("%d|%d|%d|%d\n", st.size, st.ino, st.mtime, st.ctime)
+    and "stamped" or "unstamped"
+end
+local process
+for _, searcher in ipairs(package.searchers) do
+  local loader, extra = searcher("cosmic.child")
+  if type(loader) == "function" and type(extra) == "table" then process = extra end
+end
+local reads = { given }
+for _, dir in ipairs({ "/usr", "/bin", "/lib", "/lib64", "/etc" }) do
+  if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
+end
+local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
+  "cat " .. given .. "/f; echo; test -e " .. hidden .. "/f && echo hidden-seen || echo hidden-absent" },
+  {}, "/", nil, report, report, false, nil, { unveil = { reads = reads }, offline = true })
+if pid == nil then
+  said[#said + 1] = "refused " .. tostring(sys.errno_name(errno)) .. ": " .. trouble
+else
+  said[#said + 1] = "exited " .. process.waitpid(pid, false).code
+  said[#said + 1] = sys.pread(report, 4096, 0)
+end
+print(table.concat(said, "\n"))
+]==]
+
+--- A worker of this very program sandboxed to `worker_unveil`'s paths,
+--- and no more, starts, finds the stamp that says its core was verified
+--- (where the cache has one), so hashes nothing again, and can confine a
+--- process of its own in turn to a part of what it was given: that
+--- process reads its part and has nothing else -- run by root too, whose
+--- worker, having given up the CAP_SETFCAP that mapping root takes,
+--- starts it unmapped.
+local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
+  local relaunch = Proc.relaunch()
+  if relaunch == nil then return end -- no portable artifact to start again
+  local given, hidden = tmp .. "/given", tmp .. "/hidden"
+  for _, dir in ipairs({ given, hidden }) do assert(Fs.mkdirs(dir)) end
+  assert(Fs.write(given .. "/f", "in"))
+  assert(Fs.write(hidden .. "/f", "secret"))
+  local tree = assert(sys.getcwd())
+  local unveil = observations.worker_unveil(tree, tree, tmp)
+  -- Whether the cache holds a stamp for the core, which the worker
+  -- then has to find.
+  local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$")
+  local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil
+  local argv: {string} = {}
+  for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+  for _, word in ipairs({ "-e", worker_chunk, given, hidden }) do argv[#argv + 1] = word end
+  local fds: {integer:integer} = {}
+  for target, source in pairs(relaunch.fds) do fds[target] = source end
+  local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+  local process = raw_process_table()
+  local pid, trouble, errno = process.spawn(argv[1], argv, relaunch.env, tree, nil, output,
+    output, false, fds, { unveil = unveil, offline = true })
+  if pid == nil then
+    sys.close(output)
+    assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but no sandbox: " ..
+      trouble)
+    -- Only as a kernel that cannot confine refuses, never for a path
+    -- the set left out.
+    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    return
+  end
+  local status = assert(process.waitpid(pid, false))
+  local said = assert(sys.pread(output, 65536, 0))
+  sys.close(output)
+  assert(status.code == 0, said)
+  local lines: {string} = {}
+  for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
+  assert(not stamped or lines[1] == "stamped", said)
+  assert(lines[2] == "exited 0" and lines[3] == "in" and lines[4] == "hidden-absent", said)
 end
 
 --- The observation of `kind` of `path` in `found`, or nil.
