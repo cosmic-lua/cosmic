@@ -1,6 +1,7 @@
 #include "hash.h"
 
 #include "crypto.h"
+#include "fail.h"
 #include "lauxlib.h"
 #include "psa/crypto.h"
 
@@ -13,12 +14,6 @@ struct hasher {
    * a crash. */
   int finished;
 };
-
-/* The second result of every success: "" in the error slot. */
-static int succeeded (lua_State *L) {
-  lua_pushliteral(L, "");
-  return 2;
-}
 
 static struct hasher *checked_hasher (lua_State *L) {
   struct hasher *h = luaL_checkudata(L, 1, HASHER_TYPE);
@@ -48,7 +43,7 @@ static int hash_hasher (lua_State *L) {
     lua_pushstring(L, "the hasher failed to start");
     return 2;
   }
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int hasher_update (lua_State *L) {
@@ -80,7 +75,7 @@ static int hasher_digest (lua_State *L) {
     return 2;
   }
   lua_pushlstring(L, (const char *)out, out_len);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 /* `__close` and `__gc` alike: abandons an unfinished digest. A

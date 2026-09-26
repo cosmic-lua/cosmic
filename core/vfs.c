@@ -1,6 +1,7 @@
 #define _XOPEN_SOURCE 700
 
 #include "vfs.h"
+#include "vfs_wrap.h"
 
 #include <errno.h>
 #include <string.h>
@@ -14,10 +15,6 @@ struct cosmic_file {
   sqlite3_int64 length;
   int fd;
 };
-
-static sqlite3_vfs *base_vfs (sqlite3_vfs *vfs) {
-  return (sqlite3_vfs *)vfs->pAppData;
-}
 
 static int file_close (sqlite3_file *file) {
   (void)file;
@@ -147,7 +144,7 @@ static int registered_fd = -1;
 
 static int vfs_open (sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file,
                      int flags, int *out_flags) {
-  sqlite3_vfs *lower_vfs = base_vfs(vfs);
+  sqlite3_vfs *lower_vfs = cosmic_vfs_base(vfs);
   struct cosmic_file *f = (struct cosmic_file *)file;
   memset(f, 0, sizeof *f);
   f->fd = -1;
@@ -182,14 +179,6 @@ static int vfs_open (sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file
   return SQLITE_OK;
 }
 
-static int vfs_delete (sqlite3_vfs *vfs, const char *name, int sync) {
-  return base_vfs(vfs)->xDelete(base_vfs(vfs), name, sync);
-}
-
-static int vfs_access (sqlite3_vfs *vfs, const char *name, int flags, int *out) {
-  return base_vfs(vfs)->xAccess(base_vfs(vfs), name, flags, out);
-}
-
 static int vfs_full_pathname (sqlite3_vfs *vfs, const char *name, int room,
                               char *out) {
   /* The logical artifact spelling is an opaque database key. Normalizing
@@ -202,25 +191,7 @@ static int vfs_full_pathname (sqlite3_vfs *vfs, const char *name, int room,
     memcpy(out, name, length + 1);
     return SQLITE_OK;
   }
-  return base_vfs(vfs)->xFullPathname(base_vfs(vfs), name, room, out);
-}
-
-static int vfs_randomness (sqlite3_vfs *vfs, int amount, char *out) {
-  return base_vfs(vfs)->xRandomness(base_vfs(vfs), amount, out);
-}
-
-static int vfs_sleep (sqlite3_vfs *vfs, int micros) {
-  return base_vfs(vfs)->xSleep(base_vfs(vfs), micros);
-}
-
-/* The base's own xCurrentTime is NULL: the build omits what is
- * deprecated, and SQLite asks a VFS of version 2 this instead. */
-static int vfs_current_time (sqlite3_vfs *vfs, sqlite3_int64 *out) {
-  return base_vfs(vfs)->xCurrentTimeInt64(base_vfs(vfs), out);
-}
-
-static int vfs_last_error (sqlite3_vfs *vfs, int room, char *out) {
-  return base_vfs(vfs)->xGetLastError(base_vfs(vfs), room, out);
+  return cosmic_vfs_base(vfs)->xFullPathname(cosmic_vfs_base(vfs), name, room, out);
 }
 
 int cosmic_vfs_register (const char *path, int fd, int64_t offset,
@@ -236,30 +207,14 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
   if (sqlite3_vfs_find(COSMIC_VFS_NAME) != NULL) {
     return SQLITE_OK;
   }
-  sqlite3_vfs *lower = sqlite3_vfs_find(NULL);
-  if (lower == NULL || lower->iVersion < 2 || lower->xCurrentTimeInt64 == NULL) {
-    return SQLITE_ERROR;
-  }
-
   /* SQLite's VFS registry holds the pointer for the life of the
    * process, so this one object is static; it is written once, before
    * any database is opened, and read-only after. */
   static sqlite3_vfs vfs;
-  vfs = (sqlite3_vfs){
-    .iVersion = 2,
-    .szOsFile = (int)sizeof(struct cosmic_file) + lower->szOsFile,
-    .mxPathname = lower->mxPathname,
-    .zName = COSMIC_VFS_NAME,
-    .pAppData = lower,
-    .xOpen = vfs_open,
-    .xDelete = vfs_delete,
-    .xAccess = vfs_access,
-    .xFullPathname = vfs_full_pathname,
-    .xRandomness = vfs_randomness,
-    .xSleep = vfs_sleep,
-    .xGetLastError = vfs_last_error,
-    .xCurrentTimeInt64 = vfs_current_time,
-  };
+  vfs = cosmic_vfs_wrapping(sqlite3_vfs_find(NULL), COSMIC_VFS_NAME,
+                            (int)sizeof(struct cosmic_file), vfs_open);
+  if (vfs.zName == NULL) return SQLITE_ERROR;
+  vfs.xFullPathname = vfs_full_pathname;
   return sqlite3_vfs_register(&vfs, 0);
 }
 

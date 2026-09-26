@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@
 #include <unistd.h>
 
 #include "check.h"
+#include "crypto.h"
 #include "fail.h"
 #include "fault.h"
 #include "guard.h"
@@ -49,6 +51,20 @@
 #define COSMIC_CTIME_NANOSECONDS(st) ((st).st_ctim.tv_nsec)
 #endif
 
+/* What a mode says a path is, in the words `stat` and `readdir` answer. */
+static const char *mode_kind (mode_t mode) {
+  if (S_ISREG(mode)) return "file";
+  if (S_ISDIR(mode)) return "dir";
+  if (S_ISLNK(mode)) return "link";
+  return "other";
+}
+
+/* Whether a directory entry is "." or "..", which no listing answers. */
+static bool is_dot_entry (const char *name) {
+  return name[0] == '.' &&
+         (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'));
+}
+
 static void push_field (lua_State *L, const char *name, lua_Integer value) {
   lua_pushinteger(L, value);
   lua_setfield(L, -2, name);
@@ -70,15 +86,7 @@ static void push_stat (lua_State *L, const struct stat *st) {
   push_field(L, "uid", (lua_Integer)st->st_uid);
   push_field(L, "gid", (lua_Integer)st->st_gid);
 
-  const char *kind = "other";
-  if (S_ISREG(st->st_mode)) {
-    kind = "file";
-  } else if (S_ISDIR(st->st_mode)) {
-    kind = "dir";
-  } else if (S_ISLNK(st->st_mode)) {
-    kind = "link";
-  }
-  lua_pushstring(L, kind);
+  lua_pushstring(L, mode_kind(st->st_mode));
   lua_setfield(L, -2, "kind");
 }
 
@@ -371,9 +379,7 @@ COSMIC_SYSCALL(readdir, 1) {
       }
       break;
     }
-    if (entry->d_name[0] == '.' &&
-        (entry->d_name[1] == '\0' ||
-         (entry->d_name[1] == '.' && entry->d_name[2] == '\0'))) {
+    if (is_dot_entry(entry->d_name)) {
       continue;
     }
     /* The entry says what it is for free on every filesystem that
@@ -392,13 +398,7 @@ COSMIC_SYSCALL(readdir, 1) {
     } else if (type == DT_UNKNOWN) {
       struct stat st;
       if (dir_fd >= 0 && fstatat(dir_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0) {
-        if (S_ISDIR(st.st_mode)) {
-          kind = "dir";
-        } else if (S_ISREG(st.st_mode)) {
-          kind = "file";
-        } else if (S_ISLNK(st.st_mode)) {
-          kind = "link";
-        }
+        kind = mode_kind(st.st_mode);
       }
     }
     lua_pushstring(L, kind);
@@ -661,7 +661,7 @@ static int tree_file_digest (int dir_fd, const char *entry, const struct stat *s
     psa_hash_abort(&hash);
     return number;
   }
-  for (size_t i = 0; i < length; i++) snprintf(out + 2 * i, 3, "%02x", digest[i]);
+  cosmic_hex(out, digest, length);
   return 0;
 }
 
@@ -752,9 +752,7 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
       if (errno != 0) tree_unseen(walk, "unlisted", errno);
       break;
     }
-    if (found->d_name[0] == '.' &&
-        (found->d_name[1] == '\0' ||
-         (found->d_name[1] == '.' && found->d_name[2] == '\0'))) {
+    if (is_dot_entry(found->d_name)) {
       continue;
     }
     if (count == room) {
@@ -830,7 +828,7 @@ COSMIC_SYSCALL(tree_digest, 2) {
   free(walk);
   if (number != 0) return cosmic_fail(L, number);
   char hex[65];
-  for (size_t i = 0; i < made; i++) snprintf(hex + 2 * i, 3, "%02x", digest[i]);
+  cosmic_hex(hex, digest, made);
   lua_createtable(L, 0, 2);
   lua_pushstring(L, hex);
   lua_setfield(L, -2, "digest");

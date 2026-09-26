@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "bzlib.h"
+#include "fail.h"
 #include "lauxlib.h"
 #include "lzma.h"
 #include "memory.h"
@@ -185,12 +186,6 @@ static struct stream *checked_stream (lua_State *L) {
                                                 runtime failure */
   }
   return s;
-}
-
-/* The second result of every success: "" in the error slot. */
-static int succeeded (lua_State *L) {
-  lua_pushliteral(L, "");
-  return 2;
 }
 
 /* Marks the stream finished for the length of an update or finish. The
@@ -680,7 +675,7 @@ static int inflater (lua_State *L) {
     s->ph = PH_MEMBER;
     inflate_start_body(s->inf);
   }
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int deflater (lua_State *L) {
@@ -702,7 +697,7 @@ static int deflater (lua_State *L) {
   mz_uint flags = tdefl_create_comp_flags_from_zip_params(
       (int)level, window_bits, MZ_DEFAULT_STRATEGY);
   tdefl_init(s->tdefl, NULL, NULL, (int)flags);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int xz_decoder (lua_State *L) {
@@ -711,13 +706,13 @@ static int xz_decoder (lua_State *L) {
   struct stream *s = new_stream(L, OP_XZ);
   s->memlimit = (uint64_t)memlimit;
   s->ph = PH_BETWEEN;
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int bz2_decoder (lua_State *L) {
   struct stream *s = new_stream(L, OP_BZ2);
   s->ph = PH_BETWEEN;
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 /* ---- encoder ---- */
@@ -837,7 +832,7 @@ static int stream_finish (lua_State *L) {
     }
     release(s);
     luaL_pushresult(&out);
-    return succeeded(L);
+    return cosmic_succeeded(L);
   }
 
   struct sink sink = {&out, SIZE_MAX};
@@ -854,7 +849,7 @@ static int stream_finish (lua_State *L) {
   }
   release(s);
   luaL_pushresult(&out);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int stream_done (lua_State *L) {

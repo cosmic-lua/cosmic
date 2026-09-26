@@ -425,6 +425,7 @@ const core_sources = [_][]const u8{
     "syscalls.c",
     "syscalls_fs.c",
     "vfs.c",
+    "vfs_wrap.c",
     "main.c",
     "portable.c",
     "startup.c",

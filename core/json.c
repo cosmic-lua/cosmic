@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fail.h"
 #include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
@@ -419,8 +420,7 @@ static int json_decode (lua_State *L) {
                     d.max_depth, (lua_Integer)line, (lua_Integer)column);
     return 2;
   }
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 /* ---- encoding ---------------------------------------------------- */
@@ -948,8 +948,7 @@ static int json_encode (lua_State *L) {
     return 2;
   }
   lua_pushlstring(L, e.p, e.len);
-  lua_pushliteral(L, "");
-  return 2;
+  return cosmic_succeeded(L);
 }
 
 /* array(t?): marks `t` (a new table when absent) as a JSON array and

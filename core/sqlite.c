@@ -6,10 +6,12 @@
 
 #include "check.h"
 #include "compress.h"
+#include "fail.h"
 #include "lauxlib.h"
 #include "crypto.h"
 #include "memory.h"
 #include "sqlite3.h"
+#include "vfs_wrap.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
 #define STATEMENT_TYPE "cosmic.sqlite.statement"
@@ -43,11 +45,6 @@ static int failed_effect (lua_State *L, sqlite3 *db, int rc) {
   } else {
     lua_pushstring(L, sqlite3_errstr(rc));
   }
-  return 2;
-}
-
-static int succeeded (lua_State *L) {
-  lua_pushliteral(L, "");
   return 2;
 }
 
@@ -264,10 +261,6 @@ static bool observe_path (const char *name) {
   return true;
 }
 
-static sqlite3_vfs *observed_base (sqlite3_vfs *vfs) {
-  return (sqlite3_vfs *)vfs->pAppData;
-}
-
 /* A file SQLite deletes when it is closed -- a temporary database or
  * journal -- is the connection's own, never an input; any other it
  * opens (the database, its journal, its WAL, an attached database) is. */
@@ -277,7 +270,7 @@ static int observed_open (sqlite3_vfs *vfs, sqlite3_filename name,
     file->pMethods = NULL;
     return SQLITE_NOMEM;
   }
-  sqlite3_vfs *base = observed_base(vfs);
+  sqlite3_vfs *base = cosmic_vfs_base(vfs);
   return base->xOpen(base, name, file, flags, out_flags);
 }
 
@@ -285,35 +278,8 @@ static int observed_open (sqlite3_vfs *vfs, sqlite3_filename name,
 static int observed_access (sqlite3_vfs *vfs, const char *name, int flags,
                             int *out) {
   if (!observe_path(name)) return SQLITE_NOMEM;
-  sqlite3_vfs *base = observed_base(vfs);
+  sqlite3_vfs *base = cosmic_vfs_base(vfs);
   return base->xAccess(base, name, flags, out);
-}
-
-static int observed_delete (sqlite3_vfs *vfs, const char *name, int sync) {
-  return observed_base(vfs)->xDelete(observed_base(vfs), name, sync);
-}
-
-static int observed_full_pathname (sqlite3_vfs *vfs, const char *name,
-                                   int room, char *out) {
-  return observed_base(vfs)->xFullPathname(observed_base(vfs), name, room, out);
-}
-
-static int observed_randomness (sqlite3_vfs *vfs, int amount, char *out) {
-  return observed_base(vfs)->xRandomness(observed_base(vfs), amount, out);
-}
-
-static int observed_sleep (sqlite3_vfs *vfs, int micros) {
-  return observed_base(vfs)->xSleep(observed_base(vfs), micros);
-}
-
-/* The base's own xCurrentTime is NULL: the build omits what is
- * deprecated, and SQLite asks a VFS of version 2 this instead. */
-static int observed_current_time (sqlite3_vfs *vfs, sqlite3_int64 *out) {
-  return observed_base(vfs)->xCurrentTimeInt64(observed_base(vfs), out);
-}
-
-static int observed_last_error (sqlite3_vfs *vfs, int room, char *out) {
-  return observed_base(vfs)->xGetLastError(observed_base(vfs), room, out);
 }
 
 /* Registers the VFS every connection `open` makes goes through, and
@@ -324,27 +290,12 @@ static int observed_last_error (sqlite3_vfs *vfs, int room, char *out) {
  * status. */
 static int register_observed_vfs (void) {
   if (sqlite3_vfs_find(COSMIC_SQLITE_OBSERVED_VFS) != NULL) return SQLITE_OK;
-  sqlite3_vfs *base = sqlite3_vfs_find(NULL);
-  if (base == NULL || base->iVersion < 2 || base->xCurrentTimeInt64 == NULL) {
-    return SQLITE_ERROR;
-  }
   /* SQLite's registry holds the pointer for the life of the process. */
   static sqlite3_vfs vfs;
-  vfs = (sqlite3_vfs){
-    .iVersion = 2,
-    .szOsFile = base->szOsFile,
-    .mxPathname = base->mxPathname,
-    .zName = COSMIC_SQLITE_OBSERVED_VFS,
-    .pAppData = base,
-    .xOpen = observed_open,
-    .xDelete = observed_delete,
-    .xAccess = observed_access,
-    .xFullPathname = observed_full_pathname,
-    .xRandomness = observed_randomness,
-    .xSleep = observed_sleep,
-    .xGetLastError = observed_last_error,
-    .xCurrentTimeInt64 = observed_current_time,
-  };
+  vfs = cosmic_vfs_wrapping(sqlite3_vfs_find(NULL), COSMIC_SQLITE_OBSERVED_VFS,
+                            0, observed_open);
+  if (vfs.zName == NULL) return SQLITE_ERROR;
+  vfs.xAccess = observed_access;
   return sqlite3_vfs_register(&vfs, 0);
 }
 
@@ -405,7 +356,7 @@ static int sqlite_open (lua_State *L) {
     h->db = NULL;
     return result;
   }
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int handle_exec (lua_State *L) {
@@ -425,7 +376,7 @@ static int handle_exec (lua_State *L) {
     return failed_effect(L, h->db, rc);
   }
   lua_pushboolean(L, 1);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int handle_prepare (lua_State *L) {
@@ -480,19 +431,19 @@ static int handle_prepare (lua_State *L) {
     lua_pushstring(L, "SQL contains more than one statement");
     return 2;
   }
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int handle_close (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
     lua_pushboolean(L, 1);
-    return succeeded(L);
+    return cosmic_succeeded(L);
   }
   if (h->borrowed) {
     h->db = NULL;
     lua_pushboolean(L, 1);
-    return succeeded(L);
+    return cosmic_succeeded(L);
   }
   int rc = sqlite3_close(h->db);
   if (rc != SQLITE_OK) {
@@ -500,7 +451,7 @@ static int handle_close (lua_State *L) {
   }
   h->db = NULL;
   lua_pushboolean(L, 1);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int handle_gc (lua_State *L) {
@@ -536,7 +487,7 @@ static int bound (lua_State *L, int rc, sqlite3 *db) {
     return failed_effect(L, db, rc);
   }
   lua_pushboolean(L, 1);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int statement_parameters (lua_State *L) {
@@ -593,11 +544,11 @@ static int statement_step (lua_State *L) {
   int rc = sqlite3_step(s->stmt);
   if (rc == SQLITE_ROW) {
     lua_pushstring(L, "row");
-    return succeeded(L);
+    return cosmic_succeeded(L);
   }
   if (rc == SQLITE_DONE) {
     lua_pushstring(L, "done");
-    return succeeded(L);
+    return cosmic_succeeded(L);
   }
   return failed(L, s->db, rc);
 }
@@ -692,7 +643,7 @@ static int statement_reset (lua_State *L) {
     return failed_effect(L, s->db, rc);
   }
   lua_pushboolean(L, 1);
-  return succeeded(L);
+  return cosmic_succeeded(L);
 }
 
 static int statement_finalize (lua_State *L) {
