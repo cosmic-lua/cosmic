@@ -189,11 +189,7 @@ end
 
 --- `source` split into its lines, once per analysis.
 local function lines_of(source: string): {string}
-  local out: {string} = {}
-  for line in (source .. "\n"):gmatch("(.-)\n") do
-    out[#out + 1] = line
-  end
-  return out
+  return String.split(source, "\n")
 end
 
 --- One line of `source`, trimmed, or `""` past its end.

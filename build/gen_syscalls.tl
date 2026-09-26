@@ -7,6 +7,8 @@
 --- shows, and refuses a call whose block is missing a slot, so a
 --- binding cannot exist without its type.
 
+local String = require("cosmic.string")
+
 local record Parameter
   name: string
   kind: string
@@ -98,7 +100,7 @@ local function annotation_lines(comment: string, first: integer): {string}, {int
   local lines: {string} = {}
   local at: {integer} = {}
   local offset = 0
-  for line in (comment .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(comment) do
     local text = line:match("^%s*%*?%s?(.*)$") or line
     text = text:gsub("%s+$", "")
     if text:sub(1, 3) == "---" then
