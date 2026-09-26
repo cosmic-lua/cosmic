@@ -7,6 +7,7 @@
 #include "check.h"
 #include "compress.h"
 #include "fail.h"
+#include "fault.h"
 #include "lauxlib.h"
 #include "crypto.h"
 #include "memory.h"
@@ -254,7 +255,7 @@ static bool observe_path (const char *name) {
     observing.room = room;
   }
   size_t length = strlen(name);
-  char *copy = cosmic_malloc(length + 1);
+  char *copy = COSMIC_FAULT("sqlite_observed") ? NULL : cosmic_malloc(length + 1);
   if (copy == NULL) return false;
   memcpy(copy, name, length + 1);
   observing.paths[observing.count++] = copy;
@@ -273,8 +274,8 @@ struct observed_file {
   struct observed_file *prev;
   struct observed_file *next;
   bool listed;
-  /* Set by `set_aside`: `observe` never hands it over. */
-  bool aside;
+  /* Set by `exclude_held`: `observe` never hands it over. */
+  bool excluded;
 };
 
 /* Where the default VFS's file starts in an observed one's block, at an
@@ -312,7 +313,10 @@ static sqlite3_file *real_of (sqlite3_file *file) {
 
 /* The default VFS's methods for `file`, when they are of `version` or
  * later: a file whose methods its own VFS replaced with older ones since
- * it opened (Apple's proxy locking does) has none of the later calls. */
+ * it opened (Apple's proxy locking does) has none of the later calls.
+ * `observed_file_control` follows such a change, so SQLite, which asks
+ * the outer file's version, stays out of WAL as it would unwrapped
+ * rather than fail with SQLITE_IOERR_SHMMAP; this check is the guard. */
 static const sqlite3_io_methods *methods_of (sqlite3_file *file, int version) {
   const sqlite3_io_methods *methods = real_of(file)->pMethods;
   return methods->iVersion >= version ? methods : NULL;
@@ -366,9 +370,17 @@ static int observed_check_reserved (sqlite3_file *file, int *out) {
   return real->pMethods->xCheckReservedLock(real, out);
 }
 
+/* The version the default VFS's file offers, as SQLite defines them. */
+static const sqlite3_io_methods *observed_methods_for (const sqlite3_io_methods *real);
+
+/* A file control can replace the default VFS's methods for the file
+ * (macOS's `lock_proxy_file` swaps in proxy locking, of version 1):
+ * the outer file then offers the version the inner one now does. */
 static int observed_file_control (sqlite3_file *file, int op, void *arg) {
   sqlite3_file *real = real_of(file);
-  return real->pMethods->xFileControl(real, op, arg);
+  int rc = real->pMethods->xFileControl(real, op, arg);
+  if (real->pMethods != NULL) file->pMethods = observed_methods_for(real->pMethods);
+  return rc;
 }
 
 static int observed_sector_size (sqlite3_file *file) {
@@ -450,6 +462,11 @@ static const sqlite3_io_methods observed_methods[3] = {
   OBSERVED_METHODS(1), OBSERVED_METHODS(2), OBSERVED_METHODS(3),
 };
 
+static const sqlite3_io_methods *observed_methods_for (const sqlite3_io_methods *real) {
+  int version = real->iVersion < 1 ? 1 : real->iVersion > 3 ? 3 : real->iVersion;
+  return &observed_methods[version - 1];
+}
+
 /* A file SQLite deletes when it is closed -- a temporary database or
  * journal -- is the connection's own, never an input, and is neither
  * recorded nor held; any other it opens (the database, its journal, its
@@ -465,7 +482,7 @@ static int observed_open (sqlite3_vfs *vfs, sqlite3_filename name,
   f->prev = NULL;
   f->next = NULL;
   f->listed = false;
-  f->aside = false;
+  f->excluded = false;
   bool temporary = (flags & SQLITE_OPEN_DELETEONCLOSE) != 0;
   if (!temporary && !observe_path(name)) return SQLITE_NOMEM;
   sqlite3_vfs *base = cosmic_vfs_base(vfs);
@@ -474,8 +491,7 @@ static int observed_open (sqlite3_vfs *vfs, sqlite3_filename name,
    * ours exactly when the default VFS's file has its own to close. */
   const sqlite3_io_methods *methods = f->real->pMethods;
   if (methods == NULL) return rc;
-  int version = methods->iVersion < 1 ? 1 : methods->iVersion > 3 ? 3 : methods->iVersion;
-  f->file.pMethods = &observed_methods[version - 1];
+  f->file.pMethods = observed_methods_for(methods);
   if (rc == SQLITE_OK && !temporary && name != NULL) hold(f);
   return rc;
 }
@@ -506,7 +522,7 @@ static int register_observed_vfs (void) {
 }
 
 /* Turns recording on or off; what was recorded stays until drained.
- * Turning it on records every file held open now, but those set aside,
+ * Turning it on records every file held open now, but those excluded,
  * as though it were opened now: a connection opened before reads it
  * from here on. False, and ENOMEM, when one could not be kept: recording
  * is on regardless, and what the capture turning it on reads is unknown.
@@ -517,18 +533,23 @@ static int sqlite_observe (lua_State *L) {
   observing.on = lua_toboolean(L, 1);
   bool kept = true;
   for (struct observed_file *f = held; observing.on && f != NULL; f = f->next) {
-    if (!f->aside && !observe_path(f->name)) kept = false;
+    if (!f->excluded && !observe_path(f->name)) kept = false;
   }
   if (!kept) return cosmic_fail_effect(L, ENOMEM);
   return cosmic_ok(L);
 }
 
-/* Sets aside every file held open now: `observe` never hands one over,
- * though a capture still records what it opens again. For the process
- * running the captures, whose own connections are no test's input. */
-static int sqlite_set_aside (lua_State *L) {
+/* Excludes every file held open at this moment -- files, not the
+ * connections holding them: `observe` never hands one over, though a
+ * capture still records what it opens again. A journal or WAL such a
+ * connection opens later is a file of its own, held and handed over,
+ * which is harmless while the one connection excluded (the worker's
+ * o/cosmic.db) is read-only in rollback mode and makes neither. For the
+ * process running the captures, whose own connections are no test's
+ * input. */
+static int sqlite_exclude_held (lua_State *L) {
   (void)L;
-  for (struct observed_file *f = held; f != NULL; f = f->next) f->aside = true;
+  for (struct observed_file *f = held; f != NULL; f = f->next) f->excluded = true;
   return 0;
 }
 
@@ -689,6 +710,14 @@ static int handle_gc (lua_State *L) {
   return 0;
 }
 
+/* TODO: key a test that reads a store connection through a borrowed
+ * handle by what it read: the worker's o/cosmic.db is excluded from
+ * every capture (build/test_worker.tl, `exclude_held`), so a query of
+ * it goes unrecorded -- cosmic/errors_test.tl's `Errors.guidance`
+ * walks `Store.databases()`, o/cosmic.db's catalog included, and its
+ * verdict holds nothing of it. Mark the handle here, and have `prepare`
+ * on one record the files of its connection (sqlite3_db_filename and
+ * its journal and WAL) while recording is on. */
 void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;
@@ -922,7 +951,7 @@ static const luaL_Reg module[] = {
   {"open", sqlite_open},
   {"observe", sqlite_observe},
   {"observed", sqlite_observed},
-  {"set_aside", sqlite_set_aside},
+  {"exclude_held", sqlite_exclude_held},
   {NULL, NULL},
 };
 

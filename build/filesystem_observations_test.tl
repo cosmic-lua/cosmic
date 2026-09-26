@@ -144,14 +144,14 @@ local function test_a_database_opened_before_the_capture_is_keyed_by_its_content
   assert(not opened(after.reads, path))
 end
 
---- A runner's own connection, set aside, is handed to no capture for
---- being held, though one it opens again is noted; one opened after it
---- was set aside is handed over.
-local function test_a_connection_set_aside_is_not_handed_over(tmp: string)
+--- A runner's own connection's file, excluded, is handed to no capture
+--- for being held, though one it opens again is noted; one opened after
+--- the exclusion is handed over.
+local function test_a_file_excluded_is_not_handed_over(tmp: string)
   local real = assert(sys.realpath(tmp))
   local own = assert(Sqlite.open(real .. "/own.db", true))
   assert(own:exec("CREATE TABLE t (v TEXT)"))
-  observations.set_aside_connections()
+  observations.exclude_held_files()
   local later = assert(Sqlite.open(real .. "/later.db", true))
   local c = observations.capture(function()
     assert(Sqlite.text_rows(own, "SELECT v FROM t"))

@@ -215,11 +215,11 @@ local function test_a_nul_byte_in_a_path_or_exec_sql_is_refused(tmp: string)
   db:close()
 end
 
---- Every file a connection opens goes through the observed VFS, which
---- hands each call to the default VFS's own file: a database in WAL
---- mode, mapped and checkpointed, and one whose journal is truncated and left
---- beside it for the next read, through a memory map, to ask after,
---- read and write as any does.
+--- The observed VFS wraps every file a connection opens and passes each
+--- call on to the default VFS's file underneath. Reads and writes work
+--- through it whatever the file needs: shared memory for a WAL database,
+--- a memory map, a checkpoint, and a rollback journal truncated rather
+--- than deleted, which the next reader checks for.
 local function test_the_observed_vfs_hands_every_call_on(tmp: string)
   local wal = assert(Sqlite.open(tmp .. "/wal.db", true))
   assert(wal:exec("PRAGMA journal_mode = WAL; PRAGMA mmap_size = 1048576; " ..

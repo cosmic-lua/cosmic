@@ -644,13 +644,14 @@ are closed:
   (core/sqlite.c) holds every file it opens until it is closed, and hands
   each still open over as a capture turns recording on, noted an open and
   keyed by its bytes like one opened during it. the worker's attached
-  `o/cosmic.db` is set aside as the runner's own
-  (`observations.set_aside_connections`): what a test's `require` loads
+  `o/cosmic.db` is excluded as the runner's own
+  (`observations.exclude_held_files`): what a test's `require` loads
   from it is keyed by its module keys.
-- [ ] *a query of the worker's own `o/cosmic.db`* (`build/test_worker.tl`,
-  in `worker.run`): a test that queries it through `Store.databases()`'
-  borrowed handle reads it unrecorded. note the files of a store
-  connection a statement is prepared on while a capture runs.
+- [ ] *a query of the worker's own `o/cosmic.db`* (`core/sqlite.c`, above
+  `cosmic_sqlite_push_borrowed`): a test that queries it through
+  `Store.databases()`' borrowed handle, as `Errors.guidance` does, reads
+  it unrecorded. note the files of a borrowed handle's connection as a
+  statement is prepared on it while a capture runs.
 - [x] *a database attached through the store* (`core/store.c`, in
   `store_attach`): it opens through `cosmic.sqlite`'s observed VFS, so a test
   that attaches one is keyed by its bytes, and one that attaches `o/build.db`

@@ -372,11 +372,16 @@ local function test_handing_over_held_files_leaves_nothing_whenever_an_allocatio
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local handed_over = under_every_failure(function()
-    local handed, trouble = raw.observe(true)
-    assert(handed, trouble)
+    local handed, trouble, number = raw.observe(true)
     local _, _ = raw.observe(false)
     local seen = raw.observed()
-    assert(#seen == 1 and seen[1] == real, tostring(seen[1]))
+    if handed then
+      assert(#seen == 1 and seen[1] == real, tostring(seen[1]))
+    else
+      -- A record refused: said as memory's failure, and nothing kept.
+      assert(sys.errno_name(number) == "ENOMEM", tostring(trouble))
+      assert(#seen == 0, tostring(seen[1]))
+    end
   end, function()
     local _, _ = raw.observe(false)
     raw.observed()
@@ -407,6 +412,43 @@ local function test_handing_over_held_files_leaves_nothing_whenever_an_allocatio
     assert(name:sub(-#"/missing.db") ~= "/missing.db", "a failed open is held")
   end
   assert_c_heap(bytes, blocks, "opening held files under refusal")
+end
+
+--- A held file whose record is refused is said, not raised: `observe`
+--- answers false with ENOMEM and turns recording on regardless, and a
+--- capture that starts so is one no key holds, noted "x".
+local function test_a_held_file_whose_record_is_refused_is_said_not_raised(tmp: string)
+  if not checked then return end
+  local raw = sqlite_table()
+  local path = assert(sys.realpath(tmp)) .. "/held.db"
+  local made = assert(Sqlite.open(path, true))
+  assert(made:exec("CREATE TABLE t (v TEXT)"))
+  -- Drained first, so that handing it over must record it anew.
+  raw.observed()
+  testing.fail_at("sqlite_observed")
+  local ok, handed, trouble, number = pcall(raw.observe, true)
+  testing.fail_at()
+  local _, _ = raw.observe(false)
+  raw.observed()
+  assert(ok, tostring(handed))
+  assert(handed == false and sys.errno_name(number) == "ENOMEM", tostring(trouble))
+  -- The capture drains the record as it starts, so the refusal falls
+  -- on handing the held file over.
+  local c: Observations.Captured = nil
+  local unfired = false
+  local outer = Observations.capture(function()
+    testing.fail_at("sqlite_observed")
+    c = Observations.capture(function() end)
+    unfired = testing.fail_at()
+  end)
+  assert(outer.ok, tostring(outer.produced))
+  assert(not unfired, "the hand-over was never refused")
+  local refused = false
+  for _, observation in ipairs(c.reads) do
+    if observation.kind == "x" and observation.path == "sqlite" then refused = true end
+  end
+  assert(refused, "a capture handed over nothing it holds is keyed as though it were")
+  assert(made:close())
 end
 
 --- What the syscall table's queries answer while observed is kept, on

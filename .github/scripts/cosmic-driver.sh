@@ -51,7 +51,8 @@ if [ "${1-}" = zig-cache ]; then
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
   # stat's times and inode where a test turns on them (the TODO above
   # build/test.tl's `held_stat`), a query of the worker's own
-  # o/cosmic.db (the TODO in build/test_worker.tl's `worker.run`), a
+  # o/cosmic.db (the TODO above core/sqlite.c's
+  # `cosmic_sqlite_push_borrowed`), a
   # read resolved by the call itself (the TODO above
   # core/observed.c's `log_resolution`), a file SQLite opens resolved as
   # it opens it (the TODO above build/filesystem_observations.tl's

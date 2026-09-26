@@ -681,7 +681,7 @@ end
 --- module opened as it loaded, or the store attached -- which it may
 --- read any page of from here on: SQLite hands them over as recording
 --- turns on, and each is keyed by its bytes as a fresh open is. One a
---- runner set aside (`observations.set_aside_connections`) is not.
+--- runner excluded (`observations.exclude_held_files`) is not.
 ---
 --- The process table's `spawn` alone is also stood in for, since a
 --- process the test starts is confined (`observations.confine`) or
@@ -916,15 +916,18 @@ local function start(resolving: observations.Resolving | nil):
   end
 end
 
---- Sets aside every database file a `cosmic.sqlite` connection, or
---- one the store attached, holds open now: no capture that starts later
---- is handed it for being held (see `start`), though one that opens it
---- again notes that open. For a runner's own connections, which are no
---- input of what it captures: the worker's attached o/cosmic.db, which
---- every build rewrites, would key every test by all of it, when what a
---- test's `require` loads from it is keyed by its module keys.
-function observations.set_aside_connections()
-  sqlite.set_aside()
+--- Excludes every database file a `cosmic.sqlite` connection, or one
+--- the store attached, holds open at this moment: no capture that
+--- starts later is handed it for being held (see `start`), though one
+--- that opens it again notes that open. The files, not the connections:
+--- a journal or WAL one of them opens later is handed over, harmless
+--- for the worker's read-only, rollback-mode o/cosmic.db. For a
+--- runner's own connections, which are no input of what it captures:
+--- that o/cosmic.db, which every build rewrites, would key every test
+--- by all of it, when what a test's `require` loads from it is keyed by
+--- its module keys.
+function observations.exclude_held_files()
+  sqlite.exclude_held()
 end
 
 --- Calls a function and ends the capture even when it raises. The value
