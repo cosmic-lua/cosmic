@@ -72,7 +72,10 @@
    the summary counts it "assumed" -- and runs when named, or on `--all`
    (`COSMIC_TEST_ALL=1`),
    as CI's driver passes. Run `--all` before pushing a change such a test
-   covers.
+   covers. A key holds of a stat of the tree only its kind, size and mode
+   across checkouts: a test whose verdict turns on a file's times, inode,
+   device, link count or owner calls `observations.reads_stat_times()`,
+   which keys them whole, so it stands only in its own checkout.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and

@@ -259,13 +259,12 @@ end
 --- not even `getenv("")`.
 local environ_path = "\0environ"
 
---- Every field exposed by `sys.stat`, including an error result: what
---- the path is, its size and permissions first, then its times, inode,
---- device, link count and owner, the change time, and the access time
---- last. A read moves the access time, so only the key of a test that
---- declares it reads stat's times (`observations.reads_stat_times`)
---- holds it; every other key leaves the last two fields out, lest every
---- verdict that reads a file be made stale by reading it.
+--- Every field exposed by `sys.stat` but the access time, including an
+--- error result: what the path is, its size and permissions first, then
+--- its modification time, inode, device, link count and owner, and its
+--- change time last. A read moves the access time, so keying on it would
+--- make every verdict that reads a file stale by reading it -- a declared
+--- test's (`observations.reads_stat_times`) included.
 local function stat_result_answer(st: sys.Stat | nil, trouble: string,
                                   errno: integer): string
   if st == nil then
@@ -274,7 +273,7 @@ local function stat_result_answer(st: sys.Stat | nil, trouble: string,
   return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
     tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
     tostring(st.nlink), tostring(st.uid), tostring(st.gid), tostring(st.ctime),
-    tostring(st.ctime_ns), tostring(st.atime), tostring(st.atime_ns) }, " ")
+    tostring(st.ctime_ns) }, " ")
 end
 
 --- A query's answer: its value, or its error, as a stat's is told.
@@ -626,17 +625,21 @@ end
 
 --- Declares that the calling test's verdict turns on what `stat` says
 --- of a file of the tree beyond what it is, its size and its
---- permissions: its modification, change or access time, its inode,
---- device, link count or owner -- a staleness check comparing one file's
---- time with another's, say, or a test of `Fs.copy` keeping a source's
---- times. Noted "z" by every running capture, it keys each stat and
---- lstat the test made of a path under the tree, and what `stat` says
---- now of each file of the tree it opened (which an `fstat` of its
---- descriptor may have read), whole: in its checkout's own key, o/
---- included, and in the shared key too. Every other test's shared key
---- keeps of a stat only what the path is, its size and permissions, and
---- its own key leaves out the access time and, under o/, which the build
---- rewrites, the times and inode (see build/test.tl's `held_stat`).
+--- permissions: its modification or change time, its inode, device,
+--- link count or owner -- a staleness check comparing one file's time
+--- with another's, say, or a test of `Fs.copy` keeping a source's times.
+--- Noted "z" by every running capture, it keys each stat and lstat the
+--- test made of a path under the tree, what `stat` says now of each file
+--- of the tree it opened (which an `fstat` of its descriptor may have
+--- read), and what `lstat` says of everything beneath each path of the
+--- tree a confined process of it was given (`sys.tree_digest`'s stamps,
+--- which leave out the link count and owner, whose change moves the
+--- change time they hold), whole: in its checkout's own key, o/
+--- included, and in the shared key too. The access time, which
+--- the test's own reads move, no key holds. Every other test's shared
+--- key keeps of a stat only what the path is, its size and permissions,
+--- and its own key, under o/, which the build rewrites, the same (see
+--- build/test.tl's `held_stat`).
 --- Another checkout's files never share an inode or a change time with
 --- this one's, so a declared test's verdict effectively never stands in
 --- another checkout: it runs there itself, as it must. Called at a test
@@ -1058,13 +1061,16 @@ end
 --- Under the tree, where it resolves and each directory between it and
 --- the tree are named by `tree_name`, and each directory above the tree
 --- by its mode alone, so every checkout of the tree answers alike.
-function observations.unveiled_answer(path: string, tree: string): string
+--- Given `stamped`, one under the tree is walked as one outside it is,
+--- by what `lstat` says of each entry, not by its contents: for a test
+--- that declares it reads stat's times (`observations.reads_stat_times`).
+function observations.unveiled_answer(path: string, tree: string, stamped?: boolean): string
   local real, _ = realpath(path)
   if real == nil then return "missing" end
   local real_tree, _ = realpath(tree)
   real_tree = real_tree or tree
   local inside = Fs.within(real, real_tree)
-  local walked, trouble = sys.tree_digest(real, inside)
+  local walked, trouble = sys.tree_digest(real, inside and not stamped)
   local parts: {string} = { walked ~= nil and walked.digest or ("error " .. trouble) }
   -- The modes of the directories above it, which the root it is bound
   -- into mirrors: a program may check them, as the launcher does its

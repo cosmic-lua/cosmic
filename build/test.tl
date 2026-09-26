@@ -532,32 +532,24 @@ local worker_view: function(): {string:string}
 --- inode, device, link count and owner a checkout's own files were
 --- given are no part of what the tree holds, and would keep a verdict
 --- from standing in any checkout but the one that reached it; a
---- checkout's own key keeps them (`unaccessed`), so a file touched there
---- runs what stat'd it again -- but for one under o/, which the build
---- rewrites. A test that declares it reads them
---- (`observations.reads_stat_times`) is keyed by every field instead, in
---- both keys, o/ included.
+--- checkout's own key keeps them, so a file touched there runs what
+--- stat'd it again -- but for one under o/, which the build rewrites. A
+--- test that declares it reads them (`observations.reads_stat_times`)
+--- is keyed by every field instead, in both keys, o/ included.
 -- TODO: infer the declaration rather than trust a test to make it: a
--- test that reads an in-tree file's times or inode without declaring
--- it -- through a stat, or an fstat of a descriptor it opened --
--- stands on a sibling's verdict where they differ. Have `stat`,
--- `lstat` and `fstat` note "z" themselves when a capture runs and a
--- time, inode or device field of what they answered is read (their
--- answer a table whose those fields are looked up through its
+-- test that reads an in-tree file's times, inode, device, link count or
+-- owner without declaring it -- through a stat, or an fstat of a
+-- descriptor it opened -- stands on a sibling's verdict where they
+-- differ, and, for a file under o/, on its own checkout's. Have `stat`,
+-- `lstat` and `fstat` note "z" themselves when a capture runs and any
+-- field of what they answered but its kind, size and mode is read
+-- (their answer a table whose other fields are looked up through its
 -- metatable, in core/syscalls_fs.c), and retire the declaration.
 local function held_stat(answer: string): string
   local size, mode, kind = answer:match("^ok (%S+) (%S+) (%S+)")
   if size == nil then return answer end
   if kind == "dir" then size = "-" end
   return "ok " .. size .. " " .. mode .. " " .. kind
-end
-
---- A stat answer as a checkout's own key holds it for a test that did
---- not declare it reads stat's times: without the access time, its last
---- two fields, which the test's own reads move.
-local function unaccessed(answer: string): string
-  if answer:sub(1, 3) ~= "ok " then return answer end
-  return (answer:gsub(" %S+ %S+$", ""))
 end
 
 --- What one test's verdict is a function of: the test itself, its
@@ -605,12 +597,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   for _, observation in ipairs(reads) do
     if observation.kind == "z" then whole = true end
   end
-  -- What of a stat's answer a verdict turns on: all of it for a declared
-  -- test, and all but the access time otherwise.
-  local function as_held(kind: string, answer: string): string
-    if (kind == "s" or kind == "l") and not whole then return unaccessed(answer) end
-    return answer
-  end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     local keyed = kind == "e" or kind == "u" or kind == "c" or kind == "b"
@@ -640,10 +626,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         paths[#paths + 1] = identified
       end
       if relative ~= nil and observation.answer ~= "" then
-        local said = as_held(kind, observation.answer)
         local before = answers[identified]
-        if before ~= nil and before ~= said then stable = false end
-        answers[identified] = said
+        if before ~= nil and before ~= observation.answer then stable = false end
+        answers[identified] = observation.answer
       end
       local stated = "s " .. (relative or "")
       if whole and kind == "o" and relative ~= nil and not seen[stated] then
@@ -681,11 +666,11 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- a read's path as the call is made: generation 8 missed the one and
   -- resolved an lstat's, a readlink's or a realpath's path as the
   -- capture ended.
-  -- Generation 10 records a stat's change and access times, keys a
-  -- stat's every field for a test that declares it reads them
-  -- (`observations.reads_stat_times`), and leaves the access time out
-  -- of every other test's own key: generation 9 recorded neither time,
-  -- and kept a declared test's times out of its shared key.
+  -- Generation 10 records a stat's change time, and keys a stat's every
+  -- field, and each path a confined process was given by its entries'
+  -- stamps, for a test that declares it reads them
+  -- (`observations.reads_stat_times`): generation 9 recorded no change
+  -- time, and kept a declared test's times out of its shared key.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
   local lines: {string} = { "recording-10", "module-load-reads-v1", header }
   local shared_lines: {string} = { "shared-recording-4", "module-load-reads-v1", header }
@@ -705,19 +690,30 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     elseif kind == "u" then
       -- A path a confined process was given may be a whole directory,
       -- one most of a run's tests give theirs (the system's own), so
-      -- what it holds is walked once a run.
-      local memo_key = "\1u\0" .. relative
-      current = key_parts[memo_key]
-      if current == nil then
-        current = observations.unveiled_answer(relative, root)
-        key_parts[memo_key] = current
-        key_parts["\2u\0" .. relative] = tostring(Time.monotonic_ns())
+      -- what it holds is walked once a run. For a declared test, one
+      -- under the tree is walked a second time, by what `lstat` says of
+      -- each entry beneath it -- its times and inode -- and remembered
+      -- apart from the walk of its contents every other test shares.
+      local function walk(tag: string, stamped: boolean): string
+        local memo_key = "\1u" .. tag .. "\0" .. relative
+        local walked_answer = key_parts[memo_key]
+        if walked_answer == nil then
+          walked_answer = observations.unveiled_answer(relative, root, stamped)
+          key_parts[memo_key] = walked_answer
+          key_parts["\2u" .. tag .. "\0" .. relative] = tostring(Time.monotonic_ns())
+        end
+        -- Walked only after the test started, the answer may be of what
+        -- the path became since its process read it: such a verdict is
+        -- not kept, and the next run, which walks it first, keeps one.
+        local walked = math.tointeger(key_parts["\2u" .. tag .. "\0" .. relative]) or 0
+        if started_ns ~= nil and walked >= started_ns then late = true end
+        return walked_answer
       end
-      -- Walked only after the test started, the answer may be of what
-      -- the path became since its process read it: such a verdict is
-      -- not kept, and the next run, which walks it first, keeps one.
-      local walked = math.tointeger(key_parts["\2u\0" .. relative]) or 0
-      if started_ns ~= nil and walked >= started_ns then late = true end
+      current = walk("", false)
+      if whole then
+        local stamps = walk("s", true)
+        if stamps ~= current then current = current .. "\0" .. stamps end
+      end
       if current:sub(1, 10) == "unkeyable " then stable = false end
     elseif kind == "o" then
       current = hashes[relative]
@@ -728,9 +724,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         current = data ~= nil and Hash.hex_sha256(data) or "missing"
       end
     elseif kind == "s" then
-      current = as_held(kind, observations.stat_answer(root .. "/" .. relative))
+      current = observations.stat_answer(root .. "/" .. relative)
     elseif kind == "l" then
-      current = as_held(kind, observations.lstat_answer(root .. "/" .. relative))
+      current = observations.lstat_answer(root .. "/" .. relative)
     elseif kind == "k" then
       current = observations.readlink_answer(root .. "/" .. relative)
     elseif kind == "a" then

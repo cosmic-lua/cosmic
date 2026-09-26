@@ -598,13 +598,7 @@ local function test_a_query_of_the_syscall_table_is_noted_whoever_made_it(tmp: s
     assert(found ~= nil, kind .. " " .. path .. " is not noted")
     return found.answer
   end
-  -- But for its access time, its last two fields, which the readlink
-  -- after it moved.
-  local function unaccessed(said: string): string
-    return (said:gsub(" %S+ %S+$", ""))
-  end
-  assert(unaccessed(answer("l", real .. "/link")) ==
-    unaccessed(observations.lstat_answer(real .. "/link")))
+  assert(answer("l", real .. "/link") == observations.lstat_answer(real .. "/link"))
   assert(answer("l", real .. "/link"):find(" link ", 1, true), answer("l", real .. "/link"))
   assert(answer("l", real .. "/missing") == observations.lstat_answer(real .. "/missing"))
   assert(answer("l", real .. "/missing"):sub(1, 6) == "error ")
@@ -854,10 +848,20 @@ end
 --- capture it is made in, and kept through a stored run's encoding, so
 --- the key a later run is looked up under sees it before it runs.
 local function test_a_declaration_of_stat_s_times_is_noted_and_kept()
-  local run = observations.call(function()
-    observations.reads_stat_times()
-  end, nil)
+  local run: observations.Run = nil
+  -- Every capture running notes it, the one around the test's too.
+  local outer = observations.capture(function()
+    run = observations.call(function()
+      observations.reads_stat_times()
+    end, nil)
+  end)
+  assert(outer.ok, tostring(outer.produced))
   assert(run.passed, run.message)
+  local around = false
+  for _, observation in ipairs(outer.reads) do
+    if observation.kind == "z" then around = true end
+  end
+  assert(around, "the capture around the test's did not note the declaration")
   local declared = false
   for _, observation in ipairs(run.reads) do
     if observation.kind == "z" then declared = true end

@@ -634,20 +634,17 @@ local function test_a_declared_test_keys_a_stat_s_times_whole(tmp: string)
       assert(undeclared_after.key == undeclared.key, "an undeclared test's own key holds " ..
         "the time of a file under o/")
     end
-    -- The access time, which a read moves, only a declared key holds.
+    -- The access time, which a read moves, no key holds, a declared
+    -- one's included: a key over it would fall to the test's own reads.
     -- Setting it moves the change time too, so it is set to before the
-    -- modification time and moved by a read alone, as relatime does and
-    -- strictatime, where the filesystem keeps access times at all.
+    -- modification time and then moved by a read alone, as relatime
+    -- does and strictatime, where the filesystem keeps access times.
     assert(sys.utimensat(path, st.atime - 10, 0, nil, nil))
     local undeclared_set, declared_set = keys()
-    local set = assert(sys.stat(path))
     assert(Fs.read(path))
-    local read = assert(sys.stat(path))
     local undeclared_read, declared_read = keys()
-    if read.atime ~= set.atime or read.atime_ns ~= set.atime_ns then
-      assert(declared_read.key ~= declared_set.key, relative .. ": a declared test's key " ..
-        "kept a moved access time out")
-    end
+    assert(declared_read.key == declared_set.key, relative .. ": a declared test's key " ..
+      "holds the access time")
     assert(undeclared_read.key == undeclared_set.key, relative .. ": an undeclared " ..
       "test's key holds the access time")
   end
@@ -667,4 +664,31 @@ local function test_a_declared_test_keys_the_stat_of_each_file_it_opened(tmp: st
   assert(sys.utimensat(path, nil, nil, st.mtime + 1, st.mtime_ns))
   local after = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", reads, {})
   assert(after.shared ~= before.shared, "an opened file's times entered no declared key")
+end
+
+--- A declared test's confined process may read the times of what it
+--- was given under the tree: each such path is keyed by the stamps of
+--- everything beneath it too, not only by its contents, so a file
+--- beneath it whose modification time alone moved runs the test again.
+local function test_a_declared_test_keys_the_times_a_confined_process_was_given(tmp: string)
+  local root = assert(sys.realpath(tmp))
+  assert(Fs.mkdirs(root .. "/given"))
+  local file = root .. "/given/f"
+  assert(Fs.write(file, "same"))
+  local given: observations.Observation = { kind = "u", path = root .. "/given", answer = "" }
+  local declaration: observations.Observation = { kind = "z", path = "", answer = "" }
+  local function keys(): test.VerdictKey, test.VerdictKey
+    return test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", { given }, {}),
+      test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", { declaration, given },
+        {})
+  end
+  local undeclared, declared = keys()
+  local st = assert(sys.stat(file))
+  assert(sys.utimensat(file, nil, nil, st.mtime + 1, st.mtime_ns))
+  local undeclared_after, declared_after = keys()
+  assert(declared_after.key ~= declared.key, "a declared key kept a given path's times out")
+  assert(declared_after.shared ~= declared.shared,
+    "a declared shared key kept a given path's times out")
+  assert(undeclared_after.shared == undeclared.shared,
+    "an undeclared shared key holds a given path's times")
 end
