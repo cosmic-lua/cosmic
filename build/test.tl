@@ -1520,6 +1520,10 @@ local record Recording
   audit: {string:{string:{test_inputs.Finding}}}
   effective: {string:test_inputs.Effective}
   tool: {string}
+  --- Each selected module's import closure, by path: the names of its
+  --- modules, which its worker holds its `require`s to
+  --- (`test_inputs.modules`, `build.test_worker`).
+  closures: {string:{string}}
 end
 
 --- What names this checkout among the shared rows: an id made the
@@ -1990,11 +1994,13 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local argv: {string} = {}
   for i, value in ipairs(start.argv) do argv[i] = value end
   -- What the build read of the module's `needs`, which the worker holds
-  -- the call to.
+  -- the call to, and its import closure, which it holds its `require`s
+  -- to.
   for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp,
                            scratch .. "/children", test_inputs.canonical(job.m.inputs) }) do
     argv[#argv + 1] = value
   end
+  for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(start.fds) do fds[number] = fd end
   local handle, trouble = Child.start(argv,
@@ -2452,21 +2458,25 @@ function test.run(argv: {integer:string}): integer
     end
     log:complain("test: shared verdicts: " .. cache_trouble .. "; running without them" .. aside)
   end
+  local by_path: {string:importer.Module} = {}
+  for _, m in ipairs(result.modules) do by_path[m.path] = m end
+  local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
+    "SELECT path, file FROM inputs WHERE kind = 'decl'")
+  if declaration_rows == nil then
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
+    log:complain(records_path .. ": " .. declaration_trouble)
+    return 1
+  end
+  local declarations: {string:string} = {}
+  for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
+  rec.closures = {}
+  for _, m in ipairs(selected_modules) do
+    rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
+  end
   if audit then
     rec.audit, rec.effective, rec.tool = {}, {}, observations.itself()
     for i = 1, #rec.tool do rec.tool[#rec.tool + 1] = observations.resolution(rec.tool[i]) end
-    local by_path: {string:importer.Module} = {}
-    for _, m in ipairs(result.modules) do by_path[m.path] = m end
-    local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
-      "SELECT path, file FROM inputs WHERE kind = 'decl'")
-    if declaration_rows == nil then
-      local _, _ = work.rollback(handle)
-      local _, _ = work.close(handle)
-      log:complain(records_path .. ": " .. declaration_trouble)
-      return 1
-    end
-    local declarations: {string:string} = {}
-    for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
     for _, m in ipairs(selected_modules) do
       rec.effective[m.path] = test_inputs.effective(m, by_path, declarations)
     end

@@ -14,6 +14,7 @@
 
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -193,6 +194,70 @@ function worker.decode(text: string): worker.Report | nil, string
   return report, ""
 end
 
+--- Why the module `module_path`'s tests may not `require` `name`, or
+--- nil when they may: `closure` is the set of module names its import
+--- closure holds (`test_inputs.modules`), and `tree` the set of the
+--- modules of the tree's projection. A module of the tree outside the
+--- closure is refused, since the build does not follow it and a change
+--- to it would leave the test's verdict standing; anything else --
+--- the core's own modules, and whatever another database a test
+--- attaches holds -- is no input of the tree and loads as ever.
+local function refusal(name: string, module_path: string, closure: {string:boolean},
+                        tree: {string:boolean}): string | nil
+  if closure[name] or not tree[name] then return nil end
+  return string.format("module '%s' is outside the import closure of %s: the build " ..
+    "follows only a require of a literal name, so a change to it would not run the test " ..
+    "again. Require it statically, at the top level of %s: local _ = require(%q)",
+    name, module_path, module_path, name)
+end
+
+--- Holds every `require` of the tree's modules to `closure`, the set of
+--- the names `module_path`'s import closure holds, until the function
+--- this answers is called: a searcher ahead of every other answers a
+--- module `refusal` refuses with a loader that raises why, where it
+--- was required, and each such module the worker itself has loaded
+--- already leaves `package.loaded` meanwhile, so a `require` of it
+--- reaches the searcher too. Nil and why when the tree's modules
+--- cannot be read from `projection`, the handle on its projection.
+---
+--- It holds `require` alone: a chunk a test loads by hand
+--- (`Store.bytecode`, or a searcher it calls itself) is read from the
+--- projection directly, which is what `cosmic.test`'s `needs` declares
+--- with `store`.
+local function hold_requires(module_path: string, closure: {string:boolean},
+                             projection: Sqlite.Handle): function() | nil, string
+  local rows, trouble = Sqlite.text_rows(projection, "SELECT path FROM modules")
+  if rows == nil then return nil, "the tree's modules: " .. trouble end
+  local tree: {string:boolean} = {}
+  for _, row in ipairs(rows) do tree[row[1]] = true end
+  local set_aside: {string:any} = {}
+  for name, value in pairs(package.loaded) do
+    if refusal(name, module_path, closure, tree) ~= nil then set_aside[name] = value end
+  end
+  for name in pairs(set_aside) do package.loaded[name] = nil end
+  local searchers = package.searchers
+  -- A refusal is a loader that raises, not a searcher that does: a
+  -- caller that asks every searcher by hand for the raw value one
+  -- hands a wrapper (core/syscalls_test.tl's `raw_behind`) finds none
+  -- beside it and asks the next, as it would of a searcher that knew
+  -- nothing of the name.
+  local function gate(name: string): (function(? string, ? any): (any), any)
+    local why = refusal(name, module_path, closure, tree)
+    if why == nil then return nil, nil end
+    return function(_?: string, _?: any): any
+      -- Level 3: the caller of `require`, past this loader and it.
+      error(why, 3)
+    end, nil
+  end
+  table.insert(searchers, 1, gate)
+  return function()
+    for i = #searchers, 1, -1 do
+      if searchers[i] == gate then table.remove(searchers, i) end
+    end
+    for name, value in pairs(set_aside) do package.loaded[name] = value end
+  end, ""
+end
+
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else means there is no report to read.
@@ -203,11 +268,15 @@ local function install(module: any, runner: any)
 end
 
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs>`, `children` a directory, not yet there, to collect the
---- coverage of the processes the test starts in, and `needs` what the
+--- <needs> <closure>...`, `children` a directory, not yet there, to collect
+--- the coverage of the processes the test starts in, `needs` what the
 --- build read of the module's `cosmic.test` declaration
 --- (`test_inputs.canonical`), "" or absent for none: a module whose
---- `needs` call was handed anything else fails to load.
+--- `needs` call was handed anything else fails to load; and `closure`
+--- the names of the module's import closure (`test_inputs.modules`),
+--- one argument each, which its load and its test may `require` of
+--- the tree and nothing else of it (`refusal`), absent for no such
+--- hold -- a closure holds its module at least.
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
@@ -221,6 +290,23 @@ function worker.run(argv: {integer:string}): integer
   if not attached then
     log:complain(attach_trouble)
     return 2
+  end
+  -- Attached last, the projection is searched first.
+  local projection = Store.databases()[1]
+  local release: function() = nil
+  if argv[9] ~= nil then
+    local closure: {string:boolean} = {}
+    local i = 9
+    while argv[i] ~= nil do
+      closure[argv[i]] = true
+      i = i + 1
+    end
+    local held, hold_trouble = hold_requires(module_path, closure, projection)
+    if held == nil then
+      log:complain(root .. "/o/cosmic.db: " .. hold_trouble)
+      return 2
+    end
+    release = held
   end
   -- The worker's own connection: no test is keyed by all of it (see
   -- `observations.exclude_held_files`; a query of it is the TODO above
@@ -291,6 +377,7 @@ function worker.run(argv: {integer:string}): integer
       report.elapsed_ns = finished - started
     end
   end
+  if release ~= nil then release() end
   if children ~= nil then
     local into = report.test_hits or report.load_hits
     child_hits(children, into or {})

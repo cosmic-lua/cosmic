@@ -92,7 +92,10 @@
    every test and names what each read undeclared, with the `needs`
    call that would hold it. Keep it clean, narrowing a test before declaring
    a large set: a process it starts is given `observations.environment()`
-   rather than the whole environment.
+   rather than the whole environment. The closure is what the build
+   finds `require`d by a literal name, and a test's `require` of any
+   other module of the tree (a computed name, `pcall(require, ...)`)
+   fails, naming it: require it statically, at the top level.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
