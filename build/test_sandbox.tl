@@ -127,6 +127,10 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- runner name the artifact's path to the worker (core/startup.c):
   -- today it is given at its own name, which `Proc.executable()` answers,
   -- so a worker still sees where the host keeps the checkout there.
+  -- TODO: bind a store derived from the module's import closure at
+  -- /tree/o/cosmic.db in place of the whole projection, once the build
+  -- derives one (cosmic/test.tl's TODO on `store`): the bind is this
+  -- one path's, and nothing else of the plan changes.
   for _, path in ipairs(base.reads) do
     if path == store then give(path, test_sandbox.tree .. "/o/cosmic.db") else give(path) end
   end
