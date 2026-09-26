@@ -246,14 +246,14 @@ end
     { cwd = root, env = env, stdout = fd, stderr = fd })
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
-  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + 20 * 1000 * 1000 * 1000
   while not Fs.exists(marks .. "/held") do
     assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
     local done, _ = Child.wait_any({ handle }, 50)
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
   end
   assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(30000))
+  local result = assert(handle:wait(5000))
   local text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGTERM, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)

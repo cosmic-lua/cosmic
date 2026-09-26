@@ -1803,7 +1803,13 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
         -- guard's signal came first. `close` makes sure it is gone.
         local result, stop_trouble = job.handle:wait(0)
         if result == nil then local _, _ = job.handle:close() end
-        finish(rec, job, result, stop_trouble, limits)
+        if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
+          -- The signal ended it before its timeout could: it is one of
+          -- the workers the cancelled run ended, reported on by none.
+          still[#still + 1] = job
+        else
+          finish(rec, job, result, stop_trouble, limits)
+        end
       else
         still[#still + 1] = job
       end
@@ -1889,12 +1895,6 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   return limits, ""
 end
 
---- Builds the tree in the working directory and runs every test it
---- discovered that its selectors choose (`test.selects`), printing a
---- verdict line and returning the exit code: 0
---- when every test passed.
---- @param argv the command line, which a stale tool re-enters after
----   rebuilding itself
 --- Says each of `failures`, sorted, with the selector that reruns its
 --- test and what the test printed; a failed test's message names the
 --- directory it kept (`finish`).
@@ -1921,6 +1921,12 @@ local function say_failures(rec: Recording, failures: {string})
   end
 end
 
+--- Builds the tree in the working directory and runs every test it
+--- discovered that its selectors choose (`test.selects`), printing a
+--- verdict line and returning the exit code: 0
+--- when every test passed.
+--- @param argv the command line, which a stale tool re-enters after
+---   rebuilding itself
 function test.run(argv: {integer:string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
@@ -2228,7 +2234,8 @@ function test.run(argv: {integer:string}): integer
         local _, _ = work.abort(handle)
         if rec.shared ~= nil then shared_verdicts.close(rec.shared) end
         -- A test that failed before the signal keeps its directory,
-        -- named as a finished run's report names it.
+        -- named as a finished run's report names it: the failures on
+        -- stdout, as there, and the errors and the cancellation on stderr.
         say_failures(rec, failures)
         for _, line in ipairs(errors) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
