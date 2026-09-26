@@ -46,9 +46,9 @@
 --- stops it from starting.
 
 -- TODO: share read_pin, host and the cache install with
--- build/zig.tl once `cosmic --standalone` can load a sibling module:
--- it runs one file and refuses any require but cosmic.*, so each tool
--- carries its own copy.
+-- build/zig.tl once ci/cosmic-driver.pin names a cosmic whose
+-- `--standalone` can load a sibling module: it runs one file and
+-- refuses any require but cosmic.*, so each tool carries its own copy.
 
 -- TODO: pin shellcheck (koalaman/shellcheck publishes linux x86_64 and
 -- aarch64 and darwin aarch64 tarballs) and pass -shellcheck=<its path>,

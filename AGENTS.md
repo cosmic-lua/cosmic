@@ -128,7 +128,9 @@ the way and left alone: say what is wrong and what the fix would be. A
 `TODO:` whose fix cannot be made yet still goes in now: when it depends on
 something unmet (an open PR, a release the pin does not name yet), name that
 dependency in the comment ("once #2011 merges") rather than holding the
-comment back until it lands. A gap named anywhere else -- a reply, a
+comment back until it lands. One that waits on the bootstrap pin says so as
+"once ci/cosmic-driver.pin names ...", word for word, so the change that
+moves the pin finds it. A gap named anywhere else -- a reply, a
 summary, a "known limits" line in a PR description -- is a `TODO:` not yet
 written: write it in the code before naming it there.
 
@@ -197,3 +199,6 @@ release `ci/cosmic-driver.pin` names, which it fetches once and caches by
 digest. `COSMIC_BOOTSTRAP=<path>` makes `bin/cosmic-bootstrap` answer another
 cosmic instead, such as a tree-built `o/bin/cosmic`, for all of them and for
 CI's driver step alike.
+
+A change that moves ci/cosmic-driver.pin also takes up every `TODO:` the new release
+unblocks: `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them.
