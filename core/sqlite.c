@@ -712,7 +712,7 @@ static int handle_gc (lua_State *L) {
 
 /* TODO: key a test that reads a store connection through a borrowed
  * handle by what it read: the worker's o/cosmic.db is excluded from
- * every capture (build/test_worker.tl, `exclude_held`), so a query of
+ * every capture (build/test_worker.tl, `exclude_held_files`), so a query of
  * it goes unrecorded -- cosmic/errors_test.tl's `Errors.guidance`
  * walks `Store.databases()`, o/cosmic.db's catalog included, and its
  * verdict holds nothing of it. Mark the handle here, and have `prepare`
