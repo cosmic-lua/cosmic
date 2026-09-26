@@ -184,7 +184,7 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
     "WHERE e.module = ?1 AND examples_fts MATCH ?2 " ..
     "AND (e.text || ' ' || e.source || ' ') GLOB ?3 " ..
     "AND " .. symbols.public_only("e.module", public) .. " " ..
-    "ORDER BY e.line",
+    "ORDER BY e.file, e.line",
     { text(module), text(example_phrase(symbol)), text(example_boundary(symbol)) })
   if rows == nil then
     return nil, trouble
@@ -398,7 +398,7 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
     "JOIN examples e ON e.id = examples_fts.rowid " ..
     "WHERE examples_fts MATCH ?1 AND " .. symbols.public_only("e.module", public) ..
     -- Names and prose describe intent; source often mentions incidental APIs.
-    " ORDER BY bm25(examples_fts, 3.0, 2.0, 0.2), e.module, e.line LIMIT 20",
+    " ORDER BY bm25(examples_fts, 3.0, 2.0, 0.2), e.module, e.file, e.line LIMIT 20",
     { text(fts) })
   if rows == nil then
     return nil, trouble
