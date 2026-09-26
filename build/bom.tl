@@ -424,7 +424,7 @@ end
 function bom.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer
-    log:verdict("bom", code == 0, detail .. ", " .. clock.elapsed_ms(started) .. " ms")
+    log:verdict("bom", code == 0, detail .. ", " .. clock.took(started))
     return code
   end
   local usage = "cosmic bom [--licenses | --json <path>]"

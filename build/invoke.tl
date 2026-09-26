@@ -177,13 +177,13 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         -- guidance (core/main.c's `failed`) -- once a binding hands them
         -- to Lua.
         local message = (answer is string or answer is number) and tostring(answer) or "failed"
-        local _, _ = Fs.put(Fs.stderr, "cosmic: " .. message .. "\n")
+        verdict.log:complain(message)
         return
       end
       local status = status_of(answer)
       if status == nil then
-        local _, _ = Fs.put(Fs.stderr, "cosmic: the main function returned no exit " ..
-          "status from 0 to 255: cmd.cosmic.main\n")
+        verdict.log:complain("the main function returned no exit status from 0 to 255: " ..
+          "cmd.cosmic.main")
         code = 2
       else
         code = status

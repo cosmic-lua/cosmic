@@ -17,6 +17,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
+local log = require("build.verdict").log
 
 local record worker
   --- What one worker found, as the runner reads it back.
@@ -197,13 +198,12 @@ function worker.run(argv: {integer:string}): integer
   local children_path = argv[7]
   if root == nil or module_path == nil or name == nil or tmp == nil or
       children_path == nil then
-    local _, _ = Fs.put(Fs.stderr,
-      "cosmic: test --worker needs a root, a module, a test and two directories\n")
+    log:complain("test --worker needs a root, a module, a test and two directories")
     return 2
   end
   local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")
   if not attached then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. attach_trouble .. "\n")
+    log:complain(attach_trouble)
     return 2
   end
   local report: worker.Report = {
@@ -260,7 +260,7 @@ function worker.run(argv: {integer:string}): integer
   end
   local written, trouble = Fs.put(worker.report_fd, worker.encode(report))
   if not written then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: the test report: " .. trouble .. "\n")
+    log:complain("the test report: " .. trouble)
     return 2
   end
   return 0

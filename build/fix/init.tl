@@ -605,16 +605,16 @@ function fix.run(argv: {integer:string}): integer
   end
   if #failures > 0 then
     log:verdict("fix", false, #failures .. " of " .. counted .. " files refused, " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
   if checking and #changed > 0 then
     log:verdict("fix", false, #changed .. " of " .. counted .. " files to fix, " ..
-      clock.elapsed_ms(started) .. " ms; `cosmic fix` rewrites them in place")
+      clock.took(started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
   log:verdict("fix", true, counted .. " files, " .. #changed ..
-    (checking and " to fix, " or " fixed, ") .. clock.elapsed_ms(started) .. " ms")
+    (checking and " to fix, " or " fixed, ") .. clock.took(started))
   return 0
 end
 

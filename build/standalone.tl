@@ -43,6 +43,7 @@ local Removed = require("cosmic.removed")
 local Store = require("cosmic.store")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
+local log = require("build.verdict").log
 local type compiler = require("build.compiler")
 
 local record standalone
@@ -167,12 +168,12 @@ end
 function standalone.run(argv: {integer:string}): integer
   local file = argv[2]
   if file == nil then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: usage: cosmic --standalone <file.tl> [args...]\n")
+    log:complain("usage: cosmic --standalone <file.tl> [args...]")
     return 2
   end
   local source, read_trouble = Fs.read(file)
   if source == nil then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. read_trouble .. "\n")
+    log:complain(read_trouble)
     return 1
   end
   local chunk, trouble = standalone.compile(file, source)

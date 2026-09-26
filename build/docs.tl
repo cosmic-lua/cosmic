@@ -1022,7 +1022,7 @@ function docs.run(argv: {integer:string}): integer
     log:say("`cosmic docs <module>` shows one, with what it offers; " ..
       "`cosmic docs <words>` searches them all.")
     log:verdict("docs", true, #index .. " modules, " .. #view.databases ..
-      " databases, " .. clock.elapsed_ms(started) .. " ms")
+      " databases, " .. clock.took(started))
     return 0
   end
   local found, trouble = docs.lookup(view, query)
@@ -1032,7 +1032,7 @@ function docs.run(argv: {integer:string}): integer
   end
   if #found == 0 then
     log:verdict("docs", false, "nothing named or documented as '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
   if not found.exact then
@@ -1058,7 +1058,7 @@ function docs.run(argv: {integer:string}): integer
     counted = counted .. ", " .. (#found - found.named) .. " standing in"
   end
   log:verdict("docs", true, counted ..
-    ", " .. #view.databases .. " databases, " .. clock.elapsed_ms(started) .. " ms")
+    ", " .. #view.databases .. " databases, " .. clock.took(started))
   return 0
 end
 
@@ -1110,10 +1110,10 @@ function docs.run_uses(argv: {integer:string}): integer
   if shown == 0 then
     local where = #paths > 0 and " under " .. table.concat(paths, ", ") or ""
     log:verdict("uses", false, "nothing" .. where .. " refers to '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
-  log:verdict("uses", true, shown .. " places, " .. clock.elapsed_ms(started) .. " ms")
+  log:verdict("uses", true, shown .. " places, " .. clock.took(started))
   return 0
 end
 

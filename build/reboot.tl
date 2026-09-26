@@ -273,7 +273,7 @@ function reboot.boot_into(root: string, argv: {integer:string},
   if environment[marker] ~= nil then
     return "the tool is still stale after a reboot"
   end
-  local _, _ = Fs.put(Fs.stderr, "cosmic: the core is stale; running bin/zig build boot\n")
+  log:complain("the core is stale; running bin/zig build boot")
   local result, trouble = Child.run({ root .. "/bin/zig", "build", "boot" },
     { cwd = root, env = environment, stdout = 2 })
   if result == nil then

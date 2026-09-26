@@ -309,22 +309,22 @@ function databases.run(argv: {integer:string}): integer
   end
   if seen == 0 then
     log:verdict("db", false, "no database under " .. root .. "/o; build first, " ..
-      clock.elapsed_ms(started) .. " ms")
+      clock.took(started))
     return 1
   end
   if #paths > 0 then
     local under = table.concat(paths, ", ")
     if rows == 0 then
       log:verdict("db", false, "no row is about " .. under .. ", " ..
-        clock.elapsed_ms(started) .. " ms")
+        clock.took(started))
       return 1
     end
     log:verdict("db", true, rows .. " rows about " .. under .. " in " .. seen ..
-      " databases, " .. clock.elapsed_ms(started) .. " ms")
+      " databases, " .. clock.took(started))
     return 0
   end
   log:verdict("db", true, tables .. " tables in " .. seen .. " databases, " ..
-    clock.elapsed_ms(started) .. " ms")
+    clock.took(started))
   return 0
 end
 

@@ -542,7 +542,7 @@ local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <
 function refresh.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer
-    log:verdict("refresh", code == 0, detail .. ", " .. clock.elapsed_ms(started) .. " ms")
+    log:verdict("refresh", code == 0, detail .. ", " .. clock.took(started))
     return code
   end
   local function refuse(why: string): integer
