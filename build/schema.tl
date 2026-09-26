@@ -79,7 +79,7 @@ local tables: {{string}} = {
                    file TEXT NOT NULL,
                    line INTEGER NOT NULL,
                    source TEXT NOT NULL,
-                   UNIQUE (module, name))]] },
+                   UNIQUE (file, name))]] },
 
   -- The bill of materials (`build.bom`): filled in cosmic's own
   -- projection, carried by the tool and copied into every executable

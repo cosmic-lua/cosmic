@@ -476,6 +476,108 @@ local function test_many_examples_for_one_symbol(dir: string)
   assert(module_lines[4] == "  function Fs.read (4 uses, 2 examples)", module_lines[4])
 end
 
+--- A module's examples can be split by topic: `cosmic/fs_config_example.tl`
+--- pairs with `cosmic.fs` as `cosmic/fs_example.tl` does, and each file's
+--- `Example.read` is kept, the name being free in each.
+local function test_a_topic_example_pairs_with_its_module(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file back.",
+      "  print(Fs.read(\"x\"))"),
+    ["cosmic/fs_config_example.tl"] = fs_example("read", "Reads a config file.",
+      "  print(Fs.read(\"config\"))"),
+  }))
+  local read = assert(docs.lookup(view({ db }), "Fs.read"))
+  local headers: {string} = {}
+  for _, line in ipairs((assert(docs.render(view({ db }), read[1])))) do
+    if line:match("^  example ") then headers[#headers + 1] = line end
+  end
+  assert(#headers == 2, table.concat(headers, " | "))
+  assert(headers[1] == "  example read (cosmic/fs_config_example.tl:8):", headers[1])
+  assert(headers[2] == "  example read (cosmic/fs_example.tl:8):", headers[2])
+end
+
+--- The module an example pairs with, by its file, from the examples
+--- the tree `files` ships.
+local function paired(dir: string, files: {string: string}): {string: string}
+  local db = built(dir, files)
+  local out: {string: string} = {}
+  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT file, module FROM examples")))) do
+    out[row[1]] = row[2]
+  end
+  return out
+end
+
+--- A worked example `Example.<name>` that calls nothing: each file's
+--- own name, as the fixture keys a compile by its source.
+local function bare_example(name: string): string
+  return source("local record Example", "end", "", "function Example." .. name .. "()", "end",
+    "", "return Example")
+end
+
+--- A topic example pairs with the longest module or declaration its
+--- name starts with, on a `_` boundary: `cosmic.json_yaml` over
+--- `cosmic.json`, a test (`cosmic.json_test`) never, and
+--- `cosmic/jsonx_example.tl` and `cosmic/js_example.tl` with neither.
+local function test_a_topic_example_pairs_with_the_longest_module(dir: string)
+  local found = paired(dir, {
+    ["cosmic/json.tl"] = source("return { json = true }"),
+    ["cosmic/json_yaml.tl"] = source("return { yaml = true }"),
+    ["cosmic/json_test.tl"] = source("local function test_it() end"),
+    ["cosmic/json_test_helpers_example.tl"] = bare_example("helpers"),
+    ["cosmic/sys.d.tl"] = source("local record sys", "end", "return sys"),
+    ["cosmic/sys_socket_example.tl"] = bare_example("socket"),
+    ["cosmic/json_example.tl"] = bare_example("plain"),
+    ["cosmic/json_flow_example.tl"] = bare_example("flow"),
+    ["cosmic/json_yaml_example.tl"] = bare_example("yaml"),
+    ["cosmic/json_yaml_flow_example.tl"] = bare_example("yaml_flow"),
+    ["cosmic/jsonx_example.tl"] = bare_example("jsonx"),
+    ["cosmic/js_example.tl"] = bare_example("js"),
+  })
+  assert(found["cosmic/json_example.tl"] == "cosmic.json", found["cosmic/json_example.tl"])
+  assert(found["cosmic/json_flow_example.tl"] == "cosmic.json",
+    found["cosmic/json_flow_example.tl"])
+  assert(found["cosmic/json_yaml_example.tl"] == "cosmic.json_yaml",
+    found["cosmic/json_yaml_example.tl"])
+  assert(found["cosmic/json_yaml_flow_example.tl"] == "cosmic.json_yaml",
+    found["cosmic/json_yaml_flow_example.tl"])
+  assert(found["cosmic/jsonx_example.tl"] == nil, found["cosmic/jsonx_example.tl"])
+  assert(found["cosmic/js_example.tl"] == nil, found["cosmic/js_example.tl"])
+  assert(found["cosmic/json_test_helpers_example.tl"] == "cosmic.json",
+    found["cosmic/json_test_helpers_example.tl"])
+  assert(found["cosmic/sys_socket_example.tl"] == "cosmic.sys",
+    found["cosmic/sys_socket_example.tl"])
+end
+
+--- Examples from several files of one module list by file, then line,
+--- whatever order their rows were written in: written by hand, since
+--- the build writes them in that order already.
+local function test_examples_list_by_file_then_line()
+  local db = database({
+    { "cosmic.fs", "read", "function", "function Fs.read()", "Reads.", "cosmic/fs.tl", "3",
+      nil, "Fs.read" },
+  }, {})
+  for _, row in ipairs({ { "cosmic/fs_tls_example.tl", "1" }, { "cosmic/fs_example.tl", "5" } }) do
+    assert(Sqlite.run(db,
+      "INSERT INTO examples (module, name, text, file, line, source) " ..
+      "VALUES ('cosmic.fs', 'read', 'A sentinel read.', ?1, ?2, " ..
+      "'function Example.read() Fs.read(\"x\") end')",
+      { { text = row[1] }, { integer = math.tointeger(tonumber(row[2])) } }))
+  end
+  assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
+  local read = assert(docs.lookup(view({ db }), "Fs.read"))
+  local headers: {string} = {}
+  for _, line in ipairs((assert(docs.render(view({ db }), read[1])))) do
+    if line:match("^  example ") then headers[#headers + 1] = line end
+  end
+  assert(#headers == 2, table.concat(headers, " | "))
+  assert(headers[1] == "  example read (cosmic/fs_example.tl:5):", headers[1])
+  assert(headers[2] == "  example read (cosmic/fs_tls_example.tl:1):", headers[2])
+  local searched = assert(docs.lookup(view({ db }), "sentinel"))
+  assert(#searched == 2, tostring(#searched))
+  assert(searched[1].file == "cosmic/fs_example.tl", searched[1].file)
+  assert(searched[2].file == "cosmic/fs_tls_example.tl", searched[2].file)
+end
+
 --- FTS5 tokenizes on `_`, so `Hash.hex` and `Hash.hex_sha256` share
 --- their first two tokens; an example that only ever calls
 --- `Hash.hex_sha256` must not also match `Hash.hex`.
