@@ -708,16 +708,12 @@ end
 --- A file SQLite opens through `cosmic.sqlite` while the capture runs
 --- -- a database, its journal or WAL, an attached one, or one it only
 --- asked after -- is noted an open too, as SQLite names it, when the
---- capture ends (see `drain_sqlite`). What a connection opened before
---- the capture began reads during it is not: SQLite opened its file
---- before anything here was watching.
--- TODO: note the files of every `cosmic.sqlite` connection still open
--- when a capture starts too (the VFS can keep the path of each file it
--- holds open, and hand them over as `observed` does): today a
--- connection a module opens as it loads, read only by a test's own
--- call, keys that call without the database; so does one the store
--- attached before the capture (the worker's o/cosmic.db, whose reads a
--- test's `require` makes are held by its module keys instead).
+--- capture ends (see `drain_sqlite`). So is each one a connection
+--- opened before the capture began still holds as it begins -- one a
+--- module opened as it loaded, or the store attached -- which it may
+--- read any page of from here on: SQLite hands them over as recording
+--- turns on, and each is keyed by its bytes as a fresh open is. One a
+--- runner excluded (`observations.exclude_held_files`) is not.
 ---
 --- The process table's `spawn` alone is also stood in for, since a
 --- process the test starts is confined (`observations.confine`) or
@@ -929,7 +925,9 @@ local function start(resolving: observations.Resolving | nil):
   noting[#noting + 1] = note
   trees[note] = resolving ~= nil and resolving.tree or nil
   syscalls.resolving(resolving_tree())
-  sqlite.observe(true)
+  -- A file SQLite could not hand over is one it may read unrecorded.
+  local handed, _ = sqlite.observe(true)
+  if not handed then note("x", "sqlite", "") end
   syscalls.observe(true)
   return found, function()
     ended = true
@@ -943,10 +941,25 @@ local function start(resolving: observations.Resolving | nil):
     trees[note] = nil
     syscalls.resolving(resolving_tree())
     if #noting == 0 then
-      sqlite.observe(false)
+      -- Turned off, nothing is handed over, and nothing fails.
+      local _, _ = sqlite.observe(false)
       syscalls.observe(false)
     end
   end
+end
+
+--- Excludes every database file a `cosmic.sqlite` connection, or one
+--- the store attached, holds open at this moment: no capture that
+--- starts later is handed it for being held (see `start`), though one
+--- that opens it again notes that open. The files, not the connections:
+--- a journal or WAL one of them opens later is handed over, harmless
+--- for the worker's read-only, rollback-mode o/cosmic.db. For a
+--- runner's own connections, which are no input of what it captures:
+--- that o/cosmic.db, which every build rewrites, would key every test
+--- by all of it, when what a test's `require` loads from it is keyed by
+--- its module keys.
+function observations.exclude_held_files()
+  sqlite.exclude_held()
 end
 
 --- Calls a function and ends the capture even when it raises. The value

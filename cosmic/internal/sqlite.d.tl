@@ -83,13 +83,24 @@ local record sqlite
   --- Turns on or off recording the files SQLite opens or asks after,
   --- while it is on, through a connection `open` made -- the database,
   --- its journal and WAL, an attached one; never a temporary file it
-  --- deletes on close, nor a read of a file opened before. What is
-  --- recorded stays until `observed` drains it.
-  observe: function(on: boolean)
+  --- deletes on close. Turning it on also records every such file a
+  --- connection holds open now, but those `exclude_held` named, as though it
+  --- were opened now: a connection opened before reads it from here on.
+  --- `false`, and a message, when one of them could not be kept, as
+  --- when memory runs out; recording is on regardless. What is recorded
+  --- stays until `observed` drains it.
+  observe: function(on: boolean): boolean, string, integer
   --- Every path recorded since the last call, each once, as SQLite
   --- names it: absolute, the database's own links resolved, a journal
   --- or WAL named after it. Forgets them.
   observed: function(): {string}
+  --- Excludes every file a connection holds open at this moment:
+  --- `observe` never records one of them for being held, though it
+  --- records one a connection opens again. Files, not connections: a
+  --- journal or WAL a connection opens later is held and handed over.
+  --- For the process that runs captures, whose own connections are no
+  --- input of what it captures.
+  exclude_held: function()
   --- The SQLite library's version, such as "3.53.4".
   version: string
 end

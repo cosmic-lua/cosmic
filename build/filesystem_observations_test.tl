@@ -5,6 +5,7 @@ local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local test = require("build.test")
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
 
@@ -97,8 +98,9 @@ local function test_a_file_sqlite_opens_is_noted(tmp: string)
   assert(opened(outer.reads, real .. "/main.db"))
   assert(opened(outer.reads, real .. "/attached.db"))
   assert(opened(outer.reads, real .. "/attached.db-journal"))
-  -- The inner capture began after the main database was opened.
-  assert(not opened(inner.reads, real .. "/main.db"))
+  -- The inner capture began after the main database was opened, and
+  -- is handed it, held open still, as it begins.
+  assert(opened(inner.reads, real .. "/main.db"))
   assert(opened(inner.reads, real .. "/attached.db"))
   -- A database opened while no capture runs is noted by none: not by
   -- the next one to start.
@@ -106,6 +108,64 @@ local function test_a_file_sqlite_opens_is_noted(tmp: string)
   assert(db:close())
   local after = observations.capture(function() end)
   assert(not opened(after.reads, real .. "/main.db"))
+end
+
+--- A database a connection opened before the capture began, and holds
+--- open still, may be read at any page during it: the capture notes it
+--- an open as it begins, so what the test reads of it is keyed by its
+--- bytes, and other contents key the verdict otherwise. Once closed, it
+--- is handed to no capture.
+local function test_a_database_opened_before_the_capture_is_keyed_by_its_contents(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local path = real .. "/held.db"
+  local writer = assert(Sqlite.open(path, true))
+  assert(writer:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('one')"))
+  local db = assert(Sqlite.open(path, false))
+  -- One whose open failed is not held.
+  local missing, _ = Sqlite.open(real .. "/missing.db", false)
+  assert(missing == nil)
+  local function key(): string
+    local c = observations.capture(function()
+      assert(Sqlite.text_rows(db, "SELECT v FROM t"))
+    end)
+    assert(c.ok, tostring(c.produced))
+    assert(opened(c.reads, path), "the held database was not noted")
+    return test.verdict_key(real, {}, "mod.tl name", "modkey", "runtime", c.reads, {}).key
+  end
+  local before = key()
+  assert(key() == before)
+  local held = observations.capture(function() end)
+  assert(not opened(held.reads, real .. "/missing.db"))
+  assert(writer:exec("UPDATE t SET v = 'two'"))
+  assert(key() ~= before, "a held database's contents are not in the key")
+  assert(writer:close())
+  assert(db:close())
+  local after = observations.capture(function() end)
+  assert(not opened(after.reads, path))
+end
+
+--- A runner's own connection's file, excluded, is handed to no capture
+--- for being held, though one it opens again is noted; one opened after
+--- the exclusion is handed over.
+local function test_a_file_excluded_is_not_handed_over(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local own = assert(Sqlite.open(real .. "/own.db", true))
+  assert(own:exec("CREATE TABLE t (v TEXT)"))
+  observations.exclude_held_files()
+  local later = assert(Sqlite.open(real .. "/later.db", true))
+  local c = observations.capture(function()
+    assert(Sqlite.text_rows(own, "SELECT v FROM t"))
+  end)
+  assert(c.ok, tostring(c.produced))
+  assert(not opened(c.reads, real .. "/own.db"))
+  assert(opened(c.reads, real .. "/later.db"))
+  local again = observations.capture(function()
+    local db = assert(Sqlite.open(real .. "/own.db", false))
+    assert(db:close())
+  end)
+  assert(opened(again.reads, real .. "/own.db"))
+  assert(own:close())
+  assert(later:close())
 end
 
 --- A file SQLite fails to open is a read too, whose answer is that it
