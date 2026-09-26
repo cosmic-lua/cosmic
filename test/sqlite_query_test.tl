@@ -89,3 +89,20 @@ local function test_a_failed_step_ends_the_rows_with_why()
   assert(row == nil and trouble == failure)
   assert(db:close())
 end
+
+--- A schema change between the query and its read re-prepares the
+--- statement: the rows carry the columns it has now, and a column gone
+--- is not asked for.
+local function test_a_query_reads_the_columns_the_statement_has_now()
+  for _, change in ipairs({ "ALTER TABLE t DROP COLUMN label", "ALTER TABLE t ADD COLUMN extra" }) do
+    local db = numbers(2)
+    local q = assert(Sqlite.query(db, "SELECT * FROM t ORDER BY n"))
+    assert(db:exec(change))
+    local row, trouble = q:read()
+    assert(row ~= nil, change .. ": " .. trouble)
+    local want = change:find("DROP", 1, true) and 1 or 3
+    assert(#row == want, change .. ": " .. tostring(#row) .. " columns")
+    q:close()
+    assert(db:close())
+  end
+end

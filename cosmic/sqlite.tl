@@ -82,7 +82,8 @@ local record Sqlite
     --- ends at the last one or at a failure, which `failure` then says.
     each: function(Query): function(): Row
     --- Why the rows ended early, or "" when they have not: after an
-    --- `each` loop, "" means every row was read.
+    --- `each` loop that ran out, "" means every row was read. A `break`,
+    --- or a `close` inside the loop, ends it early with no failure.
     failure: function(Query): string
     --- Finalizes the statement, so the handle can close; the last
     --- row, a failure and a `<close>` variable each do it too. A read
@@ -216,7 +217,6 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
     return nil, why
   end
   local out: Sqlite.Rows = {}
-  local width = statement:columns()
   while true do
     local state, failure = statement:step()
     if state == nil then
@@ -227,7 +227,9 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
       break
     end
     local row: Sqlite.Row = {}
-    for index = 0, width - 1 do
+    -- Asked after each step: a schema change re-prepares the
+    -- statement, and its columns with it.
+    for index = 0, statement:columns() - 1 do
       row[index + 1] = Sqlite.cell(statement, index)
     end
     out[#out + 1] = row
@@ -250,6 +252,14 @@ local query_mt: metatable<Sqlite.Query> = {
 --- closed; hold it in a `<close>` variable to close it on a `break` or
 --- an error too.
 ---
+--- An open query holds SQLite's read lock on a file database between
+--- reads, so a writer on another connection waits for it (in rollback
+--- mode, up to the busy timeout, then fails): read it out promptly. A
+--- write on the same connection to a table the query reads may be
+--- read back by it, without end for an insert into a table scanned
+--- whole; collect what to write first. The statement runs at the first
+--- read, not before: `Sqlite.run` is for one that yields no rows.
+---
 ---     local q <close> = assert(Sqlite.query(db, "SELECT id, body FROM t"))
 ---     for row in q:each() do print(row[1].integer, row[2].text) end
 ---     assert(q:failure() == "", q:failure())
@@ -265,7 +275,6 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
     statement:finalize()
     return nil, why
   end
-  local width = statement:columns()
   local open = true
   local ended = false
   local failed = ""
@@ -292,7 +301,9 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
       return nil, ""
     end
     local row: Sqlite.Row = {}
-    for index = 0, width - 1 do
+    -- Asked after each step: a schema change re-prepares the
+    -- statement, and its columns with it.
+    for index = 0, statement:columns() - 1 do
       row[index + 1] = Sqlite.cell(statement, index)
     end
     return row, ""
@@ -329,7 +340,6 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
     return nil, why
   end
   local out: {{string}} = {}
-  local width = statement:columns()
   while true do
     local state, failure = statement:step()
     if state == nil then
@@ -340,7 +350,9 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
       break
     end
     local row: {string} = {}
-    for index = 0, width - 1 do
+    -- Asked after each step: a schema change re-prepares the
+    -- statement, and its columns with it.
+    for index = 0, statement:columns() - 1 do
       row[index + 1] = statement:bytes(index)
     end
     out[#out + 1] = row
