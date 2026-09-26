@@ -114,9 +114,9 @@ local insert_typed_uses =
 --- The worked examples (`build.analyzer.ExampleEntry`) found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
 --- against the module its file name pairs with, which is a planned
---- module or a declaration, as `cosmic.sys` is. The name less `_example`
---- pairs with the longest such module it is or starts with followed by
---- `_`, so a module's examples can be split by topic into files of their
+--- module or a declaration, as `cosmic.sys` is, but never a test or
+--- another example. The name less `_example` pairs with the longest
+--- such module it is or starts with followed by `_`, so a module's examples can be split by topic into files of their
 --- own: `cosmic/json_yaml_example.tl` pairs with `cosmic.json` beside
 --- `cosmic/json_example.tl` -- or with `cosmic.json_yaml`, were there
 --- one -- and `cosmic/jsonx_example.tl` with neither. Nothing here
@@ -130,19 +130,23 @@ local insert_typed_uses =
 --- one symbol. `OR IGNORE` guards `examples`'s `UNIQUE (file, name)`
 --- against a literal duplicate declaration; `<name>` is otherwise free
 --- -- there is no convention left for it to hold to, and two topics'
---- files may each use one.
+--- files may each use one. `k` and `c` are materialized once, since
+--- `inputs` is an unindexed view each example's lookup would scan again.
 local insert_examples =
+  "WITH k AS MATERIALIZED (SELECT path, kind, file, source_hash FROM inputs " ..
+  "WHERE path IN (SELECT path FROM plan) OR kind = 'decl'), " ..
+  "c(path) AS MATERIALIZED (SELECT DISTINCT path FROM k " ..
+  "WHERE kind NOT IN ('test', 'example')) " ..
   "INSERT OR IGNORE INTO out.examples (module, name, text, file, line, " ..
   "source) " ..
   "SELECT x.module, e.name, e.text, x.file, e.line, e.source " ..
-  "FROM (SELECT i.file, i.source_hash, " ..
-  "(SELECT t.path FROM inputs t " ..
-  "WHERE (t.path IN (SELECT path FROM plan) OR t.kind = 'decl') " ..
-  "AND (t.path = s.stem OR substr(s.stem, 1, length(t.path) + 1) = t.path || '_') " ..
-  "ORDER BY length(t.path) DESC LIMIT 1) AS module " ..
-  "FROM (SELECT path, substr(path, 1, length(path) - length('_example')) AS stem " ..
-  "FROM plan) s " ..
-  "JOIN inputs i ON i.path = s.path AND i.kind = 'example') x " ..
+  "FROM (SELECT s.file, s.source_hash, " ..
+  "(SELECT c.path FROM c WHERE c.path = s.stem " ..
+  "OR substr(s.stem, 1, length(c.path) + 1) = c.path || '_' " ..
+  "ORDER BY length(c.path) DESC LIMIT 1) AS module " ..
+  "FROM (SELECT file, source_hash, " ..
+  "substr(path, 1, length(path) - length('_example')) AS stem " ..
+  "FROM k WHERE kind = 'example') s) x " ..
   "JOIN examples e ON e.source_hash = x.source_hash " ..
   "WHERE x.module IS NOT NULL " ..
   "ORDER BY x.module, x.file, e.line"

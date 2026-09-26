@@ -340,7 +340,11 @@ input to the build, never to the runtime. one database holds:
   module's own top-level `function Example.<name>()` -- found the same
   structural way `docs` finds `function Fs.read(...)`, shipped against
   only the module its file name pairs with (`cosmic/fs_example.tl`
-  ships against `cosmic.fs`). `<name>` is a free label, not a symbol:
+  ships against `cosmic.fs`). A module's examples may be split by
+  topic: `<module>_<topic>_example.tl` pairs with the longest module
+  or declaration, not a test, its name less `_example` starts with
+  followed by `_` (`cosmic/json_yaml_example.tl` ships against
+  `cosmic.json`; `cosmic/jsonx_example.tl` against nothing). `<name>` is a free label, not a symbol:
   which real symbol an example is FOR is never decided here, or even
   at ship time. `cosmic docs Fs.read` answers that at read time, over
   `examples_fts`, an external-content FTS5 index the same shape as

@@ -9,9 +9,13 @@
 local record Layout
   --- a worked example: a `<name>_example.tl` file must return a
   --- record literally named `Example`, one field per example --
-  --- `function Example.<name>(): ... end`. `cosmic test` runs each
-  --- one as a test; `cosmic docs <symbol>` shows the ones whose own
-  --- code calls that symbol, matched by content, not by the
+  --- `function Example.<name>(): ... end`. `<module>_example.tl`
+  --- documents `<module>`; `<module>_<topic>_example.tl` does too,
+  --- pairing with the longest module its name starts with followed by
+  --- `_`, so one module's examples can be split by topic across files
+  --- (`json_yaml_example.tl` beside `json_example.tl`). `cosmic test`
+  --- runs each one as a test; `cosmic docs <symbol>` shows the ones
+  --- whose own code calls that symbol, matched by content, not by the
   --- example's own name
   Example: string
   --- a `<name>_test.tl` file's own top-level `local function test_*`

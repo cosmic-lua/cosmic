@@ -514,13 +514,18 @@ local function bare_example(name: string): string
     "", "return Example")
 end
 
---- A topic example pairs with the longest module its name starts with,
---- on a `_` boundary: `cosmic.json_yaml` over `cosmic.json`, and
+--- A topic example pairs with the longest module or declaration its
+--- name starts with, on a `_` boundary: `cosmic.json_yaml` over
+--- `cosmic.json`, a test (`cosmic.json_test`) never, and
 --- `cosmic/jsonx_example.tl` and `cosmic/js_example.tl` with neither.
 local function test_a_topic_example_pairs_with_the_longest_module(dir: string)
   local found = paired(dir, {
     ["cosmic/json.tl"] = source("return { json = true }"),
     ["cosmic/json_yaml.tl"] = source("return { yaml = true }"),
+    ["cosmic/json_test.tl"] = source("local function test_it() end"),
+    ["cosmic/json_test_helpers_example.tl"] = bare_example("helpers"),
+    ["cosmic/sys.d.tl"] = source("local record sys", "end", "return sys"),
+    ["cosmic/sys_socket_example.tl"] = bare_example("socket"),
     ["cosmic/json_example.tl"] = bare_example("plain"),
     ["cosmic/json_flow_example.tl"] = bare_example("flow"),
     ["cosmic/json_yaml_example.tl"] = bare_example("yaml"),
@@ -537,6 +542,40 @@ local function test_a_topic_example_pairs_with_the_longest_module(dir: string)
     found["cosmic/json_yaml_flow_example.tl"])
   assert(found["cosmic/jsonx_example.tl"] == nil, found["cosmic/jsonx_example.tl"])
   assert(found["cosmic/js_example.tl"] == nil, found["cosmic/js_example.tl"])
+  assert(found["cosmic/json_test_helpers_example.tl"] == "cosmic.json",
+    found["cosmic/json_test_helpers_example.tl"])
+  assert(found["cosmic/sys_socket_example.tl"] == "cosmic.sys",
+    found["cosmic/sys_socket_example.tl"])
+end
+
+--- Examples from several files of one module list by file, then line,
+--- whatever order their rows were written in: written by hand, since
+--- the build writes them in that order already.
+local function test_examples_list_by_file_then_line()
+  local db = database({
+    { "cosmic.fs", "read", "function", "function Fs.read()", "Reads.", "cosmic/fs.tl", "3",
+      nil, "Fs.read" },
+  }, {})
+  for _, row in ipairs({ { "cosmic/fs_tls_example.tl", "1" }, { "cosmic/fs_example.tl", "5" } }) do
+    assert(Sqlite.run(db,
+      "INSERT INTO examples (module, name, text, file, line, source) " ..
+      "VALUES ('cosmic.fs', 'read', 'A sentinel read.', ?1, ?2, " ..
+      "'function Example.read() Fs.read(\"x\") end')",
+      { { text = row[1] }, { integer = math.tointeger(tonumber(row[2])) } }))
+  end
+  assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
+  local read = assert(docs.lookup(view({ db }), "Fs.read"))
+  local headers: {string} = {}
+  for _, line in ipairs((assert(docs.render(view({ db }), read[1])))) do
+    if line:match("^  example ") then headers[#headers + 1] = line end
+  end
+  assert(#headers == 2, table.concat(headers, " | "))
+  assert(headers[1] == "  example read (cosmic/fs_example.tl:5):", headers[1])
+  assert(headers[2] == "  example read (cosmic/fs_tls_example.tl:1):", headers[2])
+  local searched = assert(docs.lookup(view({ db }), "sentinel"))
+  assert(#searched == 2, tostring(#searched))
+  assert(searched[1].file == "cosmic/fs_example.tl", searched[1].file)
+  assert(searched[2].file == "cosmic/fs_tls_example.tl", searched[2].file)
 end
 
 --- FTS5 tokenizes on `_`, so `Hash.hex` and `Hash.hex_sha256` share
