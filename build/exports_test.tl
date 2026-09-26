@@ -25,6 +25,15 @@ local allowed: {string: string} = {}
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
+allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
+  "workflows to takes a bare key by the same rule the layout writes one by"
+allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
+  "the workflows to, which the layout is also held to"
+allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
+for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
+  allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
+    "through, which no program in the tree does yet; its test and the workflows' own do"
+end
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
 allowed["build.filesystem_observations.itself"] = "a test's own declaration: " ..

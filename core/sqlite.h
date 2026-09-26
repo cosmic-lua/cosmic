@@ -15,6 +15,14 @@
  * under the raw `cosmic.internal.sqlite` name. */
 int cosmic_open_sqlite (lua_State *L);
 
+/* The VFS every connection `cosmic.sqlite` opens goes through, and the
+ * store's `attach` too: the default one, but that each file it opens or
+ * asks after is recorded while `observe` has recording on, for
+ * build.filesystem_observations to key a test by. `cosmic_open_sqlite`
+ * registers it, which the store's `cosmic_store_open_raw` runs at
+ * startup, before any Lua can ask for a database. */
+#define COSMIC_SQLITE_OBSERVED_VFS "cosmic-observed"
+
 /* Pushes a handle over a connection something else owns: the store's
  * own databases, which Teal may read but never closes -- `close` on
  * such a handle is a no-op, and collection does not close it either.

@@ -210,9 +210,12 @@ one exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
-table itself, which answers as the binding it replaces. one trace
-point at the table's dispatch gives a syscall log for every call
-uniformly when asked.
+table itself, which answers as the binding it replaces. a syscall
+log, when asked, is kept by the five queries a test's key turns on
+(`getcwd`, `executable`, `lstat`, `readlink`, `realpath`): each of
+those bindings checks the log's flag itself (`core/observed.h`), so a
+reference taken before logging began is logged too, and every other
+binding is untouched.
 
 `posix` is a reserved name of a different kind: not privacy, but
 scope. a module lives under `cosmic.posix.` when its whole job is
@@ -613,13 +616,15 @@ gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
 are closed:
 
 - [x] *the tree's location* (`build/filesystem_observations.tl`, above
-  `tree_name`): `getcwd`, `Fs.absolute`, `realpath` and `Proc.executable` are
-  not observed, so the location is no input a verdict may turn on: a test must
-  not depend on where the tree is (AGENTS.md), and CI moves its checkout to a
-  path of each run's own (`.github/scripts/place-tree.sh`). a test that does
-  fails a run that runs it: every run while CI stands only on what it runs, but
-  once it stands on shared verdicts, only a run where the test's key changed,
-  so the random path catches it on some runs, not on every one.
+  `tree_name`): no input to a test, by rule. a test may not turn on where the
+  tree is, nor where the program is; the working directory, a realpath, a
+  readlink and the program's own path it reads are keyed by `tree_name` in the
+  shared key (whole in a checkout's own), and `Proc.relaunch`'s artifact path
+  is keyed nowhere. CI moves its checkout, and the tool with it, to a path of
+  each run's own (`.github/scripts/place-tree.sh`), so a test that breaks the
+  rule fails a run that runs it: every run while CI stands only on what it
+  runs, but once it stands on shared verdicts, only a run where the test's key
+  changed, so the path catches it on some runs, not on every one.
 - [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
   anything under `o/` is keyed by its bytes, hashed once a run while its stat
   holds; a read of the working database, which every run rewrites, is never
@@ -633,15 +638,25 @@ are closed:
 - [ ] *a database a connection opened before the capture*
   (`build/filesystem_observations.tl`, above `start`): its reads go unrecorded.
   hand over the files every open connection holds when a capture starts.
-- [ ] *a database attached through the store* (`core/store.c`, in
-  `store_attach`): opened on SQLite's default VFS, it is never observed. open it
-  through `cosmic.sqlite`'s.
-- [ ] *lstat, readlink, realpath and getcwd* (`build/filesystem_observations.tl`,
-  above `start`): observe every call at the syscall table's dispatch rather than
-  by replacing fields of `cosmic.sys`.
+- [x] *a database attached through the store* (`core/store.c`, in
+  `store_attach`): it opens through `cosmic.sqlite`'s observed VFS, so a test
+  that attaches one is keyed by its bytes, and one that attaches `o/build.db`
+  keeps no verdict.
+- [x] *lstat, readlink, realpath and getcwd*: each of those bindings, and
+  `executable`, logs what it was asked and answered in C while a capture runs
+  (core/observed.h), whoever calls it; a capture drains the log and notes each,
+  an lstat, a readlink or a realpath as a stat is, and `executable` by whether
+  it answered: where the program is, like where the tree is, is no input.
 - [ ] *a read resolved beside the call* (`build/filesystem_observations.tl`, in
   `start`): another process retargeting a link between the read and its
-  resolution goes unseen; resolve by the descriptor the call opened.
+  resolution goes unseen; resolve by the descriptor the call opened. a query the
+  table's log keeps (above `start`) is resolved later still, as the capture
+  ends: resolve it in C, beside its record.
+- [ ] *a call taken before the capture* (`build/filesystem_observations.tl`,
+  above `start`): `open`, `stat`, `readdir`, `getenv` and the other calls still
+  observed by standing in for a field of `cosmic.sys` go unseen through a
+  reference a module took before the capture began. move them onto the table's
+  log.
 - [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
   `under_root`): keyed by where the link leads at the end, not when read.
   resolve such a read as it is made, from a set of the tree's links.

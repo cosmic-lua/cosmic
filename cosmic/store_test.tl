@@ -15,6 +15,22 @@ local function test_attaching_a_missing_database_fails(tmp: string)
   assert(trouble:sub(1, #path + 2) == path .. ": ", trouble)
 end
 
+--- A path is a filename, never a URI: one whose `vfs=` would pick a
+--- VFS no capture observes names no file, and nothing is attached.
+local function test_attaching_a_uri_is_refused(tmp: string)
+  local path = tmp .. "/real.db"
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("CREATE TABLE t (v TEXT)"))
+  assert(db:close())
+  local before = #Store.databases()
+  assert(Store.attach(path))
+  assert(#Store.databases() == before + 1)
+  local ok, trouble = Store.attach("file:" .. path .. "?vfs=unix")
+  assert(not ok, "attached a URI")
+  assert(trouble ~= "")
+  assert(#Store.databases() == before + 1)
+end
+
 --- Run standalone, where the binary's own database is the only one
 --- searched: every module there the searcher hands a raw value is a
 --- wrapper the core grants one. A project database then attached holds

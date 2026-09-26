@@ -488,19 +488,36 @@ end
 --- resolves elsewhere since keys differently. A "t", a path under the
 --- test's own directory, is stored with its answer and never enters
 --- the key: that directory's name is new in every run, and gone after.
-local function resolutions_of(reads: {observations.Observation}): {string:string}
-  local out: {string:string} = {}
+--- The second answer is the same of each "v" and "w", an lstat's or a
+--- readlink's resolution, which stops short of a link the path ends
+--- in: the same path an open or a stat also read resolves elsewhere.
+local function resolutions_of(reads: {observations.Observation}): {string:string},
+                                                                  {string:string}
+  local followed: {string:string} = {}
+  local unfollowed: {string:string} = {}
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if (kind == "r" or kind == "t") and out[observation.path] == nil then
+    local link = kind == "v" or kind == "w"
+    local out = link and unfollowed or followed
+    if (kind == "r" or kind == "t" or link) and out[observation.path] == nil then
       local answer = observation.answer
       if kind == "r" and answer == "" then
         answer = observations.resolution(observation.path)
+      elseif kind == "v" and answer == "" then
+        answer = observations.link_resolution(observation.path)
       end
       out[observation.path] = answer
     end
   end
-  return out
+  return followed, unfollowed
+end
+
+--- Which of `resolutions_of`'s two answers judges a read of `kind`:
+--- the second for an lstat or a readlink.
+local function resolved_for(kind: string, followed: {string:string},
+                            unfollowed: {string:string}): {string:string}
+  if kind == "l" or kind == "k" then return unfollowed end
+  return followed
 end
 
 --- The environment every worker this process starts has
@@ -558,7 +575,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
                           reads: {observations.Observation},
                           key_parts: {string:string},
                           started_ns?: integer): test.VerdictKey
-  local resolutions = resolutions_of(reads)
+  local followed, unfollowed = resolutions_of(reads)
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
   local stable = true
@@ -566,9 +583,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local paths: {string} = {}
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    local keyed = kind == "e" or kind == "u"
-    if kind == "r" then
-      local real = resolutions[observation.path]
+    local keyed = kind == "e" or kind == "u" or kind == "c" or kind == "b"
+    if kind == "r" or kind == "v" then
+      local real = (kind == "v" and unfollowed or followed)[observation.path]
       keyed = real ~= "" and Fs.within(real, root)
     end
     if keyed then
@@ -582,8 +599,10 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         if before ~= nil and before ~= observation.answer then stable = false end
         answers[identified] = observation.answer
       end
-    elseif kind == "o" or kind == "s" or kind == "d" then
-      local relative = under_root(root, observation.path, resolutions)
+    elseif kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+        kind == "a" then
+      local relative = under_root(root, observation.path,
+        resolved_for(kind, followed, unfollowed))
       if relative ~= nil and working_database(relative) then stable = false end
       local identified = kind .. " " .. (relative or "")
       if relative ~= nil and not seen[identified] then
@@ -618,9 +637,12 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- (an "r" observation), which generation 5 never let stand.
   -- Generation 7 names nothing of where the tree is (see above), so
   -- every checkout of one tree computes the same key.
+  -- Generation 8 keys what the syscall table's queries answered -- an
+  -- lstat, a readlink, a realpath, the working directory, whether the
+  -- program's own path answered -- which generation 7 never observed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-7", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-1", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-8", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-2", "module-load-reads-v1", header }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -628,6 +650,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       current = observations.getenv_current(relative, worker_view())
     elseif kind == "r" then
       current = observations.resolution(relative)
+    elseif kind == "v" then
+      current = observations.link_resolution(relative)
     elseif kind == "u" then
       -- A path a confined process was given may be a whole directory,
       -- one most of a run's tests give theirs (the system's own), so
@@ -655,6 +679,16 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       end
     elseif kind == "s" then
       current = observations.stat_answer(root .. "/" .. relative)
+    elseif kind == "l" then
+      current = observations.lstat_answer(root .. "/" .. relative)
+    elseif kind == "k" then
+      current = observations.readlink_answer(root .. "/" .. relative)
+    elseif kind == "a" then
+      current = observations.realpath_answer(root .. "/" .. relative)
+    elseif kind == "c" then
+      current = observations.cwd_answer()
+    elseif kind == "b" then
+      current = observations.executable_answer()
     else
       current = observations.directory_answer(root .. "/" .. relative)
     end
@@ -672,14 +706,20 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         key_parts[memo_held] = held
       end
       answer = held
-    elseif kind == "s" and output(relative) then
+    elseif (kind == "s" or kind == "l") and output(relative) then
       -- When the build last wrote a file is its own, not the tree's:
       -- held as the shared key holds it here too, lest a test that
       -- stats o/cosmic.db run again after every edit rewrites it.
       answer = held_stat(answer)
-    elseif kind == "s" then
+    elseif kind == "s" or kind == "l" then
       shared_answer = held_stat(answer)
-    elseif kind == "r" then
+    elseif kind == "k" or kind == "a" or kind == "c" then
+      -- A path a query answered names where the tree is: whole in the
+      -- checkout's own key, and by `tree_name` in the shared one, as
+      -- every checkout of the tree answers alike.
+      local value = answer:match("^ok (.*)$")
+      if value ~= nil then shared_answer = "ok " .. observations.tree_name(value, root) end
+    elseif kind == "r" or kind == "v" then
       answer = observations.tree_name(answer, root)
     elseif kind == "u" then
       named = observations.tree_name(relative, root)
@@ -752,7 +792,7 @@ end
 -- directories whose answers a key could hold.
 function test.keyable(root: string, scratch: string,
                       reads: {observations.Observation}): boolean
-  local resolutions = resolutions_of(reads)
+  local followed, unfollowed = resolutions_of(reads)
   local function under(dir: string, path: string): boolean
     return Fs.within(path, dir)
   end
@@ -766,10 +806,10 @@ function test.keyable(root: string, scratch: string,
   end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if (kind == "o" or kind == "s" or kind == "d") and
-        not constant_devices[observation.path] and not own_process(observation.path) then
+    if (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+        kind == "a") and not constant_devices[observation.path] and not own_process(observation.path) then
       local path = observation.path
-      local real = resolutions[path]
+      local real = resolved_for(kind, followed, unfollowed)[path]
       if real == "" or (real == nil and climbs(path)) then return false end
       local judged = real or path
       if judged:sub(1, 1) == "/" and not under(root, judged) and

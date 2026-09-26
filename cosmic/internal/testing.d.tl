@@ -41,6 +41,9 @@ local record testing
   --- being made. "readdir_d_type" is passed once per entry `sys.readdir`
   --- lists, and makes that entry's type unknown, as a filesystem that
   --- does not say leaves it, so the entry is asked with an lstat.
+  --- "observed_log" is passed each time the syscall table's log of what
+  --- its queries answered grows (core/syscalls.c), and refuses the
+  --- growth, so the call it would record fails as memory does.
   fail_at: function(point?: string, skip?: integer): boolean
 
   --- How many HTTP transfers hold curl state: made by an open, and not

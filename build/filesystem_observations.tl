@@ -8,12 +8,13 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 --- The raw process table, whose `spawn` `cosmic.child` starts every
---- child with, and SQLite's, which records the files SQLite opens in
---- C: this module is handed both (core/store.c's `open_observations`)
---- to note each child a test starts, by standing in for that call, and
---- each file SQLite reads for it, by draining that record. Boot mode
---- falls back to requiring each by name, which only boot's own preload
---- answers.
+--- child with; SQLite's, which records the files SQLite opens in C;
+--- and the syscall table's log of what its queries answered: this
+--- module is handed all three (core/store.c's `open_observations`) to
+--- note each child a test starts, by standing in for that call, each
+--- file SQLite reads for it and each query of `cosmic.sys` it makes,
+--- by draining those records. Boot mode falls back to requiring them
+--- by name, which only boot's own preload answers.
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
 
@@ -22,20 +23,22 @@ local raws: Raw
 if type(extra) == "table" then
   raws = extra as Raw
 else
-  raws = { process = require("cosmic.internal.process"),
-    sqlite = require("cosmic.internal.sqlite") }
+  raws = require("cosmic.internal.observations")
 end
 local process = raws.process
 local sqlite = raws.sqlite
+local syscalls = raws.syscalls
 
--- What placing a path asks of the process, taken when this module
--- loads -- before any test's module does -- so a test that stubs one
--- cannot bend where its own reads are keyed.
+-- What placing a path asks of the process: the calls themselves, past
+-- the syscall table's log, so the observer's own questions are none of
+-- the test's; and taken when this module loads -- before any test's
+-- module does -- so a test cannot bend where its own reads are keyed.
 -- TODO: take the `Fs` functions a note calls (`within`, `dirname`,
 -- `basename`) the same way: a test that replaces one on the shared
 -- `Fs` table can still move a read in or out of the tree.
-local getcwd = sys.getcwd
-local realpath = sys.realpath
+local getcwd = syscalls.getcwd
+local realpath = syscalls.realpath
+local lstat = syscalls.lstat
 
 local record observations
   record Observation
@@ -147,19 +150,42 @@ function observations.resolution(path: string): string
   end
 end
 
+--- What a path names without following a link at its end, as `lstat`
+--- and `readlink` read it: `observations.resolution` of the directory
+--- it is in, with its last name after it as written. That of the whole
+--- path for one whose last name is "." or "..", or that ends in "/",
+--- which the call follows. "" for a relative path.
+function observations.link_resolution(path: string): string
+  if path:sub(1, 1) ~= "/" then return "" end
+  local name = Fs.basename(path)
+  local parent = Fs.dirname(path)
+  if path:sub(-1) == "/" or name == "." or name == ".." or name == "" or parent == path then
+    return observations.resolution(path)
+  end
+  local real = observations.resolution(parent)
+  if real == "" then return "" end
+  return (real == "/" and "" or real) .. "/" .. name
+end
+
 --- A versioned, line-safe representation. Paths may themselves contain
 --- newlines. Version 2 added "r", what a path outside the tree resolved
 --- to when it was read, and "t", the same for a path under the test's
 --- own directory, which alone keeps its answer: that directory is gone
---- by the time a later run could resolve the path again.
+--- by the time a later run could resolve the path again. The syscall
+--- table's queries (see `start`) came later, each a kind no earlier
+--- reader decodes: "l" an lstat, "k" a readlink, "a" a realpath, "c"
+--- the working directory and "b" the program's own path, and "v" and
+--- "w", an lstat's or a readlink's resolution, as "r" and "t" are
+--- another read's.
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" or
-        kind == "u" then
+        kind == "u" or kind == "l" or kind == "k" or kind == "a" or kind == "c" or
+        kind == "b" or kind == "v" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
-    elseif kind == "t" then
+    elseif kind == "t" or kind == "w" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
         Codec.hex(observation.answer)
     end
@@ -188,7 +214,8 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   local found: {observations.Observation} = {}
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v2" then
-      local kind, encoded_path, encoded_answer = line:match("^([osdertu]) ([0-9a-f]*) ?([0-9a-f]*)$")
+      local kind, encoded_path, encoded_answer =
+        line:match("^([osdertulkacbvw]) ([0-9a-f]*) ?([0-9a-f]*)$")
       local path: string = nil
       local answer: string = nil
       if encoded_path ~= nil then
@@ -197,7 +224,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
         local decoded_answer, _ = Codec.unhex(encoded_answer)
         answer = decoded_answer
       end
-      if kind == nil or path == nil or answer == nil or (kind ~= "t" and answer ~= "") then
+      if kind == nil or path == nil or answer == nil or (kind ~= "t" and kind ~= "w" and answer ~= "") then
         return nil
       end
       found[#found + 1] = { kind = kind, path = path, answer = answer }
@@ -255,6 +282,27 @@ local function stat_result_answer(st: sys.Stat | nil, trouble: string,
   return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
     tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
     tostring(st.nlink), tostring(st.uid), tostring(st.gid) }, " ")
+end
+
+--- A query's answer: its value, or its error, as a stat's is told.
+local function value_answer(value: string | nil, trouble: string, errno: integer): string
+  if value == nil then
+    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
+  end
+  return "ok " .. value
+end
+
+--- What a "b" observation holds of the program's own path: that the
+--- query answered, and its error whole where it failed, but not where
+--- the program is. What the program is, a verdict's key holds already
+--- (its runtime identity, `build.work`'s `Identities`); where it is,
+--- like where the tree is, is no input a test may turn on (see
+--- `observations.tree_name`), so a verdict one copy of a program
+--- reached stands under another at another path -- another artifact
+--- over the same core and basis, a release beside the tree's own.
+local function program_answer(value: string | nil, trouble: string, errno: integer): string
+  if value == nil then return value_answer(value, trouble, errno) end
+  return "ok"
 end
 
 --- A directory answer includes names, kinds, and errors. Length-prefixing each
@@ -474,6 +522,42 @@ local function drain_sqlite()
   end
 end
 
+--- The kind each query the syscall table logs is noted as: "l" an
+--- lstat, "k" a readlink and "a" a realpath, each of a path as a stat
+--- is; "c" the working directory the run started in, whatever it
+--- answered -- what a test's own change of directory made it answer is
+--- noted as that change -- and "b" the program's own path, keyed by
+--- whether it answered (`program_answer`), not where the program is.
+local call_kinds: {string:string} = {
+  lstat = "l", readlink = "k", realpath = "a", getcwd = "c", executable = "b",
+}
+
+--- Notes each query of `cosmic.sys` the syscall table logged since the
+--- last drain by every running capture, as `drain_sqlite` does SQLite's
+--- files: it logs them in C, in each of those bindings, whoever made the
+--- call -- a module that took it before any stand-in here was
+--- installed, or a Teal function over it. One whose answer the log
+--- could not hold, or whose relative path's working directory could not
+--- be told, is noted "x".
+local function drain_syscalls()
+  for _, call in ipairs(syscalls.observed()) do
+    local kind = call_kinds[call.call] or "x"
+    local path = call.path or ""
+    local answer = ""
+    if call.partial or kind == "x" or (call.path ~= nil and path:sub(1, 1) ~= "/") then
+      kind = "x"
+      if path == "" then path = call.call end
+    elseif kind == "l" then
+      answer = stat_result_answer(call[1] as sys.Stat, call[2] as string, call[3] as integer)
+    elseif kind == "b" then
+      answer = program_answer(call[1] as string, call[2] as string, call[3] as integer)
+    elseif kind ~= "c" then
+      answer = value_answer(call[1] as string, call[2] as string, call[3] as integer)
+    end
+    for _, note in ipairs(noting) do note(kind, path, answer) end
+  end
+end
+
 --- Calls `fn`, which starts processes whose every input it has read
 --- itself, through the calls observed here: a process started meanwhile
 --- is noted "h", a declared one, which a key can hold, rather than "p".
@@ -530,15 +614,36 @@ end
 -- when a capture starts too (the VFS can keep the path of each file it
 -- holds open, and hand them over as `observed` does): today a
 -- connection a module opens as it loads, read only by a test's own
--- call, keys that call without the database.
--- TODO: observe every call at the syscall table's dispatch, as
--- design.md's trace point promises, rather than by replacing fields of
--- `cosmic.sys`, `cosmic.internal.process` and `cosmic.http` here: lstat, readlink, realpath and
--- getcwd are not observed, so a test whose answer turns on one of them
--- outside the tree can still stand.
+-- call, keys that call without the database; so does one the store
+-- attached before the capture (the worker's o/cosmic.db, whose reads a
+-- test's `require` makes are held by its module keys instead).
+---
+--- What `cosmic.sys`'s `lstat`, `readlink`, `realpath`, `getcwd` and
+--- `executable` answer while the capture runs is logged by each of
+--- those bindings itself (core/observed.h), whoever calls it, and noted
+--- when the capture ends (see `drain_syscalls`): an lstat, a readlink
+--- or a realpath as a stat is -- an lstat's and a readlink's path
+--- resolved, given `resolving`, only as far as its last name
+--- (`observations.link_resolution`) and noted "v", or "w" under the
+--- test's own directory, as "r" and "t" are another read's -- the
+--- working directory as an environment read is, and the program's own
+--- path by whether it answered (`program_answer`).
+-- TODO: move the calls still observed by standing in for them here --
+-- `open`, `stat`, `readdir`, `getenv`, `environ`, `mkdtemp`, `mkdir`
+-- and `chdir` of `cosmic.sys`, `spawn` and `Http.open` -- onto the
+-- syscall table's log, once it resolves a path as the call is made (a
+-- drained record is resolved as the capture ends, where a stand-in
+-- resolves it beside the call) and the process table and cosmic.http
+-- log as those bindings do: a module that took one of them before the
+-- capture began, as `local stat = sys.stat`, reads unobserved.
+-- TODO: resolve the path of an lstat, a readlink or a realpath as the
+-- call is made, in C beside the log's record, rather than as the
+-- capture ends: a test that retargets a link of its own directory
+-- between the two keys the read by where the link leads at the end.
 local function start(resolving: observations.Resolving | nil):
                      {observations.Observation}, function()
   drain_sqlite()
+  drain_syscalls()
   local found: {observations.Observation} = {}
   local open = sys.open
   local stat = sys.stat
@@ -550,6 +655,28 @@ local function start(resolving: observations.Resolving | nil):
   local mkdir = sys.mkdir
   local chdir = sys.chdir
   local http_open = Http.open
+  -- The test's own: its directory, and every directory it made for
+  -- itself and that is a directory still -- one put back as a link
+  -- would lead elsewhere -- which a key never holds either.
+  local function test_own(): {string}
+    local own: {string} = {}
+    for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
+      own[#own + 1] = directory
+    end
+    for _, observation in ipairs(found) do
+      if observation.kind == "m" then
+        local inside = false
+        for _, directory in ipairs(own) do
+          if Fs.within(observation.path, directory) then inside = true end
+        end
+        local st, _ = lstat(observation.path)
+        if not inside and st ~= nil and st.kind == "dir" then
+          own[#own + 1] = observation.path
+        end
+      end
+    end
+    return own
+  end
   -- A test holding a call to its argument checks may hand it a path
   -- that is no string at all, which the call itself raises for; only a
   -- path is an observation, and encoding anything else into a key would
@@ -567,18 +694,25 @@ local function start(resolving: observations.Resolving | nil):
         path = (here == "/" and "" or here) .. "/" .. path
       end
       found[#found + 1] = { kind = kind, path = path, answer = answer }
-      if resolving ~= nil and (kind == "o" or kind == "s" or kind == "d") and
+      if resolving ~= nil and
+          (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+            kind == "a") and
           path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
             ("/" .. path .. "/"):find("/%.%./") ~= nil) then
-        local noted = "r"
+        -- An lstat's or a readlink's is kept apart, as "v" or "w": it
+        -- stops short of a link its path ends in, which a stat's of the
+        -- same path follows.
+        local link = kind == "l" or kind == "k"
+        local noted = link and "v" or "r"
         for _, directory in ipairs(resolving.own) do
-          if Fs.within(path, directory) then noted = "t" end
+          if Fs.within(path, directory) then noted = link and "w" or "t" end
         end
         -- TODO: resolve by the call itself, not beside it (the path an
         -- opened descriptor names, once cosmic.sys carries one): another
         -- process retargeting a link between the two goes unseen.
-        local resolved = observations.resolution(path)
-        if noted == "t" and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
+        local resolved = link and observations.link_resolution(path) or
+          observations.resolution(path)
+        if (noted == "t" or noted == "w") and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
           -- Most of a test's reads are of its own directory; only one
           -- that leads out of it, or that climbs (which only its
           -- resolution can place), is worth a line.
@@ -615,28 +749,6 @@ local function start(resolving: observations.Resolving | nil):
     found[#found + 1] = { kind = "e", path = environ_path,
       answer = environ_answer(environment) }
     return environment
-  end
-  -- The test's own: its directory, and every directory it made for
-  -- itself and that is a directory still -- one put back as a link
-  -- would lead elsewhere -- which a key never holds either.
-  local function test_own(): {string}
-    local own: {string} = {}
-    for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
-      own[#own + 1] = directory
-    end
-    for _, observation in ipairs(found) do
-      if observation.kind == "m" then
-        local inside = false
-        for _, directory in ipairs(own) do
-          if Fs.within(observation.path, directory) then inside = true end
-        end
-        local st, _ = sys.lstat(observation.path)
-        if not inside and st ~= nil and st.kind == "dir" then
-          own[#own + 1] = observation.path
-        end
-      end
-    end
-    return own
   end
   --- Notes what a process started unveiled and offline had: each path
   --- it read, unless the test's own; each it could change beyond the
@@ -792,6 +904,7 @@ local function start(resolving: observations.Resolving | nil):
   end
   noting[#noting + 1] = note
   sqlite.observe(true)
+  syscalls.observe(true)
   return found, function()
     sys.chdir = chdir
     Http.open = http_open
@@ -804,18 +917,23 @@ local function start(resolving: observations.Resolving | nil):
     sys.mkdtemp = mkdtemp
     sys.mkdir = mkdir
     -- Draining allocates, and can raise on memory: every wrapper is put
-    -- back first. A drain that fails may have taken paths out of C before
-    -- noting them all, so every capture still running -- this one and
-    -- each that encloses it -- is made one no key holds.
-    if not pcall(drain_sqlite) then
-      for _, each in ipairs(noting) do
-        local _ = pcall(each, "x", "sqlite", "")
+    -- back first. A drain that fails may have taken records out of C
+    -- before noting them all, so every capture still running -- this one
+    -- and each that encloses it -- is made one no key holds.
+    for _, drain in ipairs({ drain_sqlite, drain_syscalls }) do
+      if not pcall(drain) then
+        for _, each in ipairs(noting) do
+          local _ = pcall(each, "x", drain == drain_sqlite and "sqlite" or "syscalls", "")
+        end
       end
     end
     for at = #noting, 1, -1 do
       if noting[at] == note then table.remove(noting, at) break end
     end
-    if #noting == 0 then sqlite.observe(false) end
+    if #noting == 0 then
+      sqlite.observe(false)
+      syscalls.observe(false)
+    end
   end
 end
 
@@ -863,14 +981,23 @@ local tree_marker <const> = "\0tree"
 --- below it after a marker no path holds, and any other as it is. The
 --- tree's own location is no input to what a test does there, so two
 --- checkouts of the same content key the same read alike.
--- TODO: the tree's location is keyed nowhere, yet a test can read it:
--- `sys.getcwd`, `Fs.absolute`, `sys.realpath` and `Proc.executable` are
--- not observed, so a test whose verdict turns on where the tree is (a
--- path length limit, a name it prints and compares) stands on a
--- sibling checkout's verdict at another path. Note each such answer
--- as an observation, named by `tree_name` in the shared key and whole
--- in a checkout's own, once the syscall table's dispatch observes them
--- (see the TODO above `start`, on observing every call there).
+---
+--- That is a rule, not an accident of keying: a test may not turn on
+--- where the tree is -- a path length limit, a name it prints and
+--- compares. The answers that name it which a capture observes (the
+--- working directory, a realpath, a readlink, a path under the tree
+--- read or given) are keyed by `tree_name` in the shared key and whole
+--- only in a checkout's own; one it does not (the artifact path
+--- `Proc.relaunch` and the process table's `relaunch` answer) is keyed
+--- nowhere. The same rule holds of where the running program is: what
+--- `Proc.executable` answered is keyed nowhere (`program_answer`), only
+--- that it answered. Nothing here can see a test break either rule;
+--- CI enforces both by moving its checkout, and the tool it runs,
+--- o/bin/cosmic, with it, to a path of each run's own
+--- (.github/scripts/place-tree.sh). That catches a test that breaks one
+--- only on a run that runs the test: every run while CI stands only on
+--- what it runs itself, and once it stands on shared verdicts, only a
+--- run where the test's key changed.
 function observations.tree_name(path: string, tree: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
   local rest, _ = Fs.relative(path, tree)
@@ -952,6 +1079,31 @@ end
 
 function observations.stat_answer(path: string): string
   return stat_result_answer(sys.stat(path))
+end
+
+--- What `lstat` of `path` answers now, as an "l" observation holds it.
+function observations.lstat_answer(path: string): string
+  return stat_result_answer(lstat(path))
+end
+
+--- What `readlink` of `path` answers now, as a "k" observation holds it.
+function observations.readlink_answer(path: string): string
+  return value_answer(syscalls.readlink(path))
+end
+
+--- What `realpath` of `path` answers now, as an "a" observation holds it.
+function observations.realpath_answer(path: string): string
+  return value_answer(realpath(path))
+end
+
+--- What `getcwd` answers now, as a "c" observation holds it.
+function observations.cwd_answer(): string
+  return value_answer(getcwd())
+end
+
+--- What `executable` answers now, as a "b" observation holds it.
+function observations.executable_answer(): string
+  return program_answer(syscalls.executable())
 end
 
 function observations.directory_answer(path: string): string
