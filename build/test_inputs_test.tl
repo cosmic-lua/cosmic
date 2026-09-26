@@ -1,6 +1,7 @@
 local Fuzz = require("build.fuzz")
 local test_inputs = require("build.test_inputs")
 local type analyzer = require("build.analyzer")
+local type declared_inputs = require("build.inputs")
 local type positions = require("build.positions")
 
 local type Module = positions.Module
@@ -144,4 +145,27 @@ local function test_a_report_groups_tests_and_suggests_a_declaration()
   assert(lines[#lines] == '  declare: Test.needs { reads = { "data/", ' ..
     '"vendor/x/" }, env = { "HOME", "PATH" }, processes = true }', text)
   assert(#test_inputs.report(m, { test_one = {}, test_two = {} }) == 0)
+end
+
+--- A declaration's canonical text is one for each declaration: what the
+--- build reads and what `needs` is handed agree on `network = true` and
+--- `{ "*" }`, a flag `false` and none, an empty list and none; the
+--- literal's order and its duplicates are kept; and a value is quoted,
+--- so no two declarations share a text.
+local function test_canonical_text_names_one_declaration()
+  local function of(needs: declared_inputs.Needs): string
+    return test_inputs.canonical(test_inputs.as_declared(needs))
+  end
+  assert(test_inputs.canonical(nil) == "" and of(nil) == "")
+  assert(of({}) == "" and of({ reads = {}, tool = false, network = false }) == "")
+  assert(of({ network = true }) == of({ network = { "*" } }))
+  assert(of({ network = true }) == test_inputs.canonical(declaring({ network = { "*" } })))
+  assert(of({ reads = { "a", "b" } }) ~= of({ reads = { "b", "a" } }))
+  assert(of({ reads = { "a", "a" } }) ~= of({ reads = { "a" } }))
+  assert(of({ reads = { "a\nreads \"b\"" } }) ~= of({ reads = { "a", "b" } }))
+  assert(of({ reads = { "a b" } }) ~= of({ reads = { "a", "b" } }))
+  assert(of({ env = { "A" } }) ~= of({ host = { "A" } }))
+  assert(of({ reads = { "x" }, processes = true, store = true }) ==
+    'reads "x"\nprocesses true\nstore true', of({ reads = { "x" }, processes = true, store = true }))
+  assert(of({ tool = true }) == test_inputs.canonical(declaring({ tool = true })))
 end

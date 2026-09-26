@@ -196,6 +196,12 @@ end
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else means there is no report to read.
+--- Installs `runner` as `__runner` on `module`, `cosmic.test`'s table,
+--- where `needs` looks for a runner: no member of its type.
+local function install(module: any, runner: any)
+  if module is {string:any} then module.__runner = runner end
+end
+
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
 --- <needs>`, `children` a directory, not yet there, to collect the
 --- coverage of the processes the test starts in, and `needs` what the
@@ -238,21 +244,28 @@ function worker.run(argv: {integer:string}): integer
   if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
   -- A confined process writes its coverage beside the test's own.
   if children ~= nil then resolving.own[#resolving.own + 1] = children end
+  -- What the module's `needs` call is handed as it loads, through the
+  -- hook `cosmic.test` leaves for a runner; once it has loaded, a call
+  -- is refused.
+  local handed: Test.Needs = nil
+  local runner = { loaded = false, handed = function(needs: Test.Needs) handed = needs end }
+  install(Test, runner)
   local captured = observations.capture(function(): any
     return require(module_path)
   end, resolving)
+  runner.loaded = true
   local loaded, produced, load_reads = captured.ok, captured.produced, captured.reads
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits
   end
   report.load_reads = load_reads
-  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(Test.declared())) or ""
+  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed)) or ""
   if loaded and needs ~= expected_needs then
     loaded = false
     produced = "its cosmic.test needs call was handed what the build did not read " ..
       "from its source -- the build reads only a top-level Test.needs { ... } " ..
-      "on a local bound to require(\"cosmic.test\") (see build.inputs):\n" ..
+      "on a local bound to require(\"cosmic.test\") (see cosmic.test):\n" ..
       "  handed:\n    " .. (needs == "" and "nothing" or needs:gsub("\n", "\n    ")) ..
       "\n  read:\n    " .. (expected_needs == "" and "nothing" or
         expected_needs:gsub("\n", "\n    "))

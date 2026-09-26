@@ -2,27 +2,20 @@
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
+local Env = require("cosmic.env")
 local Test = require("cosmic.test")
 
--- What these examples read beyond their module's own sources: a
--- variable, which a test would read with `Env.get`.
-Test.needs{ env = { "COSMIC_TEST_EXAMPLE" } }
+-- These examples read USER, which a test reads only once it says so.
+Test.needs{ env = { "USER" } }
 
 local Example = {}
 
---- `needs` is called once, as a statement at the top of the module,
---- on the local `require("cosmic.test")` is bound to -- the call above
---- -- so the build can read it without running the module.
+--- A test module declares what its tests read beyond their own sources
+--- once, as a statement at its top: the call above, which lets the
+--- examples below read USER.
 function Example.needs()
-  local needs = assert(Test.declared())
-  assert(needs.env[1] == "COSMIC_TEST_EXAMPLE")
-  print(needs.env[1])
-end
-
---- What the module's one `needs` call was handed.
-function Example.declared()
-  local needs = Test.declared()
-  assert(needs ~= nil and needs.reads == nil and needs.processes == nil)
+  local user = Env.get("USER")
+  print(user ~= nil)
 end
 
 return Example

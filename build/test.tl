@@ -66,7 +66,7 @@
 --- A test's inputs are its default ones -- its module's import closure,
 --- as source files, the corpora of the fuzz properties it names, and a
 --- pinned environment -- and what its module declares in a top-level
---- `Test.needs { ... }` (`cosmic.test`, `build.inputs`): paths of the tree and the host,
+--- `Test.needs { ... }` (`cosmic.test`): paths of the tree and the host,
 --- variables, the network, processes no sandbox holds, the tool, the
 --- projection. `--audit` runs every test it chooses and names, module by
 --- module, whatever one read beyond them (`build.test_inputs`), with the
@@ -954,7 +954,7 @@ end
 -- and a sandbox hides it then too, so a test whose behaviour turns on
 -- such a path must declare it though the audit asks nothing of it.
 -- Flag an absent path the test's behaviour depends on once the audit
--- can tell one (a read under a declared-optional list in `build.inputs`,
+-- can tell one (a read under a declared-optional list in `cosmic.test`,
 -- or the audit run again with the path made present).
 local function found_nothing(observation: observations.Observation, path: string): boolean
   local function nothing(errno: integer): boolean
@@ -970,7 +970,7 @@ end
 --- What of `reads`, one test's observations, `effective` does not hold
 --- (`build.test_inputs`): each read of the tree or the host beyond it,
 --- each variable, each request and each process no sandbox holds, as
---- the field of `build.inputs` that would declare it, once each. What
+--- the field of `cosmic.test`'s `Needs` that would declare it, once each. What
 --- no test declares is left out, as `test.keyable` leaves it out of a
 --- key: what a read landed on in the test's own directory, `scratch`,
 --- or one it made -- a link there that leads out is judged by where it
@@ -2607,7 +2607,7 @@ function test.run(argv: {integer:string}): integer
     end
     if undeclared > 0 then
       log:say(string.format("audit: %d of %d tests, in %d modules, read what they do not " ..
-        "declare; see build.inputs", undeclared, audited_tests, modules_undeclared))
+        "declare; see cosmic.test", undeclared, audited_tests, modules_undeclared))
     else
       log:say(string.format("audit: %d tests read only their inputs", audited_tests))
     end

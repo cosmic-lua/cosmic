@@ -8,6 +8,7 @@
 local type compiler = require("build.compiler")
 local ast = require("build.ast")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
@@ -906,16 +907,14 @@ local function references_of(built: compiler, parsed: ast.Parsed): {analyzer.Ref
 end
 
 --- What each field of a `needs` declaration takes: a list of string
---- literals ("list"), `true` or `false` ("flag"), or either ("either").
-local input_fields: {string:string} = {
-  reads = "list", host = "list", env = "list", network = "either",
-  processes = "flag", tool = "flag", store = "flag",
-}
+--- literals ("list"), `true` or `false` ("flag"), or either ("either"),
+--- as `cosmic.test` holds a call's argument to it as it runs.
+local input_fields: {string:string} = Test.fields
 
---- The fields `input_fields` names, in the order a message lists them.
-local input_field_order: {string} = {
-  "reads", "host", "env", "network", "processes", "tool", "store",
-}
+--- The fields `input_fields` names, sorted, as a message lists them.
+local input_field_order: {string} = {}
+for name in pairs(input_fields) do input_field_order[#input_field_order + 1] = name end
+table.sort(input_field_order)
 
 --- A path of `reads` or `host` that names something a prefix can hold:
 --- relative to the tree for `reads`, absolute for `host`, and never
@@ -977,10 +976,13 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   local names: {string:boolean} = {}
   local found: ast.Node = nil
   local callees: {ast.Node:boolean} = {}
+  local jump: ast.Node = nil
   for _, stmt in ipairs(parsed.node) do
     if stmt.kind == "local_declaration" and stmt.vars ~= nil then
       for i, var in ipairs(stmt.vars) do
         local exps: ast.Node = stmt.exps
+        -- TODO: drop this refusal of the form `needs` replaced once no
+        -- branch still declares with it -- after the next release, say.
         if var.tk == "_inputs" then
           return nil, (stmt.f or "") .. ":" .. tostring(stmt.y) .. ": _inputs: a module " ..
             "declares what its tests read with cosmic.test's needs now: " ..
@@ -996,7 +998,15 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
       end
       found = stmt
       callees[stmt.e1] = true
+    elseif (stmt.kind == "goto" or stmt.kind == "label") and jump == nil then
+      jump = stmt
     end
+  end
+  -- A jump could pass the call by, and the module would not make the
+  -- declaration the build read.
+  if found ~= nil and jump ~= nil then
+    return nil, (jump.f or "") .. ":" .. tostring(jump.y) .. ": test.needs: a module " ..
+      "that declares its inputs jumps nowhere at its top level, so the call is always made"
   end
   -- `needs` reached any other way than that one statement.
   local elsewhere: ast.Node = nil
@@ -1056,6 +1066,13 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
             text.conststr == nil then
           return nil, at(entry) .. field ..
             " lists string literals only"
+        end
+        -- The literal as written, which is what `conststr` holds: an
+        -- escape the running module decodes would read otherwise here.
+        local written = text.tk or ""
+        if written:find("\\", 1, true) ~= nil or written:sub(1, 1) == "[" then
+          return nil, at(entry) .. field .. ": " .. written ..
+            ": write declared paths plainly, without escapes or long brackets"
         end
         local path_trouble = (field == "reads" or field == "host") and
           input_path_trouble(field, text.conststr) or ""

@@ -163,5 +163,21 @@ local function test_a_needs_call_the_build_did_not_read_fails_the_load(tmp: stri
   assert(not ok, text)
   assert(text:find("the module failed to load: its cosmic.test needs call was handed what " ..
     "the build did not read", 1, true), text)
-  assert(text:find("  handed:\n    tool\ttrue\n  read:\n    nothing", 1, true), text)
+  assert(text:find("  handed:\n    tool true\n  read:\n    nothing", 1, true), text)
+end
+
+--- A `needs` call made once the module has loaded -- from inside a test,
+--- where the build would refuse one it could see -- fails that test.
+local function test_a_needs_call_inside_a_test_fails_it(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/late_test.tl", table.concat({
+    "local function test_late()",
+    '  require("cosmic.test").needs { tool = true }',
+    "end",
+  }, "\n") .. "\n"))
+  local ok, text = audit(root, tmp .. "/late.out")
+  assert(not ok, text)
+  assert(text:find("test_late: ", 1, true) and text:find("cosmic.test: needs is called at the " ..
+    "top of a test module, while it loads", 1, true), text)
 end

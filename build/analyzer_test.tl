@@ -968,6 +968,9 @@ local function test_a_needs_call_is_read_as_data()
   assert(hosts.network[1] == "127.0.0.1" and not hosts.processes and hosts.line == 2)
   local none, none_trouble = declared("local function test_x() end\n")
   assert(none == nil and none_trouble == "", none_trouble)
+  -- A jump at the top of a module that declares nothing is its own.
+  local jumps, jumps_trouble = declared("goto done\n::done::\n")
+  assert(jumps == nil and jumps_trouble == "", jumps_trouble)
   -- `needs` of another module is no declaration.
   local other, other_trouble = declared(lines({
     'local Other = require("cosmic.other")',
@@ -980,7 +983,13 @@ end
 --- refused, naming its line and what is wrong with it.
 local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
-    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has reads, host, env" },
+    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has env, host, network" },
+    { 'Test.needs { reads = { "x\\ty" } }',
+      'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
+    { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },
+    { 'Test.needs { reads = { [[a]] } }', "reads: [[a]]: write declared paths plainly" },
+    { "goto skip\nTest.needs { tool = true }\n::skip::",
+      "fixture_test.tl:3: test.needs: a module that declares its inputs jumps nowhere" },
     { 'Test.needs { reads = { "/etc" } }', "is absolute" },
     { 'Test.needs { host = { "etc" } }', "is relative" },
     { 'Test.needs { reads = { "a/../b" } }', "names \"..\"" },

@@ -50,7 +50,7 @@ local record test_inputs
   end
 
   --- One input a test read that its effective inputs do not hold,
-  --- named by the field of `build.inputs` that would declare it:
+  --- named by the field of `cosmic.test`'s `Needs` that would declare it:
   --- "reads", "host", "env", "network", "processes", "tool" or
   --- "store".
   record Finding
@@ -432,23 +432,27 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
   return lines
 end
 
---- One declaration as text two can be compared by: each field's values
---- in order, `network = true` as `"*"`, a flag set as `true`, one line
---- each; "" for none. `line` plays no part.
+--- One declaration as text two can be compared by, and one text for
+--- each declaration: each field's values in the literal's order,
+--- duplicates kept, each quoted (`%q`, which marks where it ends),
+--- `network = true` as `"*"`, a flag set as `true`, one line each; ""
+--- for none. `line` plays no part.
 function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if maybe == nil then return "" end
   local declared: analyzer.Declared = maybe
   local lines: {string} = {}
   local function list(field: string, values: {string})
-    for _, value in ipairs(values) do lines[#lines + 1] = field .. "\t" .. value end
+    for _, value in ipairs(values) do
+      lines[#lines + 1] = field .. " " .. string.format("%q", value)
+    end
   end
   list("reads", declared.reads)
   list("host", declared.host)
   list("env", declared.env)
   list("network", declared.network)
-  if declared.processes then lines[#lines + 1] = "processes\ttrue" end
-  if declared.tool then lines[#lines + 1] = "tool\ttrue" end
-  if declared.store then lines[#lines + 1] = "store\ttrue" end
+  if declared.processes then lines[#lines + 1] = "processes true" end
+  if declared.tool then lines[#lines + 1] = "tool true" end
+  if declared.store then lines[#lines + 1] = "store true" end
   return table.concat(lines, "\n")
 end
 
