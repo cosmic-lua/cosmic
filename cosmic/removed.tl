@@ -101,7 +101,7 @@ local module: Module = {
     ["io.open"] = "use Fs.read(path) or Fs.write(path, data) for a whole file, " ..
       "or Fs.open_read(path) or Fs.open_write(path) for a descriptor (" .. fs ..
       "); Stream.open(path) and Stream.create(path) work in chunks (" .. stream .. ")",
-    ["io.lines"] = "use Fs.read(path) and String.lines(text) (" .. fs .. "; " ..
+    ["io.lines"] = "use Fs.read(path) and String.lines(text), which keeps blank lines (" .. fs .. "; " ..
       string_ .. "), or Stream.open(path) to read in chunks (" .. stream .. ")",
     ["io.close"] = "use Fs.close(fd) (" .. fs .. ")",
     ["io.output"] = "use Fs.put(Fs.stdout, text), or Fs.put(fd, text) for a " ..

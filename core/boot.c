@@ -71,7 +71,8 @@ static int run_compiler (lua_State *L, const char *tl_dir, int bridge) {
   return 0;
 }
 
-/* Reads a whole file into a Lua string on the stack. */
+/* Reads a whole file into a Lua string on the stack.
+ * TODO: open with O_CLOEXEC, as core/http.c's add_cert_file should too. */
 static int slurp (lua_State *L, const char *path) {
   FILE *f = fopen(path, "rb");
   if (f == NULL) {

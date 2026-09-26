@@ -124,8 +124,8 @@ behind `cosmic docs` and `cosmic uses`; API guidance goes in the indexed doc
 comment beside the source, and a guide is only for a task larger than one
 symbol.
 
-- add focused `*_example.tl` files for the two modules `cosmic/` has none
-  for yet: `env` and `store`.
+- add focused `*_example.tl` files for the public modules `cosmic/` has
+  none for yet: `env` and `store`.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance (`Errors.guidance` in `cosmic/errors.tl`) is
