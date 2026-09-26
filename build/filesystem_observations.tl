@@ -630,7 +630,7 @@ end
 --- path by whether it answered (`program_answer`).
 -- TODO: move the calls still observed by standing in for them here --
 -- `open`, `stat`, `readdir`, `getenv`, `environ`, `mkdtemp`, `mkdir`
--- and `chdir` of `cosmic.sys`, `spawn` and `Http.open` -- onto the
+-- and `chdir` of `cosmic.sys`, `spawn`, `Http.open` and `Http.upload` -- onto the
 -- syscall table's log, once it resolves a path as the call is made (a
 -- drained record is resolved as the capture ends, where a stand-in
 -- resolves it beside the call) and the process table and cosmic.http
@@ -655,6 +655,7 @@ local function start(resolving: observations.Resolving | nil):
   local mkdir = sys.mkdir
   local chdir = sys.chdir
   local http_open = Http.open
+  local http_upload = Http.upload
   -- The test's own: its directory, and every directory it made for
   -- itself and that is a directory still -- one put back as a link
   -- would lead elsewhere -- which a key never holds either.
@@ -894,13 +895,20 @@ local function start(resolving: observations.Resolving | nil):
   end
   -- A scripted request answers from the test's own text and connects
   -- nowhere; any other is the network's answer.
-  Http.open = function(url: string, opts?: Http.Options): Http.Response | nil, string
-    -- An `opts` that is no table is Http.open's own error to raise.
+  local function request(url: string, opts?: Http.Options)
+    -- An `opts` that is no table is the request's own error to raise.
     local given: any = opts
     if (type(given) ~= "table" or opts.script == nil) and reaches(url) then
       note("x", url, "")
     end
+  end
+  Http.open = function(url: string, opts?: Http.Options): Http.Response | nil, string
+    request(url, opts)
     return http_open(url, opts)
+  end
+  Http.upload = function(url: string, opts?: Http.Options): Http.Upload | nil, string
+    request(url, opts)
+    return http_upload(url, opts)
   end
   noting[#noting + 1] = note
   sqlite.observe(true)
@@ -908,6 +916,7 @@ local function start(resolving: observations.Resolving | nil):
   return found, function()
     sys.chdir = chdir
     Http.open = http_open
+    Http.upload = http_upload
     sys.open = open
     sys.stat = stat
     sys.readdir = readdir

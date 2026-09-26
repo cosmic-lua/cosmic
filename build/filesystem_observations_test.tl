@@ -236,7 +236,7 @@ end
 --- A request over the network is an answer no key can hold; a scripted
 --- request connects nowhere and is not one.
 local function test_a_network_request_is_an_unkeyable_observation()
-  local open = Http.open
+  local open, upload = Http.open, Http.upload
   local run = observations.call(function()
     -- A request that could connect is noted, refused or not: the
     -- wrapper cannot tell what answered -- curl takes "http:/host" for
@@ -246,6 +246,11 @@ local function test_a_network_request_is_an_unkeyable_observation()
     Http.open("HTTP:/127.0.0.1:1/")
     Http.open("ftp://example.invalid/")
     Http.open("Gopher://example.invalid/")
+    -- An upload connects no sooner than its first write, but the wrapper
+    -- notes it at the start, as it could connect.
+    local up = assert(Http.upload("http://127.0.0.2:1/"))
+    assert(up:abort())
+    assert(assert(Http.upload("http://example.invalid/", { script = {} })):abort())
     local scripted = assert(Http.get("http://example.invalid/",
       { script = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" } }))
     assert(scripted.status == 200)
@@ -255,9 +260,10 @@ local function test_a_network_request_is_an_unkeyable_observation()
   for _, observation in ipairs(run.reads) do
     if observation.kind == "x" then unkeyable[#unkeyable + 1] = observation.path end
   end
-  assert(#unkeyable == 2 and unkeyable[1] == "http://127.0.0.1:1/" and
-    unkeyable[2] == "HTTP:/127.0.0.1:1/", table.concat(unkeyable, " "))
-  assert(Http.open == open, "a wrapper was left installed")
+  assert(#unkeyable == 3 and unkeyable[1] == "http://127.0.0.1:1/" and
+    unkeyable[2] == "HTTP:/127.0.0.1:1/" and unkeyable[3] == "http://127.0.0.2:1/",
+    table.concat(unkeyable, " "))
+  assert(Http.open == open and Http.upload == upload, "a wrapper was left installed")
 end
 
 --- A change of directory is a stat of where it went, and a relative
