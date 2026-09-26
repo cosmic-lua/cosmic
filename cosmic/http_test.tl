@@ -697,6 +697,9 @@ local function test_an_upload_is_a_stream_writer()
   assert(assert(Stream.copy(Stream.from_string(data), writer)) == #data)
   assert(writer:close())
   local response = assert(up:response())
+  -- The reply came first, so curl may still be sending the body: the
+  -- transfer is over, and all of it sent, once the reply is read out.
+  assert(assert(Stream.read_all(response)) == "ok")
   local sent = response:sent()
   assert(sent:sub(-#data) == data, "the whole body was sent")
   assert(response:close())

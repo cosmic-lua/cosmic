@@ -385,17 +385,19 @@ local function test_an_escaped_writer_does_not_hold_up_a_read()
 end
 
 --- Closing a streamed output early closes the pipe: a child still
---- writing to it is ended by SIGPIPE, not left blocked.
+--- writing to it is not left blocked, but ended by SIGPIPE, or, where
+--- it started with SIGPIPE ignored (as a CI runner may start this
+--- process), stopped by its write's EPIPE.
 local function test_closing_a_streamed_output_ends_a_writer()
-  local h = assert(Child.start({ "/bin/sh", "-c", "while :; do printf 0123456789; done" },
-    { stdout = "stream" }))
+  local h = assert(Child.start({ "/bin/sh", "-c", "while printf 0123456789; do :; done" },
+    { stdout = "stream", stderr = "null" }))
   local stdout = assert(h.stdout_stream)
   assert(stdout:read(10))
   assert(stdout:close())
   local chunk, trouble = stdout:read()
   assert(chunk == nil and trouble ~= "")
   local r = assert(h:wait(5000))
-  assert(not r.timed_out and not r.ok)
+  assert(not r.timed_out, "the writer was left blocked on the closed pipe")
 end
 
 --- A write to a child that has closed its stdin fails instead of ending
