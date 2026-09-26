@@ -133,11 +133,9 @@ COSMIC_SYSCALL(relaunch, 2);
  */
 COSMIC_SYSCALL(pipe, 0);
 
-/* TODO: `set_nonblocking` and `poll`, with the POLL* numbers, are
- * general descriptor calls, here only because `cosmic.child` is their
- * one caller. Offer a public descriptor-poll API (a module over them,
- * say, or back in cosmic.sys) once a caller outside the process
- * machinery needs to wait on a descriptor. */
+/* `set_nonblocking` and `poll`, with the POLL* numbers, are general
+ * descriptor calls, here only because `cosmic.child` is their one caller
+ * (doc/roadmap.md's surface section plans a public one). */
 
 /*
  * --- Turns a descriptor's nonblocking mode on or off.

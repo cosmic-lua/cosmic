@@ -1119,8 +1119,10 @@ end
 -- build.receivers keeping the declaring module of each record type.
 -- TODO: leave out a function-typed field of a nested record that a
 -- caller fills in (an options record's callback) rather than the
--- module; nothing in the tree has one yet, and telling it from a
--- method the module defines wants the same declaring-site knowledge.
+-- module: cosmic/archive.tl's `ExtractOptions.filter` is taken for one
+-- the module exports, passing rule 10 only because it answers one
+-- result. Telling it from a method the module defines wants the same
+-- declaring-site knowledge.
 local function exported_functions(export: any, root: string): {Exported}
   local out: {Exported} = {}
   local seen: {Type: boolean} = {}
@@ -1427,11 +1429,11 @@ end
 --- innermost function around a use that binds that name at all, so a
 --- same-named local elsewhere is not taken for it. Blocks within one
 --- function are not told apart.
--- TODO: a value read any other way is not followed: `o.x:match(...)`
--- or `o.x:find(...)` telling modes apart, a lookup table keyed by it
--- (`handlers[o.x]`), a field of another record it is copied into, or a
--- function that is not a local one (`R.f(o.x)`). Follow each once a
--- case in the tree needs it; none does today.
+--- A value read any other way is not followed: `o.x:match(...)` or
+--- `o.x:find(...)` telling modes apart, a lookup table keyed by it
+--- (`handlers[o.x]`), a field of another record it is copied into, or a
+--- function that is not a local one (`R.f(o.x)`). No mode in the tree is
+--- read so; one that is goes unchecked rather than refused.
 local function check_modes(file: string, root: Node, index: Index, records: {integer: Type},
                            exemptions: contracts.Exemptions, used: Used, problems: {string})
   local declared = string_fields(root)

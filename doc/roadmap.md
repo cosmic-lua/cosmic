@@ -82,8 +82,8 @@ promises lean on come first:
   `build/refresh.tl`'s PyPI index read calls `Shape.into` so far. Convert the sites that read fields off a
   decoded value through `as` casts, starting with those under `build/` and
   `ci/`; their call shapes decide whether the inference limit in shape.tl's
-  module comment needs a helper, and whether `decode_into` (a TODO in
-  shape.tl) earns its place.
+  module comment needs a helper, and whether `decode_into(text, spec,
+  opts)`, decoding JSON and checking it in one call, earns its place.
 - a spec that agrees with its record. Nothing checks that a `Shape.record`
   or `Shape.strict_record` names the fields of the Teal record its answer is
   annotated as, so a field added to the record and not to the spec is never
@@ -116,6 +116,17 @@ promises lean on come first:
 - `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under
   `build/`. decide which become public `cosmic.*` modules and what a program
   gets from each.
+- `shape` specs a caller may come to need, each added once one does: a
+  `nullable` that tells `null` from a missing key (a PATCH body's two
+  meanings); `big_integer`, taking the digits `big_numbers_as_strings`
+  decodes an integer past 64 bits to; checks past a value's type (a
+  range, a pattern, a length) as `Shape.check(spec, fn)` or a few named
+  ones; and `Shape.lazy(function(): Spec)`, so a spec can name itself for
+  a tree-shaped payload, `need_spec` checking it on first use.
+- a public descriptor-poll API, once a caller outside `cosmic.child`
+  waits on a descriptor: a module over `set_nonblocking` and `poll`, say,
+  or both back in `cosmic.sys`. They live in core/process.h today,
+  `cosmic.child` their one caller.
 
 ## documentation and examples
 

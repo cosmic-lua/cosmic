@@ -96,11 +96,6 @@ end
 
 local type Spec = Shape.Spec
 
--- TODO: a spec that tells `null` from a missing key (`nullable`), for a
--- payload where the two mean different things, as a PATCH body's do.
--- TODO: `big_integer`, taking the string of digits that
--- `big_numbers_as_strings` decodes an integer past 64 bits to.
-
 local KINDS <const>: {string: boolean} = {
   ["string"] = true, ["number"] = true, ["integer"] = true,
   ["boolean"] = true, ["any"] = true, ["list"] = true, ["map"] = true,
@@ -116,9 +111,6 @@ Shape.number = leaf("number")
 Shape.integer = leaf("integer")
 Shape.boolean = leaf("boolean")
 Shape.any = leaf("any")
--- TODO: checks on a value past its type -- a range, a pattern, a
--- length -- as `Shape.check(spec, fn)` or a few named ones, when a caller
--- needs one.
 
 --- Raises unless `spec` is one these functions built: a spec is part of
 --- the program, so a wrong one is the caller's bug, not the data's.
@@ -168,8 +160,6 @@ end
 --- A table with the named fields, each of its own shape. Keys it does
 --- not name are ignored, and left out of the answer; `strict_record`
 --- refuses them.
--- TODO: `Shape.lazy(function(): Spec)`, so a spec can name itself for a
--- tree-shaped payload; `need_spec` would then check it on first use.
 --- @param fields {string: Spec} Each field's shape, by its name
 --- @return Spec The record's shape
 function Shape.record(fields: {string: Spec}): Spec
@@ -592,8 +582,6 @@ end
 --- @param spec Spec The shape it must have
 --- @return T The value, typed
 --- @return string "" or what did not fit
--- TODO: `decode_into(text, spec, opts)`, decoding JSON and checking it in
--- one call, if the tree's call sites all turn out to pair the two.
 function Shape.into<T>(value: any, spec: Spec): T | nil, string
   need_spec(spec, "into's shape")
   local out, failed = walk(value, spec, "$")
