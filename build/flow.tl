@@ -207,7 +207,7 @@ local function scan(text: string, comments: {string}): {string}
         if d == "\n" then
           line = line + 1
         elseif d == "\t" then
-          say("a tab in a string, which JSON5 refuses: write \\t")
+          say("a tab in a string, which cosmic.json refuses: write \\t")
         elseif d == "\\" then
           local e = text:sub(i + 1, i + 1)
           local hex = text:sub(i + 2, i + 5)
@@ -767,7 +767,11 @@ end
 --- Sets `node`'s member `key` (an object's key, or an array's index, up
 --- to one past its last) to `new` (`from` makes one of a Teal value). A
 --- member already there keeps its comments; a new one goes at the end.
---- Raises when `node` is no container, or `key` does not fit it.
+--- A `node` written on one line stays there only while it fits 100
+--- columns. Raises when `node` is no container, or `key` does not fit it.
+-- TODO: hold a one-line container above `node` to the width too, which
+-- `set` cannot reach from `node`: take the path from the root, as `get`
+-- does, once a program sets a member inside a one-line container.
 function flow.set(node: flow.Node, key: string | integer, new: flow.Node)
   if node.kind == "object" and key is string then
     for _, item in ipairs(node.items) do
@@ -777,42 +781,76 @@ function flow.set(node: flow.Node, key: string | integer, new: flow.Node)
       end
     end
     node.items[#node.items + 1] = { key = key, value = new, before = {} }
+    if node.inline then node.width = node.width or 100 end
   elseif node.kind == "array" and key is integer and key >= 1 and key <= #node.items + 1 then
     if node.items[key] ~= nil then
       node.items[key].value = new
     else
       node.items[key] = { value = new, before = {} }
     end
+    if node.inline then node.width = node.width or 100 end
   else
     error("flow.set: " .. tostring(key) .. " is no member a " .. tostring(node.kind) .. " can have", 2)
   end
 end
 
---- A value's encoding, to tell members apart by.
-local function encoded(value: any): string
+--- A value's encoding, to tell members apart by; a member whose text
+--- reads as no value gets one no value can have.
+local function encoded(value: any, trouble: string, index: integer): string
+  if trouble ~= nil and trouble ~= "" then return "\0" .. index end
   local text, _ = Json.encode(value)
-  return text or ""
+  return text or "\0" .. index
+end
+
+--- What names a member across a change to it: an object's `id`, `name`
+--- or the action its `uses` names, without the version after `@` -- a
+--- step, a job, a matrix leg -- or nil.
+local function identity(value: any): string | nil
+  if not value is {string: any} then return nil end
+  for _, field in ipairs({ "id", "name" }) do
+    local found = value[field]
+    if found is string then return field .. "\0" .. found end
+  end
+  local uses = value.uses
+  if uses is string then return "uses\0" .. uses:gsub("@.*$", "") end
+  return nil
 end
 
 --- Pairs the members of `old` with the values of `new` the way a diff
 --- does: those equal in both, longest run in order first, anchor the
---- rest; between two anchors, a run of the same length on both sides is
---- paired in order (a member changed in place), and a run of another
---- length is dropped from `old` and added from `new`. The pairing, by
---- `new`'s index: the old item, or nil for one to add.
+--- rest, the common start and end first of all; between two anchors, a
+--- run of the same length on both sides is paired in order (members
+--- changed in place), and in a run of another length a member is paired
+--- with one its `identity` names, in order, the rest dropped from `old`
+--- and added from `new`. The pairing, by `new`'s index: the old item,
+--- or nil for one to add.
 local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
   local a, b: {string}, {string} = {}, {}
+  local old_values: {any} = {}
   for i, item in ipairs(old) do
-    local value, _ = flow.value(item.value)
-    a[i] = encoded(value)
+    local value, trouble = flow.value(item.value)
+    old_values[i] = value
+    a[i] = encoded(value, trouble, i)
   end
-  for j, value in ipairs(new) do b[j] = encoded(value) end
-  -- The table of longest common runs from each (i, j) to the end.
+  for j, value in ipairs(new) do b[j] = encoded(value, "", j) end
+  local out: {integer: flow.Item} = {}
+  -- The common start and end, which most changes leave most of.
+  local lo = 1
+  while lo <= #a and lo <= #b and a[lo] == b[lo] do
+    out[lo] = old[lo]
+    lo = lo + 1
+  end
+  local hi_a, hi_b = #a, #b
+  while hi_a >= lo and hi_b >= lo and a[hi_a] == b[hi_b] do
+    out[hi_b] = old[hi_a]
+    hi_a, hi_b = hi_a - 1, hi_b - 1
+  end
+  -- The table of longest common runs from each (i, j) to the middle's end.
   local lcs: {{integer}} = {}
-  for i = #a + 1, 1, -1 do
+  for i = hi_a + 1, lo, -1 do
     lcs[i] = {}
-    for j = #b + 1, 1, -1 do
-      if i > #a or j > #b then
+    for j = hi_b + 1, lo, -1 do
+      if i > hi_a or j > hi_b then
         lcs[i][j] = 0
       elseif a[i] == b[j] then
         lcs[i][j] = lcs[i + 1][j + 1] + 1
@@ -821,15 +859,28 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
       end
     end
   end
-  local out: {integer: flow.Item} = {}
   local function between(i1: integer, i2: integer, j1: integer, j2: integer)
     if i2 - i1 == j2 - j1 then
       for k = 0, i2 - i1 - 1 do out[j1 + k] = old[i1 + k] end
+      return
+    end
+    local next_old = i1
+    for j = j1, j2 - 1 do
+      local want = identity(new[j])
+      if want ~= nil then
+        for i = next_old, i2 - 1 do
+          if identity(old_values[i]) == want then
+            out[j] = old[i]
+            next_old = i + 1
+            break
+          end
+        end
+      end
     end
   end
-  local i, j = 1, 1
-  local gi, gj = 1, 1
-  while i <= #a and j <= #b do
+  local i, j = lo, lo
+  local gi, gj = lo, lo
+  while i <= hi_a and j <= hi_b do
     if a[i] == b[j] then
       between(gi, i, gj, j)
       out[j] = old[i]
@@ -841,7 +892,7 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
       j = j + 1
     end
   end
-  between(gi, #a + 1, gj, #b + 1)
+  between(gi, hi_a + 1, gj, hi_b + 1)
   return out
 end
 
@@ -859,6 +910,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
   if (array and node.kind ~= "array") or (not array and node.kind ~= "object") then
     return build(value, o, depth)
   end
+  local was = inline_text(node)
   local kept: {flow.Item} = {}
   if array and value is {any} then
     local pairing = paired(node.items, value)
@@ -887,8 +939,9 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
     end
   end
   node.items = kept
-  -- One written on one line stays there only while it fits.
-  if node.inline then node.width = o.width or 100 end
+  -- One written on one line and changed stays there only while it
+  -- fits; one left as it was keeps its line, however long.
+  if node.inline and inline_text(node) ~= was then node.width = o.width or 100 end
   return node
 end
 

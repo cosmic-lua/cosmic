@@ -328,3 +328,42 @@ local function test_values_the_subset_cannot_hold_are_refused()
   assert(value == nil and trouble ~= "", "a node that reads as nothing says why")
   assert(#flow.comments("# a\n{b: \"# no\"} # c\n") == 2)
 end
+
+--- A one-line container wider than the width, written back over itself,
+--- keeps its line: only one that changes is held to the width.
+local function test_update_over_itself_keeps_a_long_line()
+  local Json = require("cosmic.json")
+  local items: {string} = {}
+  for i = 1, 20 do items[i] = "\"item" .. i .. "\"" end
+  local text = "{\n  a: [" .. table.concat(items, ", ") .. "],\n}\n"
+  assert(formatted(text) == text)
+  local doc = assert(flow.parse(text))
+  doc.root = flow.update(doc.root, (Json.decode(text, { json5 = true })))
+  assert(flow.render(doc) == text, flow.render(doc))
+end
+
+--- In a run whose length changed, a member keeps its comments by what
+--- names it -- its `name`, `id` or the action it uses -- across a change.
+local function test_update_pairs_a_changed_step_by_what_names_it()
+  local Json = require("cosmic.json")
+  local doc = assert(flow.parse(table.concat({
+    "[",
+    "  {uses: \"actions/checkout@v3\"}, # c1",
+    "  {run: \"make\"}, # c2",
+    "  {uses: \"actions/upload@v3\"}, # c3",
+    "]",
+    "",
+  }, "\n")))
+  doc.root = flow.update(doc.root, Json.array({
+    { uses = "actions/checkout@v4" }, { run = "make" }, { run = "make test" }, { uses = "actions/upload@v4" },
+  }))
+  assert(flow.render(doc) == table.concat({
+    "[",
+    "  {uses: \"actions/checkout@v4\"}, # c1",
+    "  {run: \"make\"}, # c2",
+    "  {run: \"make test\"},",
+    "  {uses: \"actions/upload@v4\"}, # c3",
+    "]",
+    "",
+  }, "\n"), flow.render(doc))
+end

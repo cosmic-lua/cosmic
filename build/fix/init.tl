@@ -129,9 +129,10 @@ local function is_yaml(file: string): boolean
 end
 
 --- The YAML files in flow style `dir` covers, as paths relative to it:
---- those under its `.github/`, or, for a directory that is the tree's
---- `.github/` or lies under it, those under it; none where it has
---- neither, or lies under a directory `fix` never covers (`vendor/`).
+--- for the tree's root, those under its `.github/`, and for that
+--- `.github/` or a directory under it, those under it; none for any
+--- other directory, as the walk of the tree passes over a `.github/`
+--- anywhere else.
 --- A file there that cannot be read is a failure, not one passed over.
 local function workflow_sources(dir: string, root: string): {string} | nil, string
   dir = dir:gsub("/+$", "")
@@ -147,7 +148,7 @@ local function workflow_sources(dir: string, root: string): {string} | nil, stri
     return {}
   end
   local within = inside == ".github" or inside:sub(1, 8) == ".github/"
-  if not within and inside ~= "." and skip(inside) then
+  if not within and inside ~= "." then
     return {}
   end
   local base = within and dir or dir .. "/.github"

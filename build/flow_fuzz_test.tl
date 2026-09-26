@@ -68,6 +68,11 @@ local function format_holds(input: string): boolean, string
   table.sort(before)
   table.sort(after)
   if table.concat(before, "\n") ~= table.concat(after, "\n") then return false, "a comment lost or changed" end
+  -- Its own value written back over its tree changes nothing.
+  local doc = assert(flow.parse(out))
+  local value, _ = Json.decode(out, READ)
+  doc.root = flow.update(doc.root, value)
+  if flow.render(doc) ~= out then return false, "written back over itself, it changes:\n" .. flow.render(doc) end
   local again, again_why = flow.format(out)
   if again ~= out then return false, "not a fixed point: " .. tostring(again_why) end
   return true, ""

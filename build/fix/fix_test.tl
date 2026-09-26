@@ -338,8 +338,10 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
     local got = table.concat(picked.flow_files, " ")
     assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$"), got)
   end
-  picked = assert(fix.chosen(nested, { nested .. "/vendor/lua" }))
-  assert(#picked.flow_files == 0, table.concat(picked.flow_files, " "))
+  for _, dir in ipairs({ nested .. "/vendor/lua", nested .. "/docs" }) do
+    picked = assert(fix.chosen(nested, { dir }))
+    assert(#picked.flow_files == 0, dir .. ": " .. table.concat(picked.flow_files, " "))
+  end
 end
 
 --- A YAML file is laid out in place, not written under `--check`, and
