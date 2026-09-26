@@ -47,6 +47,7 @@
 #include "fail.h"
 #include "fault.h"
 #include "memory.h"
+#include "observed.h"
 #include "store.h"
 
 #define HANDLE_TYPE "cosmic.http.handle"
@@ -1063,6 +1064,12 @@ static int http_open (lua_State *L) {
   }
   if (memchr(r.url, '\0', url_len) != NULL) {
     return failed(L, "invalid url: contains a NUL byte");
+  }
+  /* A request that could reach past the process is noted before it
+   * connects (core/observed.h); a scripted one connects nowhere. */
+  if (cosmic_observing && !has_script &&
+      !cosmic_observed_note(COSMIC_OBSERVED_HTTP, r.url, url_len)) {
+    return failed(L, "not enough memory to observe the request");
   }
   if (has_headers) {
     lua_pushvalue(L, 5);
