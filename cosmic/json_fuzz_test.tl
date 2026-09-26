@@ -11,6 +11,7 @@
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
+local Stream = require("cosmic.stream")
 
 --- Well-formed and nearly well-formed texts to mutate: every shape the
 --- walk builds, the number and string corners, and JSON5's forms.
@@ -453,15 +454,19 @@ local function test_the_depth_limits_are_exact(tmp: string)
   })
 end
 
+--- JSON Lines text: samples a line each, joined by any line end, then
+--- mutated.
+local function gen_lines(src: Fuzz.Source): string
+  local lines: {string} = {}
+  while Fuzz.more(src, #lines, 5) do lines[#lines + 1] = Fuzz.pick(src, SAMPLES):gsub("\n", " ") end
+  return Fuzz.mutate(src, table.concat(lines, Fuzz.pick(src, { "\n", "\r\n", "\n\n" })), 6)
+end
+
 local function test_json_lines_are_total_and_round_trip(tmp: string)
   Fuzz.run({
     name = "json lines",
     dir = tmp,
-    gen = function(src: Fuzz.Source): string
-      local lines: {string} = {}
-      while Fuzz.more(src, #lines, 5) do lines[#lines + 1] = Fuzz.pick(src, SAMPLES):gsub("\n", " ") end
-      return Fuzz.mutate(src, table.concat(lines, Fuzz.pick(src, { "\n", "\r\n", "\n\n" })), 6)
-    end,
+    gen = gen_lines,
     check = function(input: string): boolean, string
       local ok, values, err = pcall(Json.decode_lines, input, { null_value = Json.null, json5 = true })
       if not ok then return false, "raised: " .. tostring(values) end
@@ -475,6 +480,54 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
       if back == nil then return false, "encode_lines wrote what decode_lines refuses: " .. berr end
       local a, b = Json.encode(values, CANONICAL), Json.encode(back, CANONICAL)
       if a ~= b then return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b) end
+      return true, ""
+    end,
+  })
+end
+
+--- A Reader handing out `text` in chunks of 1, 2, 3, 5, 8 and 13 bytes
+--- in turn, so a line is cut at every kind of place.
+local function chunked(text: string): Stream.Reader
+  local at, turn = 1, 0
+  local sizes <const> = { 1, 2, 3, 5, 8, 13 }
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    if at > #text then return nil, "" end
+    turn = turn % #sizes + 1
+    local piece = text:sub(at, at + sizes[turn] - 1)
+    at = at + #piece
+    return piece, ""
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  return r
+end
+
+--- JSON Lines read from a Reader, cut anywhere, read what `decode_lines`
+--- reads from the whole text: the same values, and the same failure,
+--- after the values before it.
+local function test_json_lines_read_from_a_stream_as_from_text(tmp: string)
+  Fuzz.run({
+    name = "json lines streamed",
+    dir = tmp,
+    gen = gen_lines,
+    requires = { "read", "refused" },
+    check = function(input: string): boolean, string
+      local opts: Json.DecodeOptions = { null_value = Json.null, json5 = true }
+      local whole, err = Json.decode_lines(input, opts)
+      local lines = Json.lines(chunked(input), opts)
+      local streamed: {any} = Json.array()
+      for value in lines:each() do streamed[#streamed + 1] = value end
+      local failure = lines:failure()
+      if whole == nil then
+        Fuzz.label("refused")
+        if failure ~= err then return false, "streamed failure " .. string.format("%q", failure) ..
+", not " .. string.format("%q", err) end
+        return true, ""
+      end
+      Fuzz.label("read")
+      if failure ~= "" then return false, "streamed failed where text did not: " .. failure end
+      local a, b = Json.encode(whole, CANONICAL), Json.encode(streamed, CANONICAL)
+      if a ~= b then return false, "streamed " .. tostring(b) .. ", text " .. tostring(a) end
       return true, ""
     end,
   })
