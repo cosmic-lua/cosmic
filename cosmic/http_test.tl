@@ -14,7 +14,11 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
+
+--- Requests to a closed local port, and to a host that names none.
+Test.needs{ network = { "127.0.0.1", "no-host-here" } }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

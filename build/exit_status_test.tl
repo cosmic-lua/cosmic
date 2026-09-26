@@ -13,8 +13,8 @@ local observations = require("build.filesystem_observations")
 observations.confine({ reads = observations.itself() })
 
 local function run_program(path: string): Child.Result
-  return (assert(Child.run({ path }, { stdout = "capture", stderr = "capture",
-    timeout_ms = 30000 })))
+  return (assert(Child.run({ path }, { env = observations.environment(),
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
 end
 
 --- An exit keeps only the low byte, so 256 would read as success; and a

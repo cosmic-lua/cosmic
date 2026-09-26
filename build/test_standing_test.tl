@@ -6,7 +6,6 @@
 --- read changes, and never stands on a read outside the tree.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -94,7 +93,7 @@ local function test_plain()
 end
 ]]))
   local program = assert(Proc.executable())
-  local env = Env.all()
+  local env = observations.environment()
   env.OUTSIDE = tmp .. "/outside"
   local first = run(program, root, tmp .. "/first.out", env)
   assert(first:find("6 ran, 0 stood", 1, true), first)
@@ -112,7 +111,8 @@ end
 --- A test no key can hold -- this one reads outside its tree -- is
 --- assumed to pass as it last did, until it, what it loads, or what of
 --- its reads a key can hold (a file of the tree, a variable) changes, or
---- it is asked for: by --all, by COSMIC_TEST_ALL=1, or by name. One that
+--- it is asked for: by --all, by COSMIC_TEST_ALL=1, by COSMIC_SANDBOX=must,
+--- or by name. One that
 --- failed is never assumed.
 local function test_a_test_no_key_holds_is_assumed_until_asked_for(tmp: string)
   local root = tmp .. "/project"
@@ -136,9 +136,10 @@ end
 ]]
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
   local program = assert(Proc.executable())
-  local env = Env.all()
+  local env = observations.environment()
   env.OUTSIDE = tmp .. "/outside"
   env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   env.FLAVOUR = "sweet"
   local function said(name: string, words: {string}, wanted: string, fails?: boolean)
     local text = run(program, root, tmp .. "/" .. name .. ".out", env, fails, words)
@@ -151,6 +152,11 @@ end
   env.COSMIC_TEST_ALL = "1"
   said("variable", {}, "1 ran, 1 stood")
   env.COSMIC_TEST_ALL = nil
+  -- COSMIC_SANDBOX=must runs it too: it may have passed on a process
+  -- that fell back to running unconfined.
+  env.COSMIC_SANDBOX = "must"
+  said("must", {}, "1 ran, 1 stood")
+  env.COSMIC_SANDBOX = nil
   said("again", {}, "0 ran, 1 stood, 1 assumed")
   -- What of its reads a key can hold is still held: a file of the tree
   -- changed, or a variable it read, and it runs.

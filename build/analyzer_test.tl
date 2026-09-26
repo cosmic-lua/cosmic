@@ -930,3 +930,97 @@ local function test_an_example_is_not_also_an_ordinary_doc_entry()
     assert(entry.symbol ~= "Example.read", "Example.read leaked into docs")
   end
 end
+
+--- `analyze` on `source`, answering its `needs` declaration and what it
+--- refused, as `analysis_of` does.
+local function declared(source: string): analyzer.Declared | nil, string
+  local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
+  if found == nil then return nil, trouble end
+  return found.inputs, ""
+end
+
+--- A top-level `Test.needs { ... }` is read as data, field by field,
+--- with `network = true` as any host and the line it starts on, whatever
+--- the local is named and in either call form.
+local function test_a_needs_call_is_read_as_data()
+  local got, trouble = declared(lines({
+    'local Test = require("cosmic.test")',
+    "",
+    "Test.needs {",
+    '  reads = { "vendor/cacert/", "bin/zig.pin" },',
+    '  host = { "/etc/localtime" },',
+    '  env = { "PATH" },',
+    "  network = true,",
+    "  processes = true, tool = false, store = true,",
+    "}",
+  }))
+  assert(got ~= nil, trouble)
+  assert(got.line == 3, tostring(got.line))
+  assert(#got.reads == 2 and got.reads[1] == "vendor/cacert/" and got.reads[2] == "bin/zig.pin")
+  assert(#got.host == 1 and got.host[1] == "/etc/localtime")
+  assert(#got.env == 1 and got.env[1] == "PATH")
+  assert(#got.network == 1 and got.network[1] == "*")
+  assert(got.processes and not got.tool and got.store)
+  local hosts = assert(declared(lines({
+    'local t = require("cosmic.test")',
+    't.needs({ network = { "127.0.0.1" } })',
+  })))
+  assert(hosts.network[1] == "127.0.0.1" and not hosts.processes and hosts.line == 2)
+  local none, none_trouble = declared("local function test_x() end\n")
+  assert(none == nil and none_trouble == "", none_trouble)
+  -- A jump at the top of a module that declares nothing is its own.
+  local jumps, jumps_trouble = declared("goto done\n::done::\n")
+  assert(jumps == nil and jumps_trouble == "", jumps_trouble)
+  -- `needs` of another module is no declaration.
+  local other, other_trouble = declared(lines({
+    'local Other = require("cosmic.other")',
+    'Other.needs { tool = true }',
+  }))
+  assert(other == nil and other_trouble == "", other_trouble)
+end
+
+--- A declaration the build cannot read without running the module is
+--- refused, naming its line and what is wrong with it.
+local function test_a_malformed_needs_call_is_refused()
+  local cases: {{string}} = {
+    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has env, host, network" },
+    { 'Test.needs { reads = { "x\\ty" } }',
+      'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
+    { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },
+    { 'Test.needs { reads = { [[a]] } }', "reads: [[a]]: write declared paths plainly" },
+    { "goto skip\nTest.needs { tool = true }\n::skip::",
+      "fixture_test.tl:3: test.needs: a module that declares its inputs jumps nowhere" },
+    { 'Test.needs { reads = { "/etc" } }', "is absolute" },
+    { 'Test.needs { host = { "etc" } }', "is relative" },
+    { 'Test.needs { reads = { "a/../b" } }', "names \"..\"" },
+    { 'Test.needs { reads = { "./a" } }', "names \".\"" },
+    { 'Test.needs { reads = { name } }', "reads lists string literals only" },
+    { 'Test.needs { reads = "a" }', "reads takes a list of string literals" },
+    { 'Test.needs { tool = "yes" }', "tool takes true or false" },
+    { 'Test.needs { tool = true, tool = false }', "tool is declared twice" },
+    { 'Test.needs { env = { "" } }', "env: an empty name" },
+    { 'Test.needs { ["reads"] = { "a" } }', "write the field as a name, reads = ..." },
+    { "Test.needs(setmetatable({}, {}))", "hand it one table written out as a literal" },
+    { "local t = { tool = true }\nTest.needs(t)",
+      "fixture_test.tl:4: test.needs: hand it one table written out as a literal" },
+    { "Test.needs({ tool = true }, 1)", "hand it one table written out as a literal" },
+    { "Test.needs { tool = true }\nTest.needs { store = true }",
+      "fixture_test.tl:4: test.needs: a module declares its inputs once; line 3 did already" },
+    { "local function test_x() Test.needs { tool = true } end",
+      "call it as a statement at the module's top level" },
+    { "if name then Test.needs { tool = true } end",
+      "call it as a statement at the module's top level" },
+    { "local needs = Test.needs\nneeds { tool = true }",
+      "call it as a statement at the module's top level" },
+    { 'local _inputs = { tool = true }',
+      "fixture_test.tl:3: _inputs: a module declares what its tests read with cosmic.test's needs" },
+  }
+  for _, case in ipairs(cases) do
+    local got, trouble = declared('local name = "x"\nlocal Test = require("cosmic.test")\n' ..
+      case[1] .. "\n")
+    assert(got == nil, case[1] .. " was read")
+    assert(trouble:find(case[2], 1, true) ~= nil, case[1] .. ": " .. trouble)
+    local line = case[2]:match("^fixture_test.tl:%d+: ") or "fixture_test.tl:3: "
+    assert(trouble:find(line, 1, true) ~= nil, trouble)
+  end
+end

@@ -2,7 +2,6 @@
 --- unrelated failing test, so a passing selected run proves it was not loaded.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
@@ -15,7 +14,7 @@ local function invoke(program: string, root: string, output: string,
     selector: string): Child.Result
   local fd = assert(Fs.open_write(output))
   local result, trouble = Child.run({ program, "test", selector }, {
-    cwd = root, env = Env.all(), stdout = fd, stderr = fd,
+    cwd = root, env = observations.environment(), stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 30000,
   })
   assert(Fs.close(fd))
@@ -284,7 +283,7 @@ end
 local function test_a_test_without_a_directory_fails_alone(tmp: string)
   local root = project(tmp)
   local output = tmp .. "/nowhere.out"
-  local environment = Env.all()
+  local environment = observations.environment()
   environment.TMPDIR = tmp .. "/missing"
   local fd = assert(Fs.open_write(output))
   local result = assert(Child.run({ assert(Proc.executable()), "test", "suite/selected_test.tl" }, {

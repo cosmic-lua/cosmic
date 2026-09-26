@@ -8,6 +8,7 @@
 local type compiler = require("build.compiler")
 local ast = require("build.ast")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
@@ -79,8 +80,25 @@ local record analyzer
   --- first return admits nil (source that fails to lex or parse), and
   --- a fallible return may declare at most two slots -- the extras
   --- ride on the value's record instead.
+  --- A test module's `needs` declaration (`cosmic.test`), read as
+  --- data -- see `inputs_of`. `network` holds `"*"` for `true`, and a
+  --- flag declared `false` reads as one never declared.
+  record Declared
+    --- The line the declaration starts on.
+    line: integer
+    reads: {string}
+    host: {string}
+    env: {string}
+    network: {string}
+    processes: boolean
+    tool: boolean
+    store: boolean
+  end
+
   record Analysis
     tests: {string}
+    --- The chunk's `Test.needs { ... }` declaration, or nil for none.
+    inputs: Declared | nil
     has_top_level_return: boolean
     --- The name the chunk's top-level `return` hands back, when it is a
     --- plain name (`return Fs`): what a reference through an alias of
@@ -888,6 +906,201 @@ local function references_of(built: compiler, parsed: ast.Parsed): {analyzer.Ref
   return out, ""
 end
 
+--- What each field of a `needs` declaration takes: a list of string
+--- literals ("list"), `true` or `false` ("flag"), or either ("either"),
+--- as `cosmic.test` holds a call's argument to it as it runs.
+local input_fields: {string:string} = Test.fields
+
+--- The fields `input_fields` names, sorted, as a message lists them.
+local input_field_order: {string} = {}
+for name in pairs(input_fields) do input_field_order[#input_field_order + 1] = name end
+table.sort(input_field_order)
+
+--- A path of `reads` or `host` that names something a prefix can hold:
+--- relative to the tree for `reads`, absolute for `host`, and never
+--- climbing with "..", nor spelled with "." or an empty name, which a
+--- match by prefix would read as another path. "" when it is one, else
+--- why not.
+local function input_path_trouble(field: string, path: string): string
+  if path == "" then return "an empty path" end
+  local absolute = path:sub(1, 1) == "/"
+  if field == "reads" and absolute then
+    return "\"" .. path .. "\" is absolute; a path of the tree is relative to its root " ..
+      "(one outside it goes in host)"
+  elseif field == "host" and not absolute then
+    return "\"" .. path .. "\" is relative; host names absolute paths " ..
+      "(one of the tree goes in reads)"
+  end
+  local inner = path:gsub("^/", ""):gsub("/$", "")
+  for name in (inner .. "/"):gmatch("([^/]*)/") do
+    if name == "" or name == "." or name == ".." then
+      return "\"" .. path .. "\" names \"" .. name .. "\"; spell the path plainly"
+    end
+  end
+  return ""
+end
+
+--- Whether `node` names `cosmic.test`'s `needs` through one of `names`,
+--- the locals a chunk binds `require("cosmic.test")` to: `Test.needs`.
+local function names_needs(node: ast.Node, names: {string:boolean}): boolean
+  local index = node ~= nil and node.kind == "op" and node.op or nil
+  local base: ast.Node = node ~= nil and node.e1 or nil
+  local member: ast.Node = node ~= nil and node.e2 or nil
+  return index ~= nil and index.op == "." and base ~= nil and base.kind == "variable" and
+    names[base.tk] == true and member ~= nil and member.tk == "needs"
+end
+
+--- Whether `node` is `require("cosmic.test")`.
+local function requires_test(node: ast.Node): boolean
+  local call = node ~= nil and node.kind == "op" and node.op or nil
+  local callee: ast.Node = node ~= nil and node.e1 or nil
+  local args: ast.Node = node ~= nil and node.e2 or nil
+  local first = args ~= nil and args[1] or nil
+  return call ~= nil and call.op == "@funcall" and callee ~= nil and
+    callee.kind == "variable" and callee.tk == "require" and first ~= nil and
+    first.kind == "string" and first.conststr == "cosmic.test"
+end
+
+--- The chunk's `Test.needs { ... }` (see `cosmic.test`), read as data,
+--- never run: nil and "" when there is none, and nil and why, naming
+--- the line, for one the build cannot read so. The call is a statement
+--- at the chunk's top level, once, on a name a top-level `local` binds
+--- `require("cosmic.test")` to, with one table literal: `needs` reached
+--- any other way -- inside a function, under another name, handed a
+--- value computed -- is refused, as is the `local _inputs = { ... }`
+--- this replaced. Each field is held to its shape here.
+local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
+  local function at(node: ast.Node): string
+    return (node.f or "") .. ":" .. tostring(node.y) .. ": test.needs: "
+  end
+  local names: {string:boolean} = {}
+  local found: ast.Node = nil
+  local callees: {ast.Node:boolean} = {}
+  local jump: ast.Node = nil
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "local_declaration" and stmt.vars ~= nil then
+      for i, var in ipairs(stmt.vars) do
+        local exps: ast.Node = stmt.exps
+        -- TODO: drop this refusal of the form `needs` replaced once no
+        -- branch still declares with it -- after the next release, say.
+        if var.tk == "_inputs" then
+          return nil, (stmt.f or "") .. ":" .. tostring(stmt.y) .. ": _inputs: a module " ..
+            "declares what its tests read with cosmic.test's needs now: " ..
+            "local Test = require(\"cosmic.test\") and Test.needs { ... }"
+        end
+        if exps ~= nil and requires_test(exps[i]) then names[var.tk] = true end
+      end
+    elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" and
+        names_needs(stmt.e1, names) then
+      if found ~= nil then
+        return nil, at(stmt) .. "a module declares its inputs once; line " ..
+          tostring(found.y) .. " did already"
+      end
+      found = stmt
+      callees[stmt.e1] = true
+    elseif (stmt.kind == "goto" or stmt.kind == "label") and jump == nil then
+      jump = stmt
+    end
+  end
+  -- A jump could pass the call by, and the module would not make the
+  -- declaration the build read.
+  if found ~= nil and jump ~= nil then
+    return nil, (jump.f or "") .. ":" .. tostring(jump.y) .. ": test.needs: a module " ..
+      "that declares its inputs jumps nowhere at its top level, so the call is always made"
+  end
+  -- `needs` reached any other way than that one statement.
+  local elsewhere: ast.Node = nil
+  ast.walk(parsed.node, function(node: ast.Node)
+    if elsewhere == nil and names_needs(node, names) and not callees[node] then
+      elsewhere = node
+    end
+  end)
+  if elsewhere ~= nil then
+    return nil, at(elsewhere) .. "call it as a statement at the module's top level, " ..
+      "on the name the module binds require(\"cosmic.test\") to, and nowhere else"
+  end
+  if found == nil then return nil, "" end
+  local args: ast.Node = found.e2
+  local value = args ~= nil and args[1] or nil
+  if args == nil or #args ~= 1 or value.kind ~= "literal_table" then
+    return nil, at(found) .. "hand it one table written out as a literal: " ..
+      "Test.needs { reads = { ... } }"
+  end
+  local out: analyzer.Declared = {
+    line = found.y, reads = {}, host = {}, env = {}, network = {},
+    processes = false, tool = false, store = false,
+  }
+  local seen: {string:boolean} = {}
+  for _, item in ipairs(value) do
+    local key = item.key
+    local field = item.key_parsed == "short" and key ~= nil and key.conststr or nil
+    local where = at(item)
+    local takes = field ~= nil and input_fields[field] or nil
+    if item.key_parsed ~= "short" and key ~= nil and key.kind == "string" then
+      return nil, where .. "write the field as a name, " .. tostring(key.conststr) ..
+        " = ..., not in brackets"
+    end
+    if takes == nil then
+      return nil, where .. (field ~= nil and ("no field " .. field) or "an entry with no name") ..
+        "; it has " .. table.concat(input_field_order, ", ")
+    end
+    if seen[field] then return nil, where .. field .. " is declared twice" end
+    seen[field] = true
+    local given = item.value
+    if given ~= nil and given.kind == "boolean" and takes ~= "list" then
+      local on = given.tk == "true"
+      if field == "network" then
+        if on then out.network = { "*" } end
+      elseif field == "processes" then
+        out.processes = on
+      elseif field == "tool" then
+        out.tool = on
+      else
+        out.store = on
+      end
+    elseif given ~= nil and given.kind == "literal_table" and takes ~= "flag" then
+      local list: {string} = {}
+      for _, entry in ipairs(given) do
+        local text = entry.value
+        if entry.key_parsed ~= "implicit" or text == nil or text.kind ~= "string" or
+            text.conststr == nil then
+          return nil, at(entry) .. field ..
+            " lists string literals only"
+        end
+        -- The literal as written, which is what `conststr` holds: an
+        -- escape the running module decodes would read otherwise here.
+        local written = text.tk or ""
+        if written:find("\\", 1, true) ~= nil or written:sub(1, 1) == "[" then
+          return nil, at(entry) .. field .. ": " .. written ..
+            ": write declared paths plainly, without escapes or long brackets"
+        end
+        local path_trouble = (field == "reads" or field == "host") and
+          input_path_trouble(field, text.conststr) or ""
+        if field == "env" and text.conststr == "" then path_trouble = "an empty name" end
+        if path_trouble ~= "" then
+          return nil, at(entry) .. field ..
+            ": " .. path_trouble
+        end
+        list[#list + 1] = text.conststr
+      end
+      if field == "reads" then
+        out.reads = list
+      elseif field == "host" then
+        out.host = list
+      elseif field == "env" then
+        out.env = list
+      else
+        out.network = list
+      end
+    else
+      local wanted = takes == "list" and "a list of string literals" or
+        takes == "flag" and "true or false" or "true, false or a list of hosts"
+      return nil, where .. field .. " takes " .. wanted .. ", written out"
+    end
+  end
+  return out, ""
+end
+
 --- The same facts, read off a chunk something else already parsed, so a
 --- caller that needs the parse for another question too pays for it
 --- once. `built` is needed only to compile the patterns the catalog
@@ -925,11 +1138,16 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   if reference_trouble ~= "" then
     return nil, reference_trouble
   end
+  local declared, inputs_trouble = inputs_of(parsed)
+  if inputs_trouble ~= "" then
+    return nil, inputs_trouble
+  end
   local lines = lines_of(source)
   local doc_entries = docs_of(lines, parsed)
   canonicalize_docs(doc_entries, parsed, export, returned)
   return {
-    tests = names, has_top_level_return = has_return, export = export,
+    tests = names, inputs = declared,
+    has_top_level_return = has_return, export = export,
     catalog = catalog, docs = doc_entries,
     examples = examples_of(lines, parsed), references = references,
   }, ""

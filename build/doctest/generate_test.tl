@@ -183,3 +183,49 @@ local function test_each_example_names_its_doc_line()
   assert(code:find("\n-- line example_1 1\n", 1, true) ~= nil, "got:\n" .. code)
   assert(code:find("\n-- line test_2 12\n", 1, true) ~= nil, "got:\n" .. code)
 end
+
+--- A doc's `needs` line becomes its module's top-level declaration,
+--- which the build reads as a test module's; a second is refused.
+local function test_a_docs_needs_become_its_declaration()
+  local blocks: {Block} = {
+    { lang = "needs", modifiers = no_mods, content = "processes = true", line = 3 },
+    block("teal", "local x = 1", no_mods),
+  }
+  local code, trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  assert(code:find('\nlocal __doctest_test = require("cosmic.test")\n' ..
+    "__doctest_test.needs { processes = true }\n", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("local function example_1", 1, true) ~= nil, "got:\n" .. code)
+  blocks[#blocks + 1] = { lang = "needs", modifiers = no_mods, content = "tool = true", line = 9 }
+  local again, again_trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(again == nil, "a second declaration was taken")
+  assert(again_trouble == "line 9: a doc declares its needs once; line 3 did already",
+    again_trouble)
+end
+
+--- A doc's `needs` line stands between the braces of one table
+--- literal or is refused: nothing in it closes the literal early or
+--- swallows its close.
+local function test_a_docs_needs_line_that_would_escape_its_literal_is_refused()
+  local cases: {{string}} = {
+    { "tool = true }, _x = { store = true", "closes a brace it never opened" },
+    { "env = { \"A\"", "leaves a brace open" },
+    { "tool = true -- }", "holds a comment" },
+    { "reads = { [[a}]] }", "holds a long bracket" },
+    { "reads = { \"a }", "leaves a string open" },
+  }
+  for _, case in ipairs(cases) do
+    local blocks: {Block} = {
+      { lang = "needs", modifiers = no_mods, content = case[1], line = 4 },
+      block("teal", "local x = 1", no_mods),
+    }
+    local code, trouble = generate.from_blocks(blocks, "fixture.md")
+    assert(code == nil, case[1] .. " was spliced")
+    assert(trouble == "line 4: the needs line " .. case[2], case[1] .. ": " .. trouble)
+  end
+  local ok = generate.from_blocks({
+    { lang = "needs", modifiers = no_mods, content = 'env = { "}{" }, tool = true', line = 4 },
+  }, "fixture.md")
+  assert(ok ~= nil and ok:find('__doctest_test.needs { env = { "}{" }, tool = true }', 1, true) ~= nil,
+    tostring(ok))
+end

@@ -1,5 +1,4 @@
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
@@ -38,7 +37,7 @@ end
   local argv: {string} = {}
   for i, value in ipairs(relaunch.argv) do argv[i] = value end
   argv[#argv + 1] = script
-  local env = Env.all()
+  local env = observations.environment()
   for name, value in pairs(relaunch.env) do env[name] = value end
   local fds: {integer:integer | string} = {}
   for number, fd in pairs(relaunch.fds) do fds[number] = fd end
@@ -83,7 +82,7 @@ end
   local argv: {string} = {}
   for i, value in ipairs(relaunch.argv) do argv[i] = value end
   argv[#argv + 1] = script
-  local env = Env.all()
+  local env = observations.environment()
   for name, value in pairs(relaunch.env) do env[name] = value end
   local fds: {integer:integer | string} = {}
   for number, fd in pairs(relaunch.fds) do fds[number] = fd end

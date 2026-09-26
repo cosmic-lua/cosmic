@@ -9,7 +9,11 @@ local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Tar = require("cosmic.tar")
+local Test = require("cosmic.test")
 local Actionlint = require("build.actionlint")
+
+--- The pin bin/actionlint fetches by, which a test holds to every host.
+Test.needs{ reads = { "bin/actionlint.pin" } }
 
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Actionlint.read_pin(

@@ -10,8 +10,12 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
+
+--- The environment a worker is given, which a key over a variable reads.
+Test.needs{ env = { "*" } }
 
 local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(test.matches("build.test_test", "build.test_test", "build/test_test.tl"))

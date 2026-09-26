@@ -5,7 +5,6 @@
 --- program has no launcher, so there is nothing here for it to check.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
@@ -15,7 +14,7 @@ local observations = require("build.filesystem_observations")
 observations.confine({ reads = observations.itself() })
 
 local function environment(): {string:string}
-  local env = Env.all()
+  local env = observations.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
   return env

@@ -6,7 +6,11 @@
 --- Teal source and records alone, not of the one that first compiled it.
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
 local teal = require("build.teal")
+
+--- The compiler's own source, as the boot vendored it.
+Test.needs{ reads = { "o/vendor/tl/tl.tl" } }
 
 --- The patched source a boot compiled, or nil in a tree no boot has
 --- built: the portable suite tests a fresh `git archive` of the tree,

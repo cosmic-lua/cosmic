@@ -1,10 +1,13 @@
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
 local observations = require("build.filesystem_observations")
+
+--- Where the checker looks for modules, which a test runs it without.
+Test.needs{ env = { "TL_PATH" } }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
@@ -58,7 +61,7 @@ end
 local function fix(root: string, check: boolean): Child.Result
   local argv: {string} = { assert(Proc.executable()), "fix" }
   if check then argv[#argv + 1] = "--check" end
-  return (assert(Child.run(argv, { cwd = root, env = Env.all(),
+  return (assert(Child.run(argv, { cwd = root, env = observations.environment(),
     stdout = "capture", stderr = "stdout", timeout_ms = 60000 })))
 end
 

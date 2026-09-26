@@ -77,6 +77,13 @@ local function operation(c: Context, phase: string, command: {string},
   if not child_environment.COSMIC_AUTO_BOOT then
     child_environment.COSMIC_AUTO_BOOT = "0"
   end
+  -- TODO: set COSMIC_SANDBOX=must here on the Linux legs, so every
+  -- `observations.confine` of a test is a `must_confine` and the sandbox
+  -- tests of core/syscalls_test.tl cannot pass unchecked, once the Linux
+  -- legs' hosts allow unprivileged user namespaces (ci.yml's TODO on
+  -- container options; `phase_sandbox`'s probe says when): GitHub's
+  -- refuse them through kernel.apparmor_restrict_unprivileged_userns=1
+  -- as well as through Docker's seccomp profile.
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ms = timeout,
     output = output, error = error_output }).code

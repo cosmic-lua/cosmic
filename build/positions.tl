@@ -15,6 +15,7 @@
 --- files requiring one another.
 
 local Fs = require("cosmic.fs")
+local type analyzer = require("build.analyzer")
 
 local record positions
   record Module
@@ -29,6 +30,9 @@ local record positions
     --- `Example.<name>` names -- empty for any other kind. The two
     --- never mix in one module, since a file is only ever one kind.
     tests: {string}
+    --- A test or example module's `needs` declaration (`cosmic.test`),
+    --- or nil for none (see `build.test_inputs`).
+    inputs: analyzer.Declared | nil
     has_top_level_return: boolean
     --- True only for a module `build.doctest` produced from a
     --- `doc/guides/*.md` file rather than read off disk as `.tl`

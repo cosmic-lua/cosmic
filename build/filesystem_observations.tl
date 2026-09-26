@@ -41,6 +41,11 @@ local realpath = syscalls.realpath
 local lstat = syscalls.lstat
 local stat = syscalls.stat
 local getenv = syscalls.getenv
+-- Logged, as a stat of its path: asked only of a program whose spawn
+-- was refused, which is noted "x" besides, so the run never stands.
+-- TODO: take `access` past the log too, once core/observed.c's table
+-- carries it beside `stat`.
+local access = sys.access
 local environ = syscalls.environ
 local tree_digest = syscalls.tree_digest
 
@@ -95,7 +100,16 @@ local record observations
     produced: any
     reads: {Observation}
   end
+
+  --- The variables `environment` passes on: what a process of this
+  --- very program reads of its environment to run at all.
+  runtime_environment: {string}
 end
+
+observations.runtime_environment = {
+  "HOME", "XDG_CACHE_HOME", "PATH", "TMPDIR", "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE",
+  "COSMIC_AUTO_BOOT",
+}
 
 --- Returns both lists in observation order, without changing either input.
 --- Repeated identical observations carry no more information, but different
@@ -346,6 +360,47 @@ local system: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", 
 --- `observations.confine`.
 local confinement: observations.Confinement | nil = nil
 
+--- How the declaration in `confinement` is held: nil where a process
+--- the kernel cannot confine starts unconfined, and otherwise what
+--- names the call that asked for no fallback, for the failure a spawn
+--- answers instead (see `observations.must_confine`).
+local strict: string | nil = nil
+
+--- The variable that turns every `confine` into `must_confine`.
+local SANDBOX_MODE <const> = "COSMIC_SANDBOX"
+
+--- Whether this process runs with every `confine` a `must_confine`:
+--- `SANDBOX_MODE` set to "must". Unset or empty, it does not; any other
+--- value raises, so a misspelt mode never passes for the default. Read
+--- past the log, as the call is made: it decides whether a run that
+--- could never stand fails, never what a standing verdict read.
+local function must_everywhere(): boolean
+  local mode = getenv(SANDBOX_MODE)
+  if mode == nil or mode == "" then return false end
+  if mode == "must" then return true end
+  error(string.format("%s is %q: set it to \"must\", or leave it unset", SANDBOX_MODE, mode), 3)
+end
+
+--- `confine`'s work, with `must` naming the call that asked for no
+--- fallback, or nil.
+local function declare(declared: observations.Confinement | nil, must: string | nil)
+  if declared == nil then
+    confinement, strict = nil, nil
+    return
+  end
+  local wanted: observations.Confinement = declared
+  local here, _ = getcwd()
+  local function absolute(path: string): string
+    if path:sub(1, 1) == "/" or here == nil then return path end
+    return (here == "/" and "" or here) .. "/" .. path
+  end
+  local reads: {string} = {}
+  local writes: {string} = {}
+  for _, path in ipairs(wanted.reads or {}) do reads[#reads + 1] = absolute(path) end
+  for _, path in ipairs(wanted.writes or {}) do writes[#writes + 1] = absolute(path) end
+  confinement, strict = { reads = reads, writes = writes }, must
+end
+
 --- Declares what every process the calling test starts from here on
 --- needs: `declared.reads`, read-only, and `declared.writes`, which it
 --- may change, beside `system` and the test's own
@@ -365,22 +420,39 @@ local confinement: observations.Confinement | nil = nil
 --- of its tests; called in a test, for the rest of that test. A
 --- relative path is taken from the directory this is called in. Nil
 --- ends the declaration: a process started after it is not confined.
+--- With COSMIC_SANDBOX=must in the environment, it is `must_confine`.
 function observations.confine(declared: observations.Confinement | nil)
-  if declared == nil then
-    confinement = nil
-    return
-  end
-  local wanted: observations.Confinement = declared
-  local here, _ = getcwd()
-  local function absolute(path: string): string
-    if path:sub(1, 1) == "/" or here == nil then return path end
-    return (here == "/" and "" or here) .. "/" .. path
-  end
-  local reads: {string} = {}
-  local writes: {string} = {}
-  for _, path in ipairs(wanted.reads or {}) do reads[#reads + 1] = absolute(path) end
-  for _, path in ipairs(wanted.writes or {}) do writes[#writes + 1] = absolute(path) end
-  confinement = { reads = reads, writes = writes }
+  declare(declared, must_everywhere() and "confine (" .. SANDBOX_MODE .. "=must)" or nil)
+end
+
+--- `confine` with no fallback: every process the calling test starts
+--- from here on runs with the whole of its sandbox -- the root of its
+--- own holding only what was declared, and no network -- in force, or
+--- does not start. Where the kernel refuses a part (no user namespaces
+--- for this user, a mount or pivot_root refused), or a process cannot
+--- be confined at all (more paths than a sandbox unveils, a program
+--- beneath none of them), the spawn fails: `nil`, a message naming
+--- the program, the part of the sandbox that could not be applied and
+--- why, errno's name included, and the errno. The failure fails the
+--- test too, whatever it made of the spawn's answer, so a test cannot
+--- pass by passing over a process it never ran; so does every running
+--- capture's, one inside another included. A process started with a
+--- sandbox of its own that unveils and takes the network is held to
+--- that; one whose own sandbox does not -- a pledge or a ruleset alone
+--- -- does not start. Nor does one started, while the declaration
+--- holds, through a spawn taken during an earlier capture, which no
+--- confinement would hold.
+---
+--- It covers only a test that declares: a process started with no
+--- declaration in force, after `confine(nil)` or in a test that never
+--- confines, runs unconfined and never stands, as it always has.
+-- TODO: hold every test's processes, declared or not, once the test
+-- worker runs sandboxed itself and every child inherits its sandbox:
+-- a process no declaration holds is then confined to the worker's own,
+-- and must mode can refuse the rest.
+function observations.must_confine(declared: observations.Confinement | nil)
+  must_everywhere() -- a misspelt mode raises here too
+  declare(declared, "must_confine")
 end
 
 --- What a confined process of this very program needs to start, for a
@@ -395,13 +467,30 @@ function observations.itself(): {string}
   return program
 end
 
+--- What of the environment a process of this very program needs, for a
+--- test to start one with rather than all of its own: where its caches
+--- are, where temporary files go and programs are found, which shared
+--- verdicts it keeps and whether it may boot -- each of
+--- `runtime_environment` this process has, read by name, so the test
+--- reads no more of the environment than these. The core hands a child
+--- the directory its coverage goes to whatever environment it is given.
+function observations.environment(): {string:string}
+  local out: {string:string} = {}
+  for _, name in ipairs(observations.runtime_environment) do
+    out[name] = sys.getenv(name)
+  end
+  return out
+end
+
 --- The errnos a confined spawn fails with where the kernel cannot
 --- confine a process at all: no user namespaces, or none for this user.
--- TODO: fall back only on a failure of the sandbox's own setup, once
--- `process.spawn` says which step failed (the status pipe carrying it beside
--- the errno): an EACCES or EINVAL from exec, or an unreadable path
--- declared, falls back unconfined too, and the test runs uncached where
--- it should fail.
+--- Under `must_confine` none of them falls back: the spawn fails.
+-- TODO: fall back only on a failure of the sandbox's own setup, and name
+-- that step in `must_confine`'s failure (the user namespace, the root,
+-- the network namespace), once `process.spawn` says which step failed
+-- (the status pipe carrying it beside the errno): an EACCES or EINVAL
+-- from exec, or an unreadable path declared, falls back unconfined too,
+-- and the test runs uncached where it should fail.
 local unconfinable: {integer:boolean} = {
   [sys.ENOSYS] = true, [sys.EPERM] = true, [sys.EACCES] = true, [sys.EINVAL] = true,
   [sys.ENOSPC] = true,
@@ -515,20 +604,48 @@ local function led_to(path: string): string | nil
   return nil
 end
 
---- Whether a process can run confined to `reads` and `writes`: few
---- enough of them, and its program among them -- where the system's
---- own shell lives elsewhere (/nix/store), it starts unconfined.
-local function confinable(program: string, reads: {string}, writes: {string}): boolean
-  if #reads + #writes > UNVEIL_MAX then return false end
+--- Why a process cannot be confined: the reason, and the errno that
+--- stands for it.
+local record Unfit
+  why: string
+  errno: integer
+end
+
+--- Why a process cannot run confined to `reads` and `writes`, or nil
+--- when it can: too many of them, or its program beneath none of them
+--- -- where the system's own shell lives elsewhere (/nix/store), it
+--- starts unconfined, or under `must_confine` not at all.
+local function unfit_for(program: string, reads: {string}, writes: {string}): Unfit | nil
+  if #reads + #writes > UNVEIL_MAX then
+    return { why = string.format("%d paths, more than the %d a sandbox unveils",
+      #reads + #writes, UNVEIL_MAX), errno = sys.EINVAL }
+  end
   local real, _ = realpath(program)
-  if real == nil then return true end -- its own failure to report
+  if real == nil then return nil end -- its own failure to report
   for _, list in ipairs({ reads, writes }) do
     for _, given in ipairs(list) do
       local where, _ = realpath(given)
-      if where ~= nil and Fs.within(real, where) then return true end
+      if where ~= nil and Fs.within(real, where) then return nil end
     end
   end
-  return false
+  return { why = "the program, at " .. real .. ", is beneath none of the paths given",
+    errno = sys.ENOENT }
+end
+
+--- Whether exec could run `program`, as a spawn given a sandbox names
+--- it -- a relative one from this process's working directory: a file
+--- this process may execute (`access`, its X_OK). One that is not fails
+--- at exec, sandbox or none.
+-- TODO: take a relative program from the directory the child starts in,
+-- as exec does for a spawn given no sandbox, once core/syscalls.c's
+-- spawn makes it absolute from there for a sandboxed one too: today it
+-- does from this process's, so `Child.run({ "script" }, { cwd = dir })`
+-- runs dir/script unconfined but, confined, this process's ./script.
+local function runnable(program: string): boolean
+  local st, _ = stat(program)
+  if st == nil or st.kind ~= "file" then return false end
+  local may, _ = access(program, sys.X_OK)
+  return may
 end
 
 --- While a `declared` call runs, a process it starts is noted "h", not
@@ -538,6 +655,28 @@ end
 local type Note = function(kind: string, given: any, answer: string, resolved?: string)
 local declaring = 0
 local noting: {Note} = {}
+
+--- The first spawn `must_confine` refused while each running capture
+--- ran, by its `note`: which fails that capture's run, whatever the
+--- test made of the spawn's answer.
+local refusals: {Note:string} = {}
+
+--- Refuses a spawn `must` holds to its sandbox: `program` could not
+--- start with `part` of it applied, for `why` (`errno`). Every running
+--- capture hears it, as each hears a note. Answers the message the
+--- spawn fails with.
+local function refuse(must: string, program: string, part: string, why: string,
+                      errno: integer): string
+  local name = sys.errno_name(errno) or ("errno " .. tostring(errno))
+  local message = string.format(
+    "%s: %s could not start confined: %s could not be applied: %s (%s)",
+    must, program, part, why, name)
+  for _, each in ipairs(noting) do
+    each("x", program, "")
+    if refusals[each] == nil then refusals[each] = message end
+  end
+  return message
+end
 
 --- Notes each file SQLite opened or asked after since the last drain as
 --- an open by every running capture: it read them in C, through
@@ -715,6 +854,8 @@ end
 
 --- Observes the calls a test makes until `restore` is called, failed
 --- ones too: absence and errors are answers a test can depend on.
+--- `restore` answers the first spawn `must_confine` refused meanwhile,
+--- or nil.
 ---
 --- A "p" (a process started, not `declared`) or an "x" (a query no key can hold: a
 --- request over the network, or a relative path when the working
@@ -764,7 +905,7 @@ end
 --- one started past it, through a reference taken before the capture,
 --- is logged and noted "p".
 local function start(resolving: observations.Resolving | nil):
-                     {observations.Observation}, function()
+                     {observations.Observation}, function(): string | nil
   drain_all()
   local found: {observations.Observation} = {}
   -- The call the stand-in wraps: what `spawn` was as the capture
@@ -886,6 +1027,12 @@ local function start(resolving: observations.Resolving | nil):
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
                            integer | nil, string, integer
     if ended then
+      -- A reference to a stand-in whose capture has ended starts a
+      -- process no confinement holds: under `must_confine`, none.
+      if strict ~= nil and confinement ~= nil then
+        return nil, refuse(strict, path, "unveil and offline",
+          "started through a spawn taken while an earlier capture ran", sys.EINVAL), sys.EINVAL
+      end
       return logged_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,
         fds, sandbox)
     end
@@ -894,6 +1041,7 @@ local function start(resolving: observations.Resolving | nil):
     -- as the core reads it, raw, and a plain copy is what the core is
     -- given, so what is noted is what holds the process.
     local plain = sandbox ~= nil and plain_sandbox(sandbox) or nil
+    local must = declaring == 0 and confinement ~= nil and strict or nil
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true and declaring == 0 then
       local own = test_own()
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
@@ -901,12 +1049,30 @@ local function start(resolving: observations.Resolving | nil):
       if pid ~= nil or not unconfinable[errno] then
         note_unveiled(plain.unveil.reads, plain.unveil.writes, own, environment,
           stdin, stdout, stderr, fds)
+      elseif must ~= nil and runnable(path) then
+        return nil, refuse(must, path, "its own sandbox's unveil and offline", trouble, errno),
+          errno
       else
-        -- Nothing ran; what the test does now turns on the host.
+        -- Nothing ran; what the test does now turns on the host, or,
+        -- for a program exec could not run, on nothing of the sandbox.
         note("x", path, "")
       end
       return pid, trouble, errno
     end
+    -- A sandbox of its own that does not both unveil and take the
+    -- network -- a pledge or a ruleset alone -- leaves the process
+    -- reading what no key holds: under `must_confine` it does not
+    -- start, rather than be held to a sandbox it was not given. One the
+    -- core would refuse raises there.
+    if plain ~= nil and must ~= nil then
+      return nil, refuse(must, path, "unveil and offline",
+        "a sandbox of its own that does not unveil and take the network, which " ..
+        "must_confine does not add to", sys.EINVAL), sys.EINVAL
+    end
+    -- TODO: confine a process a `declared` call starts too, and refuse
+    -- it under `must_confine`, once the test worker runs sandboxed
+    -- itself and every child inherits its sandbox: today one started
+    -- while `declaring` runs as it would have, noted "h".
     if sandbox == nil and confinement ~= nil and declaring == 0 then
       local declared: observations.Confinement = confinement
       local own = test_own()
@@ -927,7 +1093,11 @@ local function start(resolving: observations.Resolving | nil):
       -- test's own, confined or not, so it runs the same either way.
       local start_in = cwd
       if start_in == nil then start_in = writes[1] or "/" end
-      if confinable(path, reads, writes) then
+      local unfit = unfit_for(path, reads, writes)
+      if unfit ~= nil and strict ~= nil then
+        return nil, refuse(strict, path, "unveil", unfit.why, unfit.errno), unfit.errno
+      end
+      if unfit == nil then
         -- A program takes a directory it can make temporary files in for
         -- granted, as it does /dev/null. Without a TMPDIR it has a /tmp
         -- of its own; one that inherits a TMPDIR it may not change --
@@ -984,6 +1154,16 @@ local function start(resolving: observations.Resolving | nil):
           note_unveiled(reads, declared.writes, own, environment, stdin, stdout, stderr, fds)
           return pid, trouble, errno
         end
+        if strict ~= nil then
+          -- Nothing ran, and nothing runs in its place. A program exec
+          -- could not have run unconfined either failed there, not in
+          -- the sandbox: its failure is its own to answer.
+          if not runnable(path) then
+            note("x", path, "")
+            return pid, trouble, errno
+          end
+          return nil, refuse(strict, path, "unveil and offline", trouble, errno), errno
+        end
       end
       cwd = start_in
     end
@@ -998,7 +1178,7 @@ local function start(resolving: observations.Resolving | nil):
   local handed, _ = sqlite.observe(true)
   if not handed then note("x", "sqlite", "") end
   syscalls.observe(true)
-  return found, function()
+  return found, function(): string | nil
     ended = true
     process.spawn = spawn == unlogged_spawn and logged_spawn or spawn
     -- Draining can raise on memory (see `drain_all`): the stand-in is
@@ -1014,6 +1194,9 @@ local function start(resolving: observations.Resolving | nil):
       local _, _ = sqlite.observe(false)
       syscalls.observe(false)
     end
+    local refused = refusals[note]
+    refusals[note] = nil
+    return refused
   end
 end
 
@@ -1033,13 +1216,20 @@ end
 
 --- Calls a function and ends the capture even when it raises. The value
 --- is left intact so callers such as `require` can consume a produced table.
+--- A call that had a spawn refused by `must_confine` is one that
+--- failed, with that refusal as what it raised -- before what it
+--- raised itself, when it raised too.
 --- Given `resolving`, a path read outside its tree is also resolved as
 --- it is read; see `start`.
 function observations.capture(fn: function(any...): (any...),
                               resolving?: observations.Resolving): observations.Captured
   local found, restore = start(resolving)
-  local ok, produced = pcall(fn)
-  restore()
+  local ok, produced: boolean, any = pcall(fn)
+  local refused = restore()
+  if refused ~= nil then
+    produced = ok and refused or refused .. "; and then: " .. tostring(produced)
+    ok = false
+  end
   return { ok = ok, produced = produced, reads = found }
 end
 
