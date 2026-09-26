@@ -101,6 +101,12 @@ if [ "${1-}" = --restore ]; then
   exit 0
 fi
 
+# Placed already: nothing to move. (ci.yml puts the tree back around its
+# zig cache save and moves it here again after.)
+if [ -L "$GITHUB_WORKSPACE" ] && [ "$(readlink "$GITHUB_WORKSPACE")" = "$relative" ]; then
+  echo "the tree is at $tree already"
+  exit 0
+fi
 mkdir -p "$(dirname "$tree")"
 mv "$GITHUB_WORKSPACE" "$tree"
 ln -s "$relative" "$GITHUB_WORKSPACE"

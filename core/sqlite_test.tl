@@ -350,3 +350,21 @@ local function test_a_locked_database_is_waited_on_then_refused(tmp: string)
   assert(holder:exec("COMMIT"))
   assert(holder:close())
 end
+
+--- A reader that finds a rollback journal beside the database asks
+--- through its VFS whether a writer holds the reserved lock: one does, so
+--- the journal is the writer's own, not one to roll back, and the reader
+--- reads the last commit. The one place SQLite checks that lock, entered
+--- here in one process rather than left to a second build's timing.
+local function test_a_reader_beside_an_open_write_reads_the_last_commit(tmp: string)
+  local path = tmp .. "/reserved.db"
+  local writer = assert(Sqlite.open(path, true))
+  assert(writer:exec("PRAGMA journal_mode = DELETE; CREATE TABLE t (v TEXT); " ..
+    "INSERT INTO t VALUES ('committed'); BEGIN; INSERT INTO t VALUES ('pending')"))
+  local reader = assert(Sqlite.open(path, false))
+  local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
+  assert(#rows == 1 and rows[1][1] == "committed", "the reader must see only the last commit")
+  assert(reader:close())
+  assert(writer:exec("COMMIT"))
+  assert(writer:close())
+end

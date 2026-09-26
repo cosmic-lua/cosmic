@@ -43,6 +43,12 @@
       # As ci.yml's linux-x86_64 leg: its image, and an unprivileged
       # `runner` user owning the checkout, which every step after the
       # hand-over runs as.
+      # TODO: start this image as ci.yml's platform job starts its Linux
+      # legs' (the userns switch off, the narrowed seccomp profile,
+      # apparmor=unconfined, .github/scripts/leg-container.sh and the
+      # leg-shell shell, no hand-over), so a fuzzed test can confine
+      # its children as the suite's do there; in this job container
+      # spawn's sandbox cannot unveil or go offline.
       container: {
         image: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
         credentials: {
