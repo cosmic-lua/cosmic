@@ -12,17 +12,17 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
+local Test = require("cosmic.test")
 local Vendor = require("build.vendor")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
 local observations = require("build.filesystem_observations")
 local refresh = require("build.refresh")
-local type Declared = require("build.inputs").Declared
 
 --- The vendored bundle and zones a refresh replaces, and the tool it
 --- refreshes.
-local _inputs: Declared = { reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true }
+Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true }
 
 -- What these tests start is a program built from this very one.
 observations.confine({ reads = observations.itself() })

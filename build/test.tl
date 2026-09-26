@@ -66,7 +66,7 @@
 --- A test's inputs are its default ones -- its module's import closure,
 --- as source files, the corpora of the fuzz properties it names, and a
 --- pinned environment -- and what its module declares in a top-level
---- `_inputs` literal (`build.inputs`): paths of the tree and the host,
+--- `Test.needs { ... }` (`cosmic.test`, `build.inputs`): paths of the tree and the host,
 --- variables, the network, processes no sandbox holds, the tool, the
 --- projection. `--audit` runs every test it chooses and names, module by
 --- module, whatever one read beyond them (`build.test_inputs`), with the
@@ -1988,8 +1988,10 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   local argv: {string} = {}
   for i, value in ipairs(start.argv) do argv[i] = value end
+  -- What the build read of the module's `needs`, which the worker holds
+  -- the call to.
   for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp,
-                           scratch .. "/children" }) do
+                           scratch .. "/children", test_inputs.canonical(job.m.inputs) }) do
     argv[#argv + 1] = value
   end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }

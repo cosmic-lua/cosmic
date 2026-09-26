@@ -12,9 +12,9 @@
 
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local Test = require("cosmic.test")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
-local type Declared = require("build.inputs").Declared
 
 -- TODO: name these host paths per platform once a declaration can
 -- (a `host` entry for Linux and one for macOS, or a path the sandbox
@@ -22,7 +22,7 @@ local type Declared = require("build.inputs").Declared
 -- reads undeclared; only Linux enforces declarations for now.
 --- What the syscall table is tested on: the system's own directories, the
 --- whole environment, processes it holds and the program itself.
-local _inputs: Declared = {
+Test.needs{
   host = { "/etc", "/proc", "/usr" },
   env = { "*" },
   processes = true,

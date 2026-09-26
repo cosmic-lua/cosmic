@@ -9,13 +9,13 @@ local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 local observations = require("build.filesystem_observations")
-local type Declared = require("build.inputs").Declared
 
 --- The tool itself, the CA bundle a file run reads, and what bin/zig reads
 --- to find or fetch zig.
-local _inputs: Declared = {
+Test.needs{
   reads = { "vendor/cacert/cacert.pem" },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",

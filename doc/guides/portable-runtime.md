@@ -1,6 +1,6 @@
 # portable runtime implementation
 
-<!-- inputs: env = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD", "COSMIC_PORTABLE_CORE_SHA256" }, tool = true -->
+<!-- needs: env = { "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD", "COSMIC_PORTABLE_CORE_SHA256" }, tool = true -->
 
 Cosmic ships one file that starts on every supported host. An ordinary release
 artifact contains a POSIX shell launcher, three release cores, a manifest, a

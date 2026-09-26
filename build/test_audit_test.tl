@@ -39,7 +39,8 @@ local function project(root: string, declared: boolean)
   assert(Fs.write(root .. "/suite/reads_test.tl", table.concat({
     'local Fs = require("cosmic.fs")',
     'local helper = require("suite.helper")',
-    declared and 'local _inputs = { reads = { "data/" } }' or "",
+    declared and 'local Test = require("cosmic.test")' or "",
+    declared and 'Test.needs { reads = { "data/" } }' or "",
     "local function test_reads()",
     "  assert(helper.answer == 42)",
     '  assert(Fs.read("suite/helper.tl") ~= nil)',
@@ -59,7 +60,7 @@ local function test_an_undeclared_read_fails_the_audit_until_it_is_declared(tmp:
   assert(not ok, text)
   assert(text:find("audit: suite.reads_test (suite/reads_test.tl): 1 of 1 tests read " ..
     "what they do not declare\n  test_reads:\n    reads        data/extra.txt\n" ..
-    '  declare: local _inputs: Declared = { reads = { "data/extra.txt" } }\n', 1, true), text)
+    '  declare: Test.needs { reads = { "data/extra.txt" } }\n', 1, true), text)
   assert(not text:find("helper.tl", 1, true) and not text:find("missing", 1, true), text)
   assert(text:find("test: PASS", 1, true), text)
   project(root, true)
@@ -145,4 +146,22 @@ local function test_a_link_in_the_tests_own_directory_that_leads_out_is_named(tm
   found = test.audited(root, scratch, effective,
     { { kind = "d", path = base, answer = "ok" } }, {})
   assert(#found == 1 and found[1].field == "host" and found[1].value == base)
+end
+
+--- A `needs` call the build did not read from the source -- reached
+--- another way than a top-level call on a local bound to
+--- `require("cosmic.test")` -- fails its module's load when it runs,
+--- naming what it was handed and what the build read.
+local function test_a_needs_call_the_build_did_not_read_fails_the_load(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/dynamic_test.tl", table.concat({
+    'require("cosmic.test").needs { tool = true }',
+    "local function test_x() end",
+  }, "\n") .. "\n"))
+  local ok, text = audit(root, tmp .. "/dynamic.out")
+  assert(not ok, text)
+  assert(text:find("the module failed to load: its cosmic.test needs call was handed what " ..
+    "the build did not read", 1, true), text)
+  assert(text:find("  handed:\n    tool\ttrue\n  read:\n    nothing", 1, true), text)
 end

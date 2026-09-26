@@ -16,11 +16,11 @@
 --- (`build.receivers`).
 
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local fixture = require("build.docs_fixture")
-local type Declared = require("build.inputs").Declared
 
 --- A whole-tree question, asked of the projection itself.
-local _inputs: Declared = { store = true }
+Test.needs{ store = true }
 
 --- The exports kept although nothing outside their module but a test
 --- uses them, by `<module>.<member>`, and why each is kept.

@@ -2,19 +2,19 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
 local narrow = require("build.narrow")
 local work = require("build.work")
 local observations = require("build.filesystem_observations")
-local type Declared = require("build.inputs").Declared
 
 --- git, and the environment `cosmic todos` starts it with.
 -- TODO: name git by what PATH finds rather than where this host keeps
 -- it, once a declaration can name a program (`processes` by name, which
 -- the sandbox resolves): on a host with git elsewhere, the audit finds
 -- that read undeclared.
-local _inputs: Declared = { host = { "/usr/bin/git" }, env = { "*" } }
+Test.needs{ host = { "/usr/bin/git" }, env = { "*" } }
 
 -- What these tests start is git, the system's own.
 observations.confine({})

@@ -141,7 +141,7 @@ local function test_a_report_groups_tests_and_suggests_a_declaration()
   assert(text:find("\n  test_one:\n    reads        vendor/x/a, vendor/x/b, vendor/x/c, " ..
     "vendor/x/d\n", 1, true), text)
   assert(text:find("\n  test_two:\n    processes    /bin/sh\n", 1, true), text)
-  assert(lines[#lines] == '  declare: local _inputs: Declared = { reads = { "data/", ' ..
+  assert(lines[#lines] == '  declare: Test.needs { reads = { "data/", ' ..
     '"vendor/x/" }, env = { "HOME", "PATH" }, processes = true }', text)
   assert(#test_inputs.report(m, { test_one = {}, test_two = {} }) == 0)
 end

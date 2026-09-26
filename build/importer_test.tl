@@ -4,16 +4,16 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 local docs = require("build.docs")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local schema = require("build.schema")
-local type Declared = require("build.inputs").Declared
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
-local _inputs: Declared = { reads = { "core" }, store = true }
+Test.needs{ reads = { "core" }, store = true }
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -1227,14 +1227,16 @@ end
 --- so a module no test is refused one, naming its line.
 local function test_only_a_test_module_declares_its_inputs()
   local root = assert(write_fixture("inputs-kind", {
-    ["lib/helper.tl"] = "local _inputs = { reads = { \"data/\" } }\nreturn {}\n",
+    ["lib/helper.tl"] = "local Test = require(\"cosmic.test\")\n" ..
+      "Test.needs { reads = { \"data/\" } }\nreturn {}\n",
     ["lib/helper_test.tl"] = "local helper = require(\"lib.helper\")\n" ..
-      "local _inputs = { reads = { \"data/\" } }\n" ..
+      "local Test = require(\"cosmic.test\")\n" ..
+      "Test.needs { reads = { \"data/\" } }\n" ..
       "local function test_x() assert(helper) end\n",
   }))
   local requires, trouble = requires_of_fixture(root, "lib.helper_test")
   assert(requires == nil, "a module no test's declared its inputs")
-  assert(trouble:find("lib/helper.tl:1: _inputs: only a test or example module", 1, true),
+  assert(trouble:find("lib/helper.tl:2: test.needs: only a test or example module", 1, true),
     trouble)
   assert(Fs.write(root .. "/lib/helper.tl", "return {}\n"))
   local again = assert(requires_of_fixture(root, "lib.helper_test"))

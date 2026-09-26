@@ -131,7 +131,7 @@ local version <const> = "26"
 --- can never be wrong. A row whose source no longer hashes among the
 --- inputs is pruned, and every row goes when the analyzer changes.
 --- `test_inputs` is the same parse's reading of a test module's
---- `_inputs` declaration (`build.inputs`), one row per value a field
+--- `needs` declaration (`cosmic.test`), one row per value a field
 --- lists (`true` for a flag, `*` for any network host, and the line
 --- the declaration starts on under `line`).
 ---

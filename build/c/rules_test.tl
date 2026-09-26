@@ -2,14 +2,14 @@
 --- checked the way `cosmic fix` checks the core: through clang's dump.
 
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local c = require("build.c")
 local observations = require("build.filesystem_observations")
 local rules = require("build.c.rules")
-local type Declared = require("build.inputs").Declared
 
 --- The core's C and the headers it includes, which zig parses to a syntax
 --- tree, and what bin/zig reads to find or fetch zig.
-local _inputs: Declared = {
+Test.needs{
   reads = { "bin/cosmic-bootstrap", "bin/zig", "bin/zig.pin", "ci/cosmic-driver.pin", "core/",
     "vendor/bzip2/", "vendor/cares/include/", "vendor/curl/include/", "vendor/lua/src/",
     "vendor/mbedtls/include/", "vendor/mbedtls/tf-psa-crypto/", "vendor/miniz/", "vendor/sqlite/",

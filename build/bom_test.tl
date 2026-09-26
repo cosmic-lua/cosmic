@@ -2,14 +2,14 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
 local bom = require("build.bom")
 local invoke = require("build.invoke")
 local schema = require("build.schema")
-local type Declared = require("build.inputs").Declared
 
 --- What the bill of materials describes: every vendored tree, the patches
 --- to it and the pins it came by.
-local _inputs: Declared = { reads = { "bin/zig.pin", "build/bom/", "patch/", "vendor/" } }
+Test.needs{ reads = { "bin/zig.pin", "build/bom/", "patch/", "vendor/" } }
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle

@@ -221,7 +221,7 @@ local function origin_lines(source: string): {string: integer} | nil
 end
 
 --- The rows `test_inputs` keeps of one parse (see `build.work`): its
---- `_inputs` declaration, field by field.
+--- `needs` declaration (`cosmic.test`), field by field.
 local function insert_test_inputs(db: Sqlite.Handle, source_hash: string,
                                   found: analyzer.Analysis): boolean, string
   local rows: {{string}} = {}
@@ -788,8 +788,8 @@ local function collect(handle: work.Handle, self_tree: boolean,
       -- A declaration holds for the tests of its own module, and a
       -- module that is no test's has none: what a module it requires
       -- reads, the test declares.
-      return nil, file .. ":" .. inputs.line .. ": _inputs: only a test or example " ..
-        "module declares what its tests read; declare it in each test module that " ..
+      return nil, file .. ":" .. inputs.line .. ": test.needs: only a test or example " ..
+        "module declares what its tests read; call it in each test module that " ..
         "requires this one"
     end
     out[#out + 1] = {

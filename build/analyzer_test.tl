@@ -931,7 +931,7 @@ local function test_an_example_is_not_also_an_ordinary_doc_entry()
   end
 end
 
---- `analyze` on `source`, answering its `_inputs` declaration and what it
+--- `analyze` on `source`, answering its `needs` declaration and what it
 --- refused, as `analysis_of` does.
 local function declared(source: string): analyzer.Declared | nil, string
   local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
@@ -939,13 +939,14 @@ local function declared(source: string): analyzer.Declared | nil, string
   return found.inputs, ""
 end
 
---- A top-level `_inputs` literal is read as data, field by field, with
---- `network = true` as any host and the line it starts on.
-local function test_an_inputs_declaration_is_read_as_data()
+--- A top-level `Test.needs { ... }` is read as data, field by field,
+--- with `network = true` as any host and the line it starts on, whatever
+--- the local is named and in either call form.
+local function test_a_needs_call_is_read_as_data()
   local got, trouble = declared(lines({
-    'local type Declared = require("build.inputs").Declared',
+    'local Test = require("cosmic.test")',
     "",
-    "local _inputs: Declared = {",
+    "Test.needs {",
     '  reads = { "vendor/cacert/", "bin/zig.pin" },',
     '  host = { "/etc/localtime" },',
     '  env = { "PATH" },',
@@ -960,37 +961,57 @@ local function test_an_inputs_declaration_is_read_as_data()
   assert(#got.env == 1 and got.env[1] == "PATH")
   assert(#got.network == 1 and got.network[1] == "*")
   assert(got.processes and not got.tool and got.store)
-  local hosts = assert(declared('local _inputs = { network = { "127.0.0.1" } }\n'))
-  assert(hosts.network[1] == "127.0.0.1" and not hosts.processes)
+  local hosts = assert(declared(lines({
+    'local t = require("cosmic.test")',
+    't.needs({ network = { "127.0.0.1" } })',
+  })))
+  assert(hosts.network[1] == "127.0.0.1" and not hosts.processes and hosts.line == 2)
   local none, none_trouble = declared("local function test_x() end\n")
   assert(none == nil and none_trouble == "", none_trouble)
+  -- `needs` of another module is no declaration.
+  local other, other_trouble = declared(lines({
+    'local Other = require("cosmic.other")',
+    'Other.needs { tool = true }',
+  }))
+  assert(other == nil and other_trouble == "", other_trouble)
 end
 
 --- A declaration the build cannot read without running the module is
 --- refused, naming its line and what is wrong with it.
-local function test_a_malformed_inputs_declaration_is_refused()
+local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
-    { 'local _inputs = { reeds = { "a" } }', "no field reeds; it has reads, host, env" },
-    { 'local _inputs = { reads = { "/etc" } }', "is absolute" },
-    { 'local _inputs = { host = { "etc" } }', "is relative" },
-    { 'local _inputs = { reads = { "a/../b" } }', "names \"..\"" },
-    { 'local _inputs = { reads = { "./a" } }', "names \".\"" },
-    { 'local _inputs = { reads = { name } }', "reads lists string literals only" },
-    { 'local _inputs = { reads = "a" }', "reads takes a list of string literals" },
-    { 'local _inputs = { tool = "yes" }', "tool takes true or false" },
-    { 'local _inputs = { tool = true, tool = false }', "tool is declared twice" },
-    { 'local _inputs = { env = { "" } }', "env: an empty name" },
-    { "local _inputs = setmetatable({}, {})", "declare it alone, as one table literal" },
-    { 'local _inputs, other = { tool = true }, 1', "declare it alone" },
-    { 'local _inputs = { ["reads"] = { "a" } }', "write the field as a name, reads = ..." },
-    { 'local _inputs = { tool = true }\nlocal _inputs = { store = true }',
-      "fixture_test.tl:3: _inputs: a module declares its inputs once; line 2 did already" },
+    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has reads, host, env" },
+    { 'Test.needs { reads = { "/etc" } }', "is absolute" },
+    { 'Test.needs { host = { "etc" } }', "is relative" },
+    { 'Test.needs { reads = { "a/../b" } }', "names \"..\"" },
+    { 'Test.needs { reads = { "./a" } }', "names \".\"" },
+    { 'Test.needs { reads = { name } }', "reads lists string literals only" },
+    { 'Test.needs { reads = "a" }', "reads takes a list of string literals" },
+    { 'Test.needs { tool = "yes" }', "tool takes true or false" },
+    { 'Test.needs { tool = true, tool = false }', "tool is declared twice" },
+    { 'Test.needs { env = { "" } }', "env: an empty name" },
+    { 'Test.needs { ["reads"] = { "a" } }', "write the field as a name, reads = ..." },
+    { "Test.needs(setmetatable({}, {}))", "hand it one table written out as a literal" },
+    { "local t = { tool = true }\nTest.needs(t)",
+      "fixture_test.tl:4: test.needs: hand it one table written out as a literal" },
+    { "Test.needs({ tool = true }, 1)", "hand it one table written out as a literal" },
+    { "Test.needs { tool = true }\nTest.needs { store = true }",
+      "fixture_test.tl:4: test.needs: a module declares its inputs once; line 3 did already" },
+    { "local function test_x() Test.needs { tool = true } end",
+      "call it as a statement at the module's top level" },
+    { "if name then Test.needs { tool = true } end",
+      "call it as a statement at the module's top level" },
+    { "local needs = Test.needs\nneeds { tool = true }",
+      "call it as a statement at the module's top level" },
+    { 'local _inputs = { tool = true }',
+      "fixture_test.tl:3: _inputs: a module declares what its tests read with cosmic.test's needs" },
   }
   for _, case in ipairs(cases) do
-    local got, trouble = declared("local name = 'x'\n" .. case[1] .. "\n")
+    local got, trouble = declared('local name = "x"\nlocal Test = require("cosmic.test")\n' ..
+      case[1] .. "\n")
     assert(got == nil, case[1] .. " was read")
     assert(trouble:find(case[2], 1, true) ~= nil, case[1] .. ": " .. trouble)
-    local line = case[2]:match("^fixture_test.tl:%d+: ") or "fixture_test.tl:2: "
-    assert(trouble:find(line .. "_inputs: ", 1, true) ~= nil, trouble)
+    local line = case[2]:match("^fixture_test.tl:%d+: ") or "fixture_test.tl:3: "
+    assert(trouble:find(line, 1, true) ~= nil, trouble)
   end
 end

@@ -74,7 +74,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
   local current: Example | nil = nil
 
   for _, b in ipairs(blocks) do
-    if b.lang == "inputs" then
+    if b.lang == "needs" then
       -- The doc's declaration, which `from_blocks` writes at the top.
     elseif b.lang == "text" then
       current = nil
@@ -221,7 +221,7 @@ end
 ---   assertion's failure message and in the header comment; never
 ---   prefixed onto an error this function itself returns -- the caller
 ---   already does that for every module, doc-derived or not
---- Why `fields`, a doc's `inputs` line, cannot stand between the braces
+--- Why `fields`, a doc's `needs` line, cannot stand between the braces
 --- of a table literal as it is, or "" when it can: a brace closing one
 --- it did not open, one left open, or a comment or long bracket that
 --- would swallow the close. Strings are skipped; the build reads what
@@ -256,11 +256,9 @@ local function unspliceable(fields: string): string
   return ""
 end
 
---- A doc's `inputs` block (`build.doctest.markdown`) becomes the
---- module's top-level `_inputs` declaration, which the build reads
---- (`build.inputs`); without the type, which another project's doc
---- could not reach, since the build holds each field to its shape
---- either way. A second is refused.
+--- A doc's `needs` block (`build.doctest.markdown`) becomes the
+--- module's top-level `needs` call (`cosmic.test`), which the build
+--- reads as it does a test module's. A second is refused.
 -- TODO: confine what a doc's examples start (doc/guides start this
 -- program and /bin/sh, so their verdicts never stand), once a generated
 -- module can declare it where build.filesystem_observations is out of
@@ -272,13 +270,13 @@ function generate.from_blocks(blocks: {Block}, file: string): string | nil, stri
   end
   local declared: Block = nil
   for _, b in ipairs(blocks) do
-    if b.lang == "inputs" and declared ~= nil then
-      return nil, "line " .. b.line .. ": a doc declares its inputs once; line " ..
+    if b.lang == "needs" and declared ~= nil then
+      return nil, "line " .. b.line .. ": a doc declares its needs once; line " ..
         declared.line .. " did already"
-    elseif b.lang == "inputs" then
+    elseif b.lang == "needs" then
       local why = unspliceable(b.content)
       if why ~= "" then
-        return nil, "line " .. b.line .. ": the inputs line " .. why
+        return nil, "line " .. b.line .. ": the needs line " .. why
       end
       declared = b
     end
@@ -303,7 +301,8 @@ function generate.from_blocks(blocks: {Block}, file: string): string | nil, stri
   out[#out + 1] = "-- A rebuild replaces this file whole from the doc; never edit it here"
   out[#out + 1] = ""
   if declared ~= nil then
-    out[#out + 1] = "local _inputs = { " .. declared.content .. " }"
+    out[#out + 1] = 'local __doctest_test = require("cosmic.test")'
+    out[#out + 1] = "__doctest_test.needs { " .. declared.content .. " }"
     out[#out + 1] = ""
   end
 

@@ -30,7 +30,7 @@ local record positions
     --- `Example.<name>` names -- empty for any other kind. The two
     --- never mix in one module, since a file is only ever one kind.
     tests: {string}
-    --- A test or example module's `_inputs` declaration (`build.inputs`),
+    --- A test or example module's `needs` declaration (`cosmic.test`),
     --- or nil for none (see `build.test_inputs`).
     inputs: analyzer.Declared | nil
     has_top_level_return: boolean

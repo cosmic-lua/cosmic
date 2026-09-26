@@ -1,13 +1,13 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
 local observations = require("build.filesystem_observations")
-local type Declared = require("build.inputs").Declared
 
 --- Where the checker looks for modules, which a test runs it without.
-local _inputs: Declared = { env = { "TL_PATH" } }
+Test.needs{ env = { "TL_PATH" } }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

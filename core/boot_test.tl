@@ -8,12 +8,12 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local artifact = require("build.artifact")
 local observations = require("build.filesystem_observations")
-local type Declared = require("build.inputs").Declared
 
 --- The bridge a stand-in tree boots through.
-local _inputs: Declared = { reads = { "core/bridge.lua" } }
+Test.needs{ reads = { "core/bridge.lua" } }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

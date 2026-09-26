@@ -24,6 +24,7 @@
 
 local observations = require("build.filesystem_observations")
 local type analyzer = require("build.analyzer")
+local type inputs = require("build.inputs")
 local type positions = require("build.positions")
 
 local type Module = positions.Module
@@ -303,14 +304,15 @@ local function literal_list(values: {string}): string
   return "{ " .. table.concat(quoted, ", ") .. " }"
 end
 
---- The fields of `build.inputs`, in the order a suggestion writes them.
+--- The fields of `cosmic.test`'s `Needs`, in the order a suggestion
+--- writes them.
 local field_order: {string} = {
   "reads", "host", "env", "network", "processes", "tool", "store",
 }
 
 --- The audit of one test module, as lines to print: what its tests read
 --- that its effective inputs do not hold, field by field with the tests
---- that read it, and the `_inputs` declaration that would hold it --
+--- that read it, and the `needs` call that would hold it --
 --- what `m` declares already, with what it lacks added. `found` is each
 --- of its tests' findings, by test name. Nothing when every test's are
 --- none.
@@ -425,9 +427,45 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
     if on or wanted[flag] ~= nil then parts[#parts + 1] = flag .. " = true" end
   end
   if #parts > 0 then
-    lines[#lines + 1] = "  declare: local _inputs: Declared = { " .. table.concat(parts, ", ") .. " }"
+    lines[#lines + 1] = "  declare: Test.needs { " .. table.concat(parts, ", ") .. " }"
   end
   return lines
+end
+
+--- One declaration as text two can be compared by: each field's values
+--- in order, `network = true` as `"*"`, a flag set as `true`, one line
+--- each; "" for none. `line` plays no part.
+function test_inputs.canonical(maybe: analyzer.Declared | nil): string
+  if maybe == nil then return "" end
+  local declared: analyzer.Declared = maybe
+  local lines: {string} = {}
+  local function list(field: string, values: {string})
+    for _, value in ipairs(values) do lines[#lines + 1] = field .. "\t" .. value end
+  end
+  list("reads", declared.reads)
+  list("host", declared.host)
+  list("env", declared.env)
+  list("network", declared.network)
+  if declared.processes then lines[#lines + 1] = "processes\ttrue" end
+  if declared.tool then lines[#lines + 1] = "tool\ttrue" end
+  if declared.store then lines[#lines + 1] = "store\ttrue" end
+  return table.concat(lines, "\n")
+end
+
+--- What a `needs` call was handed, as the build reads a declaration
+--- (`build.analyzer`), for `canonical`: nil for none.
+function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared | nil
+  if needs == nil then return nil end
+  local network: {string} = {}
+  local asked = needs.network
+  if asked is {string} then
+    network = asked
+  elseif asked == true then
+    network = { "*" }
+  end
+  return { line = 0, reads = needs.reads or {}, host = needs.host or {},
+    env = needs.env or {}, network = network, processes = needs.processes == true,
+    tool = needs.tool == true, store = needs.store == true }
 end
 
 return test_inputs

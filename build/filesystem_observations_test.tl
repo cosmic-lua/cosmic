@@ -4,11 +4,11 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
-local type Declared = require("build.inputs").Declared
 
 -- TODO: name these host paths per platform once a declaration can
 -- (a `host` entry for Linux and one for macOS, or a path the sandbox
@@ -17,7 +17,7 @@ local type Declared = require("build.inputs").Declared
 --- What the observer is tested observing: processes it cannot confine, the
 --- system's own directories, the environment, and requests to closed local
 --- ports.
-local _inputs: Declared = {
+Test.needs{
   host = { "/etc", "/usr" },
   env = { "*" },
   network = { "127.0.0.1", "127.0.0.2" },
