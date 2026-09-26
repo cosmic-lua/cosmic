@@ -347,12 +347,14 @@ end
 --- system's programs and libraries, its configuration, the devices a
 --- program takes for granted, and /proc, where a program finds itself
 --- (`/proc/self/exe`) and its descriptors (`/dev/fd`) -- each where
---- this host has it. /proc alone does not enter a key.
--- TODO: a /proc of the process's own, a fresh one in a pid namespace,
--- once `process.spawn` can start a program in one (core/syscalls.c's
--- `unveil`): the host's, given here, shows every other process and the
--- host's state, which a confined process can read without it entering
--- the key.
+--- this host has it. /proc alone does not enter a key: a confined
+--- process's is a procfs of its own pid namespace, holding its own
+--- processes and nothing of the host's.
+-- TODO: keep a confined process from the host's state where the kernel
+-- refuses it a procfs of its own and it has the host's /proc (a
+-- container masking parts of it: core/syscalls.c's `place_proc`), which
+-- it can read there without that entering the key, once the containers
+-- CI runs in let a user namespace mount one (the TODO at `guard_proc`).
 local system: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32",
   "/etc", "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
 
