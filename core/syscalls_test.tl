@@ -575,6 +575,84 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
 end
 
+--- A child starts on this process's memory rather than a copy of it,
+--- but with a descriptor table of its own: the descriptors it closes and
+--- moves to hand its program the ones asked for, and a later step that
+--- fails, leave every one of this process's as it was.
+local function test_a_child_s_descriptors_are_its_own(tmp: string)
+  local held: {integer} = {}
+  local target = 0
+  for i = 1, 4 do
+    held[i] = create(tmp .. "/held" .. i)
+    if held[i] > target then target = held[i] end
+  end
+  -- Handed above all of them, so the child closes every one on its way.
+  target = target + 2
+  local report = create(tmp .. "/report")
+  local pid = assert(process.spawn("/bin/sh", { "sh", "-c", "echo mapped > /dev/fd/" .. target },
+    nil, nil, nil, nil, nil, false, { [target] = report }))
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  assert(assert(sys.pread(report, 64, 0)) == "mapped\n")
+  failed_with(sys.ENOENT, process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp .. "/missing",
+    nil, nil, nil, false, { [target] = report }))
+  for _, fd in ipairs(held) do
+    assert(sys.fstat(fd) ~= nil, "a descriptor the child closed is still open here")
+    sys.close(fd)
+  end
+  assert(sys.fstat(report) ~= nil)
+  sys.close(report)
+end
+
+--- Every signal is blocked while a child starts, so none runs a handler
+--- of this process's in the memory the two share; its program starts
+--- with this process's own mask all the same, catching nothing, and
+--- ignoring nothing this process does not.
+local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
+  local status = sys.open("/proc/self/status", sys.O_RDONLY)
+  if status == nil then return end -- no /proc to ask
+  local own = assert(sys.read(status, 65536))
+  sys.close(status)
+  local output = create(tmp .. "/status")
+  local pid = assert(process.spawn("/bin/cat", { "cat", "/proc/self/status" },
+    nil, nil, nil, output, nil, false))
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  local child = assert(sys.pread(output, 65536, 0))
+  sys.close(output)
+  local function mask(text: string, name: string): integer
+    return math.tointeger(tonumber(assert(text:match(name .. ":%s*(%x+)")), 16)) as integer
+  end
+  assert(mask(child, "SigBlk") == mask(own, "SigBlk"), child)
+  -- This process was started by one too, so a mask its start leaked
+  -- would be its own as well: SIGTERM (15), which nothing that starts a
+  -- test blocks, would be blocked in both.
+  assert(mask(own, "SigBlk") & (1 << 14) == 0, own)
+  assert(mask(child, "SigCgt") == 0, child)
+  assert(mask(child, "SigIgn") & ~mask(own, "SigIgn") == 0, child)
+end
+
+--- SIGPIPE, which cosmic ignores for itself when it writes to a child's
+--- pipe, is handed a spawned program at its default: a program that
+--- writes to a closed pipe ends as it would started from a shell.
+local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
+  assert(process.ignore_sigpipe())
+  local function ignored(text: string): integer
+    return math.tointeger(tonumber(assert(text:match("SigIgn:%s*(%x+)"), text), 16)) as integer
+  end
+  local status = sys.open("/proc/self/status", sys.O_RDONLY)
+  if status == nil then return end -- no /proc to ask
+  local own = assert(sys.read(status, 65536))
+  sys.close(status)
+  local bit = 1 << (sys.SIGPIPE - 1)
+  assert(ignored(own) & bit ~= 0, own)
+  local output = create(tmp .. "/status")
+  local pid = assert(process.spawn("/bin/cat", { "cat", "/proc/self/status" },
+    nil, nil, nil, output, nil, false))
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  local child = assert(sys.pread(output, 65536, 0))
+  sys.close(output)
+  assert(ignored(child) & bit == 0, child)
+end
+
 --- An unveiled child has a root of its own holding only the paths it was
 --- given, at their own names once resolved: a path outside them is not
 --- there to stat, one given to read is read-only, one given to write is
@@ -615,6 +693,10 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     { unveil = { reads = reads, writes = { out } }, offline = true })
   if pid == nil then
     sys.close(report)
+    -- TODO: fail rather than return on a host known to allow unprivileged
+    -- user namespaces (CI's Linux runners), where any of these errnos is a
+    -- regression: a hard check keyed to COSMIC_SANDBOX=must, once the
+    -- must-sandbox branch (32bb9f2c, "build: must_confine") merges.
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
