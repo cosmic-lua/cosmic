@@ -258,6 +258,11 @@ end
 
 --- Writes `data` to a new file at `path` with exactly `mode`, and syncs
 --- it, its mode included, before closing it.
+-- TODO: one fsync per file, in turn, makes a whole cache miss over
+-- vendor/ take up to several times as long, as the storage answers each;
+-- write every file unsynced and sync the filesystem once before the
+-- rename once cosmic.sys carries syncfs (or sync), which the pinned
+-- release (ci/cosmic-driver.pin) must carry too.
 local function write_synced(path: string, data: string,
                             mode: integer): boolean, string
   local fd, trouble = Fs.open_write(path, mode)
@@ -407,9 +412,12 @@ local function sweep(cache: string)
 end
 
 --- The directory under `cache` holding `name`'s patched tree, written
---- there first when it is not yet. The tree is synced whole before it
---- takes its name, so after a crash of the machine a tree at its name
---- is never one with empty or missing files.
+--- there first when it is not yet. Every file and directory of the tree
+--- is fsynced before it takes its name, so a crash of the machine does
+--- not leave empty or missing files at that name where fsync reaches
+--- the storage itself (not on macOS; see below).
+-- TODO: on macOS fsync leaves the data in the drive's own cache; sync
+-- with fcntl(F_FULLFSYNC) there once cosmic.sys carries fcntl.
 -- TODO: nothing removes a tree no build names any more, and each edit to
 -- a vendored tree, a record or this file leaves one behind (tens of MB
 -- for every tree at once); remove the ones older than the newest of each
@@ -452,11 +460,9 @@ function Patch.prepare(root: string, name: string, cache: string,
     return nil, move_trouble
   end
   -- The rename itself, so the next build finds the tree rather than
-  -- writing it again; the tree at its name is whole whether it did.
-  local synced, sync_trouble = sync_dir(cache)
-  if not synced then
-    return nil, sync_trouble
-  end
+  -- writing it again. Best effort: the tree at its name is whole
+  -- whether or not the rename lasts.
+  local _, _ = sync_dir(cache)
   return dir, ""
 end
 
