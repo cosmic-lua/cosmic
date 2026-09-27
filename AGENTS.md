@@ -92,9 +92,12 @@
    reads the system's own paths, /dev and /proc, keyed only through the
    host's identity, and the program, its core and its database, keyed
    through the runtime's identity but for the database's modules, which
-   the hold above keeps a test from reading unless it declares `store`
-   or `tool`. A test that starts this program declares `tool = true`:
-   sandboxed, one that does not is refused it, and `--audit` names it.
+   the hold above keeps a test from reading through the store unless it
+   declares `store` or `tool` -- but not through the descriptor a
+   portable start keeps on the program, which a test can read directly
+   (the TODO above core/syscalls_fs.c's `read`). A test that starts
+   this program declares `tool = true`: sandboxed, one that does not is
+   refused it, and `--audit` names it.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a
    test is keyed instead by what it was seen to read, and shares no
    verdict: environment variables it reads are part of its key, and one

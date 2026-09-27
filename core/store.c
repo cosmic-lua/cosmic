@@ -25,13 +25,12 @@
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
-/* The hold `store_hold` puts up: the set of names no lookup answers,
- * why of a module and why of `databases`, and the token that alone lifts
- * it, each in the registry while it is up and nil while it is not. */
+/* The hold `store_hold` puts up: the set of names no lookup answers, why
+ * of a module and why of `databases`, each in the registry once it is up
+ * and nil until then. */
 #define STORE_HOLD "cosmic.store.hold"
 #define STORE_HOLD_WHY "cosmic.store.hold.why"
 #define STORE_HOLD_WHY_ALL "cosmic.store.hold.why_all"
-#define STORE_HOLD_TOKEN "cosmic.store.hold.token"
 
 #ifndef COSMIC_TARGET_NAME
 #error "build.zig must define COSMIC_TARGET_NAME"
@@ -65,12 +64,19 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * value, and that is no escalation: the raw table reaches nothing the
  * wrapper does not already reach. The store's raw table included: each
  * of its lookups of a module consults the hold (`store_hold`) itself,
- * none hands out a handle while one is up, and only the token its
- * `hold` answered lifts one, so a caller that reaches it past its
- * wrapper reads no more of a held module than the wrapper would. (The process table's `waitpid` can
+ * none hands out a handle while one is up, and nothing lifts one, so a
+ * caller that reaches it past its wrapper reads no more of a held
+ * module than the wrapper would. (The process table's `waitpid` can
  * reap a child no handle of the caller's owns, which `cosmic.child`
  * never does; that is a caller breaking its own bookkeeping, and why
  * the table is off the public surface, not a privilege gained.) */
+/* TODO: hold the raw tables a test reaches this way to what their
+ * wrappers let it do, or keep them from a test worker's tests: the one
+ * `cosmic.sqlite`'s searcher hands out carries the observations' own
+ * `observe`, `observed` and `exclude_held` (core/sqlite.c), with
+ * which a test could hide what it reads from the capture its unsandboxed
+ * key and `--audit` are made of. The claim above holds of the store's
+ * table, not yet of that one. */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* Every wrapper that is handed a raw value when loaded trusted, and the
@@ -840,7 +846,12 @@ static int store_requires (lua_State *L) {
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     const char *required = (const char *)sqlite3_column_text(stmt, 0);
     if (required == NULL) {
-      return luaL_error(L, "not enough memory");
+      /* A NULL of a column declared NOT NULL is SQLite out of memory;
+       * of any other, a row with nothing to name. */
+      if (sqlite3_errcode(db) == SQLITE_NOMEM) {
+        return luaL_error(L, "not enough memory");
+      }
+      continue;
     }
     lua_pushstring(L, required);
     lua_seti(L, -2, ++n);
@@ -927,15 +938,17 @@ static int store_zone_names (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
-/* Puts up a hold: while it is up, a lookup of a name the set at 1 holds
- * as a key -- the searcher's, `bytecode`'s, `source`'s -- answers as if
- * no database held it, saying why with the text at 2, and `databases`
- * raises the text at 3. A test runner holds a test so to the modules
- * its verdict is keyed by. The set is consulted as it stands, not
- * copied. Answers the token that alone lifts it (`store_release`), and
- * raises while another is up: what a hold holds, nothing but its
- * holder can loosen or replace. Everything that allocates comes before
- * the set is stored, which is what puts the hold up. */
+/* Puts up a hold, for the rest of the process: while it is up, a lookup
+ * of a name the set at 1 holds as a key -- the searcher's, `bytecode`'s,
+ * `source`'s, `requires`' -- answers as if no database held it, saying
+ * why with the text at 2, and `databases` raises the text at 3. A test
+ * worker holds a test so to the modules its verdict is keyed by. The
+ * set is consulted as it stands, not copied. Nothing takes a hold down,
+ * nor puts up another: what runs under one -- a finalizer a test left,
+ * run after the test is over -- cannot loosen or replace it. The set is
+ * stored last, which is what puts the hold up: should a store before it
+ * raise for memory, no hold is up and the call raises, which the worker
+ * that asked does not survive to run a test. */
 static int store_hold (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checkstring(L, 2);
@@ -944,37 +957,9 @@ static int store_hold (lua_State *L) {
     return luaL_error(L, "the store is held already");
   }
   lua_settop(L, 3);
-  lua_newuserdatauv(L, 0, 0);
-  lua_pushvalue(L, 2);
-  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY);
-  lua_pushvalue(L, 3);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_ALL);
-  lua_pushvalue(L, -1);
-  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_TOKEN);
-  lua_pushvalue(L, 1);
-  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
-  return 1;
-}
-
-/* Lifts the hold the token at 1 put up, and raises for any other value:
- * a hold is lifted by its holder alone. Taking the set out first takes
- * the hold down; clearing a field that is there allocates nothing. */
-static int store_release (lua_State *L) {
-  /* The token asked with at 1 even when none was passed, so the one
-   * fetched never compares with itself. */
-  lua_settop(L, 1);
-  lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_TOKEN);
-  if (lua_isnil(L, -1) || !lua_rawequal(L, 1, -1)) {
-    return luaL_error(L, "the store's hold is not this caller's to lift");
-  }
-  lua_pushnil(L);
-  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
-  lua_pushnil(L);
-  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_TOKEN);
-  lua_pushnil(L);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY);
-  lua_pushnil(L);
-  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_ALL);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
   return 0;
 }
 
@@ -1105,8 +1090,6 @@ static int open_store_module (lua_State *L,
   lua_setfield(L, -2, "zone_names");
   lua_pushcfunction(L, store_hold);
   lua_setfield(L, -2, "hold");
-  lua_pushcfunction(L, store_release);
-  lua_setfield(L, -2, "release");
   lua_pushlightuserdata(L, (void *)artifact);
   lua_pushcclosure(L, store_trusted_prefix, 1);
   lua_setfield(L, -2, "trusted_prefix");

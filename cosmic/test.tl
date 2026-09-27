@@ -79,7 +79,7 @@ local record Test
     --- a `require` reaches only that closure; and unless the module
     --- declares `store` or `tool`, every other lookup in the store is
     --- held to it too (`build.test_worker`'s `hold_store`), from the
-    --- module's load to its test's end: `Store.bytecode`,
+    --- module's load until the worker ends: `Store.bytecode`,
     --- `Store.source` or `Store.requires` of a module of the tree
     --- outside the closure, or the store's searcher called by hand,
     --- answers none, and `Store.databases()`, whose handles read every
@@ -91,7 +91,8 @@ local record Test
     --- type-checks a snippet: a module the snippet requires goes in the
     --- test's closure (`local type _ = require(...)`) or the test
     --- declares `store`. `Store.meta` is not held (the TODO on
-    --- `hold_store`).
+    --- `hold_store`), nor is the descriptor a portable start keeps on
+    --- the program (the TODO above core/syscalls_fs.c's `read`).
     store: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project

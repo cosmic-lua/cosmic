@@ -309,22 +309,26 @@ end
 --- and unsandboxed the whole projection: rows no key of the test holds.
 --- A declaration rides along for `Store.source` alone: `require` of a
 --- name only one answers for loads the core's own C, which the
---- runtime's identity keys. Only the token the hold answers takes it
---- down, and this worker alone holds that.
+--- runtime's identity keys. Nothing takes it down: the worker puts it
+--- up before the module loads and keeps it until the process has
+--- ended, since what the test leaves behind -- a finalizer, which runs
+--- whenever the worker allocates, and as the process closes after its
+--- report -- runs past the test and can still exit or write the report
+--- itself.
 -- TODO: hold `Store.meta` too, once a key holds the meta rows a test
 -- reads -- the projection's `projected`, `boot_hash` and `image_hash`
 -- move with every edit to the tree, which no key of a test without
 -- `store` or `tool` holds -- or it answers only the keys a runtime
 -- names (`compiler`, `runtime_basis`) under a hold.
 local function hold_store(module_path: string, closure: {string:boolean},
-                          tree: {string:boolean}, declared: {string:boolean}): function()
+                          tree: {string:boolean}, declared: {string:boolean})
   local names: {string:boolean} = {}
   for _, set in ipairs({ tree, declared }) do
     for name in pairs(set) do
       if not closure[name] and not diagnostics[name] then names[name] = true end
     end
   end
-  local token = store.hold(names, string.format("%s's verdict is keyed by what the " ..
+  store.hold(names, string.format("%s's verdict is keyed by what the " ..
     "store holds of its import closure alone. Require a module at the top level of %s " ..
     "to read that module, or declare store = true in its Test.needs to read the whole " ..
     "projection, at the cost of running its tests again on every edit to the tree",
@@ -332,7 +336,6 @@ local function hold_store(module_path: string, closure: {string:boolean},
     "%s's verdict is keyed by what the store holds of its import closure alone. " ..
     "Declare store = true in its Test.needs to read them, at the cost of running its " ..
     "tests again on every edit to the tree", module_path))
-  return function() store.release(token) end
 end
 
 --- Runs the one test the command line names and writes its report.
@@ -398,10 +401,8 @@ function worker.run(argv: {integer:string}): integer
   local held: Held = function(fn: function(any...): (any...), argument?: any): any
     return fn(argument)
   end
-  -- Once the closure is read, what puts up the store's hold, and what
-  -- takes it down once it is up.
-  local hold: function(): function() = nil
-  local release: function() = nil
+  -- Once the closure is read, what puts up the store's hold.
+  local hold: function() = nil
   if argv[10] ~= nil then
     local closure: {string:boolean} = {}
     local tree: {string:boolean} = {}
@@ -421,7 +422,7 @@ function worker.run(argv: {integer:string}): integer
     end
     held = hold_requires(module_path, closure, tree)
     if not open then
-      hold = function(): function() return hold_store(module_path, closure, tree, declared) end
+      hold = function() hold_store(module_path, closure, tree, declared) end
     end
   end
   -- The worker's own connection: no test is keyed by all of it (see
@@ -458,10 +459,9 @@ function worker.run(argv: {integer:string}): integer
   local runner = { loaded = false, handed = function(needs: Test.Needs) handed = needs end }
   install(Test, runner)
   -- The hold on `require` is up for the module's load and its test
-  -- alone, not for the worker's own work around them; the store's
-  -- spans both, and what runs between them -- a finalizer the module
-  -- left, which could read what the test then asserts on.
-  if hold ~= nil then release = hold() end
+  -- alone, not for the worker's own work around them; the store's is
+  -- up from here until the process ends (`hold_store`).
+  if hold ~= nil then hold() end
   local captured = observations.capture(function(): any
     return held(function(): any return require(module_path) end)
   end, resolving)
@@ -505,7 +505,6 @@ function worker.run(argv: {integer:string}): integer
       report.elapsed_ns = finished - started
     end
   end
-  if release ~= nil then release() end
   if children ~= nil then
     local into = report.test_hits or report.load_hits
     child_hits(children, into or {})

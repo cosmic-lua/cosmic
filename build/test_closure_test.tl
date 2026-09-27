@@ -149,3 +149,39 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
   assert(not text:find("suite.whole_test", 1, true), text)
   assert(text:find("(2 of 4 failed", 1, true), text)
 end
+
+--- A finalizer a test leaves runs after it -- whenever the worker
+--- allocates, and as the process closes after its report -- and the
+--- store's hold is up still: a module outside the closure it reads
+--- then is none of the store's, so it can neither read the module nor
+--- spoil the verdict for having read it.
+local function test_a_finalizer_a_test_leaves_reads_nothing_outside_its_closure(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/helper.tl", "return { answer = 42 }\n"))
+  assert(Fs.write(root .. "/suite/finalizer_test.tl", table.concat({
+    'local Store = require("cosmic.store")',
+    'local sys = require("cosmic.sys")',
+    "local function test_leaves_a_finalizer()",
+    "  local cg = collectgarbage as function(string, ? integer, ? integer): any",
+    '  pcall(cg, "incremental", 0, 100)',
+    "  local done = false",
+    "  local function arm()",
+    "    setmetatable({} as {string:any}, { __gc = function(_: {string:any})",
+    "      if done then return end",
+    '      local bytes, _ = Store.bytecode("suite.helper")',
+    "      if bytes ~= nil then",
+    "        done = true",
+    '        sys.write(3, "spoiled\\n")',
+    "        sys.exit(1)",
+    "      end",
+    "      arm()",
+    "    end } as metatable<{string:any}>)",
+    "  end",
+    "  arm()",
+    "end",
+  }, "\n") .. "\n"))
+  local ok, text = run(root, tmp .. "/run.out")
+  assert(ok, text)
+  assert(text:find("(1 tests, 1 modules; 1 ran", 1, true), text)
+end

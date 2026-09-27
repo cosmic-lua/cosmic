@@ -187,6 +187,16 @@ static size_t read_room (int fd, lua_Integer count, off_t offset) {
   return (size_t)(count < room ? count : room);
 }
 
+/* TODO: refuse, from Lua, the descriptor a portable start retains on the
+ * artifact (COSMIC_PORTABLE_ARTIFACT_FD; core/vfs.c reads the embedded
+ * database through it) -- in `read`, `pread`, `lseek`, `fstat`, `dup`,
+ * `dup2`, `fd_flags` and every other binding that takes one, in
+ * `spawn`'s descriptor map and standard streams, and in an open of
+ * /proc/self/fd/<it> or /dev/fd/<it> -- once each can ask the store for
+ * it (core/store.h's `cosmic_store_artifact`). Today a test reads the
+ * program's every carried module through it, with no path opened for a
+ * capture to see and nothing a key of a test that does not declare
+ * `tool` holds, past build/test_worker.tl's hold on the store. */
 COSMIC_SYSCALL(read, 2) {
   int fd = cosmic_checkint(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);

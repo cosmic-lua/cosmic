@@ -55,16 +55,12 @@ local record store
   --- or nil and why when the query failed.
   zone_names: function(): {string:boolean} | nil, string
 
-  --- Private: puts up a hold on the names the set holds as keys, saying
-  --- why of a module with the first text and why of `databases` with the
-  --- second, and answers the token that alone lifts it (`release`);
-  --- raises while another is up. While it is up, the searcher,
-  --- `bytecode` and `source` answer none of those names, and
-  --- `databases` raises.
-  hold: function(names: {string:boolean}, why: string, why_databases: string): any
-
-  --- Private: lifts the hold `token` put up; raises for any other value.
-  release: function(token: any)
+  --- Private: puts up a hold, for the rest of the process, on the names
+  --- the set holds as keys, saying why of a module with the first text
+  --- and why of `databases` with the second; raises when one is up
+  --- already. While it is up, the searcher, `bytecode`, `source` and
+  --- `requires` answer none of those names, and `databases` raises.
+  hold: function(names: {string:boolean}, why: string, why_databases: string)
 
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.

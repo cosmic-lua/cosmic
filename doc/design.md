@@ -635,17 +635,22 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   if it is a directory, and the system's own paths every worker is given by the
   package database, the image `COSMIC_HOST_ID` names and the kernel alone
   (`host_identity`); a change under /usr no package manager made is not keyed.
-- *the program's own modules, in a project's tree*: a worker whose module
-  does not declare `store` is given at `o/cosmic.db` the store of its import
-  closure alone (`build/writer.tl`'s `closure`, kept under `o/stores/` by the
-  address its key holds), and unless it declares `tool` either, it holds
-  `require` and every other lookup in the store -- `Store.bytecode`,
-  `Store.source`, a searcher called by hand, `Store.databases()` -- to that
-  closure for the tree's modules (`build/test_worker.tl`'s `hold_store`). a module the program carries
-  that is no module of the tree -- in a project's tree, the standard
-  library's -- is held by neither, and the runtime's identity names the core
-  and the pins, not those modules (`build/test_worker.tl`, the TODO on
-  `refusal`).
+- *the program's own modules*: a worker whose module does not declare
+  `store` is given at `o/cosmic.db` the store of its import closure alone
+  (`build/writer.tl`'s `closure`, kept under `o/stores/` by the address its
+  key holds), and unless it declares `tool` either, it holds `require` and
+  every other lookup in the store -- `Store.bytecode`, `Store.source`,
+  `Store.requires`, a searcher called by hand, `Store.databases()` -- to
+  that closure for the tree's modules (`build/test_worker.tl`'s
+  `hold_store`). That leaves three ways past it. A module the program
+  carries that is no module of the tree -- in a project's tree, the
+  standard library's -- is held by neither, and the runtime's identity names
+  the core and the pins, not those modules (`build/test_worker.tl`, the TODO
+  on `refusal`). The descriptor a portable start keeps on the program
+  reads its embedded database directly, unobserved (core/syscalls_fs.c, the
+  TODO above `read`). And `Store.meta` answers the projection's own
+  digests, which move with every edit (`build/test_worker.tl`, the TODO on
+  `hold_store`).
 - *the processor*: its features are keyed (/proc/cpuinfo's flags); its model
   and microcode are not.
 - *build.dispatch*: the harness digest holds the runner's and the worker's

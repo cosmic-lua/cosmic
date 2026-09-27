@@ -96,15 +96,8 @@ end
 --- wrapper's are.
 local function test_the_raw_table_lifts_no_hold_and_hands_out_no_handle()
   local raw = raw_store()
-  local release = raw.release as function(? any): any
+  assert(raw.release == nil, "the raw table offers a way to lift the hold")
   local hold = raw.hold as function({string:boolean}, string, string): any
-  for _, token in ipairs({ {} as any, "token", 1 }) do
-    local lifted, why = pcall(release, token)
-    assert(not lifted, "lifted the hold with " .. tostring(token))
-    assert(tostring(why):find("not this caller's to lift", 1, true), tostring(why))
-  end
-  local lifted, why = pcall(release)
-  assert(not lifted and tostring(why):find("not this caller's", 1, true), tostring(why))
   local replaced, replace_why = pcall(hold, {}, "none", "none")
   assert(not replaced, "replaced the hold")
   assert(tostring(replace_why):find("held already", 1, true), tostring(replace_why))
