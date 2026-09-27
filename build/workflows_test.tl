@@ -566,15 +566,17 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
   assert(cached == 2, "restore and save: " .. cached)
 end
 
---- A push to main saves its legs' verdicts only while its commit is
---- still main's head, read by a step before the save: a restore takes
---- the newest save, not the newest commit's, and main's runs finish out
---- of order (3c6df8333's alpine-x86_64 leg saved after b6508ab77's, and
---- the two main runs after stood on none of 1892 verdicts).
-local function test_a_main_push_saves_verdicts_only_at_main_head()
+--- A push to main saves its legs' verdicts, and their compiles, only
+--- while its commit is still main's head, read by a step before the
+--- save: a restore takes the newest save, not the newest commit's, and
+--- main's runs finish out of order (3c6df8333's alpine-x86_64 leg saved
+--- after b6508ab77's, and the two main runs after stood on none of 1892
+--- verdicts).
+local function test_a_main_push_saves_verdicts_and_compiles_only_at_main_head()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
-  local head, save: integer, integer
+  local head: integer
+  local saves: {string: integer} = {}
   for i, step in ipairs(jobs.platform.steps as {{string: any}}) do
     if step.id == "main-head" then
       head = i
@@ -582,16 +584,24 @@ local function test_a_main_push_saves_verdicts_only_at_main_head()
         "the main-head step runs no .github/scripts/main-head.sh")
     end
     local uses = step.uses
-    if uses is string and uses:find("actions/cache/save@", 1, true) ~= nil
-        and (step.with as {string: string}).path == "${{ runner.temp }}/verdicts" then
-      save = i
+    local path = step.with ~= nil and (step.with as {string: string}).path or nil
+    if uses is string and uses:find("actions/cache/save@", 1, true) ~= nil and
+        (path == "${{ runner.temp }}/verdicts" or path == "${{ runner.temp }}/build-cache") then
+      saves[path] = i
       local condition = step["if"] as string
       assert(condition:find("steps.main-head.outputs.head != 'false'", 1, true) ~= nil,
-        "the verdict save does not turn on main's head: " .. condition)
+        "the save of " .. path .. " does not turn on main's head: " .. condition)
+      -- A red run at main's head saves no compiles it stopped short of.
+      assert(path ~= "${{ runner.temp }}/build-cache" or
+        condition:find("steps.release-suite.outcome == 'success'", 1, true) ~= nil,
+        "the save of compiles does not turn on the native build: " .. condition)
     end
   end
-  assert(head ~= nil and save ~= nil and head < save,
-    "main's head is read after the verdict save, or not at all: " .. tostring(head) .. ", " .. tostring(save))
+  for _, path in ipairs({ "${{ runner.temp }}/verdicts", "${{ runner.temp }}/build-cache" }) do
+    assert(head ~= nil and saves[path] ~= nil and head < saves[path],
+      "main's head is read after the save of " .. path .. ", or not at all: " ..
+      tostring(head) .. ", " .. tostring(saves[path]))
+  end
 end
 
 --- A job a push to a branch starts and skips still shows as a

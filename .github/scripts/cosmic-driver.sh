@@ -47,4 +47,10 @@ if [ "${1-}" = zig-cache ]; then
   # every test and stands on none. The portable suite keeps its own
   # file beside this one (`portable_verdicts`), in the same cache.
   echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"
+  # The compiles every build of the leg shares (build/shared_compiles.tl),
+  # in a cache of their own that ci.yml restores before the leg's builds
+  # and saves after them, trimmed to what the run used; the fixtures,
+  # which check what a fresh tree compiles, share none
+  # (cosmic_ci/orchestration.tl's `fixture`).
+  echo "COSMIC_BUILD_CACHE=$RUNNER_TEMP/build-cache/cache.db" >> "$GITHUB_ENV"
 fi
