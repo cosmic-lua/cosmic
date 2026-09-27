@@ -47,11 +47,12 @@ end
 --- Compiles the project at `root` and writes it to `out`, returning the
 --- open working handle and its compiled result so the caller can write
 --- again against it.
-local function build_and_write(root: string, whom: string, out: string): work.Handle, importer.Result
+local function build_and_write(root: string, whom: string, out: string,
+                               tool?: string): work.Handle, importer.Result
   write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, built, tool or "writer-test"))
   assert(writer.write_result(handle, out, result))
   return handle, result
 end
@@ -440,4 +441,64 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(row[2] == "0", "a doc of a module outside the closure is in its store")
   assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
   assert(row[4] == first, row[4])
+end
+
+--- The store of an import closure holds what the compiler made of it,
+--- not the compiler's identity: compiled again by a compiler of
+--- another identity that makes the same bytecode and rows, it keeps
+--- its address and its bytes, and a test given it keeps its key
+--- (`build.declared_key`); a module's bytecode, or a row the store
+--- carries of it, moves its address though its source stays.
+local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    "local function test_hello()",
+    '  assert(greet.hello() ~= "")',
+    "end",
+    "",
+  }, "\n")))
+  local names = { "greet", "greet_test" }
+  local function store(tool: string, out: string): string
+    local handle = build_and_write(root, "world", tmp .. "/whole.db", tool)
+    assert(work.close(handle))
+    local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
+    local address = writer.closure_address(basis, names, "salt")
+    assert(writer.closure(tmp .. "/whole.db", out, names, basis, address))
+    return address
+  end
+  local first = store("one compiler", tmp .. "/first.db")
+  local whole = assert(Fs.read(tmp .. "/whole.db"))
+  local again = store("another compiler", tmp .. "/again.db")
+  assert(assert(Fs.read(tmp .. "/whole.db")) ~= whole,
+    "the projection did not name the other compiler")
+  assert(again == first, "a compiler of another identity moved the address")
+  assert(Fs.read(tmp .. "/again.db") == Fs.read(tmp .. "/first.db"),
+    "a compiler of another identity moved the store")
+
+  local function moved(what: string, statement: string)
+    local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+    assert(db:exec(statement))
+    assert(db:close())
+    local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
+    assert(writer.closure_address(basis, names, "salt") ~= first, what .. " left the address")
+  end
+  moved("a module's bytecode", "UPDATE modules SET bytecode = bytecode || X'00' " ..
+    "WHERE path = 'greet'")
+  for what, statement in pairs({
+    ["a doc"] = "INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
+      "signature, text, file, line) VALUES ('greet', 'greet.x', 'greet.x', 1, 'function', " ..
+      "'', 'X.', 'greet.tl', 1)",
+    ["a use"] = "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
+      "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)",
+    ["a catalog row"] = "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
+      "line) VALUES ('error', 'greet', 'greet.hello', 'no', NULL, 'greet.tl', 1)",
+    ["an import"] = "INSERT INTO imports (path, requires) VALUES ('greet', 'greet_test')",
+  }) do
+    -- Written afresh, not taken for the projection its signature names.
+    assert(Fs.remove(tmp .. "/whole.db"))
+    assert(store("one compiler", tmp .. "/first.db") == first)
+    moved(what, statement)
+  end
 end
