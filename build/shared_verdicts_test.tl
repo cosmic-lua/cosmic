@@ -127,7 +127,7 @@ local function seeded(tmp: string): {string:string}, Said, string
 end
 
 local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: string)
-  local env, said, first = seeded(tmp)
+  local _, said, first = seeded(tmp)
   if first == nil then return end
   tmp = assert(Fs.absolute(tmp))
   -- Every file of the second has an inode and times of its own.
@@ -142,16 +142,25 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   -- what the run that started it sees.
   local again = said("again", tmp .. "/second", "0 ran, 5 stood")
   assert(not again:find("another checkout", 1, true), again)
-  -- Started after the tool rebuilt itself, from a shell that was
-  -- elsewhere before its last `cd`: nothing a test is given differs.
+end
+
+--- A checkout started after the tool rebuilt itself, from a shell that
+--- was elsewhere before its last `cd`, stands on the first one's
+--- verdicts: nothing a test is given differs.
+local function test_a_rebooted_run_stands_on_the_first_ones_verdicts(tmp: string)
+  local env, said, first = seeded(tmp)
+  if first == nil then return end
+  tmp = assert(Fs.absolute(tmp))
   env.COSMIC_REBOOTED = "1"
   env.OLDPWD = tmp .. "/elsewhere"
   checkout(tmp .. "/rebooted", "one\n")
   said("rebooted", tmp .. "/rebooted", "0 ran, 5 stood")
 end
 
+--- A checkout runs what no shared verdict answers for: a file a module
+--- declares that differs, or an edit in the checkout itself.
 local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: string)
-  local env, said, first = seeded(tmp)
+  local _, said, first = seeded(tmp)
   if first == nil then return end
   tmp = assert(Fs.absolute(tmp))
   -- A file beneath what a module declares differs: its tests run.
@@ -164,8 +173,18 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   assert(Fs.write(tmp .. "/first/suite/data.txt", "three\n"))
   local edited = said("edited", tmp .. "/first", "4 ran, 1 stood")
   assert(not edited:find("shared verdicts: none of", 1, true), edited)
-  -- Nor when the run chooses only the edited module, whose every test
-  -- is looked up: each ran in this checkout before.
+end
+
+--- A run that chooses only an edited module runs its tests and says
+--- nothing of the cache either, and a checkout whose variable a module
+--- declares differs runs that module's tests.
+local function test_a_chosen_edited_module_or_another_variable_runs(tmp: string)
+  local env, said, first = seeded(tmp)
+  if first == nil then return end
+  tmp = assert(Fs.absolute(tmp))
+  -- Chosen alone, the edited module's every test is looked up, and
+  -- none is missing from the cache for want of a run: each ran in this
+  -- checkout before.
   assert(Fs.write(tmp .. "/first/suite/data.txt", "four\n"))
   local chosen = said("chosen", tmp .. "/first", "4 ran, 0 stood", { "suite/reads_test.tl" })
   assert(not chosen:find("shared verdicts: none of", 1, true), chosen)
@@ -173,14 +192,27 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   env.FLAVOUR = "salty"
   checkout(tmp .. "/salty", "one\n")
   said("salty", tmp .. "/salty", "4 ran, 1 stood")
-  env.FLAVOUR = "sweet"
+end
+
+--- Asked for every test, or told to stand on no shared verdict, a
+--- checkout runs everything.
+local function test_asked_for_or_told_to_share_nothing_every_test_runs(tmp: string)
+  local _, said, first = seeded(tmp)
+  if first == nil then return end
+  tmp = assert(Fs.absolute(tmp))
   -- Asked for, every test runs, whatever stands.
   checkout(tmp .. "/all", "one\n")
   said("all", tmp .. "/all", "5 ran, 0 stood", { "--all" })
   -- Told to stand on none of them, a checkout runs everything.
   checkout(tmp .. "/unshared", "one\n")
   said("unshared", tmp .. "/unshared", "5 ran, 0 stood", { "--no-shared" })
-  -- Without the cache, a checkout runs everything.
+end
+
+--- Without the cache, a checkout runs everything.
+local function test_without_the_cache_a_checkout_runs_everything(tmp: string)
+  local env, said, first = seeded(tmp)
+  if first == nil then return end
+  tmp = assert(Fs.absolute(tmp))
   env.COSMIC_VERDICT_CACHE = "0"
   checkout(tmp .. "/alone", "one\n")
   said("alone", tmp .. "/alone", "5 ran, 0 stood")
@@ -226,23 +258,16 @@ end
   assert(changed:find("FAIL (1 of 1 failed", 1, true), changed)
 end
 
---- What `lstat` and `readlink` answer of a file of the tree is keyed,
---- logged by those bindings themselves: a checkout whose link leads
---- elsewhere, or is a file, runs what read it again, and fails it,
---- while one the same stands on the first one's verdicts.
-local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
-  local env = observations.environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  local function link_checkout(root: string, target: string | nil)
-    assert(Fs.mkdirs(root .. "/suite"))
-    if target ~= nil then
-      assert(Fs.symlink(target, root .. "/suite/link"))
-    else
-      assert(Fs.write(root .. "/suite/link", "a"))
-    end
-    assert(Fs.write(root .. "/suite/link_test.tl", [[
+--- A checkout at `root` whose tests read what `suite/link` is and
+--- where it leads: a link to `target`, or a file where it is nil.
+local function link_checkout(root: string, target: string | nil)
+  assert(Fs.mkdirs(root .. "/suite"))
+  if target ~= nil then
+    assert(Fs.symlink(target, root .. "/suite/link"))
+  else
+    assert(Fs.write(root .. "/suite/link", "a"))
+  end
+  assert(Fs.write(root .. "/suite/link_test.tl", [[
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
@@ -258,17 +283,43 @@ local function test_reads_what_the_link_is()
   assert(st.kind == "link", st.kind)
 end
 ]]))
-  end
+end
+
+--- The environment the link cases run in, sharing through a cache in
+--- `tmp`, once a first checkout whose link leads to "a" has run and
+--- shared its verdicts; nil where it shared nothing.
+local function linked(tmp: string): {string:string} | nil
+  local env = observations.environment()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
   link_checkout(tmp .. "/first", "a")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("2 ran, 0 stood", 1, true), first)
-  if not shares(first) then return end
+  if not shares(first) then return nil end
+  return env
+end
+
+--- What `lstat` and `readlink` answer of a file of the tree is keyed,
+--- logged by those bindings themselves: a checkout whose link leads
+--- elsewhere runs what read it again, and fails it, while one the same
+--- stands on the first one's verdicts.
+local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
+  local env = linked(tmp)
+  if env == nil then return end
   link_checkout(tmp .. "/same", "a")
   local same = run(tmp .. "/same", tmp .. "/same.out", env)
   assert(same:find("0 ran, 2 stood", 1, true), same)
   link_checkout(tmp .. "/retargeted", "b")
   local retargeted = run(tmp .. "/retargeted", tmp .. "/retargeted.out", env, nil, true)
   assert(retargeted:find("FAIL (1 of 2 failed", 1, true), retargeted)
+end
+
+--- A checkout whose link is a file instead runs both tests that read
+--- it again, and fails them.
+local function test_a_link_made_a_file_runs_what_read_it_again(tmp: string)
+  local env = linked(tmp)
+  if env == nil then return end
   link_checkout(tmp .. "/file", nil)
   local file = run(tmp .. "/file", tmp .. "/file.out", env, nil, true)
   assert(file:find("FAIL (2 of 2 failed", 1, true), file)
@@ -490,7 +541,14 @@ local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   checkout(tmp .. "/fresh", "one\n")
   local fresh = run(tmp .. "/fresh", tmp .. "/fresh.out", env, { "suite/reads_test.tl" })
   assert(not fresh:find("running without them", 1, true), fresh)
-  -- This format's table, in the shape of none.
+end
+
+--- A cache holding this format's table in the shape of none is said so
+--- once and done without: the run runs what it must and passes.
+local function test_a_cache_of_another_shape_is_done_without(tmp: string)
+  local env = observations.environment()
+  env.FLAVOUR = "sweet"
+  env.OUTSIDE = tmp
   local other = tmp .. "/other/verdicts.db"
   assert(Fs.mkdirs(tmp .. "/other"))
   local db = assert(Sqlite.open(other, true))
@@ -504,6 +562,7 @@ local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   checkout(tmp .. "/third", "one\n")
   local third = run(tmp .. "/third", tmp .. "/third.out", env, { "suite/reads_test.tl" })
   assert(third:find("4 ran, 0 stood", 1, true), third)
+  if not shares(third) then return end
   local _, complaints = third:gsub("running without them", "")
   assert(complaints == 1, third)
 end
@@ -598,10 +657,11 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   assert(third:find("1 ran, 4 stood", 1, true), third)
 end
 
---- A test that failed here runs until it passes here, though its
---- failing run stopped short of a read the passing one elsewhere made,
---- so no key of its own matches that one's.
-local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp: string)
+--- Two checkouts, first and second, of a suite whose one test stops
+--- at its first read -- of f in the directory OUTSIDE names -- unless
+--- that holds "out", and the environment they run in, sharing through
+--- a cache in `tmp`; and `tmp` resolved.
+local function early_suite(tmp: string): {string:string}, string
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
   tmp = assert(Fs.absolute(tmp))
@@ -628,6 +688,15 @@ local function test_stops_early()
 end
 ]]))
   end
+  return env, tmp
+end
+
+--- A test that failed here runs until it passes here, though its
+--- failing run stopped short of a read the passing one elsewhere made,
+--- so no key of its own matches that one's.
+local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp: string)
+  local env, resolved = early_suite(tmp)
+  tmp = resolved
   assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
   assert(failed:find("1 of 1 failed", 1, true), failed)
@@ -638,6 +707,17 @@ end
   assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
   assert(again:find("1 of 1 failed", 1, true), again)
+end
+
+--- Without the cache too, a test that failed here runs until it passes
+--- here.
+local function test_a_failure_here_runs_again_without_the_cache(tmp: string)
+  local env, resolved = early_suite(tmp)
+  tmp = resolved
+  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
+  assert(failed:find("1 of 1 failed", 1, true), failed)
+  if not shares(failed) then return end
   env.COSMIC_VERDICT_CACHE = "0"
   local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
   assert(alone:find("1 of 1 failed", 1, true), alone)

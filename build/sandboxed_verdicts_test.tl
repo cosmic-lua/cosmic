@@ -132,7 +132,15 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   return text
 end
 
-local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tmp: string)
+--- A checkout of the suite in `tmp`, run once, sandboxed: the
+--- environment its runs take, and a check of a run after the last one
+--- -- what it says, with `words` after `test` -- and the root it runs
+--- in; nil where no worker could be sandboxed. Each case below seeds
+--- its own, so none starts more nested runs than a test's bound (10 s
+--- in CI) holds under load.
+local type Said = function(string, ?{string}): string
+
+local function seeded(tmp: string): {string:string}, Said, string
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
@@ -144,30 +152,51 @@ local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tm
     return text
   end
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  if unsandboxed(first) then return env, said, nil end
   assert(first:find("4 ran, 0 stood", 1, true) and first:find("; sandboxed", 1, true), first)
-  -- Nothing changed: all but the one that reaches the network stands,
-  -- and none is assumed.
+  return env, said, root
+end
+
+--- Nothing changed, or only a file no test declares: all but the test
+--- that reaches the network stands, and none is assumed.
+local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tmp: string)
+  local _, said, root = seeded(tmp)
+  if root == nil then return end
   local again = said("1 ran, 3 stood")
   assert(not again:find("assumed", 1, true), again)
   -- A file no test declares.
   assert(Fs.write(root .. "/suite/unrelated.txt", "changed\n"))
   said("1 ran, 3 stood")
-  -- A file beneath a declared directory.
+end
+
+--- A file beneath a declared directory, or a module of a test's
+--- closure, runs the test that declares it.
+local function test_a_declared_file_or_module_that_changes_runs_its_test(tmp: string)
+  local _, said, root = seeded(tmp)
+  if root == nil then return end
   assert(Fs.write(root .. "/suite/data/f", "two\n"))
   said("2 ran, 2 stood")
-  -- A module of a test's closure.
   assert(Fs.write(root .. "/suite/lib.tl", "return { value = 2 }\n"))
   said("2 ran, 2 stood")
-  -- A declared variable's value.
+end
+
+--- A declared variable's value, or the declaration itself, that changes
+--- runs the test that declares it.
+local function test_a_declared_variable_or_declaration_that_changes_runs_its_test(tmp: string)
+  local env, said, root = seeded(tmp)
+  if root == nil then return end
   env.FLAVOUR = "salty"
   said("2 ran, 2 stood")
-  -- The declaration.
   local source = assert(Fs.read(root .. "/suite/data_test.tl"))
   assert(Fs.write(root .. "/suite/data_test.tl",
     (source:gsub('reads = { "suite/data/" }', 'reads = { "suite/data/", "suite/lib.tl" }'))))
   said("2 ran, 2 stood")
-  -- Forced.
+end
+
+--- Forced, by `--all` or COSMIC_TEST_ALL, every test runs.
+local function test_a_forced_run_runs_every_sandboxed_test(tmp: string)
+  local env, said, root = seeded(tmp)
+  if root == nil then return end
   said("4 ran, 0 stood", { "--all" })
   env.COSMIC_TEST_ALL = "1"
   said("4 ran, 0 stood")
@@ -236,7 +265,16 @@ local function test_a_sandboxed_verdict_stands_in_another_checkout(tmp: string)
   local third = run(tmp .. "/third", tmp .. "/third.out", env)
   assert(third:find("2 ran, 2 stood, 1 run every time", 1, true) and
     third:find("2 of them on another checkout's verdict", 1, true), third)
-  -- Told to stand on none of them, a checkout runs everything.
+end
+
+--- Told to stand on no other checkout's verdicts, a checkout runs
+--- everything.
+local function test_a_sandboxed_checkout_told_to_share_nothing_runs_everything(tmp: string)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  checkout(tmp .. "/first")
+  local first = run(tmp .. "/first", tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  assert(first:find("4 ran, 0 stood", 1, true), first)
   checkout(tmp .. "/unshared")
   local unshared = run(tmp .. "/unshared", tmp .. "/unshared.out", env, { "--no-shared" })
   assert(unshared:find("4 ran, 0 stood", 1, true), unshared)
@@ -331,14 +369,15 @@ local function rebuilt(tmp: string, path: string, statements: string)
   assert(sys.chmod(path, 493)) -- 0o755
 end
 
---- A test that declares `tool` stands across a rebuild of the tool that
---- moved only `boot_hash` and `projected` -- what a comment in a test,
---- which no binary carries, moves -- and runs again when a module the
---- tool carries moves; one that does not declare it stands across both.
+--- A project whose one test declares `tool` and whose other does not,
+--- in `tmp`, run once by a copy of this program in its o/bin, sandboxed:
+--- how to rebuild that copy with statements run on the database it
+--- carries, and a check of a run of it after the last one; nil for both
+--- where no worker could be sandboxed.
 -- The tree's own tool rebuilds for such an edit only in cosmic's own
 -- tree, too big to copy here: the program run instead is this one,
 -- its carried rows rewritten as each rebuild would leave them.
-local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_carries(tmp: string)
+local function tool_project(tmp: string): function(string), function(string): string
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/o/bin"))
@@ -370,14 +409,29 @@ local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_ca
     return text
   end
   local first = ran("", true)
-  if unsandboxed(first) then return end
+  if unsandboxed(first) then return nil, nil end
   assert(first:find("test: PASS", 1, true) and first:find("2 ran, 0 stood", 1, true), first)
+  return rebuild, function(wanted: string): string return ran(wanted) end
+end
+
+--- A test that declares `tool` stands across a rebuild of the tool that
+--- moved only `boot_hash` and `projected` -- what a comment in a test,
+--- which no binary carries, moves; so does one that does not declare it.
+local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_carries(tmp: string)
+  local rebuild, ran = tool_project(tmp)
+  if rebuild == nil then return end
   ran("0 ran, 2 stood")
   -- Rebuilt for an edit no binary carries: every byte of the program
   -- after its image moved, and nothing it runs.
   rebuild("UPDATE meta SET value = 'two' WHERE key IN ('boot_hash', 'projected')")
   ran("0 ran, 2 stood")
-  -- Rebuilt for an edit to a module it carries.
+end
+
+--- A test that declares `tool` runs again when a module the tool
+--- carries moves; one that does not declare it stands.
+local function test_a_tool_test_runs_again_when_a_module_the_tool_carries_moves(tmp: string)
+  local rebuild, ran = tool_project(tmp)
+  if rebuild == nil then return end
   rebuild("UPDATE modules SET source = deflate(CAST(inflate(source) AS TEXT) || " ..
     "char(10) || '-- edited' || char(10)) WHERE path = 'cosmic.json'")
   ran("1 ran, 1 stood")
