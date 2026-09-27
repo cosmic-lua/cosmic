@@ -2346,9 +2346,10 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- verdicts every checkout shares, unless the test names a cache of
   -- its own.
   shared_verdicts.turn_off(out)
-  -- Nor the compiles every checkout shares: a build a test starts
-  -- compiles what it compiles, and reaches no file outside what the
-  -- test declares, unless the test names a cache of its own.
+  -- Nor the compiles and parses every checkout shares: a build a test
+  -- starts compiles and parses what it does, and reaches no file
+  -- outside what the test declares, unless the test names a cache of
+  -- its own.
   shared_compiles.turn_off(out)
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
@@ -2948,9 +2949,12 @@ function test.run(argv: {integer:string}): integer
     log:complain(write_trouble)
     return 1
   end
+  local parses = result.parses
   log:say("build: " .. #result.modules .. " modules (" .. result.compiled ..
     " compiled, " .. result.cached .. " cached" ..
     (result.shared > 0 and ", " .. result.shared .. " of them taken from another checkout" or "") ..
+    ((parses.parsed > 0 or parses.shared > 0) and "; " .. parses.parsed .. " sources parsed" ..
+      (parses.shared > 0 and ", " .. parses.shared .. " taken from another checkout" or "") or "") ..
     "; " .. staged.files ..
     " files staged, " .. staged.read .. " read) in " ..
     clock.took(started))

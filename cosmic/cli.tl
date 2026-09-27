@@ -64,9 +64,9 @@ local record Cli
   --- every run shares through $XDG_CACHE_HOME/cosmic/verdicts
   --- (~/.cache/cosmic/verdicts): COSMIC_VERDICT_CACHE names another
   --- file, and COSMIC_VERDICT_CACHE=0 turns it off. A module is not
-  --- compiled again either where any checkout compiled the same, through
-  --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
-  --- COSMIC_BUILD_CACHE names another file, and
+  --- compiled again either, nor a source parsed, where any checkout
+  --- compiled or parsed the same, through $XDG_CACHE_HOME/cosmic/build
+  --- (~/.cache/cosmic/build): COSMIC_BUILD_CACHE names another file, and
   --- COSMIC_BUILD_CACHE=0 turns it off
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in

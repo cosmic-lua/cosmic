@@ -43,6 +43,29 @@ local function test_a_trim_keeps_only_what_the_run_used(tmp: string)
   assert(#left == 1 and left[1] == "k4")
 end
 
+--- Parses are kept as compiles are: a table of the parses' formats
+--- (`parsed_v<n>`) keeps only what the run used.
+local function test_a_trim_keeps_only_the_parses_the_run_used(tmp: string)
+  local path = tmp .. "/cache.db"
+  cache(path, { 200 })
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("CREATE TABLE parsed_v1 (analyzer TEXT NOT NULL, source_hash TEXT NOT NULL, " ..
+    "mapped INTEGER NOT NULL, rows BLOB NOT NULL, used_ns INTEGER NOT NULL, " ..
+    "PRIMARY KEY (analyzer, source_hash, mapped))"))
+  for i, at in ipairs({ 100, 100, 200 }) do
+    assert(Sqlite.run(db, "INSERT INTO parsed_v1 VALUES ('x', ?1, 0, zeroblob(65536), ?2)",
+      { { text = "h" .. i }, { integer = at * 1000000000 } }))
+  end
+  assert(db:close())
+  local trimmed = assert(Compiles.trim(path, 200 * 1000000000))
+  assert(trimmed.removed == 2, "removed " .. trimmed.removed)
+  assert(trimmed.kept == 3, "kept " .. trimmed.kept)
+  db = assert(Sqlite.open(path))
+  local left = assert(Sqlite.text_rows(db, "SELECT source_hash FROM parsed_v1"))
+  assert(db:close())
+  assert(#left == 1 and left[1][1] == "h3")
+end
+
 --- The command takes SINCE in seconds, against a cache's nanoseconds: a
 --- compile used a second after it stays, one a second before goes; and
 --- it leaves no log of the cache's write-ahead mode behind to be saved.

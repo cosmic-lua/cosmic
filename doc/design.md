@@ -620,7 +620,13 @@ that does run runs in a worker process of its own:
   it off), keyed beside the module's key by what else decides whether
   a compile is accepted -- cosmic's own tree or not, a doc's extracted
   test or not, the module's file, and the names the checker strips --
-  and a fresh worktree compiles only what no sibling has. observations come through the syscall table, where the runner
+  and a fresh worktree compiles only what no sibling has. it parses
+  only what no sibling has, too: a source's parse is shared under the
+  analyzer that made it and the source's hash, and a boot, which names
+  its analyzer by the very parse it has yet to make, takes an
+  analyzer's parses only where the `requires` rows that analyzer found
+  name it again over this tree (`build/importer.tl`'s
+  `shared_analyzer`). observations come through the syscall table, where the runner
   records the paths, names, and answers that can affect the verdict.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker
