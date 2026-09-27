@@ -643,23 +643,23 @@ products and their attestations.
 CI's Linux legs stand on shared verdicts: those of sandboxed runs, keyed by
 each test's declared inputs (`build/declared_key.tl`), which the sandbox holds
 the test to, and the host's identity: its kernel, processor, user and
-capabilities, and what it has installed -- its package database and the system
+capabilities; and what it has installed -- its package database and the system
 it says it is -- only for a module that declares `system`, whose worker alone
-is given /usr, /bin, /lib and /etc, or a host directory. what that key still
-leaves out is in the `TODO:`s on `host_identity` and `system_identity` there
-and in `ci/cosmic_ci/orchestration.tl`'s `stands`. an unsandboxed run -- the macOS leg's, which runs every test and
-stands on none -- is keyed instead by what its tests were observed to read, and
-shares nothing.
+is given /usr, /bin, /lib and /etc, or that declares a host directory. what
+that key still leaves out is in the `TODO:`s on `host_identity` and
+`system_identity` there and in `ci/cosmic_ci/orchestration.tl`'s `stands`. an
+unsandboxed run -- the macOS leg's, which runs every test and stands on none --
+is keyed instead by what its tests were observed to read, and shares nothing.
 
 what the declared key leaves out, each with a `TODO:` where its fix goes:
 
 - *the clock*: a test whose verdict turns on the date stands on one reached
   another day. CI's scheduled run, which stands on nothing, runs it daily.
-- *the host's directories*: a host path a test declares is keyed by its name
-  if it is a directory, and it and the system's own paths a worker that
-  declares `system` is given by the package database, the image
-  `COSMIC_HOST_ID` names and the kernel alone (`system_identity`,
-  `host_identity`); a change under /usr no package manager made is not keyed.
+- *the host's directories*: a host directory a test declares is keyed by its
+  name alone. what it holds, and what the system's own paths hold for a test
+  that declares `system`, are keyed only by the package database, the image
+  `COSMIC_HOST_ID` names and the kernel (`system_identity`, `host_identity`):
+  a change under /usr that no package manager made is not keyed.
 - *the program's own modules*: a worker whose module does not declare
   `store` is given at `o/cosmic.db` the store of its import closure alone
   (`build/writer.tl`'s `closure`, kept under `o/stores/` by the address its

@@ -407,8 +407,8 @@ local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed
     return key_of(tmp .. "/tree", s)
   end
   assert(key_on(one, false, {}) == key_on(other, false, {}), "a module not given the system")
-  assert(key_on(one, false, { tmp .. "/host/file" }) == key_on(other, false, { tmp .. "/host/file" }),
-    "a module given a file of the host's")
+  local file = { tmp .. "/host/file" }
+  assert(key_on(one, false, file) == key_on(other, false, file), "a module given a file of the host's")
   assert(key_on(one, false, { "/proc/" }) == key_on(other, false, { "/proc/" }),
     "a module given /proc, which no package installs")
   assert(key_on(one, true, {}) ~= key_on(other, true, {}), "a module given the system")

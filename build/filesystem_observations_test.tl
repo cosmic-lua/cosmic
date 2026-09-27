@@ -1211,17 +1211,19 @@ end
 
 --- A sandboxed worker's process is noted "y" by the program it runs and
 --- the interpreter a script's first line names, for the audit, which
---- asks `system` of the system's own; these survive encoding. Unheld,
---- nothing is noted "y".
+--- asks `system` of the system's own; these survive encoding. A
+--- relative program is noted where it starts from. Unheld, nothing is
+--- noted "y".
 local function test_a_sandboxed_worker_s_process_is_noted_by_what_it_runs(tmp: string)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local script = own .. "/script"
   assert(Fs.write(script, "#!/bin/sh\nexit 0\n"))
   assert(sys.chmod(script, 493)) -- 0o755
-  local function ran(resolving: observations.Resolving): {string}
+  local function ran(resolving: observations.Resolving, relative?: boolean): {string}
     local run = observations.call(function()
-      local r = assert(Child.run({ script }))
+      local r = assert(Child.run({ relative and "./script" or script },
+        { cwd = relative and own or nil }))
       assert(r.ok)
     end, nil, resolving)
     assert(run.passed, run.message)
@@ -1233,6 +1235,8 @@ local function test_a_sandboxed_worker_s_process_is_noted_by_what_it_runs(tmp: s
   end
   local held = ran({ tree = tmp .. "/tree", own = { own }, held = { own } })
   assert(table.concat(held, " ") == script .. " /bin/sh", table.concat(held, " "))
+  local relative = ran({ tree = tmp .. "/tree", own = { own }, held = { own } }, true)
+  assert(table.concat(relative, " ") == script .. " /bin/sh", table.concat(relative, " "))
   assert(#ran({ tree = tmp .. "/tree", own = { own } }) == 0)
 end
 

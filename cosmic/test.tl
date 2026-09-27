@@ -107,9 +107,12 @@ local record Test
     --- /dev/urandom), and its key holds nothing of which packages the
     --- host has installed or which system it says it is: a verdict that
     --- stood on one host stands on another of the same kernel and
-    --- processor. A test that starts only this program needs none. One
-    --- that reads a file or two of the system rather names them in
-    --- `host`, which keys a file by its contents.
+    --- processor. A test that starts this program only past its launcher
+    --- -- its core, relaunched (build.filesystem_observations'
+    --- `program`) -- needs none; one that runs the launcher itself
+    --- (o/bin/cosmic, `#!/bin/sh`) needs it. One that reads a file or two
+    --- of the system rather names them in `host`, which keys a file by
+    --- its contents.
     system: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project

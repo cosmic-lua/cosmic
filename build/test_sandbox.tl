@@ -381,8 +381,9 @@ end
 --- to running anything but this program, as a worker whose test does not
 --- declare `tool` does (`observations.forbid_running`), held to the
 --- least a worker is given -- /proc, the devices and the program, none
---- of the system's own paths -- offline, in `scratch`. False and why where it cannot: no worker then
---- runs sandboxed, and no verdict is keyed by its declared inputs.
+--- of the system's own paths -- offline, in `scratch`. False and why
+--- where it cannot: no worker then runs sandboxed, and no verdict is
+--- keyed by its declared inputs.
 function test_sandbox.available(argv: {string}, env: {string:string}, fds: {integer:integer},
                                 scratch: string): boolean, string
   local base = observations.worker_unveil(scratch, nil, scratch)

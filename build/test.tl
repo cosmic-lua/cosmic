@@ -1169,8 +1169,33 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
         if not effective.tool then add("tool", judged) end
       elseif not test_inputs.covers_host(effective, test_inputs.plain(judged), kind) and
           not (effective.system and observations.in_system(judged)) then
-        add("host", test_inputs.plain(judged))
+        local plain = test_inputs.plain(judged)
+        -- A program looked for in a directory of the system's programs
+        -- (`Proc.find`'s walk of PATH), which the host has there: what
+        -- runs it needs its loader too, which `host` would not give.
+        if observations.in_system(plain) and plain:match("/s?bin/[^/]+$") ~= nil then
+          add("system", plain)
+        else
+          add("host", plain)
+        end
       end
+    end
+  end
+  -- Where it asks `system`, that holds each path of the system's it
+  -- would ask `host` of too.
+  if not effective.system then
+    local system = false
+    for _, finding in ipairs(out) do
+      if finding.field == "system" then system = true end
+    end
+    if system then
+      local kept: {test_inputs.Finding} = {}
+      for _, finding in ipairs(out) do
+        if not (finding.field == "host" and observations.in_system(finding.value)) then
+          kept[#kept + 1] = finding
+        end
+      end
+      out = kept
     end
   end
   return out

@@ -520,6 +520,11 @@
         # already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
         # but "check the pinned CI driver" runs cosmic_ci's tests on that
         # release, unsandboxed, and the macOS leg has no sandbox at all.
+        # Then too, the cosmic_ci tests that start the system's own
+        # programs (bootstrap_test, fixture_test and runner_test start
+        # /bin/sh) declare `system = true` in their `Test.needs`: a
+        # sandboxed worker is given none of /usr, /bin, /lib or /etc
+        # otherwise, which the pinned release does not know to refuse.
         {
           name: "move the tree to a path of this commit's own",
           "working-directory": ".",

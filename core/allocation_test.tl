@@ -36,7 +36,10 @@ local Test = require("cosmic.test")
 
 --- `test_attach_leaves_no_connection_whenever_an_allocation_fails` counts
 --- the store's databases, which a test sees only when it declares the store;
---- and the system's `sh`, which the checked core's spawn cases start.
+--- and the system's `sh`, which only the checked core's spawn cases start
+--- (`test_waitpid_never_loses_a_status_to_a_failed_allocation` and the
+--- spawn refusal), though every test of the module is given it and keyed by
+--- what the host has installed: they share one declaration.
 Test.needs{ store = true, system = true }
 
 local type Searcher = function(string): any, any

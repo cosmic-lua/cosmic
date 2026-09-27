@@ -341,7 +341,10 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:st
   -- (COSMIC_FIXTURE_*), and a sandboxed worker would be given none of.
   -- TODO: run the fixtures sandboxed once `Test.needs` can declare a
   -- host path a variable names (COSMIC_FIXTURE_ROOT, _PRODUCT,
-  -- _RUNTIME), which today it takes only written out in the source.
+  -- _RUNTIME), which today it takes only written out in the source, and
+  -- once ci/cosmic-driver.pin names a release that knows `system`, which
+  -- each fixture that starts the system's programs (/usr/bin/env, sh)
+  -- then declares: a sandboxed worker is given none of them otherwise.
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_NO_SHARED = "1"

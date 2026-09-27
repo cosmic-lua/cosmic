@@ -1311,17 +1311,49 @@ local function start(resolving: observations.Resolving | nil):
   --- processes run the system's own (`build.test`'s `audited`). For the
   --- audit alone: the worker's key is its declared inputs', which these
   --- do not move.
-  local function note_program(path: any)
-    if resolving == nil or resolving.held == nil or not path is string or
-        path:sub(1, 1) ~= "/" then
+  -- TODO: note what a process of this program the test starts notes in
+  -- turn -- a relaunched core running a chunk that starts /bin/sh, or a
+  -- nested `cosmic test` whose own worker does -- once an inner run can
+  -- hand its "y" notes up to the process that started it (a file its
+  -- parent names in a variable, which the inner runner appends to):
+  -- today such a grandchild's program is seen by no audit, and a test
+  -- that needs `system` for it fails with a bare "start: No such file or
+  -- directory".
+  local function note_program(given: string, cwd: string | nil)
+    -- A test of spawn's argument checks may hand it no string at all,
+    -- which the call itself raises for.
+    local handed: any = given
+    if resolving == nil or resolving.held == nil or not handed is string or given == "" then
       return
+    end
+    local path = given
+    -- A relative program is found from where it starts.
+    if path:sub(1, 1) ~= "/" then
+      local from = cwd
+      if from == nil then
+        local here, _ = getcwd()
+        from = here
+      end
+      if from == nil or from:sub(1, 1) ~= "/" then return end
+      local names: {string} = {}
+      for name in (from .. "/" .. path):gmatch("[^/]+") do
+        if name == ".." then
+          names[#names] = nil
+        elseif name ~= "." then
+          names[#names + 1] = name
+        end
+      end
+      path = "/" .. table.concat(names, "/")
     end
     found[#found + 1] = { kind = "y", path = path, answer = "" }
     -- Its first line, read as an open the log notes too: the program
     -- is what the process was to read first. This program's own launcher
     -- is such a script (build/launcher.tl), which a test that declares
-    -- `tool` may start.
-    local fd, _ = sys.open(path, sys.O_RDONLY)
+    -- `tool` may start. A regular file alone: an open of a FIFO would
+    -- wait for a writer, and one of a device may do what it does.
+    local st, _ = stat(path)
+    if st == nil or st.kind ~= "file" then return end
+    local fd, _ = sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK)
     if fd == nil then return end
     local head, _ = sys.read(fd, 256)
     local _, _ = sys.close(fd)
@@ -1388,7 +1420,7 @@ local function start(resolving: observations.Resolving | nil):
       return logged_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,
         fds, sandbox)
     end
-    note_program(path)
+    note_program(path, cwd)
     -- A sandbox of its own that unveils and takes the network holds a
     -- process as a confinement does, and is noted the same. It is read
     -- as the core reads it, raw, and a plain copy is what the core is
