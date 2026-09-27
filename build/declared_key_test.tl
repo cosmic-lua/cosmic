@@ -118,10 +118,17 @@ local function test_each_input_moves_it(tmp: string)
   s = spec()
   s.host = "another host"
   differs("the host", s)
+  s = spec()
+  s.harness = "another harness"
+  differs("the harness every worker runs", s)
   -- A worker that may run the program undeclared keys it as declared.
   s = spec()
   s.runs_tool = true
   differs("the tool, run where it could not be refused", s)
+  s = spec()
+  s.runs_tool = true
+  s.program = "another program"
+  differs("the program that runs, for one that runs the tool", s)
   s = spec()
   s.module_key = "another module"
   differs("the module's key", s)
@@ -234,4 +241,95 @@ local function test_a_frozen_run_looks_once_and_a_thawed_one_again(tmp: string)
   assert(declared_key.compute(digests, spec()) == before)
   declared_key.thaw(digests)
   assert(declared_key.compute(digests, spec()) ~= before)
+end
+
+--- The harness's digest holds every module its roots require, directly
+--- or not, by source: a change to one moves it, as a change to the
+--- worker's sandbox would; a module outside that closure does not.
+local function test_a_harness_module_moves_the_harness(tmp: string)
+  local imports: {string:{string}} = {
+    ["build.test"] = { "build.test_sandbox", "cosmic.fs" },
+    ["build.test_worker"] = { "build.filesystem_observations" },
+    ["build.test_sandbox"] = { "build.caches" },
+  }
+  local sources: {string:string} = {
+    ["build.test"] = "t", ["build.test_worker"] = "w", ["build.test_sandbox"] = "s",
+    ["build.caches"] = "c", ["cosmic.fs"] = "f", ["build.filesystem_observations"] = "o",
+    ["build.docs"] = "d",
+  }
+  local roots = { "build.test", "build.test_worker" }
+  local before = declared_key.harness(roots, sources, imports)
+  sources["build.docs"] = "d2"
+  assert(declared_key.harness(roots, sources, imports) == before, "outside the closure")
+  for _, name in ipairs({ "build.test_sandbox", "build.caches", "build.filesystem_observations",
+                          "cosmic.fs" }) do
+    local was = sources[name]
+    sources[name] = was .. "2"
+    assert(declared_key.harness(roots, sources, imports) ~= before, name)
+    sources[name] = was
+  end
+  -- An unrelated test's key moves with it.
+  tree(tmp)
+  local s = spec()
+  s.harness = before
+  local key = key_of(tmp, s)
+  sources["build.test_sandbox"] = "s2"
+  s = spec()
+  s.harness = declared_key.harness(roots, sources, imports)
+  assert(key_of(tmp, s) ~= key)
+end
+
+--- Each part of the host's identity moves it: its package database, its
+--- system files, the processor's features, the status of this process,
+--- the user, which /proc a sandbox gets, and what the host says of
+--- itself; the processor's features are each counted once.
+local function test_each_part_of_the_host_moves_its_identity(tmp: string)
+  local function write(name: string, text: string): string
+    assert(Fs.write(tmp .. "/" .. name, text))
+    return tmp .. "/" .. name
+  end
+  local sources: declared_key.HostSources = {
+    packages = { write("packages", "p1") }, system = { write("os", "o1") },
+    cpuinfo = write("cpuinfo", "flags : a b\nflags : b a\n"),
+    status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
+    own_proc = true, host_id = "h1", uid = 1,
+  }
+  local function identity(): string
+    return declared_key.host_identity(declared_key.digests(tmp), sources)
+  end
+  local seen: {string:string} = {}
+  local function differs(what: string)
+    local id = identity()
+    assert(seen[id] == nil, what .. " identifies as " .. tostring(seen[id]) .. " did")
+    seen[id] = what
+  end
+  differs("the start")
+  assert(identity() == identity(), "the same host")
+  write("cpuinfo", "flags : b a\n")
+  assert(seen[identity()] == "the start", "each feature is counted once")
+  write("packages", "p2")
+  differs("the packages")
+  write("os", "o2")
+  differs("the system")
+  write("cpuinfo", "flags : a b c\n")
+  differs("a feature of the processor")
+  write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
+  differs("the capabilities")
+  write("status", "Name: y\nCapEff: 1\nUid: 1 1 1 1\n")
+  assert(seen[identity()] == "the capabilities", "a field it does not key")
+  sources.own_proc = false
+  differs("which /proc a sandbox gets")
+  sources.host_id = "h2"
+  differs("what the host says of itself")
+  sources.uid = 2
+  differs("the user")
+end
+
+--- The program's identity is its files' contents.
+local function test_the_program_is_keyed_by_its_contents(tmp: string)
+  assert(Fs.write(tmp .. "/program", "one"))
+  local digests = declared_key.digests(tmp)
+  local before = declared_key.program_identity(digests, { tmp .. "/program" })
+  assert(Fs.write(tmp .. "/program", "two"))
+  assert(declared_key.program_identity(digests, { tmp .. "/program" }) ~= before)
 end

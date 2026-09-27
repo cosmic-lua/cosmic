@@ -275,6 +275,27 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   }
 end
 
+--- Whether a worker given `writes` to write -- the host caches its
+--- module declares -- can be kept from running `programs`, this very
+--- program (`observations.forbid_running`): not where one of them is
+--- beneath a path it may write, by its name or where it resolves -- the
+--- cores directory a portable cosmic extracts to, which the `bootstrap`
+--- cache holds -- since a core another cosmic extracts there after the
+--- worker holds itself could not be run.
+function test_sandbox.forbiddable(writes: {string}, programs: {string}): boolean
+  for _, path in ipairs(writes) do
+    local writable = observations.resolution(path)
+    for _, program in ipairs(programs) do
+      local real = observations.resolution(program)
+      if Fs.within(program, path) or (real ~= "" and writable ~= "" and
+          Fs.within(real, writable)) then
+        return false
+      end
+    end
+  end
+  return true
+end
+
 --- `path` as the host has it, for one a sandboxed worker of the tree at
 --- `root`, its scratch directory `scratch`, saw: one at or beneath
 --- /tree or /tmp, where the sandbox bound them, beneath `root` or

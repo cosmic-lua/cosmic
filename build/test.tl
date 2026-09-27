@@ -1562,6 +1562,48 @@ local function binary_tables(): string | nil, string
   return rows[1][1], ""
 end
 
+--- The modules the test harness is run from: the runner and the worker,
+--- whose closure holds the sandbox's plan (`build.test_sandbox`), what
+--- a worker is held to (`build.filesystem_observations`), its inputs
+--- (`build.test_inputs`) and its key (`build.declared_key`).
+--- build.dispatch, which hands a worker's command line to
+--- build.test_worker and does nothing else of it, is left out: its
+--- closure is every verb's, and would run every test again after an
+--- edit to any of them.
+local harness_roots: {string} = { "build.test", "build.test_worker" }
+
+--- The digest of the test harness the running binary carries
+--- (`declared_key.harness`), searched alone so no attached database
+--- stands in for it: every worker runs it, so every sandboxed key holds
+--- it -- the compiler's identity holds only the importer's closure.
+local function binary_harness(): string | nil, string
+  local modules: {{string}} = nil
+  local imports: {{string}} = nil
+  local trouble = "the running binary has no database"
+  Store.alone(function()
+    local databases = Store.databases()
+    local binary = databases[#databases]
+    if binary ~= nil then
+      modules, trouble = Sqlite.text_rows(binary,
+        "SELECT path, source_hash FROM modules WHERE kind = 'module'")
+      if modules ~= nil then
+        imports, trouble = Sqlite.text_rows(binary, "SELECT path, requires FROM imports")
+      end
+    end
+  end)
+  if modules == nil or imports == nil then return nil, trouble end
+  local sources: {string:string} = {}
+  for _, row in ipairs(modules) do sources[row[1]] = row[2] end
+  local requires: {string:{string}} = {}
+  for _, row in ipairs(imports) do
+    local list = requires[row[1]] or {}
+    requires[row[1]] = list
+    list[#list + 1] = row[2]
+  end
+  for _, list in pairs(requires) do table.sort(list) end
+  return declared_key.harness(harness_roots, sources, requires), ""
+end
+
 --- Everything a finished job's verdict is recorded into.
 local record Recording
   records: Sqlite.Handle
@@ -1626,6 +1668,11 @@ local record Recording
   --- (`declared_key.host_identity`), and why each module whose tests
   --- have no key has none, but for the network, by module path.
   host: string
+  --- Sandboxed, the harness every worker runs (`binary_harness`), and
+  --- the program a test that runs this program runs
+  --- (`declared_key.program_identity`).
+  harness: string
+  program: string
   unkeyed: {string:string}
   --- Whether each module's workers can be kept from running this
   --- program (`can_forbid`), by module path.
@@ -1718,16 +1765,8 @@ end
 local function can_forbid(rec: Recording, m: importer.Module): boolean
   local found = rec.forbiddable[m.path]
   if found ~= nil then return found end
-  found = true
   rec.tool = rec.tool or observations.itself()
-  for _, cache in ipairs(rec.effective[m.path].cache_paths or {}) do
-    for _, program in ipairs(rec.tool) do
-      local real, _ = sys.realpath(program)
-      if Fs.within(program, cache) or (real ~= nil and Fs.within(real, cache)) then
-        found = false
-      end
-    end
-  end
+  found = test_sandbox.forbiddable(rec.effective[m.path].cache_paths or {}, rec.tool)
   rec.forbiddable[m.path] = found
   return found
 end
@@ -1741,7 +1780,8 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   if not declared_key.keyable(effective) then return nil end
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.key, runtime = rec.runtime, compiler = rec.compiler,
-    host = rec.host, declaration = test_inputs.canonical(m.inputs), effective = effective,
+    host = rec.host, harness = rec.harness, program = rec.program,
+    declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
   })
   if key == nil then rec.unkeyed[m.path] = why end
@@ -1990,7 +2030,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
     end
-    if not passed and key ~= nil then
+    -- A pass another run shared under its key goes too where this run
+    -- reached past it: that pass stood for what no key holds.
+    if key ~= nil and (not passed or reached_past) then
       rec.owed.failed[#rec.owed.failed + 1] = key
     elseif passed and held and reported ~= nil then
       rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
@@ -2554,6 +2596,12 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
   local runtime = identity .. " tables " .. tables
+  local harness, harness_trouble = binary_harness()
+  if harness == nil then
+    local _, _ = work.close(handle)
+    log:complain("the running binary's test harness: " .. harness_trouble)
+    return 1
+  end
   local database = root .. "/o/cosmic.db"
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off; a verdict reached so is kept apart from one
@@ -2723,6 +2771,7 @@ function test.run(argv: {integer:string}): integer
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
     sandbox = sandboxed, views = {}, caches = {}, unkeyed = {}, forbiddable = {},
+    harness = harness,
     rerun_prefix = sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or "",
   }
@@ -2785,6 +2834,8 @@ function test.run(argv: {integer:string}): integer
     end
     rec.digests, rec.compiler = declared_key.digests(root, remembered), tool
     rec.host = declared_key.host_identity(rec.digests)
+    rec.tool = rec.tool or observations.itself()
+    rec.program = declared_key.program_identity(rec.digests, rec.tool)
     -- Every test is keyed before any starts: one look at each input
     -- serves them all.
     declared_key.freeze(rec.digests)

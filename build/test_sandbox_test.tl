@@ -484,3 +484,18 @@ local function test_second(tmp: string) hold(tmp) end
   end
   assert(#left == 0, table.concat(left, ", ") .. "\n" .. text)
 end
+
+--- A worker that may write where this program is -- the cores a
+--- portable cosmic extracts, in the `bootstrap` cache -- cannot be kept
+--- from running it, by its name or through a link; one that writes
+--- elsewhere can.
+local function test_a_worker_that_writes_where_the_program_is_cannot_be_held(tmp: string)
+  local cores = tmp .. "/cache/cores"
+  assert(Fs.mkdirs(cores))
+  assert(Fs.write(cores .. "/core", "c"))
+  assert(Fs.symlink(cores .. "/core", tmp .. "/link"))
+  assert(test_sandbox.forbiddable({ tmp .. "/elsewhere" }, { cores .. "/core" }))
+  assert(test_sandbox.forbiddable({}, { cores .. "/core" }))
+  assert(not test_sandbox.forbiddable({ tmp .. "/cache" }, { cores .. "/core" }))
+  assert(not test_sandbox.forbiddable({ tmp .. "/cache" }, { tmp .. "/link" }))
+end

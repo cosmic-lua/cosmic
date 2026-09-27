@@ -96,6 +96,13 @@ local record declared_key
     module_key: string
     runtime: string
     compiler: string
+    --- The test harness a worker runs, as the running binary carries it
+    --- (`harness`): every worker runs it, the tree's or not.
+    harness: string
+    --- The program a test that runs this program runs
+    --- (`program_identity`): o/bin/cosmic, or o/sanitized's, or a
+    --- portable cosmic, whichever is running.
+    program: string
     --- The host's identity (`host_identity`).
     host: string
     --- The module's declaration, as `test_inputs.canonical` spells it.
@@ -107,6 +114,19 @@ local record declared_key
     --- not declare `tool` (`build.test`'s `can_forbid`): o/bin is keyed
     --- as if it did.
     runs_tool: boolean
+  end
+
+  --- Where `host_identity` looks, for a test: each a path, but
+  --- `own_proc`, whether a sandbox gets a /proc of its own, `host_id`,
+  --- the value of `host_variable`, and `uid`.
+  record HostSources
+    packages: {string}
+    system: {string}
+    status: string
+    cpuinfo: string
+    own_proc: boolean
+    host_id: string
+    uid: integer
   end
 end
 
@@ -316,7 +336,7 @@ function declared_key.compute(digests: declared_key.Digests,
   end)
   digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
   if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
-  return Hash.hex_sha256("declared-2\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
+  return Hash.hex_sha256("declared-3\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
     inputs), ""
 end
 
@@ -339,6 +359,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     part("m", spec.module_key, ""),
     part("runtime", spec.runtime, ""),
     part("compiler", spec.compiler, ""),
+    part("harness", spec.harness or "", ""),
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
@@ -355,7 +376,11 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   end
   local reads: {string} = {}
   for _, read in ipairs(effective.reads) do reads[#reads + 1] = read end
-  if effective.tool or spec.runs_tool then reads[#reads + 1] = "o/bin" end
+  if effective.tool or spec.runs_tool then
+    reads[#reads + 1] = "o/bin"
+    -- And what actually runs, which need not be o/bin/cosmic.
+    lines[#lines + 1] = part("program", spec.program or "", "")
+  end
   -- TODO: key the projection a worker attaches whatever it declares
   -- by what of it the worker can query, once it is a store derived from
   -- the closure (the TODO in test_sandbox.plan): today a test that
@@ -399,44 +424,65 @@ local package_databases: {string} = {
   "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/rpm/Packages",
 }
 
+--- The variable a host names more of itself in than `host_identity`
+--- finds there: CI's legs, the container they run in -- its image, the
+--- seccomp profile and options it is started with, the container
+--- engine's version -- which no file inside it tells.
+local host_variable <const> = "COSMIC_HOST_ID"
+
 --- What of this host every sandboxed worker is given without declaring
 --- it, as a key holds it: the database of the packages it has installed
 --- (`package_databases`), by contents, where there is one; the system it
---- says it is (/etc/os-release) and its kernel's name, release and
---- machine; the user, groups and capabilities this process -- and so
---- every worker -- runs with, and whether no_new_privs and a seccomp
---- filter hold it (/proc/self/status); and whether a sandbox gets a
---- /proc of its own (`observations.own_proc_given`). Worked out once a
---- run; the package database is hashed only when its `lstat` moves.
+--- says it is (/etc/os-release) and its kernel's release and version;
+--- its name and machine; the processor's features (/proc/cpuinfo's
+--- flags, each once); the user, groups and capabilities this process --
+--- and so every worker -- runs with, and whether no_new_privs and a
+--- seccomp filter hold it (/proc/self/status); whether a sandbox gets a
+--- /proc of its own (`observations.own_proc_given`); and what the host
+--- says of itself besides (`host_variable`). Worked out once a run; the
+--- package database is hashed only when its `lstat` moves. `sources`
+--- moves where it looks, for a test; a field it leaves nil is this
+--- host's own.
 -- TODO: key what a package database does not say: a file under /usr,
 -- /etc or /lib changed by hand or by a tool other than the package
 -- manager, a package installed from source into /usr/local, and a
--- container image's own layers. Wants the image's digest where the
--- tests run in one (CI's legs could name it, from ci.yml's pinned
--- image, in a variable held here), or a walk of the system's paths
--- cheap enough to take every run (/usr's stamps take half a second).
--- Until then a verdict is shared only among hosts whose packages alone
--- set them apart, which CI's shared verdicts wait on
--- (ci/cosmic_ci/orchestration.tl's TODO on the sandboxed suite).
-function declared_key.host_identity(digests: declared_key.Digests): string
+-- container image's own layers where no `host_variable` names the
+-- image. Wants a walk of the system's paths cheap enough to take every
+-- run (/usr's stamps take half a second). Nor is the clock keyed: a
+-- test whose verdict turns on the date stands on one reached another
+-- day, which only a forced run (CI's scheduled one) catches.
+function declared_key.host_identity(digests: declared_key.Digests,
+                                    sources?: declared_key.HostSources): string
   local started = Time.monotonic_ns()
+  local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
-  for _, path in ipairs(package_databases) do
+  for _, path in ipairs(from.packages or package_databases) do
     local st, _ = sys.stat(path)
     if st ~= nil and st.kind == "file" then
       lines[#lines + 1] = "packages " .. path .. " " .. contents(digests, path, st)
       break
     end
   end
-  for _, path in ipairs({ "/etc/os-release", "/proc/sys/kernel/osrelease",
-                          "/proc/sys/kernel/version" }) do
+  for _, path in ipairs(from.system or { "/etc/os-release", "/proc/sys/kernel/osrelease",
+                                         "/proc/sys/kernel/version" }) do
     local text, _ = Fs.read(path)
     lines[#lines + 1] = path .. " " .. (text or "missing")
   end
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
-  lines[#lines + 1] = "uid " .. tostring(sys.getuid())
-  local status, _ = Fs.read("/proc/self/status")
+  -- Each distinct feature once, sorted: every processor lists them.
+  local cpuinfo, _ = Fs.read(from.cpuinfo or "/proc/cpuinfo")
+  local features: {string:boolean} = {}
+  for line in (cpuinfo or ""):gmatch("[^\n]+") do
+    local listed = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
+    for flag in (listed or ""):gmatch("%S+") do features[flag] = true end
+  end
+  local sorted: {string} = {}
+  for flag in pairs(features) do sorted[#sorted + 1] = flag end
+  table.sort(sorted)
+  lines[#lines + 1] = "cpu " .. table.concat(sorted, " ")
+  lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
+  local status, _ = Fs.read(from.status or "/proc/self/status")
   for line in (status or ""):gmatch("[^\n]+") do
     local name = line:match("^(%a+):")
     if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
@@ -444,8 +490,50 @@ function declared_key.host_identity(digests: declared_key.Digests): string
       lines[#lines + 1] = line
     end
   end
-  lines[#lines + 1] = "own proc " .. tostring(observations.own_proc_given())
+  local own = from.own_proc
+  if own == nil then own = observations.own_proc_given() end
+  lines[#lines + 1] = "own proc " .. tostring(own)
+  local host_id = from.host_id
+  if host_id == nil then host_id = sys.getenv(host_variable) or "" end
+  lines[#lines + 1] = "host " .. host_id
   digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
+  return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
+--- The test harness every worker runs, as a digest: each module the
+--- modules `roots` require, directly or not, and themselves, by name and
+--- source hash, from `sources` (source hash by module name) and
+--- `imports` (the names each requires), as the running binary's own
+--- database holds them. A module no source names is left out.
+function declared_key.harness(roots: {string}, sources: {string:string},
+                              imports: {string:{string}}): string
+  local seen: {string:boolean} = {}
+  local lines: {string} = {}
+  local stack: {string} = {}
+  for _, root in ipairs(roots) do stack[#stack + 1] = root end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not seen[name] and sources[name] ~= nil then
+      seen[name] = true
+      lines[#lines + 1] = name .. " " .. sources[name]
+      for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end
+    end
+  end
+  table.sort(lines)
+  return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
+--- What this very program is, for a test that runs it: each of `paths`
+--- (`observations.itself()`: the program, its core and the stamp that
+--- says the core was verified) by contents, hashed only when its
+--- `lstat` moves.
+function declared_key.program_identity(digests: declared_key.Digests, paths: {string}): string
+  local lines: {string} = {}
+  for _, path in ipairs(paths) do
+    local st, _ = sys.stat(path)
+    lines[#lines + 1] = (st ~= nil and st.kind == "file") and contents(digests, path, st) or
+      "missing"
+  end
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
