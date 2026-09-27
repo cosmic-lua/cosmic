@@ -63,9 +63,12 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(host:sub(1, 5) ~= "/tmp/" or holds(plan.kept, host), host)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and unveil.at[scratch] == "/tmp")
   -- A process the worker starts is keyed by what it declares, as the
-  -- worker sees it, /proc and the store -- not by its closure's files,
-  -- nor the system's own paths, which it is not given undeclared.
-  assert(holds(plan.held, "/tree/data") and holds(plan.held, host) and holds(plan.held, "/proc"))
+  -- worker sees it, the runtime's own paths (/dev/null everywhere, /proc
+  -- where the host has one: a path that is not there is not given) and
+  -- the store -- not by its closure's files, nor the system's own paths,
+  -- which it is not given undeclared.
+  assert(holds(plan.held, "/tree/data") and holds(plan.held, host) and holds(plan.held, "/dev/null"))
+  assert(sys.stat("/proc") == nil or holds(plan.held, "/proc"))
   assert(not holds(plan.held, "/tree/a/x.tl") and holds(plan.held, "/tree/o/cosmic.db"))
   assert(not holds(plan.held, "/usr") and not holds(unveil.reads, "/usr"))
   inputs.system = true
