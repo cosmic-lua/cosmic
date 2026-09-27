@@ -1,0 +1,375 @@
+--- A stand-in program for a test that needs an outside program to start
+--- -- a fake zig, codesign or cosmic, a process to leave running --
+--- without the system's shell: a host program built from this core
+--- (`embed.tree(dir, true)`, as `cosmic build --host` builds one), a
+--- static executable of the core and a small database, which the
+--- kernel runs directly and which reads only itself. A caller that
+--- starts it with no environment and no descriptors of its own, as
+--- bin/zig, codesign's verifier and the eval grader start theirs, starts
+--- it all the same, which this program past its launcher
+--- (`Proc.relaunch`) could not be.
+---
+--- `build` makes one, in well under a second, and `place` copies it
+--- where a test needs one, with the script it runs. A test that builds
+--- one declares `tool = true`: the build reads this program's core.
+---
+--- The script is `<its path>.do`, or, with none there, its first
+--- argument; its arguments are then the rest. Commands are split on `;`
+--- and newlines, each a verb and its words:
+---
+---     print T          T and a newline, to stdout
+---     eprint T         T and a newline, to stderr
+---     write F T        T and a newline, as the whole of file F
+---     append F T       T and a newline, at the end of file F
+---     cat [F]          file F, or stdin to its end, to stdout
+---     cat-quiet F      file F to stdout, or nothing where it cannot be read
+---     ls D             the names in directory D, sorted, a line each
+---     exit N           ends with status N
+---     signal S [P]     sends SIGS (TERM, INT, KILL, HUP) to itself, and
+---                      waits to end of it; or to pid P, negated for a
+---                      process group, as kill(2) takes it, or `@F` for
+---                      the one file F holds, and goes on. 0 and -1,
+---                      which name no one process or group, fail
+---     trap N           holds SIGINT and SIGTERM (`Child.guard`) and ends
+---                      with status N once one arrives: checked between
+---                      commands and while it sleeps or waits
+---     sleep MS         sleeps MS milliseconds
+---     sleep-forever    sleeps until it is ended
+---     wait-for F       waits until file F exists
+---     exists P N       ends with status N if P exists
+---     copy A B         file A's bytes as the whole of file B
+---     cwd [F]          its working directory and a newline, to stdout or F
+---     mkfifo P         makes a named pipe at P
+---     mkdirs D         makes directory D and its parents
+---     grep-count F T   how many lines of file F hold T, to stdout
+---     status-field K   its line of /proc/self/status that names K
+---     run P [T]        starts P, with T its one argument, and waits for
+---                      it; ends with P's status where it fails (128 past
+---                      a signal), and 127 where P cannot start, as
+---                      after a `trap`: a process holds one guard at once
+---     fd-closed N      ends with status 1 unless descriptor N is
+---                      closed, and 2 when N names no descriptor
+---
+--- A verb, its first word and the rest are split at the blanks between
+--- them, however many, which go; the rest keeps its own spacing. In a
+--- command's words, `$@` is its arguments joined by spaces, `$DIR` the
+--- directory it sits in, and `$NAME` the environment variable NAME, empty
+--- when unset, each put in once: what is put in is not read for a `$`
+--- again. A command written `[w] ...` runs only when its first
+--- argument is `w`. A command that fails says why on stderr and ends
+--- with status 1; an unknown verb ends with 2. The script's end is
+--- status 0.
+
+local embed = require("build.embed")
+local Fs = require("cosmic.fs")
+
+local record stand_in
+end
+
+--- The stand-in's whole program, `cmd/probe/main.tl` of the tree it is
+--- built from.
+local main_source <const> = [==[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
+
+local SLICE_MS <const> = 5
+
+local signals: {string:integer} = {
+  TERM = sys.SIGTERM, INT = sys.SIGINT, KILL = sys.SIGKILL, HUP = sys.SIGHUP,
+}
+
+--- The guard `trap` opened, and the status it ends with.
+local guard: Child.Guard = nil
+local trapped = 0
+
+local function trap_fired(): boolean
+  return guard ~= nil and guard:cancelled() ~= 0
+end
+
+local function sleep_ms(ms: integer): integer
+  local left = ms
+  while left > 0 do
+    if trap_fired() then return trapped end
+    local step = math.min(left, SLICE_MS)
+    local _, _ = sys.nanosleep(step * 1000000)
+    left = left - step
+  end
+  if trap_fired() then return trapped end
+  return nil
+end
+
+local function failed(what: string, trouble: string): integer
+  local _, _ = Fs.put(2, "probe: " .. what .. ": " .. trouble .. "\n")
+  return 1
+end
+
+local function number(word: string): integer
+  return math.tointeger(tonumber(word))
+end
+
+local function put_all(fd: integer, data: string): integer
+  local ok, trouble = Fs.put(fd, data)
+  if not ok then return failed("write", trouble) end
+  return nil
+end
+
+local function append(path: string, data: string): integer
+  local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, 420)
+  if fd == nil then return failed(path, trouble) end
+  local written, write_trouble = sys.write(fd, data)
+  local _, _ = sys.close(fd)
+  if written == nil then return failed(path, write_trouble) end
+  return nil
+end
+
+local function status_of(result: Child.Result): integer
+  if result.signal ~= nil then return 128 + result.signal end
+  return result.code or 1
+end
+
+--- Each verb, handed its first word and the rest, each substituted;
+--- answers the status to end with, or nil to go on.
+local verbs: {string:function(string, string): integer} = {
+  print = function(first: string, rest: string): integer
+    return put_all(1, (rest ~= "" and first .. " " .. rest or first) .. "\n")
+  end,
+  eprint = function(first: string, rest: string): integer
+    return put_all(2, (rest ~= "" and first .. " " .. rest or first) .. "\n")
+  end,
+  write = function(path: string, text: string): integer
+    local ok, trouble = Fs.write(path, text .. "\n")
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  append = function(path: string, text: string): integer
+    return append(path, text .. "\n")
+  end,
+  cat = function(path: string): integer
+    if path ~= "" then
+      local bytes, trouble = Fs.read(path)
+      if bytes == nil then return failed(path, trouble) end
+      return put_all(1, bytes)
+    end
+    while true do
+      local chunk, trouble = Fs.take(0, 65536)
+      if chunk == nil then return failed("stdin", trouble) end
+      if chunk == "" then return nil end
+      local stopped = put_all(1, chunk)
+      if stopped ~= nil then return stopped end
+    end
+  end,
+  ["cat-quiet"] = function(path: string): integer
+    local bytes, _ = Fs.read(path)
+    if bytes == nil then return nil end
+    return put_all(1, bytes)
+  end,
+  ls = function(path: string): integer
+    local names, trouble = Fs.list(path)
+    if names == nil then return failed(path, trouble) end
+    table.sort(names)
+    local lines: {string} = {}
+    for _, name in ipairs(names) do lines[#lines + 1] = name .. "\n" end
+    return put_all(1, table.concat(lines))
+  end,
+  exit = function(status: string): integer
+    return number(status) or 2
+  end,
+  signal = function(name: string, target: string): integer
+    local signal = signals[name]
+    if signal == nil then return failed("signal", "no signal " .. name) end
+    local named = target
+    if target:sub(1, 1) == "@" then
+      local held, trouble = Fs.read(target:sub(2))
+      if held == nil then return failed(target:sub(2), trouble) end
+      named = held:match("^%s*(.-)%s*$")
+    end
+    local pid = target == "" and sys.getpid() or number(named)
+    if pid == nil then return failed("signal", "no process " .. named) end
+    -- kill(2) takes 0 for its own group and -1 for every process this
+    -- user may signal: a script names a group by its number.
+    if pid == 0 or pid == -1 then
+      return failed("signal", "refusing pid " .. tostring(pid) ..
+        ", which names no one process or group")
+    end
+    local ok, trouble = sys.kill(pid, signal)
+    if not ok then return failed("signal", trouble) end
+    if target ~= "" then return nil end
+    -- Its own: it ends of it, unless a trap holds it.
+    while true do
+      local stopped = sleep_ms(1000)
+      if stopped ~= nil then return stopped end
+    end
+  end,
+  trap = function(status: string): integer
+    local opened, trouble = Child.guard()
+    if opened == nil then return failed("trap", trouble) end
+    guard, trapped = opened, number(status) or 2
+    return nil
+  end,
+  sleep = function(ms: string): integer
+    return sleep_ms(number(ms) or 0)
+  end,
+  ["sleep-forever"] = function(): integer
+    while true do
+      local stopped = sleep_ms(1000)
+      if stopped ~= nil then return stopped end
+    end
+  end,
+  ["wait-for"] = function(path: string): integer
+    while Fs.exists(path) ~= true do
+      local stopped = sleep_ms(SLICE_MS)
+      if stopped ~= nil then return stopped end
+    end
+    return nil
+  end,
+  exists = function(path: string, status: string): integer
+    if Fs.exists(path) == true then return number(status) or 2 end
+    return nil
+  end,
+  copy = function(from: string, to: string): integer
+    local bytes, trouble = Fs.read(from)
+    if bytes == nil then return failed(from, trouble) end
+    local ok, write_trouble = Fs.write(to, bytes)
+    if not ok then return failed(to, write_trouble) end
+    return nil
+  end,
+  cwd = function(path: string): integer
+    local here, trouble = sys.getcwd()
+    if here == nil then return failed("cwd", trouble) end
+    if path == "" then return put_all(1, here .. "\n") end
+    local ok, write_trouble = Fs.write(path, here .. "\n")
+    if not ok then return failed(path, write_trouble) end
+    return nil
+  end,
+  mkfifo = function(path: string): integer
+    local ok, trouble = sys.mkfifo(path)
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  mkdirs = function(path: string): integer
+    local ok, trouble = Fs.mkdirs(path)
+    if not ok then return failed(path, trouble) end
+    return nil
+  end,
+  ["grep-count"] = function(path: string, text: string): integer
+    local bytes, trouble = Fs.read(path)
+    if bytes == nil then return failed(path, trouble) end
+    local count = 0
+    for line in bytes:gmatch("[^\n]*") do
+      if line ~= "" and line:find(text, 1, true) ~= nil then count = count + 1 end
+    end
+    return put_all(1, tostring(count) .. "\n")
+  end,
+  ["status-field"] = function(name: string): integer
+    local status, trouble = Fs.read("/proc/self/status")
+    if status == nil then return failed("/proc/self/status", trouble) end
+    for line in status:gmatch("[^\n]+") do
+      if line:sub(1, #name + 1) == name .. ":" then return put_all(1, line .. "\n") end
+    end
+    return failed("status-field", "no " .. name)
+  end,
+  run = function(program: string, argument: string): integer
+    local argv: {string} = { program }
+    if argument ~= "" then argv[2] = argument end
+    local result, _ = Child.run(argv)
+    if result == nil then return 127 end
+    if not result.ok then return status_of(result) end
+    return nil
+  end,
+  ["fd-closed"] = function(word: string): integer
+    local fd = number(word)
+    if fd == nil or fd < 0 then
+      local _, _ = Fs.put(2, "probe: fd-closed: no descriptor " .. word .. "\n")
+      return 2
+    end
+    local open, _ = sys.fstat(fd)
+    if open ~= nil then return 1 end
+    return nil
+  end,
+}
+
+--- `word` with `$@`, `$DIR` and `$NAME` put in, in one pass: what is
+--- put in is never read for a `$` again, so an argument holding `$HOME`
+--- stays as it was given, and reads nothing of the environment.
+local function substituted(word: string, args: string, dir: string): string
+  local out = word:gsub("%$([@%a_][%w_]*)", function(name: string): string
+    if name:sub(1, 1) == "@" then return args .. name:sub(2) end
+    if name == "DIR" then return dir end
+    return sys.getenv(name) or ""
+  end)
+  return out
+end
+
+return function(argv: {string}): integer
+  local self = Proc.executable() or ""
+  local beside, _ = Fs.read(self .. ".do")
+  local script = beside or argv[1] or ""
+  local first_arg = beside ~= nil and 1 or 2
+  local args: {string} = {}
+  for i = first_arg, #argv do args[#args + 1] = argv[i] end
+  local joined = table.concat(args, " ")
+  local dir = Fs.dirname(self)
+  for command in script:gmatch("[^;\n]+") do
+    local line: string = command:match("^%s*(.-)%s*$")
+    local only, guarded: string, string = line:match("^%[([^%]]*)%]%s+(.*)$")
+    if only ~= nil then
+      line = only == args[1] and guarded or ""
+    end
+    if line ~= "" then
+      -- The verb, its first word and the rest: the blanks between them
+      -- go, however many, while the rest keeps its own as written.
+      local verb, first, rest: string, string, string = line:match("^(%S+)%s*(%S*)%s*(.-)$")
+      local run = verbs[verb]
+      if run == nil then
+        local _, _ = Fs.put(2, "probe: unknown verb " .. verb .. "\n")
+        return 2
+      end
+      local stopped = run(substituted(first, joined, dir), substituted(rest, joined, dir))
+      if stopped ~= nil then return stopped end
+    end
+    if trap_fired() then return trapped end
+  end
+  return 0
+end
+]==]
+
+--- Builds a stand-in under `dir`, made if it is not there, and answers
+--- the executable's path: `dir/o/bin/probe`.
+function stand_in.build(dir: string): string | nil, string
+  -- TODO: compile only cmd/probe/main.tl, against the modules this
+  -- program already carries, and append it to the core, rather than
+  -- stage, check and project a whole tree with `embed.tree`, once
+  -- build.embed takes a prebuilt store (or build.importer compiles one
+  -- module to a database on its own): a whole tree's build takes about
+  -- 0.7 s, and under a test worker's coverage hook on the checked core
+  -- about 7 s, of a test's 30.
+  local made, trouble = Fs.mkdirs(dir .. "/cmd/probe")
+  if not made then return nil, trouble end
+  local written, write_trouble = Fs.write(dir .. "/cmd/probe/main.tl", main_source)
+  if not written then return nil, write_trouble end
+  local names, build_trouble = embed.tree(dir, true)
+  if names == nil then return nil, build_trouble end
+  return dir .. "/o/bin/probe", ""
+end
+
+--- Copies the stand-in `probe` to `path`, executable -- a copy, not a
+--- symbolic link, since it finds its script beside the path it
+--- resolves itself to -- and writes `script` to `path .. ".do"`, when
+--- one is given, for it to run.
+-- TODO: make a hard link to `probe` where one can be made (the same
+-- file system), falling back to this copy, once cosmic.sys carries
+-- link: a checked core's probe is 39.5 MB, about 0.2 s a copy.
+function stand_in.place(probe: string, path: string, script?: string): boolean, string
+  local bytes, trouble = Fs.read(probe)
+  if bytes == nil then return false, trouble end
+  local written, write_trouble = Fs.write(path, bytes, 0x1ed)
+  if not written then return false, write_trouble end
+  if script ~= nil then
+    return Fs.write(path .. ".do", script)
+  end
+  return true, ""
+end
+
+return stand_in

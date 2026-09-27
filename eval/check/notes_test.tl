@@ -2,12 +2,15 @@
 --- and an arena with nothing to grade.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Notes = require("eval.check.notes")
+local stand_in = require("build.stand_in")
 
---- The environment the module under test starts its scripts with, and
---- the system's `sh`, which runs them.
-Test.needs{ env = { "*" }, system = true }
+--- The program's core, which building the stand-ins for bin/cosmic and
+--- o/bin/notes reads (`build.stand_in`); the grader starts them with no
+--- environment.
+Test.needs{ tool = true }
 
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.
@@ -79,14 +82,35 @@ local function test_a_signal_is_a_status_as_a_shell_reports_it()
   assert(Notes.status({ signal = 11, ok = false, timed_out = false, captured = {}, truncated = false }) == 139)
 end
 
+--- Grades the arena at `dir` with its lines -- written to stdout --
+--- taken into a file there, and answers its status and those lines.
+local function graded(dir: string): integer, string
+  local lines = dir .. "/graded.out"
+  local out = assert(sys.open(lines, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
+  local saved = assert(sys.dup(1))
+  assert(sys.dup2(out, 1))
+  assert(sys.close(out))
+  local ok, status = pcall(Notes.grade, dir)
+  assert(sys.dup2(saved, 1))
+  assert(sys.close(saved))
+  if not ok then error(status, 0) end
+  return status as integer, (assert(Fs.read(lines)))
+end
+
 --- A build that fails leaves an earlier o/bin/notes where it was, and
 --- the grader must not run that one as if it were this project's.
 local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
-  assert(Fs.write(dir .. "/bin/cosmic",
-    '#!/bin/sh\nif [ "$1" = build ]; then echo "build: FAIL" >&2; exit 1; fi\nexit 0\n', 0x1ed))
-  assert(Fs.write(dir .. "/project/o/bin/notes", "#!/bin/sh\necho 1\n", 0x1ed))
-  Notes.grade(dir)
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/bin/cosmic",
+    "[build] eprint build: FAIL\n[build] exit 1\nexit 0"))
+  assert(stand_in.place(probe, dir .. "/project/o/bin/notes", "print 1"))
+  local status, said = graded(dir)
+  assert(status == 1, said)
+  -- The stand-in cosmic ran, and failed the build alone.
+  assert(said:find("check: ok   " .. dir .. "/bin/cosmic test\n", 1, true), said)
+  assert(said:find("check: FAIL " .. dir .. "/bin/cosmic build\n", 1, true), said)
+  assert(said:find("skip o/bin/notes: cosmic build failed", 1, true), said)
   assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
   assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
 end
@@ -96,10 +120,15 @@ end
 --- the grade fails for want of one.
 local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one(dir: string)
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
-  assert(Fs.write(dir .. "/bin/cosmic",
-    '#!/bin/sh\nif [ "$1" = build ]; then echo "build: PASS (no executable: no cmd/<name>/main.tl)"; fi\nexit 0\n', 0x1ed))
-  assert(Fs.write(dir .. "/project/o/bin/notes", "#!/bin/sh\necho 1\n", 0x1ed))
-  assert(Notes.grade(dir) == 1)
+  local probe = assert(stand_in.build(dir .. "/stand-in"))
+  assert(stand_in.place(probe, dir .. "/bin/cosmic",
+    "[build] print build: PASS (no executable: no cmd/<name>/main.tl)\nexit 0"))
+  assert(stand_in.place(probe, dir .. "/project/o/bin/notes", "print 1"))
+  local status, said = graded(dir)
+  assert(status == 1, said)
+  -- The stand-in cosmic ran, and passed the build without naming notes.
+  assert(said:find("check: ok   " .. dir .. "/bin/cosmic build\n", 1, true), said)
+  assert(said:find("check: FAIL cosmic build did not produce o/bin/notes", 1, true), said)
   assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
 end
 
