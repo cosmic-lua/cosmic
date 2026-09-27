@@ -4,11 +4,12 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, and the system's `sh`,
---- which a program they start runs.
-Test.needs{ tool = true, system = true }
+--- The program itself, which its tests start, and whose core building
+--- the stand-in a program they start runs reads (`build.stand_in`).
+Test.needs{ tool = true }
 
 --- The public wrapper and annotated syscall name the same directly executable
 --- logical program. Native mode preserves the physical executable answer;
@@ -57,24 +58,29 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
   local own_mask = math.tointeger(tonumber(own, 16)) or 0
   if own_mask & (1 << (sys.SIGPIPE - 1)) ~= 0 then return end
+  -- The program it becomes, and the child it feeds: a stand-in, which
+  -- starts with no descriptors and no environment handed it, and says
+  -- which signals it arrived ignoring.
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local script = tmp .. "/becomes.tl"
   assert(Fs.write(script, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-return function(): integer
+return function(argv: {string}): integer
+  local probe = argv[1]
   -- Feeding a child its input is what makes this process ignore
   -- SIGPIPE, so a write to a child that has gone cannot end it.
-  local fed = assert(Child.start({ "/bin/sh", "-c", "exit 0" }, { input = "" }))
+  local fed = assert(Child.start({ probe, "exit 0" }, { input = "" }))
   assert(fed:wait())
   local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
   assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")
-  local _, trouble = Proc.exec("/bin/sh", { "sh", "-c", "grep SigIgn /proc/self/status" }, {})
+  local _, trouble = Proc.exec(probe, { probe, "status-field SigIgn" }, {})
   print(trouble)
   return 1
 end
 ]]))
-  local started = observations.program({ script }, { env = observations.environment(), cwd = tmp,
+  local started = observations.program({ script, probe }, { env = observations.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
