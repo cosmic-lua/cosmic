@@ -103,6 +103,10 @@ local record declared_key
     effective: test_inputs.Effective
     --- The environment its worker is given.
     environment: {string:string}
+    --- Whether its worker may run this program though its module does
+    --- not declare `tool` (`build.test`'s `can_forbid`): o/bin is keyed
+    --- as if it did.
+    runs_tool: boolean
   end
 end
 
@@ -351,7 +355,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   end
   local reads: {string} = {}
   for _, read in ipairs(effective.reads) do reads[#reads + 1] = read end
-  if effective.tool then reads[#reads + 1] = "o/bin" end
+  if effective.tool or spec.runs_tool then reads[#reads + 1] = "o/bin" end
   -- TODO: key the projection a worker attaches whatever it declares
   -- by what of it the worker can query, once it is a store derived from
   -- the closure (the TODO in test_sandbox.plan): today a test that

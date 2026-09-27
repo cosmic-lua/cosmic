@@ -1624,6 +1624,9 @@ local record Recording
   --- have no key has none, but for the network, by module path.
   host: string
   unkeyed: {string:string}
+  --- Whether each module's workers can be kept from running this
+  --- program (`can_forbid`), by module path.
+  forbiddable: {string:boolean}
   --- Where the host caches each module declares are (`build.caches`),
   --- by module path, as `caches_of` resolves them.
   caches: {string:{string}}
@@ -1698,6 +1701,34 @@ local function identity_of(rec: Recording, m: importer.Module): string
   return m.key .. "\0" .. rec.runtime .. "\0" .. (Store.meta("boot_hash") or "")
 end
 
+--- Whether a sandboxed worker of `m`'s tests can be kept from running
+--- this program where its module does not declare `tool`
+--- (`observations.forbid_running`): not where it may write a directory
+--- the program is in -- the cores a portable cosmic extracts, which the
+--- `bootstrap` cache names (`build.caches`) -- since a core another
+--- cosmic extracts there after the worker holds itself could not be
+--- run. Such a worker is keyed as if it declared `tool` instead.
+-- TODO: hold such a worker too, once the core it runs is kept apart
+-- from the cores a test's own cosmic extracts (a directory of the
+-- worker's own for it, bound by the sandbox): today its verdict holds
+-- o/bin in its key, but nothing keeps it from running a stale program.
+local function can_forbid(rec: Recording, m: importer.Module): boolean
+  local found = rec.forbiddable[m.path]
+  if found ~= nil then return found end
+  found = true
+  rec.tool = rec.tool or observations.itself()
+  for _, cache in ipairs(rec.effective[m.path].cache_paths or {}) do
+    for _, program in ipairs(rec.tool) do
+      local real, _ = sys.realpath(program)
+      if Fs.within(program, cache) or (real ~= nil and Fs.within(real, cache)) then
+        found = false
+      end
+    end
+  end
+  rec.forbiddable[m.path] = found
+  return found
+end
+
 --- A sandboxed test's key, over its declared inputs as they are now
 --- (`build.declared_key`): nil for one that reaches the network, or
 --- reads a link out of the tree, which no key holds -- the second said
@@ -1708,7 +1739,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.key, runtime = rec.runtime, compiler = rec.compiler,
     host = rec.host, declaration = test_inputs.canonical(m.inputs), effective = effective,
-    environment = view_of(rec, m),
+    environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
   })
   if key == nil then rec.unkeyed[m.path] = why end
   return key
@@ -2175,7 +2206,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- worker whose module does not declare `tool` may not run this
   -- program (`observations.forbid_running`): what it would run is no
   -- input of its test's key.
-  local forbidding = rec.sandbox and not rec.effective[job.m.path].tool
+  local forbidding = rec.sandbox and not rec.effective[job.m.path].tool and
+    can_forbid(rec, job.m)
   for _, value in ipairs({ "test", forbidding and "--worker-no-tool" or "--worker", root,
                            job.m.path, job.name, inside .. "/tmp",
                            inside .. "/children", test_inputs.canonical(job.m.inputs),
@@ -2684,7 +2716,7 @@ function test.run(argv: {integer:string}): integer
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
-    sandbox = sandboxed, views = {}, caches = {}, unkeyed = {},
+    sandbox = sandboxed, views = {}, caches = {}, unkeyed = {}, forbiddable = {},
     rerun_prefix = sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or "",
   }

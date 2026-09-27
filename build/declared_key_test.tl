@@ -118,6 +118,10 @@ local function test_each_input_moves_it(tmp: string)
   s = spec()
   s.host = "another host"
   differs("the host", s)
+  -- A worker that may run the program undeclared keys it as declared.
+  s = spec()
+  s.runs_tool = true
+  differs("the tool, run where it could not be refused", s)
   s = spec()
   s.module_key = "another module"
   differs("the module's key", s)
