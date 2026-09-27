@@ -26,9 +26,10 @@ local Test = require("cosmic.test")
 --- What a sandboxed run of `cosmic test` needs of the host, and the
 --- program it runs.
 Test.needs{
-  host = { "/dev/urandom", "/etc", "/proc", "/usr/" },
+  host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  system = true,
 }
 
 -- What these tests start is this very program.

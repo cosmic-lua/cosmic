@@ -94,6 +94,7 @@ local record analyzer
     processes: boolean
     tool: boolean
     store: boolean
+    system: boolean
     caches: {string}
   end
 
@@ -1030,7 +1031,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, caches = {},
+    processes = false, tool = false, store = false, system = false, caches = {},
   }
   local seen: {string:boolean} = {}
   for _, item in ipairs(value) do
@@ -1057,6 +1058,8 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         out.processes = on
       elseif field == "tool" then
         out.tool = on
+      elseif field == "system" then
+        out.system = on
       else
         out.store = on
       end

@@ -24,10 +24,11 @@ local observations = require("build.filesystem_observations")
 --- What the syscall table is tested on: the system's own directories, the
 --- whole environment, processes it holds and the program itself.
 Test.needs{
-  host = { "/etc", "/proc", "/usr" },
+  host = { "/proc" },
   env = { "*" },
   processes = true,
   tool = true,
+  system = true,
 }
 
 local type Searcher = function(string): any, any

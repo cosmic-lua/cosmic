@@ -14,12 +14,14 @@ local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
 --- hung one left running would be found; the program itself, which the
---- tests start; and what holds a run to sandboxing (`unsandboxed`).
+--- tests start, and the system's `sh` the runs it starts start; and what
+--- holds a run to sandboxing (`unsandboxed`).
 Test.needs{
   host = { "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   processes = true,
   tool = true,
+  system = true,
 }
 
 --- The environment a run of `cosmic test` these tests start is given:
@@ -69,6 +71,10 @@ local function project(tmp: string, marker: string): string
   assert(Fs.mkdirs(root .. "/suite"))
   local hang = [[
 local Child = require("cosmic.child")
+local Test = require("cosmic.test")
+
+Test.needs { system = true }
+
 local held: {Child.Handle} = {}
 local function test_hangs()
   held[1] = assert(Child.start({ "/bin/sh", "-c", "while :; do sleep 1; done", "MARKER" }))

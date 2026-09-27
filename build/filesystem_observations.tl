@@ -203,14 +203,17 @@ end
 --- another read's; and "z", a test's declaration that it reads stat's
 --- times (`observations.reads_stat_times`), later still; and "g" and
 --- "j", a `sys.tree_digest` of a path by its contents or by its stamps,
---- after that.
+--- after that; and "y", a program a sandboxed worker's process ran, or
+--- the interpreter its first line names, for the audit alone, after
+--- those.
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" or
         kind == "u" or kind == "l" or kind == "k" or kind == "a" or kind == "c" or
-        kind == "b" or kind == "v" or kind == "z" or kind == "g" or kind == "j" then
+        kind == "b" or kind == "v" or kind == "z" or kind == "g" or kind == "j" or
+        kind == "y" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
     elseif kind == "t" or kind == "w" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
@@ -242,7 +245,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v2" then
       local kind, encoded_path, encoded_answer =
-        line:match("^([osdertulkacbvwzgj]) ([0-9a-f]*) ?([0-9a-f]*)$")
+        line:match("^([osdertulkacbvwzgjy]) ([0-9a-f]*) ?([0-9a-f]*)$")
       local path: string = nil
       local answer: string = nil
       if encoded_path ~= nil then
@@ -370,20 +373,54 @@ local function directory_result_answer(entries: {string:string} | nil,
   return table.concat(parts, "")
 end
 
---- What a confined process has without its test naming it: the
---- system's programs and libraries, its configuration, the devices a
---- program takes for granted, and /proc, where a program finds itself
---- (`/proc/self/exe`) and its descriptors (`/dev/fd`) -- each where
---- this host has it. /proc alone does not enter a key: a confined
---- process's is a procfs of its own pid namespace, holding its own
---- processes and nothing of the host's.
+--- The system's programs and libraries and its configuration: what a
+--- host program, or the dynamic loader that starts one, reads.
+local system_paths: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32",
+  "/etc" }
+
+--- Whether `path`, absolute, is one of `system_paths` or beneath one.
+function observations.in_system(path: string): boolean
+  for _, system_path in ipairs(system_paths) do
+    if Fs.within(path, system_path) then return true end
+  end
+  return false
+end
+
+--- The devices a program takes for granted, and /proc, where a program
+--- finds itself (`/proc/self/exe`) and its descriptors (`/dev/fd`): all
+--- a process of this program needs of the host's to start and run a
+--- test that starts no host program. Traced, a worker of such a test
+--- opens /dev/urandom (SQLite's unix VFS seeds its randomness there),
+--- /dev/null (a child's "null" stream), /proc/self/exe and
+--- /proc/thread-self/children, and nothing of /usr, /lib or /etc;
+--- /dev/zero it does not open, but a program takes it for granted as it
+--- does /dev/null, and its every answer is the same. /proc alone does
+--- not enter a key: a sandboxed process's is a procfs of its own pid
+--- namespace, holding its own processes and nothing of the host's. The
+--- devices' every answer is the same, or none a key could hold
+--- (/dev/urandom's).
 -- TODO: keep a confined process from the host's state where the kernel
 -- refuses it a procfs of its own and it has the host's /proc (a
 -- container masking parts of it: core/syscalls.c's `place_proc`), which
 -- it can read there without that entering the key: refused, as the
 -- TODO there asks, once no container the tree is tested in masks /proc.
-local system: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32",
-  "/etc", "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
+local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
+
+--- Whether `path`, absolute, is one of `runtime_paths` or beneath one:
+--- what every sandboxed worker is given, and no package installs.
+function observations.in_runtime(path: string): boolean
+  for _, runtime_path in ipairs(runtime_paths) do
+    if Fs.within(path, runtime_path) then return true end
+  end
+  return false
+end
+
+--- What a confined process has without its test naming it, each where
+--- this host has it (and, in a sandboxed worker, where the worker was
+--- given it): the system's paths and the runtime's.
+local system: {string} = {}
+for _, path in ipairs(system_paths) do system[#system + 1] = path end
+for _, path in ipairs(runtime_paths) do system[#system + 1] = path end
 
 --- What the running test declared its processes need, or nil: see
 --- `observations.confine`.
@@ -436,8 +473,10 @@ end
 --- (`Resolving`'s `held`).
 --- Declares what every process the calling test starts from here on
 --- needs: `declared.reads`, read-only, and `declared.writes`, which it
---- may change, beside `system` and the test's own
---- directory and every directory it made, which it may change too. Each is held to that by the
+--- may change, beside `system` -- each of it the worker has: a
+--- sandboxed worker whose module does not declare `system` has only
+--- the runtime's -- and the test's own directory and every directory
+--- it made, which it may change too. Each is held to that by the
 --- kernel -- a root of its own holding those paths and nothing else,
 --- and no network (the process table's `Sandbox`, `unveil` and `offline`) -- so what
 --- it read is known, and a test whose processes all ran confined can
@@ -546,17 +585,20 @@ end
 --- What a sandboxed worker of this very program -- `cosmic test`'s,
 --- started as `Proc.relaunch` says, in `cwd` -- has to be given to start
 --- and run a test of the tree at `tree`, beside what the test itself
---- reads: to read, `system` (/proc and /dev/null among it) where this
---- host has it, the program, its core and the stamp that spares
---- hashing it again (`itself`), the tree's store (o/cosmic.db, which a
---- worker attaches), and `cwd`, where given; to change, `scratch`, its
---- temporary directory. Each is there as it is given, so each may be
---- handed to `process.spawn`'s `unveil` whole. The worker can confine
---- what its test starts in turn, having a /proc of its own -- but
---- where the kernel refuses it one and its /proc is the host's,
---- read-only. `cosmic test`'s sandbox (build/test_sandbox.tl) gives a
---- worker these, and what its test's module reads.
-function observations.worker_unveil(tree: string, cwd: string | nil, scratch: string): raw_process.Unveil
+--- reads: to read, `runtime_paths` (/proc and /dev/null among them),
+--- and with `with_system`, for a module that declares `system`,
+--- `system_paths` too, each where this host has it; the program, its
+--- core and the stamp that spares hashing it again (`itself`), the
+--- tree's store (o/cosmic.db, which a worker attaches), and `cwd`,
+--- where given; to change, `scratch`, its temporary directory. Each is
+--- there as it is given, so each may be handed to `process.spawn`'s
+--- `unveil` whole. The worker can confine what its test starts in
+--- turn, having a /proc of its own -- but where the kernel refuses it
+--- one and its /proc is the host's, read-only. `cosmic test`'s sandbox
+--- (build/test_sandbox.tl) gives a worker these, and what its test's
+--- module reads.
+function observations.worker_unveil(tree: string, cwd: string | nil, scratch: string,
+                                    with_system?: boolean): raw_process.Unveil
   local reads: {string} = {}
   local seen: {string:boolean} = {}
   local function add(path: string)
@@ -566,7 +608,10 @@ function observations.worker_unveil(tree: string, cwd: string | nil, scratch: st
     seen[path] = true
     reads[#reads + 1] = path
   end
-  for _, path in ipairs(system) do add(path) end
+  if with_system then
+    for _, path in ipairs(system_paths) do add(path) end
+  end
+  for _, path in ipairs(runtime_paths) do add(path) end
   for _, path in ipairs(observations.itself()) do add(path) end
   add((tree == "/" and "" or tree) .. "/o/cosmic.db")
   if cwd ~= nil then add(cwd) end
@@ -1259,6 +1304,64 @@ local function start(resolving: observations.Resolving | nil):
       found[#found + 1] = { kind = noted, path = path, answer = resolved }
     end
   end
+  --- Notes "y", in a sandboxed worker (`Resolving`'s `held`), the
+  --- program a process it starts runs, and the interpreter a script's
+  --- first line names: a process is noted by what its sandbox holds, not
+  --- by what it ran, and the audit asks `system` of a module whose
+  --- processes run the system's own (`build.test`'s `audited`). For the
+  --- audit alone: the worker's key is its declared inputs', which these
+  --- do not move.
+  -- TODO: note what a process of this program the test starts notes in
+  -- turn -- a relaunched core running a chunk that starts /bin/sh, or a
+  -- nested `cosmic test` whose own worker does -- once an inner run can
+  -- hand its "y" notes up to the process that started it (a file its
+  -- parent names in a variable, which the inner runner appends to):
+  -- today such a grandchild's program is seen by no audit, and a test
+  -- that needs `system` for it fails with a bare "start: No such file or
+  -- directory".
+  local function note_program(given: string, cwd: string | nil)
+    -- A test of spawn's argument checks may hand it no string at all,
+    -- which the call itself raises for.
+    local handed: any = given
+    if resolving == nil or resolving.held == nil or not handed is string or given == "" then
+      return
+    end
+    local path = given
+    -- A relative program is found from where it starts.
+    if path:sub(1, 1) ~= "/" then
+      local from = cwd
+      if from == nil then
+        local here, _ = getcwd()
+        from = here
+      end
+      if from == nil or from:sub(1, 1) ~= "/" then return end
+      local names: {string} = {}
+      for name in (from .. "/" .. path):gmatch("[^/]+") do
+        if name == ".." then
+          names[#names] = nil
+        elseif name ~= "." then
+          names[#names + 1] = name
+        end
+      end
+      path = "/" .. table.concat(names, "/")
+    end
+    found[#found + 1] = { kind = "y", path = path, answer = "" }
+    -- Its first line, read as an open the log notes too: the program
+    -- is what the process was to read first. This program's own launcher
+    -- is such a script (build/launcher.tl), which a test that declares
+    -- `tool` may start. A regular file alone: an open of a FIFO would
+    -- wait for a writer, and one of a device may do what it does.
+    local st, _ = stat(path)
+    if st == nil or st.kind ~= "file" then return end
+    local fd, _ = sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK)
+    if fd == nil then return end
+    local head, _ = sys.read(fd, 256)
+    local _, _ = sys.close(fd)
+    local interpreter = (head or ""):match("^#!%s*(/[^%s]+)")
+    if interpreter ~= nil then
+      found[#found + 1] = { kind = "y", path = interpreter, answer = "" }
+    end
+  end
   --- Notes what a process started unveiled and offline had: each path
   --- it read, unless the test's own; each it could change beyond the
   --- test's own, which no key holds; the environment it inherited; and
@@ -1317,6 +1420,7 @@ local function start(resolving: observations.Resolving | nil):
       return logged_spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group,
         fds, sandbox)
     end
+    note_program(path, cwd)
     -- A sandbox of its own that unveils and takes the network holds a
     -- process as a confinement does, and is noted the same. It is read
     -- as the core reads it, raw, and a plain copy is what the core is

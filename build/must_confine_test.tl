@@ -12,11 +12,13 @@ local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's; and what holds a run to
---- sandboxing (`unsandboxed`).
+--- tool's own modules besides the closure's, and the system's `sh`,
+--- which the runs it starts start; and what holds a run to sandboxing
+--- (`unsandboxed`).
 Test.needs{
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  system = true,
 }
 
 -- What these tests start is this very program.
@@ -77,6 +79,10 @@ local preamble = [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.needs { system = true }
+
 local record Run
   passed: boolean
 end
@@ -223,6 +229,10 @@ local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
   assert(Fs.write(root .. "/suite/real_test.tl", string.format([[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { system = true }
+
 local record Run
   passed: boolean
 end

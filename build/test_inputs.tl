@@ -17,10 +17,11 @@
 --- Its module declares the rest: paths of the tree (`reads`), of the
 --- host (`host`), environment variables (`env`), the network
 --- (`network`), processes no sandbox holds (`processes`), the tool
---- itself (`tool`), and the tree's projection opened directly
---- (`store`). Of them, the closure's modules are always enforced: a
---- worker lets a test `require` no other module of the tree
---- (`build.test_worker`'s `refusal`). A sandboxed worker is held to
+--- itself (`tool`), the tree's projection opened directly (`store`),
+--- and the system's own programs and files (`system`). Of them, the
+--- closure's modules are always enforced: a worker lets a test
+--- `require` no other module of the tree (`build.test_worker`'s
+--- `refusal`). A sandboxed worker is held to
 --- all of them (`build.test_sandbox`), and its verdict keyed by them
 --- (`build.declared_key`); an unsandboxed one is held to nothing else,
 --- and keyed by what it was seen to read, and the audit compares them
@@ -53,6 +54,10 @@ local record test_inputs
     processes: boolean
     tool: boolean
     store: boolean
+    --- Whether its worker is given the system's own paths
+    --- (`observations.worker_unveil`), and its key the host's packages
+    --- and system (`declared_key.system_identity`).
+    system: boolean
     --- The host caches declared, by name (`build.caches`), and where
     --- they are on this host, once the runner resolves them: empty until
     --- then.
@@ -62,8 +67,8 @@ local record test_inputs
 
   --- One input a test read that its effective inputs do not hold,
   --- named by the field of `cosmic.test`'s `Needs` that would declare it:
-  --- "reads", "host", "env", "network", "processes", "tool" or
-  --- "store".
+  --- "reads", "host", "env", "network", "processes", "tool", "store"
+  --- or "system".
   record Finding
     field: string
     value: string
@@ -153,7 +158,8 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, caches = {}, cache_paths = {},
+    processes = false, tool = false, store = false, system = false, caches = {},
+    cache_paths = {},
   }
   local files, fuzzes = closure(m, by_path, declarations)
   for _, file in ipairs(files) do out.files[file] = true end
@@ -168,6 +174,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     for _, name in ipairs(declared.env) do out.env[name] = true end
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.processes, out.tool, out.store = declared.processes, declared.tool, declared.store
+    out.system = declared.system == true
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
       out.caches[#out.caches + 1] = name
@@ -325,8 +332,9 @@ end
 --- - `localhost`, `localhost.` and any name under `.localhost` are
 ---   answered by curl itself (vendor/curl/lib/vdns/hostip.c), never
 ---   looked up, for a request of `cosmic.http`; a child program that
----   resolves through libc reads /etc/hosts, a system path every worker
----   is given and the host's identity holds.
+---   resolves through libc reads /etc/hosts, a system path only a
+---   worker whose module declares `system` is given, and whose key
+---   holds the host's system (`declared_key.system_identity`).
 ---
 --- A test that needed a service of the host's on its loopback now fails,
 --- rather than standing on a verdict that service gave. Unsandboxed, a
@@ -404,7 +412,7 @@ end
 --- The fields of `cosmic.test`'s `Needs`, in the order a suggestion
 --- writes them.
 local field_order: {string} = {
-  "reads", "host", "env", "network", "processes", "tool", "store",
+  "reads", "host", "env", "network", "processes", "tool", "store", "system",
 }
 
 --- The audit of one test module, as lines to print: what its tests read
@@ -434,7 +442,7 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
   }
   local declared: analyzer.Declared = m.inputs or {
     line = 0, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, caches = {},
+    processes = false, tool = false, store = false, system = false, caches = {},
   }
   -- Each value by the tests that read it, and those tests by the set of
   -- them, so tests that read alike share a line.
@@ -518,9 +526,9 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
     list_field("network", declared.network, false)
     wanted.network = was
   end
-  for _, flag in ipairs({ "processes", "tool", "store" }) do
+  for _, flag in ipairs({ "processes", "tool", "store", "system" }) do
     local on = flag == "processes" and declared.processes or flag == "tool" and declared.tool or
-      flag == "store" and declared.store
+      flag == "store" and declared.store or flag == "system" and declared.system
     if on or wanted[flag] ~= nil then parts[#parts + 1] = flag .. " = true" end
   end
   if #(declared.caches or {}) > 0 then
@@ -553,6 +561,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if declared.processes then lines[#lines + 1] = "processes true" end
   if declared.tool then lines[#lines + 1] = "tool true" end
   if declared.store then lines[#lines + 1] = "store true" end
+  if declared.system then lines[#lines + 1] = "system true" end
   list("caches", declared.caches or {})
   return table.concat(lines, "\n")
 end
@@ -570,7 +579,8 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
   end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = network, processes = needs.processes == true,
-    tool = needs.tool == true, store = needs.store == true, caches = needs.caches or {} }
+    tool = needs.tool == true, store = needs.store == true, system = needs.system == true,
+    caches = needs.caches or {} }
 end
 
 return test_inputs

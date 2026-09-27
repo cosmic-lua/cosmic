@@ -5,9 +5,10 @@ local Test = require("cosmic.test")
 --- What the probe reads of the host, and the shell it starts under each
 --- sandbox, which inherits the environment: it asks what the host holds.
 Test.needs{
-  host = { "/etc", "/proc", "/usr/" },
+  host = { "/proc" },
   env = { "*" },
   processes = true,
+  system = true,
 }
 
 --- A report of a host where every part held but the unveiling.

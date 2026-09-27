@@ -68,37 +68,38 @@
    `cosmic test` has none unless it names one.
    Run sandboxed (the default where the kernel can), a test is keyed by
    what it declares -- its closure, its `Test.needs`, their contents and
-   values, the core -- and by the host (its packages, kernel, user and
-   capabilities), before it runs (`build/declared_key.tl`): it stands
-   while none of that changes, and nothing is assumed. A test whose
-   module declares the network has no key: it runs every time, and the
-   summary counts it so -- unless it declares only loopback hosts
-   (`localhost`, `::1`, `127.a.b.c`), whose worker runs offline, on a
-   loopback of its own, and is keyed. A worker, and every process it
-   starts, is given at o/cosmic.db the store of its module's import
-   closure alone, keyed by its address. Sandboxed or not, a worker whose module
-   declares neither `store` nor `tool` holds every other lookup in the
-   store to that closure too (`build/test_worker.tl`'s `hold_store`):
-   `Store.bytecode` or `Store.source` of a module of the tree outside
-   it, or a searcher called by hand, answers none, and
-   `Store.databases()`, whose handles read every module's rows, raises,
-   each naming the fix. So require a module the test reads at its top
-   level (`local type _ = require(...)` for a declaration a type-checked
-   snippet needs), or declare `store = true` where a test reads rows of
-   modules outside its closure (their docs, catalog or bytecode, that
-   way, through a verb run in-process, or by opening o/cosmic.db
-   itself), and only there -- in a module of its own, if the rest of
-   its tests need not -- since that test runs again on every edit to
-   the tree.
-   `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still
-   reads the system's own paths, /dev and /proc, keyed only through the
+   values, the core -- and by the host (its kernel, processor, user and
+   capabilities; its packages and system only for a module that declares
+   `system`, or a `host` directory), before it runs
+   (`build/declared_key.tl`): it stands while none of that changes, and
+   nothing is assumed. A test whose module declares the network has no
+   key: it runs every time, and the summary counts it so -- unless it
+   declares only loopback hosts (`localhost`, `::1`, `127.a.b.c`), whose
+   worker runs offline, on a loopback of its own, and is keyed. A
+   worker, and every process it starts, is given at o/cosmic.db the
+   store of its module's import closure alone, keyed by its address.
+   Sandboxed or not, a worker whose module declares neither `store` nor
+   `tool` holds every other lookup in the store to that closure too
+   (`build/test_worker.tl`'s `hold_store`): `Store.bytecode` or
+   `Store.source` of a module of the tree outside it, or a searcher
+   called by hand, answers none, and `Store.databases()`, whose handles
+   read every module's rows, raises, each naming the fix. So require a
+   module the test reads at its top level (`local type _ = require(...)`
+   for a declaration a type-checked snippet needs), or declare
+   `store = true` where a test reads rows of modules outside its closure
+   (their docs, catalog or bytecode, that way, through a verb run
+   in-process, or by opening o/cosmic.db itself), and only there -- in a
+   module of its own, if the rest of its tests need not -- since that
+   test runs again on every edit to the tree.
+   `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
+   /proc, /dev/null, /dev/zero and /dev/urandom, keyed only through the
    host's identity, and the program, its core and its database, keyed
    through the runtime's identity but for the database's modules, which
    the hold above keeps a test from reading through the store unless it
    declares `store` or `tool` -- but not through the descriptor a
    portable start keeps on the program, which a test can read directly
-   (the TODO above core/syscalls_fs.c's `read`). A test that starts
-   this program declares `tool = true`: sandboxed, one that does not is
+   (the TODO above core/syscalls_fs.c's `read`). A test that starts this
+   program declares `tool = true`: sandboxed, one that does not is
    refused it, and `--audit` names it.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a
    test is keyed instead by what it was seen to read, and shares no
@@ -146,11 +147,17 @@
    Each worker runs sandboxed to those inputs (`build/test_sandbox.tl`),
    wherever the kernel can sandbox one: the tree at /tree, its directory
    at /tmp, and nothing else of either, with every process it starts, so
-   a test that reads what it does not declare fails. Where none can be
-   (macOS, a host refusing user namespaces), or with
-   `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed and the run shares
-   no verdict; `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's
-   Linux legs set it.
+   a test that reads what it does not declare fails. Nor has it the
+   system's own paths (/usr, /bin, /lib, /etc and the like) unless its
+   module declares `system = true`, as one that starts a host program --
+   a shell, `sleep`, a compiler, o/bin/cosmic's `#!/bin/sh` launcher --
+   must; a test that starts cosmic's core past the launcher
+   (`observations.program`) needs none, and one that reads a file or two
+   of the system names them in `host`. `--audit` names a host program a
+   test ran undeclared. Where none can be (macOS, a host refusing user
+   namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
+   and the run shares no verdict; `COSMIC_TEST_SANDBOX=1` makes that a
+   failure, as CI's Linux legs set it.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and

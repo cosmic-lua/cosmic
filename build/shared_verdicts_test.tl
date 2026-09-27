@@ -505,7 +505,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   -- longer reaches.
   assert(second:find("none of 4 tests looked up stood, though " .. cache ..
     " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
-  assert(second:find("host features %x+, host %x+, runtime %x+") ~= nil, second)
+  assert(second:find("host features %x+, host %x+, system %x+, runtime %x+") ~= nil, second)
 end
 
 --- A run none of whose lookups stood is told what the cache held: its

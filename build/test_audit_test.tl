@@ -101,7 +101,7 @@ local function test_audited_names_what_the_inputs_do_not_hold(tmp: string)
     { kind = "e", path = "TMPDIR", answer = "absent" },
     { kind = "e", path = "USER", answer = "absent" },
     { kind = "e", path = "\0environ", answer = "hash" },
-    { kind = "p", path = "/bin/sh", answer = "" },
+    { kind = "p", path = "/opt/elsewhere/tool", answer = "" },
     { kind = "x", path = "http://127.0.0.1:1/", answer = "" },
     { kind = "x", path = "fd 5", answer = "" },
     { kind = "o", path = root .. "/o/bin/cosmic", answer = "" },
@@ -120,6 +120,58 @@ local function test_audited_names_what_the_inputs_do_not_hold(tmp: string)
     "tool o/bin/cosmic",
     "store o/cosmic.db",
   }, "\n"), table.concat(said, "\n"))
+end
+
+--- A program of the system's own that a sandboxed worker's process ran
+--- ("y"), or the interpreter a script it ran names, asks `system` of a
+--- module that does not declare it, as one an unsandboxed worker
+--- started ("p") does; a program elsewhere asks nothing. Asked, `system`
+--- holds the test's own reads beneath the system's paths, which ask no
+--- `host` beside it. Declared, it holds them all.
+local function test_a_program_of_the_system_asks_system(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/root"
+  local scratch = assert(Fs.absolute(tmp)) .. "/scratch"
+  local m: positions.Module = { path = "a.thing_test", file = "a/thing_test.tl", kind = "test",
+    requires = {}, tests = { "test_x" } }
+  local effective = test_inputs.effective(m, { [m.path] = m }, {})
+  local reads: {observations.Observation} = {
+    { kind = "y", path = scratch .. "/stub", answer = "" },
+    { kind = "y", path = "/bin/sh", answer = "" },
+    { kind = "y", path = "/usr/bin/env", answer = "" },
+    { kind = "y", path = "/opt/elsewhere/tool", answer = "" },
+    { kind = "s", path = "/etc/hosts", answer = "ok 1 2 file" },
+  }
+  local function said(found: {test_inputs.Finding}): string
+    local lines: {string} = {}
+    for _, finding in ipairs(found) do lines[#lines + 1] = finding.field .. " " .. finding.value end
+    return table.concat(lines, "\n")
+  end
+  local found = said(test.audited(root, scratch, effective, reads, {}))
+  assert(found == "system /bin/sh\nsystem /usr/bin/env", found)
+  -- Without a program of the system's, a read of its file asks `host`.
+  found = said(test.audited(root, scratch, effective, { reads[5] }, {}))
+  assert(found == "host /etc/hosts", found)
+  effective.system = true
+  found = said(test.audited(root, scratch, effective, reads, {}))
+  assert(found == "", found)
+end
+
+--- A program looked for along PATH (`Proc.find`) in a directory of the
+--- system's programs, where the host has it, asks `system`, which gives
+--- its loader too, not `host` of each place looked.
+local function test_a_program_looked_for_among_the_system_s_asks_system(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/root"
+  local scratch = assert(Fs.absolute(tmp)) .. "/scratch"
+  local m: positions.Module = { path = "a.thing_test", file = "a/thing_test.tl", kind = "test",
+    requires = {}, tests = { "test_x" } }
+  local effective = test_inputs.effective(m, { [m.path] = m }, {})
+  local found = test.audited(root, scratch, effective, {
+    { kind = "s", path = "/bin/sh", answer = "ok 1 2 file" },
+    { kind = "s", path = "/usr/bin/sh", answer = "ok 1 2 file" },
+  }, {})
+  local said: {string} = {}
+  for _, finding in ipairs(found) do said[#said + 1] = finding.field .. " " .. finding.value end
+  assert(table.concat(said, "\n") == "system /bin/sh\nsystem /usr/bin/sh", table.concat(said, "\n"))
 end
 
 --- What a test reads or writes beneath a host cache its module
