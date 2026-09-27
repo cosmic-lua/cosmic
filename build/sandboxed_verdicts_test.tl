@@ -452,6 +452,48 @@ local function test_a_change_to_the_harness_runs_every_test_again(tmp: string)
   assert(moved:find("4 ran, 0 stood", 1, true), moved)
 end
 
+--- A compiler of another identity that makes the same bytecode --
+--- stood in for by COSMIC_TEST_COMPILER_SALT, under which the tree is
+--- compiled again -- moves no key but that of a test whose closure
+--- reads the compiler's identity (build/declared_key.tl's
+--- `compiler_readers`, which the fixture's `core.allocation_test`
+--- stands in for by its name): the module's key the key holds is the
+--- compiler's graph key, the store's address holds what the compiler
+--- made, and the compiler itself only where it is read.
+local function test_a_compiler_that_makes_the_same_bytecode_runs_only_its_readers(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_plain()
+  assert(lib.value == 1)
+end
+]]))
+  assert(Fs.write(root .. "/core/allocation_test.tl", [[
+local lib = require("suite.lib")
+
+local function test_reads()
+  assert(lib.value == 1)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  assert(first:find("2 ran, 0 stood", 1, true), first)
+  env.COSMIC_TEST_COMPILER_SALT = "another compiler"
+  local moved = run(root, tmp .. "/moved.out", env)
+  assert(moved:find("1 ran, 1 stood", 1, true), moved)
+  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
+    "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
+  assert(db:close())
+  assert(rows[1][1] == "core.allocation_test", "ran under another compiler: " .. rows[1][1])
+end
+
 --- A test whose module does not declare `store` is given the store of
 --- its import closure at o/cosmic.db (build/writer.tl's `closure`), in
 --- the projection's place: it holds none of the tree's modules outside

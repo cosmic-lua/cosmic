@@ -26,11 +26,16 @@ local bind = require("build.bind")
 local record writer
   --- What every closure store a projection yields is a function of,
   --- read once from the projection (`writer.closure_basis`): each module
-  --- as a line naming its path, kind, file, source hash, key and tests --
-  --- what its bytecode, source, docs, uses and catalog rows follow from,
-  --- the key holding the compiler that compiled and parsed it -- and a
-  --- digest of what every store holds alike: the `meta` rows it keeps
-  --- (`closure_meta`) and the declarations.
+  --- as a line naming its path, kind, file, source hash and tests, and
+  --- the digests of its bytecode and of the rows a store carries of it --
+  --- its imports, docs, uses, catalog and examples -- and a digest of
+  --- what every store holds alike: the `meta` rows it keeps
+  --- (`closure_meta`), the declarations and their docs. What the
+  --- compiler made of a module is so held by what it made, not by the
+  --- compiler's identity (`build.work`'s `Identities`), which moves with
+  --- every edit to any module of the importer's closure, most of which
+  --- change nothing it makes: an edit to the compiler that leaves every
+  --- row of a closure as it was leaves its store and its address too.
   record Basis
     modules: {string:string}
     shared: string
@@ -527,11 +532,37 @@ end
 --- moves with a module outside the closure. `boot_hash` hashes every
 --- file of the tree and `projected` signs every module; `writer` and
 --- `written_by` name the writer's import closure, which holds much of
---- the standard library (cosmic.json among it). Each left out is
---- answered by the tool's own `meta`, the next database `Store.meta`
---- searches; what writes a closure store is named in its address
---- instead (`closure_address`'s `salt`).
-local closure_meta <const> = "('compiled_by', 'compiler', 'image_hash', 'main', 'runtime_basis')"
+--- the standard library (cosmic.json among it); `compiler` and
+--- `compiled_by` name the importer's. Each left out is answered by the
+--- tool's own `meta`, the next database `Store.meta` searches; what
+--- writes a closure store is named in its address instead
+--- (`closure_address`'s `salt`), and a test whose closure reads the
+--- compiler's identity is keyed by the tool's (`build.declared_key`'s
+--- `compiler_readers`).
+local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
+
+--- The digest of the rows of `from`, the table of a projection `db`
+--- holds, by each value of its column `of`: of each row's `columns`,
+--- each quoted (`quote`) so no two rows spell one line, in `order`. A
+--- text is quoted as a blob of its bytes, since quote() ends a text at
+--- its first NUL, which a blob's hex does not (as `build.declared_key`'s
+--- `carried_digest` quotes it).
+local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: string,
+                       order: string): {string:string} | nil, string
+  local quoted: {string} = {}
+  for i, column in ipairs(columns) do
+    quoted[i] = "typeof(" .. column .. ") || ':' || quote(CASE WHEN typeof(" .. column ..
+      ") = 'text' THEN CAST(" .. column .. " AS BLOB) ELSE " .. column .. " END)"
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. of .. ", lower(hex(sha256(group_concat(" ..
+    table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
+    "FROM " .. from .. " GROUP BY " .. of)
+  if rows == nil then return nil, trouble end
+  local out: {string:string} = {}
+  for _, row in ipairs(rows) do out[row[1]] = row[2] end
+  return out, ""
+end
 
 --- The basis of the closure stores of the projection at `whole`.
 function writer.closure_basis(whole: string): writer.Basis | nil, string
@@ -541,25 +572,57 @@ function writer.closure_basis(whole: string): writer.Basis | nil, string
   local function read(): writer.Basis | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
-      "lower(hex(source_hash)) || char(9) || lower(hex(key)) || char(9) || " ..
-      "lower(hex(sha256(tests))) FROM modules ORDER BY path")
+      "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
+      "lower(hex(sha256(tests))), file FROM modules ORDER BY path")
     if rows == nil then return nil, rows_trouble end
+    -- The rows `closed` carries of each module, as it carries them: by
+    -- its path, or, for its examples, by its file.
+    local carried: {{string:string}} = {}
+    local by_file: {boolean} = {}
+    for _, group in ipairs({
+      { "path", "requires", "imports", "requires" },
+      { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
+      { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
+      { "module", "kind symbol message text file line", "catalog", "id" },
+      { "file", "module name text line source", "examples", "id" },
+    }) do
+      local columns: {string} = {}
+      for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
+      local digests, group_trouble = grouped(db, group[1], columns, group[3], group[4])
+      if digests == nil then return nil, group_trouble end
+      carried[#carried + 1] = digests
+      by_file[#carried] = group[1] == "file"
+    end
     local shared, shared_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
       "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '') || char(10) || " ..
       "coalesce((SELECT group_concat(path || ' ' || lower(hex(sha256(source))), char(10) " ..
       "ORDER BY path) FROM decls), '')")
     if shared == nil then return nil, shared_trouble end
+    local declared, declared_trouble = grouped(db, "module",
+      { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },
+      "docs WHERE module IN (SELECT path FROM decls)", "id")
+    if declared == nil then return nil, declared_trouble end
+    local decl_docs: {string} = {}
+    for module, digest in pairs(declared) do
+      decl_docs[#decl_docs + 1] = module .. " " .. digest
+    end
+    table.sort(decl_docs)
     local names, names_trouble = Sqlite.text_rows(db,
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
     local basis: writer.Basis = { modules = {}, kinds = {}, pairable = {} }
     for _, row in ipairs(rows) do
-      basis.modules[row[1]] = row[2]
+      local line: {string} = { row[2] }
+      for i, digests in ipairs(carried) do
+        line[#line + 1] = digests[by_file[i] and row[3] or row[1]] or ""
+      end
+      basis.modules[row[1]] = table.concat(line, "\t")
       basis.kinds[row[1]] = row[2]:match("^[^\t]*\t([^\t]*)")
     end
     for i, row in ipairs(names) do basis.pairable[i] = row[1] end
-    basis.shared = Hash.hex_sha256("closure-store-2\n" .. shared[1][1])
+    basis.shared = Hash.hex_sha256("closure-store-3\n" .. shared[1][1] .. "\n" ..
+      table.concat(decl_docs, "\n"))
     return basis, ""
   end
   local basis, read_trouble = read()
@@ -637,7 +700,11 @@ end
 local closed: {string} = {
   "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
     " ORDER BY key",
-  "INSERT INTO main.modules SELECT * FROM whole.modules " ..
+  -- Every column but the key, which holds the compiler's identity: no
+  -- worker reads a store's keys, and its address holds what the
+  -- compiler made instead (`Basis`).
+  "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+    "SELECT path, file, kind, source_hash, X'', bytecode, tests, source FROM whole.modules " ..
     "WHERE path IN temp.wanted ORDER BY path",
   "INSERT INTO main.imports SELECT * FROM whole.imports " ..
     "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",

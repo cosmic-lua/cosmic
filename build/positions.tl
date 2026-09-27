@@ -42,6 +42,11 @@ local record positions
     --- see `discount_doctest_shadow_warnings`.
     generated: boolean
     key: string
+    --- `key` less the compiler: the digest of the kinds and sources of
+    --- the module's import graph alone, which a sandboxed test's key
+    --- holds in `key`'s place (`build.declared_key`), since what the
+    --- compiler made of that graph it holds by the bytes it made.
+    graph_key: string
     --- The compiled Lua, once `build.importer.compile` has it: made
     --- this run or read back from the cache under the same key.
     lua: string
