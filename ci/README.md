@@ -112,7 +112,11 @@ same bytes, and writes the release under `RELEASE`: `cosmic`,
 `SHA256SUMS`, `source.json` and `notes.md`. `prerelease-publish` reads
 `GH_TOKEN`, `REPOSITORY`, `RELEASE`, `SOURCE_COMMIT`, `SOURCE_RUN_PREFIX`
 and `RUNNER_TEMP`, finds `gh` on `PATH`, and makes the staged release the
-immutable `next-<commit>` prerelease, or verifies the one already there;
+immutable `next-<commit>` prerelease, or verifies the one already there
+(or, where GitHub refuses the job's token the tag with an HTTP 403
+"Resource not accessible by integration" and the default branch's
+workflows differ from the commit's, makes nothing and prints a warning:
+that commit has no prerelease, and a pin moves to a later one);
 it resumes an interrupted draft only by accepting assets identical to the
 staged ones, and writes its downloads under `$RUNNER_TEMP/prerelease/`.
 `cosmic_ci/prerelease_test.tl` drives it against a fake `gh`

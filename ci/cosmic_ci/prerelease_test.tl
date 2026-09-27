@@ -281,7 +281,7 @@ local function test_publish_creates_tag_and_release(tmp: string)
   assert(read(r.state .. "/releases/1/title") == tag)
   local log = calls(r)
   assert(count(log, "release create ") == 1 and count(log, "release upload ") == 3)
-  assert(count(log, "api %-%-method POST repos/owner/repo/git/refs ") == 1)
+  assert(count(log, "api %-%-include %-%-method POST repos/owner/repo/git/refs ") == 1)
 end
 
 local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: string)
@@ -363,6 +363,45 @@ local function test_publish_refuses_api_failures_other_than_404(tmp: string)
     local log = calls(r)
     assert(count(log, "POST") == 0 and count(log, "release create") == 0, log)
   end
+end
+
+--- GitHub refused a GITHUB_TOKEN the tag once the default branch's
+--- workflows had moved past the commit (run 36333356031): the publish
+--- skips with a warning, making nothing, rather than failing main's run.
+local function test_publish_skips_a_commit_the_default_branchs_workflows_moved_past(tmp: string)
+  local r = repo(tmp)
+  assert(Fs.mkdirs(r.state .. "/fail"))
+  write(r.state .. "/fail/create-ref", "")
+  write(r.state .. "/compare", "build/x.tl\n.github/workflows/ci.yml\n")
+  local line = publish(r)
+  assert(line == "::warning::prerelease skipped: " .. tag .. ": GitHub refused the tag, " ..
+    "the default branch's workflows having moved past it", line)
+  assert(not exists(r.state .. "/tags") and not exists(r.state .. "/releases"))
+  local log = calls(r)
+  assert(count(log, "compare/" .. commit .. "%.%.%.main") == 1, log)
+  assert(count(log, "release create") == 0, log)
+end
+
+--- A refusal the default branch's workflows do not explain -- the
+--- token's permissions, a ruleset -- still fails the publish.
+local function test_publish_refuses_a_forbidden_tag_the_workflows_do_not_explain(tmp: string)
+  local r = repo(tmp)
+  assert(Fs.mkdirs(r.state .. "/fail"))
+  write(r.state .. "/fail/create-ref", "")
+  write(r.state .. "/compare", "build/x.tl\n.github/scripts/y.sh\n")
+  refused("git/refs -f ref=refs/tags/" .. tag .. " failed (HTTP status 403)", function() publish(r) end)
+  assert(not exists(r.state .. "/releases"))
+end
+
+--- A 403 of another kind -- a secondary rate limit -- fails the publish
+--- whatever the workflows, without asking the compare.
+local function test_publish_refuses_another_forbidden_answer(tmp: string)
+  local r = repo(tmp)
+  assert(Fs.mkdirs(r.state .. "/fail"))
+  write(r.state .. "/fail/create-ref", "You have exceeded a secondary rate limit")
+  write(r.state .. "/compare", ".github/workflows/ci.yml\n")
+  refused("failed (HTTP status 403)", function() publish(r) end)
+  assert(count(calls(r), "compare/") == 0, calls(r))
 end
 
 local function test_publish_refuses_a_release_that_is_no_prerelease(tmp: string)
