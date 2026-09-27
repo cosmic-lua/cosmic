@@ -48,6 +48,8 @@ allowed["build.filesystem_observations.confine"] = "a test's own declaration: " 
   "what the processes a test starts need, which only a test makes"
 allowed["build.filesystem_observations.environment"] = "a test's own declaration: " ..
   "what of the environment a process of this very program needs, which only a test starts"
+allowed["build.filesystem_observations.program"] = "how a test starts this program " ..
+  "past its launcher, as `cosmic test` starts a worker: only tests start it so"
 allowed["build.filesystem_observations.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
 allowed["build.filesystem_observations.sandboxed"] = "what a test of sharing asks of " ..
@@ -62,6 +64,12 @@ allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal "
   "text without a compile"
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
+allowed["build.importer.analyzer_identity"] = "tested directly: the test names " ..
+  "the analyzer of a projection it wrote as the binary would, which no " ..
+  "running binary but the tree's own carries"
+allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
+  "boot names its analyzer by to what the tool it writes names it by, around a " ..
+  "derive run as a boot runs it, which no binary under the suite otherwise does"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
   "than probe it per row, and no behaviour tells the two apart"

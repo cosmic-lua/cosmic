@@ -4,7 +4,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
@@ -192,9 +191,10 @@ end
 --- and whether it passed.
 local function run(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
-  local result, trouble = Child.run({ assert(Proc.executable()), "test", "--all" }, {
+  local started = observations.program({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)
@@ -352,9 +352,10 @@ end
 --- printed and whether it passed.
 local function run_again(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
-  local result, trouble = Child.run({ assert(Proc.executable()), "test" }, {
+  local started = observations.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)
@@ -469,9 +470,10 @@ local function test_second(tmp: string) hold(tmp) end
   end
   local output = tmp .. "/interrupted.out"
   local fd = assert(Fs.open_write(output))
-  local runner, trouble = Child.start(
-    { assert(Proc.executable()), "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
+  local interrupted = observations.program(
+    { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
     { cwd = root, env = env, stdout = fd, stderr = fd, process_group = true })
+  local runner, trouble = Child.start(interrupted.argv, interrupted.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000

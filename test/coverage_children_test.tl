@@ -16,13 +16,6 @@ local Test = require("cosmic.test")
 --- coverage is found; and the program itself, which its tests start.
 Test.needs{ host = { "/proc", "/usr" }, tool = true }
 
-local function environment(): {string:string}
-  local env = observations.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
-  return env
-end
-
 local function test_a_started_process_reports_its_c(tmp: string)
   if next(Coverage.native_lines()) == nil then return end
   local reports = tmp .. "/reports"
@@ -36,25 +29,40 @@ return function(): integer
   return 0
 end
 ]]))
+  -- TODO: start this program through `observations.program`, in this
+  -- parent and in test_processes_confined_apart_report_apart's, once it
+  -- moves to `cosmic.test` (the TODO above it in
+  -- build/filesystem_observations.tl): a file run cannot reach build/,
+  -- so each relaunches by hand.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   Coverage.children(argv[1])
-  -- An empty environment: only the core can carry the directory.
-  local r = assert(Child.run({ assert(Proc.executable()), argv[2] },
-    { env = {}, cwd = argv[3], stdout = "capture", stderr = "capture",
-      timeout_ms = 30000 }))
+  -- This program again, past its launcher, as `observations.program`
+  -- starts it (a file run cannot reach build/), in an empty environment
+  -- but for how to start the core: only the core can carry the
+  -- directory.
+  local relaunch = Proc.relaunch()
+  local words: {string} = {}
+  for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
+    words[#words + 1] = word
+  end
+  words[#words + 1] = argv[2]
+  local r = assert(Child.run(words, { env = relaunch ~= nil and relaunch.env or {},
+    fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
+    stderr = "capture", timeout_ms = 30000 }))
   assert(r.ok, tostring(r.stderr))
   print(assert(r.stdout):match("^(%a+)"))
   return 0
 end
 ]]))
-  local r = assert(Child.run({ assert(Proc.executable()), "parent.tl", reports,
+  local started = observations.program({ "parent.tl", reports,
     tmp .. "/child/child.tl", tmp .. "/child" },
-    { env = environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ms = 60000 }))
+    { env = observations.environment(), cwd = tmp .. "/parent", stdout = "capture",
+      stderr = "capture", timeout_ms = 60000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "unseen\n", "the child saw the directory: " .. tostring(r.stdout))
   local main_lines = 0
@@ -127,10 +135,10 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local r = assert(Child.run({ assert(Proc.executable()), "parent.tl", reports,
-    table.concat(reads, "\n") },
-    { env = environment(), cwd = tmp .. "/parent", stdout = "capture",
-      stderr = "capture", timeout_ms = 60000 }))
+  local started = observations.program({ "parent.tl", reports, table.concat(reads, "\n") },
+    { env = observations.environment(), cwd = tmp .. "/parent", stdout = "capture",
+      stderr = "capture", timeout_ms = 60000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local said = assert(r.stdout)
   if said:find("^host%-proc ") then return end
@@ -164,10 +172,11 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
       tmp .. "/unsigned" }) do
     local dir = value:match("[^:]*$")
     assert(Fs.mkdirs(dir))
-    local env = environment()
+    local env = observations.environment()
     env.COSMIC_COVERAGE_CHILDREN = value
-    local r = assert(Child.run({ assert(Proc.executable()), "-e", "return 0" },
-      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 60000 }))
+    local started = observations.program({ "-e", "return 0" },
+      { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 60000 })
+    local r = assert(Child.run(started.argv, started.options))
     assert(r.ok, tostring(r.stderr))
     local names = assert(Fs.list(dir))
     assert(#names == 0, tostring(index) .. ": a report of another build's core: " ..

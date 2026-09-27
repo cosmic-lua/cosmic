@@ -7,7 +7,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
@@ -17,15 +16,16 @@ Test.needs{ tool = true }
 
 --- Runs `cosmic test` on `root` with `words` after it -- `--all`, so a
 --- test no key holds runs, unless others are given.
-local function run(program: string, root: string, output: string,
-                   env: {string:string}, fails?: boolean, words?: {string}): string
+local function run(root: string, output: string, env: {string:string}, fails?: boolean,
+                   words?: {string}): string
   local fd = assert(Fs.open_write(output))
-  local argv: {string} = { program, "test" }
-  for _, word in ipairs(words or { "--all" }) do argv[#argv + 1] = word end
-  local result, trouble = Child.run(argv, {
+  local args: {string} = { "test" }
+  for _, word in ipairs(words or { "--all" }) do args[#args + 1] = word end
+  local started = observations.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(result ~= nil and result.ok == not fails, tostring(trouble) .. text)
@@ -93,21 +93,20 @@ local function test_plain()
   assert(1 + 1 == 2)
 end
 ]]))
-  local program = assert(Proc.executable())
   local env = observations.environment()
   -- Unsandboxed: what is keyed is a worker's read of the host.
   env.COSMIC_TEST_SANDBOX = "0"
   env.OUTSIDE = tmp .. "/outside"
-  local first = run(program, root, tmp .. "/first.out", env)
+  local first = run(root, tmp .. "/first.out", env)
   assert(first:find("6 ran, 0 stood", 1, true), first)
-  local second = run(program, root, tmp .. "/second.out", env)
+  local second = run(root, tmp .. "/second.out", env)
   assert(second:find("1 ran, 5 stood", 1, true), second)
   -- Rewritten in place, so nothing but the file itself says it changed:
   -- not its directory's listing or stat.
   local fd = assert(sys.open(root .. "/data/f", sys.O_WRONLY | sys.O_TRUNC))
   assert(sys.write(fd, "two\n") == 4)
   sys.close(fd)
-  local third = run(program, root, tmp .. "/third.out", env, true)
+  local third = run(root, tmp .. "/third.out", env, true)
   assert(third:find("4 of 6 failed", 1, true), third)
 end
 
@@ -138,7 +137,6 @@ local function test_plain()
 end
 ]]
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
-  local program = assert(Proc.executable())
   local env = observations.environment()
   -- Unsandboxed: what is keyed is a worker's read of the host.
   env.COSMIC_TEST_SANDBOX = "0"
@@ -147,7 +145,7 @@ end
   env.COSMIC_SANDBOX = nil
   env.FLAVOUR = "sweet"
   local function said(name: string, words: {string}, wanted: string, fails?: boolean)
-    local text = run(program, root, tmp .. "/" .. name .. ".out", env, fails, words)
+    local text = run(root, tmp .. "/" .. name .. ".out", env, fails, words)
     assert(text:find(wanted, 1, true), name .. ": " .. text)
   end
   said("first", {}, "2 ran, 0 stood")

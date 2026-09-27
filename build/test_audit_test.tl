@@ -4,7 +4,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
 local test_inputs = require("build.test_inputs")
@@ -22,10 +21,11 @@ local function audit(root: string, output: string): boolean, string
   -- and fails its test before the audit could name it.
   local env = observations.environment()
   env.COSMIC_TEST_SANDBOX = "0"
-  local result, trouble = Child.run({ assert(Proc.executable()), "test", "--audit" }, {
+  local started = observations.program({ "test", "--audit" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)

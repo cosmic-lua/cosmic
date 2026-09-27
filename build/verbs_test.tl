@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 local observations = require("build.filesystem_observations")
@@ -115,15 +114,14 @@ local function cosmic(dir: string, args: {string}): invoke.Result
   if needs_a_process(args) == nil then
     return invoke.run(args, { cwd = dir })
   end
-  local argv: {string} = { (assert(Proc.executable())) }
-  for _, word in ipairs(args) do argv[#argv + 1] = word end
   -- What of the environment the program needs, its temporary files --
   -- the directory of a test `cosmic test bad` fails, which it keeps --
   -- in this test's own directory.
-  local result, trouble = Child.run(argv, {
+  local started = observations.program(args, {
     cwd = dir, env = observations.environment(), stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   local ran = assert(result, trouble)
   return { code = ran.code, stdout = ran.stdout or "", stderr = ran.stderr or "" }
 end

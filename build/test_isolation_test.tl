@@ -5,7 +5,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local test = require("build.test")
@@ -30,12 +29,13 @@ end
 
 local function invoke(root: string, output: string, args: {string},
     env?: {string:string}): Child.Result
-  local argv: {string} = { assert(Proc.executable()), "test" }
-  for _, value in ipairs(args) do argv[#argv + 1] = value end
+  local words: {string} = { "test" }
+  for _, value in ipairs(args) do words[#words + 1] = value end
   local fd = assert(Fs.open_write(output))
-  local result, trouble = Child.run(argv, {
+  local started = observations.program(words, {
     cwd = root, env = env or environment(), stdout = fd, stderr = fd, timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   return (assert(result, trouble))
 end
@@ -224,9 +224,10 @@ local function test_second(tmp: string) hold(tmp, "second") end
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
-  local runner, trouble = Child.start(
-    { assert(Proc.executable()), "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
+  local held = observations.program(
+    { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
     { cwd = root, env = env, stdout = fd, stderr = fd })
+  local runner, trouble = Child.start(held.argv, held.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
@@ -278,9 +279,10 @@ end
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
-  local runner, trouble = Child.start(
-    { assert(Proc.executable()), "test", "--jobs", "1", "--timeout", "60", "suite/failed_test.tl" },
+  local failed = observations.program(
+    { "test", "--jobs", "1", "--timeout", "60", "suite/failed_test.tl" },
     { cwd = root, env = env, stdout = fd, stderr = fd })
+  local runner, trouble = Child.start(failed.argv, failed.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Time.monotonic_ns() + 20 * 1000 * 1000 * 1000
