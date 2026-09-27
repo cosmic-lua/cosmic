@@ -25,6 +25,11 @@ local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
 local render_mod = require("build.fix.render")
 local teal = require("build.teal")
+local Test = require("cosmic.test")
+
+--- A note names what the library already has from every module's docs
+--- (`near.known` over `Store.databases()`).
+Test.needs{ store = true }
 
 local built, load_trouble = teal.load()
 if built == nil then

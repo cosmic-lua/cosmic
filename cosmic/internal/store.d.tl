@@ -41,6 +41,15 @@ local record store
   --- puts every other back, whether it returned or raised.
   alone: function(function())
 
+  --- The binary's own database alone, as a borrowed handle, or nil when
+  --- there is none: where the data tables are read, which no hold covers.
+  binary: function(): sqlite.Handle | nil
+
+  --- Puts up a hold on the names the set holds as keys, saying why with
+  --- the text, or takes it down with nil: while it is up, the searcher,
+  --- `bytecode` and `source` answer none of them, and `databases` raises.
+  hold: function(names: {string:boolean} | nil, why?: string)
+
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.
   trusted_prefix: function(): string | nil, string

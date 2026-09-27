@@ -36,7 +36,8 @@ function Store.attach(path: string): boolean, string
 end
 
 --- One module's compiled bytes, for a caller that must load the chunk in
---- an environment of its own.
+--- an environment of its own; nil and why for none, or one a hold holds
+--- (`hold`).
 function Store.bytecode(name: string): string | nil, string
   return store.bytecode(name)
 end
@@ -50,8 +51,8 @@ end
 --- One module's Teal source, or a declaration's, from the binary's own
 --- database and no other: what a checker building another tree needs
 --- to type a `require` of this one's modules. Stored deflated, it is
---- inflated here; nil beside why when there is no such row or it will
---- not inflate.
+--- inflated here; nil beside why when there is no such row, a hold
+--- holds it (`hold`), or it will not inflate.
 function Store.source(name: string): string | nil, string
   return store.source(name)
 end
@@ -60,6 +61,7 @@ end
 --- own ahead of the binary's, which is always last. Each is a handle
 --- `cosmic.sqlite` reads through and never closes -- what a verb that
 --- asks about the shipped tables (`docs`, `uses`, `catalog`) queries.
+--- Raises while a hold is up (`hold`).
 function Store.databases(): {Sqlite.Handle}
   return store.databases()
 end
@@ -69,8 +71,7 @@ end
 --- rules `cosmic.time` reads. Nil and why when it carries no such zone
 --- or the query failed; `zone_names` tells the two apart.
 function Store.zoneinfo(name: string): string | nil, string
-  local databases = store.databases()
-  local binary = databases[#databases]
+  local binary = store.binary()
   if binary == nil then return nil, "the running binary has no database" end
   local rows, trouble = Sqlite.rows(binary, "SELECT data FROM zoneinfo WHERE name = ?1",
     { { text = name } })
@@ -82,14 +83,25 @@ end
 --- Every time zone name the binary's own database carries, as a set,
 --- or nil and why when the query failed.
 function Store.zone_names(): {string:boolean} | nil, string
-  local databases = store.databases()
-  local binary = databases[#databases]
+  local binary = store.binary()
   if binary == nil then return nil, "the running binary has no database" end
   local rows, trouble = Sqlite.text_rows(binary, "SELECT name FROM zoneinfo")
   if rows == nil then return nil, "the binary's zones: " .. trouble end
   local names: {string:boolean} = {}
   for _, row in ipairs(rows) do names[row[1]] = true end
   return names, ""
+end
+
+--- Holds every lookup of a module `names` holds as a key -- `require`'s
+--- searcher, called by `require` or by hand, `bytecode` and `source` --
+--- to answer as if no database held it, saying why with `why`, and has
+--- `databases` raise that, since a handle reads every module's rows;
+--- with nil, takes the hold down. `zoneinfo` and `zone_names` are not
+--- held. A test runner holds a test so to the modules its verdict is
+--- keyed by (`build.test_worker`). `names` is consulted as it stands,
+--- not copied.
+function Store.hold(names: {string:boolean} | nil, why?: string)
+  store.hold(names, why)
 end
 
 --- Calls `fn` searching only the binary's own database, as a process

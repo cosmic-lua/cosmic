@@ -2,6 +2,11 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sql = require("build.sql")
+local Test = require("cosmic.test")
+
+--- `cosmic sql` reads the running program's own database, every module's
+--- rows, through `Store.databases()`.
+Test.needs{ store = true }
 
 --- A temporary root whose o/cosmic.db holds one small table.
 local function project(): string

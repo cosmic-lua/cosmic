@@ -25,6 +25,10 @@
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
+/* The hold `store_hold` puts up: the set of names no lookup answers, and
+ * why, each in the registry while it is up and nil while it is not. */
+#define STORE_HOLD "cosmic.store.hold"
+#define STORE_HOLD_WHY "cosmic.store.hold.why"
 
 #ifndef COSMIC_TARGET_NAME
 #error "build.zig must define COSMIC_TARGET_NAME"
@@ -168,6 +172,39 @@ static int return_upvalue (lua_State *L) {
   return 1;
 }
 
+/* Whether a hold is up (`store_hold`) and, for a `name` not NULL,
+ * whether its set holds that name. Read raw, so nothing the set's owner
+ * hung on it runs here; it raises only on memory, before any lookup
+ * holds a resource. */
+static bool held (lua_State *L, const char *name) {
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  if (name == NULL) {
+    lua_pop(L, 1);
+    return true;
+  }
+  lua_pushstring(L, name);
+  bool holds = lua_rawget(L, -2) != LUA_TNIL && lua_toboolean(L, -1);
+  lua_pop(L, 2);
+  return holds;
+}
+
+/* Pushes why the hold refuses a lookup: of the module `name`, or, for
+ * NULL, of every database at once. */
+static void push_refusal (lua_State *L, const char *name) {
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY);
+  const char *why = lua_tostring(L, -1);
+  if (why == NULL) why = "a hold is up";
+  if (name != NULL)
+    lua_pushfstring(L, "module '%s' is held from the store: %s", name, why);
+  else
+    lua_pushfstring(L, "Store.databases() is held: %s", why);
+  lua_remove(L, -2);
+}
+
 /* Reads one module's bytecode out of one database. Returns 1 with the
  * chunk on the stack, 0 when that database does not hold it, and -1 with
  * a message on the stack when the read itself failed.
@@ -258,6 +295,12 @@ static int store_searcher (lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   int reserved = names_reserved(name);
+  if (held(L, name)) {
+    lua_pushliteral(L, "\n\t");
+    push_refusal(L, name);
+    lua_concat(L, 2);
+    return 1;
+  }
 
   for (lua_Integer step = 0; step < count; step++) {
     lua_Integer i = reserved ? count - step : step + 1;
@@ -424,6 +467,11 @@ static int store_bytecode (lua_State *L) {
 
   static const char *query =
     "SELECT bytecode FROM main.modules WHERE path = ?1";
+  if (held(L, name)) {
+    lua_pushnil(L);
+    push_refusal(L, name);
+    return 2;
+  }
   for (lua_Integer i = 1; i <= count; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db != NULL && lookup(L, db, query, name)) {
@@ -475,6 +523,11 @@ static int store_source (lua_State *L) {
     "SELECT source FROM main.decls WHERE path = ?1",
     "SELECT source FROM main.modules WHERE path = ?1",
   };
+  if (held(L, name)) {
+    lua_pushnil(L);
+    push_refusal(L, name);
+    return 2;
+  }
   for (size_t i = 0; db != NULL && i < sizeof queries / sizeof *queries; i++) {
     if (lookup(L, db, queries[i], name)) {
       const char *why = inflate_top(L);
@@ -701,6 +754,12 @@ static int store_alone (lua_State *L) {
  * the process runs. */
 static int store_databases (lua_State *L) {
   int list = lua_upvalueindex(1);
+  /* A handle reads every row of its database, a held module's too, so
+   * while a hold is up none is handed out: the hold cannot sort rows. */
+  if (held(L, NULL)) {
+    push_refusal(L, NULL);
+    return lua_error(L);
+  }
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   lua_createtable(L, count > INT_MAX ? 0 : (int)count, 0);
   for (lua_Integer i = 1; i <= count; i++) {
@@ -712,6 +771,45 @@ static int store_databases (lua_State *L) {
     lua_seti(L, -2, i);
   }
   return 1;
+}
+
+/* The binary's own database alone, as a borrowed handle like
+ * `store_databases`' last, or nil when there is none: where
+ * `cosmic.store` reads the data tables (zones) a hold covers none of,
+ * since the runtime's identity keys them. Never on the public surface:
+ * the handle reads every module's rows too. */
+static int store_binary (lua_State *L) {
+  int list = lua_upvalueindex(1);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  sqlite3 *db = count > 0 ? database_at(L, list, count) : NULL;
+  if (db == NULL) {
+    lua_pushnil(L);
+    return 1;
+  }
+  cosmic_sqlite_push_borrowed(L, db);
+  return 1;
+}
+
+/* Puts up a hold, or with nil at 1 takes it down: while it is up, a
+ * lookup of a name the set at 1 holds as a key -- the searcher's,
+ * `bytecode`'s, `source`'s -- answers as if no database held it, saying
+ * why with the text at 2, and `databases` raises that. A test runner
+ * holds a test so to the modules its verdict is keyed by. The set is
+ * consulted as it stands, not copied. */
+static int store_hold (lua_State *L) {
+  if (lua_isnoneornil(L, 1)) {
+    lua_pushnil(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
+    lua_pushnil(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY);
+    return 0;
+  }
+  luaL_checktype(L, 1, LUA_TTABLE);
+  luaL_checkstring(L, 2);
+  lua_settop(L, 2);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
+  return 0;
 }
 
 /* Private capability handed only to the trusted build.artifact chunk. */
@@ -830,6 +928,11 @@ static int open_store_module (lua_State *L,
   lua_pushvalue(L, -2);
   lua_pushcclosure(L, store_alone, 1);
   lua_setfield(L, -2, "alone");
+  lua_pushvalue(L, -2);
+  lua_pushcclosure(L, store_binary, 1);
+  lua_setfield(L, -2, "binary");
+  lua_pushcfunction(L, store_hold);
+  lua_setfield(L, -2, "hold");
   lua_pushlightuserdata(L, (void *)artifact);
   lua_pushcclosure(L, store_trusted_prefix, 1);
   lua_setfield(L, -2, "trusted_prefix");

@@ -635,13 +635,17 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   if it is a directory, and the system's own paths every worker is given by the
   package database, the image `COSMIC_HOST_ID` names and the kernel alone
   (`host_identity`); a change under /usr no package manager made is not keyed.
-- *a module reached around `require`*: a worker whose module does not
-  declare `store` is given at `o/cosmic.db` the store of its import closure
-  alone (`build/writer.tl`'s `closure`, kept under `o/stores/` by the
-  address its key holds), but a module outside the closure it reaches through
-  `Store.bytecode` or a searcher called by hand falls through to the
-  program's own copy, which no key of a test that does not declare `tool`
-  holds (`cosmic/test.tl`, the TODO on `store`).
+- *the program's own modules, in a project's tree*: a worker whose module
+  does not declare `store` is given at `o/cosmic.db` the store of its import
+  closure alone (`build/writer.tl`'s `closure`, kept under `o/stores/` by the
+  address its key holds), and unless it declares `tool` either, it holds
+  `require` and every other lookup in the store -- `Store.bytecode`,
+  `Store.source`, a searcher called by hand, `Store.databases()` -- to that
+  closure for the tree's modules (`Store.hold`). a module the program carries
+  that is no module of the tree -- in a project's tree, the standard
+  library's -- is held by neither, and the runtime's identity names the core
+  and the pins, not those modules (`build/test_worker.tl`, the TODO on
+  `refusal`).
 - *the processor*: its features are keyed (/proc/cpuinfo's flags); its model
   and microcode are not.
 - *build.dispatch*: the harness digest holds the runner's and the worker's

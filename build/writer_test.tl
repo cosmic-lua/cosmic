@@ -14,6 +14,12 @@ local schema = require("build.schema")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
+local Test = require("cosmic.test")
+
+--- The importer, which builds each fixture, reads the running program's own
+--- module graph and docs (`importer.analyzer_modules`, its hints) through
+--- `Store.databases()`: rows of modules outside this closure.
+Test.needs{ store = true }
 
 local built, load_trouble = teal.load()
 if built == nil then

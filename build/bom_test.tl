@@ -8,8 +8,9 @@ local invoke = require("build.invoke")
 local schema = require("build.schema")
 
 --- What the bill of materials describes: every vendored tree, the patches
---- to it and the pins it came by.
-Test.needs{ reads = { "bin/zig.pin", "build/bom/", "patch/", "vendor/" } }
+--- to it and the pins it came by; and the running program's own rows the
+--- verb prints, through `Store.databases()`.
+Test.needs{ reads = { "bin/zig.pin", "build/bom/", "patch/", "vendor/" }, store = true }
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle

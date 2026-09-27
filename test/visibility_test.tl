@@ -18,6 +18,12 @@ local Fs = require("cosmic.fs")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
+local Test = require("cosmic.test")
+
+--- The importer, which builds each fixture, reads the running program's own
+--- module graph and docs (`importer.analyzer_modules`, its hints) through
+--- `Store.databases()`: rows of modules outside this closure.
+Test.needs{ store = true }
 
 local entry_source = "local record entry\nend\nreturn entry\n"
 local sibling_source = "local record sibling\nend\nreturn sibling\n"

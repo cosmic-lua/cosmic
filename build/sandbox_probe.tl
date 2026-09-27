@@ -12,6 +12,9 @@
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
+-- In the closure, so the store's searcher answers it under a test
+-- worker's hold on the store (`raw_process_table`).
+local _ = require("cosmic.child")
 
 local type Searcher = function(string): any, any
 

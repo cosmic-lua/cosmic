@@ -102,3 +102,50 @@ local function test_a_project_test_requiring_outside_its_closure_fails(tmp: stri
     "module 'suite.helper' is outside the import closure of suite.dynamic_test", 1, true), text)
   assert(text:find("(1 of 3 failed", 1, true), text)
 end
+
+--- In a project of its own, a test that reads its helper through the
+--- store by hand -- its bytecode, or a searcher called itself --
+--- rather than by `require` fails, naming `store`; one whose module
+--- declares `store`, whose key holds the whole projection, reads it.
+local function test_a_project_test_reading_the_store_outside_its_closure_needs_store(
+    tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/helper.tl", "return { answer = 42 }\n"))
+  local reads = table.concat({
+    'local Store = require("cosmic.store")',
+    "local function test_bytecode()",
+    '  local bytes, why = Store.bytecode("suite.helper")',
+    "  assert(bytes ~= nil, why)",
+    "end",
+    "local function test_searcher()",
+    "  local said = ''",
+    "  for _, searcher in ipairs(package.searchers as {function(string): any, any}) do",
+    '    local loader, extra = searcher("suite.helper")',
+    "    if loader is function(string, any): any then",
+    "      -- The worker's own gate on `require` raises; the store's does not.",
+    '      local loaded, helper = pcall(loader, "suite.helper", extra)',
+    "      if loaded and helper is {string:integer} and helper.answer == 42 then return end",
+    "    elseif loader is string then",
+    "      said = said .. loader",
+    "    end",
+    "  end",
+    "  error(said)",
+    "end",
+  }, "\n") .. "\n"
+  assert(Fs.write(root .. "/suite/held_test.tl", reads))
+  assert(Fs.write(root .. "/suite/whole_test.tl", table.concat({
+    'local Test = require("cosmic.test")',
+    "Test.needs{ store = true }",
+  }, "\n") .. "\n" .. reads))
+  local ok, text = run(root, tmp .. "/run.out")
+  assert(not ok, text)
+  for _, name in ipairs({ "test_bytecode", "test_searcher" }) do
+    assert(text:find("test: FAIL  suite.held_test " .. name .. ": ", 1, true), text)
+  end
+  assert(text:find("module 'suite.helper' is held from the store: suite.held_test's " ..
+    "verdict is keyed by what the store holds of its import closure alone", 1, true), text)
+  assert(text:find("declare store = true in its Test.needs", 1, true), text)
+  assert(not text:find("suite.whole_test", 1, true), text)
+  assert(text:find("(2 of 4 failed", 1, true), text)
+end

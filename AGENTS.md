@@ -74,20 +74,25 @@
    module declares the network has no key: it runs every time, and the
    summary counts it so. A worker, and every process it starts, is
    given at o/cosmic.db the store of its module's import closure alone,
-   keyed by its address. A lookup of a module outside that closure other
-   than `require` -- a searcher called by hand, `Store.bytecode`, a walk
-   of `Store.databases()` -- is not refused: it falls through to the
-   program's own database, which only `tool` keys. So declare
+   keyed by its address. Sandboxed or not, a worker whose module
+   declares neither `store` nor `tool` holds every other lookup in the
+   store to that closure too (`Store.hold`): `Store.bytecode` or
+   `Store.source` of a module of the tree outside it, or a searcher
+   called by hand, answers none, and `Store.databases()`, whose handles
+   read every module's rows, raises, each naming the fix. So require a
+   module the test reads at its top level (`local type _ = require(...)`
+   for a declaration a type-checked snippet needs), or declare
    `store = true` where a test reads rows of modules outside its closure
-   (their docs, catalog or bytecode, that way or by opening o/cosmic.db
-   itself), and only there, since that test runs again on every edit to
-   the tree. `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker
-   still reads the system's own paths, /dev and /proc, keyed only
-   through the host's identity, and the program, its core and its
-   database, keyed through the runtime's identity but for the
-   database's modules, which only `tool` keys. A test that starts this
-   program declares `tool = true`: sandboxed, one that does not is
-   refused it, and `--audit` names it.
+   (their docs, catalog or bytecode, that way, through a verb or the
+   importer run in-process, or by opening o/cosmic.db itself), and only
+   there, since that test runs again on every edit to the tree.
+   `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still
+   reads the system's own paths, /dev and /proc, keyed only through the
+   host's identity, and the program, its core and its database, keyed
+   through the runtime's identity but for the database's modules, which
+   the hold above keeps a test from reading unless it declares `store`
+   or `tool`. A test that starts this program declares `tool = true`:
+   sandboxed, one that does not is refused it, and `--audit` names it.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a
    test is keyed instead by what it was seen to read, and shares no
    verdict: environment variables it reads are part of its key, and one
