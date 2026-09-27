@@ -24,13 +24,13 @@
 --- - `version`, which names how the rest are computed;
 --- - the test harness every worker runs, as the running binary carries
 ---   it (`harness`): each module a worker loads besides its test's
----   closure (`build.test_worker`'s `worker.loads`) and the plan of its
----   sandbox's maker (`build.test`'s `harness_own`), each by its source
----   and its bytecode, and the code that makes a key and looks a
----   verdict up under one (`build.test`'s `key_code`: build.test, and
----   this module's closure and build.shared_verdicts') by its stripped
----   bytecode -- COSMIC_TEST_HARNESS_SALT, for a test alone, stands in
----   for a change to it;
+---   closure (`build.test_worker`'s `worker.loads`), the plan of its
+---   sandbox's maker (`build.test`'s `harness_own`), and the code that
+---   makes a key and looks a verdict up under one (`build.test`'s
+---   `key_code`: build.test, and this module's closure and
+---   build.shared_verdicts'), each by its source and its bytecode --
+---   COSMIC_TEST_HARNESS_SALT, for a test alone, stands in for a change
+---   to it;
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark
@@ -88,22 +88,23 @@
 --- time (an `is` against a record's `where`, an enum's membership) is
 --- compiled into the importer's bytecode, which `harness` holds.
 ---
---- The code that computes a key is held too, but by what Lua runs of
---- it: a version of it that maps a test's inputs to the key another
---- version computes for other inputs -- a digest that misses a rewrite
---- of the same size and times -- keeps its verdict under that key, in
---- o/build.db and in the verdicts every checkout shares, where it would
---- stand after the fix. So each version of build.test, of this module
---- and what it requires, and of build.shared_verdicts keys apart, by
---- the digest of its bytecode dumped stripped of its lines and names
---- (`build.test`'s `stripped`): an edit to its comments or docs leaves
---- every key alone, and one to its code runs every test again. That
---- holds what build.test decides of a worker's holds as well -- the
---- names of the tree's modules and declarations a `require` or a
---- lookup in the store refuses -- which it hands a worker and no other
---- part of a key names. It would be unsound to read the compiler's identity
---- by any means but `Store.meta`'s `compiler` and `compiled_by`, held
---- as above.
+--- The code that computes a key is held too, by its source and
+--- bytecode as the rest of the harness is: a version of it that maps a
+--- test's inputs to the key another version computes for other inputs
+--- -- a digest that misses a rewrite of the same size and times -- keeps
+--- its verdict under that key, in o/build.db and in the verdicts every
+--- checkout shares, where it would stand after the fix. So each version
+--- of build.test, of this module and what it requires, and of
+--- build.shared_verdicts keys apart, and any edit to one of them, a
+--- comment's or a doc's too, runs every sandboxed test again: holding
+--- it by what Lua runs of it instead would take a walk of Lua's dump
+--- format by hand, more code to trust where a mistake leaves wrong
+--- verdicts standing. That holds what build.test decides of a
+--- worker's holds as well -- the names of the tree's modules and
+--- declarations a `require` or a lookup in the store refuses -- which
+--- it hands a worker and no other part of a key names. It would be
+--- unsound to read the compiler's identity by any means but
+--- `Store.meta`'s `compiler` and `compiled_by`, held as above.
 ---
 --- The host caches it declares are not: they are content-addressed,
 --- and never change a result (`build.caches`). Nor are the variables
@@ -234,7 +235,7 @@ end
 --- holds by its code -- the build's, which computes a module's graph
 --- key (`build.importer`) -- which would otherwise leave standing a
 --- verdict kept under a key computed wrong. A change to this code moves
---- every key by itself: it is held by its stripped bytecode (above).
+--- every key by itself: it is held by its source and bytecode (above).
 local version <const> = "declared-3"
 
 --- A file modified this recently may be modified again within the same
