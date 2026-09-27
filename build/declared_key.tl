@@ -34,7 +34,9 @@
 --- - the compiler's identity (`build.work`'s `Identities`), as the
 ---   running tool names it, only where the module's import closure holds
 ---   a module that reads it (`compiler_readers`), which a worker's
----   `Store.meta` answers from the tool's own database;
+---   `Store.meta` answers from the tool's own database --
+---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
+---   compiler of another identity that makes the same bytecode;
 --- - the declaration itself, as `test_inputs.canonical` spells it;
 --- - the contents of every input it declares or is given by default:
 ---   each file of its import closure; each path of the tree it `reads`
@@ -57,7 +59,8 @@
 --- compiler's making is the bytecode of its closure's modules, which
 --- its store holds by address (`build.writer`'s `closure_address`,
 --- over each module's bytecode and the rows a store carries of it) or
---- the projection by its contents, and the harness's, which `harness`
+--- the projection by its contents, and the harness's -- cosmic's own
+--- main, which every worker runs first, among it -- which `harness`
 --- holds by bytecode; the compiler Teal itself compiles to
 --- (`vendor.tl`) is carried beside build.teal, the one module that
 --- loads it, by its bytecode too. Whether a module compiles at all is
@@ -68,7 +71,7 @@
 --- `harness_roots` (the TODO there) -- or to read the compiler's
 --- identity by any means but `Store.meta`'s `compiler` and
 --- `compiled_by`, held as above.
-
+---
 --- The host caches it declares are not: they are content-addressed,
 --- and never change a result (`build.caches`). Nor are the variables
 --- the runner adds to start a worker at all (`Proc.relaunch`'s, and

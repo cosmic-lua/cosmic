@@ -543,11 +543,17 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 
 --- The digest of the rows of `from`, the table of a projection `db`
 --- holds, by each value of its column `of`: of each row's `columns`,
---- each quoted (`quote`) so no two rows spell one line, in `order`.
+--- each quoted (`quote`) so no two rows spell one line, in `order`. A
+--- text is quoted as a blob of its bytes, since quote() ends a text at
+--- its first NUL, which a blob's hex does not (as `build.declared_key`'s
+--- `carried_digest` quotes it).
 local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: string,
                        order: string): {string:string} | nil, string
   local quoted: {string} = {}
-  for i, column in ipairs(columns) do quoted[i] = "quote(" .. column .. ")" end
+  for i, column in ipairs(columns) do
+    quoted[i] = "typeof(" .. column .. ") || ':' || quote(CASE WHEN typeof(" .. column ..
+      ") = 'text' THEN CAST(" .. column .. " AS BLOB) ELSE " .. column .. " END)"
+  end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. of .. ", lower(hex(sha256(group_concat(" ..
     table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..

@@ -303,9 +303,9 @@ end
 --- none, under compilers of two identities that made the same bytecode
 --- -- the same store, the same harness -- share a key.
 local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: string)
-  assert(declared_key.reads_compiler({ "suite.lib", "build.importer", "suite.t_test" }))
-  assert(declared_key.reads_compiler({ "cosmic.store_test" }))
-  assert(not declared_key.reads_compiler({ "suite.lib", "suite.t_test", "build.work" }))
+  local reader = declared_key.compiler_readers[1]
+  assert(declared_key.reads_compiler({ "suite.lib", reader, "suite.t_test" }))
+  assert(not declared_key.reads_compiler({ "suite.lib", "suite.t_test" }))
   assert(not declared_key.reads_compiler({}))
   tree(tmp)
   local function run_under(compiler: string, closure: {string}): string
@@ -316,7 +316,7 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   end
   local plain = { "suite.lib", "suite.t_test" }
   assert(run_under("one compiler", plain) == run_under("another compiler", plain))
-  local reading = { "build.importer", "suite.t_test" }
+  local reading = { reader, "suite.t_test" }
   assert(run_under("one compiler", reading) ~= run_under("another compiler", reading))
 end
 

@@ -1582,21 +1582,24 @@ local harness_roots: {string} = {
 
 --- The harness modules keyed by their own source and bytecode alone:
 --- the runner, whose closure is the build's -- its compiler and the
---- rest, which a worker never runs; build.dispatch, whose `--worker`
+--- rest, which a worker never runs; cosmic's own main
+--- (`cmd.cosmic.main`), which every worker runs first and which
+--- requires only build.dispatch; build.dispatch, whose `--worker`
 --- branch every worker runs, and whose closure is every verb's; the
 --- writer and the schema that shape the projection every worker loads
 --- its modules from (`build.writer`, `build.schema`); and the shared
 --- verdicts' cache, which a key is looked up in (`build.shared_verdicts`).
 local harness_own: {string} = {
-  "build.test", "build.dispatch", "build.writer", "build.schema", "build.shared_verdicts",
+  "build.test", "cmd.cosmic.main", "build.dispatch", "build.writer", "build.schema",
+  "build.shared_verdicts",
 }
 
 --- The digest of the test harness the running binary carries
 --- (`declared_key.harness`), each module by its source's hash and its
 --- bytecode's, searched alone so no attached database stands in for
 --- it: every worker runs it, so every sandboxed key holds it, and what
---- the compiler made of it with it -- no key holds the compiler's
---- identity (`build.declared_key`).
+--- the compiler made of it with it -- a key holds the compiler's
+--- identity only where its closure reads it (`build.declared_key`).
 local function binary_harness(): string | nil, string
   local modules: {{string}} = nil
   local imports: {{string}} = nil
@@ -1607,7 +1610,7 @@ local function binary_harness(): string | nil, string
     if binary ~= nil then
       modules, trouble = Sqlite.text_rows(binary,
         "SELECT path, source_hash || ' ' || lower(hex(sha256(bytecode))) FROM modules " ..
-        "WHERE kind = 'module'")
+        "WHERE kind IN ('module', 'main')")
       if modules ~= nil then
         imports, trouble = Sqlite.text_rows(binary, "SELECT path, requires FROM imports")
       end
@@ -2725,6 +2728,16 @@ function test.run(argv: {integer:string}): integer
   -- projection carries the ones of whichever binary wrote it.
   local tool = Store.meta("compiler") or ""
   local compiled_by = Store.meta("compiled_by") or ""
+  -- A compiler a test stands in for, in a tree not cosmic's own, so it
+  -- can see a compiler of another identity that makes the same
+  -- bytecode move only the keys of a closure that reads it, without a
+  -- binary of its own (build/sandboxed_verdicts_test.tl): the tree is
+  -- compiled under it, and the run keys by it.
+  local compiler_salt = Env.get("COSMIC_TEST_COMPILER_SALT")
+  if not own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
+    tool = Hash.hex_sha256(tool .. "\0" .. compiler_salt)
+    compiled_by = tool
+  end
   local identity = Store.meta("runtime")
   if identity == nil or identity == "" then
     local _, _ = work.close(handle)

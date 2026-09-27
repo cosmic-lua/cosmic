@@ -477,28 +477,41 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   assert(Fs.read(tmp .. "/again.db") == Fs.read(tmp .. "/first.db"),
     "a compiler of another identity moved the store")
 
-  local function moved(what: string, statement: string)
-    local db = assert(Sqlite.open(tmp .. "/whole.db", true))
-    assert(db:exec(statement))
-    assert(db:close())
-    local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
-    assert(writer.closure_address(basis, names, "salt") ~= first, what .. " left the address")
-  end
-  moved("a module's bytecode", "UPDATE modules SET bytecode = bytecode || X'00' " ..
-    "WHERE path = 'greet'")
-  for what, statement in pairs({
-    ["a doc"] = "INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
-      "signature, text, file, line) VALUES ('greet', 'greet.x', 'greet.x', 1, 'function', " ..
-      "'', 'X.', 'greet.tl', 1)",
-    ["a use"] = "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
-      "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)",
-    ["a catalog row"] = "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
-      "line) VALUES ('error', 'greet', 'greet.hello', 'no', NULL, 'greet.tl', 1)",
-    ["an import"] = "INSERT INTO imports (path, requires) VALUES ('greet', 'greet_test')",
-  }) do
-    -- Written afresh, not taken for the projection its signature names.
+  -- Each statement against a projection written afresh -- not taken for
+  -- the one its signature names -- after `setup`: the address before
+  -- it and after differ.
+  local function moved(what: string, statement: string, setup?: string)
     assert(Fs.remove(tmp .. "/whole.db"))
     assert(store("one compiler", tmp .. "/first.db") == first)
-    moved(what, statement)
+    local function address(sql?: string): string
+      if sql ~= nil then
+        local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+        assert(db:exec(sql))
+        assert(db:close())
+      end
+      local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
+      return writer.closure_address(basis, names, "salt")
+    end
+    local before = address(setup)
+    assert(address(statement) ~= before, what .. " left the address")
   end
+  local doc = "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+    "text, file, line) VALUES "
+  moved("a module's bytecode", "UPDATE modules SET bytecode = bytecode || X'00' " ..
+    "WHERE path = 'greet'")
+  moved("a doc", doc .. "('greet', 'greet.x', 'greet.x', 1, 'function', '', 'X.', 'greet.tl', 1)")
+  moved("a use", "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
+    "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)")
+  moved("a catalog row", "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
+    "line) VALUES ('error', 'greet', 'greet.hello', 'no', NULL, 'greet.tl', 1)")
+  moved("an import", "INSERT INTO imports (path, requires) VALUES ('greet', 'greet_test')")
+  moved("an example", "INSERT INTO examples (module, name, text, file, line, source) " ..
+    "VALUES ('greet', 'hello', 'Greets.', 'greet.tl', 1, 'greet.hello()')")
+  moved("a declaration's doc", doc .. "('extra', 'extra.y', 'extra.y', 1, 'function', '', " ..
+    "'Y.', 'extra.d.tl', 1)", "INSERT INTO decls (path, source) VALUES ('extra', X'')")
+  -- quote() ends a text at its first NUL: what follows it moves the
+  -- address too.
+  moved("a doc's text past a NUL", "UPDATE docs SET text = 'a' || char(0) || 'c' " ..
+    "WHERE symbol = 'greet.z'", doc .. "('greet', 'greet.z', 'greet.z', 1, 'function', '', " ..
+    "'a' || char(0) || 'b', 'greet.tl', 1)")
 end
