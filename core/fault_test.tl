@@ -16,6 +16,10 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local Test = require("cosmic.test")
+
+--- The program itself, which the fixtures run, on the store it reads.
+Test.needs{ tool = true, store = true }
 
 local checked = testing.configuration == "sanitized"
 
