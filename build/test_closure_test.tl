@@ -57,11 +57,17 @@ local function test_a_module_of_the_core_loads()
 end
 
 --- Runs `cosmic test` on `root`, answering whether it passed and what
---- it printed.
+--- it printed. Its workers run unsandboxed (`COSMIC_TEST_SANDBOX=0`):
+--- the worker holds `require` and the store to the closure sandboxed or
+--- not, and a sandbox nested in this test's own is one a host may
+--- refuse (root nests one only two deep), so the run means the same
+--- everywhere.
 local function run(root: string, output: string): boolean, string
   local fd = assert(Fs.open_write(output))
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   local started = observations.program({ "test" }, {
-    cwd = root, env = observations.environment(), stdout = fd, stderr = fd,
+    cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
   local result, trouble = Child.run(started.argv, started.options)

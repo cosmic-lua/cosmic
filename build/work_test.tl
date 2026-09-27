@@ -218,11 +218,15 @@ local function test_stage_refuses_a_link_to_the_file_system_root(tmp: string)
 end
 
 --- `cosmic test` in such a project compiles the linked modules and runs
---- the linked test beside its own.
+--- the linked test beside its own -- its workers unsandboxed, since what
+--- is held here is what the build stages, and a sandbox nested in this
+--- test's own is one a host may refuse.
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   local started = observations.program({ "test" }, {
-    cwd = project, stdout = "capture", stderr = "capture",
+    cwd = project, env = env, stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
   local result = assert(Child.run(started.argv, started.options))

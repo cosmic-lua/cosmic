@@ -13,9 +13,14 @@ local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
---- hung one left running would be found; and the program itself, which
---- the tests start.
-Test.needs{ host = { "/proc" }, processes = true, tool = true }
+--- hung one left running would be found; the program itself, which the
+--- tests start; and what holds a run to sandboxing (`unsandboxed`).
+Test.needs{
+  host = { "/proc" },
+  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  processes = true,
+  tool = true,
+}
 
 --- The environment a run of `cosmic test` these tests start is given:
 --- its workers unsandboxed (`COSMIC_TEST_SANDBOX=0`), since what they
@@ -25,6 +30,22 @@ local function environment(): {string:string}
   local env = observations.environment()
   env.COSMIC_TEST_SANDBOX = "0"
   return env
+end
+
+--- Whether a run that said `text`, its workers sandboxed where they can
+--- be, sandboxed none, where that is allowed. Its workers are nested in
+--- this test's own sandbox, which a host may refuse them (the kernel lets
+--- root nest one only two deep: core/syscalls.c's `map_ids`), and then
+--- the sandboxed case checks only what the unsandboxed one does -- unless
+--- this run is held to sandboxing (COSMIC_TEST_SANDBOX=1, as CI's suites
+--- set it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
+--- unprivileged runners nest them, and there it fails.
+local function unsandboxed(text: string): boolean
+  if text:find("; sandboxed)", 1, true) ~= nil then return false end
+  local held = sys.getenv("COSMIC_TEST_SANDBOX") == "1" or
+    sys.getenv("COSMIC_SANDBOX") == "must" or sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+  assert(not held, "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  return true
 end
 
 local function invoke(root: string, output: string, args: {string},
@@ -114,7 +135,11 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
     assert(not text:find("quiet", 1, true), text)
     assert(text:find("2 of 3 failed", 1, true), text)
     local sandboxed = text:find("; sandboxed)", 1, true) ~= nil
-    if mode == "0" then assert(not sandboxed, text) end
+    if mode == "0" then
+      assert(not sandboxed, text)
+    else
+      sandboxed = not unsandboxed(text)
+    end
     assert(text:find(sandboxed and "its pid namespace was ended" or "its process group was ended",
       1, true), text)
     -- Where the runner can find what a dead worker left behind (Linux),
