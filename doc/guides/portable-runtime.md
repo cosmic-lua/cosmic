@@ -174,6 +174,23 @@ and one for the selected core. It passes their numbers, the selected identity,
 ranges, and digests in a bounded `COSMIC_PORTABLE_*` environment.
 `COSMIC_PORTABLE_CACHE` is the only public setting in that namespace.
 
+The launcher executes the core as `<core> --artifact <artifact> <args...>`.
+With the private contract in its environment, the core also takes
+`--artifact=<artifact>` as one argument, since a `#!` line hands its
+interpreter one argument at most: a script whose first line is
+`#!<core> --artifact=<artifact>`, started with the contract in its environment
+and its descriptors open, runs as the launcher would run it. Either way the
+runtime's own arguments begin with the artifact path. Without the contract the
+joined form is not taken, so a host program's first argument stays its own.
+
+The kernel reads only the start of a `#!` line, `#!` and ` --artifact=`
+included: 255 bytes on Linux since 5.1, 127 before. A cut interpreter path
+fails to execute, but a cut argument is passed on short and the program still
+runs, so startup refuses a joined path that does not name the file the
+artifact descriptor holds. The interpreter path ends at the first space, so a
+core at a path with one cannot be named this way; a link to the core or the
+artifact at a short path can.
+
 ## validate before Lua starts
 
 [`core/startup.c`](../../core/startup.c) consumes the private launch contract.
