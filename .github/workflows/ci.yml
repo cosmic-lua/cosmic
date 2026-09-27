@@ -19,6 +19,10 @@
     # Every day, main's whole scope again, every test run whatever stood
     # (see COSMIC_CI_EVENT): what a key does not answer for -- the clock,
     # a flaky test -- is run where no change prompts it.
+    # TODO: tell the maintainers of a red scheduled run: GitHub notifies
+    # only whoever last edited this cron line. A step that opens (or
+    # comments on) an issue when a scheduled run fails would, once one is
+    # wanted over the checks' page.
     schedule: [{cron: "41 3 * * *"}],
   },
 
@@ -165,17 +169,11 @@
         # (the GitHub hosts set it) withholds a new user namespace's
         # capabilities from a process no AppArmor profile lets have
         # them: with it on, no container option let any part that needs
-        # a namespace hold. It is the host's, so it is turned off here,
-        # before the container starts; a kernel without the switch has
-        # no such restriction to turn off.
-        {
-          name: "let an unprivileged process hold a user namespace",
-          if: "matrix.image",
-          "working-directory": "/",
-          shell: "sh",
-          run: "[ ! -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] || sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
-        },
-
+        # a namespace hold. It is the host's, so
+        # .github/scripts/leg-container.sh turns it off before the
+        # container starts; a kernel without the switch has no such
+        # restriction to turn off.
+        #
         # 2. Docker's default seccomp profile allows unshare, mount,
         # umount2 and mount_setattr only to a container holding
         # CAP_SYS_ADMIN, and pivot_root to none, so a new user namespace
@@ -188,6 +186,11 @@
         # 3. Docker's default AppArmor profile (docker-default) denies
         # mount: with the narrowed profile alone, unveil still failed
         # with EACCES. So the container runs unconfined by AppArmor.
+        #
+        # Each of these is .github/scripts/leg-container.sh's, and the
+        # profile .github/scripts/seccomp-profile.sh's, so the leg's
+        # container is named by those files' hash (see "name the leg's
+        # container", below), which every sandboxed verdict's key holds.
         #
         # 4. Docker's masked /proc paths keep a confined child from a
         # procfs of its own; .github/scripts/leg-container.sh starts
@@ -219,7 +222,7 @@
             TOKEN: "${{ secrets.GITHUB_TOKEN }}",
             ACTOR: "${{ github.actor }}",
           },
-          run: "sh .github/scripts/seccomp-profile.sh \"$RUNNER_TEMP/seccomp.json\" && sh .github/scripts/leg-container.sh start \"$IMAGE\" --security-opt \"seccomp=$RUNNER_TEMP/seccomp.json\" --security-opt apparmor=unconfined",
+          run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
         },
 
         {
@@ -297,8 +300,11 @@
         # What of the leg's container no file inside it tells, which every
         # sandboxed verdict's key holds (COSMIC_HOST_ID,
         # build/declared_key.tl's `host_identity`) and its cache is named
-        # by: the image, the seccomp profile and the docker options it is
-        # started with, and the engine's version.
+        # by: the image, how it is started -- the host's sysctl, the
+        # seccomp profile and every docker option, all of them
+        # leg-container.sh's and seccomp-profile.sh's, which are hashed --
+        # and the engine's version. Not ci.yml itself, whose every edit
+        # would move it.
         {
           name: "name the leg's container",
           id: "host-id",

@@ -41,8 +41,9 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 -- what a host's package database does not say (the TODO on
 -- build/declared_key.tl's `host_identity`): today a leg's verdicts are
 -- keyed by its container as ci.yml names it (COSMIC_HOST_ID: the image
--- reference, the seccomp profile, the leg's docker options and the
--- engine's version), but a change inside an image under the same
+-- reference, a hash of .github/scripts/leg-container.sh and the seccomp
+-- profile, which hold every option and host setting it starts with, and
+-- the engine's version), but a change inside an image under the same
 -- reference, or on the runner beneath it, is not.
 function Orchestration.stands(env: {string:string}): boolean
   return env.COSMIC_CI_REQUIRE_SANDBOX == "1" and env.COSMIC_CI_EVENT == "push"
@@ -316,10 +317,13 @@ local function checked_suite(c: Context, target: string, work: string): integer
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
-  -- Bounded at twice what it takes: about 150 s of tests on four
-  -- workers, 90 to 100 s whole on a 4-core host under ci/run-local,
-  -- no one test past 7 s -- a suite grown to 1400 tests, which 90 s
-  -- no longer held.
+  -- Bounded at twice what it takes: 157 s whole for 1869 tests on a
+  -- 4-core host, each worker sandboxed -- 29 s of it the checked core's
+  -- first build of the tree, 128 s its tests, no one test past 12 s.
+  -- Unsandboxed they take 103 s: a sandboxed worker's namespaces and
+  -- mounts cost it about 20 ms on the checked core, and more when four
+  -- start at once. 180 s, set for 1400 tests unsandboxed, timed out on
+  -- linux-x86_64 once every worker was sandboxed.
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
   local checked_argv: {string} = { cosmic }
@@ -328,7 +332,7 @@ local function checked_suite(c: Context, target: string, work: string): integer
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    180000, c.root, environment())
+    320000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   return s
 end

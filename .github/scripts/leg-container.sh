@@ -53,6 +53,15 @@ if [ "${1-}" = start ]; then
   [ "$pulled" -eq 0 ] || exit "$pulled"
   mkdir -p "$state/bin"
   work=$(dirname "$GITHUB_WORKSPACE")
+  # What spawn's sandbox needs of the host and the container, each said
+  # in ci.yml's comment on the platform job's sandbox: the host's
+  # restriction of unprivileged user namespaces off, a seccomp profile
+  # that lets a user namespace be made, and no AppArmor profile. Every
+  # option the container starts with is here, so the hash of this file
+  # names it (ci.yml's "name the leg's container").
+  [ ! -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] ||
+    sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+  sh .github/scripts/seccomp-profile.sh "$RUNNER_TEMP/seccomp.json"
   # systempaths=unconfined: Docker masks parts of a container's /proc
   # (binding /dev/null over /proc/kcore, /proc/keys and the like, and
   # /proc/sys read-only), and the kernel lets a user namespace mount a
@@ -64,6 +73,7 @@ if [ "${1-}" = start ]; then
   # user is unprivileged for every step but the builder's creation, and
   # its /proc/sys is root's to write, as on the host.
   docker run -d --name "$container" --init --security-opt systempaths=unconfined \
+    --security-opt "seccomp=$RUNNER_TEMP/seccomp.json" --security-opt apparmor=unconfined \
     -v "$work:$work" -v "$RUNNER_TEMP:$RUNNER_TEMP" "$@" \
     --entrypoint tail "$image" -f /dev/null
   # What a later step's PATH adds to this one's is what the steps
