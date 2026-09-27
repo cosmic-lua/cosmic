@@ -60,6 +60,10 @@ struct cosmic_startup {
   const char *target_name;
   const char *configuration_name;
   const char *artifact_path;
+  /* Whether artifact_path must name the file artifact_fd holds: set for
+   * the joined `--artifact=<path>`, which a `#!` line carries and the
+   * kernel may have cut short. */
+  bool artifact_path_names_descriptor;
   int artifact_fd;
   int core_fd;
   uint32_t launcher_target_id;

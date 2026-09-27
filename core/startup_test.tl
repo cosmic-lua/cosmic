@@ -75,30 +75,54 @@ local function test_the_joined_artifact_argument_without_a_path_is_refused()
   end
 end
 
+--- The joined form's path must name the artifact its descriptor holds:
+--- the kernel cuts a `#!` line past what it reads without a word, and the
+--- program would then run under a name that is not its own.
+local function test_a_joined_artifact_path_naming_another_file_is_refused(tmp: string)
+  local relaunch = Proc.relaunch()
+  if relaunch == nil or #relaunch.argv < 3 then return end
+  local artifact = relaunch.argv[3]
+  assert(Fs.write(tmp .. "/other", "not the artifact\n"))
+  for _, path in ipairs({ artifact:sub(1, #artifact - 1), tmp .. "/other" }) do
+    local r = run_relaunched(relaunch,
+      { relaunch.argv[1], "--artifact=" .. path, "-e", "print(1)" })
+    assert(r.code == 2, path .. ": exit " .. tostring(r.code))
+    assert(r.stdout == "", path .. ": " .. tostring(r.stdout))
+    assert((assert(r.stderr)):find(
+      "cosmic: portable artifact path does not name the retained artifact", 1, true),
+      path .. ": " .. tostring(r.stderr))
+  end
+end
+
 --- The one-argument form is what a `#!` line can carry: a script whose
 --- first line names the core and its artifact runs as a program of its
---- own, handed its arguments. Linux reads no more of a `#!` line than
---- its first 255 bytes and silently cuts the argument off past them, so
---- the test returns where the core's path in the cache (under HOME) and
---- the artifact's (the checkout's) come to more than that. macOS reads
---- and splits the line otherwise; only Linux's is checked here.
+--- own, handed its arguments. The whole line counts against what the
+--- kernel reads of it -- 255 bytes on Linux since 5.1, 127 before -- so
+--- the line names links in the test's directory, not the core's path in
+--- the cache and the artifact's in the checkout, which together run past
+--- it; a link to the artifact names its file as well as the path does.
+--- macOS reads and splits the line otherwise; only Linux's is checked.
 local function test_a_script_names_the_core_as_its_interpreter(tmp: string)
   local names = assert(sys.uname())
   if names.sysname ~= "Linux" then return end
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local line = "#!" .. relaunch.argv[1] .. " --artifact=" .. relaunch.argv[3]
-  if #line > 255 then return end
+  assert(Fs.symlink(relaunch.argv[1], tmp .. "/c"))
+  assert(Fs.symlink(relaunch.argv[3], tmp .. "/a"))
+  local line = "#!" .. tmp .. "/c --artifact=" .. tmp .. "/a"
+  assert(#line <= 255, "the #! line is longer than the kernel reads: " .. line)
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, line .. "\n" .. [[
+local Proc = require("cosmic.proc")
+
 return function(argv: {string}): integer
-  print(table.concat(argv, "|"))
+  print(Proc.executable(), table.concat(argv, "|"))
   return 0
 end
 ]], 0x1ed))
   local r = run_relaunched(relaunch, { script, "a", "b c" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  assert(r.stdout == "a|b c\n", tostring(r.stdout))
+  assert(r.stdout == tmp .. "/a\ta|b c\n", tostring(r.stdout))
 end
 
 --- Launches this artifact with `cache` as its cache leaf.
