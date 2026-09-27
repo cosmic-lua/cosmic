@@ -384,10 +384,11 @@ end
 ---   fixture's tree is a test's own, whose fingerprint matches only a
 ---   tree holding every file of the tool's trees, each of which that
 ---   test would declare, and each keyed by it. build.writer's `running`
----   and build.importer's `receivers_identity` ask the same question of
----   the tree, or only whether there is one; `analyzer_identity` and
----   `receivers_identity` name the binary by it only where it carries
----   no source for its analyzer, which a built binary does; the value
+---   and build.importer's `receivers_identity` and `running_analyzer`
+---   ask the same question of the tree, or only whether there is one;
+---   `analyzer_identity` and `receivers_identity` name the binary by it
+---   only where it carries no source for its analyzer, which a built
+---   binary does; the value
 ---   names a cache entry (build.standalone's `cached_path`), and the
 ---   bill of materials' version (build.bom), which only moves a name;
 ---   and an unsandboxed verdict's identity (build.test's `identity_of`),

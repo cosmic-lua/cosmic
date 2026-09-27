@@ -781,6 +781,116 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     "rows another analyzer derived were kept")
 end
 
+--- A boot carries no database and runs the tree's own code, so it names
+--- the analyzer by the tree (`importer.tree_code`), and must name it as
+--- the tool it writes will name its own, from what that tool carries:
+--- otherwise the first build the booted tool runs forgets every row the
+--- boot derived and parses every source again (11 s at release speed on
+--- cosmic's own tree, and 30 s or more under the checked core, after
+--- each boot of either). The tree is read as the binary is: a name only
+--- a declaration holds is never followed, since the binary records no
+--- module requiring one. Before a parse, what the last one
+--- found names it already; an edit to an analyzer module moves it, and
+--- an edit elsewhere does not.
+local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-analyzer-"))
+  for _, dir in ipairs({ "build", "core" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  --- A module named `name` holding one integer, set from each of `uses`.
+  local function module_of(name: string, uses: {string}): string
+    local lines: {string} = {}
+    for _, used in ipairs(uses) do
+      lines[#lines + 1] = "local " .. used .. " = require(\"build." .. used .. "\")"
+    end
+    lines[#lines + 1] = "local record " .. name .. "\n  n: integer\nend"
+    lines[#lines + 1] = name .. ".n = 0"
+    for _, used in ipairs(uses) do
+      lines[#lines + 1] = name .. ".n = " .. name .. ".n + " .. used .. ".n"
+    end
+    lines[#lines + 1] = "return " .. name
+    return table.concat(lines, "\n") .. "\n"
+  end
+  local files: {string:string} = {
+    ["build/helper.tl"] = module_of("helper", {}),
+    ["build/importer.tl"] = module_of("importer", { "helper" }),
+    ["build/analyzer.tl"] = module_of("analyzer", { "ast", "thing" }),
+    ["build/ast.tl"] = module_of("ast", { "raw" }),
+    ["build/thing.tl"] = module_of("thing", {}),
+    ["build/raw.d.tl"] = "local record raw\n  n: integer\nend\nreturn raw\n",
+    ["build/other.tl"] = module_of("other", {}),
+  }
+  for name, source in pairs(files) do
+    assert(Fs.write(root .. "/" .. name, source))
+  end
+
+  -- The tool: what a build of the tree writes, read as the binary reads
+  -- its own database (core/store.c's `requires` and `source`).
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  assert(importer.derive(handle, true, built))
+  local identities = assert(work.record_identities(handle))
+  local result = assert(importer.compile(handle, built, identities.compiler))
+  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
+  work.close(handle)
+  local out = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local compiled_by = assert(Sqlite.text_rows(out,
+    "SELECT value FROM meta WHERE key = 'compiler'"))
+  local binary: importer.Code = {
+    compiler = compiled_by[1][1],
+    requires = function(name: string): {string} | nil, string
+      local rows, trouble = Sqlite.text_rows(out,
+        "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
+        { { text = name } })
+      if rows == nil then return nil, trouble end
+      local names: {string} = {}
+      for _, row in ipairs(rows) do names[#names + 1] = row[1] end
+      return names, ""
+    end,
+    source = function(name: string): string | nil, string
+      for _, table_name in ipairs({ "decls", "modules" }) do
+        local rows, trouble = Sqlite.text_rows(out,
+          "SELECT CAST(inflate(source) AS TEXT) FROM " .. table_name ..
+          " WHERE path = ?1", { { text = name } })
+        if rows == nil then return nil, trouble end
+        if #rows > 0 then return rows[1][1], "" end
+      end
+      return nil, "no module '" .. name .. "' in the binary"
+    end,
+  }
+  local modules = assert(importer.analyzer_modules(binary))
+  assert(table.concat(modules, " ") == "build.importer build.analyzer build.ast build.thing",
+    table.concat(modules, " "))
+  local tool = importer.analyzer_identity(binary)
+  assert(not tool:find("^binary "), tool)
+
+  -- The next boot, before and after it parses.
+  local function boot_names(): string, string
+    local again = assert(work.open(root))
+    assert(work.stage(again, true))
+    local before = importer.analyzer_identity((assert(importer.tree_code(again))))
+    assert(importer.derive(again, true, built))
+    local after = importer.analyzer_identity((assert(importer.tree_code(again))))
+    work.close(again)
+    return before, after
+  end
+  local before, after = boot_names()
+  assert(before == tool, "a boot names the analyzer otherwise than the tool it wrote")
+  assert(after == tool, "a boot's parse moved the analyzer's name")
+
+  assert(Fs.write(root .. "/build/other.tl", files["build/other.tl"] .. "-- edited\n"))
+  before, after = boot_names()
+  assert(before == tool and after == tool,
+    "an edit outside the analyzer moved its name")
+  -- A new require of an analyzer module is found only by the parse: the
+  -- edit alone moves the name, and the parse settles it.
+  assert(Fs.write(root .. "/build/ast.tl", module_of("ast", { "raw", "other" })))
+  before, after = boot_names()
+  assert(before ~= tool and after ~= tool and after ~= before,
+    "an edit to an analyzer module did not move its name")
+  assert(out:close())
+end
+
 --- tl's checker silently accepts a `_`-prefixed name as intentionally
 --- unused (`vendor/tl/tl.tl`'s own `var_name:sub(1, 1) == "_"` check),
 --- but says nothing about that escape hatch in the warning it raises

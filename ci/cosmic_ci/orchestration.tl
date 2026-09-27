@@ -282,10 +282,13 @@ local runtime_test_timeout_ms <const> = 180000
 -- tree's own load, which a booted tree has already paid.
 local sandbox_probe_timeout_ms <const> = 60000
 local identity_test_timeout_ms <const> = 120000
--- The first file a cosmic runs in the tree after the checked build,
--- which builds the tree's database again (`checked_suite`): 15 s by the
--- release cosmic under ci/run-local on a 4-core host, 30-35 s by the
--- checked one, which once took 41 s, past the 30 s bound it then had.
+-- The checked cosmic's first file in the tree after the checked build
+-- (`checked_suite`). A boot names the analyzer as the tool it writes
+-- does (build/importer.tl's `tree_code`), so that file builds nothing
+-- again: 0.3-0.7 s here, where it was a reparse of every source, 30-35 s
+-- by the checked cosmic under ci/run-local on a 4-core host, once 41 s.
+-- TODO: lower this bound once CI's own runs show the step's time
+-- without that reparse; it is still sized for it.
 local checked_compile_timeout_ms <const> = 300000
 
 -- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
@@ -410,24 +413,6 @@ local function checked_suite(c: Context, target: string, work: string,
     extracted == raw, "checked core range differs")
   write(work .. "/checked.core", extracted)
   local expected = offset .. "\t" .. length .. "\t" .. digest .. "\n"
-  -- `zig build sanitized` wrote o/build.db, so the first file a cosmic
-  -- runs in the tree after it builds the tree's database again (the
-  -- release tool says "the tool's database was built by other code than
-  -- its own; building it again"): 15 s by the release cosmic here, and
-  -- CI's x86 runners are up to 1.7x slower. Every leg runs such files
-  -- after this -- RuntimeSetup's tool.tl runs, under a fixture's 30 s
-  -- bound, the runtime and identity fixtures, the checked suite -- so it
-  -- is paid here, once, by the release cosmic, under a bound of its own:
-  -- `tool.tl entry`, whose entry must be the decoder's.
-  -- TODO: drop this step once the release and checked tools stop
-  -- rebuilding o/build.db after each other's boot.
-  local rebuilt = work .. "/checked-entry-release.txt"
-  s = capture_small(c, "tree database rebuild", { c.root .. "/o/bin/cosmic",
-    c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
-    rebuilt, checked_compile_timeout_ms)
-  if s ~= 0 then return s end
-  assert(read(rebuilt) == expected,
-    "the release cosmic reads another checked manifest entry: " .. read(rebuilt))
   -- That the checked artifact runs the checked core: its runtime
   -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
   -- which builds and writes nothing.
@@ -447,8 +432,8 @@ local function checked_suite(c: Context, target: string, work: string,
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
   -- off linux-x86_64: a leg that skips the suite runs the checked cosmic
   -- only on a chunk (`-e`, above), no longer on a file in the tree, whose
-  -- build (staging it, writing SQLite), which the release cosmic now
-  -- pays, was the one real code it ran there. A checked run of only the tests that enter that C, on the legs
+  -- build (staging it, writing SQLite) was the one real code it ran
+  -- there. A checked run of only the tests that enter that C, on the legs
   -- that skip the whole suite, would cover it for seconds.
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
     Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
@@ -456,9 +441,8 @@ local function checked_suite(c: Context, target: string, work: string,
     return 0
   end
   -- The checked cosmic's first file in the tree, `tool.tl entry`, whose
-  -- entry must be the decoder's, under the rebuild's bound in case it
-  -- builds the tree's database again, so the suite's bound below times
-  -- the suite.
+  -- entry must be the decoder's, under a bound of its own in case it
+  -- builds the tree again, so the suite's bound below times the suite.
   local compiled = work .. "/checked-compile.txt"
   s = capture_small(c, "checked tool entry", { cosmic,
     c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
