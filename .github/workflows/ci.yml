@@ -341,10 +341,33 @@
         # save. The cost: a vendor change's first main run builds cold
         # (about 5 minutes more a Linux leg, 7 on macOS: runs 36292711231
         # against 36325134876), and a core change is compiled again,
-        # incrementally, by every run after it until the
-        # nightly save (seconds, or a minute or two for a header), where
-        # an eviction costs a cold build of everything to whoever meets
-        # it next (the fuzz job's checked core took 4m45s).
+        # incrementally, by every run after it until the nightly save
+        # (15-29 s a leg on main's runs after one), where an eviction
+        # costs a cold build of everything to whoever meets it next (the
+        # fuzz job's checked core took 4m45s).
+        #
+        # Nor does main save where only the core part moved, though
+        # every run after such a change until the nightly compiles it
+        # again: that is up to 30 of main's commits a day (140 from
+        # 09-17 to 09-27, 17 or more on six of those days), and a whole
+        # entry is about 0.53 GB for the four legs, compressed (136-142
+        # MB a Linux leg and 118 on macOS, as run 36358036690 restored them),
+        # and more with each save, which carries what it restored: a
+        # core change writes 29-40 MB (15 compressed, for a header) for
+        # the boot's three targets alone, and assemble links more cores.
+        # A save per core change is 9-16 GB a day from main at 17-30 of
+        # them, past the repository's 10 GB, beside the verdicts' saves
+        # (41-43 MB a Linux leg, about 0.13 GB each main push at its
+        # head).
+        # TODO: keep a core change's compiles for main's later runs at
+        # the cost of the change rather than of an entry: save beside
+        # the entry restored only what the build wrote under zig-build
+        # since (files newer than a stamp made after the restore), keyed
+        # by the restored entry's run, and restore it over that entry,
+        # everything since the entry in each such save so the newest
+        # holds the day's core changes. That waits on the TODO below
+        # (what a run adds when nothing moved would land in every such
+        # save) and on room in the repository's cache.
         #
         # Before, main saved after every run and a branch wherever its
         # exact inputs missed: 230-610 MB a leg a save (run 36322968083
