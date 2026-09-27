@@ -51,7 +51,7 @@
     steps: [
       {
         name: "cache the pinned CI driver",
-        uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+        uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
         with: {
           path: "${{ runner.temp }}/cache/cosmic/bootstrap",
           key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
