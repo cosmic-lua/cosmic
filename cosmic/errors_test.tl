@@ -5,6 +5,11 @@
 local Errors = require("cosmic.errors")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+--- The projection its tests query through the store, which every
+--- worker attaches.
+Test.needs{ store = true }
 
 --- A catalog row: its message, its own guidance (nil to take the doc
 --- comment of `symbol` in `module` instead), and where it was found.

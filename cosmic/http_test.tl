@@ -18,7 +18,7 @@ local Test = require("cosmic.test")
 
 --- Requests to a closed local port, and to a host that names none.
 --- And the program itself, which its tests start.
-Test.needs{ network = { "127.0.0.1", "no-host-here" }, tool = true }
+Test.needs{ network = { "127.0.0.1", "no-host-here" }, tool = true, store = true }
 
 local url = "http://cosmic.test/"
 

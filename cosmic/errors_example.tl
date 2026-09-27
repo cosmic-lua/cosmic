@@ -3,6 +3,11 @@
 --- other test -- see doc/design.md's `examples` table.
 
 local Errors = require("cosmic.errors")
+local Test = require("cosmic.test")
+
+--- The projection its tests query through the store, which every
+--- worker attaches.
+Test.needs{ store = true }
 
 local Example = {}
 

@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 local fixture = require("build.docs_fixture")
 
 --- The standard library's sources, which a test holds to earn no note.
-Test.needs{ reads = { "cosmic/" } }
+Test.needs{ reads = { "cosmic/" }, store = true }
 
 --- Lines as one source file's text.
 local function joined(...: string): string

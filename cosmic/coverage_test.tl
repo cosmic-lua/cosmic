@@ -12,6 +12,11 @@
 
 local Store = require("cosmic.store")
 local Coverage = require("cosmic.coverage")
+local Test = require("cosmic.test")
+
+--- The projection its tests query through the store, which every
+--- worker attaches.
+Test.needs{ store = true }
 
 local function test_internal_debug_not_reachable_by_name()
   local ok = pcall(require, "cosmic.internal.debug")
