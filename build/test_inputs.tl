@@ -25,6 +25,7 @@
 --- observation saw (`build.filesystem_observations`), test by test.
 
 local observations = require("build.filesystem_observations")
+local caches = require("build.caches")
 local type analyzer = require("build.analyzer")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -49,6 +50,11 @@ local record test_inputs
     processes: boolean
     tool: boolean
     store: boolean
+    --- The host caches declared, by name (`build.caches`), and where
+    --- they are on this host, once the runner resolves them: empty until
+    --- then.
+    caches: {string}
+    cache_paths: {string}
   end
 
   --- One input a test read that its effective inputs do not hold,
@@ -142,7 +148,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false,
+    processes = false, tool = false, store = false, caches = {}, cache_paths = {},
   }
   local files, fuzzes = closure(m, by_path, declarations)
   for _, file in ipairs(files) do out.files[file] = true end
@@ -157,6 +163,11 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     for _, name in ipairs(declared.env) do out.env[name] = true end
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.processes, out.tool, out.store = declared.processes, declared.tool, declared.store
+    -- A cache is declared with the variables that locate it.
+    for _, name in ipairs(declared.caches or {}) do
+      out.caches[#out.caches + 1] = name
+      for _, variable in ipairs(caches.variables(name)) do out.env[variable] = true end
+    end
   end
   return out
 end
@@ -363,7 +374,7 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
   }
   local declared: analyzer.Declared = m.inputs or {
     line = 0, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false,
+    processes = false, tool = false, store = false, caches = {},
   }
   -- Each value by the tests that read it, and those tests by the set of
   -- them, so tests that read alike share a line.
@@ -452,6 +463,9 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
       flag == "store" and declared.store
     if on or wanted[flag] ~= nil then parts[#parts + 1] = flag .. " = true" end
   end
+  if #(declared.caches or {}) > 0 then
+    parts[#parts + 1] = "caches = " .. literal_list(declared.caches)
+  end
   if #parts > 0 then
     lines[#lines + 1] = "  declare: Test.needs { " .. table.concat(parts, ", ") .. " }"
   end
@@ -479,6 +493,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if declared.processes then lines[#lines + 1] = "processes true" end
   if declared.tool then lines[#lines + 1] = "tool true" end
   if declared.store then lines[#lines + 1] = "store true" end
+  list("caches", declared.caches or {})
   return table.concat(lines, "\n")
 end
 
@@ -495,7 +510,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
   end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = network, processes = needs.processes == true,
-    tool = needs.tool == true, store = needs.store == true }
+    tool = needs.tool == true, store = needs.store == true, caches = needs.caches or {} }
 end
 
 return test_inputs

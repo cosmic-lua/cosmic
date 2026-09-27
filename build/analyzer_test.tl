@@ -979,11 +979,34 @@ local function test_a_needs_call_is_read_as_data()
   assert(other == nil and other_trouble == "", other_trouble)
 end
 
+--- A cache is declared by a name the build knows (`build.caches`), and
+--- another name is refused, naming the line and the names there are.
+local function test_a_cache_is_declared_by_a_known_name()
+  local got, trouble = declared(lines({
+    'local Test = require("cosmic.test")',
+    'Test.needs { caches = { "zig", "bootstrap" } }',
+  }))
+  assert(got ~= nil, trouble)
+  assert(#got.caches == 2 and got.caches[1] == "zig" and got.caches[2] == "bootstrap")
+  local none, refused = declared(lines({
+    'local Test = require("cosmic.test")',
+    'Test.needs { caches = { "zig", "ccache" } }',
+  }))
+  assert(none == nil and refused:find("fixture_test.tl:2: test.needs: caches: no cache " ..
+    "ccache; the caches are bootstrap, zig", 1, true), refused)
+  local flagged, flag_trouble = declared(lines({
+    'local Test = require("cosmic.test")',
+    'Test.needs { caches = true }',
+  }))
+  assert(flagged == nil and flag_trouble:find("caches takes a list of string literals", 1, true),
+    flag_trouble)
+end
+
 --- A declaration the build cannot read without running the module is
 --- refused, naming its line and what is wrong with it.
 local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
-    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has env, host, network" },
+    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, network" },
     { 'Test.needs { reads = { "x\\ty" } }',
       'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
     { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },

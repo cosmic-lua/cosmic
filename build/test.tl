@@ -72,7 +72,12 @@
 --- projection. `--audit` runs every test it chooses and names, module by
 --- module, whatever one read beyond them (`build.test_inputs`), with the
 --- declaration that would hold it, and fails the run when any did.
---- Nothing enforces them yet, nor keys a verdict by them.
+--- Nothing enforces them by default, nor keys a verdict by them. With
+--- `COSMIC_TEST_SANDBOX=1` each worker runs sandboxed to them
+--- (`build.test_sandbox`), with the tree at /tree and its scratch
+--- directory at /tmp: a read of anything else finds nothing. Where the
+--- kernel cannot sandbox a worker, the run says so and runs them as it
+--- would have -- but under `COSMIC_SANDBOX=must`, where it fails.
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
@@ -100,6 +105,8 @@ local writer = require("build.writer")
 local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
+local test_sandbox = require("build.test_sandbox")
+local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
@@ -590,12 +597,16 @@ end
 --- recorded turns `stable` false -- the two ways a wrong key could let
 --- a verdict stand for a test it does not describe. Given `started_ns`,
 --- when the test's run started, a path a confined process was given
---- that is first walked after it turns `stable` false too.
+--- that is first walked after it turns `stable` false too. A variable
+--- is keyed by what `environment` holds, the environment the test's
+--- worker had: every worker's (`test.worker_environment`) when nil.
 function test.verdict_key(root: string, hashes: {string:string}, id: string,
                           module_key: string, runtime: string,
                           reads: {observations.Observation},
                           key_parts: {string:string},
-                          started_ns?: integer): test.VerdictKey
+                          started_ns?: integer,
+                          environment?: {string:string}): test.VerdictKey
+  local view = environment or worker_view()
   local followed, unfollowed = resolutions_of(reads)
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
@@ -708,7 +719,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
     if kind == "e" then
-      current = observations.getenv_current(relative, worker_view())
+      current = observations.getenv_current(relative, view)
     elseif kind == "r" then
       current = observations.resolution(relative)
     elseif kind == "v" then
@@ -796,7 +807,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       local memo_held = "\3e\0" .. relative .. "\0" .. answer
       local held = key_parts[memo_held]
       if held == nil then
-        held = observations.held_variable(relative, answer, worker_view(), root)
+        held = observations.held_variable(relative, answer, view, root)
         key_parts[memo_held] = held
       end
       answer = held
@@ -880,14 +891,17 @@ end
 --- the test's own process in /proc (`own_process`). An
 --- environment
 --- read is keyable: its answer enters the verdict key like a file's
---- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
---- can exercise it directly.
+--- hash does. So is a read beneath one of `caches`, the host caches the
+--- test's module declares (`build.caches`), which are content-addressed
+--- and never change a result: excluded as `scratch` is. Exposed
+--- alongside `test.verdict_key` so `test_test.tl` can exercise it
+--- directly.
 -- TODO: key a stat or a listing outside the tree by its answer, as the
 -- key holds an environment read, rather than refusing the run: a test
 -- whose code searches PATH (build/todos_test.tl, for git) stats host
 -- directories whose answers a key could hold.
 function test.keyable(root: string, scratch: string,
-                      reads: {observations.Observation}): boolean
+                      reads: {observations.Observation}, caches?: {string}): boolean
   local followed, unfollowed = resolutions_of(reads)
   local function under(dir: string, path: string): boolean
     return Fs.within(path, dir)
@@ -913,8 +927,12 @@ function test.keyable(root: string, scratch: string,
       local real = resolved_for(kind, followed, unfollowed)[path]
       if real == "" or (real == nil and climbs(path)) then return false end
       local judged = real or path
+      local cached = false
+      for _, cache in ipairs(caches or {}) do
+        if under(cache, judged) or under(cache, path) then cached = true end
+      end
       if judged:sub(1, 1) == "/" and not under(root, judged) and
-          not under(scratch, judged) then
+          not under(scratch, judged) and not cached then
         local made_here = false
         for _, dir in ipairs(made) do
           if under(dir, judged) or (real ~= nil and
@@ -957,13 +975,16 @@ end
 -- Flag an absent path the test's behaviour depends on once the audit
 -- can tell one (a read under a declared-optional list in `cosmic.test`,
 -- or the audit run again with the path made present).
-local function found_nothing(observation: observations.Observation, path: string): boolean
+local function found_nothing(observation: observations.Observation, path: string,
+                             sandboxed?: boolean): boolean
   local function nothing(errno: integer): boolean
     return errno == sys.ENOENT or errno == sys.ENOTDIR
   end
+  -- A sandboxed read of what was not given found nothing whatever the
+  -- host has: what `lstat` says there now is what it would have found.
   local errno = observation.answer:match("^error %x* (%d+)$")
-  if errno ~= nil then return nothing(math.tointeger(tonumber(errno)) or 0) end
-  if observation.kind ~= "o" or path:sub(1, 1) ~= "/" then return false end
+  if errno ~= nil and not sandboxed then return nothing(math.tointeger(tonumber(errno)) or 0) end
+  if (observation.kind ~= "o" and not sandboxed) or path:sub(1, 1) ~= "/" then return false end
   local st, _, number = sys.lstat(path)
   return st == nil and nothing(number)
 end
@@ -981,11 +1002,13 @@ end
 --- `observations.confine` declares already; and a read that found
 --- nothing there (`found_nothing`). `tool` names the program running
 --- the tests, a read of which is a `tool` finding, as one of
---- o/bin/cosmic is. Exposed so build/test_audit_test.tl
---- can hold it to observations directly.
+--- o/bin/cosmic is. `sandboxed` says the reads were a sandboxed
+--- worker's, which found nothing of what it was not given: a read that
+--- found nothing is judged by what the host has there instead. Exposed
+--- so build/test_audit_test.tl can hold it to observations directly.
 function test.audited(root: string, scratch: string, effective: test_inputs.Effective,
                       reads: {observations.Observation},
-                      tool: {string}): {test_inputs.Finding}
+                      tool: {string}, sandboxed?: boolean): {test_inputs.Finding}
   local followed, unfollowed = resolutions_of(reads)
   local made: {string} = {}
   for _, observation in ipairs(reads) do
@@ -1000,6 +1023,10 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   end
   local function own(path: string): boolean
     if Fs.within(path, scratch) then return true end
+    -- A declared cache, the test's to read and write (`build.caches`).
+    for _, cache in ipairs(effective.cache_paths or {}) do
+      if Fs.within(path, cache) then return true end
+    end
     for _, dir in ipairs(made) do
       if Fs.within(path, dir) or Fs.within(path, observations.resolution(dir)) then
         return true
@@ -1011,6 +1038,9 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   -- what it is, or where it leads, is part of reaching them.
   local function on_the_way(path: string): boolean
     if Fs.within(scratch, path) or Fs.within(root, path) then return true end
+    for _, cache in ipairs(effective.cache_paths or {}) do
+      if Fs.within(cache, path) then return true end
+    end
     for _, dir in ipairs(made) do
       if Fs.within(dir, path) or Fs.within(observations.resolution(dir), path) then
         return true
@@ -1054,7 +1084,7 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
       if relative ~= nil then relative = test_inputs.plain(relative) end
       -- Where the read landed, not the name it was asked by: a link in
       -- the test's own directory that leads out reads what it leads to.
-      if own(judged) or found_nothing(observation, judged) or
+      if own(judged) or found_nothing(observation, judged, sandboxed) or
           ((kind == "s" or kind == "l" or kind == "a") and on_the_way(judged)) then
         -- The test's own, on the way to it, or nothing there.
       elseif relative ~= nil then
@@ -1451,6 +1481,8 @@ local record Job
   --- `tmp`, a link to it; removed once the test passes.
   scratch: string
   tmp: string
+  --- How its worker is sandboxed, when it is (`build.test_sandbox`).
+  plan: test_sandbox.Plan
   passed: boolean
   handle: Child.Handle
   started_ns: integer
@@ -1520,10 +1552,45 @@ local record Recording
   audit: {string:{string:{test_inputs.Finding}}}
   effective: {string:test_inputs.Effective}
   tool: {string}
+  --- Whether each worker runs sandboxed (`build.test_sandbox`): the
+  --- switch is on and the kernel can. `effective` then holds every
+  --- selected module's inputs, and `views` the environment its workers
+  --- are given, by module path.
+  sandbox: boolean
+  views: {string:{string:string}}
+  --- Where the host caches each module declares are (`build.caches`),
+  --- by module path, as `caches_of` resolves them.
+  caches: {string:{string}}
   --- Each selected module's import closure, by path: the names of its
   --- modules, which its worker holds its `require`s to
   --- (`test_inputs.modules`, `build.test_worker`).
   closures: {string:{string}}
+end
+
+--- The environment the workers of `m`'s tests are given, which a
+--- variable they read is keyed by: nil for every worker's own, where
+--- they run unsandboxed.
+local function view_of(rec: Recording, m: importer.Module): {string:string} | nil
+  if not rec.sandbox then return nil end
+  local view = rec.views[m.path]
+  if view == nil then
+    view = test_sandbox.environment(worker_view(), rec.effective[m.path])
+    rec.views[m.path] = view
+  end
+  return view
+end
+
+--- Where the host caches `m` declares are (`build.caches`), as every
+--- worker's environment locates them: what its test may read and write
+--- that no key holds.
+local function caches_of(rec: Recording, m: importer.Module): {string}
+  local found = rec.caches[m.path]
+  if found == nil then
+    local declared = m.inputs
+    found = declared ~= nil and host_caches.all(declared.caches or {}, rec.root, worker_view()) or {}
+    rec.caches[m.path] = found
+  end
+  return found
 end
 
 --- What names this checkout among the shared rows: an id made the
@@ -1574,7 +1641,7 @@ local function standing(rec: Recording, previous: {string:test.Previous},
   local was = previous[id]
   if was == nil or was.reads == nil then return nil, nil, "" end
   local verdict_key = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime,
-    was.reads, rec.key_parts)
+    was.reads, rec.key_parts, nil, view_of(rec, m))
   local key, stable = verdict_key.key, verdict_key.stable
   local stood = stable and verdicts[key] or nil
   if stood == nil or not stood.passed then return nil, nil, "" end
@@ -1628,7 +1695,7 @@ local function assumable(rec: Recording, previous: {string:test.Previous},
   -- What of its reads a key can hold -- files of the tree, the
   -- environment -- must answer as they did.
   local now = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime, was.kept,
-    rec.key_parts)
+    rec.key_parts, nil, view_of(rec, m))
   if not now.stable or now.key ~= was.key then return nil, "what it read changed" end
   local verdict = verdicts[was.key]
   if verdict == nil or not verdict.passed then return nil, "did not pass" end
@@ -1716,7 +1783,7 @@ local function shared_standing(rec: Recording, previous: {string:test.Previous},
     end
     if reads ~= nil then
       local now = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime, reads,
-        rec.key_parts)
+        rec.key_parts, nil, view_of(rec, m))
       local own = verdicts[now.key]
       local own_failed = own ~= nil and not own.passed
       local known = last ~= nil and last.shared == now.shared
@@ -1807,6 +1874,14 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local cacheable = false
   if reported ~= nil then
     passed, message = reported.passed, reported.message
+    if job.plan ~= nil and job.scratch ~= nil then
+      -- Where the host has what the sandboxed worker read at /tree and
+      -- /tmp, so its key and its audit are those of an unsandboxed run.
+      reported.load_reads = test_sandbox.to_host(reported.load_reads, rec.root, job.scratch,
+        job.plan.kept)
+      reported.test_reads = test_sandbox.to_host(reported.test_reads, rec.root, job.scratch,
+        job.plan.kept)
+    end
     reads = observations.join(reported.load_reads, reported.test_reads)
     if rec.audit ~= nil then
       local by_test = rec.audit[job.m.path] or {}
@@ -1815,7 +1890,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
         rec.tool)
     end
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads)
+    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads, caches_of(rec, job.m))
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
@@ -1830,7 +1905,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     end
   end
   local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
-    rec.runtime, reads, rec.key_parts, job.started_ns)
+    rec.runtime, reads, rec.key_parts, job.started_ns, view_of(rec, job.m))
   local reached, stable = verdict_reached.key, verdict_reached.stable
   local late = verdict_reached.late
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
@@ -1856,6 +1931,18 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       hits = rec.by_test[id], elapsed_ns = elapsed }
   end
   job.passed = passed
+  if not passed and reported ~= nil and job.plan ~= nil then
+    -- Sandboxed, a read of what the module does not declare found
+    -- nothing: name each, and the declaration that would give it.
+    rec.tool = rec.tool or observations.itself()
+    local findings = test.audited(rec.root, job.scratch, rec.effective[job.m.path], reads,
+      rec.tool, true)
+    local lines = test_inputs.report(job.m, { [job.name] = findings })
+    if #lines > 0 then
+      message = message .. "\n  sandboxed, it read what its module does not declare:"
+      for i = 2, #lines do message = message .. "\n  " .. lines[i] end
+    end
+  end
   if not passed then
     if job.scratch ~= nil then
       message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
@@ -1915,9 +2002,11 @@ end
 --- artifact starts its logical executable instead. The worker also
 --- collects coverage from its first instruction (core/coverage.c), so
 --- its first window holds the Lua that loaded before it could open.
-local function worker_start(environment: {string:string}): Proc.Relaunch | nil, string
-  local env = test.worker_environment(environment)
-  env.COSMIC_COVERAGE_STARTUP = "1"
+--- The environment is the runner's additions alone -- the relaunch's
+--- own, and coverage from the first instruction -- which `launch` adds
+--- to the worker's (`test.worker_environment`, or a sandboxed one's).
+local function worker_start(): Proc.Relaunch | nil, string
+  local env: {string:string} = { COSMIC_COVERAGE_STARTUP = "1" }
   local relaunch, _ = Proc.relaunch()
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
@@ -1989,6 +2078,29 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.scratch = scratch
   local tmp = scratch .. "/tmp"
   job.tmp = tmp
+  -- Sandboxed, the worker has the tree at /tree, where it runs, and
+  -- its scratch directory at /tmp (`build.test_sandbox`).
+  local env: {string:string} = worker_view()
+  local root, inside, cwd: string, string, string = rec.root, scratch, nil
+  local sandbox: Child.Sandbox = nil
+  if rec.sandbox then
+    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view())
+    if plan.over > 0 then
+      finish(rec, job, nil, string.format("its sandbox would give it %d paths more than " ..
+        "the most one holds", plan.over), limits)
+      return false
+    end
+    if plan.trouble ~= "" then
+      finish(rec, job, nil, plan.trouble, limits)
+      return false
+    end
+    job.plan = plan
+    env, sandbox = plan.env, plan.sandbox
+    root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
+  end
+  local given: {string:string} = {}
+  for name, value in pairs(env) do given[name] = value end
+  for name, value in pairs(start.env) do given[name] = value end
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   local argv: {string} = {}
@@ -1996,15 +2108,16 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- What the build read of the module's `needs`, which the worker holds
   -- the call to, and its import closure, which it holds its `require`s
   -- to.
-  for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp,
-                           scratch .. "/children", test_inputs.canonical(job.m.inputs) }) do
+  for _, value in ipairs({ "test", "--worker", root, job.m.path, job.name, inside .. "/tmp",
+                           inside .. "/children", test_inputs.canonical(job.m.inputs) }) do
     argv[#argv + 1] = value
   end
   for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(start.fds) do fds[number] = fd end
   local handle, trouble = Child.start(argv,
-    { env = start.env, stdin = "null", stdout = "capture", stderr = "stdout", fds = fds })
+    { env = given, cwd = cwd, stdin = "null", stdout = "capture", stderr = "stdout", fds = fds,
+      sandbox = sandbox })
   if handle == nil then
     finish(rec, job, nil, trouble, limits)
     return false
@@ -2021,7 +2134,7 @@ end
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
                         guard: Child.Guard | nil): integer
   if #jobs == 0 then return 0 end
-  local start, start_trouble = worker_start(Env.all())
+  local start, start_trouble = worker_start()
   if start == nil then
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
     return 0
@@ -2082,7 +2195,13 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- behind, outside the group its end reached; this process
       -- adopted them, and ends them before the next test starts,
       -- and, on Linux, before what they could still write into is
-      -- removed.
+      -- removed. A sandboxed worker leaves none: it is pid 2 of a pid
+      -- namespace of its own, whose init ends when it does, ending
+      -- everything left there, before `wait` answers for it.
+      -- TODO: drop this, and the group kill `Child` ends an unsandboxed
+      -- worker's group with, for a sandboxed run, once the sandbox is on
+      -- by default (the next phase of declared inputs): until then the
+      -- unsandboxed run, and a host with no sandbox, still need both.
       -- TODO: a stray still writing into a passing test's directory
       -- (or, on a cancelled run, an ended worker's, below) can race
       -- its removal: end_strays is a no-op on macOS and on
@@ -2158,6 +2277,23 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   return limits, ""
 end
 
+--- Whether this host can run a worker sandboxed (`test_sandbox.available`),
+--- and why not where it cannot.
+local function sandbox_here(): boolean, string
+  local start, start_trouble = worker_start()
+  if start == nil then return false, "the test runner cannot find itself: " .. start_trouble end
+  local directory, trouble = test_sandbox.probe_directory()
+  if directory == nil then return false, "a directory to try it in: " .. trouble end
+  local env: {string:string} = {}
+  for name, value in pairs(worker_view()) do env[name] = value end
+  for name, value in pairs(start.env) do env[name] = value end
+  env.TMPDIR = test_sandbox.scratch
+  local ok, why = test_sandbox.available(start.argv, env, start.fds, directory)
+  local _, _ = Fs.remove_tree(directory)
+  if not ok then return false, why end
+  return true, ""
+end
+
 --- Says each of `failures`, sorted, with the selector that reruns its
 --- test and what the test printed; a failed test's message names the
 --- directory it kept (`finish`).
@@ -2170,7 +2306,8 @@ local function say_failures(rec: Recording, failures: {string})
     local id = rec.failed[failure]
     local rerun = id ~= nil and rec.reruns[id] or nil
     if rerun ~= nil then
-      log:say("  rerun: cosmic test " .. test.shell_word(rerun))
+      log:say("  rerun: " .. (rec.sandbox and (test_sandbox.switch .. "=1 ") or "") ..
+        "cosmic test " .. test.shell_word(rerun))
     end
     local printed = id ~= nil and rec.outputs[id] or nil
     if printed ~= nil then
@@ -2209,6 +2346,11 @@ function test.run(argv: {integer:string}): integer
   local limits, limits_trouble = limits_of(parsed.values)
   if limits == nil then
     log:complain("test: " .. limits_trouble)
+    return 2
+  end
+  local sandbox_asked, sandbox_trouble = test_sandbox.enabled()
+  if sandbox_asked == nil then
+    log:complain("test: " .. sandbox_trouble)
     return 2
   end
   local selectors: {string} = {}
@@ -2304,6 +2446,29 @@ function test.run(argv: {integer:string}): integer
   end
   local runtime = identity .. " tables " .. tables
   local database = root .. "/o/cosmic.db"
+  -- Asked to, each worker runs sandboxed where the kernel can sandbox
+  -- one; a verdict reached so is kept apart from one reached without,
+  -- by a runtime of its own, so neither stands for the other.
+  local sandboxed, sandbox_summary = false, ""
+  if sandbox_asked then
+    local why: string
+    sandboxed, why = sandbox_here()
+    if sandboxed then
+      runtime = runtime .. " sandboxed"
+      sandbox_summary = "; sandboxed"
+      log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
+        test_sandbox.tree .. " (" .. test_sandbox.switch .. "=1)")
+    elseif Env.get("COSMIC_SANDBOX") == "must" then
+      local _, _ = work.close(handle)
+      log:complain("test: " .. test_sandbox.switch .. "=1 and COSMIC_SANDBOX=must, but no " ..
+        "worker can be sandboxed here: " .. why)
+      return 1
+    else
+      sandbox_summary = "; unsandboxed, as no worker can be sandboxed here"
+      log:say("test: sandbox: no worker can be sandboxed here, so each runs as it would " ..
+        "unasked: " .. why)
+    end
+  end
 
   local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
@@ -2441,6 +2606,7 @@ function test.run(argv: {integer:string}): integer
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
+    sandbox = sandboxed, views = {}, caches = {},
   }
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
@@ -2475,10 +2641,15 @@ function test.run(argv: {integer:string}): integer
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
   end
   if audit then
-    rec.audit, rec.effective, rec.tool = {}, {}, observations.itself()
+    rec.audit, rec.tool = {}, observations.itself()
     for i = 1, #rec.tool do rec.tool[#rec.tool + 1] = observations.resolution(rec.tool[i]) end
+  end
+  if audit or sandboxed then
+    rec.effective = {}
     for _, m in ipairs(selected_modules) do
-      rec.effective[m.path] = test_inputs.effective(m, by_path, declarations)
+      local effective = test_inputs.effective(m, by_path, declarations)
+      effective.cache_paths = caches_of(rec, m)
+      rec.effective[m.path] = effective
     end
   end
   local jobs: {Job} = {}
@@ -2648,7 +2819,7 @@ function test.run(argv: {integer:string}): integer
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
-      clock.took(started))
+      clock.took(started) .. sandbox_summary)
     return undeclared > 0 and 1 or 0
   end
   say_failures(rec, failures)
@@ -2661,7 +2832,7 @@ function test.run(argv: {integer:string}): integer
   end
   log:verdict("test", false, #failures .. " of " ..
     (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
-    clock.took(started))
+    clock.took(started) .. sandbox_summary)
   return 1
 end
 

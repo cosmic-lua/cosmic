@@ -613,44 +613,74 @@ local function locate(root: string): string | nil, string
   return Zig.ensure_installed(cache, install.path, install.pin, install.host)
 end
 
---- Where zig keeps its global cache: `COSMIC_ZIG_GLOBAL_CACHE` when
---- set, else `zig-global` in this user's cosmic cache directory, else
---- `root/o/zig-global`.
-function Zig.global_cache(root: string, environment?: {string:string}): string
+--- Where one of zig's caches is: `variable` from `environment` (the
+--- process's own when nil) when set, else `tool` in this user's cosmic
+--- cache directory -- made, with `make`, as `Fs.cache_dir` makes it, or
+--- only named, without, as `Fs.cache_path` names it -- else `fallback`.
+local function located(variable: string, tool: string, fallback: string,
+                       environment: {string:string} | nil, make: boolean): string
   local given: string
   if environment ~= nil then
-    given = environment.COSMIC_ZIG_GLOBAL_CACHE
+    given = environment[variable]
   else
-    given = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
+    given = Env.get(variable)
   end
   if given ~= nil and given ~= "" then
     return given
   end
-  local cache, _ = Fs.cache_dir("zig-global", environment)
-  if cache ~= nil then
-    return cache
+  if make then
+    local made, _ = Fs.cache_dir(tool, environment)
+    if made ~= nil then return made end
+  else
+    local named, _ = Fs.cache_path(tool, environment)
+    if named ~= nil then return named end
   end
-  return root .. "/o/zig-global"
+  return fallback
+end
+
+--- Where zig keeps its global cache: `COSMIC_ZIG_GLOBAL_CACHE` when
+--- set, else `zig-global` in this user's cosmic cache directory, made
+--- if need be, else `root/o/zig-global`.
+function Zig.global_cache(root: string, environment?: {string:string}): string
+  return located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", root .. "/o/zig-global",
+    environment, true)
 end
 
 --- Where zig keeps this build's own cache: `COSMIC_ZIG_CACHE` when set,
 --- else `zig-project` in this user's cosmic cache directory, shared by
---- every checkout, else `root/o/zig-cache`.
+--- every checkout and made if need be, else `root/o/zig-cache`.
 function Zig.project_cache(root: string, environment?: {string:string}): string
-  local given: string
-  if environment ~= nil then
-    given = environment.COSMIC_ZIG_CACHE
-  else
-    given = Env.get("COSMIC_ZIG_CACHE")
+  return located("COSMIC_ZIG_CACHE", "zig-project", root .. "/o/zig-cache", environment, true)
+end
+
+--- `Zig.global_cache` and `Zig.project_cache` as the environment names
+--- them, with nothing made or checked: where each would be, for a
+--- caller that only needs the paths (`build.caches`), the global first.
+function Zig.cache_paths(root: string, environment?: {string:string}): {string}
+  return {
+    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", root .. "/o/zig-global", environment, false),
+    located("COSMIC_ZIG_CACHE", "zig-project", root .. "/o/zig-cache", environment, false),
+  }
+end
+
+--- The environment a zig command other than `build` runs in --
+--- `environment`, the caller's, with zig's own caches where `build`
+--- puts them: ZIG_GLOBAL_CACHE_DIR the global cache and
+--- ZIG_LOCAL_CACHE_DIR the project cache, unless the caller names
+--- either itself. Without them `zig cc` would keep a global cache of its
+--- own under the user's cache directory, `zig` there, which neither CI
+--- restores nor a sandboxed test is given (`build.caches`).
+function Zig.passthrough_environment(root: string,
+                                     environment: {string:string}): {string:string}
+  local out: {string:string} = {}
+  for name, value in pairs(environment) do out[name] = value end
+  if (out.ZIG_GLOBAL_CACHE_DIR or "") == "" then
+    out.ZIG_GLOBAL_CACHE_DIR = Zig.global_cache(root, environment)
   end
-  if given ~= nil and given ~= "" then
-    return given
+  if (out.ZIG_LOCAL_CACHE_DIR or "") == "" then
+    out.ZIG_LOCAL_CACHE_DIR = Zig.project_cache(root, environment)
   end
-  local cache, _ = Fs.cache_dir("zig-project", environment)
-  if cache ~= nil then
-    return cache
-  end
-  return root .. "/o/zig-cache"
+  return out
 end
 
 --- The exit status a failed exec means, as a shell reports it.
@@ -996,7 +1026,8 @@ function Zig.main(argv: {integer:string}): integer
       Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a
   end
-  local _, trouble, number = sys.execve(program, exec_argv, Env.all())
+  local _, trouble, number = sys.execve(program, exec_argv,
+    Zig.passthrough_environment(root, Env.all()))
   log:complain(program .. ": " .. tostring(trouble))
   return Zig.exec_status(math.tointeger(number) or 0)
 end

@@ -104,6 +104,8 @@ local record observations
   --- The variables `environment` passes on: what a process of this
   --- very program reads of its environment to run at all.
   runtime_environment: {string}
+  --- The most paths a sandbox unveils, its reads and writes together.
+  unveil_max: integer
 end
 
 observations.runtime_environment = {
@@ -449,8 +451,9 @@ end
 --- declaration in force, after `confine(nil)` or in a test that never
 --- confines, runs unconfined and never stands, as it always has.
 -- TODO: hold every test's processes, declared or not, once the test
--- worker runs sandboxed itself and every child inherits its sandbox:
--- a process no declaration holds is then confined to the worker's own,
+-- worker runs sandboxed by default (build/test_sandbox.tl, today behind
+-- COSMIC_TEST_SANDBOX=1) and every child inherits its sandbox: a
+-- process no declaration holds is then confined to the worker's own,
 -- and must mode can refuse the rest.
 function observations.must_confine(declared: observations.Confinement | nil)
   must_everywhere() -- a misspelt mode raises here too
@@ -518,12 +521,14 @@ end
 --- reads: to read, `system` (/proc and /dev/null among it) where this
 --- host has it, the program, its core and the stamp that spares
 --- hashing it again (`itself`), the tree's store (o/cosmic.db, which a
---- worker attaches), and `cwd`; to change, `scratch`, its temporary
---- directory. Each is there as it is given, so each may be handed to
---- `process.spawn`'s `unveil` whole. The worker can confine what its
---- test starts in turn, having a /proc of its own -- but where the
---- kernel refuses it one and its /proc is the host's, read-only.
-function observations.worker_unveil(tree: string, cwd: string, scratch: string): raw_process.Unveil
+--- worker attaches), and `cwd`, where given; to change, `scratch`, its
+--- temporary directory. Each is there as it is given, so each may be
+--- handed to `process.spawn`'s `unveil` whole. The worker can confine
+--- what its test starts in turn, having a /proc of its own -- but
+--- where the kernel refuses it one and its /proc is the host's,
+--- read-only. `cosmic test`'s sandbox (build/test_sandbox.tl) gives a
+--- worker these, and what its test's module reads.
+function observations.worker_unveil(tree: string, cwd: string | nil, scratch: string): raw_process.Unveil
   local reads: {string} = {}
   local seen: {string:boolean} = {}
   local function add(path: string)
@@ -536,7 +541,7 @@ function observations.worker_unveil(tree: string, cwd: string, scratch: string):
   for _, path in ipairs(system) do add(path) end
   for _, path in ipairs(observations.itself()) do add(path) end
   add((tree == "/" and "" or tree) .. "/o/cosmic.db")
-  add(cwd)
+  if cwd ~= nil then add(cwd) end
   return { reads = reads, writes = { scratch } }
 end
 
@@ -622,6 +627,17 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
     local reads, writes = raw_strings(rawget(unveil, "reads")), raw_strings(rawget(unveil, "writes"))
     if reads == nil or writes == nil then return nil end
     plain.unveil = { reads = reads, writes = writes }
+    local at = rawget(unveil, "at")
+    if at is {any:any} then
+      local names: {string:string} = {}
+      for given, name in next, at do
+        if not given is string or not name is string then return nil end
+        names[given] = name
+      end
+      plain.unveil.at = names
+    elseif at ~= nil then
+      return nil
+    end
   elseif unveil ~= nil then
     return nil
   end
@@ -664,8 +680,9 @@ local function contained(fd: integer): boolean
     (format == S_IFCHR and inert_device(st))
 end
 
---- The most paths a sandbox unveils (core/syscalls.c's UNVEIL_MAX).
-local UNVEIL_MAX <const> = 64
+--- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).
+local UNVEIL_MAX <const> = process.UNVEIL_MAX
+observations.unveil_max = UNVEIL_MAX
 
 --- Where the absolute `path` leads, with no link or `..` left in it:
 --- its longest leading part that is there, resolved, then the rest as

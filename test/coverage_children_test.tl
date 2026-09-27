@@ -10,6 +10,11 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
+
+--- What a confined child is given of the host, and /proc, where its
+--- coverage is found.
+Test.needs{ host = { "/proc", "/usr" } }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

@@ -554,9 +554,6 @@ static int pledge_program (struct sock_filter *out, int unix_ok, int inet_ok) {
 }
 #endif
 
-/* The most paths a sandbox unveils. */
-#define UNVEIL_MAX 64
-
 /* Whether `name` is absolute with no empty, `.` or `..` component, so it
  * names the same place under another root as under this one. */
 static int plain_name (const char *name) {
@@ -610,22 +607,81 @@ static int make_mirrored (const char *path, size_t skip) {
   return 0;
 }
 
-/* Makes every directory `path` names but its last, as `mkdir -p` does,
- * writing into `path` and putting it back, each with the mode of the one
- * it stands for (`mirrored_mode`): 0, or an errno. */
-static int make_parents (char *path, size_t skip) {
-  for (char *at = path + skip + 1; *at != '\0'; at++) {
-    if (*at != '/') continue;
-    *at = '\0';
-    int number = make_mirrored(path, skip);
-    *at = '/';
-    if (number != 0 && number != EEXIST) return number;
+/* The directory `name` in the one `dir` holds, opened without following
+ * a link: a link there is refused with ELOOP, whatever it leads to. The
+ * descriptor, or -1 with errno. */
+static int open_unlinked_directory (int dir, const char *name) {
+  struct stat st;
+  if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode)) {
+    errno = ELOOP;
+    return -1;
   }
-  return 0;
+  return openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+}
+
+/* Makes the place a path is bound at, `target`, `skip` bytes into it the
+ * root being built: each directory on the way made where it is missing,
+ * with the mode of the one it stands for (`mirrored_mode`), and its last
+ * name a directory, with `directory`, or else an empty file, where it is
+ * not there -- going through no link. A link on the way or at its end
+ * is refused with ELOOP: a name placed beneath a path bound from the
+ * host (`at`) could otherwise lead out through a link there, and make
+ * a file where the host has the link's target. `target` is written
+ * into and put back. 0, or an errno.
+ * TODO: bind through the descriptor of the place made (a mount of
+ * /proc/self/fd/<n>) rather than its name again, so a link a host
+ * process puts on the way between this walk and the mount is not
+ * followed either. */
+static int make_target (char *target, size_t skip, int directory) {
+  char held = target[skip];
+  target[skip] = '\0';
+  int dir = open(target, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  target[skip] = held;
+  if (dir < 0) return errno;
+  int number = 0;
+  char *name = target + skip + 1;
+  while (number == 0) {
+    char *end = strchr(name, '/');
+    if (end == NULL) break;
+    *end = '\0';
+    int next = -1;
+    if (*name != '\0') {
+      next = open_unlinked_directory(dir, name);
+      if (next < 0 && errno == ENOENT) {
+        mode_t mode = mirrored_mode(target, skip) | 0700;
+        if (mkdirat(dir, name, mode) != 0 && errno != EEXIST) number = errno;
+        else if (fchmodat(dir, name, mode, 0) != 0) number = errno;
+        else next = open_unlinked_directory(dir, name);
+      }
+      if (number == 0 && next < 0) number = errno;
+    }
+    *end = '/';
+    if (next >= 0) {
+      close(dir);
+      dir = next;
+    }
+    name = end + 1;
+  }
+  if (number == 0 && *name != '\0') {
+    struct stat st;
+    if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0) {
+      if (S_ISLNK(st.st_mode)) number = ELOOP;
+    } else if (errno != ENOENT) {
+      number = errno;
+    } else if (directory) {
+      if (mkdirat(dir, name, 0755) != 0 && errno != EEXIST) number = errno;
+    } else {
+      int fd = openat(dir, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+      if (fd < 0) number = errno;
+      else close(fd);
+    }
+  }
+  close(dir);
+  return number;
 }
 
 /* Makes a link at `path`, under the root being built, to `to`, making its
- * parents as `make_parents` does but going through no link and making
+ * parents as `make_target` does, going through no link and making
  * nothing where something already is: 0, or an errno. */
 static int make_link (char *path, size_t skip, const char *to) {
   struct stat st;
@@ -789,15 +845,17 @@ static int place_proc (const char *target, int *own) {
  * read-only, and every mount beneath them too, but where `writable`
  * says; /proc a procfs of its own pid namespace (`place_proc`) -- and
  * nothing else, so a path outside them is not there at all, to stat as
- * to open. The paths are resolved, with no link or `..` left in them,
- * and a shorter comes before a longer; `names` holds the names they
- * were given by where one differs from its path, and NULL elsewhere,
- * and each such name is a link in the root to its path, where no path
- * given holds it already. `root` is an empty directory the parent made
- * to build on; `mapped` says whether the child's user is mapped
- * (`map_ids`). The root is this process's own and its working
- * directory's, and every process's in the namespace whose root was the
- * old one. 0, or an errno.
+ * to open. The paths are resolved, with no link or `..` left in them;
+ * `at` holds, for each bound at a name of the caller's choosing rather
+ * than its own, that name, and NULL elsewhere -- where each is placed,
+ * its name or its path, a shorter coming before a longer. `names` holds
+ * the names they were given by where one differs from its path and it
+ * has no `at`, and NULL elsewhere, and each such name is a link in the
+ * root to its path, where no path placed holds it already. `root` is an
+ * empty directory the parent made to build on; `mapped` says whether
+ * the child's user is mapped (`map_ids`). The root is this process's
+ * own and its working directory's, and every process's in the namespace
+ * whose root was the old one. 0, or an errno.
  * TODO: remove the directory an unmapped child's root is built on once
  * the child ends: its root and its /tmp are that directory, in its
  * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
@@ -808,7 +866,7 @@ static int place_proc (const char *target, int *own) {
  * A UTS namespace would change nothing a child sees: its host's name
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
-                       const int *writable, int count, int mapped) {
+                       const char *const *at, const int *writable, int count, int mapped) {
   int number = 0;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
@@ -824,7 +882,8 @@ static int build_root (const char *root, char *const *paths, char *const *names,
    * so a path given beneath the host's /tmp is bound into it. */
   int tmp = 1;
   for (int i = 0; i < count; i++) {
-    if (strcmp(paths[i], "/tmp") == 0 || strcmp(paths[i], "/") == 0 ||
+    const char *placed = at[i] != NULL ? at[i] : paths[i];
+    if (strcmp(placed, "/tmp") == 0 || strcmp(placed, "/") == 0 ||
         (names[i] != NULL && strcmp(names[i], "/tmp") == 0)) {
       tmp = 0;
     }
@@ -839,32 +898,24 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   }
   int own_proc = 0;
   for (int i = 0; i < count; i++) {
+    const char *placed = at[i] != NULL ? at[i] : paths[i];
     /* A procfs of its own holds nothing of the host's to bind: a path
-     * beneath /proc given besides it is not there. */
-    if (own_proc && strncmp(paths[i], "/proc/", 6) == 0) continue;
+     * placed beneath /proc besides it is not there. */
+    if (own_proc && strncmp(placed, "/proc/", 6) == 0) continue;
     struct stat st;
     if (stat(paths[i], &st) != 0) return errno;
-    int length = snprintf(target, sizeof target, "%s%s", root, paths[i]);
+    int length = snprintf(target, sizeof target, "%s%s", root, placed);
     if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
-    struct stat there;
-    if (lstat(target, &there) != 0) {
-      if ((number = make_parents(target, strlen(root))) != 0) return number;
-      if (S_ISDIR(st.st_mode)) {
-        if (mkdir(target, 0755) != 0 && errno != EEXIST) return errno;
-      } else {
-        int fd = open(target, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-        if (fd < 0) return errno;
-        close(fd);
-      }
-    }
-    if (strcmp(paths[i], "/proc") == 0) {
+    if ((number = make_target(target, strlen(root), S_ISDIR(st.st_mode))) != 0) return number;
+    if (at[i] == NULL && strcmp(paths[i], "/proc") == 0) {
       number = place_proc(target, &own_proc);
       if (number != 0) return number;
       continue;
     }
     if (mount(paths[i], target, NULL, MS_BIND | MS_REC, NULL) != 0) return errno;
-    /* A path in the host's /proc is its state, read-only whoever asks. */
-    if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0) {
+    /* A path in the host's /proc is its state, read-only whoever asks:
+     * /proc itself too, bound at another name (`at`). */
+    if (!writable[i] || strncmp(paths[i], "/proc/", 6) == 0 || strcmp(paths[i], "/proc") == 0) {
       struct cosmic_mount_attr attr = { COSMIC_MOUNT_ATTR_RDONLY, 0, 0, 0 };
       if (syscall(SYS_mount_setattr, AT_FDCWD, target, AT_RECURSIVE, &attr, sizeof attr) != 0)
         return errno;
@@ -874,8 +925,9 @@ static int build_root (const char *root, char *const *paths, char *const *names,
     if (names[i] == NULL) continue;
     int held = 0;
     for (int j = 0; j < count && !held; j++) {
-      size_t n = strlen(paths[j]);
-      held = strncmp(names[i], paths[j], n) == 0 &&
+      const char *placed = at[j] != NULL ? at[j] : paths[j];
+      size_t n = strlen(placed);
+      held = strncmp(names[i], placed, n) == 0 &&
              (names[i][n] == '/' || names[i][n] == '\0' || n == 1);
     }
     if (held) continue;
@@ -888,8 +940,9 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   /* A /dev given whole has its own, or has none to make. */
   int proc = 0, dev = 0;
   for (int i = 0; i < count; i++) {
-    proc = proc || strcmp(paths[i], "/proc") == 0;
-    dev = dev || strcmp(paths[i], "/dev") == 0 || strcmp(paths[i], "/") == 0;
+    const char *placed = at[i] != NULL ? at[i] : paths[i];
+    proc = proc || (at[i] == NULL && strcmp(paths[i], "/proc") == 0);
+    dev = dev || strcmp(placed, "/dev") == 0 || strcmp(placed, "/") == 0;
   }
   static const char *const dev_links[][2] = {
     { "/dev/fd", "/proc/self/fd" }, { "/dev/stdin", "/proc/self/fd/0" },
@@ -961,6 +1014,7 @@ struct spawn_plan {
   const char *root_dir;
   char *const *resolved_paths;
   char *const *given_names;
+  const char *const *bound_at;
   const int *unveiled_writable;
   int unveil_count;
   const char *uid_map;
@@ -1164,7 +1218,7 @@ static _Noreturn int start_program (void *argument) {
   const struct sandbox_start *start = argument;
   const struct spawn_plan *plan = start->plan;
   int failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
-                           plan->unveiled_writable, plan->unveil_count,
+                           plan->bound_at, plan->unveiled_writable, plan->unveil_count,
                            start->mapped);
   if (!failure) failure = drop_capabilities();
   if (failure) {
@@ -1667,6 +1721,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
   int confine = -1;
   int pledged = 0, unix_ok = 0, inet_ok = 0;
   const char *unveiled[UNVEIL_MAX];
+  const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0;
   if (!lua_isnoneornil(L, 10)) {
@@ -1718,6 +1773,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
             if (unveil_count >= UNVEIL_MAX)
               return luaL_argerror(L, 10, "too many unveiled paths");
             unveiled[unveil_count] = unveil_path;
+            unveiled_at[unveil_count] = NULL;
             unveiled_writable[unveil_count] = w;
             unveil_count++;
             lua_pop(L, 1);
@@ -1725,6 +1781,37 @@ int cosmic_spawn_unobserved (lua_State *L) {
         }
         lua_pop(L, 1);
       }
+      /* The name each path given is bound at instead of its own. */
+      lua_pushliteral(L, "at");
+      lua_rawget(L, -2);
+      if (!lua_isnil(L, -1)) {
+        if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil's at must be a table");
+        lua_pushnil(L);
+        while (lua_next(L, -2) != 0) {
+          const char *given = plain_string(L, -2, "a path unveil's at names");
+          const char *name = plain_string(L, -1, "the name a path is bound at");
+          size_t length = strlen(name);
+          if (!plain_name(name) || length < 2 || name[length - 1] == '/')
+            return luaL_argerror(L, 10, "a path is bound at an absolute name, plain, and not /");
+          /* The root's own: where the old root is put aside as it pivots. */
+          if (strcmp(name, "/.old") == 0 || strncmp(name, "/.old/", 6) == 0)
+            return luaL_argerror(L, 10, "a path is bound at no name beneath /.old");
+          for (int i = 0; i < unveil_count; i++) {
+            if (unveiled_at[i] != NULL && strcmp(unveiled_at[i], name) == 0)
+              return luaL_argerror(L, 10, "two paths are bound at one name");
+          }
+          int found = 0;
+          for (int i = 0; i < unveil_count; i++) {
+            if (strcmp(unveiled[i], given) == 0) {
+              unveiled_at[i] = name;
+              found = 1;
+            }
+          }
+          if (!found) return luaL_argerror(L, 10, "unveil's at names a path not unveiled");
+          lua_pop(L, 1);
+        }
+      }
+      lua_pop(L, 1);
     }
     lua_pop(L, 1);
     lua_pushliteral(L, "offline");
@@ -1881,16 +1968,25 @@ int cosmic_spawn_unobserved (lua_State *L) {
         char *name = resolved_paths[i] + PATH_MAX;
         memcpy(name, unveiled[i], n);
         name[n] = '\0';
-        if (plain_name(name) && strcmp(name, resolved_paths[i]) != 0) given_names[i] = name;
+        if (unveiled_at[i] == NULL && plain_name(name) && strcmp(name, resolved_paths[i]) != 0)
+          given_names[i] = name;
       }
+      /* Each where it is placed, a shorter first, so one placed inside
+       * another lands on top of it. */
       for (int i = 1; !prepare_error && i < unveil_count; i++) {
-        for (int j = i; j > 0 && strlen(resolved_paths[j]) < strlen(resolved_paths[j - 1]); j--) {
+        for (int j = i; j > 0 &&
+                        strlen(unveiled_at[j] != NULL ? unveiled_at[j] : resolved_paths[j]) <
+                        strlen(unveiled_at[j - 1] != NULL ? unveiled_at[j - 1] : resolved_paths[j - 1]);
+             j--) {
           char *p = resolved_paths[j];
           resolved_paths[j] = resolved_paths[j - 1];
           resolved_paths[j - 1] = p;
           char *q = given_names[j];
           given_names[j] = given_names[j - 1];
           given_names[j - 1] = q;
+          const char *a = unveiled_at[j];
+          unveiled_at[j] = unveiled_at[j - 1];
+          unveiled_at[j - 1] = a;
           int w = unveiled_writable[j];
           unveiled_writable[j] = unveiled_writable[j - 1];
           unveiled_writable[j - 1] = w;
@@ -1928,7 +2024,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
     .pledge = &pledge,
 #endif
     .unveiling = unveiling, .offline = offline, .root_dir = root_dir,
-    .resolved_paths = resolved_paths, .given_names = given_names,
+    .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
   };

@@ -337,6 +337,25 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform sandbox",
         },
 
+        # A shadow of the native suite: every test again, each in a
+        # worker sandboxed to its declared inputs (COSMIC_TEST_SANDBOX=1,
+        # build/test_sandbox.tl), where the probe above says the sandbox
+        # holds. It writes to the summary how many tests fail so, and
+        # which (cosmic_ci/orchestration.tl's phase_sandboxed), and
+        # gates nothing: a failure here is a test that reads what it
+        # does not declare, not a broken change, until the suite passes
+        # sandboxed and the switch is on by default.
+        # TODO: drop continue-on-error once this step has passed on every
+        # Linux leg for a while: the whole suite passes sandboxed locally
+        # (a host, as root), but no CI run has shown it yet on the legs'
+        # containers, as their unprivileged runner, or on aarch64.
+        {
+          name: "run the native suite with each worker sandboxed (shadow)",
+          if: "runner.os == 'Linux'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl platform sandboxed",
+        },
+
         {
           name: "check the tree's format",
           if: "env.COSMIC_CI_SCOPE == 'light'",

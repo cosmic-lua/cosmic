@@ -760,7 +760,20 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   -- host's, which it can write to; /proc its own, whose processes'
   -- entries it writes, so it can confine a child in turn; or, where the
   -- kernel refuses it one, the host's, read-only whole.
-  local given_under_tmp = assert(sys.realpath(private)):sub(1, 5) == "/tmp/" and 1 or 0
+  -- And a /tmp of its own, empty but for the paths given beneath the
+  -- host's -- each at the name it resolves to, and, given through a
+  -- link, the link -- which it can write to; /proc its own, whose
+  -- processes' entries it writes, so it can confine a child in turn;
+  -- or, where the kernel refuses it one, the host's, read-only whole.
+  local under_tmp: {string:boolean} = {}
+  for _, path in ipairs(mirrored) do
+    for _, name in ipairs({ path, (assert(sys.realpath(path))) }) do
+      local top = name:match("^/tmp/([^/]+)")
+      if top ~= nil then under_tmp[top] = true end
+    end
+  end
+  local given_under_tmp = 0
+  for _ in pairs(under_tmp) do given_under_tmp = given_under_tmp + 1 end
   local common = "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n"
   local own = observations.own_proc_given()
   assert(seen == common .. (own and "own-proc\nown-writable\n" or "host-proc\nown-read-only\n") ..
@@ -819,6 +832,99 @@ local function run_confined(tmp: string, reads: {string}, script: string,
   local said = assert(sys.pread(report, 65536, 0))
   sys.close(report)
   return status, said
+end
+
+--- A path given with a name in `at` is bound there, and not at its own
+--- name: a tree given at /tree is read, and written where given to
+--- write, at /tree alone, so what a child sees of it names nothing of
+--- where the host keeps it -- its working directory there answers
+--- /tree -- and a directory bound at /tmp is its /tmp, which it has none
+--- of its own beside. A name that is not absolute and plain, is /, or
+--- is given for a path not unveiled, is refused.
+local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
+  local reads = shell_reads()
+  if reads == nil then return end
+  local tree, scratch = tmp .. "/checkout", tmp .. "/scratch"
+  for _, dir in ipairs({ tree, tree .. "/sub", scratch }) do assert(sys.mkdir(dir, 0x1c0)) end
+  local written = create(tree .. "/sub/f")
+  assert(sys.write(written, "in") == 2)
+  sys.close(written)
+  local real_tree = assert(sys.realpath(tree))
+  local given: {string} = { tree }
+  for _, path in ipairs(reads) do given[#given + 1] = path end
+  local report = create(tmp .. "/report")
+  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
+    "cat sub/f; echo; pwd; test -e " .. real_tree .. " && echo own-name || echo no-own-name; " ..
+    "echo w > /tmp/g && echo tmp-written; (echo x > sub/g) 2>/dev/null || echo tree-read-only" },
+    nil, "/tree", nil, report, report, false, nil,
+    { unveil = { reads = given, writes = { scratch }, at = { [tree] = "/tree", [scratch] = "/tmp" } },
+      offline = true })
+  if pid == nil then
+    sys.close(report)
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
+    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    return
+  end
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  local said = assert(sys.pread(report, 4096, 0))
+  sys.close(report)
+  assert(said == "in\n/tree\nno-own-name\ntmp-written\ntree-read-only\n", said)
+  -- What it wrote at /tmp is in the directory bound there.
+  local fd = assert(sys.open(scratch .. "/g", sys.O_RDONLY))
+  assert(sys.read(fd, 16) == "w\n")
+  sys.close(fd)
+  for _, bad in ipairs({ "relative", "/", "/a/../b", "/a/" }) do
+    assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+      { unveil = { reads = { tree }, at = { [tree] = bad } } }), "bound at " .. bad)
+  end
+  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+    { unveil = { reads = { tree }, at = { [scratch] = "/tmp" } } }), "at a path not unveiled")
+  -- A name placed beneath a path bound from the host goes through no
+  -- link there: one leading out, or climbing, refuses the start rather
+  -- than make a file where the link leads.
+  local victim = tmp .. "/victim"
+  assert(sys.mkdir(victim, 0x1c0))
+  assert(sys.symlink(victim, tree .. "/out"))
+  assert(sys.symlink("../victim", tree .. "/up"))
+  for _, placed in ipairs({ "/tree/out/new.txt", "/tree/up/new.txt", "/tree/out" }) do
+    local escaped, _, escaped_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, "/",
+      nil, nil, nil, false, nil, { unveil = { reads = { tree, tree .. "/sub/f", table.unpack(reads) },
+        at = { [tree] = "/tree", [tree .. "/sub/f"] = placed } }, offline = true })
+    if escaped ~= nil then process.waitpid(escaped, false) end
+    assert(escaped == nil, "placed through a link at " .. placed)
+    assert(sys.errno_name(escaped_errno) == "ELOOP" or (not sandbox_required() and
+      (escaped_errno == sys.ENOSYS or escaped_errno == sys.EPERM or escaped_errno == sys.EACCES or
+        escaped_errno == sys.EINVAL or escaped_errno == sys.ENOSPC)), tostring(escaped_errno))
+  end
+  assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
+  -- Two paths bound at one name, or a name beneath the old root's, are
+  -- refused as arguments.
+  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+    { unveil = { reads = { tree, scratch }, at = { [tree] = "/x", [scratch] = "/x" } } }))
+  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+    { unveil = { reads = { tree }, at = { [tree] = "/.old/x" } } }))
+  -- The host's /proc bound at another name is the host's state, and
+  -- mounted read-only, given to write as it may be.
+  local without_proc: {string} = {}
+  for _, path in ipairs(reads) do
+    if path ~= "/proc" then without_proc[#without_proc + 1] = path end
+  end
+  local proc_report = create(tmp .. "/proc-report")
+  local proc_pid = process.spawn("/bin/sh", { "sh", "-c",
+    "grep -q ' /host-proc ro[, ]' /host-proc/self/mountinfo && echo read-only || echo writable" },
+    nil, "/", nil, proc_report, proc_report, false, nil,
+    { unveil = { reads = without_proc, writes = { "/proc" }, at = { ["/proc"] = "/host-proc" } },
+      offline = true })
+  if proc_pid ~= nil then
+    assert(assert(process.waitpid(proc_pid, false)).code == 0)
+    local proc_said = assert(sys.pread(proc_report, 4096, 0))
+    assert(proc_said == "read-only\n", proc_said)
+  else
+    -- It started above, so it starts here, as it would anywhere.
+    error("the host's /proc could not be bound at another name")
+  end
+  sys.close(proc_report)
 end
 
 --- An unveiled child is pid 2 of a pid namespace of its own, beneath the
@@ -1136,7 +1242,9 @@ end
 --- /proc given to write is no more the host's to change than given to
 --- read: a procfs of the child's own is writable, and holds no /proc/sys;
 --- where the kernel refuses one, the host's is bound read-only all the
---- same, and so is a path beneath it given to write.
+--- same, and so is a path beneath it given to write -- where this
+--- process has one: in a sandbox of its own (a sandboxed `cosmic test`
+--- worker's), its /proc has no /proc/sys to give.
 local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: string)
   local reads = shell_reads()
   if reads == nil then return end
@@ -1144,12 +1252,14 @@ local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: strin
   for _, path in ipairs(reads) do
     if path ~= "/proc" then without[#without + 1] = path end
   end
+  local writes: {string} = { "/proc" }
+  if sys.stat("/proc/sys/kernel") ~= nil then writes[2] = "/proc/sys/kernel" end
   local report = create(tmp .. "/written")
   local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
     "(: >> /proc/sys/vm/swappiness) 2>/dev/null && echo sys-writable || echo sys-read-only; " ..
     "(: >> /proc/sys/kernel/hostname) 2>/dev/null && echo name-writable || echo name-read-only" },
     nil, "/", nil, report, report, false, nil,
-    { unveil = { reads = without, writes = { "/proc", "/proc/sys/kernel" } }, offline = true })
+    { unveil = { reads = without, writes = writes }, offline = true })
   if pid == nil then
     sys.close(report)
     assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)

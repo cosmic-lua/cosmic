@@ -114,12 +114,24 @@ local function test_find_searches_a_path_as_a_shell_does(dir: string)
   assert(found == "./anything" and trouble == "")
 end
 
---- A file only others may run is not one this process may, unless it is
---- root's, which may run any file with an execute bit at all.
+--- Whether this process holds CAP_DAC_OVERRIDE, as /proc/self/status
+--- says of its effective capabilities: root does, but not root in a
+--- sandbox (a sandboxed `cosmic test` worker), which gave its up.
+local function overrides_permissions(): boolean
+  local status = Fs.read("/proc/self/status") or ""
+  local effective = status:match("\nCapEff:%s*(%x+)")
+  if effective == nil then return sys.getuid() == 0 end -- no /proc: root's are root's
+  local bits = math.tointeger(tonumber(effective:sub(-8), 16)) or 0
+  return bits & 2 ~= 0
+end
+
+--- A file only others may run is not one this process may, unless it
+--- may override a file's permissions, as root may, which may run any
+--- file with an execute bit at all.
 local function test_find_passes_over_a_file_only_others_may_run(dir: string)
   assert(Fs.write(dir .. "/tool", "#!/bin/sh\n", 0x189))
   local found, trouble = Proc.find("tool", dir)
-  if sys.getuid() == 0 then
+  if overrides_permissions() then
     assert(found == dir .. "/tool", trouble)
   else
     assert(found == nil and trouble == dir .. "/tool: not executable", trouble)

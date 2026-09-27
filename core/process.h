@@ -21,6 +21,11 @@
 #include "lua.h"
 #include "syscalls.h"
 
+/* The most paths a sandbox unveils (`Unveil`): a test worker's
+ * (build/test_sandbox.tl) is given each file of its module's import
+ * closure by name. */
+#define UNVEIL_MAX 256
+
 /* Opens the table as the raw `cosmic.internal.process` module. */
 int cosmic_open_process (lua_State *L);
 
@@ -58,17 +63,18 @@ _Noreturn void cosmic_sandbox_init (void);
 #endif
 
 /*
- * --- The paths a sandbox unveils, each absolute; at most 64 in all.
+ * --- The paths a sandbox unveils, each absolute; at most `UNVEIL_MAX` in all.
  * ---@class Unveil
  * ---@field reads {string} the files and directories the child has, read-only
  * ---@field writes {string} the ones it has to change too
+ * ---@field at {string:string} for a path of `reads` or `writes`, by that path as given, the absolute name it is bound at in the child's root instead of its own -- not /, and no link to it is made there -- so a tree given at /tree is there alone, wherever the host has it; nil for none
  */
 
 /*
  * --- What `spawn` holds a child to from its exec on, with every process it starts.
  * ---@class Sandbox
  * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none. It is built in this process, from paths as this process sees them, before the child has a root of its own, and holds the files those paths are: with `unveil`, a rule on a path the child is given reaches it, but none reaches what the child's root is built of -- its own /tmp, the directories above an unveiled path, / itself, and its own /proc -- which no path here names, so a child held to one cannot write its own /tmp, list /, or read its own /proc -- though, where the kernel gives it the host's (see `unveil`), a ruleset naming /proc reaches that. With `unveil` and `offline` it holds nothing more that matters of the filesystem, the network or signals -- a narrower ruleset is a narrower unveiling, the network namespace reaches nothing past the child's own loopback, nor shares an abstract unix socket with any process outside it, and the pid namespace holds no process outside it to signal. And a child it holds cannot confine one of its own, since Landlock refuses a mount or pivot_root to a process it holds
- * ---@field unveil Unveil what alone the child has of the filesystem, or nil for all of it: a root of its own, in namespaces of its own -- a pid namespace among them, of which it is pid 2, beneath an init of its own at pid 1 that ends when it does, ending whatever it left running there, and ends when this process does, so it sees and signals only the processes it starts, while its pid, status and signals here are any child's; and a session of its own, and so a process group of its own whatever `process_group` says, with no controlling terminal -- and System V IPC of its own, holding those paths at the names they resolve to, and, for each given through a link, that link there too -- and, with /proc among them and no /dev given whole, /dev/fd and /dev/stdin, /dev/stdout and /dev/stderr as links into it, and, unless /tmp or / is among them, a /tmp of its own that its own children share, empty but for the paths given beneath the host's -- and nothing else, so a path outside them is not there to stat any more than to open. A ruleset with it reaches the unveiled paths alone (see `ruleset`): a rule on a directory above one does not reach into it, since each is a mount of its own, so name the unveiled paths themselves. /proc given is a procfs of its pid namespace, holding that namespace's processes and nothing of the host's (no /proc/sys and the like; a path beneath /proc given besides it is not there), and writable, so the child can map its own child's ids and confine one of its own in turn: what it can write there is its own processes' and its own session's. Where the kernel refuses one -- a container's runtime masking parts of its /proc, as Docker's does without --security-opt systempaths=unconfined, where a user namespace may not mount a procfs -- it is the host's, read-only like any path given to read, so the child cannot confine one of its own (EROFS); it shows the host's processes and state, and its pids are the host's, not the ones the child is in: /proc/self and /proc/thread-self are the child's own, /proc/<its getpid()> another process's. A child confined from inside another sandbox -- one whose root user has given up the CAP_SETFCAP that mapping root into a user namespace takes -- runs as root unmapped: the kernel's overflow id (65534) inside, owning what root owns but with no capability to override a file's permissions, on a root and a /tmp built in a directory of its TMPDIR, which is left there; unmapped, it cannot confine one of its own again. Linux, where unprivileged user namespaces are allowed; ENOSYS elsewhere, and EPERM or the like where they are not
+ * ---@field unveil Unveil what alone the child has of the filesystem, or nil for all of it: a root of its own, in namespaces of its own -- a pid namespace among them, of which it is pid 2, beneath an init of its own at pid 1 that ends when it does, ending whatever it left running there, and ends when this process does, so it sees and signals only the processes it starts, while its pid, status and signals here are any child's; and a session of its own, and so a process group of its own whatever `process_group` says, with no controlling terminal -- and System V IPC of its own, holding those paths at the names they resolve to, or each at the name `at` gives it, and, for each given through a link, that link there too -- and, with /proc among them and no /dev given whole, /dev/fd and /dev/stdin, /dev/stdout and /dev/stderr as links into it, and, unless /tmp or / is among them, a /tmp of its own that its own children share, empty but for the paths given beneath the host's -- and nothing else, so a path outside them is not there to stat any more than to open. A ruleset with it reaches the unveiled paths alone (see `ruleset`): a rule on a directory above one does not reach into it, since each is a mount of its own, so name the unveiled paths themselves. /proc given is a procfs of its pid namespace, holding that namespace's processes and nothing of the host's (no /proc/sys and the like; a path beneath /proc given besides it is not there), and writable, so the child can map its own child's ids and confine one of its own in turn: what it can write there is its own processes' and its own session's. Where the kernel refuses one -- a container's runtime masking parts of its /proc, as Docker's does without --security-opt systempaths=unconfined, where a user namespace may not mount a procfs -- it is the host's, read-only like any path given to read, so the child cannot confine one of its own (EROFS); it shows the host's processes and state, and its pids are the host's, not the ones the child is in: /proc/self and /proc/thread-self are the child's own, /proc/<its getpid()> another process's. A child confined from inside another sandbox -- one whose root user has given up the CAP_SETFCAP that mapping root into a user namespace takes -- runs as root unmapped: the kernel's overflow id (65534) inside, owning what root owns but with no capability to override a file's permissions, on a root and a /tmp built in a directory of its TMPDIR, which is left there; unmapped, it cannot confine one of its own again. Linux, where unprivileged user namespaces are allowed; ENOSYS elsewhere, and EPERM or the like where they are not
  * ---@field offline boolean a network namespace of its own, with nothing but a loopback, which is up: a connection to 127.0.0.1 reaches a listener of the child's own processes, or is refused
  * ---@field pledge {string} the promises the child may keep, or nil for no filter: with one, a socket may be only of a family promised -- "unix" for AF_UNIX, "inet" for AF_INET and AF_INET6 -- and the calls that reach past the process (ptrace, pidfd_getfd, mounting, bpf, loading modules, io_uring and the like) fail with EPERM; keeping a child from another process's /proc/<pid>/mem takes a ruleset too. Linux on x86_64 and aarch64; ENOSYS elsewhere
  */
@@ -239,9 +245,11 @@ COSMIC_SYSCALL(cancelled_child_signal, 0);
  * ---@field POLLERR integer the descriptor is in error
  * ---@field POLLHUP integer the other end hung up
  * ---@field POLLNVAL integer the descriptor is not open
+ * ---@field UNVEIL_MAX integer the most paths a sandbox unveils, its reads and writes together
  */
 COSMIC_CONSTANT(POLLIN)
 COSMIC_CONSTANT(POLLOUT)
 COSMIC_CONSTANT(POLLERR)
 COSMIC_CONSTANT(POLLHUP)
 COSMIC_CONSTANT(POLLNVAL)
+COSMIC_CONSTANT(UNVEIL_MAX)
