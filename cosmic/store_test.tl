@@ -3,15 +3,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's.
+--- The program itself, which its tests start.
 Test.needs{ tool = true }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
 
 local function test_attaching_a_missing_database_fails(tmp: string)
   local path = tmp .. "/missing.db"

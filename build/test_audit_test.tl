@@ -11,19 +11,19 @@ local test_inputs = require("build.test_inputs")
 local type positions = require("build.positions")
 local Test = require("cosmic.test")
 
---- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's.
+--- The program itself, which its tests start.
 Test.needs{ tool = true }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
 
 --- Runs `cosmic test --audit` on `root`, answering whether it passed and
 --- what it printed.
 local function audit(root: string, output: string): boolean, string
   local fd = assert(Fs.open_write(output))
+  -- Unsandboxed: a sandboxed worker's undeclared read finds nothing,
+  -- and fails its test before the audit could name it.
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   local result, trouble = Child.run({ assert(Proc.executable()), "test", "--audit" }, {
-    cwd = root, env = observations.environment(), stdout = fd, stderr = fd,
+    cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
   assert(Fs.close(fd))
@@ -115,7 +115,6 @@ local function test_audited_names_what_the_inputs_do_not_hold(tmp: string)
     "host /etc/hosts",
     "env USER",
     "env *",
-    "processes /bin/sh",
     "network http://127.0.0.1:1/",
     "processes unobservable: fd 5",
     "tool o/bin/cosmic",

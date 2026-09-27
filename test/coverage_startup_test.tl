@@ -12,12 +12,8 @@ local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's.
+--- The program itself, which its tests start.
 Test.needs{ tool = true }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
 
 --- Runs a script whose own line 4 runs only while it loads, then prints
 --- whether the name was visible and whether the first and second

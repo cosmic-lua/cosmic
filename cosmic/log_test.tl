@@ -1,22 +1,17 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's.
+--- The program itself, which its tests start.
 Test.needs{ tool = true }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
 
 --- Runs `body` as a standalone script and answers what it wrote.
 local function run(tmp: string, body: string): string, string
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, 'local Log = require("cosmic.log")\n' .. body))
   local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script },
-    { env = observations.environment(), stdout = "capture", stderr = "capture",
+    { stdout = "capture", stderr = "capture",
       timeout_ms = 30000 }))
   assert(result.ok, tostring(result.stderr))
   return result.stdout or "", result.stderr or ""

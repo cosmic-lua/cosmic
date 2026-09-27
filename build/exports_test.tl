@@ -46,8 +46,12 @@ allowed["build.filesystem_observations.environment"] = "a test's own declaration
   "what of the environment a process of this very program needs, which only a test starts"
 allowed["build.filesystem_observations.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
+allowed["build.filesystem_observations.sandboxed"] = "what a test of sharing asks of " ..
+  "its own worker, to fail where a sandbox it requires was not given the run it starts"
 allowed["build.filesystem_observations.reads_stat_times"] = "a test's own declaration: " ..
   "that its verdict turns on stat's times, which only a test makes"
+allowed["build.test_sandbox.refusal"] = "tested directly: the test hands it each errno " ..
+  "a host refusing user namespaces answers, which no host running the suite can be made to"
 allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..
   "line in the checker's own words"
 allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..

@@ -4,15 +4,10 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local work = require("build.work")
-local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's.
+--- The program itself, which its tests start.
 Test.needs{ tool = true }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
@@ -92,7 +87,7 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local output = tmp .. "/second.out"
   local fd = assert(Fs.open_write(output))
   local second, trouble = Child.start({ assert(Proc.executable()), "main.tl" },
-    { cwd = tmp, env = observations.environment(), stdout = fd, stderr = fd })
+    { cwd = tmp, stdout = fd, stderr = fd })
   assert(Fs.close(fd))
   assert(second, trouble)
   assert(Time.sleep_ns(300000000))
@@ -227,7 +222,7 @@ end
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)
   local result = assert(Child.run({ assert(Proc.executable()), "test" }, {
-    cwd = project, env = observations.environment(), stdout = "capture", stderr = "capture",
+    cwd = project, stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   }))
   local out = (result.stdout or "") .. (result.stderr or "")

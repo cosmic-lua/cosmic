@@ -3,23 +3,22 @@
 --- o/, through the cache `COSMIC_VERDICT_CACHE` names -- one a run no
 --- key could hold reached is assumed there on the terms it is in its
 --- own -- while a changed file or variable it read, or `--all` for one
---- assumed, runs it again.
+--- assumed, runs it again. Only a run whose workers are sandboxed
+--- shares its verdicts: each suite declares what its tests read, and a
+--- case stops where the run it starts cannot sandbox one (`shares`).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
 
---- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's.
+--- The program itself, which its tests start.
 Test.needs{ tool = true }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed.
@@ -38,7 +37,21 @@ local function run(root: string, output: string, env: {string:string},
   return text
 end
 
---- A checkout of the suite at `root`, its data file holding `data`.
+--- Whether the run that printed `text` shared its verdicts: where no
+--- worker can be sandboxed, none is shared, and a case of sharing
+--- has nothing to check. The run takes this one's switch
+--- (COSMIC_TEST_SANDBOX, pinned): turned off, it shares nothing; and
+--- where this test's own worker is sandboxed and the switch requires
+--- it, a run that shared nothing fails the case rather than skip it.
+local function shares(text: string): boolean
+  if text:find("; sandboxed)", 1, true) ~= nil then return true end
+  assert(not (observations.sandboxed() and sys.getenv("COSMIC_TEST_SANDBOX") == "1"),
+    "sandboxed, and required to be, but the run it started was not:\n" .. text)
+  return false
+end
+
+--- A checkout of the suite at `root`, its data file holding `data`, its
+--- outside test reading the directory beside `root` named outside.
 local function checkout(root: string, data: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/data.txt", data))
@@ -46,6 +59,9 @@ local function checkout(root: string, data: string)
   assert(Fs.write(root .. "/suite/reads_test.tl", [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "suite/" }, env = { "FLAVOUR" } }
 
 local function test_reads_data()
   assert(Fs.read("suite/data.txt") ~= nil)
@@ -68,6 +84,10 @@ end
   assert(Fs.write(root .. "/suite/outside_test.tl", [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "suite/marker.txt" }, host = { "]] .. Fs.dirname(root) ..
+    [[/outside/" }, env = { "OUTSIDE" } }
 
 local function test_reads_outside()
   assert(Fs.stat("suite/marker.txt") ~= nil)
@@ -77,6 +97,9 @@ end
 end
 
 local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: string)
+  -- Resolved: a sandbox gives a host path its suite declares at the
+  -- name it resolves to, and the one this test was handed is a link.
+  tmp = assert(Fs.absolute(tmp))
   assert(Fs.mkdirs(tmp .. "/outside"))
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   local env = observations.environment()
@@ -92,6 +115,7 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   end
   checkout(tmp .. "/first", "one\n")
   local first = said("first", tmp .. "/first", "5 ran, 0 stood")
+  if not shares(first) then return end
   -- Every file of the second has an inode and times of its own.
   checkout(tmp .. "/second", "one\n")
   local second = said("second", tmp .. "/second",
@@ -149,6 +173,9 @@ local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string
     assert(db:close())
     assert(Fs.write(root .. "/suite/database_test.tl", [[
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "suite/data.db" } }
 
 local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db", false))
@@ -161,6 +188,7 @@ end
   database_checkout(tmp .. "/first", "one")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("1 ran, 0 stood", 1, true), first)
+  if not shares(first) then return end
   database_checkout(tmp .. "/same", "one")
   local same = run(tmp .. "/same", tmp .. "/same.out", env)
   assert(same:find("0 ran, 1 stood", 1, true), same)
@@ -187,6 +215,9 @@ local function test_a_link_a_test_reads_is_keyed_by_what_it_is(tmp: string)
     end
     assert(Fs.write(root .. "/suite/link_test.tl", [[
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "suite/" } }
 
 local function test_reads_the_links_target()
   local target = sys.readlink("suite/link")
@@ -202,6 +233,7 @@ end
   link_checkout(tmp .. "/first", "a")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("2 ran, 0 stood", 1, true), first)
+  if not shares(first) then return end
   link_checkout(tmp .. "/same", "a")
   local same = run(tmp .. "/same", tmp .. "/same.out", env)
   assert(same:find("0 ran, 2 stood", 1, true), same)
@@ -233,6 +265,9 @@ local function test_a_database_attached_through_the_store_is_keyed_by_its_conten
     assert(Fs.write(root .. "/suite/attached_test.tl", [[
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "suite/data.db", "o/build.db" } }
 
 local function test_reads_an_attached_database()
   assert(Store.attach("suite/data.db"))
@@ -249,6 +284,7 @@ end
   attached_checkout(tmp .. "/first", "one")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("2 ran, 0 stood", 1, true), first)
+  if not shares(first) then return end
   attached_checkout(tmp .. "/same", "one")
   local same = run(tmp .. "/same", tmp .. "/same.out", env)
   assert(same:find("1 ran, 1 stood", 1, true), same)
@@ -296,13 +332,16 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
-  local function said(name: string, tool: string, wanted: string)
+  local function said(name: string, tool: string, wanted: string): string
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
     assert(Fs.mkdirs(root .. "/o/bin"))
     assert(Fs.write(root .. "/o/bin/tool", tool))
     assert(Fs.write(root .. "/suite/output_test.tl", [[
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "o/bin/tool", "o/build.db" } }
 
 local function test_reads_the_tool()
   assert(Fs.read("o/bin/tool") ~= nil)
@@ -315,8 +354,9 @@ end
 ]]))
     local text = run(root, tmp .. "/" .. name .. ".out", env)
     assert(text:find(wanted, 1, true), name .. ": " .. text)
+    return text
   end
-  said("first", "one", "2 ran, 0 stood")
+  if not shares(said("first", "one", "2 ran, 0 stood")) then return end
   said("same", "one", "1 ran, 1 stood")
   said("other", "two", "2 ran, 0 stood")
 end
@@ -334,6 +374,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   checkout(tmp .. "/first", "one\n")
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
   assert(first:find("4 ran, 0 stood", 1, true), first)
+  if not shares(first) then return end
   local db = assert(Sqlite.open(cache, true))
   local tables = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'verdicts%'"))
@@ -355,7 +396,9 @@ local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   local corrupt = tmp .. "/corrupt/verdicts.db"
   env.COSMIC_VERDICT_CACHE = corrupt
   checkout(tmp .. "/first", "one\n")
-  run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
+  if not shares(run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })) then
+    return
+  end
   local bytes = assert(Fs.read(corrupt))
   assert(#bytes > 4096, "more than one page")
   assert(Fs.write(corrupt, bytes:sub(1, 4096) .. string.rep("\xff", #bytes - 4096)))
@@ -406,6 +449,7 @@ local function test_a_touched_file_runs_what_stated_it(tmp: string)
   local words = { "suite/reads_test.tl" }
   local first = run(tmp .. "/first", tmp .. "/first.out", env, words)
   assert(first:find("4 ran, 0 stood", 1, true), first)
+  if not shares(first) then return end
   touch(tmp .. "/first/suite/data.txt")
   local touched = run(tmp .. "/first", tmp .. "/touched.out", env, words)
   assert(touched:find("1 ran, 3 stood", 1, true), touched)
@@ -427,6 +471,7 @@ local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tm
   checkout(tmp .. "/here", "one\n")
   local first = run(tmp .. "/here", tmp .. "/first.out", env, words)
   assert(first:find("4 ran, 0 stood", 1, true), first)
+  if not shares(first) then return end
   assert(Fs.remove_tree(tmp .. "/here"))
   checkout(tmp .. "/here", "one\n")
   local again = run(tmp .. "/here", tmp .. "/again.out", env, words)
@@ -437,6 +482,9 @@ end
 --- again, whatever another checkout reached under the same key, and the
 --- shared row goes.
 local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
+  -- Resolved: a sandbox gives a host path its suite declares at the
+  -- name it resolves to, and the one this test was handed is a link.
+  tmp = assert(Fs.absolute(tmp))
   local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
@@ -452,6 +500,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env,
     { "suite/outside_test.tl" }, true)
   assert(failed:find("1 of 1 failed", 1, true), failed)
+  if not shares(failed) then return end
   -- The first passes, and shares it.
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/outside_test.tl" })
@@ -474,6 +523,9 @@ end
 --- failing run stopped short of a read the passing one elsewhere made,
 --- so no key of its own matches that one's.
 local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp: string)
+  -- Resolved: a sandbox gives a host path its suite declares at the
+  -- name it resolves to, and the one this test was handed is a link.
+  tmp = assert(Fs.absolute(tmp))
   local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
@@ -487,6 +539,9 @@ local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp:
     assert(Fs.write(root .. "/suite/early_test.tl", [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "suite/c.txt" }, host = { "]] .. tmp .. [[/outside/" }, env = { "OUTSIDE" } }
 
 local function test_stops_early()
   assert(Fs.read(assert(Env.get("OUTSIDE")) .. "/f") == "out\n")
@@ -497,6 +552,7 @@ end
   assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
   assert(failed:find("1 of 1 failed", 1, true), failed)
+  if not shares(failed) then return end
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   local passed = run(tmp .. "/first", tmp .. "/passed.out", env, {})
   assert(passed:find("1 ran", 1, true), passed)

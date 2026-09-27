@@ -288,15 +288,20 @@ local function install(module: any, runner: any)
 end
 
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> <closure>...`, `children` a directory, not yet there, to collect
---- the coverage of the processes the test starts in, `needs` what the
---- build read of the module's `cosmic.test` declaration
+--- <needs> <held> <closure>...`, `children` a directory, not yet there, to
+--- collect the coverage of the processes the test starts in, `needs` what
+--- the build read of the module's `cosmic.test` declaration
 --- (`test_inputs.canonical`), "" or absent for none: a module whose
---- `needs` call was handed anything else fails to load; and `closure`
+--- `needs` call was handed anything else fails to load; `held` what this
+--- worker's own sandbox holds a process it starts to, one path a line
+--- (`test_sandbox.Plan`'s `held`), after a line "!" and why none of it
+--- keys such a process where none does (its `unkeyable`), "" or absent
+--- where it runs unsandboxed (`observations.Resolving`'s `held`); and
+--- `closure`
 --- the names of the module's import closure (`test_inputs.modules`),
 --- one argument each, which its load and its test may `require` of
 --- the tree and nothing else of it (`refusal`), absent for no such
---- hold -- a closure holds its module at least. `--worker-held` in
+--- hold -- a closure holds its module at least. `--worker-no-tool` in
 --- place of `--worker` holds the worker, before anything of the test
 --- loads, to running anything but this very program
 --- (`observations.forbid_running`): a sandboxed worker's whose module
@@ -306,15 +311,16 @@ function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
   local expected_needs = argv[8] or ""
+  local held_paths = argv[9] or ""
   if root == nil or module_path == nil or name == nil or tmp == nil or
       children_path == nil then
     log:complain("test --worker needs a root, a module, a test and two directories")
     return 2
   end
-  if argv[2] == "--worker-held" then
+  if argv[2] == "--worker-no-tool" then
     local forbidden, forbid_trouble = observations.forbid_running(observations.itself())
     if not forbidden then
-      log:complain("test --worker-held: this program cannot be kept from running itself: " ..
+      log:complain("test --worker-no-tool: this program cannot be kept from running itself: " ..
         forbid_trouble)
       return 2
     end
@@ -330,9 +336,9 @@ function worker.run(argv: {integer:string}): integer
   local held: Held = function(fn: function(any...): (any...), argument?: any): any
     return fn(argument)
   end
-  if argv[9] ~= nil then
+  if argv[10] ~= nil then
     local closure: {string:boolean} = {}
-    local i = 9
+    local i = 10
     while argv[i] ~= nil do
       closure[argv[i]] = true
       i = i + 1
@@ -366,6 +372,17 @@ function worker.run(argv: {integer:string}): integer
   if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
   -- A confined process writes its coverage beside the test's own.
   if children ~= nil then resolving.own[#resolving.own + 1] = children end
+  -- Sandboxed, a process the test starts has this worker's sandbox.
+  if held_paths ~= "" then
+    resolving.held = {}
+    for line in held_paths:gmatch("[^\n]+") do
+      if line:sub(1, 1) == "!" then
+        resolving.unkeyable = line:sub(2)
+      else
+        resolving.held[#resolving.held + 1] = line
+      end
+    end
+  end
   -- What the module's `needs` call is handed as it loads, through the
   -- hook `cosmic.test` leaves for a runner; once it has loaded, a call
   -- is refused.

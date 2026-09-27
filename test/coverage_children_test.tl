@@ -13,11 +13,8 @@ local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- What a confined child is given of the host, and /proc, where its
---- coverage is found.
+--- coverage is found; and the program itself, which its tests start.
 Test.needs{ host = { "/proc", "/usr" }, tool = true }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
 
 local function environment(): {string:string}
   local env = observations.environment()

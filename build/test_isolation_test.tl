@@ -13,11 +13,20 @@ local worker = require("build.test_worker")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- A worker a test starts unconfined, to hang or exit.
-Test.needs{ processes = true, tool = true }
+--- A worker a test starts, to hang or exit, and /proc, where what a
+--- hung one left running would be found; and the program itself, which
+--- the tests start.
+Test.needs{ host = { "/proc" }, processes = true, tool = true }
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The environment a run of `cosmic test` these tests start is given:
+--- its workers unsandboxed (`COSMIC_TEST_SANDBOX=0`), since what they
+--- check is the runner's own handling of what a worker reads and leaves
+--- of the host, which a sandbox would not let it reach.
+local function environment(): {string:string}
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
+  return env
+end
 
 local function invoke(root: string, output: string, args: {string},
     env?: {string:string}): Child.Result
@@ -25,29 +34,28 @@ local function invoke(root: string, output: string, args: {string},
   for _, value in ipairs(args) do argv[#argv + 1] = value end
   local fd = assert(Fs.open_write(output))
   local result, trouble = Child.run(argv, {
-    cwd = root, env = env or observations.environment(), stdout = fd, stderr = fd, timeout_ms = 60000,
+    cwd = root, env = env or environment(), stdout = fd, stderr = fd, timeout_ms = 60000,
   })
   assert(Fs.close(fd))
   return (assert(result, trouble))
 end
 
 --- A hung test that also started a process group of its own, which the
---- end of its worker's group does not reach; a test that ends its own
---- process after printing; and a quiet one that passes.
-local function project(tmp: string): string, string
+--- end of its worker's group does not reach -- a shell named by
+--- `marker`, which it keeps running; a test that ends its own process
+--- after printing; and a quiet one that passes.
+local function project(tmp: string, marker: string): string
   local root = tmp .. "/project"
-  local pidfile = tmp .. "/nested.pid"
   assert(Fs.mkdirs(root .. "/suite"))
   local hang = [[
 local Child = require("cosmic.child")
 local held: {Child.Handle} = {}
 local function test_hangs()
-  held[1] = assert(Child.start({ "/bin/sh", "-c",
-    "sleep 60 & printf %s $! >'PIDFILE'; wait" }))
+  held[1] = assert(Child.start({ "/bin/sh", "-c", "while :; do sleep 1; done", "MARKER" }))
   while true do end
 end
 ]]
-  assert(Fs.write(root .. "/suite/hang_test.tl", (hang:gsub("PIDFILE", pidfile))))
+  assert(Fs.write(root .. "/suite/hang_test.tl", (hang:gsub("MARKER", marker))))
   assert(Fs.write(root .. "/suite/exits_test.tl", [[
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -62,54 +70,71 @@ local function test_fine()
   Fs.put(Fs.stdout, "quiet\n")
 end
 ]]))
-  return root, pidfile
+  return root
 end
 
+--- The processes /proc lists whose command line holds `marker`: every
+--- one this process can see, in its own pid namespace and those
+--- beneath it.
+local function running(marker: string): {string}
+  local found: {string} = {}
+  for _, name in ipairs(Fs.list("/proc") or {}) do
+    if name:match("^%d+$") ~= nil then
+      local line = Fs.read("/proc/" .. name .. "/cmdline") or ""
+      if line:find(marker, 1, true) ~= nil then found[#found + 1] = name end
+    end
+  end
+  return found
+end
+
+--- A hung test is ended at its deadline, and so is every process it
+--- left running -- its worker's process group and the strays the
+--- runner adopts, unsandboxed; its worker's pid namespace, sandboxed
+--- (`build.test_sandbox`) -- while the rest of the run goes on.
 local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
-  local root, pidfile = project(tmp)
-  local output = tmp .. "/run.out"
-  -- The failing tests' directories are kept; they are kept here.
-  local env = observations.environment()
-  env.TMPDIR = tmp .. "/temp"
-  assert(Fs.mkdirs(env.TMPDIR))
-  local started = Time.monotonic_ns()
-  -- Unconfined: a confined run is pid 2 of a pid namespace of its own,
-  -- which ends every process left in it when it does -- so it would
-  -- pass the check below whatever the runner did -- and the pid the
-  -- nested shell writes is that namespace's, not this process's.
-  observations.confine(nil)
-  local ran, answer: boolean, any = pcall(invoke, root, output,
-    { "--timeout", "1", "--jobs", "2" }, env)
-  observations.confine({ reads = observations.itself() })
-  if not ran then error(answer, 0) end
-  local result = answer as Child.Result
-  local text = assert(Fs.read(output))
-  assert(not result.ok, text)
-  assert(Time.monotonic_ns() - started < 30 * 1000 * 1000 * 1000, text)
-  assert(text:find("suite.hang_test test_hangs: timed out after 1 s", 1, true), text)
-  assert(text:find("suite.exits_test test_exits: the test process exited with status 0 " ..
-    "before it reported", 1, true), text)
-  assert(text:find("  | said something", 1, true), text)
-  assert(not text:find("quiet", 1, true), text)
-  assert(text:find("2 of 3 failed", 1, true), text)
-  -- Where the runner can find what a dead worker left behind (Linux),
-  -- the hung test's own process group is gone too.
-  if Fs.exists("/proc/self/task") then
-    local pid = assert(math.tointeger(tonumber((assert(Fs.read(pidfile))))))
-    local alive, _, errno = sys.kill(pid, 0)
-    assert(not alive and errno == sys.ESRCH, "nested process " .. tostring(pid) .. " survived")
+  for _, mode in ipairs({ "0", "" }) do
+    local marker = "cosmic-hang-" .. tostring(Time.monotonic_ns())
+    local here = tmp .. "/mode" .. mode
+    local root = project(here, marker)
+    local output = here .. "/run.out"
+    -- The failing tests' directories are kept; they are kept here.
+    local env = environment()
+    env.TMPDIR = here .. "/temp"
+    env.COSMIC_TEST_SANDBOX = mode
+    assert(Fs.mkdirs(env.TMPDIR))
+    local started = Time.monotonic_ns()
+    local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" }, env)
+    local text = assert(Fs.read(output))
+    assert(not result.ok, text)
+    assert(Time.monotonic_ns() - started < 30 * 1000 * 1000 * 1000, text)
+    assert(text:find("suite.hang_test test_hangs: timed out after 1 s", 1, true), text)
+    assert(text:find("suite.exits_test test_exits: the test process exited with status 0 " ..
+      "before it reported", 1, true), text)
+    assert(text:find("  | said something", 1, true), text)
+    assert(not text:find("quiet", 1, true), text)
+    assert(text:find("2 of 3 failed", 1, true), text)
+    local sandboxed = text:find("; sandboxed)", 1, true) ~= nil
+    if mode == "0" then assert(not sandboxed, text) end
+    assert(text:find(sandboxed and "its pid namespace was ended" or "its process group was ended",
+      1, true), text)
+    -- Where the runner can find what a dead worker left behind (Linux),
+    -- the process the hung test left running is gone too.
+    if Fs.exists("/proc/self/task") then
+      local left = running(marker)
+      assert(#left == 0, mode .. ": left running: " .. table.concat(left, " "))
+    end
   end
 end
 
 local function test_limits_must_be_positive_whole_numbers(tmp: string)
-  local root = project(tmp)
+  local root = project(tmp, "unused")
   local output = tmp .. "/limits.out"
   local result = invoke(root, output, { "--timeout", "0", "suite/fine_test.tl" })
   assert(result.code == 2, assert(Fs.read(output)))
   assert(assert(Fs.read(output)):find("--timeout must be a positive whole number", 1, true))
   result = invoke(root, output, { "--jobs", "x", "suite/fine_test.tl" })
   assert(result.code == 2, assert(Fs.read(output)))
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_TEST_TIMEOUT = "soon"
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.code == 2, assert(Fs.read(output)))
@@ -152,7 +177,7 @@ local function test_fails(tmp: string)
   error("fails")
 end
 ]]))
-  local env = observations.environment()
+  local env = environment()
   env.TMPDIR = temp
   local output = tmp .. "/left.out"
   local result = invoke(root, output, { "suite/left_test.tl" }, env)
@@ -194,7 +219,7 @@ end
 local function test_first(tmp: string) hold(tmp, "first") end
 local function test_second(tmp: string) hold(tmp, "second") end
 ]]))
-  local env = observations.environment()
+  local env = environment()
   env.TMPDIR = temp
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
@@ -248,7 +273,7 @@ local function test_b_holds()
   while true do end
 end
 ]]))
-  local env = observations.environment()
+  local env = environment()
   env.TMPDIR = temp
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
@@ -292,7 +317,7 @@ local function test_counts()
 end
 ]]))
   assert(Fs.symlink(root, tmp .. "/link"))
-  local env = observations.environment()
+  local env = environment()
   env.TMPDIR = tmp .. "/temp"
   assert(Fs.mkdirs(env.TMPDIR))
   local output = tmp .. "/counts.out"
@@ -324,7 +349,7 @@ local function three_runs(tmp: string, source: string): {string}
   assert(Fs.write(root .. "/a/f", "good\n"))
   assert(Fs.write(root .. "/b/f", "other\n"))
   assert(Fs.write(root .. "/suite/link_test.tl", source))
-  local env = observations.environment()
+  local env = environment()
   env.TMPDIR = tmp .. "/temp"
   env.PROJ = root
   env.OUTSIDE = outside
@@ -421,7 +446,7 @@ local function test_no_hooks()
   assert(Env.get("KEPT_BY_THE_WORKER") == "yes")
 end
 ]]))
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = tmp .. "/never"
   env.KEPT_BY_THE_WORKER = "yes"
   local output = tmp .. "/hooks.out"

@@ -26,12 +26,14 @@
 --- Observations outside the root do not enter the key; the tool's own
 --- hash, in every module key, invalidates everything at once.
 --- Environment variables a test reads are part of its key. A key
---- names nothing of where the tree is, so every checkout shares its
---- passing verdicts too (`build.shared_verdicts`): a test no verdict of
+--- names nothing of where the tree is, so every checkout whose workers
+--- run sandboxed shares its passing verdicts too
+--- (`build.shared_verdicts`): a test no verdict of
 --- this checkout answers for stands on one another checkout of the same
 --- content reached, or is assumed on one, on the terms it would on its
 --- own, and that verdict is then recorded here as this run's. A test
---- that spawns a process it does not confine, reads outside the tree
+--- that spawns a process no sandbox holds -- one an unsandboxed worker
+--- starts -- reads outside the tree
 --- beyond its own temporary directories, or reaches the network has no
 --- verdict a key can hold: its run records what it was compiled from
 --- and ran under instead, and while that is unchanged and it last
@@ -73,12 +75,13 @@
 --- projection. `--audit` runs every test it chooses and names, module by
 --- module, whatever one read beyond them (`build.test_inputs`), with the
 --- declaration that would hold it, and fails the run when any did.
---- Nothing enforces them by default. With `COSMIC_TEST_SANDBOX=1` each
---- worker runs sandboxed to them (`build.test_sandbox`), with the tree
---- at /tree and its scratch directory at /tmp: a read of anything else
---- finds nothing. Where the kernel cannot sandbox a worker, the run says
---- so and runs them as it would have -- but under `COSMIC_SANDBOX=must`,
---- where it fails.
+--- Each worker runs sandboxed to them (`build.test_sandbox`), with the
+--- tree at /tree and its scratch directory at /tmp, and so does every
+--- process it starts: a read of anything else finds nothing. Where the
+--- kernel cannot sandbox a worker (macOS, a host refusing user
+--- namespaces), or `COSMIC_TEST_SANDBOX=0` turns it off, the run says
+--- so, runs each unsandboxed, and shares no verdict; with
+--- `COSMIC_TEST_SANDBOX=1` it fails there instead.
 ---
 --- Sandboxed, a verdict is keyed by what its test was given rather than
 --- by what it read: the digest of its declared inputs, computed before
@@ -754,6 +757,12 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         -- Walked only after the test started, the answer may be of what
         -- the path became since its process read it: such a verdict is
         -- not kept, and the next run, which walks it first, keeps one.
+        -- TODO: walk what a sandboxed worker holds a process to
+        -- (`test_sandbox.Plan`'s `held`) before its test starts, once
+        -- such a walk is cheap enough to make for every test that might
+        -- start one (a digest remembered by what `lstat` says, say):
+        -- today a test that starts a process keeps no verdict until its
+        -- second run.
         local walked = math.tointeger(key_parts["\2u" .. tag .. "\0" .. relative]) or 0
         if started_ns ~= nil and walked >= started_ns then late = true end
         return walked_answer
@@ -1003,7 +1012,8 @@ end
 
 --- What of `reads`, one test's observations, `effective` does not hold
 --- (`build.test_inputs`): each read of the tree or the host beyond it,
---- each variable, each request and each process no sandbox holds, as
+--- each variable, each request and each thing a process was handed
+--- past observation, as
 --- the field of `cosmic.test`'s `Needs` that would declare it, once each. What
 --- no test declares is left out, as `test.keyable` leaves it out of a
 --- key: what a read landed on in the test's own directory, `scratch`,
@@ -1011,12 +1021,14 @@ end
 --- leads -- and what a stat asks of a directory above them or the tree;
 --- a device whose every answer is the same, and the test's own process
 --- in /proc; each path a confined process was given, which
---- `observations.confine` declares already; and a read that found
---- nothing there (`found_nothing`). `tool` names the program running
+--- `observations.confine` declares already, or the worker's own sandbox
+--- holds it to; and a read that found nothing there (`found_nothing`). `tool` names the program running
 --- the tests, a read of which is a `tool` finding, as one of
 --- o/bin/cosmic is. `sandboxed` says the reads were a sandboxed
 --- worker's, which found nothing of what it was not given: a read that
---- found nothing is judged by what the host has there instead. Exposed
+--- found nothing is judged by what the host has there instead; and
+--- whose environment is only what its module declares, which a read of
+--- all of it -- a process started with the worker's own -- reads. Exposed
 --- so build/test_audit_test.tl can hold it to observations directly.
 function test.audited(root: string, scratch: string, effective: test_inputs.Effective,
                       reads: {observations.Observation},
@@ -1086,19 +1098,25 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
       add("tool", path)
     end
     if kind == "p" then
-      if not effective.processes then add("processes", path) end
+      -- A process started needs no declaration: a sandboxed worker's is
+      -- held by its sandbox, and an unsandboxed one's run never stands
+      -- (`cosmic.test`'s `processes`).
     elseif kind == "x" then
       -- A request's URL, which names its scheme; any other is what no
       -- observation could account for, which a process is handed.
       if path:match("^%s*%a[%w+.-]*:") ~= nil then
         if not test_inputs.covers_network(effective, path) then add("network", path) end
-      elseif not effective.processes then
+      elseif not effective.processes and not sandboxed then
         add("processes", "unobservable: " .. path)
       end
     elseif kind == "e" then
-      -- A name no variable can have: the whole environment.
+      -- A name no variable can have: the whole environment -- of a
+      -- sandboxed worker, only what its module declares and the pinned
+      -- variables, which a process it starts inherits.
       local name = path:sub(1, 1) == "\0" and "*" or path
-      if not test_inputs.covers_env(effective, name) then add("env", name) end
+      if not test_inputs.covers_env(effective, name) and not (sandboxed and name == "*") then
+        add("env", name)
+      end
     elseif (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
         kind == "a" or kind == "g" or kind == "j") and not constant_devices[path] and
         not own_process(path) then
@@ -1583,10 +1601,13 @@ local record Recording
   effective: {string:test_inputs.Effective}
   tool: {string}
   --- Whether each worker runs sandboxed (`build.test_sandbox`): the
-  --- switch is on and the kernel can. `effective` then holds every
+  --- switch does not turn it off and the kernel can. `effective` then holds every
   --- selected module's inputs, and `views` the environment its workers
   --- are given, by module path.
   sandbox: boolean
+  --- What reruns one test as this run ran it: the switch as the run
+  --- was given it (`test_sandbox.mode`), or "" when unset.
+  rerun_prefix: string
   views: {string:{string:string}}
   --- Sandboxed, what keys each verdict (`build.declared_key`): the
   --- digests of the tree's files the run has taken, and the compiler's
@@ -1921,7 +1942,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     message = "the test process could not be supervised: " .. trouble
   elseif result.timed_out then
     message = "timed out after " .. tostring(limits.timeout_ms // 1000) ..
-      " s; its process group was ended"
+      " s; " .. (rec.sandbox and "its pid namespace" or "its process group") .. " was ended"
   else
     local decoded, decode_trouble = worker.decode(result.captured[worker.report_fd])
     if decoded == nil then
@@ -1941,16 +1962,16 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       -- Where the host has what the sandboxed worker read at /tree and
       -- /tmp, so its key and its audit are those of an unsandboxed run.
       reported.load_reads = test_sandbox.to_host(reported.load_reads, rec.root, job.scratch,
-        job.plan.kept)
+        job.plan.kept, job.plan.made)
       reported.test_reads = test_sandbox.to_host(reported.test_reads, rec.root, job.scratch,
-        job.plan.kept)
+        job.plan.kept, job.plan.made)
     end
     reads = observations.join(reported.load_reads, reported.test_reads)
     if rec.audit ~= nil then
       local by_test = rec.audit[job.m.path] or {}
       rec.audit[job.m.path] = by_test
       by_test[job.name] = test.audited(rec.root, job.scratch, rec.effective[job.m.path], reads,
-        rec.tool)
+        rec.tool, rec.sandbox)
     end
     elapsed = reported.elapsed_ns
     cacheable = reported.loaded and not rec.sandbox and
@@ -2124,6 +2145,12 @@ end
 --- processes report.
 --- Removing the scratch directory with `Fs.remove_tree` removes the
 --- link without following it, and the real directory beside it.
+-- TODO: keep the link, which a sandboxed worker sees at /tmp/tmp as an
+-- unsandboxed one sees it under the host's temporary directory: it
+-- stands in for macOS's /var on every host, and does not depend on
+-- where the checkout is. Drop it only once a case of its own on the
+-- macOS leg catches a path resolved on one side of a comparison and not
+-- the other, which the link catches on every leg today.
 function test.scratch(): string | nil, string
   local made, trouble = Fs.mkdtemp("cosmic-test-")
   if made == nil then return nil, trouble end
@@ -2182,6 +2209,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local env: {string:string} = worker_view()
   local root, inside, cwd: string, string, string = rec.root, scratch, nil
   local sandbox: Child.Sandbox = nil
+  -- What a process the worker starts is keyed by, where its sandbox
+  -- holds one: "" for none.
+  local held = ""
   if rec.sandbox then
     local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view())
     if plan.over > 0 then
@@ -2196,6 +2226,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     job.plan = plan
     env, sandbox = plan.env, plan.sandbox
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
+    -- Why none of it keys such a process leads, as a line of its own.
+    held = (plan.unkeyable ~= "" and ("!" .. plan.unkeyable .. "\n") or "") ..
+      table.concat(plan.held, "\n")
   end
   local given: {string:string} = {}
   for name, value in pairs(env) do given[name] = value end
@@ -2205,23 +2238,28 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local argv: {string} = {}
   for i, value in ipairs(start.argv) do argv[i] = value end
   -- What the build read of the module's `needs`, which the worker holds
-  -- the call to, and its import closure, which it holds its `require`s
-  -- to.
-  -- Sandboxed, a worker whose module does not declare `tool` may not
-  -- run this program (`observations.forbid_running`): what it would
-  -- run is no input of its test's key.
-  local held = rec.sandbox and not rec.effective[job.m.path].tool
-  for _, value in ipairs({ "test", held and "--worker-held" or "--worker", root, job.m.path,
-                           job.name, inside .. "/tmp",
-                           inside .. "/children", test_inputs.canonical(job.m.inputs) }) do
+  -- the call to; what its sandbox holds a process it starts to; and its
+  -- import closure, which it holds its `require`s to. Sandboxed, a
+  -- worker whose module does not declare `tool` may not run this
+  -- program (`observations.forbid_running`): what it would run is no
+  -- input of its test's key.
+  local forbidding = rec.sandbox and not rec.effective[job.m.path].tool
+  for _, value in ipairs({ "test", forbidding and "--worker-no-tool" or "--worker", root,
+                           job.m.path, job.name, inside .. "/tmp",
+                           inside .. "/children", test_inputs.canonical(job.m.inputs),
+                           held }) do
     argv[#argv + 1] = value
   end
   for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(start.fds) do fds[number] = fd end
+  -- An unsandboxed worker leads a process group of its own, which its
+  -- end ends; a sandboxed one is pid 2 of a pid namespace of its own,
+  -- which ends with it, ending all it started: no group to end, and no
+  -- stray left for this process to adopt (`run_jobs`).
   local handle, trouble = Child.start(argv,
     { env = given, cwd = cwd, stdin = "null", stdout = "capture", stderr = "stdout", fds = fds,
-      sandbox = sandbox })
+      sandbox = sandbox, process_group = not rec.sandbox })
   if handle == nil then
     finish(rec, job, nil, trouble, limits)
     return false
@@ -2295,24 +2333,21 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       end
     end
     if #still < #running then
-      -- A worker that is gone may have left processes of its own
-      -- behind, outside the group its end reached; this process
-      -- adopted them, and ends them before the next test starts,
-      -- and, on Linux, before what they could still write into is
-      -- removed. A sandboxed worker leaves none: it is pid 2 of a pid
-      -- namespace of its own, whose init ends when it does, ending
-      -- everything left there, before `wait` answers for it.
-      -- TODO: drop this, and the group kill `Child` ends an unsandboxed
-      -- worker's group with, for a sandboxed run, once the sandbox is on
-      -- by default (the next phase of declared inputs): until then the
-      -- unsandboxed run, and a host with no sandbox, still need both.
+      -- An unsandboxed worker that is gone may have left processes of
+      -- its own behind, outside the group its end reached; this process
+      -- adopted them, and ends them before the next test starts, and,
+      -- on Linux, before what they could still write into is removed.
+      -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
+      -- of its own, whose init ends when it does, ending everything
+      -- left there, before `wait` answers for it; and nothing adopts
+      -- them here, since no worker was started with a group.
       -- TODO: a stray still writing into a passing test's directory
       -- (or, on a cancelled run, an ended worker's, below) can race
       -- its removal: end_strays is a no-op on macOS and on
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
-      Child.end_strays()
+      if not rec.sandbox then Child.end_strays() end
       sweep(rec, running)
     end
     running = still
@@ -2326,7 +2361,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       job.scratch = nil
     end
   end
-  Child.end_strays()
+  if not rec.sandbox then Child.end_strays() end
   -- Only a cancelled run ends here with workers running, none of them
   -- collected, so nothing reports on what is in their directories. A
   -- stray can race this removal as it can the one above (see the TODO
@@ -2410,7 +2445,7 @@ local function say_failures(rec: Recording, failures: {string})
     local id = rec.failed[failure]
     local rerun = id ~= nil and rec.reruns[id] or nil
     if rerun ~= nil then
-      log:say("  rerun: " .. (rec.sandbox and (test_sandbox.switch .. "=1 ") or "") ..
+      log:say("  rerun: " .. rec.rerun_prefix ..
         "cosmic test " .. test.shell_word(rerun))
     end
     local printed = id ~= nil and rec.outputs[id] or nil
@@ -2452,8 +2487,8 @@ function test.run(argv: {integer:string}): integer
     log:complain("test: " .. limits_trouble)
     return 2
   end
-  local sandbox_asked, sandbox_trouble = test_sandbox.enabled()
-  if sandbox_asked == nil then
+  local sandbox_mode, sandbox_trouble = test_sandbox.mode()
+  if sandbox_mode == nil then
     log:complain("test: " .. sandbox_trouble)
     return 2
   end
@@ -2550,28 +2585,32 @@ function test.run(argv: {integer:string}): integer
   end
   local runtime = identity .. " tables " .. tables
   local database = root .. "/o/cosmic.db"
-  -- Asked to, each worker runs sandboxed where the kernel can sandbox
-  -- one; a verdict reached so is kept apart from one reached without,
-  -- by a runtime of its own, so neither stands for the other.
+  -- Each worker runs sandboxed where the kernel can sandbox one, unless
+  -- the switch turns it off; a verdict reached so is kept apart from one
+  -- reached without, by a runtime of its own, so neither stands for the
+  -- other. An unsandboxed run's verdicts are this checkout's alone: no
+  -- sandbox held what its tests read, so none is shared, nor stood on.
   local sandboxed, sandbox_summary = false, ""
-  if sandbox_asked then
+  if sandbox_mode ~= "off" then
     local why: string
     sandboxed, why = sandbox_here()
     if sandboxed then
       runtime = runtime .. " sandboxed"
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
-        test_sandbox.tree .. " (" .. test_sandbox.switch .. "=1)")
-    elseif Env.get("COSMIC_SANDBOX") == "must" then
+        test_sandbox.tree)
+    elseif sandbox_mode == "on" then
       local _, _ = work.close(handle)
-      log:complain("test: " .. test_sandbox.switch .. "=1 and COSMIC_SANDBOX=must, but no " ..
-        "worker can be sandboxed here: " .. why)
+      log:complain("test: " .. test_sandbox.switch .. "=1, but no worker can be sandboxed " ..
+        "here: " .. why)
       return 1
     else
-      sandbox_summary = "; unsandboxed, as no worker can be sandboxed here"
-      log:say("test: sandbox: no worker can be sandboxed here, so each runs as it would " ..
-        "unasked: " .. why)
+      sandbox_summary = "; unsandboxed, as no worker can be sandboxed here, sharing no verdicts"
+      log:say("test: no worker can be sandboxed here: " .. why .. "; " ..
+        test_sandbox.switch .. "=0 runs them unsandboxed without asking")
     end
+  else
+    sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0), sharing no verdicts"
   end
 
   local result, compile_trouble = importer.compile(handle, built, tool)
@@ -2711,12 +2750,16 @@ function test.run(argv: {integer:string}): integer
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
     sandbox = sandboxed, views = {}, caches = {}, unkeyed = {},
+    rerun_prefix = sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
+      sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or "",
   }
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
   -- Without them the run goes on as before, said so when that is not
-  -- what was asked for.
-  local cache_path, cache_trouble = shared_verdicts.location()
+  -- what was asked for. An unsandboxed run neither reads nor writes
+  -- them (see above).
+  local cache_path, cache_trouble: string, string = nil, ""
+  if sandboxed then cache_path, cache_trouble = shared_verdicts.location() end
   if cache_path ~= nil then
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end

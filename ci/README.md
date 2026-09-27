@@ -47,13 +47,10 @@ unprivileged user namespace (Ubuntu 24.04's
 `kernel.apparmor_restrict_unprivileged_userns=1`, most containers), so the
 phases after it still run there. Set it to hold a local run to the same.
 
-The `sandboxed` phase runs the native suite again with each worker
-sandboxed to its declared inputs (`COSMIC_TEST_SANDBOX=1`,
-`build/test_sandbox.tl`) and writes how many tests failed so, and which, to
-its log and the summary. ci.yml runs it on the Linux legs as a shadow, with
-`continue-on-error`, so it gates nothing until the suite passes sandboxed;
-run-local runs it only when named (`ci/run-local sandboxed`), after a
-`build`.
+Where `COSMIC_CI_REQUIRE_SANDBOX=1`, every phase's `cosmic test` runs each
+worker sandboxed to its declared inputs (`COSMIC_TEST_SANDBOX=1`,
+`build/test_sandbox.tl`), as it does by default wherever it can, and fails
+where none can be rather than run them unsandboxed.
 
 CI runs the driver unprivileged, and as root a permission a fixture expects
 to be refused may be granted. So invoked as root, run-local runs the driver

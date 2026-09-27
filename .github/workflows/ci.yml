@@ -126,7 +126,9 @@
         # A Linux leg fails where the sandbox probe finds a confined
         # test's parts do not all hold: its container is given what they
         # need (see "start the leg's container"). See orchestration.tl's
-        # phase_sandbox.
+        # phase_sandbox. Its suites run each test's worker sandboxed
+        # (COSMIC_TEST_SANDBOX=1, build/test_sandbox.tl), and fail where
+        # none can be; the macOS leg's run unsandboxed.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
       },
       steps: [
@@ -299,6 +301,13 @@
         # the checkout: from here on the checkout is at a path of this
         # commit's and this leg's own (COSMIC_WORKER), which the log names,
         # and $GITHUB_WORKSPACE links to it.
+        # TODO: move it on the macOS leg alone (and drop the put-back and
+        # re-move around the zig cache save on the Linux legs) once
+        # ci/cosmic-driver.pin names a release whose `cosmic test`
+        # sandboxes its workers by default: the tree's own suites here
+        # already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # but "check the pinned CI driver" runs cosmic_ci's tests on that
+        # release, unsandboxed, and the macOS leg has no sandbox at all.
         {
           name: "move the tree to a path of this commit's own",
           "working-directory": ".",
@@ -335,25 +344,6 @@
           name: "probe the sandbox a confined test runs in",
           if: "runner.os == 'Linux'",
           run: "cosmic-driver cosmic_ci/driver.tl platform sandbox",
-        },
-
-        # A shadow of the native suite: every test again, each in a
-        # worker sandboxed to its declared inputs (COSMIC_TEST_SANDBOX=1,
-        # build/test_sandbox.tl), where the probe above says the sandbox
-        # holds. It writes to the summary how many tests fail so, and
-        # which (cosmic_ci/orchestration.tl's phase_sandboxed), and
-        # gates nothing: a failure here is a test that reads what it
-        # does not declare, not a broken change, until the suite passes
-        # sandboxed and the switch is on by default.
-        # TODO: drop continue-on-error once this step has passed on every
-        # Linux leg for a while: the whole suite passes sandboxed locally
-        # (a host, as root), but no CI run has shown it yet on the legs'
-        # containers, as their unprivileged runner, or on aarch64.
-        {
-          name: "run the native suite with each worker sandboxed (shadow)",
-          if: "runner.os == 'Linux'",
-          "continue-on-error": true,
-          run: "cosmic-driver cosmic_ci/driver.tl platform sandboxed",
         },
 
         {
