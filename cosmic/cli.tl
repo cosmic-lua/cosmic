@@ -116,8 +116,9 @@ local record Cli
   uses: string
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
-  --- first line on, indexed into o/build.db so only a file that moved
-  --- is blamed again. An argument that names a path narrows it to that
+  --- first line on -- in a git repository only: elsewhere git is not
+  --- started, and each is listed with none -- indexed into o/build.db so
+  --- only a file that moved is blamed again. An argument that names a path narrows it to that
   --- path; the rest are words to search the TODOs' text for, best match
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
   --- parse as that

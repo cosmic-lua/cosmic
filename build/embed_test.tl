@@ -12,9 +12,9 @@ local artifact = require("build.artifact")
 local embed = require("build.embed")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, and the system's `sh`,
---- which runs its launcher.
-Test.needs{ tool = true, system = true }
+--- The program itself, which its tests start. The programs they build
+--- and run are built `--host`, so no launcher -- and no `sh` -- runs them.
+Test.needs{ tool = true }
 
 local main_source = [[
 local Fs = require("cosmic.fs")
@@ -334,7 +334,7 @@ return function(): integer
   error("coverage collection is already active", 0)
 end
 ]]))
-  local names, trouble = embed.tree(tmp)
+  local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
   local r = run_program(tmp .. "/o/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
@@ -356,12 +356,11 @@ return function(): integer
   error({})
 end
 ]]))
-  local names, trouble = embed.tree(tmp)
+  local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
   local r = run_program(tmp .. "/o/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
-  -- Its report is one line and nothing beneath it; a core built with the
-  -- portable test hooks writes lines of its own around it.
+  -- Its report is one line and nothing beneath it.
   local reported: {string} = {}
   for line in assert(r.stderr):gmatch("[^\n]+") do
     if line:sub(1, 8) == "cosmic: " then
@@ -390,7 +389,7 @@ function lib.explode()
 end
 return lib
 ]]))
-  local names, trouble = embed.tree(tmp)
+  local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "boom", trouble)
   local r = run_program(tmp .. "/o/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))

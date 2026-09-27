@@ -1,6 +1,5 @@
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local todo_scan = require("build.todo_scan")
@@ -8,13 +7,11 @@ local todos = require("build.todos")
 local narrow = require("build.narrow")
 local work = require("build.work")
 
---- The system's git, and the environment `cosmic todos` starts it with.
--- TODO: name git by what PATH finds rather than the whole of the
--- system's paths, once a declaration can name a program (`processes` by
--- name, which the sandbox resolves, with what its loader reads): on a
--- host with git elsewhere (/nix/store, /opt), the tests that build a
--- repository pass over it.
-Test.needs{ env = { "*" }, system = true }
+--- Nothing beyond its closure: the trees these tests list are in no
+--- repository, so `cosmic todos` starts no git for them
+--- (`test_a_tree_in_no_repository_starts_no_git`). The test that
+--- blames a repository's lines is build/todos_git_test.tl.
+Test.needs{}
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.
@@ -166,6 +163,33 @@ local function test_render_marks_unblamed_and_boundary_rows()
   assert(todos.render(row) == "a.tl:3: 2023-11-14 ^0123456 do it", todos.render(row))
 end
 
+--- A tree in no repository is listed unblamed without git: none is
+--- looked for on PATH, and no process is started.
+local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: unblamed" })))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local listing: todos.Listing
+  local captured = observations.capture(function()
+    listing = assert(todos.list(handle.db, root))
+  end)
+  assert(captured.ok, tostring(captured.produced))
+  assert(work.close(handle))
+  assert(listing.blamed == 0, "blamed " .. listing.blamed)
+  assert(#listing.todos == 1 and listing.todos[1].commit == "", listing.todos[1].commit)
+  local asked_after_git = false
+  for _, read in ipairs(captured.reads) do
+    assert(read.kind ~= "p" and read.kind ~= "x" and read.kind ~= "y",
+      "a process: " .. read.kind .. " " .. read.path)
+    assert(not (read.kind == "e" and read.path == "PATH"), "PATH was read")
+    assert(read.path:match("/git$") == nil, "git was looked for: " .. read.kind .. " " .. read.path)
+    if read.path:match("/%.git$") ~= nil then asked_after_git = true end
+  end
+  assert(asked_after_git, "no .git was looked for")
+end
+
 local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
   assert(Fs.mkdirs(root .. "/src"))
@@ -260,62 +284,6 @@ local function test_own_tree_scans_github_for_todos()
   rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
   assert(rows[1][1] == "0", rows[1][1])
   assert(work.close(other))
-  assert(Fs.remove_tree(root))
-end
-
---- Runs git in `root`, for a test that builds a repository of its own.
-local function git_in(root: string, args: {string}): boolean
-  local argv: {string} = { assert(Proc.find("git")), "-C", root, "-c", "user.name=t",
-    "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false" }
-  for _, each in ipairs(args) do
-    argv[#argv + 1] = each
-  end
-  local result = Child.run(argv, { stdin = "null",
-    stdout = "null", stderr = "null" })
-  return result ~= nil and result.ok
-end
-
-local function test_blame_carries_across_commits_that_leave_a_file_alone()
-  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
-  if not git_in(root, { "init", "-q" }) then
-    assert(Fs.remove_tree(root))
-    return
-  end
-  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: first" })))
-  assert(Fs.write(root .. "/b.tl", text({ "-- TODO: second" })))
-  assert(git_in(root, { "add", "." }))
-  assert(git_in(root, { "commit", "-q", "-m", "one" }))
-  local handle = assert(work.open(root))
-  local function listed(): {todos.Todo}, integer
-    assert(work.stage(handle, false))
-    local listing = assert(todos.list(handle.db, root))
-    return listing.todos, listing.blamed
-  end
-  local all, blamed = listed()
-  assert(blamed == 2, "blamed " .. blamed)
-  assert(all[1].commit ~= "" and all[1].summary == "one", all[1].summary)
-
-  -- A commit that touches neither file blames neither again.
-  assert(Fs.write(root .. "/c.tl", text({ "local c = 3" })))
-  assert(git_in(root, { "add", "c.tl" }))
-  assert(git_in(root, { "commit", "-q", "-m", "two" }))
-  all, blamed = listed()
-  assert(blamed == 0, "blamed " .. blamed)
-  assert(all[2].summary == "one", all[2].summary)
-
-  -- One that touches a file blames that file alone.
-  assert(Fs.write(root .. "/b.tl", text({ "-- TODO: second, reworded" })))
-  assert(git_in(root, { "commit", "-q", "-am", "three" }))
-  all, blamed = listed()
-  assert(blamed == 1, "blamed " .. blamed)
-  assert(all[1].summary == "one" and all[2].summary == "three", all[2].summary)
-
-  -- A rewritten history may have dropped the commits a row names.
-  assert(git_in(root, { "commit", "-q", "--amend", "-m", "three again" }))
-  all, blamed = listed()
-  assert(blamed == 2, "blamed " .. blamed)
-  assert(all[2].summary == "three again", all[2].summary)
-  assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
 

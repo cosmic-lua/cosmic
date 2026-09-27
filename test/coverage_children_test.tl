@@ -12,9 +12,9 @@ local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- What a confined child is given of the host, and /proc, where its
---- coverage is found; and the program itself, which its tests start.
-Test.needs{ host = { "/proc" }, tool = true, system = true }
+--- /proc, where a confined child's coverage is found; and the program
+--- itself, which its tests start.
+Test.needs{ host = { "/proc" }, tool = true }
 
 local function test_a_started_process_reports_its_c(tmp: string)
   if next(Coverage.native_lines()) == nil then return end
@@ -86,11 +86,11 @@ local function test_processes_confined_apart_report_apart(tmp: string)
   assert(Fs.mkdirs(reports))
   assert(Fs.mkdirs(tmp .. "/parent"))
   -- The inner process, this program again, is given what it needs to
-  -- start -- the system's libraries too, for a core linked dynamically,
-  -- as the checked one is -- and the directory it reports to.
+  -- start -- itself alone, every Linux core being static
+  -- (core/linkage_test.tl) -- and the directory it reports to.
   local reads: {string} = {}
   for _, path in ipairs(observations.itself()) do reads[#reads + 1] = path end
-  for _, path in ipairs({ "/usr", "/lib", "/lib64", "/proc", "/dev/null" }) do
+  for _, path in ipairs({ "/proc", "/dev/null" }) do
     if Fs.exists(path) then reads[#reads + 1] = path end
   end
   assert(Fs.write(tmp .. "/parent/parent.tl", [[

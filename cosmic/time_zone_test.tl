@@ -10,13 +10,12 @@ local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
--- TODO: name these host paths per platform once a declaration can
--- (a `host` entry for Linux and one for macOS, or a path the sandbox
--- resolves): the zone database (/var/db/timezone/zoneinfo) differs on macOS, where the audit would find these
--- reads undeclared; only Linux enforces declarations for now.
---- The host's own zones, which a test compares the carried ones with.
---- And the program itself, which its tests start.
-Test.needs{ host = { "/usr/share/zoneinfo/" }, tool = true }
+--- The program itself, which its tests start; and a fat tzif file,
+--- America/New_York as tzdata 2025b's zic wrote it with a full version 1
+--- block (Ubuntu's, public domain), which the binary's slim copy is not.
+--- No zone is read from the host's files: a program reads only the
+--- zones it carries.
+Test.needs{ reads = { "testdata/tzif/America-New_York.fat" }, tool = true }
 
 local NS <const> = 1000000000
 
@@ -218,26 +217,6 @@ local function test_a_zone_is_read_once()
   assert(rawequal(a, b), "the second lookup answers the first zone")
 end
 
---- The host's file and the binary's copy agree, wherever the host has
---- the zone: a few zones whose rules have long been settled, monthly
---- from 1970 through 2019 -- the past only, which a newer or older tz
---- release than the host's does not rewrite.
-local function test_the_carried_zones_agree_with_the_hosts()
-  for _, name in ipairs({ "America/New_York", "Europe/London", "Australia/Sydney" }) do
-    local data, _ = Fs.read("/usr/share/zoneinfo/" .. name)
-    local host = data ~= nil and Time.zone_from_tzif(data, name) or nil
-    if host ~= nil then
-      local carried = zone(name)
-      for ns = 0, at("2020-01-01T00:00:00Z"), 30 * 86400 * NS + 7 * 3600 * NS do
-        local a, b = Time.civil(ns, host), Time.civil(ns, carried)
-        assert(a.offset == b.offset and a.abbreviation == b.abbreviation,
-          ("%s at %s: host %d %s, carried %d %s"):format(name, Time.format_rfc3339(ns), a.offset,
-          a.abbreviation, b.offset, b.abbreviation))
-      end
-    end
-  end
-end
-
 --- A tzif file, as `zic` writes one: a version 1 block, and for later
 --- versions a 64-bit block and the footer after it.
 local function tzif(version: string, times: {integer}, indices: {integer}, types: {{integer}},
@@ -276,13 +255,26 @@ local function test_tzif_reads_every_version()
   assert(Time.civil(at("2026-07-01T00:00:00Z"), z).abbreviation == "EDT")
 end
 
---- A real zone's file, from the binary's copy, whose structure is
---- zic's own.
+--- A real zone's file, whose structure is zic's own, read slim -- the
+--- binary's copy -- or fat, with a version 1 block of every transition
+--- before the 64-bit one; the two agree on the settled past, monthly
+--- from 1970 through 2019.
 local function test_tzif_reads_a_real_fat_or_slim_file()
-  local data = assert(Store.zoneinfo("America/New_York"))
-  assert(Time.zone_from_tzif(data, "America/New_York"))
-  local host = Fs.read("/usr/share/zoneinfo/America/New_York")
-  if host ~= nil then assert(Time.zone_from_tzif(host, "America/New_York")) end
+  local slim = assert(Store.zoneinfo("America/New_York"))
+  local fat = assert(Fs.read("testdata/tzif/America-New_York.fat"))
+  for label, data in pairs({ slim = slim, fat = fat }) do
+    -- The version 1 block's transition count: none in a slim file.
+    local transitions = string.unpack(">I4", data, 33)
+    assert((transitions > 0) == (label == "fat"), label .. ": " .. transitions .. " transitions")
+  end
+  local carried = assert(Time.zone_from_tzif(slim, "America/New_York"))
+  local read = assert(Time.zone_from_tzif(fat, "America/New_York"))
+  for ns = 0, at("2020-01-01T00:00:00Z"), 30 * 86400 * NS + 7 * 3600 * NS do
+    local a, b = Time.civil(ns, read), Time.civil(ns, carried)
+    assert(a.offset == b.offset and a.abbreviation == b.abbreviation,
+      ("%s: fat %d %s, slim %d %s"):format(Time.format_rfc3339(ns), a.offset, a.abbreviation,
+      b.offset, b.abbreviation))
+  end
 end
 
 local function test_tzif_refuses_malformed_files()

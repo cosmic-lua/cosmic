@@ -925,7 +925,7 @@ end
 --- directly.
 -- TODO: key a stat or a listing outside the tree by its answer, as the
 -- key holds an environment read, rather than refusing the run: a test
--- whose code searches PATH (build/todos_test.tl, for git) stats host
+-- whose code searches PATH (build/todos_git_test.tl, for git) stats host
 -- directories whose answers a key could hold.
 function test.keyable(root: string, scratch: string,
                       reads: {observations.Observation}, caches?: {string}): boolean

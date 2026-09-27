@@ -126,8 +126,31 @@ local function git(root: string, args: {string}): string | nil
   return result.stdout
 end
 
---- The commit `HEAD` names, or "" with no git or no repository.
+--- Whether `root` lies in a git repository: whether it, or a directory
+--- above it, holds a `.git` -- a repository's directory, or a
+--- worktree's file -- as git looks for one. A repository named by
+--- GIT_DIR alone, with no `.git` above the tree, is not looked for.
+local function in_repository(root: string): boolean
+  local dir, _ = Fs.absolute(root)
+  while dir ~= nil do
+    -- One that cannot be looked at (EACCES) is none git could open.
+    local there, _ = Fs.exists(dir .. "/.git")
+    if there then return true end
+    local parent = Fs.dirname(dir)
+    if parent == dir then return false end
+    dir = parent
+  end
+  return false
+end
+
+--- The commit `HEAD` names, or "" with no git or no repository. Outside
+--- a repository no git is looked for or started, and so none of the
+--- blame after it: a tree that is no checkout lists its TODOs unblamed
+--- and reads nothing of the system's.
 local function head_of(root: string): string
+  if not in_repository(root) then
+    return ""
+  end
   local out = git(root, { "rev-parse", "--verify", "-q", "HEAD" })
   if out == nil then
     return ""
@@ -148,6 +171,12 @@ end
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
                          guard: Child.Guard | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
+  -- git as `git` finds it, found once for every call.
+  local program, _ = Proc.find("git")
+  if program == nil then
+    for _, file in ipairs(order) do out[file] = {} end
+    return out
+  end
   local limit = blame_jobs()
   local running: {Child.Handle} = {}
   local file_of: {Child.Handle:string} = {}
@@ -158,8 +187,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
       local file = order[next_file]
       next_file = next_file + 1
       out[file] = {}
-      local argv: {string} = { "/usr/bin/env", "git", "-C", root, "blame",
-        "--line-porcelain" }
+      local argv: {string} = { program, "-C", root, "blame", "--line-porcelain" }
       for _, line in ipairs(lines[file]) do
         argv[#argv + 1] = "-L"
         argv[#argv + 1] = line .. "," .. line
