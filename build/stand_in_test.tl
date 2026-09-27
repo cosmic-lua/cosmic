@@ -229,3 +229,14 @@ local function test_the_process_verbs(tmp: string)
     assert(assert(field.stdout):match("^SigIgn:%s*%x+\n$"), field.stdout)
   end
 end
+
+--- A build that fails says why, from the process it ran in.
+local function test_a_failed_build_says_why(tmp: string)
+  local dir = tmp .. "/stand-in"
+  assert(Fs.mkdirs(dir .. "/cmd/broken"))
+  assert(Fs.write(dir .. "/cmd/broken/main.tl", "return function(): integer return 'x' end\n"))
+  local probe, trouble = stand_in.build(dir)
+  assert(probe == nil, probe)
+  assert(trouble:find("building the stand-in failed: ", 1, true), trouble)
+  assert(trouble:find("cmd/broken/main.tl", 1, true), trouble)
+end

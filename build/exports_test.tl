@@ -46,10 +46,6 @@ allowed["build.coverage.lines.executable"] = "tested directly: the test compares
   "what executable_cached keeps against what this computes afresh"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
-allowed["build.filesystem_observations.environment"] = "a test's own declaration: " ..
-  "what of the environment a process of this very program needs, which only a test starts"
-allowed["build.filesystem_observations.program"] = "how a test starts this program " ..
-  "past its launcher, as `cosmic test` starts a worker: only tests start it so"
 allowed["build.filesystem_observations.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
 allowed["build.filesystem_observations.held_to_sandbox"] = "what a test whose " ..
