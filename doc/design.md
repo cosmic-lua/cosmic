@@ -641,7 +641,7 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   address its key holds), and unless it declares `tool` either, it holds
   `require` and every other lookup in the store -- `Store.bytecode`,
   `Store.source`, a searcher called by hand, `Store.databases()` -- to that
-  closure for the tree's modules (`Store.hold`). a module the program carries
+  closure for the tree's modules (`build/test_worker.tl`'s `hold_store`). a module the program carries
   that is no module of the tree -- in a project's tree, the standard
   library's -- is held by neither, and the runtime's identity names the core
   and the pins, not those modules (`build/test_worker.tl`, the TODO on

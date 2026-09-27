@@ -78,18 +78,20 @@ local record Test
     --- of its module's import closure alone, which its key holds, and
     --- a `require` reaches only that closure; and unless the module
     --- declares `store` or `tool`, every other lookup in the store is
-    --- held to it too (`cosmic.store`'s `hold`): `Store.bytecode` or
-    --- `Store.source` of a module of the tree outside the closure, or
-    --- the store's searcher called by hand, answers none, and
-    --- `Store.databases()`, whose handles read every module's rows,
-    --- raises -- sandboxed or not, since without the hold such a read
-    --- reaches the program's own database, or the whole projection,
-    --- which no key of the test holds. Among them are the
-    --- `Store.source` reads of `cosmic.*` sources and declarations
-    --- that build/teal.tl's `standard` makes when a test type-checks a
-    --- snippet: a module the snippet requires goes in the test's
-    --- closure (`local type _ = require(...)`) or the test declares
-    --- `store`.
+    --- held to it too (`build.test_worker`'s `hold_store`), from the
+    --- module's load to its test's end: `Store.bytecode`,
+    --- `Store.source` or `Store.requires` of a module of the tree
+    --- outside the closure, or the store's searcher called by hand,
+    --- answers none, and `Store.databases()`, whose handles read every
+    --- module's rows, raises -- sandboxed or not, since without the
+    --- hold such a read reaches the program's own database, or the
+    --- whole projection, which no key of the test holds. Among them
+    --- are the `Store.source` reads of `cosmic.*` sources and
+    --- declarations that build/teal.tl's `standard` makes when a test
+    --- type-checks a snippet: a module the snippet requires goes in the
+    --- test's closure (`local type _ = require(...)`) or the test
+    --- declares `store`. `Store.meta` is not held (the TODO on
+    --- `hold_store`).
     store: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project

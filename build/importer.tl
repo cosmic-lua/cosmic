@@ -77,24 +77,31 @@ local analyzer_roots: {string} = {
 --- followed: it is here for its derive and parse, not for the rest of
 --- the build it also runs.
 function importer.analyzer_modules(): {string} | nil, string
-  local databases = Store.databases()
-  local own = databases[#databases]
-  if own == nil then return nil, "the binary carries no module database" end
-  local seeds: {string} = {}
-  local values: {Sqlite.Value} = {}
-  for i, name in ipairs(analyzer_roots) do
-    seeds[#seeds + 1] = "(?" .. i .. ")"
-    values[#values + 1] = { text = name }
+  -- A name at a time (`Store.requires`), not a query of a handle on
+  -- the binary's database: under a test worker's hold on the store
+  -- each lookup is held as a lookup of that module is, where a handle
+  -- would read every module's rows.
+  local reached: {string:boolean} = {}
+  local stack: {string} = {}
+  for _, name in ipairs(analyzer_roots) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not reached[name] then
+      reached[name] = true
+      local required, trouble = Store.requires(name)
+      if required == nil then return nil, trouble end
+      for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
+    end
   end
-  local rows, trouble = Sqlite.text_rows(own,
-    "WITH RECURSIVE reached(path) AS (VALUES " .. table.concat(seeds, ", ") ..
-    " UNION SELECT i.requires FROM imports i JOIN reached r ON i.path = r.path) " ..
-    "SELECT path FROM reached WHERE path IN " ..
-    "(SELECT path FROM modules UNION SELECT path FROM decls) " ..
-    "AND path <> 'build.importer' ORDER BY path", values)
-  if rows == nil then return nil, trouble end
-  local names: {string} = { "build.importer" }
-  for _, row in ipairs(rows) do names[#names + 1] = row[1] end
+  local names: {string} = {}
+  for name in pairs(reached) do
+    -- What the binary holds a module or a declaration of: what
+    -- `Store.source` answers, of a name no hold holds.
+    local source, _ = Store.source(name)
+    if name ~= "build.importer" and source ~= nil then names[#names + 1] = name end
+  end
+  table.sort(names)
+  table.insert(names, 1, "build.importer")
   return names, ""
 end
 
@@ -967,6 +974,13 @@ local function unresolved_name(msg: string): string
     msg:match("^module not found: '(.+)'$")
 end
 
+--- The databases a hint looks a name up in, and whether each is read as
+--- the public standard library's, asked for only when a message earns a
+--- hint: a handle on the store's databases is one a test worker's hold
+--- on the store refuses (`Store.databases`), which a build that
+--- compiles clean never asks for.
+local type Hints = function(): {Sqlite.Handle}, {boolean}
+
 --- Appends a pointer at whatever `cosmic docs` already answers for the
 --- name a resolution failure names, when `symbols.named` finds it
 --- exactly -- the same rule `cosmic docs <word>` itself matches by, so
@@ -974,12 +988,12 @@ end
 --- Only the symbol's name, never its documentation: the error already
 --- says where to read that in full (`cosmic docs <name>`), and a
 --- compile failure is not the place to reprint it.
-local function with_docs_hint(msg: string, databases: {Sqlite.Handle},
-                              public: {boolean}): string
+local function with_docs_hint(msg: string, hints: Hints): string
   local name = unresolved_name(msg)
   if name == nil then
     return msg
   end
+  local databases, public = hints()
   local found = symbols.named(databases, public, name)
   if #found == 0 then
     return msg
@@ -1003,10 +1017,13 @@ local function diagnostic_docs(msg: string): string | nil
   return nil
 end
 
-local function with_diagnostic_docs(msg: string, databases: {Sqlite.Handle},
-                                    public: {boolean}): string
+local function with_diagnostic_docs(msg: string, hints: Hints): string
   local query = diagnostic_docs(msg)
-  if query == nil or not symbols.has_example_query(databases, public, query) then
+  if query == nil then
+    return msg
+  end
+  local databases, public = hints()
+  if not symbols.has_example_query(databases, public, query) then
     return msg
   end
   return msg .. " -- see also: cosmic docs " .. query
@@ -1015,22 +1032,20 @@ end
 --- Every hint a checker message earns, appended once, at the one place
 --- every message is rendered, rather than patched into the vendored
 --- checker's own text or duplicated at each call site.
-local function with_hint(msg: string, databases: {Sqlite.Handle},
-                         public: {boolean}): string
-  return with_diagnostic_docs(
-    with_docs_hint(with_unused_hint(msg), databases, public), databases, public)
+local function with_hint(msg: string, hints: Hints): string
+  return with_diagnostic_docs(with_docs_hint(with_unused_hint(msg), hints), hints)
 end
 
 --- `file`'s own complaints, one line each. A removed name's replacement
 --- (`teal.replacement`) comes straight after the checker's own words,
 --- ahead of any pointer at the docs: it is the answer, they are more.
 local function complain(file: string, source: string, result: compiler.Result,
-                        databases: {Sqlite.Handle}, public: {boolean}): string
+                        hints: Hints): string
   local lines: {string} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
-      local said = with_hint(e.msg, databases, public)
+      local said = with_hint(e.msg, hints)
       local instead = where == file and teal.replacement(e.msg, source, e.y, e.x) or nil
       if instead ~= nil then
         said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
@@ -1180,8 +1195,7 @@ end
 
 local function generate(m: Module, built: compiler, env: compiler.Env,
                         typed: receivers.State, own_tree: boolean, judged: boolean,
-                        databases: {Sqlite.Handle},
-                        public: {boolean}): Generated | nil, string
+                        hints: Hints): Generated | nil, string
   local code, result = built.gen(m.source, env, nil, "tl")
   if m.kind == "test" and result ~= nil then
     result = discount_test_warnings(result, m.tests)
@@ -1189,7 +1203,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   if m.generated and result ~= nil then
     result = discount_doctest_shadow_warnings(result)
   end
-  local complaint = result ~= nil and complain(m.file, m.source, result, databases, public) or ""
+  local complaint = result ~= nil and complain(m.file, m.source, result, hints) or ""
   if code == nil or complaint ~= "" then
     return nil, m.file .. ": the compiler refused it\n" .. complaint
   end
@@ -1345,16 +1359,26 @@ function importer.compile(handle: work.Handle, built: compiler,
   -- the same reason. The working database cannot stand in: its `docs`
   -- rows are keyed by source hash, with no module to name. A projection
   -- that is missing or unreadable is left out; the hint is best effort.
-  local projection, _ = Sqlite.open(handle.root .. "/o/cosmic.db", false)
-  local hint_databases: {Sqlite.Handle} = {}
-  local hint_public: {boolean} = {}
-  if projection ~= nil then
-    hint_databases[1] = projection
-    hint_public[1] = false
-  end
-  for _, store_db in ipairs(Store.databases()) do
-    hint_databases[#hint_databases + 1] = store_db
-    hint_public[#hint_public + 1] = not own_tree
+  local hint_databases: {Sqlite.Handle} = nil
+  local hint_public: {boolean} = nil
+  local hint_projection: Sqlite.Handle = nil
+  local hints: Hints = function(): {Sqlite.Handle}, {boolean}
+    if hint_databases == nil then
+      local databases: {Sqlite.Handle} = {}
+      local public: {boolean} = {}
+      local projection, _ = Sqlite.open(handle.root .. "/o/cosmic.db", false)
+      if projection ~= nil then
+        hint_projection = projection
+        databases[1] = projection
+        public[1] = false
+      end
+      for _, store_db in ipairs(Store.databases()) do
+        databases[#databases + 1] = store_db
+        public[#public + 1] = not own_tree
+      end
+      hint_databases, hint_public = databases, public
+    end
+    return hint_databases, hint_public
   end
 
   local compile_all = function(): boolean, string
@@ -1411,8 +1435,7 @@ function importer.compile(handle: work.Handle, built: compiler,
             typed = receivers.install(made_env)
           end
           local generated, generate_trouble =
-            generate(m, built, env, assert(typed), own_tree, judged, hint_databases,
-              hint_public)
+            generate(m, built, env, assert(typed), own_tree, judged, hints)
           if generated == nil then
             failure = generate_trouble
             break
@@ -1461,8 +1484,9 @@ function importer.compile(handle: work.Handle, built: compiler,
     return db:exec("DELETE FROM typed_refs WHERE key NOT IN (SELECT key FROM compiled)")
   end
   local made, compile_trouble = compile_all()
-  if projection ~= nil then
-    local _, _ = projection:close()
+  -- The projection the hints opened, once a message earned one.
+  if hint_projection ~= nil then
+    local _, _ = hint_projection:close()
   end
   if not made then
     return nil, compile_trouble

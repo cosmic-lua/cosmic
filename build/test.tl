@@ -2374,6 +2374,10 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                            held }) do
     argv[#argv + 1] = value
   end
+  -- A module whose key holds the whole projection, or the program and
+  -- the modules it carries, has no hold on the store (`build.test_worker`).
+  local declared = job.m.inputs
+  if declared ~= nil and (declared.store or declared.tool) then argv[#argv + 1] = "--open" end
   for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
   argv[#argv + 1] = "--tree"
   for _, name in ipairs(rec.tree_names) do argv[#argv + 1] = name end

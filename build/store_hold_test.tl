@@ -63,7 +63,8 @@ local function test_the_databases_are_held()
   assert(not ok, "handed the store's databases past the hold")
   local text = tostring(why)
   assert(text:find("Store.databases() is held", 1, true), text)
-  assert(text:find("store = true", 1, true), text)
+  assert(text:find("Declare store = true", 1, true), text)
+  assert(not text:find("Require", 1, true), "requiring reads no row of another: " .. text)
 end
 
 --- The binary's data tables, which the runtime's identity keys, are
@@ -72,4 +73,61 @@ local function test_the_zones_are_read_under_the_hold()
   local data, why = Store.zoneinfo("America/New_York")
   assert(data ~= nil and data:sub(1, 4) == "TZif", why)
   assert(assert(Store.zone_names())["UTC"], "UTC is a zone")
+end
+
+--- The store's raw table, as its searcher hands it to `cosmic.store`'s
+--- loader: a test that calls the searcher by hand reaches it too.
+local function raw_store(): {string:any}
+  for _, searcher in ipairs(package.searchers as {Searcher}) do
+    local loader, extra = searcher("cosmic.store")
+    if loader is function(string, any): any and extra is {string:any} then return extra end
+  end
+  error("cosmic.store is handed no raw table")
+end
+
+--- `cosmic.store` offers no way to put a hold up or take one down.
+local function test_the_public_store_offers_no_hold()
+  local public = Store as {string:any}
+  assert(public.hold == nil and public.release == nil, "cosmic.store offers a hold")
+end
+
+--- Reached past its wrapper, the raw table lifts no hold, replaces
+--- none, and hands out no handle; its own lookups are held as the
+--- wrapper's are.
+local function test_the_raw_table_lifts_no_hold_and_hands_out_no_handle()
+  local raw = raw_store()
+  local release = raw.release as function(? any): any
+  local hold = raw.hold as function({string:boolean}, string, string): any
+  for _, token in ipairs({ {} as any, "token", 1 }) do
+    local lifted, why = pcall(release, token)
+    assert(not lifted, "lifted the hold with " .. tostring(token))
+    assert(tostring(why):find("not this caller's to lift", 1, true), tostring(why))
+  end
+  local lifted, why = pcall(release)
+  assert(not lifted and tostring(why):find("not this caller's", 1, true), tostring(why))
+  local replaced, replace_why = pcall(hold, {}, "none", "none")
+  assert(not replaced, "replaced the hold")
+  assert(tostring(replace_why):find("held already", 1, true), tostring(replace_why))
+  assert(raw.binary == nil, "the raw table hands out the binary's database")
+  local listed, list_why = pcall(raw.databases as function(): any)
+  assert(not listed and tostring(list_why):find("Store.databases() is held", 1, true),
+    tostring(list_why))
+  local bytes, bytes_why = (raw.bytecode as function(string): (string, string))(outside)
+  assert(bytes == nil, "the raw table read " .. outside)
+  names_the_fix(bytes_why, outside)
+  -- And the hold still stands.
+  assert(Store.bytecode(outside) == nil, "the hold was lifted")
+end
+
+--- A walk of the binary's module graph a name at a time is held at a
+--- module outside the closure, and reads one inside it.
+local function test_requires_of_a_module_outside_the_closure_is_held()
+  local required, why = Store.requires(outside)
+  assert(required == nil, "read what " .. outside .. " requires past the hold")
+  names_the_fix(why, outside)
+  local of_store = assert(Store.requires("cosmic.store"))
+  local names: {string:boolean} = {}
+  for _, name in ipairs(of_store) do names[name] = true end
+  assert(names["cosmic.sqlite"], "cosmic.store requires cosmic.sqlite")
+  assert(#assert(Store.requires("no.such.module")) == 0, "a name with no rows requires none")
 end

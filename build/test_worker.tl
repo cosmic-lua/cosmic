@@ -15,12 +15,26 @@
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local log = require("build.verdict").log
+
+--- The store's raw table, which the searcher hands this module as its
+--- loader's extra value when it loads trusted (core/store.c's
+--- `raw_modules`): `cosmic.store` offers no hold, so what a test loads
+--- cannot put one up or take one down. Boot mode, which runs no
+--- worker, has it by name alone.
+local extra: any = select(2, ...)
+local store: raw_store
+if type(extra) == "table" then
+  store = extra as raw_store
+else
+  store = require("cosmic.internal.store")
+end
 
 local record worker
   --- What one worker found, as the runner reads it back.
@@ -228,49 +242,22 @@ local function refusal(name: string, module_path: string, closure: {string:boole
     name, module_path, name, module_path, module_path, name)
 end
 
---- What a test's hold on the store (`Store.hold`) says: why a module it
---- holds is not read, and how to read it.
-local function store_refusal(module_path: string): string
-  return string.format("%s's verdict is keyed by what the store holds of its import " ..
-    "closure alone. Require a module at the top level of %s to read that module, or " ..
-    "declare store = true in its Test.needs to read the whole projection -- every " ..
-    "module's rows, Store.databases() among them -- at the cost of running its tests " ..
-    "again on every edit to the tree", module_path, module_path)
-end
-
 --- A call made with the `require`s of the tree's modules held to
 --- `closure`, the set of the names `module_path`'s import closure
---- holds, and, unless `open`, every other lookup in the store too.
+--- holds.
 local type Held = function(fn: function(any...): (any...), argument?: any): any
 
---- Answers a `Held`, `tree` the set of the tree's modules and
---- `declared` of the names only a declaration of the tree answers for
---- (`cosmic.sys`, the core's raw modules): it calls `fn` with
---- `argument`
+--- Answers a `Held`, `tree` the set of the tree's modules: it calls
+--- `fn` with `argument`
 --- while a searcher ahead of every other answers a module `refusal`
 --- refuses with a loader that raises why, where it was required, and
 --- while each such module the worker itself has loaded already is out
 --- of `package.loaded`, so a `require` of it reaches the searcher too;
 --- then puts both back, whether `fn` returned or raised, and returns
---- or raises as it did.
----
---- Unless `open` -- the module declares `store`, whose key holds the
---- whole projection, or `tool`, whose key holds the program and the
---- modules it carries -- the store is held meanwhile (`Store.hold`) to
---- the same: a lookup of a module of the tree outside the closure, or
---- of a declaration's source, that is not a `require` -- `Store.bytecode`
---- or `Store.source`, the store's searcher called by hand or taken out
---- of `package.searchers` -- answers none, and `Store.databases()`
---- raises, since a handle reads every module's rows. Without it such a
---- read reaches, sandboxed, the program's own database, since the
---- store at o/cosmic.db holds the closure alone, and unsandboxed the
---- whole projection: rows no key of the test holds. A declaration
---- rides along for `Store.source` alone: `require` of a name only one
---- answers for loads the core's own C, which the runtime's identity
---- keys.
+--- or raises as it did. A lookup that is not a `require` is the
+--- store's hold's (`hold_store`).
 local function hold_requires(module_path: string, closure: {string:boolean},
-                             tree: {string:boolean}, declared: {string:boolean},
-                             open: boolean): Held
+                             tree: {string:boolean}): Held
   -- A refusal is a loader that raises, not a searcher that does: a
   -- caller that asks every searcher by hand for the raw value one
   -- hands a wrapper (core/syscalls_test.tl's `raw_behind`) finds none
@@ -284,16 +271,6 @@ local function hold_requires(module_path: string, closure: {string:boolean},
       error(why, 3)
     end, nil
   end
-  local store_held: {string:boolean} = nil
-  if not open then
-    store_held = {}
-    for _, set in ipairs({ tree, declared }) do
-      for name in pairs(set) do
-        if not closure[name] and not diagnostics[name] then store_held[name] = true end
-      end
-    end
-  end
-  local why = store_refusal(module_path)
   return function(fn: function(any...): (any...), argument?: any): any
     local set_aside: {string:any} = {}
     for name, value in pairs(package.loaded) do
@@ -302,9 +279,7 @@ local function hold_requires(module_path: string, closure: {string:boolean},
     for name in pairs(set_aside) do package.loaded[name] = nil end
     local searchers = package.searchers
     table.insert(searchers, 1, gate)
-    if store_held ~= nil then Store.hold(store_held, why) end
     local ok, produced = pcall(fn, argument)
-    Store.hold(nil)
     for i = #searchers, 1, -1 do
       if searchers[i] == gate then table.remove(searchers, i) end
     end
@@ -315,14 +290,49 @@ local function hold_requires(module_path: string, closure: {string:boolean},
   end
 end
 
---- Whether `needs`, a declaration as `test_inputs.canonical` spells it,
---- sets `flag`: a line of its own, which no quoted value can end in
---- (`%q` ends every line of one it breaks with a backslash).
-local function declares(needs: string, flag: string): boolean
-  for line in needs:gmatch("[^\n]+") do
-    if line == flag .. " true" then return true end
+--- Puts up the store's hold (core/store.c's `store_hold`) for the tests
+--- of `module_path`, whose module declares neither `store`, whose key
+--- holds the whole projection, nor `tool`, whose key holds the program
+--- and the modules it carries; answers what takes it down. `closure`
+--- is the set of the names its import closure holds, `tree` of the
+--- tree's modules, and `declared` of the names only a declaration of
+--- the tree answers for (`cosmic.sys`, the core's raw modules).
+---
+--- While it is up, a lookup in the store of a module of the tree
+--- outside the closure, or of such a declaration's source, that is not
+--- a `require` -- `Store.bytecode` or `Store.source`, the store's
+--- searcher called by hand or taken out of `package.searchers`, those
+--- of the raw table such a searcher hands a wrapper -- answers none,
+--- and `Store.databases()` raises, since a handle reads every module's
+--- rows. Without it such a read reaches, sandboxed, the program's own
+--- database, since the store at o/cosmic.db holds the closure alone,
+--- and unsandboxed the whole projection: rows no key of the test holds.
+--- A declaration rides along for `Store.source` alone: `require` of a
+--- name only one answers for loads the core's own C, which the
+--- runtime's identity keys. Only the token the hold answers takes it
+--- down, and this worker alone holds that.
+-- TODO: hold `Store.meta` too, once a key holds the meta rows a test
+-- reads -- the projection's `projected`, `boot_hash` and `image_hash`
+-- move with every edit to the tree, which no key of a test without
+-- `store` or `tool` holds -- or it answers only the keys a runtime
+-- names (`compiler`, `runtime_basis`) under a hold.
+local function hold_store(module_path: string, closure: {string:boolean},
+                          tree: {string:boolean}, declared: {string:boolean}): function()
+  local names: {string:boolean} = {}
+  for _, set in ipairs({ tree, declared }) do
+    for name in pairs(set) do
+      if not closure[name] and not diagnostics[name] then names[name] = true end
+    end
   end
-  return false
+  local token = store.hold(names, string.format("%s's verdict is keyed by what the " ..
+    "store holds of its import closure alone. Require a module at the top level of %s " ..
+    "to read that module, or declare store = true in its Test.needs to read the whole " ..
+    "projection, at the cost of running its tests again on every edit to the tree",
+    module_path, module_path), string.format("a handle reads every module's rows, and " ..
+    "%s's verdict is keyed by what the store holds of its import closure alone. " ..
+    "Declare store = true in its Test.needs to read them, at the cost of running its " ..
+    "tests again on every edit to the tree", module_path))
+  return function() store.release(token) end
 end
 
 --- Runs the one test the command line names and writes its report.
@@ -335,7 +345,7 @@ local function install(module: any, runner: any)
 end
 
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> <held> <closure>... --tree <tree>... --declared <declared>...`,
+--- <needs> <held> [--open] <closure>... --tree <tree>... --declared <declared>...`,
 --- `children` a directory,
 --- not yet there, to
 --- collect the coverage of the processes the test starts in, `needs` what
@@ -353,8 +363,9 @@ end
 --- given does not hold beyond its closure, and which a key need not
 --- hold: a name there only turns a `require` of a module outside the
 --- closure into a refusal, never into a load; and `declared` the names
---- only a declaration of the tree answers for, which the store holds
---- too (`hold_requires`). `--worker-no-tool` in
+--- only a declaration of the tree answers for, which the store's hold
+--- holds too (`hold_store`), unless `--open` comes ahead of the closure:
+--- its module declares `store` or `tool`. `--worker-no-tool` in
 --- place of `--worker` holds the worker, before anything of the test
 --- loads, to running anything but this very program
 --- (`observations.forbid_running`): a sandboxed worker's whose module
@@ -387,12 +398,17 @@ function worker.run(argv: {integer:string}): integer
   local held: Held = function(fn: function(any...): (any...), argument?: any): any
     return fn(argument)
   end
+  -- Once the closure is read, what puts up the store's hold, and what
+  -- takes it down once it is up.
+  local hold: function(): function() = nil
+  local release: function() = nil
   if argv[10] ~= nil then
     local closure: {string:boolean} = {}
     local tree: {string:boolean} = {}
     local declared: {string:boolean} = {}
     local into = closure
-    local i = 10
+    local open = argv[10] == "--open"
+    local i = open and 11 or 10
     while argv[i] ~= nil do
       if argv[i] == "--tree" and into == closure then
         into = tree
@@ -403,8 +419,10 @@ function worker.run(argv: {integer:string}): integer
       end
       i = i + 1
     end
-    held = hold_requires(module_path, closure, tree, declared,
-      declares(expected_needs, "store") or declares(expected_needs, "tool"))
+    held = hold_requires(module_path, closure, tree)
+    if not open then
+      hold = function(): function() return hold_store(module_path, closure, tree, declared) end
+    end
   end
   -- The worker's own connection: no test is keyed by all of it (see
   -- `observations.exclude_held_files`; a query of it is the TODO above
@@ -439,8 +457,11 @@ function worker.run(argv: {integer:string}): integer
   local handed: Test.Needs = nil
   local runner = { loaded = false, handed = function(needs: Test.Needs) handed = needs end }
   install(Test, runner)
-  -- The hold is up for the module's load and its test alone, not for
-  -- the worker's own work around them.
+  -- The hold on `require` is up for the module's load and its test
+  -- alone, not for the worker's own work around them; the store's
+  -- spans both, and what runs between them -- a finalizer the module
+  -- left, which could read what the test then asserts on.
+  if hold ~= nil then release = hold() end
   local captured = observations.capture(function(): any
     return held(function(): any return require(module_path) end)
   end, resolving)
@@ -484,6 +505,7 @@ function worker.run(argv: {integer:string}): integer
       report.elapsed_ns = finished - started
     end
   end
+  if release ~= nil then release() end
   if children ~= nil then
     local into = report.test_hits or report.load_hits
     child_hits(children, into or {})

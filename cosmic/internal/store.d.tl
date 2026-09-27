@@ -41,14 +41,30 @@ local record store
   --- puts every other back, whether it returned or raised.
   alone: function(function())
 
-  --- The binary's own database alone, as a borrowed handle, or nil when
-  --- there is none: where the data tables are read, which no hold covers.
-  binary: function(): sqlite.Handle | nil
+  --- The names the binary's own `imports` table records a module
+  --- requiring, sorted: none for a name it holds no row of. Nil and why
+  --- when a hold holds the name, or the query failed.
+  requires: function(name: string): {string} | nil, string
 
-  --- Puts up a hold on the names the set holds as keys, saying why with
-  --- the text, or takes it down with nil: while it is up, the searcher,
-  --- `bytecode` and `source` answer none of them, and `databases` raises.
-  hold: function(names: {string:boolean} | nil, why?: string)
+  --- One time zone's TZif file, by IANA name, from the binary's own
+  --- database: nil and why when it carries no such zone or the query
+  --- failed.
+  zoneinfo: function(name: string): string | nil, string
+
+  --- Every time zone name the binary's own database carries, as a set,
+  --- or nil and why when the query failed.
+  zone_names: function(): {string:boolean} | nil, string
+
+  --- Private: puts up a hold on the names the set holds as keys, saying
+  --- why of a module with the first text and why of `databases` with the
+  --- second, and answers the token that alone lifts it (`release`);
+  --- raises while another is up. While it is up, the searcher,
+  --- `bytecode` and `source` answer none of those names, and
+  --- `databases` raises.
+  hold: function(names: {string:boolean}, why: string, why_databases: string): any
+
+  --- Private: lifts the hold `token` put up; raises for any other value.
+  release: function(token: any)
 
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.
