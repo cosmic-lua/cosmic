@@ -1687,6 +1687,11 @@ local record Recording
   --- (`declared_key.program_identity`).
   harness: string
   program: string
+  --- Sandboxed, where an artifact runs the tests (o/bin/cosmic, or a
+  --- portable cosmic), what runs its core
+  --- (`declared_key.launcher_identity`), which every key holds; nil
+  --- where a host program does.
+  launcher: string
   unkeyed: {string:string}
   --- Whether each module's workers can be kept from running this
   --- program (`can_forbid`), by module path.
@@ -1815,7 +1820,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   if not declared_key.keyable(effective) then return nil end
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.key, runtime = rec.runtime, compiler = rec.compiler,
-    host = rec.host, harness = rec.harness, program = rec.program,
+    host = rec.host, harness = rec.harness, program = rec.program, launcher = rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
     closure_store = rec.stores[m.path],
@@ -2973,6 +2978,13 @@ function test.run(argv: {integer:string}): integer
     rec.host = declared_key.host_identity(rec.digests)
     rec.tool = rec.tool or observations.itself()
     rec.program = declared_key.program_identity(rec.digests, rec.tool)
+    -- The runtime identity holds the core an artifact selects, not the
+    -- launcher and manifest that selected it, which a test that does
+    -- not run the program is keyed by nowhere else.
+    local executable, _ = Proc.executable()
+    if Store.meta("runtime_context") == "portable-v1" and executable ~= nil then
+      rec.launcher = declared_key.launcher_identity(rec.digests, executable)
+    end
     -- Every test is keyed before any starts: one look at each input
     -- serves them all.
     declared_key.freeze(rec.digests)

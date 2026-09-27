@@ -26,7 +26,9 @@
 ---   digest of the binary's data tables and the `sandboxed` mark
 ---   (`runtime`), and the compiler (`compiler`, `build.work`'s
 ---   `Identities`), which compiled every module of the closure and is
----   what build.teal loads as bytecode;
+---   what build.teal loads as bytecode; and, where an artifact runs it
+---   (o/bin/cosmic, or a portable cosmic), what runs that core
+---   (`launcher_identity`);
 --- - the host it runs on (`host_identity`): its packages, its system and
 ---   kernel, the user and capabilities the tests run with, and which
 ---   /proc a sandbox gets;
@@ -118,6 +120,12 @@ local record declared_key
     program: string
     --- The host's identity (`host_identity`).
     host: string
+    --- Where an artifact runs the tests (Store.meta's
+    --- `runtime_context` "portable-v1": o/bin/cosmic, or a portable
+    --- cosmic), what runs its core (`launcher_identity`); nil where a
+    --- host program does, whose core is all there is ahead of its
+    --- database.
+    launcher: string
     --- The module's declaration, as `test_inputs.canonical` spells it.
     declaration: string
     effective: test_inputs.Effective
@@ -299,6 +307,30 @@ local function carried_digest(database: string): string | nil, string
   return answer, ""
 end
 
+--- The digest `compute` makes of the regular file `name` names after
+--- its first NUL, which `st` describes, remembered in `digests` under
+--- `name` by what `lstat` said, as `contents` remembers a file's hash.
+local function remembered(digests: declared_key.Digests, name: string, st: sys.Stat,
+                          compute: function(data: string): string): string
+  local said = signature(st)
+  digests.used[name] = true
+  local was = digests.hashed[name] or digests.this_run[name]
+  if was ~= nil and was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  local data, _ = Fs.read(name:match("^[^\0]*\0(.*)$"))
+  digests.read = digests.read + 1
+  if data == nil then return "unreadable" end
+  local hash = compute(data)
+  if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
+    digests.hashed[name] = said .. "\0" .. hash
+  else
+    -- Too fresh to keep for a later run, but a program just rebuilt is
+    -- keyed again as each test ends: this run takes it again by the
+    -- same `lstat`, a rebuild publishing a new file, not a rewrite.
+    digests.this_run[name] = said .. "\0" .. hash
+  end
+  return hash
+end
+
 --- What the regular file at `path`, which `st` describes, runs as, for
 --- a key: where it is an artifact (`artifact.split`), the digest of
 --- everything ahead of its database -- the launcher, the cores and
@@ -334,34 +366,34 @@ end
 --- rows in reach of `Store.meta`, whether its test declares `tool` or
 --- not, and no key of one that does not has ever held them.
 local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
-  local said = signature(st)
-  local name = "program\0" .. path
-  digests.used[name] = true
-  local was = digests.hashed[name] or digests.this_run[name]
-  if was ~= nil and was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
-  local data, _ = Fs.read(path)
-  digests.read = digests.read + 1
-  if data == nil then return "unreadable" end
-  local hash: string
-  local split, _ = artifact.split(data)
-  if split ~= nil then
+  return remembered(digests, "program\0" .. path, st, function(data: string): string
+    local split, _ = artifact.split(data)
+    if split == nil then return Hash.hex_sha256("file\n" .. data) end
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.
-    hash = Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
+    return Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
       Hash.hex_sha256(split.head) .. "\n" .. carried) or ("unread\n" .. data))
-  else
-    hash = Hash.hex_sha256("file\n" .. data)
-  end
-  if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
-    digests.hashed[name] = said .. "\0" .. hash
-  else
-    -- Too fresh to keep for a later run, but a program just rebuilt is
-    -- keyed again as each test ends: this run takes it again by the
-    -- same `lstat`, a rebuild publishing a new file, not a rewrite.
-    digests.this_run[name] = said .. "\0" .. hash
-  end
-  return hash
+  end)
+end
+
+--- What of the artifact at `path` runs every test of a run it starts,
+--- whether the test runs the program or not: everything ahead of its
+--- database -- the launcher that selects and checks a core, the cores
+--- and their manifest -- and whether it is a host program, as a digest;
+--- its contents' where it is no artifact, "missing" where it is not a
+--- regular file. Remembered in `digests` as `program` is. The runtime
+--- identity (`Spec.runtime`) holds the core a run selects, but not what
+--- selected it: a key of a run an artifact starts holds this too
+--- (`Spec.launcher`).
+function declared_key.launcher_identity(digests: declared_key.Digests, path: string): string
+  local st, _ = sys.stat(path)
+  if st == nil or st.kind ~= "file" then return "missing" end
+  return remembered(digests, "launcher\0" .. path, st, function(data: string): string
+    local split, _ = artifact.split(data)
+    if split == nil then return Hash.hex_sha256("file\n" .. data) end
+    return Hash.hex_sha256("head\n" .. tostring(split.host) .. "\n" .. split.head)
+  end)
 end
 
 --- What one entry is, for its line in a key: "missing", "file" and its
@@ -532,6 +564,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
+  if spec.launcher ~= nil then lines[#lines + 1] = part("launcher", spec.launcher, "") end
   local files: {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)

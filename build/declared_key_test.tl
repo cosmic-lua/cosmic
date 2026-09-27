@@ -443,6 +443,38 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   assert(select(2, keys()) ~= other, "a file of o/bin's contents left the key")
 end
 
+--- What runs an artifact's core is keyed for every test of a run the
+--- artifact starts, whether it runs the program or not: a launcher,
+--- manifest or core ahead of the database moves a key that declares no
+--- `tool`, while a carried row, which such a test's key holds by its
+--- own closure, does not; a host program's run holds none.
+local function test_an_artifacts_launcher_moves_every_key(tmp: string)
+  tree(tmp)
+  local root = assert(Fs.absolute(tmp))
+  local path = root .. "/cosmic-portable"
+  local meta: {string:string} = { writer = "w", compiler = "c" }
+  local function launcher(): string
+    return declared_key.launcher_identity(declared_key.digests(root), path)
+  end
+  program_at(path, "launcher and core one", meta, "bytecode one")
+  local one = launcher()
+  program_at(path, "launcher and core one", meta, "bytecode two")
+  assert(launcher() == one, "a carried row moved the launcher")
+  program_at(path, "launcher and core two", meta, "bytecode one")
+  local two = launcher()
+  assert(two ~= one, "the head left the launcher")
+  local s = spec()
+  assert(not s.effective.tool)
+  local native = key_of(root, s)
+  s.launcher = one
+  local first = key_of(root, s)
+  s.launcher = two
+  local second = key_of(root, s)
+  assert(first ~= native and second ~= first, "the launcher left a key without `tool`")
+  assert(declared_key.launcher_identity(declared_key.digests(root), root .. "/nowhere") ==
+    "missing")
+end
+
 --- A module keyed by its own source (`own`) moves the harness when its
 --- source does, not when what it imports does -- unless a root reaches
 --- it, when its closure is walked as any other.

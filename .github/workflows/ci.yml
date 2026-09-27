@@ -146,7 +146,7 @@
         # Which event started the run: a Linux leg's suites stand on the
         # verdicts their tests' declared inputs key (build/declared_key.tl),
         # this leg's earlier runs' among them (restored below), in a
-        # push's run, main's and a branch's alike; the merge queue's, a
+        # push's run, main's and a branch's alike, and the merge queue's; a
         # manual one and the scheduled one run every test, and so does
         # the macOS leg's, whose workers run unsandboxed. See
         # orchestration.tl's `stands`.
@@ -313,14 +313,15 @@
         # would move it. Its verdict cache is named by what else of the
         # host every key holds and differs between runners of one leg
         # (`verdicts`, .github/scripts/host-features.sh): the processor's
-        # features and the kernel's release and version. Named by the
-        # container alone, a run restored the newest cache of any runner
-        # of the leg, and none of its verdicts stood where that runner's
-        # host differed: main's run 36320764857 stood 0 on linux-x86_64,
-        # where its other Linux legs and two branch pushes stood 1506 on
-        # the same cache. Its runners had the same image and kernel
-        # release; the processor's features, which no log showed, are the
-        # likeliest difference.
+        # features and the kernel's release and version, which the
+        # container's /proc tells `host_identity` from the runner's
+        # kernel. Named by the container alone, a run restored the newest
+        # cache of any runner of the leg, and none of its verdicts stood
+        # where that runner's host differed: main's run 36320764857
+        # stood 0 on linux-x86_64, where its other Linux legs and two
+        # branch pushes stood 1506 on the same cache. Its runners had the
+        # same image and kernel release; the processor's features, which
+        # no log showed, are the likeliest difference.
         {
           name: "name the leg's container",
           id: "host-id",
@@ -331,10 +332,13 @@
         },
 
         # The test verdicts this leg reached before, in the same container
-        # (COSMIC_VERDICT_CACHE, .github/scripts/cosmic-driver.sh): the
-        # newest this ref can restore under its name -- its own, else
-        # main's, from a host of the same features (host-features.sh). Only a
-        # Linux leg's push, main's or a branch's, stands on them
+        # (COSMIC_VERDICT_CACHE, .github/scripts/cosmic-driver.sh, and the
+        # portable suite's file beside it, orchestration.tl's
+        # `portable_verdicts`): the newest this ref can restore under its
+        # name -- its own, else main's, which is all the merge queue's
+        # refs, whose runs save none, ever restore -- from a host of the
+        # same features (host-features.sh). A Linux leg's push, main's or
+        # a branch's, and its merge queue run stand on them
         # (COSMIC_CI_EVENT).
         {
           name: "restore test verdicts",
@@ -624,20 +628,24 @@
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
 
-        # What every suite of the leg reached, saved after the last of
-        # them, whatever failed (a failing verdict takes a passing one
-        # out), under a key of this run's own, for the next run of this
-        # leg in the same container -- on this ref, or, from main, on any
-        # -- to restore: from main after every run, and elsewhere only
-        # where nothing was restored, so a branch's pushes do not fill the
-        # repository's cache; never from the merge queue, whose refs no
-        # later run restores. After the tree is back where it was checked
-        # out, for the reason the zig cache save above is.
+        # What every suite of the leg reached, the portable suite's in a
+        # file of its own, saved after the last of them, whatever failed
+        # (a failing verdict takes a passing one out), under a key of this
+        # run's own, for the next run of this leg in the same container --
+        # on this ref, or, from main, on any -- to restore: from main
+        # after every run, and elsewhere only where nothing was restored,
+        # so a branch's pushes do not fill the repository's cache; never
+        # from the merge queue, whose refs no later run restores. After
+        # the tree is back where it was checked out, for the reason the
+        # zig cache save above is.
         # TODO: merge what a run owes the cache into the newest saved one
         # as it saves, or save main's runs one at a time: two main runs at
         # once each save from what they restored, and the later save can
-        # bring back a pass the other's failure took out. The scheduled
-        # run, which stands on nothing, bounds how long one stands.
+        # bring back a pass the other's failure took out. The merge queue
+        # stands on what main saved, so such a pass lets a change land
+        # without the test running on the Linux legs (the macOS leg still
+        # runs every test); the scheduled run, which stands on nothing,
+        # bounds how long one stands.
         {
           name: "save test verdicts",
           if: "always() && matrix.image && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' || steps.verdicts-restore.outputs.cache-matched-key == '')",
