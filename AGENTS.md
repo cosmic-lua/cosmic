@@ -77,6 +77,11 @@
    across checkouts: a test whose verdict turns on a file's times, inode,
    device, link count or owner calls `observations.reads_stat_times()`,
    which keys them whole, so it stands only in its own checkout.
+   Run sandboxed (`COSMIC_TEST_SANDBOX=1`), a test is keyed instead by
+   what it declares -- its closure, its `Test.needs`, their contents and
+   values, the core -- before it runs (`build/declared_key.tl`): it
+   stands while none of that changes, nothing is assumed, one declaring
+   `network` always runs, and `--all` runs everything.
    Where the kernel cannot confine a process, `confine` starts it
    unconfined; `observations.must_confine` fails the spawn, and the
    test, instead, naming the part of the sandbox refused and its errno.

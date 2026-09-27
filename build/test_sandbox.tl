@@ -29,9 +29,10 @@
 --- A read of anything else finds nothing. The worker is pid 2 of a pid
 --- namespace of its own, whose init ends when it does, ending whatever
 --- it left running there: no descendant of a sandboxed worker outlives
---- it. What the worker reports, it reports as it saw it, at /tree and
---- /tmp; `to_host` puts each path back where the host has it, so a
---- verdict's key is the same function of the tree it always was.
+--- it. Its verdict is keyed by what it was given (`build.declared_key`),
+--- not by what it read. What the worker reports, it reports as it saw
+--- it, at /tree and /tmp; `to_host` puts each path back where the host
+--- has it, for the audit of what it read and for its `runs` row.
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -231,11 +232,6 @@ local resolution_kinds: {string:boolean} = { r = true, t = true, v = true, w = t
 --- (`host_path`): the path of every observation but a variable's, the
 --- answer of one whose answer is a path, and a realpath's. `kept` is
 --- the plan's (`Plan.kept`), nil for none.
--- TODO: key a sandboxed run by what it was given rather than by what the
--- host has there -- the digest of its declared inputs, the next phase of
--- declared inputs -- so a listing of a directory of the tree it was given
--- part of, which answers that part alone, stands: today its answer
--- differs from the host's listing, and its verdict never stands.
 function test_sandbox.to_host(reads: {observations.Observation}, root: string,
                               scratch: string, kept?: {string}): {observations.Observation}
   local out: {observations.Observation} = {}

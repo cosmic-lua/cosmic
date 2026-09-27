@@ -527,3 +527,39 @@ local function test_a_declaration_is_kept_as_it_is_through_the_cache(tmp: string
     "the declaration was moved: " .. back[1].kind .. " " .. back[1].path)
   assert(back[2].kind == "s" and back[2].path == second .. "/f", back[2].path)
 end
+
+--- A sandboxed verdict is kept by its declared key alone
+--- (build/declared_key.tl), with no reads to check it by: found under
+--- that key, freshened by a run that relies on it, and taken out by
+--- one that fails under it. A cache made before the map was is given
+--- one, its other verdicts kept.
+local function test_a_sandboxed_verdict_is_kept_by_its_key_alone(tmp: string)
+  local path = tmp .. "/cache/verdicts.db"
+  local cache = assert(shared_verdicts.open(path))
+  assert(shared_verdicts.settle(cache, tmp .. "/first", "first", { kept = { {
+    key = "unsandboxed", test = "suite/t_test.tl test_t", module_key = "module",
+    reads = observations.encode({}), hits = "", elapsed_ns = 1 } }, used = {}, failed = {} },
+    Time.now_ns()))
+  shared_verdicts.close(cache)
+  -- As a cache from before the map: without its table.
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("DROP TABLE declared_v1"))
+  assert(db:close())
+  cache = assert(shared_verdicts.open(path))
+  assert(#assert(shared_verdicts.candidates(cache, tmp .. "/second", "suite/t_test.tl test_t",
+    "module")) == 1, "a verdict of the earlier table was dropped")
+  assert(shared_verdicts.declared(cache, "declared") == nil)
+  assert(shared_verdicts.settle(cache, tmp .. "/first", "first", { kept = { {
+    key = "declared", test = "suite/t_test.tl test_t", module_key = "module", reads = "",
+    hits = "suite/t_test.tl\t1,2,5\n", elapsed_ns = 7, declared = true } }, used = {},
+    failed = {} }, Time.now_ns()))
+  local found = assert(shared_verdicts.declared(cache, "declared"))
+  assert(found.elapsed_ns == 7 and found.hits == "suite/t_test.tl\t1,2,5\n", found.hits)
+  -- Only the key finds it: no candidate of the test is one.
+  assert(#assert(shared_verdicts.candidates(cache, tmp .. "/second", "suite/t_test.tl test_t",
+    "module")) == 1)
+  assert(shared_verdicts.settle(cache, tmp .. "/second", "second", { kept = {}, used = {},
+    failed = { "declared" } }, Time.now_ns()))
+  assert(shared_verdicts.declared(cache, "declared") == nil, "a failure kept it")
+  shared_verdicts.close(cache)
+end

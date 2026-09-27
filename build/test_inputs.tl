@@ -18,11 +18,14 @@
 --- host (`host`), environment variables (`env`), the network
 --- (`network`), processes no sandbox holds (`processes`), the tool
 --- itself (`tool`), and the tree's projection opened directly
---- (`store`). Of them, only the closure's modules are enforced: a
+--- (`store`). Of them, the closure's modules are always enforced: a
 --- worker lets a test `require` no other module of the tree
---- (`build.test_worker`'s `refusal`). Nothing else enforces them yet,
---- nor keys a verdict by them: the audit compares them with what
---- observation saw (`build.filesystem_observations`), test by test.
+--- (`build.test_worker`'s `refusal`). A sandboxed worker is held to
+--- all of them (`build.test_sandbox`), and its verdict keyed by them
+--- (`build.declared_key`); an unsandboxed one is held to nothing else,
+--- and keyed by what it was seen to read, and the audit compares them
+--- with what observation saw (`build.filesystem_observations`), test
+--- by test.
 
 local observations = require("build.filesystem_observations")
 local caches = require("build.caches")
@@ -91,15 +94,13 @@ local corpora <const> = "testdata/fuzz/"
 --- that names a module of the tree outside this closure
 --- (`build.test_worker`), so the miss fails the test rather than
 --- leaving its key short.
--- TODO: hold the compiler -- `vendor.tl`, derived from vendor/tl/ and
--- its patches -- in the closure of every module whose closure holds
--- build.teal, which loads it as bytecode (`Store.bytecode("vendor.tl")`)
--- rather than by `require`, so no parse follows it; today's key holds
--- it through the module key's compiler hash, but a key built from this
--- closure alone would miss it. Follow a `Store.bytecode` of a literal
--- name as the parse follows a `require`, or name the compiler among
--- build.teal's inputs, once verdicts are keyed by this closure's
--- digest.
+---
+--- The compiler -- `vendor.tl`, derived from vendor/tl/ and its
+--- patches -- is no file of it, though build.teal loads it as bytecode
+--- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
+--- parse follows it: a key over the closure holds it apart, by the
+--- compiler's identity (`build.declared_key`'s `Spec.compiler`), which
+--- compiled every module of the closure besides.
 local function closure(m: Module, by_path: {string:Module},
                        declarations: {string:string}): {string}, boolean, {string}
   local seen: {string:boolean} = {}

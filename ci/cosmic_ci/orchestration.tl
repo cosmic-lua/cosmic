@@ -459,6 +459,16 @@ local function phase_sandboxed(p: PlatformContext): integer
   mkdir(diagnostics)
   local out = diagnostics .. "/sandboxed-test.out"
   local err = diagnostics .. "/sandboxed-test.err"
+  -- TODO: stand on sandboxed verdicts here once this suite gates the
+  -- Linux legs (ci.yml's continue-on-error dropped, each worker
+  -- sandboxed by default): drop `--all` and COSMIC_TEST_NO_SHARED for
+  -- this suite, keeping `--all` for scheduled and manual full runs, so
+  -- a leg runs only what no verdict under its declared-input key
+  -- (build/declared_key.tl) in COSMIC_VERDICT_CACHE -- the zig-build
+  -- cache -- answers for. An unsandboxed run's verdicts are never
+  -- shared with a sandboxed one's (their keys differ), and the macOS
+  -- leg keeps `--all` and COSMIC_TEST_NO_SHARED, uncached, as the
+  -- backstop.
   local values = environment({ COSMIC_TEST_SANDBOX = "1" })
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   local status = operation(c, "sandboxed suite", { p.root .. "/o/bin/cosmic", "test", "--all" },

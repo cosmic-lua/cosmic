@@ -574,7 +574,11 @@ that spawns a process or makes an unsupported observation outside the tree is
 not cacheable, only assumed to pass as it last did. passing verdicts are shared
 by every checkout on the machine through a database under the cosmic cache
 directory, keyed the same way but for a stat, of which only kind, size and mode
-count, so a fresh worktree runs only what no checkout has already run. each test
+count, so a fresh worktree runs only what no checkout has already run. a run with
+each worker sandboxed to its test's declared inputs (`COSMIC_TEST_SANDBOX=1`)
+keys a verdict by those inputs instead -- the closure's sources, the declared
+paths' contents, the declared variables' values, the declaration, the core --
+digested before the test runs, and shares it by that key alone. each test
 that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its

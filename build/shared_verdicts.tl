@@ -16,6 +16,13 @@
 --- compiled from and ran under: it is assumed in another checkout on
 --- the same terms as in its own, and never under `--all`.
 ---
+--- A sandboxed run's verdicts are kept apart, as a plain map from key
+--- to verdict: a sandboxed test's key is the digest of everything it
+--- was given (`build.declared_key`), computed before it runs, so a row
+--- holds no evidence of what the run read to check again -- the key
+--- reached is the whole check -- only the lines it hit and how long it
+--- took.
+---
 --- Many runs share the file at once: it is in WAL mode, so a reader
 --- never waits on a writer, and a run reads it a statement at a time
 --- and writes what it owes it in one short transaction as it ends. It
@@ -65,6 +72,10 @@ local record shared_verdicts
     reads: string
     hits: string
     elapsed_ns: integer
+    --- A sandboxed run's verdict, under its declared key
+    --- (`build.declared_key`): kept in the map of those, with no
+    --- `module_key` or `reads` to check it by.
+    declared: boolean
   end
 
   --- What a run owes the cache when it ends.
@@ -101,6 +112,11 @@ local candidates_tried <const> = 32
 --- is dropped (`prepare`), since nothing writes it any more.
 local format <const> = 4
 local verdicts <const> = "verdicts_v" .. format
+
+--- The table sandboxed runs' verdicts are in, by their declared key
+--- alone (`build.declared_key`), beside this format's: it names no
+--- format of `verdicts`, so none drops it.
+local declared <const> = "declared_v1"
 
 local text = bind.text
 
@@ -145,6 +161,13 @@ local schema <const> = {
   "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_test ON " .. verdicts ..
     " (test, module_key, used_ns)",
   "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_use ON " .. verdicts .. " (used_ns)",
+  "CREATE TABLE IF NOT EXISTS " .. declared .. [[ (key TEXT PRIMARY KEY,
+                                                  test TEXT NOT NULL,
+                                                  hits BLOB NOT NULL,
+                                                  elapsed_ns INTEGER NOT NULL,
+                                                  used_ns INTEGER NOT NULL,
+                                                  origin TEXT NOT NULL)]],
+  "CREATE INDEX IF NOT EXISTS " .. declared .. "_by_use ON " .. declared .. " (used_ns)",
 }
 
 --- Hits as `build.test` encodes them -- a line per module, its path, a
@@ -178,24 +201,27 @@ local function unpacked(hits: string): string
   end))
 end
 
---- Makes this format's table when the file has none yet, and drops
+--- Makes this format's tables when the file lacks one yet, and drops
 --- every earlier format's, in one transaction; a file that has only
 --- this format's and later ones is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'verdicts%'")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
+    "(name LIKE 'verdicts%' OR name = '" .. declared .. "')")
   if rows == nil then return false, trouble end
-  local present = false
+  local present, declared_present = false, false
   local earlier: {string} = {}
   for _, row in ipairs(rows) do
     local number = math.tointeger(tonumber(row[1]:match("^verdicts_v(%d+)$") or ""))
-    if row[1] == verdicts then
+    if row[1] == declared then
+      declared_present = true
+    elseif row[1] == verdicts then
       present = true
     elseif row[1] == "verdicts" or (number ~= nil and number < format) then
       earlier[#earlier + 1] = row[1]
     end
   end
-  if present and #earlier == 0 then return true, "" end
+  if present and declared_present and #earlier == 0 then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
   local statements: {string} = {}
@@ -339,6 +365,20 @@ function shared_verdicts.found(cache: shared_verdicts.Cache,
     elapsed_ns = math.tointeger(tonumber(rows[1][2]) or 0) or 0 }, ""
 end
 
+--- The coverage and duration of the sandboxed verdict under its
+--- declared `key` (`build.declared_key`), or nil: the key is the whole
+--- check.
+function shared_verdicts.declared(cache: shared_verdicts.Cache,
+                                  key: string): shared_verdicts.Found | nil, string
+  local rows, trouble = Sqlite.text_rows(cache.db,
+    "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
+    { text(key) })
+  if rows == nil then return nil, trouble end
+  if rows[1] == nil then return nil, "" end
+  return { hits = unpacked(rows[1][1]),
+    elapsed_ns = math.tointeger(tonumber(rows[1][2]) or 0) or 0 }, ""
+end
+
 --- Writes what a run under `root` owes the cache, at `now_ns`, and
 --- drops what it no longer keeps, in one transaction. `origin` names
 --- the checkout writing, so it never takes a row it wrote for another's.
@@ -348,13 +388,25 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string, orig
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
   local function steps(): boolean, string
+    -- A key is a digest of one table's kind of preimage or the
+    -- other's, so a key owed is looked for in both.
+    local tables: {string} = { verdicts, declared }
     for _, key in ipairs(owed.failed) do
-      local ok, trouble = Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE key = ?1", { text(key) })
-      if not ok then return false, trouble end
+      for _, name in ipairs(tables) do
+        local ok, trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE key = ?1", { text(key) })
+        if not ok then return false, trouble end
+      end
     end
     for _, kept in ipairs(owed.kept) do
-      local reads = portable(root, kept.reads)
-      if reads ~= nil then
+      local reads = not kept.declared and portable(root, kept.reads) or nil
+      if kept.declared then
+        local ok, trouble = Sqlite.run(db,
+          "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
+          "origin) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6)",
+          { text(kept.key), text(kept.test), text(packed(kept.hits)),
+            { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin) })
+        if not ok then return false, trouble end
+      elseif reads ~= nil then
         local ok, trouble = Sqlite.run(db,
           "INSERT OR REPLACE INTO " .. verdicts .. " (key, test, module_key, reads, hits, " ..
           "elapsed_ns, used_ns, origin) VALUES (?1, ?2, ?3, deflate(?4), deflate(?5), ?6, ?7, ?8)",
@@ -364,16 +416,22 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string, orig
       end
     end
     for _, key in ipairs(owed.used) do
-      local ok, trouble = Sqlite.run(db, "UPDATE " .. verdicts .. " SET used_ns = ?1 WHERE key = ?2",
-        { { integer = now_ns }, text(key) })
-      if not ok then return false, trouble end
+      for _, name in ipairs(tables) do
+        local ok, trouble = Sqlite.run(db, "UPDATE " .. name .. " SET used_ns = ?1 WHERE key = ?2",
+          { { integer = now_ns }, text(key) })
+        if not ok then return false, trouble end
+      end
     end
-    local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE used_ns < ?1",
-      { { integer = now_ns - kept_ns } })
-    if not aged then return false, age_trouble end
-    return Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE key IN (SELECT key FROM " ..
-      verdicts .. " " ..
-      "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+    for _, name in ipairs(tables) do
+      local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
+        { { integer = now_ns - kept_ns } })
+      if not aged then return false, age_trouble end
+      local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
+        " WHERE key IN (SELECT key FROM " .. name .. " " ..
+        "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+      if not bounded then return false, bound_trouble end
+    end
+    return true, ""
   end
   local ok, trouble = steps()
   if not ok then

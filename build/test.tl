@@ -37,7 +37,8 @@
 --- and ran under instead, and while that is unchanged and it last
 --- passed, it is assumed to pass again rather than run -- unless the
 --- run is `--all` (or `COSMIC_TEST_ALL=1`, or `COSMIC_SANDBOX=must`) or
---- names it.
+--- names it. All of this is an unsandboxed run's; a sandboxed one's
+--- keys are its tests' declared inputs, below.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -72,12 +73,22 @@
 --- projection. `--audit` runs every test it chooses and names, module by
 --- module, whatever one read beyond them (`build.test_inputs`), with the
 --- declaration that would hold it, and fails the run when any did.
---- Nothing enforces them by default, nor keys a verdict by them. With
---- `COSMIC_TEST_SANDBOX=1` each worker runs sandboxed to them
---- (`build.test_sandbox`), with the tree at /tree and its scratch
---- directory at /tmp: a read of anything else finds nothing. Where the
---- kernel cannot sandbox a worker, the run says so and runs them as it
---- would have -- but under `COSMIC_SANDBOX=must`, where it fails.
+--- Nothing enforces them by default. With `COSMIC_TEST_SANDBOX=1` each
+--- worker runs sandboxed to them (`build.test_sandbox`), with the tree
+--- at /tree and its scratch directory at /tmp: a read of anything else
+--- finds nothing. Where the kernel cannot sandbox a worker, the run says
+--- so and runs them as it would have -- but under `COSMIC_SANDBOX=must`,
+--- where it fails.
+---
+--- Sandboxed, a verdict is keyed by what its test was given rather than
+--- by what it read: the digest of its declared inputs, computed before
+--- it runs (`build.declared_key`). A test whose key holds a passing
+--- verdict, of this checkout or, by that key alone, of another
+--- (`build.shared_verdicts`), stands; any other runs, and its verdict is
+--- kept only when its inputs still digest to the same key once it has
+--- run. A test that declares the network has no key, and always runs.
+--- None is assumed, and `--all` (or `COSMIC_TEST_ALL=1`, or an audit)
+--- runs every test the run chooses, whatever stands.
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
@@ -106,6 +117,7 @@ local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local declared_key = require("build.declared_key")
 local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
@@ -1483,6 +1495,11 @@ local record Job
   tmp: string
   --- How its worker is sandboxed, when it is (`build.test_sandbox`).
   plan: test_sandbox.Plan
+  --- Sandboxed, the key its verdict is reached under, over its
+  --- declared inputs as they were before it started
+  --- (`build.declared_key`); nil for one that reaches the network, or
+  --- an unsandboxed run's.
+  declared: string
   passed: boolean
   handle: Child.Handle
   started_ns: integer
@@ -1558,6 +1575,11 @@ local record Recording
   --- are given, by module path.
   sandbox: boolean
   views: {string:{string:string}}
+  --- Sandboxed, what keys each verdict (`build.declared_key`): the
+  --- digests of the tree's files the run has taken, and the compiler's
+  --- identity (`build.work`'s `Identities`).
+  digests: declared_key.Digests
+  compiler: string
   --- Where the host caches each module declares are (`build.caches`),
   --- by module path, as `caches_of` resolves them.
   caches: {string:{string}}
@@ -1630,6 +1652,26 @@ local function identity_of(rec: Recording, m: importer.Module): string
   -- The tool itself too, whole: a test that starts it unconfined
   -- exercises all of it, not only what the test's module loads.
   return m.key .. "\0" .. rec.runtime .. "\0" .. (Store.meta("boot_hash") or "")
+end
+
+--- A sandboxed test's key, over its declared inputs as they are now
+--- (`build.declared_key`): nil for one that reaches the network, which
+--- no key holds.
+local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
+  local effective = rec.effective[m.path]
+  if not declared_key.keyable(effective) then return nil end
+  return declared_key.compute(rec.digests, {
+    id = id, group = m.path, module_key = m.key, runtime = rec.runtime, compiler = rec.compiler,
+    declaration = test_inputs.canonical(m.inputs), effective = effective,
+    environment = view_of(rec, m),
+  })
+end
+
+--- What a test read the last time it ran, for its `runs` row where a
+--- sandboxed verdict stands without a run: nothing, where there is none.
+local function last_reads(previous: {string:test.Previous}, id: string): {observations.Observation}
+  local was = previous[id]
+  return was ~= nil and was.reads or {}
 end
 
 --- A verdict from a stored one that still stands: what the test read
@@ -1890,7 +1932,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
         rec.tool)
     end
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads, caches_of(rec, job.m))
+    cacheable = reported.loaded and not rec.sandbox and
+      test.keyable(rec.root, job.scratch, reads, caches_of(rec, job.m))
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
@@ -1904,31 +1947,57 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       passed, message = false, trouble
     end
   end
-  local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
-    rec.runtime, reads, rec.key_parts, job.started_ns, view_of(rec, job.m))
-  local reached, stable = verdict_reached.key, verdict_reached.stable
-  local late = verdict_reached.late
-  local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
-    message, Time.now_ns(), reads, run_key(reached, verdict_reached.shared), rec.run_at_ns,
-    elapsed,
-    (stable or late) and cacheable, identity_of(rec, job.m))
-  if not saved then
-    rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
-  end
-  if not late then
-    saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
-      elapsed)
+  if rec.sandbox then
+    -- Keyed by what it was given: its declared inputs, as they were
+    -- before it started -- and still are, or the verdict describes no
+    -- one state of them, and is not kept.
+    local key = job.declared
+    local held = key ~= nil and declared_of(rec, job.m, id) == key
+    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
+      message, Time.now_ns(), reads, run_key(key or "", key), rec.run_at_ns, elapsed)
     if not saved then
-      rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
     end
-  end
-  if not passed then
-    rec.owed.failed[#rec.owed.failed + 1] = verdict_reached.shared
-  elseif not late and reported ~= nil then
-    rec.owed.kept[#rec.owed.kept + 1] = { key = verdict_reached.shared, test = id,
-      module_key = job.m.key,
-      reads = encoded_reads(reads, (stable or late) and cacheable, identity_of(rec, job.m)),
-      hits = rec.by_test[id], elapsed_ns = elapsed }
+    if held then
+      saved, save_trouble = record_verdict(rec.records, key, passed, rec.run_at_ns, rec.run,
+        elapsed)
+      if not saved then
+        rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      end
+    end
+    if not passed and key ~= nil then
+      rec.owed.failed[#rec.owed.failed + 1] = key
+    elseif passed and held and reported ~= nil then
+      rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, module_key = job.m.key,
+        reads = "", hits = rec.by_test[id], elapsed_ns = elapsed, declared = true }
+    end
+  else
+    local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
+      rec.runtime, reads, rec.key_parts, job.started_ns, view_of(rec, job.m))
+    local reached, stable = verdict_reached.key, verdict_reached.stable
+    local late = verdict_reached.late
+    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
+      message, Time.now_ns(), reads, run_key(reached, verdict_reached.shared), rec.run_at_ns,
+      elapsed,
+      (stable or late) and cacheable, identity_of(rec, job.m))
+    if not saved then
+      rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
+    end
+    if not late then
+      saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
+        elapsed)
+      if not saved then
+        rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      end
+    end
+    if not passed then
+      rec.owed.failed[#rec.owed.failed + 1] = verdict_reached.shared
+    elseif not late and reported ~= nil then
+      rec.owed.kept[#rec.owed.kept + 1] = { key = verdict_reached.shared, test = id,
+        module_key = job.m.key,
+        reads = encoded_reads(reads, (stable or late) and cacheable, identity_of(rec, job.m)),
+        hits = rec.by_test[id], elapsed_ns = elapsed }
+    end
   end
   job.passed = passed
   if not passed and reported ~= nil and job.plan ~= nil then
@@ -2378,8 +2447,8 @@ function test.run(argv: {integer:string}): integer
   -- (build.filesystem_observations' `must_confine`).
   -- An audit runs every test it chooses, to observe what each reads.
   local audit = parsed.set["--audit"] == true
-  local everything = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1" or
-    Env.get("COSMIC_SANDBOX") == "must"
+  local forced = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  local everything = forced or Env.get("COSMIC_SANDBOX") == "must"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
@@ -2652,35 +2721,100 @@ function test.run(argv: {integer:string}): integer
       rec.effective[m.path] = effective
     end
   end
+  if sandboxed then
+    -- What the stage knows of each file it hashed, so a key reads none
+    -- of them again (`build.declared_key`).
+    local staged_rows, staged_trouble = Sqlite.text_rows(records,
+      "SELECT path, size, coalesce(mtime_ns, ''), ino, dev, sha256 FROM files " ..
+      "UNION ALL SELECT path, size, coalesce(mtime_ns, ''), ino, dev, sha256 FROM tool")
+    if staged_rows == nil then
+      local _, _ = work.rollback(handle)
+      local _, _ = work.close(handle)
+      log:complain(records_path .. ": " .. staged_trouble)
+      return 1
+    end
+    local remembered, remembered_trouble = Sqlite.text_rows(records,
+      "SELECT path, signature, sha256 FROM digests")
+    if remembered == nil then
+      local _, _ = work.rollback(handle)
+      local _, _ = work.close(handle)
+      log:complain(records_path .. ": " .. remembered_trouble)
+      return 1
+    end
+    rec.digests, rec.compiler = declared_key.digests(root, staged_rows, remembered), tool
+    -- Every test is keyed before any starts: one look at each input
+    -- serves them all.
+    declared_key.freeze(rec.digests)
+  end
   local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
-      local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
-      if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
-      local assumed: Assumed = nil
-      local asked = everything
-      for _, selector in ipairs(naming) do
-        if test.selects(selector, m.path, m.file, name) then asked = true end
-      end
-      if stood == nil and not asked then
-        local answer, _ = assumable(rec, previous, verdicts, m, id)
-        assumed = answer
-      end
-      local from: Shared = nil
-      if stood == nil and assumed == nil and consult and rec.shared ~= nil then
-        from = shared_standing(rec, previous, verdicts, m, id, asked)
-      end
-      if stood ~= nil then
-        stand(rec, credited, m, name, id, stood, reads, key)
-      elseif assumed ~= nil then
-        assume(rec, credited, m, name, id, assumed.verdict, assumed.key, assumed.kept)
-      elseif from ~= nil then
-        share(rec, m, name, id, from)
+      if sandboxed then
+        -- Sandboxed, a test is keyed by what it is given, and runs
+        -- unless a verdict under that key passed, here or in another
+        -- checkout -- or it is forced, by --all, COSMIC_TEST_ALL or an
+        -- audit, or reaches the network, which no key holds. None is
+        -- assumed.
+        local key = declared_of(rec, m, id)
+        local own = key ~= nil and verdicts[key] or nil
+        local elsewhere: shared_verdicts.Found = nil
+        if key ~= nil and not forced and own == nil and consult and rec.shared ~= nil then
+          local answer, trouble = shared_verdicts.declared(rec.shared, key)
+          if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
+          elsewhere = answer
+        end
+        if key == nil or forced or (own ~= nil and not own.passed) or
+            (own == nil and elsewhere == nil) then
+          jobs[#jobs + 1] = { m = m, name = name, id = id, declared = key }
+        elseif own ~= nil then
+          rec.shared_keys[key] = key
+          stand(rec, credited, m, name, id, own, last_reads(previous, id), key)
+        else
+          share(rec, m, name, id, { key = key, shared = key, reads = last_reads(previous, id),
+            assumed = false, found = elsewhere })
+        end
       else
-        jobs[#jobs + 1] = { m = m, name = name, id = id }
+        -- TODO: key an unsandboxed run by its declared inputs too, where
+        -- no sandbox can hold a worker to them (macOS), trusting the
+        -- declaration as a sandbox would enforce it: today
+        -- it is keyed by what it was seen to read, and shares only with
+        -- another unsandboxed run.
+        local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
+        if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
+        local assumed: Assumed = nil
+        local asked = everything
+        for _, selector in ipairs(naming) do
+          if test.selects(selector, m.path, m.file, name) then asked = true end
+        end
+        if stood == nil and not asked then
+          local answer, _ = assumable(rec, previous, verdicts, m, id)
+          assumed = answer
+        end
+        local from: Shared = nil
+        if stood == nil and assumed == nil and consult and rec.shared ~= nil then
+          from = shared_standing(rec, previous, verdicts, m, id, asked)
+        end
+        if stood ~= nil then
+          stand(rec, credited, m, name, id, stood, reads, key)
+        elseif assumed ~= nil then
+          assume(rec, credited, m, name, id, assumed.verdict, assumed.key, assumed.kept)
+        elseif from ~= nil then
+          share(rec, m, name, id, from)
+        else
+          jobs[#jobs + 1] = { m = m, name = name, id = id }
+        end
       end
     end
+  end
+  if sandboxed then
+    -- From here each key looks again: a verdict is kept only under a
+    -- key its inputs still reach once its test has run.
+    declared_key.thaw(rec.digests)
+    local tests = 0
+    for _, m in ipairs(selected_modules) do tests = tests + #selected_tests[m.path] end
+    log:say(string.format("test: sandbox: %d tests keyed by their declared inputs in %.1f ms " ..
+      "(%d files read)", tests, rec.digests.spent_ns / 1e6, rec.digests.read))
   end
   if #jobs > 0 then
     -- Nil when this process already holds a guard: `test.run` called
@@ -2749,6 +2883,21 @@ function test.run(argv: {integer:string}): integer
   local pruned, prune_trouble = prune_history(records, handle.run)
   if not pruned then
     errors[#errors + 1] = "prune: " .. prune_trouble
+  end
+  -- What a sandboxed run hashed, for the next to look up by `lstat`:
+  -- a run of the whole tree keeps only what it looked at, and one of
+  -- some of it adds to what the rest looked at before.
+  if rec.digests ~= nil and rec.digests.read > 0 then
+    local kept, keep_trouble = true, ""
+    if #selectors == 0 then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
+    for _, row in ipairs(kept and declared_key.kept(rec.digests) or {}) do
+      if kept then
+        kept, keep_trouble = Sqlite.run(records,
+          "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
+          { text(row[1]), text(row[2]), text(row[3]) })
+      end
+    end
+    if not kept then errors[#errors + 1] = "digests: " .. keep_trouble end
   end
   local finished: boolean
   local finish_trouble: string
