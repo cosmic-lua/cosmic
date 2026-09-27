@@ -770,23 +770,22 @@ print(table.concat(said, "\n"))
 --- `worker_unveil`'s paths, in `tmp`: the lines it said, or nil where
 --- there is no portable artifact to start again, or no sandbox to be had.
 local function sandboxed_worker(tmp: string): {string} | nil
-  local relaunch = Proc.relaunch()
-  if relaunch == nil then return nil end -- no portable artifact to start again
+  if Proc.relaunch() == nil then return nil end -- no portable artifact to start again
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
   for _, dir in ipairs({ given, hidden }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
   local tree = assert(sys.getcwd())
   local unveil = observations.worker_unveil(tree, tree, tmp)
-  local argv: {string} = {}
-  for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
-  for _, word in ipairs({ "-e", worker_chunk, given, hidden }) do argv[#argv + 1] = word end
-  local fds: {integer:integer} = {}
-  for target, source in pairs(relaunch.fds) do fds[target] = source end
+  -- Given no environment but the relaunch's, as `cosmic test` gives
+  -- its worker none but what it pins.
+  local worker = observations.program({ "-e", worker_chunk, given, hidden }, { env = {} })
+  local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = raw_process_table()
-  local pid, trouble, errno = process.spawn(argv[1], argv, relaunch.env, tree, nil, output,
-    output, false, fds, { unveil = unveil, offline = true })
+  local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output,
+    output, false, opts.fds as {integer:integer}, -- cast: the relaunch's, every one a descriptor
+    { unveil = unveil, offline = true })
   if pid == nil then
     sys.close(output)
     assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but no sandbox: " ..
@@ -1203,4 +1202,93 @@ local function test_a_stat_answer_leaves_out_the_owner(tmp: string)
   assert(#fields == 11, answer)
   assert(fields[1] == "ok" and fields[2] == tostring(st.size) and fields[10] == tostring(st.ctime),
     answer)
+end
+
+--- Swaps `Proc.relaunch` for one answering `relaunch` while `fn` runs.
+local function relaunching(relaunch: Proc.Relaunch | nil, fn: function())
+  local real = Proc.relaunch
+  Proc.relaunch = function(): Proc.Relaunch | nil, string
+    return relaunch, relaunch == nil and "no artifact" or ""
+  end
+  local ok, trouble = pcall(function(): string
+    fn()
+    return ""
+  end)
+  Proc.relaunch = real
+  assert(ok, tostring(trouble))
+end
+
+--- `program` starts the core the relaunch names with its arguments and
+--- the program's after them, or, with no artifact to relaunch, the
+--- program itself.
+local function test_program_starts_the_relaunch_or_else_the_executable()
+  relaunching({ argv = { "/cache/core-x", "--artifact", "/tree/o/bin/cosmic" }, env = {},
+    fds = {} }, function()
+      local argv = observations.program({ "test", "--all" }).argv
+      assert(table.concat(argv, " ") == "/cache/core-x --artifact /tree/o/bin/cosmic test --all",
+        table.concat(argv, " "))
+    end)
+  relaunching(nil, function()
+    local argv = observations.program({ "-e", "" }).argv
+    assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
+      argv[3] == "", table.concat(argv, " "))
+  end)
+  -- And this very program's: its relaunch where it has one.
+  local relaunch = Proc.relaunch()
+  local argv = observations.program({ "x" }).argv
+  local lead = relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }
+  assert(#argv == #lead + 1 and argv[#argv] == "x", table.concat(argv, " "))
+  for i, word in ipairs(lead) do assert(argv[i] == word, table.concat(argv, " ")) end
+end
+
+--- `program` adds the relaunch's variables to the environment the
+--- caller gives, in a copy, or to the whole of this process's where it
+--- gives none, and takes out the startup test's handshake either way;
+--- the relaunch's descriptors go over the caller's; every other option
+--- is the caller's, and the caller's table is left as it was.
+local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
+  local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--artifact", "/a" },
+    env = { COSMIC_PORTABLE_ARTIFACT = "/a", SHARED = "relaunch" }, fds = { [254] = 7, [255] = 8 } }
+  relaunching(relaunch, function()
+    local env: {string:string} = { HOME = "/home", SHARED = "caller", COSMIC_PORTABLE_STARTUP_TEST_READY = "r",
+      COSMIC_PORTABLE_STARTUP_TEST_GO = "g" }
+    local fds: {integer:integer | string} = { [3] = 1, [254] = "capture" }
+    local given: Child.Options = { env = env, fds = fds, cwd = "/somewhere", timeout_ms = 5 }
+    local opts = observations.program({}, given).options
+    assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
+    assert(opts.env.HOME == "/home" and opts.env.COSMIC_PORTABLE_ARTIFACT == "/a" and
+      opts.env.SHARED == "relaunch")
+    assert(opts.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
+      opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(opts.fds[3] == 1 and opts.fds[254] == 7 and opts.fds[255] == 8)
+    assert(opts.cwd == "/somewhere" and opts.timeout_ms == 5)
+    assert(given.env == env and given.fds == fds)
+    assert(env.SHARED == "caller" and env.COSMIC_PORTABLE_ARTIFACT == nil and
+      env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
+    assert(fds[254] == "capture" and fds[255] == nil)
+    -- No environment given: this process's whole, which a child given
+    -- none would have inherited, with the relaunch's added.
+    local whole = observations.program({ "x" }).options
+    local own = Env.all()
+    for name, value in pairs(own) do
+      if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO"
+        and relaunch.env[name] == nil then
+        assert(whole.env[name] == value, name)
+      end
+    end
+    for name, value in pairs(relaunch.env) do assert(whole.env[name] == value, name) end
+    assert(whole.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
+      whole.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(whole.fds[254] == 7 and whole.fds[255] == 8)
+  end)
+end
+
+--- This very program, started as `program` says, runs with an empty
+--- environment: its launcher, which a start of the core skips, is what
+--- needs one.
+local function test_program_starts_this_program_with_no_environment(tmp: string)
+  local started = observations.program({ "-e", "print('started')" }, { env = {}, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
+  assert(r.ok and r.stdout == "started\n", tostring(r.stdout) .. tostring(r.stderr))
 end
