@@ -285,8 +285,12 @@
         #     zig-build-<leg>-<vendor>-<scope>-<core>-<run>-<attempt>
         #
         # `vendor` hashes what compiles the vendored libraries (the pin,
-        # build.zig, vendor/, patch/ and its applier, the configuration
-        # headers they read from core/), `core` what compiles the core's
+        # build.zig and build/zig.tl, which chooses its flags, vendor/,
+        # patch/ and its applier, the configuration headers they read
+        # from core/) but not the trees zig never compiles -- tl, which
+        # only the boot bridge runs, tzdata and cacert -- so a change to
+        # one of them (8 of the 17 commits to vendor/ or patch/ since
+        # 09-01) moves no entry; `core` what compiles the core's
         # own C (core/'s .c, .h and .zig, test/portable's .c): nothing
         # else under core/, whose tests build.zig never reads. `scope` is
         # `full` where assemble ("build local portable and checked
@@ -312,10 +316,11 @@
         # where assemble passed, nothing `full` for it -- so an entry is
         # saved once per vendor part and leg, not once per core change:
         # main pushes moved the old key's inputs in 27 of 51 commits
-        # (09-25 to 09-27), the core part in 23 and the vendor part in 5
-        # (build.zig in 4 of them), and 3 moved the old key with nothing
-        # zig compiles. The merge queue saves nothing (no other ref restores
-        # its entries), and main's scheduled run restores nothing: it
+        # (09-25 21:46 to 09-27), the core part in 23 and the vendor part
+        # in 5 (build.zig in 3, build/patch.tl in 2), and 3 moved the old
+        # key with nothing zig compiles. The merge queue saves nothing (no
+        # other ref restores its entries), and main's scheduled run
+        # restores nothing: it
         # compiles cold, minutes no one waits on, and saves a compact
         # `full` entry, which the day's runs restore until the vendor
         # part moves. Since main never takes another vendor part's entry
@@ -324,11 +329,14 @@
         # 36292711231), 0.6 GB a save for the four legs. So a day's saves
         # from main are 0.6 GB for the nightly and 0.6 GB for each change
         # to the vendor part, whatever the push rate: 3.6 GB at 09-26's
-        # five. A branch saves `light` where it moved the vendor part,
-        # restorable only by its own runs. The cost: a vendor change's
-        # first main run builds cold (about 5 minutes more a Linux leg, 7
-        # on macOS: runs 36292711231 against 36325134876), and a core change is
-        # compiled again, incrementally, by every run after it until the
+        # five. That is main's floor: a branch saves `light` where it
+        # moved the vendor part, restorable only by its own runs, on
+        # each push that moves it again, and two main runs landing back
+        # to back with one new vendor part both build cold and both
+        # save. The cost: a vendor change's first main run builds cold
+        # (about 5 minutes more a Linux leg, 7 on macOS: runs 36292711231
+        # against 36325134876), and a core change is compiled again,
+        # incrementally, by every run after it until the
         # nightly save (seconds, or a minute or two for a header), where
         # an eviction costs a cold build of everything to whoever meets
         # it next (the fuzz job's checked core took 4m45s).
@@ -366,7 +374,7 @@
           name: "name the zig build cache",
           id: "zig-cache-key",
           shell: "sh",
-          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'vendor/**', 'patch/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"",
+          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"",
         },
 
         {
