@@ -1640,8 +1640,8 @@ end
 -- leaves every key alone too; every edit to it runs every test again.
 local harness_own <const>: {string} = { "build.test_sandbox" }
 
---- The code that makes a key and looks a verdict up under one, held by
---- what Lua runs of it (`test.stripped`) rather than its source:
+--- The code that makes a key and looks a verdict up under one, held,
+--- as the rest of the harness is, by its source and bytecode:
 --- build.test itself, whose closure is the build's, and the closure of
 --- the key's computation (`build.declared_key`) and of the shared
 --- verdicts' (`build.shared_verdicts`), as the `imports` table has it.
@@ -1650,9 +1650,12 @@ local harness_own <const>: {string} = { "build.test_sandbox" }
 --- computes for other inputs -- a digest that misses a rewrite, say --
 --- keeps a verdict under that key, in o/build.db and in the verdicts
 --- every checkout shares, which would stand after the fix. So each
---- version of it keys apart, as the source-keyed harness had it; but a
---- comment or doc edit, which leaves what Lua runs and only moves its
---- lines, leaves every key alone. What build.test decides of a
+--- version of it keys apart, and a comment or doc edit to any of it
+--- runs every sandboxed test again, as one to what a worker runs does.
+--- It stays held by its source, not by what Lua runs of it: telling a
+--- comment's edit from a code edit would take a walk of Lua's dump
+--- format by hand, more code to trust in the one place a mistake
+--- leaves wrong verdicts standing. What build.test decides of a
 --- worker's holds -- which names of the tree and its declarations a
 --- `require` or a lookup in the store refuses (`tree_names`,
 --- `declared_names`) -- is held so too.
@@ -1696,166 +1699,28 @@ local function key_code(imports: {string:{string}}): {string}
   return names
 end
 
---- What Lua runs of `dump`, a chunk dumped stripped
---- (`string.dump(chunk, true)`, vendor/lua/src/ldump.c's format): the
---- dump's own bytes -- each function's parameters, flags, stack size,
---- code, constants, upvalues and nested functions -- less the lines each
---- function is defined between, which a stripped dump keeps, and the
---- padding that aligns its code after them. What is left decodes as
---- one dump alone, so two chunks that differ in what runs differ in it
---- too. Raises on a dump it cannot read, and on one of another Lua's
---- format.
-local function runs_of(dump: string): string
-  local pos = 1
-  local kept: {string} = {}
-  -- Where the bytes kept since the last span cut out begin.
-  local from = 1
-  local function take(n: integer): string
-    if n < 0 or pos + n - 1 > #dump then error("a dump cut short at " .. tostring(pos)) end
-    local piece = dump:sub(pos, pos + n - 1)
-    pos = pos + n
-    return piece
-  end
-  local function byte(): integer
-    return take(1):byte()
-  end
-  -- A size, MSB first, seven bits a byte, each but the last with its
-  -- high bit set (ldump.c's `dumpVarint`).
-  local function varint(): integer
-    local value = 0
-    local b: integer
-    repeat
-      b = byte()
-      value = (value << 7) | (b & 0x7f)
-    until b & 0x80 == 0
-    return value
-  end
-  -- Leaves the bytes read since `start` out of what is kept.
-  local function cut(start: integer)
-    kept[#kept + 1] = dump:sub(from, start - 1)
-    from = pos
-  end
-  -- Skips, and cuts, the zeros that align what follows to `size` bytes
-  -- from the dump's start (`dumpAlign`).
-  local function align(size: integer)
-    local offset = (pos - 1) % size
-    if offset ~= 0 then
-      local start = pos
-      take(size - offset)
-      cut(start)
-    end
-  end
-  -- A string: its size plus one and its bytes, or 0 and the index of
-  -- one dumped before (`dumpString`).
-  local function str()
-    local size = varint()
-    if size == 0 then
-      varint()
-    else
-      take(size)
-    end
-  end
-  if take(4) ~= "\27Lua" then error("not a Lua chunk") end
-  local version, format = byte(), byte()
-  if version ~= 0x55 or format ~= 0 then
-    error(string.format("Lua bytecode format %02x %02x, not the 5.5 dump this walks; " ..
-      "update runs_of against vendor/lua/src/ldump.c", version, format))
-  end
-  take(6)
-  local sizes: {integer} = {}
-  for i = 1, 4 do
-    sizes[i] = byte()
-    take(sizes[i])
-  end
-  local instruction, number = sizes[2], sizes[4]
-  byte()
-  local function func()
-    -- The lines it is defined between: what a comment above it moves.
-    local start = pos
-    local _, _ = varint(), varint()
-    cut(start)
-    take(3)
-    local code = varint()
-    align(instruction)
-    take(code * instruction)
-    for _ = 1, varint() do
-      local tag = byte()
-      if tag == 19 then
-        take(number)
-      elseif tag == 3 then
-        varint()
-      elseif tag == 4 or tag == 20 then
-        str()
-      elseif tag ~= 0 and tag ~= 1 and tag ~= 17 then
-        error("a constant of an unknown kind " .. tostring(tag))
-      end
-    end
-    take(3 * varint())
-    for _ = 1, varint() do func() end
-    str()
-    take(varint())
-    local absolute = varint()
-    if absolute > 0 then
-      align(sizes[1])
-      take(absolute * 2 * sizes[1])
-    end
-    for _ = 1, varint() do
-      str()
-      local _, _ = varint(), varint()
-    end
-    for _ = 1, varint() do str() end
-  end
-  func()
-  if pos <= #dump then error("bytes after the chunk") end
-  kept[#kept + 1] = dump:sub(from)
-  return table.concat(kept)
-end
-
---- The digest of what Lua runs of `bytecode`, a compiled chunk
---- (`runs_of`): of it dumped again stripped of its debugging
---- information -- its lines, its locals' names, its source's name --
---- less the lines each function is defined between, so a chunk
---- compiled from a source that differs only in comments and blank
---- lines has the same; nil and why where it does not load.
-function test.stripped(bytecode: string): string | nil, string
-  local chunk, trouble = load(bytecode, "=stripped", "b")
-  if chunk == nil then return nil, trouble end
-  local ok, produced = pcall(runs_of, string.dump(chunk, true))
-  if not ok or not produced is string then return nil, tostring(produced) end
-  return Hash.hex_sha256(produced), ""
-end
-
 --- The digest of the test harness and that of the code that writes a
 --- closure store (`Harness`), over what the binary carries
 --- (`binary_harness`, which fills in `carried`): `sources`, each
---- module's source and bytecode hashes by name, `stripped`, what Lua
---- runs of each module `key_code` names (`test.stripped`), and
---- `imports`, the names each module requires. A module both lists
---- name is held by its source and bytecode. Nil and why where a module
---- `key_code` names has no stripped digest: one that is no longer a
---- module the binary carries, which the harness would otherwise leave
---- out unnoticed.
-function test.harness(sources: {string:string}, stripped: {string:string},
+--- module's source and bytecode hashes by name, and `imports`, the
+--- names each module requires. Each module of the harness -- what a
+--- worker loads, `harness_own` and `key_code` -- is held by its source
+--- and bytecode. Nil and why where a module `key_code` names is none
+--- the binary carries, which the harness would otherwise leave out
+--- unnoticed.
+function test.harness(sources: {string:string},
                       imports: {string:{string}}): Harness | nil, string
   local names: {string} = {}
-  local held: {string:string} = {}
   for _, list in ipairs({ worker.loads, harness_own }) do
-    for _, name in ipairs(list) do
-      names[#names + 1] = name
-      held[name] = sources[name]
-    end
+    for _, name in ipairs(list) do names[#names + 1] = name end
   end
   for _, name in ipairs(key_code(imports)) do
-    if held[name] == nil then
-      if stripped[name] == nil then
-        return nil, name .. ", which makes or reads a key, is no module the binary " ..
-          "carries whose bytecode the harness can hold"
-      end
-      names[#names + 1] = name
-      held[name] = "stripped " .. stripped[name]
+    if sources[name] == nil then
+      return nil, name .. ", which makes or reads a key, is no module the binary carries"
     end
+    names[#names + 1] = name
   end
-  return { digest = declared_key.harness(names, held),
+  return { digest = declared_key.harness(names, sources),
     store_salt = declared_key.harness(store_writer, sources), carried = {} }, ""
 end
 
@@ -1870,12 +1735,11 @@ end
 --- follow the requires a worker never runs: Teal erases a `local type`
 --- one, and what an imported type does at run time (an `is` against a
 --- record's `where`, an enum's test) is compiled into the importer's
---- bytecode, which its hash holds. The code that makes a key is held
---- by what Lua runs of it (`key_code`).
+--- bytecode, which its hash holds. The code that makes a key
+--- (`key_code`) is held the same way.
 local function binary_harness(): Harness | nil, string
   local modules: {{string}} = nil
   local imports: {{string}} = nil
-  local chunks: Sqlite.Rows = nil
   local trouble = "the running binary has no database"
   Store.alone(function()
     local databases = Store.databases()
@@ -1886,25 +1750,8 @@ local function binary_harness(): Harness | nil, string
       "WHERE kind IN ('module', 'main')")
     if modules == nil then return end
     imports, trouble = Sqlite.text_rows(binary, "SELECT path, requires FROM imports")
-    if imports == nil then return end
-    local requires: {string:{string}} = {}
-    for _, row in ipairs(imports) do
-      local list = requires[row[1]] or {}
-      requires[row[1]] = list
-      list[#list + 1] = row[2]
-    end
-    local names = key_code(requires)
-    local values: {Sqlite.Value} = {}
-    local marks: {string} = {}
-    for i, name in ipairs(names) do
-      values[i] = text(name)
-      marks[i] = "?" .. tostring(i)
-    end
-    chunks, trouble = Sqlite.rows(binary, "SELECT path, bytecode FROM modules " ..
-      "WHERE kind IN ('module', 'main') AND path IN (" .. table.concat(marks, ", ") .. ")",
-      values)
   end)
-  if modules == nil or imports == nil or chunks == nil then return nil, trouble end
+  if modules == nil or imports == nil then return nil, trouble end
   local sources: {string:string} = {}
   local carried: {string:boolean} = {}
   for _, row in ipairs(modules) do
@@ -1917,13 +1764,7 @@ local function binary_harness(): Harness | nil, string
     requires[row[1]] = list
     list[#list + 1] = row[2]
   end
-  local stripped: {string:string} = {}
-  for _, row in ipairs(chunks) do
-    local digest, why = test.stripped(row[2].blob or row[2].text or "")
-    if digest == nil then return nil, (row[1].text or "") .. ": " .. why end
-    stripped[row[1].text] = digest
-  end
-  local harness, harness_trouble = test.harness(sources, stripped, requires)
+  local harness, harness_trouble = test.harness(sources, requires)
   if harness == nil then return nil, harness_trouble end
   harness.carried = carried
   -- A harness a test stands in for, so it can see a change to one move
