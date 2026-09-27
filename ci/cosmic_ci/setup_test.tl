@@ -41,18 +41,23 @@ end
 
 --- The product fixture runs once, before the portable suite and the
 --- regressions; after them the driver checks every file of the product
---- against the hashes its setup recorded, as the fixture's second run did.
+--- against the hashes its setup recorded, and each program's mode, as the
+--- fixture's second run did.
 local function test_a_product_file_changed_after_setup_is_named(tmp: string)
   local product = tmp .. "/product"
   assert(Fs.mkdirs(product .. "/apps"))
-  assert(Fs.write(product .. "/cosmic", "cosmic"))
-  assert(Fs.write(product .. "/apps/hello", "hello"))
+  assert(Fs.write(product .. "/cosmic", "cosmic", 0x1ed))
+  assert(Fs.write(product .. "/apps/hello", "hello", 0x1ed))
   local recorded = Hash.hex_sha256("cosmic") .. "  cosmic\n" ..
     Hash.hex_sha256("hello") .. "  apps/hello\n"
   assert(Fs.write(product .. "/hashes.sha256", recorded))
   assert(ProductSetup.changed(product, recorded) == nil, "an unchanged product changed")
-  assert(Fs.write(product .. "/apps/hello", "changed"))
+  assert(Fs.chmod(product .. "/cosmic", 0x1a4))
   local changed = ProductSetup.changed(product, recorded)
+  assert(changed == "cosmic", "no longer executable: " .. tostring(changed))
+  assert(Fs.chmod(product .. "/cosmic", 0x1ed))
+  assert(Fs.write(product .. "/apps/hello", "changed", 0x1ed))
+  changed = ProductSetup.changed(product, recorded)
   assert(changed == "apps/hello", "changed: " .. tostring(changed))
   assert(Fs.remove(product .. "/apps/hello"))
   changed = ProductSetup.changed(product, recorded)

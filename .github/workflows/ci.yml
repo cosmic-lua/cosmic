@@ -138,7 +138,8 @@
         # tree too), on another leg: a tree formats the same on every
         # platform, its C checked for x86_64-linux-musl on every host
         # (build/c/init.tl), and linux-x86_64, which runs the checked
-        # suite, is the run's longest leg. See orchestration.tl's
+        # suite, is a full run's longest leg, if only just (20:53 against
+        # macos-aarch64's 20:19 in run 36340559325). See orchestration.tl's
         # format_check.
         COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
         # A Linux leg fails where the sandbox probe finds a confined

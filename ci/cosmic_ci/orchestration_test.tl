@@ -350,36 +350,48 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
 end
 
 --- Every leg verifies its checked artifact -- the manifest entry of its
---- checked core, read by the release cosmic, and that the artifact runs
---- that core -- but only the leg that runs the checked suite
---- (COSMIC_CI_CHECKED_SUITE) runs the sanitized cosmic in the tree,
---- whose first run there compiles it: a leg that skips the suite does
---- not pay for the compile.
-local function test_only_a_leg_that_runs_the_checked_suite_compiles_the_tree(tmp: string)
+--- checked core, as the contract's decoder reads it, and that the
+--- artifact runs that core -- but only the leg that runs the checked
+--- suite (COSMIC_CI_CHECKED_SUITE) has a cosmic run a file in the tree,
+--- the first of which after the checked build builds the tree's
+--- database again: a leg that skips the suite does not pay for it.
+local function test_only_a_leg_that_runs_the_checked_suite_runs_a_file_in_the_tree(tmp: string)
   local base, project = command(tmp)
   local core = "the checked core"
   local digest = Hash.hex_sha256(core)
   local target = "x86_64-linux-musl"
-  local function candidate(name: string, host_image: string): string
+  local function candidate(name: string, host_image: string): string, string
     local fake = tmp .. "/checked-" .. name
+    local runner_temp = fake .. "-runner-temp"
+    local format = runner_temp .. "/cosmic-ci/platform/contract/format"
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/o/sanitized/bin"))
+    assert(Fs.mkdirs(format))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/o/sanitized/targets.tsv",
       "1\t1\trelease\t" .. target .. "\tLinux\tx86_64\n" ..
       "1\t2\tsanitized\tsanitized-" .. target .. "\tLinux\tx86_64\n"))
     assert(Fs.write(fake .. "/o/sanitized/cosmic-core", core))
     local entry = "printf '%s\\t%s\\t%s\\n' 16384 " .. #core .. " " .. digest .. "\n"
-    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.ran\"\n" ..
-      entry .. "exit 0\n", 493)
+    -- The release cosmic, which no case may run.
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.ran\"\nexit 9\n", 493)
+    -- The contract's decoder, which reads the checked artifact's entry.
+    Fixture.write(format .. "/format-test-" .. target, "#!/bin/sh\n" ..
+      "case \"$1 $2\" in '--inspect '*/o/sanitized/bin/cosmic) ;; *) exit 9 ;; esac\n" ..
+      "printf '%s\\n' 'prefix 32768 manifest 28672 4096 database 32768 0 entries 2' " ..
+      "'entry 1 1 16384 1 " .. string.rep("1", 64) .. "' " ..
+      "'entry 1 2 16384 " .. #core .. " " .. digest .. "'\n", 493)
     -- The checked artifact: a script that answers each run as the tool
-    -- would, its core at the first aligned offset past it.
+    -- would, its core at the first aligned offset past it. Its `-e`
+    -- answers only a chunk that prints the three keys, in order.
     local script = "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$0.ran\"\n" ..
-      "if [ \"$1\" = -e ]; then printf '%s\\t%s\\t%s\\n' portable-v1 " .. target ..
-      " " .. host_image .. "; exit 0; fi\n" ..
+      "if [ \"$1\" = -e ]; then case \"$2\" in " ..
+      "*\"print(Store.meta('runtime_context'), Store.meta('host'), Store.meta('host_image'))\"*) ;; " ..
+      "*) exit 9 ;; esac\n" ..
+      "printf '%s\\t%s\\t%s\\n' portable-v1 " .. target .. " " .. host_image .. "; exit 0; fi\n" ..
       "if [ \"$1\" = test ]; then exit 0; fi\n" .. entry .. "exit 0\n"
     Fixture.write(fake .. "/o/sanitized/bin/cosmic",
       script .. string.rep("#", 16384 - #script) .. core, 493)
-    return fake
+    return fake, runner_temp
   end
   for _, case in ipairs({
     { name = "skip", switch = "skip", image = digest, ok = true,
@@ -389,9 +401,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_compiles_the_tree(tmp
     { name = "another-core", switch = "skip", image = string.rep("0", 64), ok = false,
       ran = "-e\n" },
   }) do
-    local fake = candidate(case.name, case.image)
-    local runner_temp = fake .. "-runner-temp"
-    assert(Fs.mkdirs(runner_temp))
+    local fake, runner_temp = candidate(case.name, case.image)
     local outcome = Fixture.call("checked-" .. case.name, append(base, { "platform", "checked" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = target, COSMIC_CI_CHECKED_SUITE = case.switch,
@@ -401,17 +411,15 @@ local function test_only_a_leg_that_runs_the_checked_suite_compiles_the_tree(tmp
     local ran = (assert(Fs.read(fake .. "/o/sanitized/bin/cosmic.ran"))):
        gsub("[^\n]*/test/portable/tool%.tl", "/tool.tl")
     assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. ran)
-    local released = assert(Fs.read(fake .. "/o/bin/cosmic.ran"))
-    assert(released:match("^[^\n]*/test/portable/tool%.tl entry [^\n]*/o/sanitized/bin/cosmic 1 2\n$"),
-      case.name .. ": the release cosmic ran: " .. released)
+    assert(not Fs.read(fake .. "/o/bin/cosmic.ran"), case.name .. ": the release cosmic ran")
   end
 end
 
 --- The checked core's suite and the format check each run on one leg
 --- of ci.yml's platform job (COSMIC_CI_CHECKED_SUITE, COSMIC_CI_FORMAT),
---- and not on the same one: the checked suite makes its leg the run's
---- longest, and the format check, which answers the same on every leg,
---- would only lengthen it.
+--- and not on the same one: the checked suite makes its leg one of the
+--- run's longest, and the format check, which answers the same on every
+--- leg, would only lengthen it.
 local function test_the_checked_suite_and_the_format_check_run_on_different_legs()
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
