@@ -10,10 +10,11 @@
 --- `dispatched` and .github/scripts/host-features.sh alike) and it is
 --- named below.
 ---
---- What glibc's libm chooses for the checked core on a glibc host
---- (`fma`, `avx2`, `fma4`) is in the host's library, not the tree, so
---- no grep finds it: `host_identity`'s comment is its record, and
---- `LIBC` below holds `dispatched` to it. Nor does the walk reach zig's
+--- What glibc's libm chose for a checked core built on a glibc host,
+--- before the checked core was static musl on Linux (`fma`, `avx2`,
+--- `fma4`), is in the host's library, not the tree, so no grep finds it:
+--- `host_identity`'s comment is its record, and `LIBC` below holds
+--- `dispatched` to it. Nor does the walk reach zig's
 --- own lib (compiler_rt), musl or glibc, which the audit that chose
 --- `dispatched` read: a change of the zig pin is unguarded here.
 local Fs = require("cosmic.fs")
@@ -99,8 +100,15 @@ local SITES <const>: {string:Site} = {
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
 
---- What glibc's libm reads for the checked core, which no grep of the
---- tree finds (the module's comment).
+--- What glibc's libm read for a checked core linked to it, which no
+--- grep of the tree finds (the module's comment).
+-- TODO: drop LIBC, and `fma`, `avx2` and `fma4` from
+-- declared_key's `dispatched` and .github/scripts/host-features.sh,
+-- once the checked core no longer links glibc's libm on any runner
+-- whose verdicts CI shares, i.e. once the change building it static
+-- musl on Linux (build.zig, above `checked_target`) is on main: no
+-- core then chooses code by them, and keying them splits verdicts for
+-- nothing.
 local LIBC <const>: {string:{string}} = { x86_64 = { "avx2", "fma", "fma4" } }
 
 --- The lines of `text` that hold a needle or match a pattern, and the

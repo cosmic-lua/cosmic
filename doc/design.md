@@ -152,23 +152,29 @@ and Mach-O alike; debug info carries the absolute path and a
 content-derived Mach-O UUID follows it. every lane builds a
 fourth core for its own host in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
-bare trap. `bin/zig build sanitized` boots with that core and embeds
-it in `o/sanitized/bin/cosmic`; every full CI run (merge queue, main,
-or a manual run) verifies the embedded core bytes and, on the Linux
-x86-64 leg, runs the test suite under a 180-second limit, with full
-undefined-behavior checking and coverage collection enabled: every
-test in main's scheduled run and a manual one, and in the merge
-queue's and main's only the tests whose sandboxed verdict does not
-stand from an earlier run (`ci/cosmic_ci/orchestration.tl`'s
+bare trap. it is built for the host's shipped target, not the host's
+own libc: static musl on Linux and libSystem on macOS, so the checks
+run over the libc that ships, its floats are the release core's (a
+glibc host's libm chose FMA variants by the processor and rounded a
+last bit apart), and every runner of an architecture builds the same
+checked core. glibc's headers would have added null-argument and
+`_FORTIFY_SOURCE` checks, which musl's lack (the `TODO:` above the
+checked core in `build.zig`). `bin/zig build sanitized` boots with
+that core and embeds it in `o/sanitized/bin/cosmic`; every full CI run
+(merge queue, main, or a manual run) verifies the embedded core bytes
+and, on the Linux x86-64 leg, runs the test suite under a 180-second
+limit, with full undefined-behavior checking and coverage collection
+enabled: every test in main's scheduled run and a manual one, and in
+the merge queue's and main's only the tests whose sandboxed verdict
+does not stand from an earlier run (`ci/cosmic_ci/orchestration.tl`'s
 `stands`). zig
 ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
 toolchain and with that caveat stated, is a later addition. a
 `cosmic-debug` asset, the sanitized build published beside the
 release, waits for a way to distribute one fat, cross-platform debug
-build; being unstripped and linked to its host's libc, it is then
-built at one fixed path on every runner, so no runner's path is in
-its bytes.
+build; being unstripped, it is then built at one fixed path on every
+runner, so no runner's path is in its bytes.
 
 the C layer is POSIX plus a declared platform seam: no signalfd,
 inotify, epoll, or procfs outside modules guarded as Linux-only.
@@ -661,7 +667,9 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
 the processor is keyed, for good, by the features a core chooses code by
 alone (`dispatched` in `build/declared_key.tl`, which
 `.github/scripts/host-features.sh` mirrors): mbedtls's AES and xz's CRC
-instructions, and on the checked core glibc's FMA libm. the rest of
+instructions, and glibc's FMA libm, which a checked core linked before it
+was static musl on Linux (the `TODO:` at `LIBC` in
+`build/dispatched_features_test.tl` drops it). the rest of
 /proc/cpuinfo's flags, its model and its microcode choose no code a test runs,
 and keying them split hosted runners of one leg for nothing.
 `build/dispatched_features_test.tl` fails when the tree comes to ask the

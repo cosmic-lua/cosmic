@@ -71,7 +71,8 @@ local function test_the_script_and_the_key_name_the_host_alike(tmp: string)
 end
 
 --- On x86_64, only the features a core chooses code by are keyed --
---- mbedtls's AES-NI, xz's carry-less CRCs, glibc's FMA libm -- so hosted
+--- mbedtls's AES-NI, xz's carry-less CRCs, glibc's FMA libm, which a
+--- checked core linked before it was static musl on Linux -- so hosted
 --- runners that differ in any other split neither the verdicts nor
 --- their cache, and a host lacking one of them keys apart.
 local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: string)

@@ -749,11 +749,13 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- which an audit of the vendored C and the disassembled cores found:
   -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
   -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
-  -- crc32_arm64.h (`crc32`); and, for the checked core, which links
-  -- glibc's libm where it is built on a glibc host, its pow, asin, acos
-  -- and atan2, whose FMA variants (`fma` with `avx2`, else `fma4` for
-  -- asin, acos and atan2) round a last bit otherwise. The other libm
-  -- functions it imports, frexp and ldexp, have no variants, and
+  -- crc32_arm64.h (`crc32`); and, for a checked core that linked
+  -- glibc's libm, built on a glibc host before it was static musl on
+  -- Linux (the TODO at build/dispatched_features_test.tl's `LIBC`
+  -- drops these), its pow, asin, acos and atan2, whose FMA variants
+  -- (`fma` with `avx2`, else `fma4` for asin, acos and atan2) round a
+  -- last bit otherwise. The other libm functions it imported, frexp
+  -- and ldexp, have no variants, and
   -- atan2's `avx` one only re-encodes SSE and changes no result, so
   -- `avx` is not keyed. No grep finds glibc's choices, which are in the
   -- host's libm, not the tree: this comment is their record. Nothing

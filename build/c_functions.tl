@@ -81,7 +81,6 @@ local exempt: {string: string} = {
     "the default VFS's files overwrite safely on power loss, so SQLite never asks their sector size; only a URI's psow=0 would, and no connection takes a URI",
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
-  ["core/strnlen.c:strnlen"] = "a host libc's own strnlen can win the link; bin/zig build boot's strnlen check covers the core's",
 }
 
 --- The C functions no test can enter on one kind of host, by its
@@ -98,6 +97,11 @@ local exempt_on: {string: {string: string}} = {
       "on macOS (see spawn_child)",
     ["core/syscalls.c:run_program"] = "called only from spawn_child, whose child's hits never reach the parent " ..
       "on macOS (see spawn_child)",
+    -- Every Linux core, the checked one too, is static musl, whose printf
+    -- measures each `%s` with the core's strnlen, so a Linux run holds it.
+    ["core/strnlen.c:strnlen"] = "libSystem's printf measures a `%s` with its own strnlen, never the core's, " ..
+      "leaving the core's to c-ares's ares_strnlen, which no test need reach; bin/zig build boot's strnlen " ..
+      "check covers it",
   },
 }
 
