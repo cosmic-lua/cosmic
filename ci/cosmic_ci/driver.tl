@@ -1,3 +1,4 @@
+local Compiles = require("cosmic_ci.compiles")
 local Context = require("cosmic_ci.context")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -84,6 +85,8 @@ local commands: {string:Command} = {
     usage = "PHASE TIMEOUT_MS -- EXECUTABLE [ARG...]", handler = run },
   summarize = { about = "write the operations recorded so far as a table",
     usage = "", handler = summarize },
+  ["compiles-trim"] = { about = "trim the build cache to the compiles used since SINCE",
+    usage = "SINCE", handler = Compiles.trim_command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",
