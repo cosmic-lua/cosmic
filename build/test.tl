@@ -2047,10 +2047,13 @@ end
 --- nothing a test is given: the marker a tool that rebuilt itself sets
 --- for the process it re-enters (`build.reboot`), which a run started
 --- after a rebuild holds and one started fresh does not, and the
---- directory the invoking shell was in before its last `cd`. Kept, each
+--- directory the invoking shell was in before its last `cd`, and the
+--- command it last ran (`_`, which a shell sets to the program it
+--- starts: /usr/bin/timeout for `timeout 30 cosmic test`). Kept, each
 --- would enter the key of every test that reads the whole environment,
---- and such a test would run again after a rebuild or a `cd`.
-local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true }
+--- and such a test would run again after a rebuild, a `cd`, or a run
+--- started another way.
+local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, _ = true }
 
 --- The environment a worker starts with: this process's, less the
 --- private startup hooks (`COSMIC_PORTABLE_STARTUP_TEST_*`), which pause
