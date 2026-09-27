@@ -19,9 +19,9 @@
 --   fail/ref-transport            git/ref/tags/ fails before any HTTP
 --   fail/transport                every `gh api` fails before any HTTP
 --   fail/edit-draft               `release edit` leaves the draft flag
---   fail/create-ref               POST git/refs answers HTTP 403, as
---                                 GitHub does for a GITHUB_TOKEN when the
---                                 default branch's workflows differ
+--   fail/create-ref               POST git/refs answers HTTP 403 with
+--                                 this file's message, or GitHub's to a
+--                                 GITHUB_TOKEN refused a ref when empty
 --   compare                       the files the compare from any commit
 --                                 to the default branch (main) changes,
 --                                 a line each; none when absent
@@ -180,13 +180,15 @@ local function api(p: Parsed, repo: string): integer
     if exists(state .. "/compare") then
       for name in read(state .. "/compare"):gmatch("[^\n]+") do files[#files + 1] = { filename = name } end
     end
-    return http(p, "200 OK", json({ status = "behind", files = Json.array(files) }))
+    return http(p, "200 OK", json({ status = "ahead", files = Json.array(files) }))
   end
   if rest == "git/refs" and method == "POST" then
     local tag = assert(p.fields.ref, "no ref"):match("^refs/tags/(.+)$")
     assert(tag and p.fields.sha, "no tag or sha")
     if exists(state .. "/fail/create-ref") then
-      return http(p, "403 Forbidden", '{"message":"Resource not accessible by integration"}')
+      local message = read(state .. "/fail/create-ref")
+      if message == "" then message = "Resource not accessible by integration" end
+      return http(p, "403 Forbidden", json({ message = message }))
     end
     if exists(state .. "/tags/" .. tag) then
       return http(p, "422 Unprocessable Entity", '{"message":"Reference already exists"}')

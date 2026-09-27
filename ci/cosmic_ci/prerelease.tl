@@ -346,13 +346,17 @@ local function workflows_moved(p: Prerelease.Publish): boolean
 end
 
 --- The tag exists, naming the commit: made when the API says it is
---- absent. False, with nothing made, when GitHub refuses the tag because
---- the default branch's workflows have moved past the commit: a
---- GITHUB_TOKEN, which holds no `workflows` permission, may not make a
---- ref whose workflows differ from the default branch's (run
---- 36333356031, whose tag for 525e6f1 was refused once #2244, which
---- rewrote the workflows, had landed on main first). Any other refusal
---- raises.
+--- absent. False, with nothing made, when GitHub refuses the tag as it
+--- refuses a GITHUB_TOKEN, which holds no `workflows` permission, some
+--- refs across a workflow change: an HTTP 403 "Resource not accessible
+--- by integration" where the default branch's workflows differ from the
+--- commit's. Run 36333356031's tag for 525e6f1, which itself changes
+--- ci.yml, was refused once #2244, which added and deleted workflows,
+--- had landed on main. GitHub documents no rule: 5d8993a was tagged
+--- while main's actionlint.yml differed from its own, so a differing
+--- workflow is only a necessary condition, and the skip asks no more.
+--- Any other refusal raises, as does a compare that lists no workflow
+--- (past its 300 files, too).
 -- TODO: publish with a token that holds the `workflows` permission (a
 -- GitHub App's installation token, kept as a secret) rather than
 -- GITHUB_TOKEN, so such a commit is tagged too, and drop the skip.
@@ -364,7 +368,11 @@ local function ensure_tag(p: Prerelease.Publish): boolean
       "-f", "sha=" .. p.commit }, "capture")
     if not made.ok then
       local status = Prerelease.http_status(made.stdout or "")
-      if status == "403" and workflows_moved(p) then return false end
+      local body = made.stdout or ""
+      if status == "403" and body:find("Resource not accessible by integration", 1, true)
+          and workflows_moved(p) then
+        return false
+      end
       error("gh api --method POST repos/" .. p.repository .. "/git/refs -f ref=refs/tags/" ..
         tag .. " failed (HTTP status " .. tostring(status) .. ")", 0)
     end

@@ -365,8 +365,8 @@ local function test_publish_refuses_api_failures_other_than_404(tmp: string)
   end
 end
 
---- GitHub refuses a GITHUB_TOKEN the tag once the default branch's
---- workflows have moved past the commit (run 36333356031): the publish
+--- GitHub refused a GITHUB_TOKEN the tag once the default branch's
+--- workflows had moved past the commit (run 36333356031): the publish
 --- skips with a warning, making nothing, rather than failing main's run.
 local function test_publish_skips_a_commit_the_default_branchs_workflows_moved_past(tmp: string)
   local r = repo(tmp)
@@ -391,6 +391,17 @@ local function test_publish_refuses_a_forbidden_tag_the_workflows_do_not_explain
   write(r.state .. "/compare", "build/x.tl\n.github/scripts/y.sh\n")
   refused("git/refs -f ref=refs/tags/" .. tag .. " failed (HTTP status 403)", function() publish(r) end)
   assert(not exists(r.state .. "/releases"))
+end
+
+--- A 403 of another kind -- a secondary rate limit -- fails the publish
+--- whatever the workflows, without asking the compare.
+local function test_publish_refuses_another_forbidden_answer(tmp: string)
+  local r = repo(tmp)
+  assert(Fs.mkdirs(r.state .. "/fail"))
+  write(r.state .. "/fail/create-ref", "You have exceeded a secondary rate limit")
+  write(r.state .. "/compare", ".github/workflows/ci.yml\n")
+  refused("failed (HTTP status 403)", function() publish(r) end)
+  assert(count(calls(r), "compare/") == 0, calls(r))
 end
 
 local function test_publish_refuses_a_release_that_is_no_prerelease(tmp: string)
