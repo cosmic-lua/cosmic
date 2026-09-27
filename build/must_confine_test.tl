@@ -12,8 +12,12 @@ local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's.
-Test.needs{ tool = true }
+--- tool's own modules besides the closure's; and what holds a run to
+--- sandboxing (`unsandboxed`).
+Test.needs{
+  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  tool = true,
+}
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
@@ -34,6 +38,22 @@ local function run(root: string, output: string, env: {string:string},
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)
   return text, result.ok
+end
+
+--- Whether a run that printed `text`, its workers sandboxed where they
+--- can be, sandboxed none, where that is allowed. Its workers are nested
+--- in this test's own sandbox, which a host may refuse them (the kernel
+--- lets root nest one only two deep: core/syscalls.c's `map_ids`) -- and
+--- what they confine besides -- and a case of a confined process then has
+--- only the refusal to check, unless this run is held to sandboxing
+--- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
+--- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them, and
+--- there it fails.
+local function unsandboxed(text: string): boolean
+  if text:find("; sandboxed)", 1, true) then return false end
+  assert(not observations.held_to_sandbox(),
+    "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  return true
 end
 
 --- The environment a suite runs in: the pinned one, with no verdict cache
@@ -235,6 +255,7 @@ end
   local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
   assert(why ~= nil and why:find("^must_confine: /bin/sh could not start confined: .+ could " ..
     "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
+  if unsandboxed(text) then return end
   assert(Env.get("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. why)
 end
 
@@ -273,8 +294,8 @@ end
   -- Unsandboxed, it is assumed; sandboxed, it stands on its declared
   -- key, which holds the mode below.
   text, ok = run(root, tmp .. "/assumed", environment(nil))
-  assert(ok and (text:find("0 ran, 0 stood, 1 assumed", 1, true) or
-    (text:find("; sandboxed)", 1, true) and text:find("0 ran, 1 stood", 1, true))), text)
+  assert(ok and text:find(unsandboxed(text) and "0 ran, 0 stood, 1 assumed" or "0 ran, 1 stood",
+    1, true), text)
   text, ok = run(root, tmp .. "/must", environment("must"))
   assert(not ok, text)
   assert(text:find("FAIL  suite.fallback_test test_falls_back: confine (COSMIC_SANDBOX=must): " ..

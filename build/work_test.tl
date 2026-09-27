@@ -6,8 +6,9 @@ local observations = require("build.filesystem_observations")
 local work = require("build.work")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start.
-Test.needs{ tool = true }
+--- The program itself, which its tests start, and what holds a run to
+--- sandboxing (`observations.held_to_sandbox`).
+Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true }
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
@@ -218,17 +219,25 @@ local function test_stage_refuses_a_link_to_the_file_system_root(tmp: string)
 end
 
 --- `cosmic test` in such a project compiles the linked modules and runs
---- the linked test beside its own.
+--- the linked test beside its own -- sandboxed where it can be, whose
+--- sandbox gives each file of a closure at the linked path it is staged
+--- under (build/test_sandbox.tl). Its workers are nested in this test's
+--- own sandbox, which the kernel lets root nest only two deep: where
+--- they had none, only a run held to sandboxing fails.
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = nil
   local started = observations.program({ "test" }, {
-    cwd = project, stdout = "capture", stderr = "capture",
+    cwd = project, env = env, stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
   local result = assert(Child.run(started.argv, started.options))
   local out = (result.stdout or "") .. (result.stderr or "")
   assert(result.code == 0, out)
   assert(out:find("(2 tests, 2 modules", 1, true), out)
+  assert(out:find("; sandboxed)", 1, true) or not observations.held_to_sandbox(),
+    "the run is held to sandboxing, but the run it started was not:\n" .. out)
 end
 
 --- The zones a boot reads from a tree replace whatever the working

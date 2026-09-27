@@ -1101,19 +1101,19 @@ end
 --- `note`: none for one given no `resolving`.
 local trees: {any:string} = {}
 
---- The running captures whose process runs in a sandbox of its own,
---- which the processes it starts inherit (`Resolving`'s `held`), by
---- their `note`.
-local sandboxed: {any:boolean} = {}
-
---- Whether the calling test runs in a sandboxed worker of `cosmic test`
---- (build/test_sandbox.tl): a capture given what its sandbox holds a
---- process it starts to is running.
-function observations.sandboxed(): boolean
-  for _, each in ipairs(noting) do
-    if sandboxed[each] then return true end
-  end
-  return false
+--- Whether this run is held to sandboxing: `COSMIC_TEST_SANDBOX=1`, as
+--- CI's suites set it, `COSMIC_SANDBOX=must`, or CI's
+--- `COSMIC_CI_REQUIRE_SANDBOX=1`. A test whose assertion is about the
+--- sandboxed workers of a `cosmic test` it starts -- nested in its own
+--- sandbox, which the kernel lets root nest only two deep
+--- (core/syscalls.c's `map_ids`) -- returns unchecked where they were
+--- refused one, and fails instead where this answers true, so a run
+--- held to sandboxing proves they had one. Read through the log, so an
+--- unsandboxed verdict is keyed by them; a sandboxed test declares
+--- `COSMIC_CI_REQUIRE_SANDBOX` (the other two are pinned).
+function observations.held_to_sandbox(): boolean
+  return sys.getenv("COSMIC_TEST_SANDBOX") == "1" or sys.getenv(SANDBOX_MODE) == "must" or
+    sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
 end
 
 --- Which paths the log resolves as the calls are made (the syscall
@@ -1475,7 +1475,6 @@ local function start(resolving: observations.Resolving | nil):
   end
   noting[#noting + 1] = note
   trees[note] = resolving ~= nil and resolving.tree or nil
-  sandboxed[note] = resolving ~= nil and resolving.held ~= nil or nil
   local own_directory = resolving ~= nil and resolving.own[1] or nil
   if own_directory ~= nil then test_directories[#test_directories + 1] = own_directory end
   syscalls.resolving(resolving_tree())
@@ -1493,7 +1492,6 @@ local function start(resolving: observations.Resolving | nil):
       if noting[at] == note then table.remove(noting, at) break end
     end
     trees[note] = nil
-    sandboxed[note] = nil
     if own_directory ~= nil then
       for at = #test_directories, 1, -1 do
         if test_directories[at] == own_directory then table.remove(test_directories, at) break end

@@ -12,8 +12,13 @@ local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
---- What a worker's plan gives it of the host, and the program it runs.
-Test.needs{ host = { "/dev/urandom", "/etc", "/proc", "/usr/" }, tool = true }
+--- What a worker's plan gives it of the host, the program it runs, and
+--- what holds a run to sandboxing (`unsandboxed`).
+Test.needs{
+  host = { "/dev/urandom", "/etc", "/proc", "/usr/" },
+  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  tool = true,
+}
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -187,6 +192,21 @@ local function test_what_a_worker_read_is_put_back_where_the_host_has_it()
   end
 end
 
+--- Whether a run that printed `text`, its workers sandboxed where they
+--- can be, found none could be, where that is allowed. Its workers are
+--- nested in this test's own sandbox, which a host may refuse them (the
+--- kernel lets root nest one only two deep: core/syscalls.c's `map_ids`),
+--- and a case of a sandboxed run then has nothing to check -- unless this
+--- run is held to sandboxing (COSMIC_TEST_SANDBOX=1, as CI's suites set
+--- it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
+--- unprivileged runners nest them, and there it fails.
+local function unsandboxed(text: string): boolean
+  if not text:find("no worker can be sandboxed here", 1, true) then return false end
+  assert(not observations.held_to_sandbox(),
+    "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  return true
+end
+
 --- Runs `cosmic test` on `root` with `env`, answering what it printed
 --- and whether it passed.
 local function run(root: string, output: string, env: {string:string}): string, boolean
@@ -260,7 +280,7 @@ end
   env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
-  if text:find("no worker can be sandboxed here", 1, true) then
+  if unsandboxed(text) then
     assert(text:find("; unsandboxed, as no worker can be sandboxed here, sharing no verdicts)", 1,
       true), text)
     -- Required, the run fails instead.
@@ -329,7 +349,7 @@ end
   env.COSMIC_TEST_SANDBOX = nil
   local text, ok = run(root, tmp .. "/out", env)
   assert(not ok, text)
-  if text:find("no worker can be sandboxed here", 1, true) then return end
+  if unsandboxed(text) then return end
   assert(text:find("wrote|true|false|end", 1, true), text)
   assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
   assert(not Fs.exists(xdg .. "/cosmic/bootstrap"))
@@ -411,6 +431,8 @@ end
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
+  -- Sandboxed where it can be, whatever this run's own switch says.
+  env.COSMIC_TEST_SANDBOX = nil
   local step = 0
   local function said(wanted: string, passes?: boolean): string
     step = step + 1
@@ -420,11 +442,8 @@ end
     return text
   end
   local first = said("3 ran, 0 stood")
-  if first:find("no worker can be sandboxed here", 1, true) then
-    assert(env.COSMIC_TEST_SANDBOX ~= "1", first)
-    return
-  end
-  if not first:find("; sandboxed)", 1, true) then return end -- COSMIC_TEST_SANDBOX=0
+  if unsandboxed(first) then return end
+  assert(first:find("; sandboxed)", 1, true), first)
   local again = said("1 ran, 2 stood, 1 run every time (no key holds them)")
   assert(not again:find("assumed", 1, true), again)
   assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
@@ -457,6 +476,8 @@ local function test_second(tmp: string) hold(tmp) end
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
+  -- Sandboxed where it can be, whatever this run's own switch says.
+  env.COSMIC_TEST_SANDBOX = nil
   env.TMPDIR = temp
   -- Each worker's directory holding the file its test wrote.
   local function held(): integer
@@ -480,21 +501,16 @@ local function test_second(tmp: string) hold(tmp) end
   while held() < 2 do
     assert(Time.monotonic_ns() < deadline, assert(Fs.read(output)))
     local done, _ = Child.wait_any({ handle }, 50)
-    if done ~= nil then
-      -- Ended before its tests started: only where it could sandbox
-      -- nothing, and was required to.
-      local text = assert(Fs.read(output))
-      assert(text:find("no worker can be sandboxed here", 1, true), text)
-      return
-    end
+    assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))
   end
   local text = assert(Fs.read(output))
-  if not text:find("test: sandbox: each worker is held", 1, true) then
+  if unsandboxed(text) then
     -- Unsandboxed here: build/test_isolation_test.tl's case.
     assert(handle:stop(sys.SIGKILL))
     local _, _ = handle:wait(30000)
     return
   end
+  assert(text:find("test: sandbox: each worker is held", 1, true), text)
   assert(handle:stop(sys.SIGINT))
   local result = assert(handle:wait(30000))
   text = assert(Fs.read(output))

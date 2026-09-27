@@ -282,6 +282,12 @@ local runtime_test_timeout_ms <const> = 180000
 -- tree's own load, which a booted tree has already paid.
 local sandbox_probe_timeout_ms <const> = 60000
 local identity_test_timeout_ms <const> = 120000
+-- The identity suite took 21-30 s whole on macOS, and 35 s once, when its
+-- one test then ran past the runner's default 30 s per test (run
+-- 36345675442); its focused-embed step took 21 s of that alone, and is a
+-- test of its own now. The two run at once on a runner of two or more
+-- processors, so both near this bound still end inside the whole file's.
+local identity_per_test_timeout_s <const> = "60"
 -- The checked cosmic's first file in the tree after the checked build
 -- (`checked_suite`). A boot names the analyzer as the tool it writes
 -- does (build/importer.tl's `tree_code`), so that file builds nothing
@@ -810,6 +816,7 @@ local function phase_fixtures(p: PlatformContext): integer
     identity_test_timeout_ms, {
     COSMIC_FIXTURE_ROOT = root,
     COSMIC_FIXTURE_RUNTIME = runtime,
+    COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
   }); if s ~= 0 then return s end
   -- The product fixture ran on these bytes in assemble
   -- (product-verification); run again on the same bytes and inputs, it

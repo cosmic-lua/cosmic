@@ -4,13 +4,12 @@
 --- another checkout of the same content, through the shared cache; a
 --- test runs again when what it declares changes, always when it
 --- declares a host of the network beyond the loopback, and every test
---- runs under `--all`. Where this
---- host cannot sandbox a worker, the run says so, and there is nothing
---- more to check -- unless the run is held to sandboxing
---- (COSMIC_SANDBOX=must, or CI's COSMIC_CI_REQUIRE_SANDBOX=1) and this
---- test is not itself in a sandbox, whose runs of its own the kernel
---- refuses one: then it fails. A test that runs this program
---- undeclared is refused it, sandboxed, and one that declares `tool`
+--- runs under `--all`. Where this host cannot sandbox a worker -- one
+--- nested in this test's own confinement, three deep, which the kernel
+--- refuses root (core/syscalls.c's `map_ids`) -- the run says so, and
+--- there is nothing more to check, unless the run is held to
+--- sandboxing (`unsandboxed`): then it fails. A test that runs this
+--- program undeclared is refused it, sandboxed, and one that declares `tool`
 --- runs again when the tool does -- when what the tool runs as does,
 --- not when only the rows every edit of the tree moves do.
 
@@ -90,12 +89,12 @@ end
 --- own as they are (CI's unprivileged runner nests them, as
 --- build/shared_verdicts_test.tl's `shares` holds it to). Elsewhere, a
 --- host that refuses a worker's workers a sandbox of their own -- one
---- running the tests as root in a sandbox already -- checks nothing here.
+--- running the tests as root, this test's run confined in a sandbox
+--- already -- checks nothing here.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  local held = sys.getenv("COSMIC_TEST_SANDBOX") == "1" or
-    sys.getenv("COSMIC_SANDBOX") == "must" or sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
-  assert(not held, "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  assert(not observations.held_to_sandbox(),
+    "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
 

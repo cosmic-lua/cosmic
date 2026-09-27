@@ -457,6 +457,20 @@
           },
         },
 
+        # Which run's verdicts were restored, next to the suite's own
+        # lines: the restore takes the newest cache saved under the
+        # prefix, which need not be the newest commit's, and the suite's
+        # "shared verdicts: none of ... stood" line names only this run's
+        # digests. A key ends in the saving run's id and attempt.
+        {
+          name: "name the restored test verdicts",
+          if: "matrix.image",
+          "working-directory": ".",
+          shell: "sh",
+          env: {KEY: "${{ steps.verdicts-restore.outputs.cache-matched-key }}"},
+          run: "if [ -z \"$KEY\" ]; then echo 'restored no test verdicts'; else run=${KEY%-*}; echo \"restored test verdicts $KEY, saved by ${{ github.server_url }}/${{ github.repository }}/actions/runs/${run##*-}\"; fi",
+        },
+
         # Its cache restore runs on the host, and its bootstrap in the
         # leg's container as `runner` (matrix.shell), which a composite
         # action's steps do not take from defaults.run. No `owner`: the
@@ -742,22 +756,52 @@
         # (a failing verdict takes a passing one out), under a key of this
         # run's own, for the next run of this leg in the same container --
         # on this ref, or, from main, on any -- to restore: from main
-        # after every run, and elsewhere only where nothing was restored,
-        # so a branch's pushes do not fill the repository's cache; never
-        # from the merge queue, whose refs no later run restores. After
-        # the tree is back where it was checked out, for the reason the
-        # zig cache save above is.
+        # after every run but a push no longer main's head (below), and
+        # elsewhere only where nothing was restored, so a branch's pushes
+        # do not fill the repository's cache; never from the merge queue,
+        # whose refs no later run restores. After the tree is back where
+        # it was checked out, for the reason the zig cache save above is.
         # TODO: merge what a run owes the cache into the newest saved one
         # as it saves, or save main's runs one at a time: two main runs at
         # once each save from what they restored, and the later save can
-        # bring back a pass the other's failure took out. The merge queue
-        # stands on what main saved, so such a pass lets a change land
-        # without the test running on the Linux legs (the macOS leg still
-        # runs every test); the scheduled run, which stands on nothing,
-        # bounds how long one stands.
+        # bring back a pass the other's failure took out, or, where the
+        # one that failed is no longer main's head and saves nothing,
+        # never see it taken out. The merge queue stands on what main
+        # saved, so such a pass lets a change land without the test
+        # running on the Linux legs (the macOS leg still runs every
+        # test); the scheduled run, which stands on nothing, bounds how
+        # long one stands.
+        #
+        # A push to main saves only while its commit is still main's
+        # head. A restore takes the newest cache saved under the prefix,
+        # not the newest commit's, and main's runs, a concurrency group
+        # per commit, overlap and finish out of order: 3c6df8333's
+        # alpine-x86_64 leg saved at 18:37:20, after b6508ab77's at
+        # 18:36:56, so the next two main runs (c0da68b11, e4cdd4292)
+        # restored 3c6df8333's verdicts, keyed before #2249 changed the
+        # key, and stood on none of 1892, where linux-x86_64, whose saves
+        # came in commit order, stood on 1184. Where main's head cannot
+        # be read the run saves, as every main run did before: a lost
+        # save costs the next run the verdicts this one reached, an
+        # older one those of every test a newer commit moved -- all of
+        # them, where it moved the key. The scheduled run and a manual
+        # one save whatever landed since: a scheduled run runs every
+        # test, and its save is what bounds how long a pass stands. Main
+        # can still move between the check and the save; the newer
+        # commit's run, just started, then saves after this one, where
+        # it saves at all.
+        {
+          name: "find whether this commit is still main's head",
+          id: "main-head",
+          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push'",
+          "working-directory": ".",
+          shell: "sh",
+          run: "sh .github/scripts/main-head.sh",
+        },
+
         {
           name: "save test verdicts",
-          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' || steps.verdicts-restore.outputs.cache-matched-key == '')",
+          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' && steps.main-head.outputs.head != 'false' || github.ref != 'refs/heads/main' && steps.verdicts-restore.outputs.cache-matched-key == '')",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",

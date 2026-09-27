@@ -566,6 +566,34 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
   assert(cached == 2, "restore and save: " .. cached)
 end
 
+--- A push to main saves its legs' verdicts only while its commit is
+--- still main's head, read by a step before the save: a restore takes
+--- the newest save, not the newest commit's, and main's runs finish out
+--- of order (3c6df8333's alpine-x86_64 leg saved after b6508ab77's, and
+--- the two main runs after stood on none of 1892 verdicts).
+local function test_a_main_push_saves_verdicts_only_at_main_head()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local head, save: integer, integer
+  for i, step in ipairs(jobs.platform.steps as {{string: any}}) do
+    if step.id == "main-head" then
+      head = i
+      assert((step.run as string):find(".github/scripts/main-head.sh", 1, true) ~= nil,
+        "the main-head step runs no .github/scripts/main-head.sh")
+    end
+    local uses = step.uses
+    if uses is string and uses:find("actions/cache/save@", 1, true) ~= nil
+        and (step.with as {string: string}).path == "${{ runner.temp }}/verdicts" then
+      save = i
+      local condition = step["if"] as string
+      assert(condition:find("steps.main-head.outputs.head != 'false'", 1, true) ~= nil,
+        "the verdict save does not turn on main's head: " .. condition)
+    end
+  end
+  assert(head ~= nil and save ~= nil and head < save,
+    "main's head is read after the verdict save, or not at all: " .. tostring(head) .. ", " .. tostring(save))
+end
+
 --- A job a push to a branch starts and skips still shows as a
 --- check on the branch's PR, a skipped one whose matrix, if it has one,
 --- never expands in its name. So a job that runs only on main or on
