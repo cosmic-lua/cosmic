@@ -102,7 +102,12 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
     cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
   assert(Fs.exists(tmp .. "/caches/zig-global"))
   inputs.cache_paths = {}
-  inputs.network = { ["127.0.0.1"] = true }
+  -- Only loopback hosts: offline, its own loopback answering for them.
+  inputs.network = { ["127.0.0.1"] = true, ["::1"] = true, ["localhost"] = true }
+  assert(test_sandbox.plan(root, scratch, inputs, {}).sandbox.offline == true)
+  inputs.network = { ["127.0.0.1"] = true, ["example.com"] = true }
+  assert(test_sandbox.plan(root, scratch, inputs, {}).sandbox.offline == false)
+  inputs.network = { ["example.com"] = true }
   inputs.tool = true
   local online = test_sandbox.plan(root, scratch, inputs, {})
   assert(online.sandbox.offline == false)
@@ -352,8 +357,8 @@ end
 --- module declares. Run again, the test stands; a change to a file of
 --- the tree it does not declare leaves it standing; a change to one it
 --- declares runs it again, and so does making one it declares that was
---- not there when it last ran. A module that declares the network has
---- no verdict a key holds: it runs every time, and none is assumed. One
+--- not there when it last ran. A module that declares a host of the
+--- network, not a loopback one, has no verdict a key holds: it runs every time, and none is assumed. One
 --- that does not declare `store` stands too: what it starts can read
 --- only the store of its closure, which its key holds.
 local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
@@ -386,7 +391,7 @@ end
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 
-Test.needs { network = { "127.0.0.1" }, store = true }
+Test.needs { network = { "example.com" }, store = true }
 
 local function test_child_could_reach_the_network()
   assert(assert(Child.run({ "/bin/sh", "-c", "exit 0" })).ok)

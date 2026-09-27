@@ -579,8 +579,9 @@ core, the test harness the binary carries, the host's identity -- digested
 before the test runs, none of it naming where the tree is, and shared by that
 key alone through a database under the cosmic cache directory, so a fresh
 worktree runs only what no checkout has already run. a test that declares the
-network, or starts a process that could read what no key holds, runs every
-time. an unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) is keyed instead by
+network beyond loopback hosts (those run offline, on a loopback of their own,
+and are keyed), or starts a process that could read what no key holds, runs
+every time. an unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) is keyed instead by
 the module and runtime keys plus observed file contents, stat results,
 directory listings and environment reads; a test that spawns a process or
 makes an unsupported observation outside the tree is only assumed to pass as it

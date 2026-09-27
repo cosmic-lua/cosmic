@@ -282,6 +282,56 @@ function test_inputs.covers_network(effective: test_inputs.Effective, url: strin
   return effective.network["*"] == true or effective.network[host_of(url)] == true
 end
 
+--- Whether `host`, as a `network` declaration names one, is a loopback
+--- address or name: `localhost`, `::1` (bracketed or not), or a
+--- dotted-quad `127.a.b.c`, each part decimal, 0 to 255, with no
+--- leading zero. Strict: a name a lookup might answer elsewhere, a
+--- shortened or octal spelling, `0.0.0.0`, a range, a port or `*` is
+--- not one -- a declaration names hosts, which a request's host is
+--- matched against whole (`covers_network`), so `127.0.0.1:8080` names
+--- no host a request reaches.
+local function loopback_host(host: string): boolean
+  if host == "localhost" or host == "::1" or host == "[::1]" then return true end
+  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+  if a ~= "127" then return false end
+  for _, part in ipairs({ b, c, d }) do
+    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+      return false
+    end
+  end
+  return true
+end
+
+--- Whether `effective` declares the network, and only loopback hosts
+--- (`loopback_host`): what a worker kept offline, in a network namespace
+--- of its own whose loopback is up, reaches as it would the host's.
+--- Such a worker is sandboxed offline (`build.test_sandbox`'s `plan`)
+--- and keyed (`build.declared_key`'s `keyable`), soundly:
+---
+--- - a new network namespace reaches only the worker's own processes,
+---   and an abstract unix socket is its namespace's alone (core/process.h's
+---   `Sandbox`), so what a test reaches there is what it started;
+--- - its `lo` carries 127/8, so a connection to a closed port there
+---   (127.0.0.1:1, 127.0.0.2:1) is refused as on the host's, and a bind
+---   finds no host listener or socket in TIME_WAIT in its way;
+--- - `::1` there is as the kernel sets up a new namespace's IPv6, and
+---   the kernel's release is in the key (`declared_key`'s host); and
+--- - `localhost` resolves from /etc/hosts, a system path every worker
+---   is given, which a key holds, as it does every system path, through
+---   the host's identity.
+---
+--- A test that needed a service of the host's on its loopback now fails,
+--- rather than standing on a verdict that service gave. Unsandboxed, a
+--- request is still an observation no key holds (`build.test`).
+function test_inputs.loopback_only(effective: test_inputs.Effective): boolean
+  local any = false
+  for host in pairs(effective.network) do
+    if not loopback_host(host) then return false end
+    any = true
+  end
+  return any
+end
+
 --- Paths, as `reads` or `host` would declare them: each directory that
 --- more than `most` of them sit directly in stands for them, with a
 --- trailing "/", level by level -- but never the root itself.

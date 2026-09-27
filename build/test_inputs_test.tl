@@ -99,6 +99,33 @@ local function test_a_declaration_adds_to_the_defaults()
   assert(effective.processes)
 end
 
+--- A network declaration is loopback only when it names hosts, each
+--- `localhost`, `::1` (bracketed or not) or a strict dotted-quad
+--- `127.a.b.c`; any other spelling, a port, a range, `0.0.0.0`, a name
+--- or `*` among them makes it not, and so does naming none.
+local function test_a_loopback_only_declaration_names_loopback_hosts_alone()
+  local function only(hosts: {string}): boolean
+    local effective: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {},
+      network = {}, processes = false, tool = false, store = false }
+    for _, host in ipairs(hosts) do effective.network[host] = true end
+    return test_inputs.loopback_only(effective)
+  end
+  assert(not only({}), "no network is not loopback only")
+  for _, host in ipairs({ "127.0.0.1", "127.0.0.2", "127.255.255.255", "127.1.20.0",
+    "localhost", "::1", "[::1]" }) do
+    assert(only({ host }), host)
+  end
+  assert(only({ "127.0.0.1", "127.0.0.2", "::1", "[::1]", "localhost" }))
+  for _, host in ipairs({ "*", "0.0.0.0", "128.0.0.1", "10.0.0.1", "127.1", "127.0.1",
+    "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
+    "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::",
+    "::ffff:127.0.0.1", "[::1]:80", "0:0:0:0:0:0:0:1", "LOCALHOST", "localhost.",
+    "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
+    assert(not only({ host }), host)
+  end
+  assert(not only({ "127.0.0.1", "example.com" }), "a mixed set")
+end
+
 --- Every fuzz corpus is a default input of a test whose closure runs
 --- properties, where `build.fuzz` looks for one -- a property's name
 --- may be computed -- and of no other test.

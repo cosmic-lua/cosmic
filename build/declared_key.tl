@@ -54,8 +54,8 @@
 --- COSMIC_COVERAGE_STARTUP): they name where the core is and which
 --- descriptors it is handed, which the runtime identity holds already,
 --- and would name where this host keeps its cache in every key. A test
---- that declares `network` has no key that holds what it reached, and
---- always runs; nor does one that reads a declared directory holding a
+--- that declares `network` beyond loopback hosts has no key that holds
+--- what it reached, and always runs; nor does one that reads a declared directory holding a
 --- link that leads out of the tree, which a sandbox follows to what
 --- the key would not hold.
 ---
@@ -804,13 +804,12 @@ function declared_key.program_identity(digests: declared_key.Digests, paths: {st
 end
 
 --- Whether a test of `effective` has a key at all: one that reaches the
---- network does not, whatever it reached being no input a key holds.
--- TODO: key a test that declares only loopback hosts (127.0.0.1, ::1,
--- localhost), which reach nothing past its own sandbox, once the
--- sandbox keeps such a worker offline (the TODO in test_sandbox.plan):
--- today it is given the host's network, and runs every time.
+--- network does not, whatever it reached being no input a key holds --
+--- but for one that declares only loopback hosts
+--- (`test_inputs.loopback_only`), whose worker the sandbox keeps offline
+--- (`build.test_sandbox`'s `plan`), where they reach nothing past it.
 function declared_key.keyable(effective: test_inputs.Effective): boolean
-  return next(effective.network) == nil
+  return next(effective.network) == nil or test_inputs.loopback_only(effective)
 end
 
 return declared_key

@@ -3,7 +3,8 @@
 --- nothing declared changes -- whatever else of the tree does -- and in
 --- another checkout of the same content, through the shared cache; a
 --- test runs again when what it declares changes, always when it
---- declares the network, and every test runs under `--all`. Where this
+--- declares a host of the network beyond the loopback, and every test
+--- runs under `--all`. Where this
 --- host cannot sandbox a worker, the run says so, and there is nothing
 --- more to check -- unless the run is held to sandboxing
 --- (COSMIC_SANDBOX=must, or CI's COSMIC_CI_REQUIRE_SANDBOX=1) and this
@@ -36,8 +37,8 @@ observations.confine({ reads = observations.itself() })
 
 --- A checkout of the suite at `root`: a test that reads a declared
 --- directory, one that reads a declared variable, one that loads a
---- module of the tree, one that declares the network, and a file
---- nothing declares.
+--- module of the tree, one that declares a host of the network beyond
+--- the loopback, and a file nothing declares.
 local function checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite/data"))
   assert(Fs.write(root .. "/suite/data/f", "one\n"))
@@ -73,7 +74,7 @@ end
   assert(Fs.write(root .. "/suite/net_test.tl", [[
 local Test = require("cosmic.test")
 
-Test.needs { network = { "127.0.0.1" } }
+Test.needs { network = { "example.com" } }
 
 local function test_net()
   assert(true)
@@ -169,6 +170,36 @@ local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tm
   said("4 ran, 0 stood", { "--all" })
   env.COSMIC_TEST_ALL = "1"
   said("4 ran, 0 stood")
+end
+
+--- A test that declares only loopback hosts runs offline, on a loopback
+--- of its own, where a closed port is refused as on the host's; its
+--- verdict stands as any other's, and one that declares another host
+--- beside them runs every time.
+local function test_a_test_that_declares_only_loopback_hosts_stands(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  local source = [[
+local Http = require("cosmic.http")
+local Test = require("cosmic.test")
+
+Test.needs { network = { HOSTS } }
+
+local function test_refused()
+  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ms = 2000 })
+  assert(response == nil and trouble ~= "")
+end
+]]
+  assert(Fs.write(root .. "/suite/loopback_test.tl",
+    (source:gsub("HOSTS", '"127.0.0.1", "127.0.0.2", "::1", "localhost"'))))
+  assert(Fs.write(root .. "/suite/mixed_test.tl",
+    (source:gsub("HOSTS", '"127.0.0.1", "example.com"'))))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  assert(first:find("2 ran, 0 stood", 1, true), first)
+  local again = run(root, tmp .. "/again.out", env)
+  assert(again:find("1 ran, 1 stood, 1 run every time", 1, true), again)
 end
 
 --- A checkout of the same content stands on the verdicts another

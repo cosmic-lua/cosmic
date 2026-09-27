@@ -89,7 +89,8 @@
 --- verdict, of this checkout or, by that key alone, of another
 --- (`build.shared_verdicts`), stands; any other runs, and its verdict is
 --- kept only when its inputs still digest to the same key once it has
---- run. A test that declares the network has no key, and always runs.
+--- run. A test that declares the network, but for loopback hosts alone
+--- (`test_inputs.loopback_only`), has no key, and always runs.
 --- None is assumed, and `--all` (or `COSMIC_TEST_ALL=1`, or an audit)
 --- runs every test the run chooses, whatever stands.
 
@@ -191,8 +192,8 @@ local record test
     --- another checkout reached (`build.shared_verdicts`).
     shared: integer
     --- Of those that ran sandboxed, how many no key holds, which run
-    --- every time: one whose module declares the network, or reads a
-    --- link out of the tree.
+    --- every time: one whose module declares the network beyond loopback
+    --- hosts, or reads a link out of the tree.
     every: integer
   end
 

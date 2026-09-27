@@ -72,7 +72,9 @@
    capabilities), before it runs (`build/declared_key.tl`): it stands
    while none of that changes, and nothing is assumed. A test whose
    module declares the network has no key: it runs every time, and the
-   summary counts it so. A worker, and every process it starts, is
+   summary counts it so -- unless it declares only loopback hosts
+   (`localhost`, `::1`, `127.a.b.c`), whose worker runs offline, on a
+   loopback of its own, and is keyed. A worker, and every process it starts, is
    given at o/cosmic.db the store of its module's import closure alone,
    keyed by its address. Sandboxed or not, a worker whose module
    declares neither `store` nor `tool` holds every other lookup in the
