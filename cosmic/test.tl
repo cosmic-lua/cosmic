@@ -57,6 +57,9 @@ local record Test
     --- its own inherits.
     env: {string}
     --- Requests over the network: `true` for any host, or the hosts.
+    --- Only loopback hosts (`localhost`, `::1`, `127.a.b.c`) run
+    --- sandboxed offline, on a loopback of the worker's own, and are
+    --- keyed like any other input; any other host runs every time.
     network: boolean | {string}
     --- Whether the tests hand a process they start what no observation
     --- accounts for: a descriptor, a path of /proc. Starting one needs no

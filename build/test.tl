@@ -89,7 +89,9 @@
 --- verdict, of this checkout or, by that key alone, of another
 --- (`build.shared_verdicts`), stands; any other runs, and its verdict is
 --- kept only when its inputs still digest to the same key once it has
---- run. A test that declares the network has no key, and always runs.
+--- run. A test that declares a network beyond loopback hosts has no
+--- key, and always runs; one that declares only loopback hosts runs
+--- offline and is keyed (`test_inputs.offline`).
 --- None is assumed, and `--all` (or `COSMIC_TEST_ALL=1`, or an audit)
 --- runs every test the run chooses, whatever stands.
 
@@ -191,8 +193,8 @@ local record test
     --- another checkout reached (`build.shared_verdicts`).
     shared: integer
     --- Of those that ran sandboxed, how many no key holds, which run
-    --- every time: one whose module declares the network, or reads a
-    --- link out of the tree.
+    --- every time: one whose module declares the network beyond loopback
+    --- hosts, or reads a link out of the tree.
     every: integer
   end
 
@@ -1535,8 +1537,8 @@ local record Job
   plan: test_sandbox.Plan
   --- Sandboxed, the key its verdict is reached under, over its
   --- declared inputs as they were before it started
-  --- (`build.declared_key`); nil for one that reaches the network, or
-  --- an unsandboxed run's.
+  --- (`build.declared_key`); nil for one that reaches a network beyond
+  --- loopback, or an unsandboxed run's.
   declared: string
   passed: boolean
   handle: Child.Handle
@@ -1812,9 +1814,9 @@ local function can_forbid(rec: Recording, m: importer.Module): boolean
 end
 
 --- A sandboxed test's key, over its declared inputs as they are now
---- (`build.declared_key`): nil for one that reaches the network, or
---- reads a link out of the tree, which no key holds -- the second said
---- once in `rec.unkeyed`.
+--- (`build.declared_key`): nil for one that reaches a network beyond
+--- loopback, or reads a link out of the tree, which no key holds -- the
+--- second said once in `rec.unkeyed`.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
   if not declared_key.keyable(effective) then return nil end
@@ -2036,9 +2038,10 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     -- before it started -- and still are, or the verdict describes no
     -- one state of them, and is not kept.
     local key = job.declared
-    -- One with no key -- it reaches the network -- is kept under none,
-    -- and runs every time. What a process it starts reads, its sandbox
-    -- holds to what its key holds (`test_sandbox.Plan`'s `held`).
+    -- One with no key -- it reaches a network beyond loopback -- is
+    -- kept under none, and runs every time. What a process it starts
+    -- reads, its sandbox holds to what its key holds
+    -- (`test_sandbox.Plan`'s `held`).
     if key == nil then rec.tally.every = rec.tally.every + 1 end
     local held = key ~= nil and declared_of(rec, job.m, id) == key
     local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
@@ -3001,8 +3004,8 @@ function test.run(argv: {integer:string}): integer
         -- Sandboxed, a test is keyed by what it is given, and runs
         -- unless a verdict under that key passed, here or in another
         -- checkout -- or it is forced, by --all, COSMIC_TEST_ALL or an
-        -- audit, or reaches the network, which no key holds. None is
-        -- assumed.
+        -- audit, or reaches a network beyond loopback, which no key
+        -- holds. None is assumed.
         local key = declared_of(rec, m, id)
         if key ~= nil then keyed_count = keyed_count + 1 end
         local own = key ~= nil and verdicts[key] or nil

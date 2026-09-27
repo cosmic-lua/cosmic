@@ -158,12 +158,20 @@ local function test_each_input_moves_it(tmp: string)
 end
 
 --- A test that declares the network has no key; one that declares none
---- does.
+--- does, and so does one that declares only loopback hosts, which its
+--- worker, offline, reaches on a loopback of its own.
 local function test_a_test_that_reaches_the_network_has_no_key()
   local s = spec()
   assert(declared_key.keyable(s.effective))
-  s.effective.network = { ["127.0.0.1"] = true }
+  s.effective.network = { ["example.com"] = true }
   assert(not declared_key.keyable(s.effective))
+  s.effective.network = { ["*"] = true }
+  assert(not declared_key.keyable(s.effective))
+  s.effective.network = { ["127.0.0.1"] = true, ["example.com"] = true }
+  assert(not declared_key.keyable(s.effective))
+  s.effective.network = { ["127.0.0.1"] = true, ["127.0.0.2"] = true, ["::1"] = true,
+    ["localhost"] = true }
+  assert(declared_key.keyable(s.effective))
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,

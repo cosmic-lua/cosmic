@@ -27,7 +27,8 @@
 --- - the system's own paths, the program, its core and the stamp that
 ---   says the core was verified (`observations.worker_unveil`), and the
 ---   `host` paths the module declares, each at its own name;
---- - no network but a loopback, unless the module declares `network`;
+--- - no network but a loopback, unless the module declares `network`
+---   beyond loopback hosts (`test_inputs.offline`);
 --- - the pinned environment and the variables it declares, `"*"` for
 ---   all of the runner's (`environment`).
 ---
@@ -251,10 +252,10 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   end
   table.sort(made_dirs)
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
-  -- TODO: keep a worker that declares only loopback hosts (127.0.0.1,
-  -- ::1, localhost) offline, whose loopback reaches them, rather than
-  -- give it the host's network.
-  local offline = next(effective.network) == nil
+  -- Offline, too, where every host declared is a loopback one, which
+  -- the worker's own loopback answers as the host's would: the answer
+  -- `declared_key.keyable` takes, which must be this one.
+  local offline = test_inputs.offline(effective)
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
     env = test_sandbox.environment(environment, effective),

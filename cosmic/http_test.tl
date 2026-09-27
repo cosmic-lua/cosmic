@@ -16,9 +16,10 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- Requests to a closed local port, and to a host that names none.
---- And the program itself, which its tests start.
-Test.needs{ network = { "127.0.0.1", "no-host-here" }, tool = true }
+--- Requests to a closed local port, which a loopback alone answers:
+--- the worker runs offline, and is keyed. And the program itself, which
+--- its tests start.
+Test.needs{ network = { "127.0.0.1" }, tool = true }
 
 local url = "http://cosmic.test/"
 
@@ -324,13 +325,14 @@ local function test_a_non_string_option_throws()
 end
 
 local function test_a_malformed_url_fails()
-  -- No host at all: curl rejects this outright (CURLE_URL_MALFORMAT),
-  -- with no network access attempted -- unlike a bare "example.com/"
-  -- with no scheme, which curl happily guesses "http://" onto and
-  -- would actually try to reach.
-  local response, trouble = Http.open("http:///no-host-here")
+  -- A port out of range: curl rejects this outright
+  -- (CURLE_URL_MALFORMAT), with no network access attempted -- unlike
+  -- "http:///no-host-here", which curl takes for "http://no-host-here"
+  -- and looks up, or a bare "example.com/" with no scheme, which curl
+  -- happily guesses "http://" onto and would actually try to reach.
+  local response, trouble = Http.open("http://127.0.0.1:99999/")
   assert(response == nil)
-  assert(trouble ~= "")
+  assert(trouble:find("URL", 1, true) ~= nil, trouble)
 end
 
 local function test_an_unsupported_scheme_fails()
