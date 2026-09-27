@@ -9,8 +9,9 @@ local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
 
 --- The processes Child starts, which inherit the environment unless given
---- one.
-Test.needs{ env = { "*" }, processes = true }
+--- one, and what a sandboxed one is given of the host, and /proc, where
+--- a test finds a child's processes.
+Test.needs{ host = { "/etc", "/proc", "/usr" }, env = { "*" }, processes = true }
 
 -- What these tests start is a shell, the system's own, or this very
 -- program.
@@ -709,6 +710,12 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } })
   if r == nil then
     assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. trouble)
+    -- Only as a kernel that cannot sandbox refuses.
+    local refused = false
+    for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
+      if trouble == "start: " .. sys.errno_message(errno) then refused = true end
+    end
+    assert(refused, trouble)
     return
   end
   assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))

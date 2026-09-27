@@ -628,16 +628,12 @@ local function located(variable: string, tool: string, fallback: string,
   if given ~= nil and given ~= "" then
     return given
   end
-  local cache: string | nil
   if make then
     local made, _ = Fs.cache_dir(tool, environment)
-    cache = made
+    if made ~= nil then return made end
   else
     local named, _ = Fs.cache_path(tool, environment)
-    cache = named
-  end
-  if cache ~= nil then
-    return cache
+    if named ~= nil then return named end
   end
   return fallback
 end

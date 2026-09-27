@@ -345,9 +345,10 @@
         # gates nothing: a failure here is a test that reads what it
         # does not declare, not a broken change, until the suite passes
         # sandboxed and the switch is on by default.
-        # TODO: drop continue-on-error once the sandboxed suite passes on
-        # every Linux leg (build/c/rules_test.tl's tests wait on a way to
-        # declare a host cache they write, build/test_sandbox.tl's TODO).
+        # TODO: drop continue-on-error once this step has passed on every
+        # Linux leg for a while: the whole suite passes sandboxed locally
+        # (a host, as root), but no CI run has shown it yet on the legs'
+        # containers, as their unprivileged runner, or on aarch64.
         {
           name: "run the native suite with each worker sandboxed (shadow)",
           if: "runner.os == 'Linux'",

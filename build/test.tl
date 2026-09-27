@@ -975,13 +975,16 @@ end
 -- Flag an absent path the test's behaviour depends on once the audit
 -- can tell one (a read under a declared-optional list in `cosmic.test`,
 -- or the audit run again with the path made present).
-local function found_nothing(observation: observations.Observation, path: string): boolean
+local function found_nothing(observation: observations.Observation, path: string,
+                             sandboxed?: boolean): boolean
   local function nothing(errno: integer): boolean
     return errno == sys.ENOENT or errno == sys.ENOTDIR
   end
+  -- A sandboxed read of what was not given found nothing whatever the
+  -- host has: what `lstat` says there now is what it would have found.
   local errno = observation.answer:match("^error %x* (%d+)$")
-  if errno ~= nil then return nothing(math.tointeger(tonumber(errno)) or 0) end
-  if observation.kind ~= "o" or path:sub(1, 1) ~= "/" then return false end
+  if errno ~= nil and not sandboxed then return nothing(math.tointeger(tonumber(errno)) or 0) end
+  if (observation.kind ~= "o" and not sandboxed) or path:sub(1, 1) ~= "/" then return false end
   local st, _, number = sys.lstat(path)
   return st == nil and nothing(number)
 end
@@ -999,11 +1002,13 @@ end
 --- `observations.confine` declares already; and a read that found
 --- nothing there (`found_nothing`). `tool` names the program running
 --- the tests, a read of which is a `tool` finding, as one of
---- o/bin/cosmic is. Exposed so build/test_audit_test.tl
---- can hold it to observations directly.
+--- o/bin/cosmic is. `sandboxed` says the reads were a sandboxed
+--- worker's, which found nothing of what it was not given: a read that
+--- found nothing is judged by what the host has there instead. Exposed
+--- so build/test_audit_test.tl can hold it to observations directly.
 function test.audited(root: string, scratch: string, effective: test_inputs.Effective,
                       reads: {observations.Observation},
-                      tool: {string}): {test_inputs.Finding}
+                      tool: {string}, sandboxed?: boolean): {test_inputs.Finding}
   local followed, unfollowed = resolutions_of(reads)
   local made: {string} = {}
   for _, observation in ipairs(reads) do
@@ -1079,7 +1084,7 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
       if relative ~= nil then relative = test_inputs.plain(relative) end
       -- Where the read landed, not the name it was asked by: a link in
       -- the test's own directory that leads out reads what it leads to.
-      if own(judged) or found_nothing(observation, judged) or
+      if own(judged) or found_nothing(observation, judged, sandboxed) or
           ((kind == "s" or kind == "l" or kind == "a") and on_the_way(judged)) then
         -- The test's own, on the way to it, or nothing there.
       elseif relative ~= nil then
@@ -1872,8 +1877,10 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     if job.plan ~= nil and job.scratch ~= nil then
       -- Where the host has what the sandboxed worker read at /tree and
       -- /tmp, so its key and its audit are those of an unsandboxed run.
-      reported.load_reads = test_sandbox.to_host(reported.load_reads, rec.root, job.scratch)
-      reported.test_reads = test_sandbox.to_host(reported.test_reads, rec.root, job.scratch)
+      reported.load_reads = test_sandbox.to_host(reported.load_reads, rec.root, job.scratch,
+        job.plan.kept)
+      reported.test_reads = test_sandbox.to_host(reported.test_reads, rec.root, job.scratch,
+        job.plan.kept)
     end
     reads = observations.join(reported.load_reads, reported.test_reads)
     if rec.audit ~= nil then
@@ -1924,6 +1931,18 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       hits = rec.by_test[id], elapsed_ns = elapsed }
   end
   job.passed = passed
+  if not passed and reported ~= nil and job.plan ~= nil then
+    -- Sandboxed, a read of what the module does not declare found
+    -- nothing: name each, and the declaration that would give it.
+    rec.tool = rec.tool or observations.itself()
+    local findings = test.audited(rec.root, job.scratch, rec.effective[job.m.path], reads,
+      rec.tool, true)
+    local lines = test_inputs.report(job.m, { [job.name] = findings })
+    if #lines > 0 then
+      message = message .. "\n  sandboxed, it read what its module does not declare:"
+      for i = 2, #lines do message = message .. "\n  " .. lines[i] end
+    end
+  end
   if not passed then
     if job.scratch ~= nil then
       message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
@@ -2287,7 +2306,8 @@ local function say_failures(rec: Recording, failures: {string})
     local id = rec.failed[failure]
     local rerun = id ~= nil and rec.reruns[id] or nil
     if rerun ~= nil then
-      log:say("  rerun: cosmic test " .. test.shell_word(rerun))
+      log:say("  rerun: " .. (rec.sandbox and (test_sandbox.switch .. "=1 ") or "") ..
+        "cosmic test " .. test.shell_word(rerun))
     end
     local printed = id ~= nil and rec.outputs[id] or nil
     if printed ~= nil then

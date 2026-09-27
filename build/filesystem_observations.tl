@@ -104,6 +104,8 @@ local record observations
   --- The variables `environment` passes on: what a process of this
   --- very program reads of its environment to run at all.
   runtime_environment: {string}
+  --- The most paths a sandbox unveils, its reads and writes together.
+  unveil_max: integer
 end
 
 observations.runtime_environment = {
@@ -678,8 +680,9 @@ local function contained(fd: integer): boolean
     (format == S_IFCHR and inert_device(st))
 end
 
---- The most paths a sandbox unveils (core/syscalls.c's UNVEIL_MAX).
-local UNVEIL_MAX <const> = 256
+--- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).
+local UNVEIL_MAX <const> = process.UNVEIL_MAX
+observations.unveil_max = UNVEIL_MAX
 
 --- Where the absolute `path` leads, with no link or `..` left in it:
 --- its longest leading part that is there, resolved, then the rest as

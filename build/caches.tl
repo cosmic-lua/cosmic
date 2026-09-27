@@ -18,7 +18,6 @@
 ---   extracts (build/launcher.tl), COSMIC_PORTABLE_CACHE included.
 
 local Fs = require("cosmic.fs")
-local Zig = require("build.zig")
 
 local record caches
   --- Each name a declaration may give, to what it covers.
@@ -63,6 +62,10 @@ local function paths(name: string, root: string, environment: {string:string}): 
     out[#out + 1] = path
   end
   if name == "zig" then
+    -- Required here, not above: the analyzer reads `names` as boot
+    -- compiles the tree, which build/zig.tl's modules are not all there
+    -- for.
+    local Zig = require("build.zig")
     local installs, _ = Fs.cache_path("zig", environment)
     add(installs)
     for _, path in ipairs(Zig.cache_paths(root, environment)) do add(path) end

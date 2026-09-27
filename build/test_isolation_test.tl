@@ -11,6 +11,10 @@ local sys = require("cosmic.sys")
 local test = require("build.test")
 local worker = require("build.test_worker")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
+
+--- A worker a test starts unconfined, to hang or exit.
+Test.needs{ processes = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

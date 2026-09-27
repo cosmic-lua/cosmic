@@ -61,6 +61,11 @@ local record test_sandbox
     --- Why it cannot start as planned -- a cache it declares that could
     --- not be made -- or "".
     trouble: string
+    --- The paths given at their own names beneath /tree or /tmp, where
+    --- the tree and the scratch directory are bound: each is the host's
+    --- own there, bound over them, so a read of it stays where it is
+    --- (`to_host`).
+    kept: {string}
   end
 end
 
@@ -68,8 +73,8 @@ test_sandbox.tree = "/tree"
 test_sandbox.scratch = "/tmp"
 test_sandbox.switch = "COSMIC_TEST_SANDBOX"
 
---- The most paths a sandbox unveils (core/syscalls.c's UNVEIL_MAX).
-local UNVEIL_MAX <const> = 256
+--- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).
+local UNVEIL_MAX <const> = observations.unveil_max
 
 --- Whether the switch is on: `COSMIC_TEST_SANDBOX` set to "1". Unset,
 --- empty or "0", it is off; any other value is an error, so a misspelt
@@ -134,6 +139,14 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- runner name the artifact's path to the worker (core/startup.c):
   -- today it is given at its own name, which `Proc.executable()` answers,
   -- so a worker still sees where the host keeps the checkout there.
+  -- The projection is given whatever `store` says: the worker attaches
+  -- it to load every module of the closure (`build.test_worker`), and
+  -- `store` declares a test's own open of it besides.
+  -- TODO: hide from a worker where the host keeps what it is given:
+  -- /proc/self/mountinfo names each bind's source, the tree's location,
+  -- the scratch directory's and the program's among them. Wants a
+  -- procfs that shows a mount's source as its target (none does), or
+  -- mountinfo refused to a test (a Landlock rule on /proc files).
   -- TODO: bind a store derived from the module's import closure at
   -- /tree/o/cosmic.db in place of the whole projection, once the build
   -- derives one (cosmic/test.tl's TODO on `store`): the bind is this
@@ -167,21 +180,38 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- first where it is not there yet, so a fresh host has one to bind.
   local made, trouble = caches.make(effective.cache_paths or {})
   for _, path in ipairs(effective.cache_paths or {}) do writes[#writes + 1] = path end
+  local kept: {string} = {}
+  for _, list in ipairs({ reads, writes }) do
+    for _, path in ipairs(list) do
+      if at[path] == nil and (Fs.within(path, test_sandbox.tree) or
+          Fs.within(path, test_sandbox.scratch)) then
+        kept[#kept + 1] = path
+      end
+    end
+  end
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
+  -- TODO: keep a worker that declares only loopback hosts (127.0.0.1,
+  -- ::1, localhost) offline, whose loopback reaches them, rather than
+  -- give it the host's network.
   local offline = next(effective.network) == nil
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
     env = test_sandbox.environment(environment, effective),
     over = over,
     trouble = made and "" or "a cache it declares: " .. trouble,
+    kept = kept,
   }
 end
 
 --- `path` as the host has it, for one a sandboxed worker of the tree at
 --- `root`, its scratch directory `scratch`, saw: one at or beneath
 --- /tree or /tmp, where the sandbox bound them, beneath `root` or
---- `scratch`; any other is where the host has it already.
-local function host_path(path: string, root: string, scratch: string): string
+--- `scratch` -- but one beneath a path of `kept`, bound at its own name
+--- over them -- and any other where the host has it already.
+local function host_path(path: string, root: string, scratch: string, kept: {string}): string
+  for _, own in ipairs(kept) do
+    if Fs.within(path, own) then return path end
+  end
   for _, pair in ipairs({ { test_sandbox.tree, root }, { test_sandbox.scratch, scratch } }) do
     local inside, outside = pair[1], pair[2]
     if path == inside then return outside end
@@ -199,24 +229,26 @@ local resolution_kinds: {string:boolean} = { r = true, t = true, v = true, w = t
 --- What a sandboxed worker of the tree at `root`, its scratch directory
 --- `scratch`, reported it read, each path where the host has it
 --- (`host_path`): the path of every observation but a variable's, the
---- answer of one whose answer is a path, and a realpath's.
+--- answer of one whose answer is a path, and a realpath's. `kept` is
+--- the plan's (`Plan.kept`), nil for none.
 -- TODO: key a sandboxed run by what it was given rather than by what the
 -- host has there -- the digest of its declared inputs, the next phase of
 -- declared inputs -- so a listing of a directory of the tree it was given
 -- part of, which answers that part alone, stands: today its answer
 -- differs from the host's listing, and its verdict never stands.
 function test_sandbox.to_host(reads: {observations.Observation}, root: string,
-                              scratch: string): {observations.Observation}
+                              scratch: string, kept?: {string}): {observations.Observation}
   local out: {observations.Observation} = {}
+  local own = kept or {}
   for i, observation in ipairs(reads) do
     local kind, path, answer = observation.kind, observation.path, observation.answer
     if kind ~= "e" and path:sub(1, 1) == "/" then
-      path = host_path(path, root, scratch)
+      path = host_path(path, root, scratch, own)
     end
     if resolution_kinds[kind] and answer:sub(1, 1) == "/" then
-      answer = host_path(answer, root, scratch)
+      answer = host_path(answer, root, scratch, own)
     elseif kind == "a" and answer:sub(1, 4) == "ok /" then
-      answer = "ok " .. host_path(answer:sub(4), root, scratch)
+      answer = "ok " .. host_path(answer:sub(4), root, scratch, own)
     end
     out[i] = { kind = kind, path = path, answer = answer }
   end
@@ -243,8 +275,14 @@ function test_sandbox.available(argv: {string}, env: {string:string}, fds: {inte
     sandbox = { unveil = { reads = base.reads, writes = { scratch },
       at = { [scratch] = test_sandbox.scratch } }, offline = true } })
   if handle == nil then return false, trouble end
+  -- Past the bound, `wait` ends it and its group, and its pid
+  -- namespace with it; `close` makes sure of it if the wait failed.
   local result, wait_trouble = handle:wait(30000)
-  if result == nil then return false, wait_trouble end
+  if result == nil then
+    local _, _ = handle:close()
+    return false, wait_trouble
+  end
+  if result.timed_out then return false, "a sandboxed start of this program took 30 s" end
   if not result.ok then
     local said = (result.stdout or ""):gsub("%s+$", "")
     return false, "a sandboxed start of this program " ..

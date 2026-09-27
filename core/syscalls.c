@@ -554,10 +554,6 @@ static int pledge_program (struct sock_filter *out, int unix_ok, int inet_ok) {
 }
 #endif
 
-/* The most paths a sandbox unveils: a test worker's (build/test_sandbox.tl)
- * is given each file of its module's import closure by name. */
-#define UNVEIL_MAX 256
-
 /* Whether `name` is absolute with no empty, `.` or `..` component, so it
  * names the same place under another root as under this one. */
 static int plain_name (const char *name) {
@@ -611,22 +607,81 @@ static int make_mirrored (const char *path, size_t skip) {
   return 0;
 }
 
-/* Makes every directory `path` names but its last, as `mkdir -p` does,
- * writing into `path` and putting it back, each with the mode of the one
- * it stands for (`mirrored_mode`): 0, or an errno. */
-static int make_parents (char *path, size_t skip) {
-  for (char *at = path + skip + 1; *at != '\0'; at++) {
-    if (*at != '/') continue;
-    *at = '\0';
-    int number = make_mirrored(path, skip);
-    *at = '/';
-    if (number != 0 && number != EEXIST) return number;
+/* The directory `name` in the one `dir` holds, opened without following
+ * a link: a link there is refused with ELOOP, whatever it leads to. The
+ * descriptor, or -1 with errno. */
+static int open_unlinked_directory (int dir, const char *name) {
+  struct stat st;
+  if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode)) {
+    errno = ELOOP;
+    return -1;
   }
-  return 0;
+  return openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+}
+
+/* Makes the place a path is bound at, `target`, `skip` bytes into it the
+ * root being built: each directory on the way made where it is missing,
+ * with the mode of the one it stands for (`mirrored_mode`), and its last
+ * name a directory, with `directory`, or else an empty file, where it is
+ * not there -- going through no link. A link on the way or at its end
+ * is refused with ELOOP: a name placed beneath a path bound from the
+ * host (`at`) could otherwise lead out through a link there, and make
+ * a file where the host has the link's target. `target` is written
+ * into and put back. 0, or an errno.
+ * TODO: bind through the descriptor of the place made (a mount of
+ * /proc/self/fd/<n>) rather than its name again, so a link a host
+ * process puts on the way between this walk and the mount is not
+ * followed either. */
+static int make_target (char *target, size_t skip, int directory) {
+  char held = target[skip];
+  target[skip] = '\0';
+  int dir = open(target, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  target[skip] = held;
+  if (dir < 0) return errno;
+  int number = 0;
+  char *name = target + skip + 1;
+  while (number == 0) {
+    char *end = strchr(name, '/');
+    if (end == NULL) break;
+    *end = '\0';
+    int next = -1;
+    if (*name != '\0') {
+      next = open_unlinked_directory(dir, name);
+      if (next < 0 && errno == ENOENT) {
+        mode_t mode = mirrored_mode(target, skip) | 0700;
+        if (mkdirat(dir, name, mode) != 0 && errno != EEXIST) number = errno;
+        else if (fchmodat(dir, name, mode, 0) != 0) number = errno;
+        else next = open_unlinked_directory(dir, name);
+      }
+      if (number == 0 && next < 0) number = errno;
+    }
+    *end = '/';
+    if (next >= 0) {
+      close(dir);
+      dir = next;
+    }
+    name = end + 1;
+  }
+  if (number == 0 && *name != '\0') {
+    struct stat st;
+    if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0) {
+      if (S_ISLNK(st.st_mode)) number = ELOOP;
+    } else if (errno != ENOENT) {
+      number = errno;
+    } else if (directory) {
+      if (mkdirat(dir, name, 0755) != 0 && errno != EEXIST) number = errno;
+    } else {
+      int fd = openat(dir, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+      if (fd < 0) number = errno;
+      else close(fd);
+    }
+  }
+  close(dir);
+  return number;
 }
 
 /* Makes a link at `path`, under the root being built, to `to`, making its
- * parents as `make_parents` does but going through no link and making
+ * parents as `make_target` does, going through no link and making
  * nothing where something already is: 0, or an errno. */
 static int make_link (char *path, size_t skip, const char *to) {
   struct stat st;
@@ -851,17 +906,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
     if (stat(paths[i], &st) != 0) return errno;
     int length = snprintf(target, sizeof target, "%s%s", root, placed);
     if (length < 0 || (size_t)length >= sizeof target) return ENAMETOOLONG;
-    struct stat there;
-    if (lstat(target, &there) != 0) {
-      if ((number = make_parents(target, strlen(root))) != 0) return number;
-      if (S_ISDIR(st.st_mode)) {
-        if (mkdir(target, 0755) != 0 && errno != EEXIST) return errno;
-      } else {
-        int fd = open(target, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-        if (fd < 0) return errno;
-        close(fd);
-      }
-    }
+    if ((number = make_target(target, strlen(root), S_ISDIR(st.st_mode))) != 0) return number;
     if (at[i] == NULL && strcmp(paths[i], "/proc") == 0) {
       number = place_proc(target, &own_proc);
       if (number != 0) return number;
@@ -1748,6 +1793,13 @@ int cosmic_spawn_unobserved (lua_State *L) {
           size_t length = strlen(name);
           if (!plain_name(name) || length < 2 || name[length - 1] == '/')
             return luaL_argerror(L, 10, "a path is bound at an absolute name, plain, and not /");
+          /* The root's own: where the old root is put aside as it pivots. */
+          if (strcmp(name, "/.old") == 0 || strncmp(name, "/.old/", 6) == 0)
+            return luaL_argerror(L, 10, "a path is bound at no name beneath /.old");
+          for (int i = 0; i < unveil_count; i++) {
+            if (unveiled_at[i] != NULL && strcmp(unveiled_at[i], name) == 0)
+              return luaL_argerror(L, 10, "two paths are bound at one name");
+          }
           int found = 0;
           for (int i = 0; i < unveil_count; i++) {
             if (strcmp(unveiled[i], given) == 0) {

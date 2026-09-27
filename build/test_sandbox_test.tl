@@ -8,6 +8,10 @@ local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local Test = require("cosmic.test")
+
+--- What a worker's plan gives it of the host, and the program it runs.
+Test.needs{ host = { "/dev/urandom", "/etc", "/proc", "/usr/" }, tool = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
@@ -56,6 +60,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
     assert(path:find("outside", 1, true) == nil, "a read that climbs out of the tree: " .. path)
   end
   assert(holds(unveil.reads, host) and unveil.at[host] == nil)
+  -- One given at its own name beneath /tmp is kept where it is.
+  assert(host:sub(1, 5) ~= "/tmp/" or holds(plan.kept, host), host)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and unveil.at[scratch] == "/tmp")
   -- A declared cache is given to write at its own name, made first.
   inputs.cache_paths = { tmp .. "/caches/zig-global" }
@@ -105,6 +111,12 @@ local function test_what_a_worker_read_is_put_back_where_the_host_has_it()
     { kind = "e", path = "/tree", answer = "ok /tree" },
     { kind = "o", path = "/treehouse", answer = "" },
   }
+  -- A path given at its own name beneath /tmp or /tree is bound over
+  -- them, and a read of it is where the host has it already.
+  local kept = test_sandbox.to_host({ { kind = "o", path = "/tmp/host/f", answer = "" },
+    { kind = "o", path = "/tmp/hostile", answer = "" } }, "/home/me/tree", "/var/s",
+    { "/tmp/host" })
+  assert(kept[1].path == "/tmp/host/f" and kept[2].path == "/var/s/hostile")
   local out = test_sandbox.to_host(reads, "/home/me/tree", "/var/s")
   local want = {
     { "o", "/home/me/tree/a/x.tl", "" },
@@ -197,6 +209,14 @@ end
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == "/tree" and fields[2] == "/tmp/tmp" and fields[3] == "declared" and
     fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil", seen)
+  -- Its failure names what it read undeclared, the declaration that
+  -- would give it, and how to run it again sandboxed.
+  assert(text:find("sandboxed, it read what its module does not declare:", 1, true), text)
+  assert(text:find("reads        suite/secret.txt", 1, true), text)
+  assert(text:find("env          UNDECLARED_VAR", 1, true), text)
+  assert(text:find("declare: Test.needs {", 1, true), text)
+  assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1, true),
+    text)
   -- A misspelt switch is refused.
   env.COSMIC_TEST_SANDBOX = "yes"
   text, ok = run(root, tmp .. "/misspelt", env)

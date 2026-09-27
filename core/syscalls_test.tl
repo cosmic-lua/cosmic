@@ -880,6 +880,30 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   end
   assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { tree }, at = { [scratch] = "/tmp" } } }), "at a path not unveiled")
+  -- A name placed beneath a path bound from the host goes through no
+  -- link there: one leading out, or climbing, refuses the start rather
+  -- than make a file where the link leads.
+  local victim = tmp .. "/victim"
+  assert(sys.mkdir(victim, 0x1c0))
+  assert(sys.symlink(victim, tree .. "/out"))
+  assert(sys.symlink("../victim", tree .. "/up"))
+  for _, placed in ipairs({ "/tree/out/new.txt", "/tree/up/new.txt", "/tree/out" }) do
+    local escaped, _, escaped_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, "/",
+      nil, nil, nil, false, nil, { unveil = { reads = { tree, tree .. "/sub/f", table.unpack(reads) },
+        at = { [tree] = "/tree", [tree .. "/sub/f"] = placed } }, offline = true })
+    if escaped ~= nil then process.waitpid(escaped, false) end
+    assert(escaped == nil, "placed through a link at " .. placed)
+    assert(sys.errno_name(escaped_errno) == "ELOOP" or (not sandbox_required() and
+      (escaped_errno == sys.ENOSYS or escaped_errno == sys.EPERM or escaped_errno == sys.EACCES or
+        escaped_errno == sys.EINVAL or escaped_errno == sys.ENOSPC)), tostring(escaped_errno))
+  end
+  assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
+  -- Two paths bound at one name, or a name beneath the old root's, are
+  -- refused as arguments.
+  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+    { unveil = { reads = { tree, scratch }, at = { [tree] = "/x", [scratch] = "/x" } } }))
+  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+    { unveil = { reads = { tree }, at = { [tree] = "/.old/x" } } }))
   -- The host's /proc bound at another name is the host's state, and
   -- mounted read-only, given to write as it may be.
   local without_proc: {string} = {}
@@ -896,6 +920,9 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
     assert(assert(process.waitpid(proc_pid, false)).code == 0)
     local proc_said = assert(sys.pread(proc_report, 4096, 0))
     assert(proc_said == "read-only\n", proc_said)
+  else
+    -- It started above, so it starts here, as it would anywhere.
+    error("the host's /proc could not be bound at another name")
   end
   sys.close(proc_report)
 end

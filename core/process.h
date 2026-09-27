@@ -21,6 +21,11 @@
 #include "lua.h"
 #include "syscalls.h"
 
+/* The most paths a sandbox unveils (`Unveil`): a test worker's
+ * (build/test_sandbox.tl) is given each file of its module's import
+ * closure by name. */
+#define UNVEIL_MAX 256
+
 /* Opens the table as the raw `cosmic.internal.process` module. */
 int cosmic_open_process (lua_State *L);
 
@@ -58,7 +63,7 @@ _Noreturn void cosmic_sandbox_init (void);
 #endif
 
 /*
- * --- The paths a sandbox unveils, each absolute; at most 256 in all.
+ * --- The paths a sandbox unveils, each absolute; at most `UNVEIL_MAX` in all.
  * ---@class Unveil
  * ---@field reads {string} the files and directories the child has, read-only
  * ---@field writes {string} the ones it has to change too
@@ -240,9 +245,11 @@ COSMIC_SYSCALL(cancelled_child_signal, 0);
  * ---@field POLLERR integer the descriptor is in error
  * ---@field POLLHUP integer the other end hung up
  * ---@field POLLNVAL integer the descriptor is not open
+ * ---@field UNVEIL_MAX integer the most paths a sandbox unveils, its reads and writes together
  */
 COSMIC_CONSTANT(POLLIN)
 COSMIC_CONSTANT(POLLOUT)
 COSMIC_CONSTANT(POLLERR)
 COSMIC_CONSTANT(POLLHUP)
 COSMIC_CONSTANT(POLLNVAL)
+COSMIC_CONSTANT(UNVEIL_MAX)
