@@ -577,8 +577,8 @@ end
 --- A verdict is kept by its declared key alone (build/declared_key.tl),
 --- with no reads to check it by: found under that key, freshened by a
 --- run that relies on it, and taken out by one that fails under it. A
---- cache from before the map has the tables observation-keyed runs
---- shared dropped, and the map made.
+--- cache from before the map has the map made, and the tables
+--- observation-keyed runs shared left as they were.
 local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   local path = tmp .. "/cache/verdicts.db"
   local cache = assert(shared_verdicts.open(path))
@@ -591,7 +591,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   cache = assert(shared_verdicts.open(path))
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
-  assert(#tables == 1 and tables[1][1] == "declared_v1", tostring(#tables))
+  assert(#tables == 2 and tables[1][1] == "declared_v1" and tables[2][1] == "verdicts_v4",
+    "an earlier format's table was dropped: " .. tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",

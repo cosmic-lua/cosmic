@@ -76,9 +76,8 @@ local busy_ms <const> = 10000
 
 --- The table rows are in, by their declared key alone: `declared_v1`.
 --- A later format keeps a table of its own, so a binary of it sharing
---- the file never empties this one's. The tables observation-keyed
---- runs shared, `verdicts` and `verdicts_v<n>`, are dropped (`prepare`):
---- nothing reads them any more.
+--- the file never empties this one's; nor does this one empty the
+--- tables observation-keyed runs shared (`prepare`).
 local declared <const> = "declared_v1"
 
 local text = bind.text
@@ -153,30 +152,19 @@ local function unpacked(hits: string): string
   end))
 end
 
---- Makes this format's table when the file has none yet, and drops
---- the tables observation-keyed runs shared, in one transaction; a file
---- that has only this format's and later ones is only read.
+--- Makes this format's table when the file has none yet, in one
+--- transaction; a file that has it is only read. The tables
+--- observation-keyed runs shared (`verdicts_v<n>`) are left as they
+--- are: a binary of that format sharing the file still writes its own
+--- and ages its rows out, and none of this one's reads them.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
-    "(name LIKE 'verdicts%' OR name = '" .. declared .. "')")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = '" .. declared .. "'")
   if rows == nil then return false, trouble end
-  local present = false
-  local earlier: {string} = {}
-  for _, row in ipairs(rows) do
-    if row[1] == declared then
-      present = true
-    elseif row[1] == "verdicts" or row[1]:match("^verdicts_v%d+$") ~= nil then
-      earlier[#earlier + 1] = row[1]
-    end
-  end
-  if present and #earlier == 0 then return true, "" end
+  if #rows > 0 then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
-  local statements: {string} = {}
-  for _, name in ipairs(earlier) do statements[#statements + 1] = "DROP TABLE IF EXISTS " .. name end
-  for _, statement in ipairs(schema) do statements[#statements + 1] = statement end
-  for _, statement in ipairs(statements) do
+  for _, statement in ipairs(schema) do
     local ok, statement_trouble = db:exec(statement)
     if not ok then
       local _, _ = db:exec("ROLLBACK")
