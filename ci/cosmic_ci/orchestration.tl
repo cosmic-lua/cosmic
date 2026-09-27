@@ -16,6 +16,7 @@ local record Orchestration
   stands: function(env: {string:string}): boolean
   test_words: function(env: {string:string}, force?: boolean): {string}
   shares: function(env: {string:string}, force?: boolean)
+  fixture: function(env: {string:string}, tmpdir: string): {string:string}
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -231,6 +232,31 @@ local function fixture_project(c: Context, work: string): string
   return project
 end
 
+--- `env`, an operation's environment, made a fixture's `cosmic test`'s:
+--- its temporary files under `tmpdir`, its workers unsandboxed, and no
+--- verdict but one it reaches itself. A fixture reads the candidate and
+--- its products where variables of `env` say (COSMIC_FIXTURE_*), which
+--- no verdict's key holds, so a verdict another run reached -- of
+--- another commit's products, in a leg's restored cache
+--- (COSMIC_VERDICT_CACHE) -- would stand for this one's: a fixture
+--- neither reads nor writes the shared verdicts, whatever the event.
+--- Nor can a verdict of its own stand: its project, and the o/ under
+--- it, is made afresh for each run (`fixture_project`), and it names the
+--- file it runs, so none is assumed.
+function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:string}
+  env.TMPDIR = tmpdir
+  -- Unsandboxed: a fixture reads and runs the candidate and its
+  -- products where the host has them, which its environment names
+  -- (COSMIC_FIXTURE_*), and a sandboxed worker would be given none of.
+  -- TODO: run the fixtures sandboxed once `Test.needs` can declare a
+  -- host path a variable names (COSMIC_FIXTURE_ROOT, _PRODUCT,
+  -- _RUNTIME), which today it takes only written out in the source.
+  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_VERDICT_CACHE = "0"
+  Orchestration.shares(env, true)
+  return env
+end
+
 local function fixture_test(c: Context, work: string, name: string,
     source: string, timeout_ms: integer, extra: {string:string}): integer
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
@@ -238,20 +264,11 @@ local function fixture_test(c: Context, work: string, name: string,
   local project = fixture_project(c, work)
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics); mkdir(diagnostics .. "/tmp")
-  local fixture_environment = environment(extra)
-  fixture_environment.TMPDIR = diagnostics .. "/tmp"
-  -- Unsandboxed: a fixture reads and runs the candidate and its
-  -- products where the host has them, which its environment names
-  -- (COSMIC_FIXTURE_*), and a sandboxed worker would be given none of.
-  -- TODO: run the fixtures sandboxed once `Test.needs` can declare a
-  -- host path a variable names (COSMIC_FIXTURE_ROOT, _PRODUCT,
-  -- _RUNTIME), which today it takes only written out in the source.
-  fixture_environment.COSMIC_TEST_SANDBOX = "0"
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
   return logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
-    fixture_environment)
+    Orchestration.fixture(environment(extra), diagnostics .. "/tmp"))
 end
 
 local function checked_suite(c: Context, target: string, work: string): integer
@@ -513,10 +530,18 @@ end
 --- The tree's format check, which `fix --check` also builds and
 --- type-checks it for: the first thing assemble does, and all a branch
 --- push's light run does after the native suite (see ci.yml's
---- COSMIC_CI_SCOPE).
+--- COSMIC_CI_SCOPE). A tree formats and type-checks the same on every
+--- platform, so the workflow runs it on one leg, and the others set
+--- COSMIC_CI_FORMAT=skip, as COSMIC_CI_CHECKED_SUITE does the checked
+--- suite.
 local function format_check(p: PlatformContext): integer
   assert(exists(p.local_diagnostics .. "/local-boundary/hashes.sha256"),
     "no local-boundary snapshot; run the local-boundary phase first")
+  if Env.get("COSMIC_CI_FORMAT") == "skip" then
+    Fs.put(Fs.stderr, "format check: skipped on this leg " ..
+      "(COSMIC_CI_FORMAT=skip)\n")
+    return 0
+  end
   return checked(p.operation, "format check",
     { p.root .. "/o/bin/cosmic", "fix", "--check", "." })
 end
