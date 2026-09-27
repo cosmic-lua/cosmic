@@ -262,39 +262,41 @@ local function test_a_frozen_run_looks_once_and_a_thawed_one_again(tmp: string)
   assert(declared_key.compute(digests, spec()) ~= before)
 end
 
---- The harness's digest holds every module its roots require, directly
---- or not, by source: a change to one moves it, as a change to the
---- worker's sandbox would; a module outside that closure does not.
+--- The harness's digest holds each module it names by what it is --
+--- its source's hash and its bytecode's -- and nothing else: a change
+--- to either moves it, as a change to the worker would, and a module
+--- it does not name does not, whatever requires it.
 local function test_a_harness_module_moves_the_harness(tmp: string)
-  local imports: {string:{string}} = {
-    ["build.test"] = { "build.test_sandbox", "cosmic.fs" },
-    ["build.test_worker"] = { "build.filesystem_observations" },
-    ["build.test_sandbox"] = { "build.caches" },
-  }
   local sources: {string:string} = {
-    ["build.test"] = "t", ["build.test_worker"] = "w", ["build.test_sandbox"] = "s",
-    ["build.caches"] = "c", ["cosmic.fs"] = "f", ["build.filesystem_observations"] = "o",
-    ["build.docs"] = "d",
+    ["build.test_worker"] = "w wb", ["build.test_sandbox"] = "s sb", ["build.caches"] = "c cb",
+    ["cosmic.fs"] = "f fb", ["build.docs"] = "d db",
   }
-  local roots = { "build.test", "build.test_worker" }
-  local before = declared_key.harness(roots, sources, imports)
-  sources["build.docs"] = "d2"
-  assert(declared_key.harness(roots, sources, imports) == before, "outside the closure")
-  for _, name in ipairs({ "build.test_sandbox", "build.caches", "build.filesystem_observations",
-                          "cosmic.fs" }) do
+  local names = { "build.test_worker", "build.test_sandbox", "build.caches", "cosmic.fs" }
+  local before = declared_key.harness(names, sources)
+  sources["build.docs"] = "d2 db2"
+  assert(declared_key.harness(names, sources) == before, "a module it does not name")
+  for _, name in ipairs(names) do
     local was = sources[name]
-    sources[name] = was .. "2"
-    assert(declared_key.harness(roots, sources, imports) ~= before, name)
+    local source, bytecode = was:match("^(%S+) (%S+)$")
+    sources[name] = source .. "2 " .. bytecode
+    assert(declared_key.harness(names, sources) ~= before, name .. "'s source")
+    -- What the compiler made of the same source: an `is` against a
+    -- record's `where` an imported type brings is compiled into it.
+    sources[name] = source .. " " .. bytecode .. "2"
+    assert(declared_key.harness(names, sources) ~= before, name .. "'s bytecode")
     sources[name] = was
   end
+  -- Its order is no part of it.
+  assert(declared_key.harness({ "cosmic.fs", "build.caches", "build.test_sandbox",
+    "build.test_worker" }, sources) == before)
   -- An unrelated test's key moves with it.
   tree(tmp)
   local s = spec()
   s.harness = before
   local key = key_of(tmp, s)
-  sources["build.test_sandbox"] = "s2"
+  sources["build.test_sandbox"] = "s2 sb"
   s = spec()
-  s.harness = declared_key.harness(roots, sources, imports)
+  s.harness = declared_key.harness(names, sources)
   assert(key_of(tmp, s) ~= key)
 end
 
@@ -554,38 +556,6 @@ local function test_an_artifacts_launcher_moves_every_key(tmp: string)
   assert(first ~= native and second ~= first, "the launcher left a key without `tool`")
   assert(declared_key.launcher_identity(declared_key.digests(root), root .. "/nowhere") ==
     "missing")
-end
-
---- A module keyed by its own source (`own`) moves the harness when its
---- source does, not when what it imports does -- unless a root reaches
---- it, when its closure is walked as any other.
-local function test_an_own_module_is_keyed_by_its_source_alone()
-  local imports: {string:{string}} = {
-    ["build.test_worker"] = { "build.caches" },
-    ["build.test"] = { "build.importer" },
-    ["build.writer"] = { "build.schema" },
-  }
-  local sources: {string:string} = {
-    ["build.test_worker"] = "w", ["build.caches"] = "c", ["build.test"] = "t",
-    ["build.importer"] = "i", ["build.writer"] = "r", ["build.schema"] = "s",
-  }
-  local roots = { "build.test_worker" }
-  local own = { "build.test", "build.writer" }
-  local function digest(): string return declared_key.harness(roots, sources, imports, own) end
-  local before = digest()
-  sources["build.caches"] = "c2"
-  assert(digest() ~= before, "a root's closure")
-  sources["build.caches"] = "c"
-  sources["build.test"] = "t2"
-  assert(digest() ~= before, "an own module's source")
-  sources["build.test"] = "t"
-  sources["build.importer"] = "i2"
-  assert(digest() == before, "what an own module imports")
-  -- Reached from a root, an own module's closure is walked.
-  imports["build.test_worker"] = { "build.caches", "build.writer" }
-  local reached = digest()
-  sources["build.schema"] = "s2"
-  assert(digest() ~= reached, "an own module a root reaches")
 end
 
 --- The store a worker is given at o/cosmic.db: the whole projection by

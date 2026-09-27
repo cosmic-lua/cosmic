@@ -13,6 +13,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
+local worker = require("build.test_worker")
 
 --- The environment a worker is given, which a key over a variable reads.
 Test.needs{ env = { "*" } }
@@ -814,4 +815,114 @@ local function test_a_walk_through_a_trailing_slash_is_keyed_as_asked(tmp: strin
   local again = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", captured.reads,
     walks)
   assert(again.stable and again.key == late.key, "a walk remembered keys otherwise")
+end
+
+--- The harness every sandboxed key holds is what a worker runs, by
+--- its source and bytecode, and the code that makes and reads a key,
+--- by its stripped bytecode; a closure store's address is salted by
+--- what writes it. A comment's edit to the runner, to how a key is
+--- computed or to how a verdict is looked up under one -- its source
+--- and its bytecode's lines moved, what Lua runs not -- moves neither,
+--- so it runs no test its closure does not reach; a code edit to any
+--- of them moves the harness, so a verdict a wrong key kept does not
+--- stand after the fix. An edit to the worker, to the plan of its
+--- sandbox, to cosmic's main or to the diagnostic the core loads moves
+--- the harness, and one to the store's writer the address.
+local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
+  local chunk = "local label = %q\n%sreturn function() return label end\n"
+  local function compiled(text: string): string, string
+    local loaded = assert(load(text, "=compiled", "t"))
+    local bytecode = string.dump(loaded)
+    local digest = assert(test.stripped(bytecode))
+    return Hash.hex_sha256(text) .. " " .. Hash.hex_sha256(bytecode), digest
+  end
+  local plain_source, plain = compiled(chunk:format("a key", ""))
+  local commented_source, commented = compiled(chunk:format("a key",
+    "-- a comment, and a blank line after it\n\n"))
+  local changed_source, changed = compiled(chunk:format("another key", ""))
+  assert(commented_source ~= plain_source, "the comment moved no bytecode")
+  assert(commented == plain and changed ~= plain)
+  local sources: {string:string} = {}
+  local stripped: {string:string} = {}
+  local key_code = { "build.test", "build.declared_key", "build.shared_verdicts",
+    "build.artifact", "build.bind" }
+  local imports: {string:{string}} = {
+    ["build.declared_key"] = { "build.artifact", "cosmic.fs" },
+    ["build.shared_verdicts"] = { "build.bind" },
+    ["build.test"] = { "build.importer" },
+  }
+  local others = { "build.test_sandbox", "build.writer", "build.schema", "build.importer",
+    "build.analyzer" }
+  for _, list in ipairs({ worker.loads, key_code, others }) do
+    for _, name in ipairs(list) do
+      sources[name] = plain_source
+      stripped[name] = plain
+    end
+  end
+  local before = assert(test.harness(sources, stripped, imports))
+  local function moves(name: string, source: string, digest: string): string
+    local was_source, was = sources[name], stripped[name]
+    sources[name], stripped[name] = source, digest
+    local edited = assert(test.harness(sources, stripped, imports))
+    sources[name], stripped[name] = was_source, was
+    return (edited.digest ~= before.digest and "harness" or "") ..
+      (edited.store_salt ~= before.store_salt and "store" or "")
+  end
+  for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
+                          "build.artifact" }) do
+    assert(moves(name, commented_source, commented) == "", name .. "'s comment moved " ..
+      moves(name, commented_source, commented))
+    assert(moves(name, changed_source, changed) == "harness", name .. "'s code moved " ..
+      moves(name, changed_source, changed))
+  end
+  for _, name in ipairs({ "build.importer", "build.analyzer" }) do
+    assert(moves(name, changed_source, changed) == "", name)
+  end
+  for _, name in ipairs({ "build.test_worker", "build.test_sandbox", "cmd.cosmic.main",
+                          "build.filesystem_observations", "build.test_inputs",
+                          "build.dispatch", "cosmic.store", "cosmic.removed" }) do
+    assert(moves(name, commented_source, commented) == "harness", name .. " moved " ..
+      moves(name, commented_source, commented))
+  end
+  for _, name in ipairs({ "build.writer", "build.schema" }) do
+    assert(moves(name, commented_source, commented) == "store", name .. " moved " ..
+      moves(name, commented_source, commented))
+  end
+  -- build.bind writes a closure store's rows, and reads the shared
+  -- verdicts' by its code.
+  assert(moves("build.bind", commented_source, commented) == "store")
+  assert(moves("build.bind", changed_source, changed) == "harnessstore")
+  -- A module that makes a key and has no bytecode to hold -- it stopped
+  -- being a module the binary carries -- fails the run, by name.
+  stripped["build.artifact"] = nil
+  local none, why = test.harness(sources, stripped, imports)
+  assert(none == nil and why:find("build.artifact", 1, true), why)
+end
+
+--- What Lua runs of a chunk holds its every function, nested ones
+--- among them, their constants, long strings too, and nothing of
+--- where they are: moved down past 127 lines, where the lines a
+--- function is defined between take two bytes each, and so the
+--- padding that aligns its code another length, a chunk keeps its
+--- digest; a changed constant moves it.
+local function test_what_runs_holds_every_function_and_not_where_it_is()
+  local template = "%slocal long = %q\nlocal ratio = %s\n" ..
+    "local function outer(n)\n  local function inner(m)\n    return m * ratio .. long\n" ..
+    "  end\n  return function() return inner(n + 300) end\nend\nreturn outer\n"
+  local long = string.rep("a long string, past forty bytes; ", 3)
+  local function digest(shift: integer, text: string, ratio: string): string
+    local chunk = assert(load(template:format(string.rep("\n", shift), text, ratio),
+      "=chunk", "t"))
+    return (assert(test.stripped(string.dump(chunk))))
+  end
+  local here = digest(0, long, "1.5")
+  for _, shift in ipairs({ 1, 3, 130, 20000 }) do
+    assert(digest(shift, long, "1.5") == here, "moved down " .. tostring(shift) .. " lines")
+  end
+  assert(digest(130, long .. "!", "1.5") ~= here, "a long string")
+  assert(digest(130, long, "2.5") ~= here, "a float")
+  -- Neither another chunk's bytes nor a cut one are read as a chunk.
+  assert(test.stripped("not a chunk") == nil)
+  local whole = string.dump((assert(load("return 1", "=chunk", "t"))))
+  assert(test.stripped(whole:sub(1, #whole - 3)) == nil)
 end

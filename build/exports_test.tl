@@ -85,8 +85,6 @@ allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree
   "whose bin/zig is a stand-in, which no stale tool can reach"
 allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path " ..
   "a tool was started as, which the running one cannot change"
-allowed["build.test_worker.encode"] = "tested directly: the test checks that a " ..
-  "report survives the trip through descriptor 3"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
   "as an older binary would"
 allowed["cosmic.http.open"] = "the public way to read a response as it arrives: " ..

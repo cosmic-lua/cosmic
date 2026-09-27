@@ -674,8 +674,9 @@ end
 --- digest of everything its bytes follow from -- its modules' lines,
 --- the modules each example module among them could be paired with
 --- (`candidates`), the basis's shared digest, and `salt`, which names
---- the code that writes it (`build.test` passes the harness digest,
---- which holds build.writer's and build.schema's sources). An edit to a
+--- the code that writes it (`build.test` passes a digest of
+--- build.writer's, build.schema's and build.bind's sources and
+--- bytecode). An edit to a
 --- module outside the closure moves none of them, and neither does
 --- adding or removing one, but for one an example of the closure could
 --- be paired with: so neither the address nor the store moves.

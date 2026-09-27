@@ -685,11 +685,6 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   TODO above `read`). And `Store.meta` answers the projection's own
   digests, which move with every edit (`build/test_worker.tl`, the TODO on
   `hold_store`).
-- *build.dispatch*: the harness digest holds the runner's and the worker's
-  closures, and of the verb dispatcher that hands a worker its command line
-  only its own source and bytecode and what it requires at its top level,
-  named by hand (`build/test.tl`'s `harness_roots`): a top-level require
-  added to it is keyed nowhere until it is named there.
 
 the processor is keyed, for good, by the features a core chooses code by
 alone (`dispatched` in `build/declared_key.tl`, which
