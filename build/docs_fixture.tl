@@ -64,7 +64,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   written = written + 1
   local path = dir .. "/cosmic-" .. written .. ".db"
   assert(writer.write_result(handle, path, {
-    modules = {}, tool = "", refused = {}, compiled = 0, cached = 0,
+    modules = {}, tool = "", refused = {}, compiled = 0, cached = 0, shared = 0,
   }))
   assert(db:close())
   return (assert(Sqlite.open(path, false)))

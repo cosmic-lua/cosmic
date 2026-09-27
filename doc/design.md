@@ -609,7 +609,14 @@ that does run runs in a worker process of its own:
   identity), and its supported observations. an unchanged
   key
   is a stat; a changed one recompiles and re-records only what
-  depended on it. observations come through the syscall table, where the runner
+  depended on it. no path is in a module's key, so every checkout of a
+  host shares its compiles through `$XDG_CACHE_HOME/cosmic/build/cache.db`
+  (`~/.cache/cosmic/build/cache.db`)
+  (`build/shared_compiles.tl`; `COSMIC_BUILD_CACHE` moves it, `0` turns
+  it off), keyed beside the module's key by what else decides whether
+  a compile is accepted -- cosmic's own tree or not, a doc's extracted
+  test or not, the module's file, and the names the checker strips --
+  and a fresh worktree compiles only what no sibling has. observations come through the syscall table, where the runner
   records the paths, names, and answers that can affect the verdict.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. each test runs in a worker

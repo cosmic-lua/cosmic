@@ -342,7 +342,11 @@ end
 --- neither reads nor writes the shared verdicts, whatever the event.
 --- Nor can a verdict of its own stand: its project, and the o/ under
 --- it, is made afresh for each run (`fixture_project`), and it names the
---- file it runs, so none is assumed.
+--- file it runs, so none is assumed. Nor does it share the compiles
+--- every checkout keeps (COSMIC_BUILD_CACHE): a fixture that checks what
+--- a fresh tree compiles, and what the tool built from it compiles
+--- again (fixed_point_test, self_rebuild_test), must compile it, not
+--- take the boot's compiles back.
 function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:string}
   env.TMPDIR = tmpdir
   -- Unsandboxed: a fixture reads and runs the candidate and its
@@ -353,6 +357,7 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:st
   -- _RUNTIME), which today it takes only written out in the source.
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_BUILD_CACHE = "0"
   env.COSMIC_TEST_NO_SHARED = "1"
   return env
 end

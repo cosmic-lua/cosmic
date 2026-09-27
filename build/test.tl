@@ -119,6 +119,7 @@ local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 local observations = require("build.filesystem_observations")
+local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
@@ -2162,7 +2163,8 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, _
 --- one startup of a fixture runtime for a handshake and belong to this
 --- process's own launch, not to every worker it starts, and less what
 --- `launch_only` names, and with the shared verdict cache off
---- (`COSMIC_VERDICT_CACHE=0`).
+--- (`COSMIC_VERDICT_CACHE=0`), and the shared compiles too
+--- (`COSMIC_BUILD_CACHE=0`).
 function test.worker_environment(environment: {string:string}): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do
@@ -2174,6 +2176,10 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- verdicts every checkout shares, unless the test names a cache of
   -- its own.
   shared_verdicts.turn_off(out)
+  -- Nor the compiles every checkout shares: a build a test starts
+  -- compiles what it compiles, and reaches no file outside what the
+  -- test declares, unless the test names a cache of its own.
+  shared_compiles.turn_off(out)
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
@@ -2799,7 +2805,8 @@ function test.run(argv: {integer:string}): integer
     sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0), sharing no verdicts"
   end
 
-  local result, compile_trouble = importer.compile(handle, built, tool)
+  local result, compile_trouble = importer.compile(handle, built, tool, false,
+    shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -2816,7 +2823,9 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
   log:say("build: " .. #result.modules .. " modules (" .. result.compiled ..
-    " compiled, " .. result.cached .. " cached; " .. staged.files ..
+    " compiled, " .. result.cached .. " cached" ..
+    (result.shared > 0 and ", " .. result.shared .. " of them taken from another checkout" or "") ..
+    "; " .. staged.files ..
     " files staged, " .. staged.read .. " read) in " ..
     clock.took(started))
 

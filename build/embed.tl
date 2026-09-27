@@ -26,6 +26,7 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local importer = require("build.importer")
+local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
 local schema = require("build.schema")
 local teal = require("build.teal")
@@ -334,7 +335,8 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
   end
   local project = root .. "/o/cosmic.db"
   local result, compile_trouble =
-    importer.compile(handle, built, Store.meta("compiler") or "")
+    importer.compile(handle, built, Store.meta("compiler") or "", false,
+      shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
