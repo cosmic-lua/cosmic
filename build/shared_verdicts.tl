@@ -272,7 +272,7 @@ end
 
 --- The line a run says where it looked `looked` tests up in the cache
 --- at `path` and none stood though it holds rows (`census`), with the
---- digests (a name and a hex digest each, in order) that every key of
+--- digests (a name and a digest each, as given, in order) that every key of
 --- the run holds, so two runs' lines say which of them moved. Nil where
 --- the cache holds nothing to stand on.
 function shared_verdicts.unmatched(path: string, looked: integer,
@@ -280,8 +280,9 @@ function shared_verdicts.unmatched(path: string, looked: integer,
                                    parts: {{string}}): string | nil
   if looked == 0 or census.rows == 0 then return nil end
   local named: {string} = {}
-  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2]:sub(1, 12) end
-  local why = census.of_tests > 0 and "their keys moved" or "no other run reached them"
+  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
+  local why = census.of_tests > 0 and "none under the keys this run reached" or
+    "no other run reached them"
   return string.format("test: shared verdicts: none of %d tests looked up stood, " ..
     "though %s holds %d rows, %d of them of those tests: %s (%s)",
     looked, path, census.rows, census.of_tests, why, table.concat(named, ", "))

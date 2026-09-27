@@ -157,6 +157,18 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   -- A file beneath what a module declares differs: its tests run.
   checkout(tmp .. "/changed", "two\n")
   said("changed", tmp .. "/changed", "4 ran, 1 stood")
+  -- An edit to one module's input in a checkout runs that module's
+  -- tests, looked up in the cache and not found there, while the rest
+  -- stand on the checkout's own verdicts: no key of the run moved but
+  -- theirs, so it says nothing of the cache.
+  assert(Fs.write(tmp .. "/first/suite/data.txt", "three\n"))
+  local edited = said("edited", tmp .. "/first", "4 ran, 1 stood")
+  assert(not edited:find("shared verdicts: none of", 1, true), edited)
+  -- Nor when the run chooses only the edited module, whose every test
+  -- is looked up: each ran in this checkout before.
+  assert(Fs.write(tmp .. "/first/suite/data.txt", "four\n"))
+  local chosen = said("chosen", tmp .. "/first", "4 ran, 0 stood", { "suite/reads_test.tl" })
+  assert(not chosen:find("shared verdicts: none of", 1, true), chosen)
   -- A variable a module declares differs: its tests run.
   env.FLAVOUR = "salty"
   checkout(tmp .. "/salty", "one\n")
@@ -419,7 +431,8 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   -- And says why: the cache held these very tests, under keys it no
   -- longer reaches.
   assert(second:find("none of 4 tests looked up stood, though " .. cache ..
-    " holds 4 rows, 4 of them of those tests: their keys moved (host ", 1, true), second)
+    " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
+  assert(second:find("host features %x+, host %x+, runtime %x+") ~= nil, second)
 end
 
 --- A run none of whose lookups stood is told what the cache held: its
@@ -441,10 +454,10 @@ local function test_a_cache_that_answers_nothing_says_what_it_holds(tmp: string)
     ["a_test.tl test_b"] = true, ["c_test.tl test_d"] = true }))
   assert(census.rows == 3 and census.of_tests == 2, census.rows .. " " .. census.of_tests)
   local line = assert(shared_verdicts.unmatched(path, 3, census,
-    { { "host", string.rep("ab", 32) }, { "runtime", string.rep("cd", 32) } }))
-  assert(line == "test: shared verdicts: none of 3 tests looked up stood, though " .. path ..
-    " holds 3 rows, 2 of them of those tests: their keys moved (host abababababab, " ..
-    "runtime cdcdcdcdcdcd)", line)
+    { { "host", "abab" }, { "runtime", "cdcd" } }))
+  assert(line:find("none of 3 tests looked up stood", 1, true), line)
+  assert(line:find("holds 3 rows, 2 of them of those tests: none under the keys this run reached", 1, true), line)
+  assert(line:find("host abab, runtime cdcd", 1, true), line)
   assert(shared_verdicts.unmatched(path, 0, census, {}) == nil, "no lookup, yet a line")
   local other = assert(shared_verdicts.census(cache, { ["c_test.tl test_d"] = true }))
   local unreached = assert(shared_verdicts.unmatched(path, 1, other, {}))

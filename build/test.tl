@@ -2981,7 +2981,7 @@ function test.run(argv: {integer:string}): integer
   -- The tests looked up in the shared cache, and whether any was found:
   -- where none was, `unmatched` says why.
   local looked: {string:boolean} = {}
-  local looked_count, found_count = 0, 0
+  local keyed_count, looked_count, found_count, ran_here = 0, 0, 0, 0
   for _, m in ipairs(selected_modules) do
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
@@ -2992,6 +2992,7 @@ function test.run(argv: {integer:string}): integer
         -- audit, or reaches the network, which no key holds. None is
         -- assumed.
         local key = declared_of(rec, m, id)
+        if key ~= nil then keyed_count = keyed_count + 1 end
         local own = key ~= nil and verdicts[key] or nil
         local elsewhere: shared_verdicts.Found = nil
         if key ~= nil and not forced and own == nil and consult and rec.shared ~= nil then
@@ -2999,6 +3000,7 @@ function test.run(argv: {integer:string}): integer
           if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
           elsewhere = answer
           looked[id], looked_count = true, looked_count + 1
+          if previous[id] ~= nil then ran_here = ran_here + 1 end
           if answer ~= nil then found_count = found_count + 1 end
         end
         if key == nil or forced or (own ~= nil and not own.passed) or
@@ -3037,13 +3039,22 @@ function test.run(argv: {integer:string}): integer
       end
     end
   end
-  if sandboxed and rec.shared ~= nil and looked_count > 0 and found_count == 0 then
+  -- Where every keyed test was looked up in the shared cache, none of
+  -- them ever ran in this checkout -- a fresh one, as CI's is -- and
+  -- none was found there, though the cache holds rows, say what every
+  -- key holds, so two runs' lines say which part moved. An edit in a
+  -- checkout says nothing: what it moved ran here before.
+  if sandboxed and rec.shared ~= nil and looked_count > 0 and looked_count == keyed_count and
+      ran_here == 0 and found_count == 0 then
     local census, _ = shared_verdicts.census(rec.shared, looked)
     local line = census ~= nil and shared_verdicts.unmatched(rec.shared.path, looked_count,
       census, {
-        { "host", rec.host }, { "runtime", Hash.hex_sha256(rec.runtime or "") },
-        { "compiler", Hash.hex_sha256(rec.compiler or "") },
-        { "harness", Hash.hex_sha256(rec.harness or "") },
+        -- As .github/scripts/host-features.sh names CI's verdict cache.
+        { "host features", declared_key.host_features() },
+        { "host", rec.host:sub(1, 12) },
+        { "runtime", Hash.hex_sha256(rec.runtime or ""):sub(1, 12) },
+        { "compiler", (rec.compiler or ""):sub(1, 12) },
+        { "harness", (rec.harness or ""):sub(1, 12) },
       }) or nil
     if line ~= nil then log:say(line) end
   end

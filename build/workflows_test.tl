@@ -531,32 +531,32 @@ local function test_each_image_has_one_digest_everywhere()
   assert(count > 0, "no workflow pins an image by digest")
 end
 
---- A Linux leg's verdict cache is named by the processor's features as
---- well as its container: every sandboxed verdict's key holds them
---- (build/declared_key.tl's `host_identity`), and a leg's runners do
---- not share one set, so a cache named by the container alone restored
---- another processor's verdicts, none of which stood (main's run
---- 36320764857 on linux-x86_64).
-local function test_the_verdict_cache_is_named_by_the_processor_too()
+--- A Linux leg's verdict cache is named by the host's features
+--- (.github/scripts/host-features.sh) as well as its container: every
+--- sandboxed verdict's key holds them (build/declared_key.tl's
+--- `host_identity`), and a leg's runners do not share one set, so a
+--- cache named by the container alone could restore another host's
+--- verdicts, none of which stood (main's run 36320764857 on
+--- linux-x86_64).
+local function test_the_verdict_cache_is_named_by_the_host_too()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
   local named, cached = false, 0
   for _, step in ipairs(jobs.platform.steps as {{string: any}}) do
     if step.id == "host-id" then
       local run = step.run as string
-      named = run:find("sh .github/scripts/cpu-features.sh", 1, true) ~= nil and
-        run:find("verdicts=", 1, true) ~= nil
+      named = run:find("verdicts=[^;]*host%-features%.sh") ~= nil
     end
     local with = step.with as {string: string}
     if with ~= nil and with.path == "${{ runner.temp }}/verdicts" then
       cached = cached + 1
-      assert(with.key:find("steps.host-id.outputs.verdicts }}", 1, true) == 1 + #"${{ ",
+      assert(with.key:find("steps.host-id.outputs.verdicts", 1, true) ~= nil,
         "a verdict cache named by its container alone: " .. with.key)
       local restore = with["restore-keys"]
-      assert(restore == nil or restore == "${{ steps.host-id.outputs.verdicts }}\n",
+      assert(restore == nil or restore:find("steps.host-id.outputs.verdicts", 1, true) ~= nil,
         "a verdict cache restored by its container alone: " .. tostring(restore))
     end
   end
-  assert(named, "the host-id step names no verdict cache by the processor's features")
+  assert(named, "the host-id step names no verdict cache by the host's features")
   assert(cached == 2, "restore and save: " .. cached)
 end

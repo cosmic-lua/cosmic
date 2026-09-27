@@ -34,7 +34,7 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- leg whose workers are sandboxed, and required to be
 --- (COSMIC_CI_REQUIRE_SANDBOX=1) -- the Linux legs -- in a run of a
 --- push (COSMIC_CI_EVENT=push), main's as much as another branch's:
---- each restores the newest cache of its leg, container and processor
+--- each restores the newest cache of its leg, container and host
 --- features (ci.yml's "name the leg's container"). The merge queue's run, a
 --- manual one and main's scheduled one run every test (`--all`) and
 --- stand on nothing another run reached (COSMIC_TEST_NO_SHARED=1), and
