@@ -30,7 +30,7 @@ local function read(path: string): string return (assert(Fs.read(path))) end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
 --- The events whose run a suite may stand on verdicts in (`stands`): a
---- branch's push, and the merge queue's run, which restores main's
+--- push, main's or a branch's, and the merge queue's run, which restores main's
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
 --- merge moved from what main's last run reached. A manual run and
 --- main's scheduled one are the backstop, running every test.
@@ -41,16 +41,18 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- (COSMIC_VERDICT_CACHE, which ci.yml restores per leg), in `env`: on a
 --- leg whose workers are sandboxed, and required to be
 --- (COSMIC_CI_REQUIRE_SANDBOX=1) -- the Linux legs -- in a run of an
---- event of `standing_events` (COSMIC_CI_EVENT): a branch's push or the
---- merge queue's. A manual run and main's scheduled one run every test
---- (`--all`) and stand on nothing another run reached
---- (COSMIC_TEST_NO_SHARED=1), and so does the macOS leg's, whose
---- workers run unsandboxed, whatever the event. So the macOS leg's is
---- the merge queue's one run of every test, and on the Linux legs a
---- pass a key does not answer for -- a test that turns on the clock, or
---- a flaky one -- is caught only by main's scheduled run, the next day,
---- whose failure GitHub tells only whoever last edited its cron line
---- (the TODO on ci.yml's `schedule`).
+--- event of `standing_events` (COSMIC_CI_EVENT): a push, main's as
+--- much as another branch's, or the merge queue's; each restores the
+--- newest cache of its leg, container and host features (ci.yml's
+--- "name the leg's container"). A manual run and main's scheduled
+--- one run every test (`--all`) and stand on nothing another run
+--- reached (COSMIC_TEST_NO_SHARED=1), and so does the macOS leg's,
+--- whose workers run unsandboxed, whatever the event. So the macOS
+--- leg's is the merge queue's one run of every test, and on the Linux
+--- legs a pass a key does not answer for -- a test that turns on the
+--- clock, or a flaky one -- is caught only by main's scheduled run,
+--- the next day, whose failure GitHub tells only whoever last edited
+--- its cron line (the TODO on ci.yml's `schedule`).
 -- TODO: share verdicts across runners of a leg only once the key holds
 -- what a host's package database does not say (the TODO on
 -- build/declared_key.tl's `host_identity`): today a leg's verdicts are

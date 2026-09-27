@@ -146,9 +146,10 @@
         # Which event started the run: a Linux leg's suites stand on the
         # verdicts their tests' declared inputs key (build/declared_key.tl),
         # this leg's earlier runs' among them (restored below), in a
-        # branch push's run and the merge queue's; a manual one and the
-        # scheduled one run every test, and so does the macOS leg's, whose
-        # workers run unsandboxed. See orchestration.tl's `stands`.
+        # push's run, main's and a branch's alike, and the merge queue's; a
+        # manual one and the scheduled one run every test, and so does
+        # the macOS leg's, whose workers run unsandboxed. See
+        # orchestration.tl's `stands`.
         COSMIC_CI_EVENT: "${{ github.event_name }}",
       },
       steps: [
@@ -309,15 +310,25 @@
         # seccomp profile and every docker option, all of them
         # leg-container.sh's and seccomp-profile.sh's, which are hashed --
         # and the engine's version. Not ci.yml itself, whose every edit
-        # would move it; nor the runner's kernel, whose release and
-        # version the container's /proc tells `host_identity` itself.
+        # would move it. Its verdict cache is named by what else of the
+        # host every key holds and differs between runners of one leg
+        # (`verdicts`, .github/scripts/host-features.sh): the processor's
+        # features and the kernel's release and version, which the
+        # container's /proc tells `host_identity` from the runner's
+        # kernel. Named by the container alone, a run restored the newest
+        # cache of any runner of the leg, and none of its verdicts stood
+        # where that runner's host differed: main's run 36320764857
+        # stood 0 on linux-x86_64, where its other Linux legs and two
+        # branch pushes stood 1506 on the same cache. Its runners had the
+        # same image and kernel release; the processor's features, which
+        # no log showed, are the likeliest difference.
         {
           name: "name the leg's container",
           id: "host-id",
           if: "matrix.image",
           "working-directory": ".",
           shell: "sh",
-          run: "id=\"${{ matrix.image }} ${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }} docker-$(docker version --format '{{.Server.Version}}')\"; echo \"COSMIC_HOST_ID=$id\" >> \"$GITHUB_ENV\"; echo \"prefix=verdicts-${{ matrix.name }}-$(printf %s \"$id\" | sha256sum | cut -c1-16)-\" >> \"$GITHUB_OUTPUT\"",
+          run: "id=\"${{ matrix.image }} ${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }} docker-$(docker version --format '{{.Server.Version}}')\"; echo \"COSMIC_HOST_ID=$id\" >> \"$GITHUB_ENV\"; prefix=\"verdicts-${{ matrix.name }}-$(printf %s \"$id\" | sha256sum | cut -c1-16)-\"; echo \"prefix=$prefix\" >> \"$GITHUB_OUTPUT\"; echo \"verdicts=$prefix$(sh .github/scripts/host-features.sh)-\" >> \"$GITHUB_OUTPUT\"",
         },
 
         # The test verdicts this leg reached before, in the same container
@@ -325,8 +336,10 @@
         # portable suite's file beside it, orchestration.tl's
         # `portable_verdicts`): the newest this ref can restore under its
         # name -- its own, else main's, which is all the merge queue's
-        # refs, whose runs save none, ever restore. A Linux leg's branch
-        # push and merge queue run stand on them (COSMIC_CI_EVENT).
+        # refs, whose runs save none, ever restore -- from a host of the
+        # same features (host-features.sh). A Linux leg's push, main's or
+        # a branch's, and its merge queue run stand on them
+        # (COSMIC_CI_EVENT).
         {
           name: "restore test verdicts",
           id: "verdicts-restore",
@@ -334,8 +347,8 @@
           uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
-            "restore-keys": "${{ steps.host-id.outputs.prefix }}\n",
+            key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
 
@@ -368,7 +381,9 @@
         # which reaches the tests through the job's environment
         # (COSMIC_CI_EVENT among it), so the merge queue, whose markers no
         # other ref reads, never stands on a push's. Named before the tree
-        # moves, since hashFiles reads the checkout.
+        # moves, since hashFiles reads the checkout. It takes the
+        # container's `prefix`, not the verdict cache's name: the check
+        # shares no verdicts (COSMIC_VERDICT_CACHE=0).
         {
           name: "name the CI driver check",
           id: "driver-check-key",
@@ -637,7 +652,7 @@
           uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+            key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
           },
         },
       ],

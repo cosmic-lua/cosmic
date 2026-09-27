@@ -631,6 +631,21 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
+--- The processor's features `cpuinfo` (/proc/cpuinfo by default) lists
+--- -- "flags" on x86, "Features" on arm -- each once, in byte order.
+local function features(cpuinfo?: string): {string}
+  local text, _ = Fs.read(cpuinfo or "/proc/cpuinfo")
+  local seen: {string:boolean} = {}
+  for line in (text or ""):gmatch("[^\n]+") do
+    local listed = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
+    for flag in (listed or ""):gmatch("%S+") do seen[flag] = true end
+  end
+  local sorted: {string} = {}
+  for flag in pairs(seen) do sorted[#sorted + 1] = flag end
+  table.sort(sorted)
+  return sorted
+end
+
 --- The files that say which packages this host has installed: dpkg's,
 --- apk's and rpm's databases, where each keeps them.
 local package_databases: {string} = {
@@ -656,7 +671,10 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- says of itself besides (`host_variable`). Worked out once a run; the
 --- package database is hashed only when its `lstat` moves. `sources`
 --- moves where it looks, for a test; a field it leaves nil is this
---- host's own.
+--- host's own. Of these, what differs between runners of one CI leg --
+--- the processor's features and the kernel -- names the leg's verdict
+--- cache too (`host_features`, .github/scripts/host-features.sh): a
+--- change to how either is keyed changes both, and the script.
 -- TODO: key what a package database does not say: a file under /usr,
 -- /etc or /lib changed by hand or by a tool other than the package
 -- manager, a package installed from source into /usr/local, and a
@@ -691,16 +709,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- features match but whose behaviour differs -- a microcode fix that
   -- moves a timing or an erratum: today two hosts of the same features
   -- share a key whatever their model.
-  local cpuinfo, _ = Fs.read(from.cpuinfo or "/proc/cpuinfo")
-  local features: {string:boolean} = {}
-  for line in (cpuinfo or ""):gmatch("[^\n]+") do
-    local listed = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
-    for flag in (listed or ""):gmatch("%S+") do features[flag] = true end
-  end
-  local sorted: {string} = {}
-  for flag in pairs(features) do sorted[#sorted + 1] = flag end
-  table.sort(sorted)
-  lines[#lines + 1] = "cpu " .. table.concat(sorted, " ")
+  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo), " ")
   lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
   local status, _ = Fs.read(from.status or "/proc/self/status")
   for line in (status or ""):gmatch("[^\n]+") do
@@ -718,6 +727,27 @@ function declared_key.host_identity(digests: declared_key.Digests,
   lines[#lines + 1] = "host " .. host_id
   digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
   return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
+--- What of `host_identity` differs between runners of one CI leg, as
+--- the first 16 hex digits of a sha256: the processor's features, a
+--- line each (`features`), then the kernel's release and version as
+--- their files hold them, a missing one as empty. It is what
+--- .github/scripts/host-features.sh prints, which names a Linux leg's
+--- verdict cache, so a run restores one whose keys its host reaches.
+--- `sources` moves where it looks (`cpuinfo`, and `system`'s second and
+--- third paths), for a test.
+function declared_key.host_features(sources?: declared_key.HostSources): string
+  local from: declared_key.HostSources = sources or {}
+  local system = from.system or { "/etc/os-release", "/proc/sys/kernel/osrelease",
+                                  "/proc/sys/kernel/version" }
+  local parts: {string} = {}
+  for _, flag in ipairs(features(from.cpuinfo)) do parts[#parts + 1] = flag .. "\n" end
+  for i = 2, 3 do
+    local text, _ = Fs.read(system[i])
+    parts[#parts + 1] = text or ""
+  end
+  return Hash.hex_sha256(table.concat(parts)):sub(1, 16)
 end
 
 --- The test harness every worker runs, as a digest: each module the

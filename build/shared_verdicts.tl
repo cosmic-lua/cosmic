@@ -51,6 +51,13 @@ local record shared_verdicts
     elapsed_ns: integer
   end
 
+  --- How many rows the cache holds, and how many of them are of the
+  --- tests a run looked up (`census`).
+  record Census
+    rows: integer
+    of_tests: integer
+  end
+
   --- What a run owes the cache when it ends.
   record Owed
     kept: {Kept}
@@ -242,6 +249,43 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
   if rows[1] == nil then return nil, "" end
   return { hits = unpacked(rows[1][1]),
     elapsed_ns = math.tointeger(tonumber(rows[1][2]) or 0) or 0 }, ""
+end
+
+--- How many rows the cache holds, and how many are of a test in
+--- `tests` (each `"path name"`): for a run none of whose lookups found
+--- a verdict, whether the cache is empty or holds these very tests
+--- under keys this run no longer reaches -- a host, runtime or harness
+--- that moved -- which `unmatched` says.
+function shared_verdicts.census(cache: shared_verdicts.Cache,
+                                tests: {string:boolean}): shared_verdicts.Census | nil, string
+  local rows, trouble = Sqlite.text_rows(cache.db,
+    "SELECT test, COUNT(*) FROM " .. declared .. " GROUP BY test")
+  if rows == nil then return nil, trouble end
+  local out: shared_verdicts.Census = { rows = 0, of_tests = 0 }
+  for _, row in ipairs(rows) do
+    local count = math.tointeger(tonumber(row[2]) or 0) or 0
+    out.rows = out.rows + count
+    if tests[row[1]] then out.of_tests = out.of_tests + count end
+  end
+  return out, ""
+end
+
+--- The line a run says where it looked `looked` tests up in the cache
+--- at `path` and none stood though it holds rows (`census`), with the
+--- digests (a name and a digest each, as given, in order) that every key of
+--- the run holds, so two runs' lines say which of them moved. Nil where
+--- the cache holds nothing to stand on.
+function shared_verdicts.unmatched(path: string, looked: integer,
+                                   census: shared_verdicts.Census,
+                                   parts: {{string}}): string | nil
+  if looked == 0 or census.rows == 0 then return nil end
+  local named: {string} = {}
+  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
+  local why = census.of_tests > 0 and "none under the keys this run reached" or
+    "no other run reached them"
+  return string.format("test: shared verdicts: none of %d tests looked up stood, " ..
+    "though %s holds %d rows, %d of them of those tests: %s (%s)",
+    looked, path, census.rows, census.of_tests, why, table.concat(named, ", "))
 end
 
 --- Writes what a run owes the cache, at `now_ns`, and drops what it no
