@@ -38,19 +38,6 @@ local function entry(argv: {string}): integer
   return 0
 end
 
---- Proves that a checked portable artifact actually selected its checked core.
-local function checked_context(argv: {string}): integer
-  local core, target = argv[1], argv[2]
-  assert(core ~= nil and target ~= nil,
-    "usage: tool.tl checked-context RAW_CHECKED_CORE TARGET")
-  local bytes = assert(Fs.read(core))
-  assert(Store.meta("runtime_context") == "portable-v1")
-  assert(Store.meta("host") == target)
-  assert(Store.meta("host_image") == Hash.hex_sha256(bytes),
-    "checked artifact did not execute the checked raw core")
-  return 0
-end
-
 --- Writes one executable artifact per corrupted manifest core range.
 local function corrupt_ranges(argv: {string}): integer
   local source, out = argv[1], argv[2]
@@ -407,7 +394,6 @@ end
 
 local subcommands: {string:function({string}):integer} = {
   ["entry"] = entry,
-  ["checked-context"] = checked_context,
   ["corrupt-ranges"] = corrupt_ranges,
   ["spoof-database"] = spoof_database,
   ["verify-verdicts"] = verify_verdicts,

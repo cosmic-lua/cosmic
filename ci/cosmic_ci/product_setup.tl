@@ -75,4 +75,27 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   return product
 end
 
+--- Which of `product`'s files differs from `recorded`, the text of the
+--- hashes.sha256 `build` wrote for it -- "hashes.sha256" where that
+--- record is not the same -- or nil where none does. A file differs
+--- where it is not a regular file, or its bytes are not the ones
+--- recorded, or, for the programs (cosmic and apps/), where it is no
+--- longer executable by everyone.
+function ProductSetup.changed(product: string, recorded: string): string | nil
+  local now = Fs.read(product .. "/hashes.sha256")
+  if now ~= recorded then return "hashes.sha256" end
+  for line in recorded:gmatch("[^\n]+") do
+    local digest, name = line:match("^([0-9a-f]+)  (.+)$")
+    assert(digest and name, "invalid product hash record: " .. line)
+    local path = product .. "/" .. name
+    local st = Fs.stat(path)
+    if not st or st.kind ~= "file" or Fixture.hash(path) ~= digest then
+      return name
+    end
+    local program = name == "cosmic" or name:sub(1, 5) == "apps/"
+    if program and st.mode & 0x49 ~= 0x49 then return name end
+  end
+  return nil
+end
+
 return ProductSetup
