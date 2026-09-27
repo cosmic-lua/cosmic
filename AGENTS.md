@@ -6,12 +6,12 @@
 - Keep `vendor/` unedited; express vendor changes as records under `patch/`.
   `bin/vendor` refetches a tree from its PIN, keeping only what the build reads.
   Generated output under `o/` must not be committed.
-- Run `bin/actionlint` (the pinned actionlint, over `.github/workflows/`)
-  before pushing a change under `.github/`. Workflows, and the local
-  actions under `.github/actions/`, are YAML's flow style, in the subset
-  `build/workflows_test.tl` holds them to and the layout `o/bin/cosmic
-  fix` writes (`build/flow.tl`), and a step's script longer than a line
-  or two lives under `.github/scripts/`. A job gets the pinned CI
+- Workflows, and the local actions under `.github/actions/`, are YAML's
+  flow style, in the subset `build/workflows_test.tl` holds them to and
+  the layout `o/bin/cosmic fix` writes (`build/flow.tl`): run `o/bin/cosmic
+  fix` and `o/bin/cosmic test build/workflows_test.tl` on a change under
+  `.github/`. A step's script longer than a line or two lives under
+  `.github/scripts/`. A job gets the pinned CI
   driver on its PATH with `uses: ./.github/actions/cosmic-driver`.
 
 ## Build, format, test
@@ -259,7 +259,7 @@ compiles each C file to clang's syntax tree and holds it to the items marked
 
 ## Bootstrap
 
-`bin/zig`, `bin/vendor`, `bin/actionlint` and `bin/verify-codesign` each run
+`bin/zig`, `bin/vendor` and `bin/verify-codesign` each run
 their Teal (`build/zig.tl`, ...) through `bin/cosmic-bootstrap`, on the cosmic
 release `ci/cosmic-driver.pin` names, which it fetches once and caches by
 digest. `COSMIC_BOOTSTRAP=<path>` makes `bin/cosmic-bootstrap` answer another

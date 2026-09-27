@@ -57,7 +57,26 @@ local record importer
     cached: integer
   end
 
+  --- The statement that drops the record-field uses of every compile
+  --- `compiled` no longer holds, run at the end of each compile.
+  prune_references: string
 end
+
+-- `NOT IN (SELECT key FROM compiled)` leads SQLite to probe
+-- `compiled`'s primary key once per `typed_refs` row ("USING INDEX
+-- sqlite_autoindex_compiled_1 FOR IN-OPERATOR"), and that key is the
+-- WITHOUT ROWID table itself, its `lua` and `bytecode` inline, so each
+-- probe reads the overflow chain of every cell it compares: on
+-- cosmic's own tree, about 5900 rows cost 200,000-780,000 pread64
+-- calls (two measurements, by the database's layout) and 300-390 ms
+-- of a warm build that otherwise takes about 200. The unary `+` makes
+-- `key` an expression, which SQLite's documented rule keeps from
+-- using an index, so the planner reads `compiled` once into a list
+-- ("LIST SUBQUERY") and the statement takes about 2 ms. Neither `key`
+-- is ever NULL (`typed_refs`' is declared so, `compiled`'s is a
+-- WITHOUT ROWID primary key), so `NOT IN` meets no NULL.
+importer.prune_references =
+  "DELETE FROM typed_refs WHERE key NOT IN (SELECT +key FROM compiled)"
 
 --- The extractors, generators and parser the importer's own derive and
 --- parse call: with the importer itself, the roots of
@@ -1481,7 +1500,11 @@ function importer.compile(handle: work.Handle, built: compiler,
     if not pruned then
       return false, prune_trouble
     end
-    return db:exec("DELETE FROM typed_refs WHERE key NOT IN (SELECT key FROM compiled)")
+    -- Run whether or not the prune above dropped anything: a run that
+    -- failed between a compile's `keep_references` and its `remember`
+    -- commits the uses without the compile (build.dispatch closes the
+    -- handle, keeping what the run did), and only this sweeps them.
+    return db:exec(importer.prune_references)
   end
   local made, compile_trouble = compile_all()
   -- The projection the hints opened, once a message earned one.

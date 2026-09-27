@@ -301,7 +301,8 @@ end
 --- Each part of the host's identity moves it: its package database, its
 --- system files, the processor's features, the status of this process,
 --- the user, which /proc a sandbox gets, and what the host says of
---- itself; the processor's features are each counted once.
+--- itself; the processor's features are each counted once, and only
+--- those a core chooses code by.
 local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   local function write(name: string, text: string): string
     assert(Fs.write(tmp .. "/" .. name, text))
@@ -309,7 +310,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   end
   local sources: declared_key.HostSources = {
     packages = { write("packages", "p1") }, system = { write("os", "o1") },
-    cpuinfo = write("cpuinfo", "flags : a b\nflags : b a\n"),
+    cpuinfo = write("cpuinfo", "flags : aes fma\nflags : fma aes\n"), machine = "x86_64",
     status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
     own_proc = true, host_id = "h1", uid = 1,
   }
@@ -324,13 +325,13 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   end
   differs("the start")
   assert(identity() == identity(), "the same host")
-  write("cpuinfo", "flags : b a\n")
-  assert(seen[identity()] == "the start", "each feature is counted once")
+  write("cpuinfo", "flags : fma aes avx512f\n")
+  assert(seen[identity()] == "the start", "each feature is counted once, if a core reads it")
   write("packages", "p2")
   differs("the packages")
   write("os", "o2")
   differs("the system")
-  write("cpuinfo", "flags : a b c\n")
+  write("cpuinfo", "flags : aes fma avx2\n")
   differs("a feature of the processor")
   write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
   differs("the capabilities")

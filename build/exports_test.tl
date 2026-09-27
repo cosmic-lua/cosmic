@@ -38,6 +38,8 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
+allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
+  "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
@@ -58,6 +60,9 @@ allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal "
   "text without a compile"
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
+allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
+  "SQLite for the statement's plan, which must read `compiled` once rather " ..
+  "than probe it per row, and no behaviour tells the two apart"
 allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
   "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
 allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..

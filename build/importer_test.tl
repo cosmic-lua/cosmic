@@ -1242,3 +1242,77 @@ local function test_only_a_test_module_declares_its_inputs()
   local again = assert(requires_of_fixture(root, "lib.helper_test"))
   assert(again[1] == "lib.helper")
 end
+
+--- A fixture whose one compile keeps record-field uses in
+--- `typed_refs`, compiled once, and its working database left open.
+local function compiled_with_references(case: string): work.Handle
+  local root = assert(write_fixture(case, {
+    ["shapes.tl"] = table.concat({
+      "local record Shapes",
+      "  record Box",
+      "    width: integer",
+      "  end",
+      "end",
+      "function Shapes.box(width: integer): Shapes.Box",
+      "  return { width = width }",
+      "end",
+      "return Shapes",
+      "",
+    }, "\n"),
+    ["main.tl"] = table.concat({
+      'local Shapes = require("shapes")',
+      "local b = Shapes.box(2)",
+      "b.width = 3",
+      "return b.width",
+      "",
+    }, "\n"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  assert(importer.compile(handle, built, "importer-test"))
+  return handle
+end
+
+local function count_of(db: Sqlite.Handle, sql: string): integer
+  local rows = assert(Sqlite.text_rows(db, sql))
+  return math.tointeger(tonumber(rows[1][1])) or -1
+end
+
+--- The record-field uses of a compile `compiled` no longer holds go at
+--- the end of the next compile, even one that drops no compile itself;
+--- the uses of a compile it holds stay.
+local function test_a_compile_sweeps_the_uses_of_a_vanished_compile()
+  local handle = compiled_with_references("reference-prune")
+  local live = count_of(handle.db,
+    "SELECT count(*) FROM typed_refs WHERE key IN (SELECT key FROM compiled)")
+  assert(live > 0, "the fixture kept no record-field uses")
+  assert(Sqlite.run(handle.db,
+    "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
+    "VALUES ('no-such-compile', 1, 'shapes', 'Box.width', 3)"))
+  local again = assert(importer.compile(handle, built, "importer-test"))
+  assert(again.compiled == 0, again.compiled .. " compiled on a warm run")
+  assert(count_of(handle.db,
+    "SELECT count(*) FROM typed_refs WHERE key = 'no-such-compile'") == 0,
+    "the uses of a vanished compile were kept")
+  assert(count_of(handle.db, "SELECT count(*) FROM typed_refs") == live,
+    "the uses of a held compile were dropped")
+  work.close(handle)
+end
+
+--- The sweep reads `compiled` once into a list rather than probing its
+--- key once per `typed_refs` row: that key is the table itself, its
+--- Lua and bytecode inline, and the probes cost a warm build of the
+--- whole tree some 300 ms.
+local function test_the_reference_sweep_reads_compiled_once()
+  local handle = compiled_with_references("reference-prune-plan")
+  local plan = assert(Sqlite.text_rows(handle.db,
+    "EXPLAIN QUERY PLAN " .. importer.prune_references))
+  work.close(handle)
+  local details: {string} = {}
+  for _, row in ipairs(plan) do
+    details[#details + 1] = row[4]
+  end
+  local said = table.concat(details, "; ")
+  assert(not said:find("IN-OPERATOR", 1, true), said)
+  assert(said:find("LIST SUBQUERY", 1, true), said)
+end

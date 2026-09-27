@@ -143,13 +143,15 @@ local record declared_key
   end
 
   --- Where `host_identity` looks, for a test: each a path, but
-  --- `own_proc`, whether a sandbox gets a /proc of its own, `host_id`,
-  --- the value of `host_variable`, and `uid`.
+  --- `machine`, `own_proc`, whether a sandbox gets a /proc of its own,
+  --- `host_id`, the value of `host_variable`, and `uid`.
   record HostSources
     packages: {string}
     system: {string}
     status: string
     cpuinfo: string
+    --- The machine whose features `cpuinfo` keys (`dispatched`).
+    machine: string
     own_proc: boolean
     host_id: string
     uid: integer
@@ -631,17 +633,56 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
+--- The processor's features a core running on `machine` chooses code
+--- by, which is all a key holds of what /proc/cpuinfo lists:
+--- `host_identity` says which code reads each, and
+--- build/dispatched_features_test.tl holds the vendored sites to this.
+--- A machine not named here, whose cores no audit has read, keys its
+--- whole list.
+local dispatched: {string:{string:boolean}} = {
+  x86_64 = { aes = true, pclmulqdq = true, ssse3 = true, sse4_1 = true, fma = true,
+    avx2 = true, fma4 = true },
+  aarch64 = { asimd = true, aes = true, pmull = true, crc32 = true },
+}
+
+--- The features a core on `machine` chooses code by (`dispatched`), in
+--- byte order, or nil for a machine no audit has read, whose key holds
+--- every feature; with no `machine`, the machines audited, in byte
+--- order.
+function declared_key.dispatched(machine?: string): {string}
+  local kept: {string:boolean} = {}
+  if machine == nil then
+    for name in pairs(dispatched) do kept[name] = true end
+  else
+    kept = dispatched[machine]
+    if kept == nil then return nil end
+  end
+  local sorted: {string} = {}
+  for flag in pairs(kept) do sorted[#sorted + 1] = flag end
+  table.sort(sorted)
+  return sorted
+end
+
 --- The processor's features `cpuinfo` (/proc/cpuinfo by default) lists
---- -- "flags" on x86, "Features" on arm -- each once, in byte order.
-local function features(cpuinfo?: string): {string}
+--- -- "flags" on x86, "Features" on arm -- each once, in byte order,
+--- less those a core on `machine` (this host's, by default) chooses no
+--- code by (`dispatched`).
+local function features(cpuinfo?: string, machine?: string): {string}
   local text, _ = Fs.read(cpuinfo or "/proc/cpuinfo")
   local seen: {string:boolean} = {}
   for line in (text or ""):gmatch("[^\n]+") do
     local listed = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
     for flag in (listed or ""):gmatch("%S+") do seen[flag] = true end
   end
+  if machine == nil then
+    local names, _ = sys.uname()
+    machine = names ~= nil and names.machine or nil
+  end
+  local kept = machine ~= nil and dispatched[machine] or nil
   local sorted: {string} = {}
-  for flag in pairs(seen) do sorted[#sorted + 1] = flag end
+  for flag in pairs(seen) do
+    if kept == nil or kept[flag] then sorted[#sorted + 1] = flag end
+  end
   table.sort(sorted)
   return sorted
 end
@@ -663,12 +704,13 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- it, as a key holds it: the database of the packages it has installed
 --- (`package_databases`), by contents, where there is one; the system it
 --- says it is (/etc/os-release) and its kernel's release and version;
---- its name and machine; the processor's features (/proc/cpuinfo's
---- flags, each once); the user, groups and capabilities this process --
---- and so every worker -- runs with, and whether no_new_privs and a
---- seccomp filter hold it (/proc/self/status); whether a sandbox gets a
---- /proc of its own (`observations.own_proc_given`); and what the host
---- says of itself besides (`host_variable`). Worked out once a run; the
+--- its name and machine; the processor's features a core chooses code
+--- by (/proc/cpuinfo's flags, each once, `dispatched`); the user,
+--- groups and capabilities this process -- and so every worker -- runs
+--- with, and whether no_new_privs and a seccomp filter hold it
+--- (/proc/self/status); whether a sandbox gets a /proc of its own
+--- (`observations.own_proc_given`); and what the host says of itself
+--- besides (`host_variable`). Worked out once a run; the
 --- package database is hashed only when its `lstat` moves. `sources`
 --- moves where it looks, for a test; a field it leaves nil is this
 --- host's own. Of these, what differs between runners of one CI leg --
@@ -703,13 +745,26 @@ function declared_key.host_identity(digests: declared_key.Digests,
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
   -- Each distinct feature once, sorted: every processor lists them.
-  -- TODO: key the processor's model and microcode too (/proc/cpuinfo's
-  -- "model name", "cpu family", "model", "stepping" and "microcode",
-  -- the first processor's), once a verdict is shared across hosts whose
-  -- features match but whose behaviour differs -- a microcode fix that
-  -- moves a timing or an erratum: today two hosts of the same features
-  -- share a key whatever their model.
-  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo), " ")
+  -- Only those the code a test runs chooses code by (`dispatched`),
+  -- which an audit of the vendored C and the disassembled cores found:
+  -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
+  -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
+  -- crc32_arm64.h (`crc32`); and, for the checked core, which links
+  -- glibc's libm where it is built on a glibc host, its pow, asin, acos
+  -- and atan2, whose FMA variants (`fma` with `avx2`, else `fma4` for
+  -- asin, acos and atan2) round a last bit otherwise. The other libm
+  -- functions it imports, frexp and ldexp, have no variants, and
+  -- atan2's `avx` one only re-encodes SSE and changes no result, so
+  -- `avx` is not keyed. No grep finds glibc's choices, which are in the
+  -- host's libm, not the tree: this comment is their record. Nothing
+  -- else the core carries dispatches, nor does its build, so the
+  -- processor's model and microcode, which choose no code, are not
+  -- keyed either. The whole list split GitHub's hosted runners of one
+  -- leg on flags nothing reads (avx512*, a hypervisor's bits,
+  -- md_clear), each split a verdict not shared. A vendored library that
+  -- comes to dispatch on another feature adds it to `dispatched` and to
+  -- .github/scripts/host-features.sh alike.
+  lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo, from.machine), " ")
   lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
   local status, _ = Fs.read(from.status or "/proc/self/status")
   for line in (status or ""):gmatch("[^\n]+") do
@@ -735,14 +790,16 @@ end
 --- their files hold them, a missing one as empty. It is what
 --- .github/scripts/host-features.sh prints, which names a Linux leg's
 --- verdict cache, so a run restores one whose keys its host reaches.
---- `sources` moves where it looks (`cpuinfo`, and `system`'s second and
---- third paths), for a test.
+--- `sources` moves where it looks (`cpuinfo`, `machine`, and
+--- `system`'s second and third paths), for a test.
 function declared_key.host_features(sources?: declared_key.HostSources): string
   local from: declared_key.HostSources = sources or {}
   local system = from.system or { "/etc/os-release", "/proc/sys/kernel/osrelease",
                                   "/proc/sys/kernel/version" }
   local parts: {string} = {}
-  for _, flag in ipairs(features(from.cpuinfo)) do parts[#parts + 1] = flag .. "\n" end
+  for _, flag in ipairs(features(from.cpuinfo, from.machine)) do
+    parts[#parts + 1] = flag .. "\n"
+  end
   for i = 2, 3 do
     local text, _ = Fs.read(system[i])
     parts[#parts + 1] = text or ""

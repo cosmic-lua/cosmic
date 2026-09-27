@@ -127,9 +127,13 @@ local function test_build_fails_with_docker(tmp: string)
   assert(code == 3 and trouble == "docker buildx build: exit 3", trouble)
 end
 
+--- What ci-images-publish.yml's step sees: a workflow_run in main's
+--- context, whose GITHUB_SHA is main's head, which may be past the
+--- commit whose images it joins (SOURCE_COMMIT).
 local function publish_env(tmp: string): {string:string}
   local env = fake(tmp)
   env.IMAGE, env.ARCHES, env.TOKEN = "Ubuntu", "amd64 arm64", "s3cret-token"
+  env.SOURCE_COMMIT, env.GITHUB_SHA = "abc123", "main-head"
   return env
 end
 

@@ -20,10 +20,8 @@
 # job ran these steps itself. ci.yml's Linux legs run their actions on
 # the host, as a user of the container's `runner`'s uid, and pass none.
 #
-# TODO: have bin/actionlint check these steps too once actionlint lints
-# a composite action's own steps: it checks what a workflow passes this
-# action, but not the expressions here, which build/workflows_test.tl
-# holds only to naming inputs declared above.
+# build/workflows_test.tl holds the expressions here only to naming
+# inputs declared above (see the TODO there).
 {
   name: "cosmic-driver",
   description: "Restore, verify and put on PATH the CI driver ci/cosmic-driver.pin names",
