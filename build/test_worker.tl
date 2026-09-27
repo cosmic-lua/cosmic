@@ -294,8 +294,10 @@ end
 --- (`test_inputs.canonical`), "" or absent for none: a module whose
 --- `needs` call was handed anything else fails to load; `held` what this
 --- worker's own sandbox holds a process it starts to, one path a line
---- (`test_sandbox.Plan`'s `held`), "" or absent where it runs
---- unsandboxed (`observations.Resolving`'s `held`); and `closure`
+--- (`test_sandbox.Plan`'s `held`), after a line "!" and why none of it
+--- keys such a process where none does (its `unkeyable`), "" or absent
+--- where it runs unsandboxed (`observations.Resolving`'s `held`); and
+--- `closure`
 --- the names of the module's import closure (`test_inputs.modules`),
 --- one argument each, which its load and its test may `require` of
 --- the tree and nothing else of it (`refusal`), absent for no such
@@ -360,7 +362,13 @@ function worker.run(argv: {integer:string}): integer
   -- Sandboxed, a process the test starts has this worker's sandbox.
   if held_paths ~= "" then
     resolving.held = {}
-    for path in held_paths:gmatch("[^\n]+") do resolving.held[#resolving.held + 1] = path end
+    for line in held_paths:gmatch("[^\n]+") do
+      if line:sub(1, 1) == "!" then
+        resolving.unkeyable = line:sub(2)
+      else
+        resolving.held[#resolving.held + 1] = line
+      end
+    end
   end
   -- What the module's `needs` call is handed as it loads, through the
   -- hook `cosmic.test` leaves for a runner; once it has loaded, a call

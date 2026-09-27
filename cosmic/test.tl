@@ -58,15 +58,16 @@ local record Test
     env: {string}
     --- Requests over the network: `true` for any host, or the hosts.
     network: boolean | {string}
-    --- Whether the tests start processes no sandbox holds, or hand one
-    --- what no observation accounts for: a descriptor, a path of /proc.
-    --- Only a worker run unsandboxed (macOS, a host refusing user
-    --- namespaces) starts one: a sandboxed worker holds every process it
-    --- starts to what the module declares, and its audit asks nothing
-    --- of this.
-    -- TODO: drop `processes` once every host a test runs on sandboxes
-    -- its worker (macOS has no spawn sandbox: core/process.h's `unveil`
-    -- is Linux's alone), and its audit never asks for it.
+    --- Whether the tests hand a process they start what no observation
+    --- accounts for: a descriptor, a path of /proc. Starting one needs no
+    --- declaration: a sandboxed worker holds every process it starts to
+    --- what the module declares, and where a worker runs unsandboxed
+    --- (macOS, a host refusing user namespaces) a test that starts one
+    --- never stands, and the audit asks nothing of it.
+    -- TODO: audit what a process an unsandboxed worker starts reads, once
+    -- a host without spawn's sandbox (macOS: core/process.h's `unveil` is
+    -- Linux's alone) can observe it: today such a read is seen by no
+    -- audit but a sandboxed run's, where it finds nothing.
     processes: boolean
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them.

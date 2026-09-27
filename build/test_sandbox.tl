@@ -79,6 +79,10 @@ local record test_sandbox
     --- host -- not its closure's files, which its module's key holds
     --- already, nor the store unless it declares `store`.
     held: {string}
+    --- Why a process the worker starts can be keyed by none of `held`,
+    --- or "": its sandbox is online ("the network"), or holds the store
+    --- its module does not declare ("the store").
+    unkeyable: string
     --- The directories of the tree the sandbox makes to hold what it
     --- gives beneath them, at /tree and below, each by the name the
     --- worker sees it by, which it holds only part of the host's (see
@@ -140,15 +144,22 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   local at: {string:string} = {}
   local seen: {string:boolean} = {}
   local held: {string} = {}
-  -- `holding`: whether a process the worker starts is keyed by it too.
+  local holds: {string:boolean} = {}
+  -- `holding`: whether a process the worker starts is keyed by it too --
+  -- there or not: a path it may read that is not there yet is keyed as
+  -- missing, so its verdict moves once the path is made.
   local function give(path: string, inside?: string, holding?: boolean)
+    local name = inside or path
+    if holding and not holds[name] then
+      holds[name] = true
+      held[#held + 1] = name
+    end
     if seen[path] then return end
     local there, _ = sys.stat(path)
     if there == nil then return end -- a read of it finds nothing, as it would
     seen[path] = true
     reads[#reads + 1] = path
     if inside ~= nil then at[path] = inside end
-    if holding then held[#held + 1] = inside or path end
   end
   local store = root .. "/o/cosmic.db"
   -- TODO: bind the program at /tree/o/bin/cosmic where it is the tree's
@@ -169,12 +180,13 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- derives one (cosmic/test.tl's TODO on `store`): the bind is this
   -- one path's, and nothing else of the plan changes.
   -- The store is held for a process the worker starts only where the
-  -- module declares it: every build rewrites it, and what the worker's
-  -- `require` loads of it its module's key holds.
-  -- TODO: key what a process a worker starts reads of the store, once a
-  -- store derived from the module's import closure is bound in its
-  -- place (the TODO above): a child can read all of it today, keyed by
-  -- none of it unless its module declares `store`.
+  -- module declares it; where it does not, such a process could read it
+  -- unkeyed, and is no process a key holds (`unkeyable`).
+  -- TODO: hold a process a worker starts to a store it can key -- one
+  -- derived from the module's import closure, bound in the projection's
+  -- place (the TODO above) -- once the build derives one: today one
+  -- whose module does not declare `store` is no process a key holds, and
+  -- its test is assumed rather than standing.
   for _, path in ipairs(base.reads) do
     if path == store then
       give(path, test_sandbox.tree .. "/o/cosmic.db", effective.store)
@@ -246,6 +258,10 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- ::1, localhost) offline, whose loopback reaches them, rather than
   -- give it the host's network.
   local offline = next(effective.network) == nil
+  -- Why a process the worker starts is none a key holds, or "": it
+  -- could reach the network, or read the store unkeyed (see above).
+  local unkeyable = not offline and "the network" or
+    (not effective.store and "the store" or "")
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
     env = test_sandbox.environment(environment, effective),
@@ -253,6 +269,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     trouble = made and "" or "a cache it declares: " .. trouble,
     kept = kept,
     held = held,
+    unkeyable = unkeyable,
     made = made_dirs,
   }
 end
@@ -330,6 +347,25 @@ function test_sandbox.to_host(reads: {observations.Observation}, root: string,
   return out
 end
 
+--- Why a sandboxed start failed with `trouble`, said plainly where it
+--- is the kernel refusing a user namespace -- none may be made (ENOSPC:
+--- user.max_user_namespaces is 0), or none for this user (EPERM or
+--- EACCES: a container's seccomp profile, AppArmor's
+--- kernel.apparmor_restrict_unprivileged_userns) -- and `trouble` as it
+--- is otherwise.
+function test_sandbox.refusal(trouble: string): string
+  local why: string = nil
+  if trouble:find("No space left on device", 1, true) then
+    why = "this host allows no user namespaces (user.max_user_namespaces is 0)"
+  elseif trouble:find("Operation not permitted", 1, true) or
+      trouble:find("Permission denied", 1, true) then
+    why = "this host refuses this user a user namespace (a container's seccomp " ..
+      "profile, or kernel.apparmor_restrict_unprivileged_userns)"
+  end
+  if why == nil then return trouble end
+  return why .. " (" .. trouble .. ")"
+end
+
 --- Whether this host can run a worker sandboxed: `argv`, this program
 --- started again with `env` and `fds`, runs a chunk that does nothing,
 --- held to the least a worker is given -- the system's own paths and
@@ -351,7 +387,7 @@ function test_sandbox.available(argv: {string}, env: {string:string}, fds: {inte
     cwd = test_sandbox.scratch, stdin = "null", stdout = "capture", stderr = "stdout",
     process_group = false, sandbox = { unveil = { reads = base.reads, writes = { scratch },
       at = { [scratch] = test_sandbox.scratch } }, offline = true } })
-  if handle == nil then return false, trouble end
+  if handle == nil then return false, test_sandbox.refusal(trouble) end
   -- Past the bound, `wait` ends it, and its pid namespace with it;
   -- `close` makes sure of it if the wait failed.
   local result, wait_trouble = handle:wait(30000)

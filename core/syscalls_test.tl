@@ -1632,6 +1632,34 @@ local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
   assert(missing == nil and errno == sys.ENOENT)
 end
 
+--- An entry the walk is refused -- a file it may not read, a directory
+--- it may not list -- is digested by its permissions and owner, and the
+--- tree is not special for it: no process with no more privilege than
+--- the walk's could learn more of it. Where this process may read
+--- everything (root, holding CAP_DAC_OVERRIDE), there is nothing to
+--- refuse it.
+local function test_a_tree_digest_of_what_it_is_refused_is_not_special(tmp: string)
+  local tree = tmp .. "/refused"
+  assert(sys.mkdir(tree, 0x1ed))
+  assert(sys.mkdir(tree .. "/closed", 0x1ed))
+  local fd = create(tree .. "/secret")
+  assert(sys.write(fd, "one") == 3)
+  sys.close(fd)
+  assert(sys.chmod(tree .. "/secret", 0))
+  assert(sys.chmod(tree .. "/closed", 0))
+  local opened, _ = sys.open(tree .. "/secret", sys.O_RDONLY, 0)
+  if opened ~= nil then
+    sys.close(opened)
+    assert(sys.chmod(tree .. "/closed", 0x1ed))
+    return
+  end
+  local refused = assert(sys.tree_digest(tree, true))
+  assert(not refused.special and not assert(sys.tree_digest(tree, false)).special)
+  assert(sys.chmod(tree .. "/secret", 0x100))
+  assert(assert(sys.tree_digest(tree, true)).digest ~= refused.digest, "its permissions moved")
+  assert(sys.chmod(tree .. "/closed", 0x1ed))
+end
+
 --- A directory listed and one refused both leave no descriptor behind:
 --- the listing's handle is released however the call ends.
 local function test_readdir_leaves_no_descriptor_open(tmp: string)

@@ -115,7 +115,6 @@ local function test_audited_names_what_the_inputs_do_not_hold(tmp: string)
     "host /etc/hosts",
     "env USER",
     "env *",
-    "processes /bin/sh",
     "network http://127.0.0.1:1/",
     "processes unobservable: fd 5",
     "tool o/bin/cosmic",

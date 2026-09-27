@@ -795,6 +795,16 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
     if (walk->contents) {
       char digest[80];
       int number = tree_file_digest(dir_fd, entry, &st, digest);
+      if (number == EACCES || number == EPERM) {
+        /* Refused, the file is digested by what `lstat` says of who may
+         * read it: no process with no more privilege than this one -- one
+         * it starts, one a sandbox holds -- could read more of it. */
+        snprintf(walk->said, sizeof walk->said, "%lo %lu %lu refused %d",
+                 (unsigned long)st.st_mode, (unsigned long)st.st_uid,
+                 (unsigned long)st.st_gid, number);
+        tree_line(walk, 'f');
+        return;
+      }
       if (number != 0) {
         tree_unseen(walk, "error", number);
         return;
@@ -825,6 +835,15 @@ static void tree_walk_entry (struct tree_walk *walk, int dir_fd, const char *ent
   if (dir == NULL) {
     int number = errno;
     if (fd >= 0) close(fd);
+    if (number == EACCES || number == EPERM) {
+      /* Refused, as a file is above: none with no more privilege could
+       * list it either. */
+      snprintf(walk->said, sizeof walk->said, "%lo %lu %lu refused %d",
+               (unsigned long)st.st_mode, (unsigned long)st.st_uid,
+               (unsigned long)st.st_gid, number);
+      tree_line(walk, '-');
+      return;
+    }
     tree_unseen(walk, "unlisted", number);
     return;
   }

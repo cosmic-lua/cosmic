@@ -54,8 +54,9 @@
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
    module key and runtime, same contents for every file opened, and same stat
    and directory read answers under the root -- is not run again, so a run
-   after a small edit takes seconds. Every checkout also shares its passing
-   verdicts through `~/.cache/cosmic/verdicts/verdicts.db`, keyed without the
+   after a small edit takes seconds. Every checkout whose workers run
+   sandboxed (below) also shares its passing verdicts through
+   `~/.cache/cosmic/verdicts/verdicts.db`, keyed without the
    tree's location and with a stat's kind, size and mode alone: a fresh
    worktree runs only what no checkout has run on the same content and core,
    and a test that failed in this checkout never stands on another's pass.
@@ -65,14 +66,17 @@
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
-   Environment variables a test reads are part of its key. A test that
-   spawns a process it does not confine (`observations.confine`), reads
-   outside the tree beyond its own temporary directories, or reaches the
-   network has no verdict a key can hold: it is assumed to pass as it last
-   did, in this checkout or another, until it, or what it loads, changes --
-   the summary counts it "assumed" -- and runs when named, or on `--all`
-   (`COSMIC_TEST_ALL=1`),
-   as CI's driver passes. Run `--all` before pushing a change such a test
+   Environment variables a test reads are part of its key. A process a
+   sandboxed worker starts is keyed by what the worker's sandbox gives it
+   to read -- what the module declares -- unless the module declares the
+   network, or the process could read the store it does not declare. A
+   test that starts a process in an unsandboxed worker, or one such as
+   those, reads outside the tree beyond its own temporary directories,
+   or reaches the network has no verdict a key can hold: it is assumed
+   to pass as it last did, in this checkout or another, until it, or
+   what it loads, changes -- the summary counts it "assumed" -- and runs
+   when named, or on `--all` (`COSMIC_TEST_ALL=1`), as CI's driver
+   passes. Run `--all` before pushing a change such a test
    covers. A key holds of a stat of the tree only its kind, size and mode
    across checkouts: a test whose verdict turns on a file's times, inode,
    device or link count calls `observations.reads_stat_times()`,

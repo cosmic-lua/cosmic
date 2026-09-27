@@ -146,13 +146,27 @@ local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
 end
 
 --- A shell that catches nothing is ended by a timeout's SIGTERM, not
---- left for the SIGKILL after the grace period: in a sandbox, it is its
---- pid namespace's pid 2, not the pid 1 that would pass over a signal it
---- does not catch from outside the namespace.
+--- left for the SIGKILL after the grace period -- and so is one started
+--- in a sandbox of its own, where it is its pid namespace's pid 2, not
+--- the pid 1 that would pass over a signal it does not catch from
+--- outside the namespace. Where the kernel will not sandbox a child, the
+--- sandboxed case is the kernel's to refuse.
 local function test_a_timeout_ends_a_shell_that_catches_nothing()
   local r = assert(Child.run({ "/bin/sh", "-c", "sleep 100" },
     { timeout_ms = 200, process_group = false }))
   assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
+  local reads: {string} = {}
+  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64", "/etc", "/proc", "/dev/null" }) do
+    if path_exists(dir) then reads[#reads + 1] = dir end
+  end
+  local sandboxed, trouble = Child.run({ "/bin/sh", "-c", "sleep 100" },
+    { timeout_ms = 200, sandbox = { unveil = { reads = reads }, offline = true } })
+  if sandboxed == nil then
+    assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. trouble)
+    return
+  end
+  assert(sandboxed.timed_out and sandboxed.signal == sys.SIGTERM,
+    "sandboxed, ended by " .. tostring(sandboxed.signal))
 end
 
 local function test_non_group_timeout_returns_graceful_term_status(tmp: string)

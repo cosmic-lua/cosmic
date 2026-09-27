@@ -746,6 +746,12 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         -- Walked only after the test started, the answer may be of what
         -- the path became since its process read it: such a verdict is
         -- not kept, and the next run, which walks it first, keeps one.
+        -- TODO: walk what a sandboxed worker holds a process to
+        -- (`test_sandbox.Plan`'s `held`) before its test starts, once
+        -- such a walk is cheap enough to make for every test that might
+        -- start one (a digest remembered by what `lstat` says, say):
+        -- today a test that starts a process keeps no verdict until its
+        -- second run.
         local walked = math.tointeger(key_parts["\2u" .. tag .. "\0" .. relative]) or 0
         if started_ns ~= nil and walked >= started_ns then late = true end
         return walked_answer
@@ -995,7 +1001,8 @@ end
 
 --- What of `reads`, one test's observations, `effective` does not hold
 --- (`build.test_inputs`): each read of the tree or the host beyond it,
---- each variable, each request and each process no sandbox holds, as
+--- each variable, each request and each thing a process was handed
+--- past observation, as
 --- the field of `cosmic.test`'s `Needs` that would declare it, once each. What
 --- no test declares is left out, as `test.keyable` leaves it out of a
 --- key: what a read landed on in the test's own directory, `scratch`,
@@ -1067,9 +1074,9 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   for _, observation in ipairs(reads) do
     local kind, path = observation.kind, observation.path
     if kind == "p" then
-      -- A sandboxed worker's process is held by its sandbox, declared
-      -- or not.
-      if not effective.processes and not sandboxed then add("processes", path) end
+      -- A process started needs no declaration: a sandboxed worker's is
+      -- held by its sandbox, and an unsandboxed one's run never stands
+      -- (`cosmic.test`'s `processes`).
     elseif kind == "x" then
       -- A request's URL, which names its scheme; any other is what no
       -- observation could account for, which a process is handed.
@@ -2040,6 +2047,12 @@ end
 --- processes report.
 --- Removing the scratch directory with `Fs.remove_tree` removes the
 --- link without following it, and the real directory beside it.
+-- TODO: keep the link, which a sandboxed worker sees at /tmp/tmp as an
+-- unsandboxed one sees it under the host's temporary directory: it
+-- stands in for macOS's /var on every host, and does not depend on
+-- where the checkout is. Drop it only once a case of its own on the
+-- macOS leg catches a path resolved on one side of a comparison and not
+-- the other, which the link catches on every leg today.
 function test.scratch(): string | nil, string
   local made, trouble = Fs.mkdtemp("cosmic-test-")
   if made == nil then return nil, trouble end
@@ -2115,7 +2128,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     job.plan = plan
     env, sandbox = plan.env, plan.sandbox
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
-    held = table.concat(plan.held, "\n")
+    -- Why none of it keys such a process leads, as a line of its own.
+    held = (plan.unkeyable ~= "" and ("!" .. plan.unkeyable .. "\n") or "") ..
+      table.concat(plan.held, "\n")
   end
   local given: {string:string} = {}
   for name, value in pairs(env) do given[name] = value end
@@ -2488,8 +2503,8 @@ function test.run(argv: {integer:string}): integer
       return 1
     else
       sandbox_summary = "; unsandboxed, as no worker can be sandboxed here, sharing no verdicts"
-      log:say("test: sandbox: no worker can be sandboxed here, so each runs unsandboxed and " ..
-        "shares no verdict: " .. why)
+      log:say("test: no worker can be sandboxed here: " .. why .. "; " ..
+        test_sandbox.switch .. "=0 runs them unsandboxed without asking")
     end
   else
     sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0), sharing no verdicts"

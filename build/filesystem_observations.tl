@@ -75,6 +75,9 @@ local record observations
     --- process the test starts with no confinement of its own is held
     --- to that, and noted as a confined one is: by each of these paths.
     held: {string}
+    --- Why a process `held` holds is none a key holds -- the sandbox
+    --- is online, say -- or nil: such a process is noted "x", by it.
+    unkeyable: string
   end
 
   --- What a test declares the processes it starts need, beyond the
@@ -108,7 +111,9 @@ local record observations
   end
 
   --- The variables `environment` passes on: what a process of this
-  --- very program reads of its environment to run at all.
+  --- very program reads of its environment to run at all, and whether a
+  --- `cosmic test` it runs sandboxes its workers, as the run around it
+  --- was asked to.
   runtime_environment: {string}
   --- The most paths a sandbox unveils, its reads and writes together.
   unveil_max: integer
@@ -116,7 +121,7 @@ end
 
 observations.runtime_environment = {
   "HOME", "XDG_CACHE_HOME", "PATH", "TMPDIR", "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE",
-  "COSMIC_AUTO_BOOT",
+  "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX",
 }
 
 --- Returns both lists in observation order, without changing either input.
@@ -559,17 +564,29 @@ function observations.worker_unveil(tree: string, cwd: string | nil, scratch: st
   return { reads = reads, writes = { scratch } }
 end
 
+--- The own directory of each running capture's test, innermost last:
+--- where a process it starts makes its temporary files (`environment`).
+local test_directories: {string} = {}
+
 --- What of the environment a process of this very program needs, for a
 --- test to start one with rather than all of its own: where its caches
 --- are, where temporary files go and programs are found, which shared
---- verdicts it keeps and whether it may boot -- each of
---- `runtime_environment` this process has, read by name, so the test
---- reads no more of the environment than these. The core hands a child
---- the directory its coverage goes to whatever environment it is given.
+--- verdicts it keeps, whether it may boot and whether a `cosmic test`
+--- sandboxes its workers -- each of `runtime_environment` this process
+--- has, read by name, so the test reads no more of the environment than
+--- these -- but for TMPDIR, which, while a test runs, is its own
+--- directory: what the process leaves there goes with it, not into the
+--- host's temporary directory. The core hands a child the directory its
+--- coverage goes to whatever environment it is given.
 function observations.environment(): {string:string}
   local out: {string:string} = {}
+  local own = test_directories[#test_directories]
   for _, name in ipairs(observations.runtime_environment) do
-    out[name] = sys.getenv(name)
+    if name == "TMPDIR" and own ~= nil then
+      out[name] = own
+    else
+      out[name] = sys.getenv(name)
+    end
   end
   return out
 end
@@ -951,6 +968,21 @@ end
 --- `note`: none for one given no `resolving`.
 local trees: {any:string} = {}
 
+--- The running captures whose process runs in a sandbox of its own,
+--- which the processes it starts inherit (`Resolving`'s `held`), by
+--- their `note`.
+local sandboxed: {any:boolean} = {}
+
+--- Whether the calling test runs in a sandboxed worker of `cosmic test`
+--- (build/test_sandbox.tl): a capture given what its sandbox holds a
+--- process it starts to is running.
+function observations.sandboxed(): boolean
+  for _, each in ipairs(noting) do
+    if sandboxed[each] then return true end
+  end
+  return false
+end
+
 --- Which paths the log resolves as the calls are made (the syscall
 --- table's `resolving`): those outside the tree every running capture
 --- that resolves shares, every absolute one ("") when they share none,
@@ -1197,6 +1229,8 @@ local function start(resolving: observations.Resolving | nil):
         process_group, fds, nil)
       -- Whether it started turns on the same paths as what it read.
       note_unveiled(held, {}, own, environment, stdin, stdout, stderr, fds)
+      local unkeyable = resolving ~= nil and resolving.unkeyable or nil
+      if unkeyable ~= nil and unkeyable ~= "" then note("x", unkeyable, "") end
       return pid, trouble, errno
     end
     -- TODO: note a process a `declared` call starts by what the worker's
@@ -1269,6 +1303,11 @@ local function start(resolving: observations.Resolving | nil):
         -- cache), and declare in `itself` the cache a launcher finds by
         -- default, from XDG_CACHE_HOME or HOME: a default cache reached
         -- through a link is still not there.
+        -- TODO: drop this renaming (and `led_to`) once core/syscalls.c's
+        -- unveil gives a confined process each link on a path as the
+        -- host has it (the TODO above): only the sandbox's own tests
+        -- confine now, but one of them run where COSMIC_PORTABLE_CACHE
+        -- is named through a link still needs it.
         local cache = (given_environment or environ()).COSMIC_PORTABLE_CACHE
         local leads = cache ~= nil and led_to(cache) or nil
         if leads ~= nil and leads ~= cache then
@@ -1303,6 +1342,9 @@ local function start(resolving: observations.Resolving | nil):
   end
   noting[#noting + 1] = note
   trees[note] = resolving ~= nil and resolving.tree or nil
+  sandboxed[note] = resolving ~= nil and resolving.held ~= nil or nil
+  local own_directory = resolving ~= nil and resolving.own[1] or nil
+  if own_directory ~= nil then test_directories[#test_directories + 1] = own_directory end
   syscalls.resolving(resolving_tree())
   -- A file SQLite could not hand over is one it may read unrecorded.
   local handed, _ = sqlite.observe(true)
@@ -1318,6 +1360,12 @@ local function start(resolving: observations.Resolving | nil):
       if noting[at] == note then table.remove(noting, at) break end
     end
     trees[note] = nil
+    sandboxed[note] = nil
+    if own_directory ~= nil then
+      for at = #test_directories, 1, -1 do
+        if test_directories[at] == own_directory then table.remove(test_directories, at) break end
+      end
+    end
     syscalls.resolving(resolving_tree())
     if #noting == 0 then
       -- Turned off, nothing is handed over, and nothing fails.

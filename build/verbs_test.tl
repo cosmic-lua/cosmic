@@ -117,8 +117,11 @@ local function cosmic(dir: string, args: {string}): invoke.Result
   end
   local argv: {string} = { (assert(Proc.executable())) }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
+  -- What of the environment the program needs, its temporary files --
+  -- the directory of a test `cosmic test bad` fails, which it keeps --
+  -- in this test's own directory.
   local result, trouble = Child.run(argv, {
-    cwd = dir, stdout = "capture", stderr = "capture",
+    cwd = dir, env = observations.environment(), stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
   local ran = assert(result, trouble)

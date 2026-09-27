@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
@@ -38,9 +39,15 @@ end
 
 --- Whether the run that printed `text` shared its verdicts: where no
 --- worker can be sandboxed, none is shared, and a case of sharing
---- has nothing to check.
+--- has nothing to check. The run takes this one's switch
+--- (COSMIC_TEST_SANDBOX, pinned): turned off, it shares nothing; and
+--- where this test's own worker is sandboxed and the switch requires
+--- it, a run that shared nothing fails the case rather than skip it.
 local function shares(text: string): boolean
-  return text:find("; sandboxed)", 1, true) ~= nil
+  if text:find("; sandboxed)", 1, true) ~= nil then return true end
+  assert(not (observations.sandboxed() and sys.getenv("COSMIC_TEST_SANDBOX") == "1"),
+    "sandboxed, and required to be, but the run it started was not:\n" .. text)
+  return false
 end
 
 --- A checkout of the suite at `root`, its data file holding `data`, its
