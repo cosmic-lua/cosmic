@@ -260,16 +260,15 @@ end
 --- A suite stands on declared-key verdicts on a Linux leg -- its
 --- workers sandboxed, and required to be -- in a branch push's run and
 --- the merge queue's, and nowhere else: a manual run's, main's scheduled
---- one's and the macOS leg's each run every test, as does one forced.
+--- one's and the macOS leg's each run every test.
 local function test_a_suite_stands_on_verdicts_in_a_linux_push_or_merge_queue()
   local Orchestration = require("cosmic_ci.orchestration")
-  local function words(env: {string:string}, force?: boolean): string
-    return table.concat(Orchestration.test_words(env, force), " ")
+  local function words(env: {string:string}): string
+    return table.concat(Orchestration.test_words(env), " ")
   end
   for _, event in ipairs({ "push", "merge_group" }) do
     local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = event }
     assert(Orchestration.stands(linux) and words(linux) == "test", event)
-    assert(words(linux, true) == "test --all", event .. ", forced")
     local mac = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_EVENT = event }
     assert(not Orchestration.stands(mac) and words(mac) == "test --all", "macOS " .. event)
   end
@@ -282,8 +281,6 @@ local function test_a_suite_stands_on_verdicts_in_a_linux_push_or_merge_queue()
   local queued: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group" }
   Orchestration.shares(queued)
   assert(queued.COSMIC_TEST_NO_SHARED == nil, "the merge queue")
-  Orchestration.shares(queued, true)
-  assert(queued.COSMIC_TEST_NO_SHARED == "1", "forced")
   local scheduled: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "schedule" }
   Orchestration.shares(scheduled)
   assert(scheduled.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
@@ -490,10 +487,10 @@ local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
   end
   assert(env.COSMIC_CI_REQUIRE_SANDBOX == "1" and env.HOME == "/home/runner" and
     env.COSMIC_WORKER == "w" and env.FUZZ_ITERS == "0")
-  local forced, forced_env = Orchestration.suite_run({
-    COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1" }, true)
-  assert(table.concat(forced, " ") == "test --all" and
-    forced_env.COSMIC_TEST_NO_SHARED == "1", "forced")
+  local all, all_env = Orchestration.suite_run({
+    COSMIC_CI_EVENT = "schedule", COSMIC_CI_REQUIRE_SANDBOX = "1" })
+  assert(table.concat(all, " ") == "test --all" and
+    all_env.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
 end
 
 --- The files that name a variable a suite forgets, and why each may:

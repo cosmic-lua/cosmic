@@ -14,11 +14,11 @@ local Time = require("cosmic.time")
 
 local record Orchestration
   stands: function(env: {string:string}): boolean
-  test_words: function(env: {string:string}, force?: boolean): {string}
-  shares: function(env: {string:string}, force?: boolean)
+  test_words: function(env: {string:string}): {string}
+  shares: function(env: {string:string})
   fixture: function(env: {string:string}, tmpdir: string): {string:string}
   forget_run: function(env: {string:string})
-  suite_run: function(extra?: {string:string}, force?: boolean): {string}, {string:string}
+  suite_run: function(extra?: {string:string}): {string}, {string:string}
   portable_verdicts: function(env: {string:string}): string
 end
 
@@ -45,9 +45,12 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- merge queue's. A manual run and main's scheduled one run every test
 --- (`--all`) and stand on nothing another run reached
 --- (COSMIC_TEST_NO_SHARED=1), and so does the macOS leg's, whose
---- workers run unsandboxed, whatever the event: a pass a key does not
---- answer for -- a test that turns on the clock, or a flaky one -- is
---- run again every day.
+--- workers run unsandboxed, whatever the event. So the macOS leg's is
+--- the merge queue's one run of every test, and on the Linux legs a
+--- pass a key does not answer for -- a test that turns on the clock, or
+--- a flaky one -- is caught only by main's scheduled run, the next day,
+--- whose failure GitHub tells only whoever last edited its cron line
+--- (the TODO on ci.yml's `schedule`).
 -- TODO: share verdicts across runners of a leg only once the key holds
 -- what a host's package database does not say (the TODO on
 -- build/declared_key.tl's `host_identity`): today a leg's verdicts are
@@ -63,15 +66,15 @@ end
 
 --- Sets `env` for a suite that stands on nothing another run reached
 --- (COSMIC_TEST_NO_SHARED=1) where it does not stand on verdicts
---- (`stands`), or `force` says it runs every test.
-function Orchestration.shares(env: {string:string}, force?: boolean)
-  if force or not Orchestration.stands(env) then env.COSMIC_TEST_NO_SHARED = "1" end
+--- (`stands`).
+function Orchestration.shares(env: {string:string})
+  if not Orchestration.stands(env) then env.COSMIC_TEST_NO_SHARED = "1" end
 end
 
 --- A suite's `cosmic test` words in `env`: `--all` where it stands on
---- nothing (`stands`), or where `force` says to anyway.
-function Orchestration.test_words(env: {string:string}, force?: boolean): {string}
-  if Orchestration.stands(env) and not force then return { "test" } end
+--- nothing (`stands`).
+function Orchestration.test_words(env: {string:string}): {string}
+  if Orchestration.stands(env) then return { "test" } end
   return { "test", "--all" }
 end
 
@@ -135,13 +138,12 @@ end
 
 --- A gating suite's `cosmic test` words and environment, `extra` added
 --- to `environment()`'s: `--all` and nothing shared where it stands on
---- no verdict (`stands`, `shares`) or `force` says so, decided on the
---- driver's own environment, which then forgets the run (`forget_run`).
-function Orchestration.suite_run(extra?: {string:string},
-    force?: boolean): {string}, {string:string}
+--- no verdict (`stands`, `shares`), decided on the driver's own
+--- environment, which then forgets the run (`forget_run`).
+function Orchestration.suite_run(extra?: {string:string}): {string}, {string:string}
   local values = environment(extra)
-  Orchestration.shares(values, force)
-  local words = Orchestration.test_words(values, force)
+  Orchestration.shares(values)
+  local words = Orchestration.test_words(values)
   Orchestration.forget_run(values)
   return words, values
 end
@@ -150,13 +152,19 @@ end
 --- keeps and stands on, given `env`, the driver's: `portable.db` beside
 --- the one `env` names -- in the directory ci.yml's verdict cache saves
 --- and restores, so it rides along -- or "0", none, where `env` names
---- no absolute path or turns the cache off. Not the other suites' file:
---- the portable artifact carries the core o/bin/cosmic does, so a test
---- that does not run the program (`tool`) keys the same under either
---- (build/declared_key.tl's `runtime`), and the portable suite would
---- stand on the local suite's verdicts of minutes earlier, running
---- nothing a change moved under the portable build. Apart, it runs
---- each such test itself and stands only on earlier portable runs'.
+--- no absolute path or turns the cache off.
+---
+--- Not the other suites' file: the portable artifact carries the cores
+--- o/bin/cosmic does, from o/core (`ProductSetup`), so a test that does
+--- not run the program (`tool`) may key the same under either -- the
+--- same runtime identity, and what runs that core
+--- (build/declared_key.tl's `launcher_identity`) the same wherever the
+--- two artifacts' launchers and manifests are -- and the portable suite
+--- would stand on the local suite's verdicts of minutes earlier,
+--- running nothing under the portable build. Apart, it runs each such
+--- test itself and stands only on earlier portable runs', whose keys
+--- move with its launcher, cores and manifest as with anything else a
+--- test is given.
 function Orchestration.portable_verdicts(env: {string:string}): string
   local shared = env.COSMIC_VERDICT_CACHE or ""
   if shared:sub(1, 1) ~= "/" then return "0" end
@@ -331,7 +339,7 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:st
   -- _RUNTIME), which today it takes only written out in the source.
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_VERDICT_CACHE = "0"
-  Orchestration.shares(env, true)
+  env.COSMIC_TEST_NO_SHARED = "1"
   return env
 end
 
@@ -687,9 +695,8 @@ local function phase_portable(p: PlatformContext): integer
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver }
   -- Where the other suites stand on verdicts (`stands`), it stands on
-  -- its own (`portable_verdicts`), never the local suite's of minutes
-  -- ago, which would leave a change's tests unrun under the portable
-  -- build; elsewhere it runs every test, as they do.
+  -- its own (`portable_verdicts`), never on the local suite's;
+  -- elsewhere it runs every test, as they do.
   local s = suite(portable_context, "portable", executable, portable_d,
     { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
       COSMIC_VERDICT_CACHE = Orchestration.portable_verdicts(Env.all()) })
