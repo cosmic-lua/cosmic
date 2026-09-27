@@ -196,11 +196,15 @@ local identity_test_timeout_ms <const> = 120000
 -- once before the checked manifest entry is timed.
 local checked_compile_timeout_ms <const> = 300000
 
--- A whole `cosmic test` run takes 12-16 s on a runner and its slowest test
--- about a second. Each test gets far less than the whole run, so a test that
--- hangs is ended and named by the runner, not hidden under a cancelled run;
--- the run's own bound leaves room for a runner several times slower.
-local suite_timeout_ms <const> = 120000
+-- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
+-- tests on a four-core runner (1872 tests), after a build of up to 25 s
+-- where the tree is compiled cold (the portable suite, macOS) and up to
+-- 10 s writing the closure stores: about 130 s whole. The merge queue's
+-- run hit the old 120 s bound on linux-x86_64 and macOS (run
+-- 36306898411). Each test gets far less than the whole run, so a test
+-- that hangs is ended and named by the runner, not hidden under a
+-- cancelled run; the run's own bound is about twice the whole.
+local suite_timeout_ms <const> = 270000
 local suite_test_timeout_s <const> = "10"
 
 local function copy_flat_tl_dir(source: string, destination: string)
