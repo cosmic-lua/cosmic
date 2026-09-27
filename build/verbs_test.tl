@@ -116,9 +116,13 @@ local function cosmic(dir: string, args: {string}): invoke.Result
   end
   -- What of the environment the program needs, its temporary files --
   -- the directory of a test `cosmic test bad` fails, which it keeps --
-  -- in this test's own directory.
+  -- in this test's own directory; and a `cosmic test`'s workers
+  -- unsandboxed, since its command line is what is held here and a
+  -- sandbox nested in this test's own is one a host may refuse.
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = "0"
   local started = observations.program(args, {
-    cwd = dir, env = observations.environment(), stdout = "capture", stderr = "capture",
+    cwd = dir, env = env, stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
   local result, trouble = Child.run(started.argv, started.options)

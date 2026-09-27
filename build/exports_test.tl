@@ -52,8 +52,9 @@ allowed["build.filesystem_observations.program"] = "how a test starts this progr
   "past its launcher, as `cosmic test` starts a worker: only tests start it so"
 allowed["build.filesystem_observations.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
-allowed["build.filesystem_observations.sandboxed"] = "what a test of sharing asks of " ..
-  "its own worker, to fail where a sandbox it requires was not given the run it starts"
+allowed["build.filesystem_observations.held_to_sandbox"] = "what a test whose " ..
+  "assertion is about a nested run's sandbox asks, to fail where a run held to " ..
+  "sandboxing gave that run none, rather than return unchecked"
 allowed["build.filesystem_observations.reads_stat_times"] = "a test's own declaration: " ..
   "that its verdict turns on stat's times, which only a test makes"
 allowed["build.test_sandbox.refusal"] = "tested directly: the test hands it each errno " ..

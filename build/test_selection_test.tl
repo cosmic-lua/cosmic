@@ -12,10 +12,13 @@ Test.needs{ tool = true }
 
 local function invoke(root: string, output: string, selector: string): Child.Result
   local fd = assert(Fs.open_write(output))
-  -- Sandboxed wherever it can be, whatever this run's switch: the rerun
-  -- line it prints repeats a switch it was given.
+  -- Unsandboxed, whatever this run's switch: what is chosen, and what
+  -- a choice runs and reports, is the same either way, and a sandbox
+  -- nested in this test's own is one a host may refuse (root nests one
+  -- only two deep), where the run would go unsandboxed only there. The
+  -- rerun line it prints repeats the switch.
   local env = observations.environment()
-  env.COSMIC_TEST_SANDBOX = nil
+  env.COSMIC_TEST_SANDBOX = "0"
   -- What its failing tests keep stays in this test's directory.
   env.TMPDIR = Fs.dirname(output)
   local started = observations.program({ "test", selector }, {
@@ -187,7 +190,7 @@ end
     local at = text:find(block, 1, true)
     assert(at ~= nil, text)
     local line_end = assert(text:find("\n", at + #block, true))
-    local rerun = "  rerun: cosmic test " .. case.printed .. "\n"
+    local rerun = "  rerun: COSMIC_TEST_SANDBOX=0 cosmic test " .. case.printed .. "\n"
     assert(text:sub(line_end + 1, line_end + #rerun) == rerun, text)
     output = tmp .. "/rerun.out"
     result = invoke(root, output, case.selector)
@@ -281,8 +284,9 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   local output = tmp .. "/nowhere.out"
   local environment = observations.environment()
   environment.TMPDIR = tmp .. "/missing"
-  -- Where no sandbox can be tried either, the run goes on unsandboxed.
-  environment.COSMIC_TEST_SANDBOX = nil
+  -- Unsandboxed, as `invoke` runs one: the directory is made before a
+  -- worker starts, sandboxed or not.
+  environment.COSMIC_TEST_SANDBOX = "0"
   local fd = assert(Fs.open_write(output))
   local started = observations.program({ "test", "suite/selected_test.tl" }, {
     cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ms = 30000,
