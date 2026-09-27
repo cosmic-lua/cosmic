@@ -592,6 +592,14 @@ local not_input: {string:boolean} = {
 }
 
 --- The trees and files the tool is made of, in cosmic's own tree.
+-- TODO: the tool carries every module of the tree but its tests and
+-- examples (build.writer's `dropped_modules`), eval/'s and test/'s
+-- included (eval/arena.tl, eval/check/notes.tl, eval/summarize.tl,
+-- test/portable/init.tl and tool.tl), yet neither is a tool tree here,
+-- so an edit to one moves no `boot_hash` and leaves a stale tool
+-- carrying the old module. Either filter `carry` to the modules under
+-- these trees (and what they require), or hash what the tool carries
+-- rather than what sits under these trees.
 local tool_trees: {string:boolean} = {
   ["build"] = true,
   ["core"] = true,

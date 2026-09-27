@@ -27,7 +27,7 @@ local function archive_tree(root: string, tree: string, diagnostics: string)
 end
 
 -- The fixed point of the self-rebuild: the tool a boot wrote (the
--- product), made stale by an edit to `file` and rebuilt, then made stale
+-- product), made stale by `edit` of `file` and rebuilt, then made stale
 -- again by undoing it and rebuilt once more, must be the product again,
 -- byte for byte -- prefix, database and all. The second rebuild is done
 -- by a tool the first built, so this holds only when a tool built by a
@@ -37,7 +37,7 @@ end
 -- its own and builds it again once (`build.reboot`); outside both,
 -- neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
-    settles: boolean)
+    edit: function(string): string, settles: boolean)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local case_root = tmp .. "/case-fixed-point-" .. name
@@ -56,7 +56,9 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
     COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
   for _, stage in ipairs({ "edited", "undone" }) do
     if stage == "edited" then
-      Fixture.write(path, original .. "-- a fixed-point fixture\n")
+      local edited = edit(original)
+      assert(edited ~= original, name .. ": the edit changed nothing")
+      Fixture.write(path, edited)
     else
       Fixture.write(path, original)
     end
@@ -81,19 +83,35 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
     "self-rebuilds left is not the tool the boot wrote")
 end
 
+-- A comment appended to a module's source.
+local function commented(source: string): string
+  return source .. "-- a fixed-point fixture\n"
+end
+
 -- `cosmic.rand` is in neither closure: the stale tool's compiler and
 -- writer are the tree's, and each rebuild is final.
 local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "outside", "cosmic/rand.tl", false)
+  run_fixed_point_case(tmp, "outside", "cosmic/rand.tl", commented, false)
 end
 
 -- `build.clock` is in the writer's closure and not the compiler's.
 local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "writer", "build/clock.tl", true)
+  run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true)
 end
 
 -- `build.positions` is in the compiler's closure: each rebuilt tool
 -- compiles the whole tree again with its own compiler.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/positions.tl", true)
+  run_fixed_point_case(tmp, "compiler", "build/positions.tl", commented, true)
+end
+
+-- An edit to what the tool's fingerprint covers (`build.work`'s
+-- `tool_files`): the stale tool records the tree's fingerprint by its
+-- own, older definition, so the tool it writes is stale by its own
+-- code, and builds itself again once (`build.reboot`) rather than
+-- refusing as still stale after a reboot.
+local function test_a_rebuilt_fingerprint_lands_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "fingerprint", "build/work.tl", function(source: string): string
+    return (source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1))
+  end, true)
 end
