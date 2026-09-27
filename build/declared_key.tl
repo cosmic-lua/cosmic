@@ -635,13 +635,27 @@ end
 
 --- The processor's features a core running on `machine` chooses code
 --- by, which is all a key holds of what /proc/cpuinfo lists:
---- `host_identity` says which code reads each. A machine not named
---- here, whose cores no audit has read, keys its whole list.
+--- `host_identity` says which code reads each, and
+--- build/dispatched_features_test.tl holds the vendored sites to this.
+--- A machine not named here, whose cores no audit has read, keys its
+--- whole list.
 local dispatched: {string:{string:boolean}} = {
   x86_64 = { aes = true, pclmulqdq = true, ssse3 = true, sse4_1 = true, fma = true,
-    avx2 = true },
+    avx2 = true, fma4 = true },
   aarch64 = { asimd = true, aes = true, pmull = true, crc32 = true },
 }
+
+--- The features a core on `machine` chooses code by (`dispatched`), in
+--- byte order, or nil for a machine no audit has read, whose key holds
+--- every feature.
+function declared_key.dispatched(machine: string): {string}
+  local kept = dispatched[machine]
+  if kept == nil then return nil end
+  local sorted: {string} = {}
+  for flag in pairs(kept) do sorted[#sorted + 1] = flag end
+  table.sort(sorted)
+  return sorted
+end
 
 --- The processor's features `cpuinfo` (/proc/cpuinfo by default) lists
 --- -- "flags" on x86, "Features" on arm -- each once, in byte order,
@@ -731,9 +745,13 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
   -- crc32_arm64.h (`crc32`); and, for the checked core, which links
   -- glibc's libm where it is built on a glibc host, its pow, asin, acos
-  -- and atan2, whose FMA variants (`fma` with `avx2`) round a last bit
-  -- otherwise. Nothing else the core carries dispatches, nor does its
-  -- build, so the processor's model and microcode, which choose no code,
+  -- and atan2, whose FMA variants (`fma` with `avx2`, else `fma4` for
+  -- asin, acos and atan2) round a last bit otherwise. The other libm
+  -- functions it imports, frexp and ldexp, have no variants, and
+  -- atan2's `avx` one only re-encodes SSE and changes no result, so
+  -- `avx` is not keyed. No grep finds glibc's choices, which are in the
+  -- host's libm, not the tree: this comment is their record. Nothing
+  -- else the core carries dispatches, nor does its build, so the processor's model and microcode, which choose no code,
   -- are not keyed either. The whole list split GitHub's hosted runners of
   -- one leg on flags nothing reads (avx512*, a hypervisor's bits,
   -- md_clear), each split a verdict not shared. A vendored library

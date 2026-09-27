@@ -12,7 +12,8 @@ Test.needs{ reads = { ".github/scripts/host-features.sh" } }
 
 local SCRIPT <const> = ".github/scripts/host-features.sh"
 
---- A host under `tmp` of `machine` whose /proc/cpuinfo holds `cpuinfo`:
+--- A host under `tmp` of `machine` (nil: this host's, on both sides)
+--- whose /proc/cpuinfo holds `cpuinfo`:
 --- `write` replaces one of its files, and `both(what, moved)` checks
 --- that the script and `host_features` name it alike and that the name
 --- and `host_identity` moved from every one seen before, or neither.
@@ -31,8 +32,9 @@ local function host(tmp: string, machine: string, cpuinfo: string):
     status = write("status", "Uid: 1 1 1 1\n"), own_proc = true, host_id = "h", uid = 1,
   }
   local function script(): string
-    local result = assert(Child.run({ "/bin/sh", SCRIPT, sources.cpuinfo, sources.system[2],
-      sources.system[3], machine }, { stdout = "capture", stderr = "capture",
+    local argv = { "/bin/sh", SCRIPT, sources.cpuinfo, sources.system[2], sources.system[3] }
+    if machine ~= nil then argv[#argv + 1] = machine end
+    local result = assert(Child.run(argv, { stdout = "capture", stderr = "capture",
       timeout_ms = 10000 }))
     assert(result.ok, tostring(result.stderr))
     return ((result.stdout as string):gsub("%s+$", ""))
@@ -86,6 +88,8 @@ local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: stri
   both("no aes", true)
   write("cpuinfo", "flags : " .. (base:gsub(" fma", "")) .. "\n")
   both("no fma", true)
+  write("cpuinfo", "flags : " .. base .. " fma4\n")
+  both("fma4 more", true)
 end
 
 --- On aarch64, only the features a core chooses code by are keyed --
@@ -100,4 +104,13 @@ local function test_an_aarch64_host_keys_only_what_a_core_dispatches_on(tmp: str
   both("no crc32", true)
   write("cpuinfo", "Features : " .. (base:gsub(" pmull", "")) .. "\n")
   both("no pmull", true)
+end
+
+--- Where neither names the machine, the script's (`uname -m`) and the
+--- key's (`sys.uname`) are the same one: a host listing every feature
+--- either list keeps, and some neither does, is named alike.
+local function test_the_script_and_the_key_take_the_same_machine_by_default(tmp: string)
+  local _, both = host(tmp, nil, "flags : aes avx2 fma fma4 pclmulqdq sse4_1 ssse3 " ..
+    "avx512f hypervisor\nFeatures : asimd aes pmull crc32 sve\n")
+  both("this host", true)
 end

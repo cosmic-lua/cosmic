@@ -655,10 +655,17 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   TODO above `read`). And `Store.meta` answers the projection's own
   digests, which move with every edit (`build/test_worker.tl`, the TODO on
   `hold_store`).
-- *the processor*: its features are keyed (/proc/cpuinfo's flags); its model
-  and microcode are not.
 - *build.dispatch*: the harness digest holds the runner's and the worker's
   closures, not the verb dispatcher that hands a worker its command line.
+
+the processor is keyed, for good, by the features a core chooses code by
+alone (`dispatched` in `build/declared_key.tl`, which
+`.github/scripts/host-features.sh` mirrors): mbedtls's AES and xz's CRC
+instructions, and on the checked core glibc's FMA libm. the rest of
+/proc/cpuinfo's flags, its model and its microcode choose no code a test runs,
+and keying them split hosted runners of one leg for nothing.
+`build/dispatched_features_test.tl` fails when the tree comes to ask the
+processor anything else.
 
 what an observed key leaves out, each with a `TODO:` where its fix goes:
 
