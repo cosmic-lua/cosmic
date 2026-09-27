@@ -3040,7 +3040,7 @@ function test.run(argv: {integer:string}): integer
     end
   end
   -- Where every keyed test was looked up in the shared cache, none of
-  -- them ever ran in this checkout -- a fresh one, as CI's is -- and
+  -- them ever ran or stood in this checkout -- a fresh one, as CI's is -- and
   -- none was found there, though the cache holds rows, say what every
   -- key holds, so two runs' lines say which part moved. An edit in a
   -- checkout says nothing: what it moved ran here before.
