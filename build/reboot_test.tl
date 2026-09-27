@@ -1,5 +1,11 @@
 local Fs = require("cosmic.fs")
 local reboot = require("build.reboot")
+local Test = require("cosmic.test")
+
+--- The stand-in for bin/zig these tests start could read the store, as
+--- any process a sandboxed test starts could: declared, so the key holds
+--- it.
+Test.needs{ store = true }
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 local function test_auto_boot_unless_told_not_to()

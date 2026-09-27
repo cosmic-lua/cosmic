@@ -13,7 +13,7 @@ local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
 --- What a worker's plan gives it of the host, and the program it runs.
-Test.needs{ host = { "/dev/urandom", "/etc", "/proc", "/usr/" }, tool = true }
+Test.needs{ host = { "/dev/urandom", "/etc", "/proc", "/usr/" }, tool = true, store = true }
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective

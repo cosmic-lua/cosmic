@@ -16,7 +16,7 @@ local Test = require("cosmic.test")
 --- A worker a test starts, to hang or exit, and /proc, where what a
 --- hung one left running would be found; and the program itself, which
 --- the tests start.
-Test.needs{ host = { "/proc" }, processes = true, tool = true }
+Test.needs{ host = { "/proc" }, processes = true, tool = true, store = true }
 
 --- The environment a run of `cosmic test` these tests start is given:
 --- its workers unsandboxed (`COSMIC_TEST_SANDBOX=0`), since what they
