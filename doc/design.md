@@ -618,8 +618,8 @@ that does run runs in a worker process of its own:
 four platform lanes cover Linux x86_64, Linux aarch64 on an arm runner, macOS
 aarch64 on an arm Mac runner, and x86_64 Linux with additional offline Alpine
 checks. each independently builds the complete product, runs it, and uploads the
-executed bytes. a separate provenance job compares the four products and their
-attestations.
+executed bytes. the provenance join, in the job ci requires, compares the four
+products and their attestations.
 
 #### what an observed key leaves out
 

@@ -354,7 +354,7 @@ local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
   local cosmic = stand_in(tmp)
   local here = checkout_root()
   for tool, script in pairs({ zig = "zig.tl", vendor = "vendor.tl",
-      actionlint = "actionlint.tl", ["verify-codesign"] = "verify_codesign.tl" }) do
+      ["verify-codesign"] = "verify_codesign.tl" }) do
     assert(Fs.write(root .. "/bin/" .. tool,
       (assert(Fs.read(here .. "/bin/" .. tool))), 0x1ed))
     local result = call({ root .. "/bin/" .. tool, "x", "y z" }, tmp,

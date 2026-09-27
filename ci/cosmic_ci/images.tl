@@ -148,13 +148,15 @@ local function append(path: string, text: string): boolean, string
   return true, ""
 end
 
---- Joins one image's architectures under `name:GITHUB_SHA`, writes its
+--- Joins one image's architectures under `name:SOURCE_COMMIT`, the
+--- commit of the ci-images run that pushed them (not GITHUB_SHA, which
+--- in ci-images-publish.yml's workflow_run is main's head), writes its
 --- `name@digest` to `out`, and appends it to the step summary: 0, or a
 --- failing status and why.
 function Images.publish(env: {string:string}, out: integer): integer, string
   local image = required(env, "IMAGE")
   local name = Images.name(required(env, "GITHUB_REPOSITORY"), image)
-  local sha = required(env, "GITHUB_SHA")
+  local sha = required(env, "SOURCE_COMMIT")
   local summary = required(env, "GITHUB_STEP_SUMMARY")
   local token = required(env, "TOKEN")
   local login, create, inspect = Images.publish_argvs(name,

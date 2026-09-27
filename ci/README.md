@@ -83,7 +83,7 @@ that does not establish release publication or immutability.
 rather than from positional arguments: `GITHUB_WORKSPACE` (the candidate
 checkout root), `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `RUNNER_TEMP`,
 `COSMIC_WORKER` (the workflow sets this from `matrix.name`, or to
-`provenance` for the join job), and, for `platform` only, `TARGET`. All
+`provenance` for the join, in ci.yml's `ci` job), and, for `platform` only, `TARGET`. All
 driver state lives under `$RUNNER_TEMP/cosmic-ci/`: the operations database
 at `$RUNNER_TEMP/cosmic-ci/operations.db`, the platform work directory at
 `$RUNNER_TEMP/cosmic-ci/platform`, and the provenance products directory at
@@ -97,9 +97,10 @@ unavailable and exits 0: no operation ran, which means the self-check
 failed first.
 
 `prerelease-stage` and `prerelease-publish` are prerelease.yml's publish
-job, which checks out only `ci/`, `bin/cosmic-bootstrap`,
-`.github/scripts/cosmic-driver.sh` and the `.github/actions/cosmic-driver`
-action that runs it, and holds a `contents: write` token.
+job, which runs after each green ci run on main, checks out only `ci/`,
+`bin/cosmic-bootstrap`, `.github/scripts/cosmic-driver.sh` and the
+`.github/actions/cosmic-driver` action that runs it, and holds a
+`contents: write` token.
 The token reaches only the driver's `prerelease-publish` step, which hands
 it to the `gh` CLI; beyond the actions, the job otherwise runs only the
 scripts that fetch the pinned driver and verify it against the pin. The
@@ -130,12 +131,13 @@ and the reports beneath them. `fuzz-cancelled` appends the last 40 lines
 of `$RUNNER_TEMP/fuzz.out`, if there is one, to the step summary. Both
 write the summary where `summarize` does.
 
-`image-build` and `image-publish` are ci-images.yml's: they run `docker`,
-found on `PATH`, from `GITHUB_WORKSPACE`, record no operations and need no
-`RUNNER_TEMP` state. `image-build` builds `ci/images/$IMAGE` for `ARCH` as
+`image-build` is ci-images.yml's and `image-publish` ci-images-publish.yml's:
+they run `docker`, found on `PATH`, from `GITHUB_WORKSPACE`, record no
+operations and need no `RUNNER_TEMP` state. `image-build` builds `ci/images/$IMAGE` for `ARCH` as
 `ghcr.io/<GITHUB_REPOSITORY>-ci-<IMAGE>:<GITHUB_SHA>-<ARCH>`, lowercase,
 with `UBUNTU_SNAPSHOT` as a build argument, and pushes it when `PUBLISH` is
 `true`. `image-publish` logs in to GHCR as `GITHUB_ACTOR` with `TOKEN` on
 the login's stdin (and in no argument, message or docker environment),
-joins each of `ARCHES` (blank-separated) under `<GITHUB_SHA>`, prints the
+joins each of `ARCHES` (blank-separated) under `<SOURCE_COMMIT>`, the commit
+of the ci-images run that built them, prints the
 index's `name@digest`, and appends it to `GITHUB_STEP_SUMMARY`.

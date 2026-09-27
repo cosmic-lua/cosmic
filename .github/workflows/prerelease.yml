@@ -3,20 +3,35 @@
 {
   name: "publish next prerelease",
 
+  # Publishes from each ci run on main -- a push or a manual run, not
+  # the scheduled one -- that completed green, so no branch's run shows
+  # this job as a skipped check. A workflow_run always runs main's copy
+  # of this file, in main's context: the commit and run it publishes are
+  # the triggering run's (github.event.workflow_run), not github.sha or
+  # github.run_id. The write permission is this job's alone; ci.yml's
+  # jobs remain read-only.
   "on": {
-    workflow_call: {},
+    workflow_run: {
+      workflows: ["ci"],
+      types: ["completed"],
+      branches: ["main"],
+    },
   },
 
-  # The caller and this workflow both restrict publication to cosmic-lua/cosmic's
-  # main branch. The write permission exists only on the caller job that invokes
-  # this workflow; the build and provenance jobs remain read-only.
+  permissions: {contents: "read"},
+
   jobs: {
     publish: {
-      if: "github.repository == 'cosmic-lua/cosmic' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
+      permissions: {
+        contents: "write",
+        # To download the triggering run's products.
+        actions: "read",
+      },
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 10,
       concurrency: {
-        group: "prerelease-${{ github.sha }}",
+        group: "prerelease-${{ github.event.workflow_run.head_sha }}",
         "cancel-in-progress": false,
       },
       steps: [
@@ -35,6 +50,7 @@
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
+            ref: "${{ github.event.workflow_run.head_sha }}",
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
             "sparse-checkout-cone-mode": false,
             "persist-credentials": false,
@@ -49,6 +65,8 @@
           with: {
             pattern: "portable-product-*",
             path: "${{ runner.temp }}/products",
+            "run-id": "${{ github.event.workflow_run.id }}",
+            "github-token": "${{ github.token }}",
           },
         },
 
@@ -58,8 +76,8 @@
           env: {
             PRODUCTS: "${{ runner.temp }}/products",
             RELEASE: "${{ runner.temp }}/release",
-            SOURCE_COMMIT: "${{ github.sha }}",
-            SOURCE_RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            SOURCE_COMMIT: "${{ github.event.workflow_run.head_sha }}",
+            SOURCE_RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}",
           },
           run: "cosmic-driver cosmic_ci/driver.tl prerelease-stage",
         },
@@ -71,7 +89,7 @@
             GH_TOKEN: "${{ github.token }}",
             REPOSITORY: "${{ github.repository }}",
             RELEASE: "${{ runner.temp }}/release",
-            SOURCE_COMMIT: "${{ github.sha }}",
+            SOURCE_COMMIT: "${{ github.event.workflow_run.head_sha }}",
             SOURCE_RUN_PREFIX: "${{ github.server_url }}/${{ github.repository }}/actions/runs/",
           },
           run: "cosmic-driver cosmic_ci/driver.tl prerelease-publish",

@@ -15,8 +15,8 @@ local flow = require("build.flow")
 
 --- The workflows and actions, and the programs and pins they name.
 Test.needs{
-  reads = { ".github/", "bin/actionlint", "bin/actionlint.pin", "bin/cosmic-bootstrap",
-    "build/actionlint.tl", "ci/cosmic-driver.pin", "ci/cosmic_ci", "ci/images" },
+  reads = { ".github/", "bin/cosmic-bootstrap", "ci/cosmic-driver.pin", "ci/cosmic_ci",
+    "ci/images" },
 }
 
 local DIR <const> = ".github/workflows"
@@ -142,9 +142,14 @@ local function inputs_read(expression: string): {string}
   return out
 end
 
---- Each input an action's expressions read is one it declares:
---- actionlint checks what a workflow passes an action, but not the
---- action's own steps, where a misspelt input reads as empty.
+--- Each input an action's expressions read is one it declares: a
+--- misspelt input reads as empty.
+-- TODO: hold the other expressions in the workflows and actions, as
+-- the actionlint this file replaced did: that each context one names
+-- is available where it stands, that `needs.<job>` names a job its job
+-- needs, that `steps.<id>` names a step before it, and that `with`
+-- passes a local action only inputs it declares. Only an action's
+-- `inputs` are held today, so such a mistake fails at the run.
 local function test_an_action_reads_only_the_inputs_it_declares()
   local count = 0
   for path, text in pairs(flow_files(action_paths())) do
@@ -559,4 +564,30 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
   end
   assert(named, "the host-id step names no verdict cache by the host's features")
   assert(cached == 2, "restore and save: " .. cached)
+end
+
+--- A job a push to a branch starts and skips there still shows as a
+--- check on the branch's PR, a skipped one whose matrix, if it has one,
+--- never expands in its name. So a job that runs only on main -- one
+--- whose `if` names main's ref -- lives in a workflow a branch push does
+--- not start: one on a workflow_run from main (prerelease.yml,
+--- ci-images-publish.yml), or on a push to main alone. A step may still
+--- run only on main.
+local function test_a_branch_push_starts_no_job_only_main_runs()
+  local count = 0
+  for path, workflow in pairs(decoded_workflows()) do
+    local on = workflow["on"]
+    local push = on is {string: any} and on.push or nil
+    local branches = push is {string: any} and push.branches or nil
+    local main_only = branches is {string} and #branches == 1 and branches[1] == "main"
+    if push ~= nil and not main_only then
+      for name, job in pairs(workflow.jobs as {string: {string: any}}) do
+        count = count + 1
+        local condition = job["if"]
+        assert(not (condition is string and condition:find("refs/heads/main", 1, true)),
+          path .. ": job " .. name .. " runs only on main, and a branch push shows it skipped")
+      end
+    end
+  end
+  assert(count > 0, "no workflow a branch push starts")
 end

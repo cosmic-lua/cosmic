@@ -1,0 +1,66 @@
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
+{
+  name: "ci-images-publish",
+
+  # Joins the architectures a ci-images run on main pushed (a push or a
+  # manual run, completed green) under that run's commit, and writes
+  # each index's digest to this run's summary; see ci-images.yml. A
+  # workflow of its own, so no branch's run shows this job as a skipped
+  # check. A workflow_run always runs main's copy of this file, in
+  # main's context: the commit it publishes is the triggering run's
+  # (github.event.workflow_run.head_sha), not github.sha.
+  "on": {
+    workflow_run: {
+      workflows: ["ci-images"],
+      types: ["completed"],
+      branches: ["main"],
+    },
+  },
+
+  permissions: {contents: "read"},
+
+  jobs: {
+    publish: {
+      name: "publish ${{ matrix.image }}",
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      permissions: {
+        contents: "read",
+        packages: "write",
+      },
+      strategy: {
+        matrix: {
+          include: [
+            {image: "ubuntu", arches: "amd64 arm64"},
+            {image: "alpine", arches: "amd64"},
+          ],
+        },
+      },
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {ref: "${{ github.event.workflow_run.head_sha }}"},
+        },
+
+        {
+          name: "bootstrap the pinned CI driver",
+          uses: "./.github/actions/cosmic-driver",
+        },
+
+        {
+          name: "join the architectures under one tag and report its digest",
+          env: {
+            IMAGE: "${{ matrix.image }}",
+            ARCHES: "${{ matrix.arches }}",
+            SOURCE_COMMIT: "${{ github.event.workflow_run.head_sha }}",
+            TOKEN: "${{ secrets.GITHUB_TOKEN }}",
+          },
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl image-publish",
+        },
+      ],
+    },
+  },
+}
