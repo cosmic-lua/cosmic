@@ -1,5 +1,6 @@
 local ContextEnv = require("cosmic_ci.context")
 local Env = require("cosmic.env")
+local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
@@ -281,8 +282,10 @@ local runtime_test_timeout_ms <const> = 180000
 -- tree's own load, which a booted tree has already paid.
 local sandbox_probe_timeout_ms <const> = 60000
 local identity_test_timeout_ms <const> = 120000
--- The sanitized cosmic's first, cold compile of the test tree, run
--- once before the checked manifest entry is timed.
+-- The first file a cosmic runs in the tree after the checked build,
+-- which builds the tree's database again (`checked_suite`): 15 s by the
+-- release cosmic under ci/run-local on a 4-core host, 30-35 s by the
+-- checked one, which once took 41 s, past the 30 s bound it then had.
 local checked_compile_timeout_ms <const> = 300000
 
 -- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
@@ -359,7 +362,12 @@ local function fixture_test(c: Context, work: string, name: string,
     Orchestration.fixture(environment(extra), diagnostics .. "/tmp"))
 end
 
-local function checked_suite(c: Context, target: string, work: string): integer
+--- The checked core, verified on every leg -- its manifest entry in the
+--- checked artifact, read by `decoder` (the contract's
+--- format-test-<target>), its range, and that the artifact runs it --
+--- and its whole suite run where COSMIC_CI_CHECKED_SUITE is not `skip`.
+local function checked_suite(c: Context, target: string, work: string,
+    decoder: string): integer
   local sanitized = c.root .. "/o/sanitized"
   local targets_path = sanitized .. "/targets.tsv"
   local target_id: string | nil = nil
@@ -384,45 +392,80 @@ local function checked_suite(c: Context, target: string, work: string): integer
   local cosmic = sanitized .. "/bin/cosmic"
   local core = sanitized .. "/cosmic-core"
   local entry = work .. "/checked-entry.txt"
-  local entry_command = { cosmic, c.root .. "/test/portable/tool.tl", "entry",
-    cosmic, target_id, "2" }
-  -- The sanitized cosmic's first run compiles the tree tool.tl sits in:
-  -- 41 s on a 4-core host under ci/run-local, against under a second
-  -- once warm. That compile gets a bound of its own, so the entry's
-  -- bound below times the entry and nothing else.
-  local s = capture_small(c, "checked tool compile", entry_command,
-    work .. "/checked-compile.txt", checked_compile_timeout_ms)
+  -- The checked artifact's manifest entry, as the contract's decoder
+  -- reads it (as ci/fixtures/product_test.tl reads the product's).
+  local s = capture_small(c, "checked manifest entry",
+    { decoder, "--inspect", cosmic }, entry, 30000)
   if s ~= 0 then return s end
-  s = capture_small(c, "checked manifest entry", entry_command, entry, 30000)
-  if s ~= 0 then return s end
-  local offset_text, length_text, digest =
-    read(entry):match("^(%d+)[ \t]+(%d+)[ \t]+([0-9a-f]+)\n$")
-  local offset = math.tointeger(assert(tonumber(offset_text)))
-  local length = math.tointeger(assert(tonumber(length_text)))
-  assert(offset and length and digest and offset % 16384 == 0,
-    "checked manifest entry is malformed or unaligned: " .. read(entry))
+  local found = Fixture.entry(Fixture.inspection(entry),
+    assert(math.tointeger(tonumber(target_id))), 2)
+  assert(found, "checked manifest entry is missing: " .. read(entry))
+  local offset, length, digest = found.offset, found.length, found.digest
+  assert(offset % 16384 == 0,
+    "checked manifest entry is unaligned: " .. read(entry))
   local artifact = read(cosmic); local raw = read(core)
   assert(length == #raw and #digest == 64, "checked core length/digest invalid")
   local extracted = artifact:sub(offset + 1, offset + length)
   assert(#extracted == length and Hash.hex_sha256(extracted) == digest and
     extracted == raw, "checked core range differs")
   write(work .. "/checked.core", extracted)
-  s = checked(c, "checked runtime context", { cosmic,
-    c.root .. "/test/portable/tool.tl", "checked-context", core, target }, 30000)
+  local expected = offset .. "\t" .. length .. "\t" .. digest .. "\n"
+  -- `zig build sanitized` wrote o/build.db, so the first file a cosmic
+  -- runs in the tree after it builds the tree's database again (the
+  -- release tool says "the tool's database was built by other code than
+  -- its own; building it again"): 15 s by the release cosmic here, and
+  -- CI's x86 runners are up to 1.7x slower. Every leg runs such files
+  -- after this -- RuntimeSetup's tool.tl runs, under a fixture's 30 s
+  -- bound, the runtime and identity fixtures, the checked suite -- so it
+  -- is paid here, once, by the release cosmic, under a bound of its own:
+  -- `tool.tl entry`, whose entry must be the decoder's.
+  -- TODO: drop this step once the release and checked tools stop
+  -- rebuilding o/build.db after each other's boot.
+  local rebuilt = work .. "/checked-entry-release.txt"
+  s = capture_small(c, "tree database rebuild", { c.root .. "/o/bin/cosmic",
+    c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
+    rebuilt, checked_compile_timeout_ms)
   if s ~= 0 then return s end
-  -- The suite on the checked core costs a leg about a minute. Most of
-  -- what it checks is the same on every platform, so the workflow runs
-  -- it on one leg, and the others set COSMIC_CI_CHECKED_SUITE=skip; the checked core is still built and
-  -- verified above, and the fixtures still use it.
+  assert(read(rebuilt) == expected,
+    "the release cosmic reads another checked manifest entry: " .. read(rebuilt))
+  -- That the checked artifact runs the checked core: its runtime
+  -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
+  -- which builds and writes nothing.
+  local context = work .. "/checked-context.txt"
+  s = capture_small(c, "checked runtime context", { cosmic, "-e",
+    "local Store = require('cosmic.store'); print(Store.meta('runtime_context'), " ..
+    "Store.meta('host'), Store.meta('host_image'))" }, context, 30000)
+  if s ~= 0 then return s end
+  assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
+    "checked artifact did not execute the checked raw core: " .. read(context))
+  -- The suite on the checked core costs a leg two to three minutes. Most
+  -- of what it checks is the same on every platform, so the workflow runs
+  -- it on one leg, and the others set COSMIC_CI_CHECKED_SUITE=skip; the
+  -- checked core is still built and verified above, and the fixtures
+  -- still use it.
   -- TODO: the core's platform-conditional C (__APPLE__, __aarch64__ in
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
-  -- off linux-x86_64; a checked run of only the tests that enter it, on
-  -- the legs that skip the whole suite, would cover it for seconds.
+  -- off linux-x86_64: a leg that skips the suite runs the checked cosmic
+  -- only on a chunk (`-e`, above), no longer on a file in the tree, whose
+  -- build (staging it, writing SQLite), which the release cosmic now
+  -- pays, was the one real code it ran there. A checked run of only the tests that enter that C, on the legs
+  -- that skip the whole suite, would cover it for seconds.
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
     Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
       "(COSMIC_CI_CHECKED_SUITE=skip)\n")
     return 0
   end
+  -- The checked cosmic's first file in the tree, `tool.tl entry`, whose
+  -- entry must be the decoder's, under the rebuild's bound in case it
+  -- builds the tree's database again, so the suite's bound below times
+  -- the suite.
+  local compiled = work .. "/checked-compile.txt"
+  s = capture_small(c, "checked tool entry", { cosmic,
+    c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
+    compiled, checked_compile_timeout_ms)
+  if s ~= 0 then return s end
+  assert(read(compiled) == expected,
+    "the checked cosmic reads another manifest entry: " .. read(compiled))
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
@@ -652,6 +695,7 @@ local function phase_assemble(p: PlatformContext): integer
   assert(ProductSetup.build(root, product, work .. "/product-setup") == product,
     "product setup returned the wrong product")
   write(work .. "/cosmic.before.sha256", hash(product .. "/cosmic") .. "\n")
+  write(work .. "/product.before.sha256", read(product .. "/hashes.sha256"))
   s = fixture_test(c, work, "format-contract", "format",
     format_test_timeout_ms, {
     COSMIC_FIXTURE_ROOT = root,
@@ -664,7 +708,7 @@ local function phase_assemble(p: PlatformContext): integer
     "launcher setup returned the wrong output")
   s = checked(c, "checked build", { root .. "/bin/zig", "build", "sanitized" })
   if s ~= 0 then return s end
-  s = checked_suite(c, target, work)
+  s = checked_suite(c, target, work, contract .. "/format/format-test-" .. target)
   if s ~= 0 then return s end
   s = checked(c, "hook-core build", { root .. "/bin/zig", "build", "portable-hook-cores", "--prefix", work .. "/prebuilt" }); if s ~= 0 then return s end
   mkdir(work .. "/prebuilt/portable-fixture/sanitized")
@@ -783,13 +827,12 @@ local function phase_fixtures(p: PlatformContext): integer
     COSMIC_FIXTURE_ROOT = root,
     COSMIC_FIXTURE_RUNTIME = runtime,
   }); if s ~= 0 then return s end
-  s = fixture_test(c, work, "product-regression", "product",
-    product_test_timeout_ms, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_TARGET = target,
-    COSMIC_FIXTURE_DECODER = contract .. "/format/format-test-" .. target,
-    COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
-  }); if s ~= 0 then return s end
+  -- The product fixture ran on these bytes in assemble
+  -- (product-verification); run again on the same bytes and inputs, it
+  -- would check nothing more than that none of them moved since.
+  local changed = ProductSetup.changed(product,
+    read(work .. "/product.before.sha256"))
+  assert(changed == nil, "product mutated by fixtures: " .. tostring(changed))
   assert(hash(product .. "/cosmic") .. "\n" == read(work .. "/cosmic.before.sha256"), "product mutated by fixtures"); return 0
 end
 
@@ -807,6 +850,11 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   if phase == "build" then return phase_build(p)
   elseif phase == "local-boundary" then return phase_local_boundary(p)
   elseif phase == "format" then return format_check(p)
+  -- Assemble's checked core, verified and (COSMIC_CI_CHECKED_SUITE) its
+  -- suite run, alone, on a checked build already there.
+  elseif phase == "checked" then
+    return checked_suite(p.operation, p.target, p.work,
+      p.contract .. "/format/format-test-" .. p.target)
   elseif phase == "sandbox" then return phase_sandbox(p)
   elseif phase == "assemble" then return phase_assemble(p)
   elseif phase == "portable" then return phase_portable(p)
