@@ -471,6 +471,12 @@ function declared_key.host_identity(digests: declared_key.Digests,
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
   -- Each distinct feature once, sorted: every processor lists them.
+  -- TODO: key the processor's model and microcode too (/proc/cpuinfo's
+  -- "model name", "cpu family", "model", "stepping" and "microcode",
+  -- the first processor's), once a verdict is shared across hosts whose
+  -- features match but whose behaviour differs -- a microcode fix that
+  -- moves a timing or an erratum: today two hosts of the same features
+  -- share a key whatever their model.
   local cpuinfo, _ = Fs.read(from.cpuinfo or "/proc/cpuinfo")
   local features: {string:boolean} = {}
   for line in (cpuinfo or ""):gmatch("[^\n]+") do
@@ -501,21 +507,32 @@ function declared_key.host_identity(digests: declared_key.Digests,
 end
 
 --- The test harness every worker runs, as a digest: each module the
---- modules `roots` require, directly or not, and themselves, by name and
---- source hash, from `sources` (source hash by module name) and
---- `imports` (the names each requires), as the running binary's own
+--- modules `roots` require, directly or not, and themselves, and each of
+--- `own` alone -- one whose requires are the runner's, not a worker's --
+--- by name and source hash, from `sources` (source hash by module name)
+--- and `imports` (the names each requires), as the running binary's own
 --- database holds them. A module no source names is left out.
 function declared_key.harness(roots: {string}, sources: {string:string},
-                              imports: {string:{string}}): string
+                              imports: {string:{string}}, own?: {string}): string
   local seen: {string:boolean} = {}
   local lines: {string} = {}
   local stack: {string} = {}
-  for _, root in ipairs(roots) do stack[#stack + 1] = root end
-  while #stack > 0 do
-    local name = table.remove(stack)
-    if not seen[name] and sources[name] ~= nil then
+  for _, name in ipairs(own or {}) do
+    if sources[name] ~= nil and not seen[name] then
       seen[name] = true
       lines[#lines + 1] = name .. " " .. sources[name]
+    end
+  end
+  for _, root in ipairs(roots) do stack[#stack + 1] = root end
+  local walked: {string:boolean} = {}
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not walked[name] and sources[name] ~= nil then
+      walked[name] = true
+      if not seen[name] then
+        seen[name] = true
+        lines[#lines + 1] = name .. " " .. sources[name]
+      end
       for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end
     end
   end
@@ -524,15 +541,18 @@ function declared_key.harness(roots: {string}, sources: {string:string},
 end
 
 --- What this very program is, for a test that runs it: each of `paths`
---- (`observations.itself()`: the program, its core and the stamp that
---- says the core was verified) by contents, hashed only when its
---- `lstat` moves.
+--- (`observations.itself()`: the program and its core) by contents,
+--- hashed only when its `lstat` moves. The stamp that says a core was
+--- verified (`.verified-<core>`) is left out: it is there or not by
+--- whether a run has verified the core yet, not by what runs.
 function declared_key.program_identity(digests: declared_key.Digests, paths: {string}): string
   local lines: {string} = {}
   for _, path in ipairs(paths) do
+    if path:match("/%.verified%-[^/]*$") ~= nil then goto continue end
     local st, _ = sys.stat(path)
     lines[#lines + 1] = (st ~= nil and st.kind == "file") and contents(digests, path, st) or
       "missing"
+    ::continue::
   end
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end

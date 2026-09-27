@@ -17,7 +17,9 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local Sqlite = require("cosmic.sqlite")
 local observations = require("build.filesystem_observations")
+local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, and the
@@ -100,8 +102,9 @@ local function environment(cache: string): {string:string}
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_NO_SHARED = nil
   env.COSMIC_SANDBOX = nil
-  -- This run's own switch: off, the run it starts shares nothing.
-  env.COSMIC_TEST_SANDBOX = sys.getenv("COSMIC_TEST_SANDBOX")
+  -- Sandboxed where it can be, whatever this run's own switch says:
+  -- this test's worker, unsandboxed, may start runs that are.
+  env.COSMIC_TEST_SANDBOX = nil
   env.FLAVOUR = "sweet"
   return env
 end
@@ -310,4 +313,59 @@ end
   assert(back:find("1 ran, 0 stood", 1, true), back)
   local stands = run(root, tmp .. "/stands.out", env)
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
+end
+
+--- The harness every worker runs is in every sandboxed key: a change to
+--- it -- stood in for by COSMIC_TEST_HARNESS_SALT, as a binary with
+--- another harness would bring -- runs a test that shares nothing else
+--- with it again.
+local function test_a_change_to_the_harness_runs_every_test_again(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  local again = run(root, tmp .. "/again.out", env)
+  assert(again:find("1 ran, 3 stood", 1, true), again)
+  env.COSMIC_TEST_HARNESS_SALT = "another harness"
+  local moved = run(root, tmp .. "/moved.out", env)
+  assert(moved:find("4 ran, 0 stood", 1, true), moved)
+end
+
+--- A test that reached past its key -- started a process that could
+--- read the store its module does not declare -- takes a pass shared
+--- under that key out of the cache, though it passed: the pass stood
+--- for what no key holds.
+local function test_a_run_past_its_key_takes_a_shared_pass_out(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/past_test.tl", [[
+local Child = require("cosmic.child")
+
+local function test_past()
+  assert(assert(Child.run({ "/bin/sh", "-c", "exit 0" })).ok)
+end
+]]))
+  local cache = tmp .. "/cache/verdicts.db"
+  local env = environment(cache)
+  local first = run(root, tmp .. "/first.out", env)
+  if unsandboxed(first) then return end
+  assert(first:find("1 run every time", 1, true), first)
+  -- The key it ran under, as its run recorded it.
+  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local rows = assert(Sqlite.text_rows(db, "SELECT key FROM runs WHERE test = 'test_past'"))
+  assert(db:close())
+  local key = assert(rows[1][1]:match("^(%S+)"))
+  -- A pass under it, as another run could have shared.
+  local shared = assert(shared_verdicts.open(cache))
+  assert(shared_verdicts.settle(shared, "elsewhere", { kept = { { key = key,
+    test = "suite.past_test test_past", hits = "", elapsed_ns = 1 } }, used = {}, failed = {} },
+    Time.now_ns()))
+  shared_verdicts.close(shared)
+  local forced = run(root, tmp .. "/forced.out", env, { "--all" })
+  assert(forced:find("1 ran", 1, true), forced)
+  shared = assert(shared_verdicts.open(cache))
+  local left = shared_verdicts.declared(shared, key)
+  shared_verdicts.close(shared)
+  assert(left == nil, "a pass shared under a key its test reached past stayed")
 end

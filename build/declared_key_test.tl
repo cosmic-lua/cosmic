@@ -327,11 +327,16 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   differs("the user")
 end
 
---- The program's identity is its files' contents.
+--- The program's identity is its files' contents, but for the stamp
+--- that says its core was verified, which a first run makes.
 local function test_the_program_is_keyed_by_its_contents(tmp: string)
   assert(Fs.write(tmp .. "/program", "one"))
   local digests = declared_key.digests(tmp)
   local before = declared_key.program_identity(digests, { tmp .. "/program" })
   assert(Fs.write(tmp .. "/program", "two"))
-  assert(declared_key.program_identity(digests, { tmp .. "/program" }) ~= before)
+  local now = declared_key.program_identity(digests, { tmp .. "/program" })
+  assert(now ~= before)
+  assert(Fs.write(tmp .. "/.verified-core", "stamp"))
+  assert(declared_key.program_identity(digests, { tmp .. "/program", tmp .. "/.verified-core" }) ==
+    now, "the stamp moved it")
 end

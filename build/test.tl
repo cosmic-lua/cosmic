@@ -1562,15 +1562,20 @@ local function binary_tables(): string | nil, string
   return rows[1][1], ""
 end
 
---- The modules the test harness is run from: the runner and the worker,
---- whose closure holds the sandbox's plan (`build.test_sandbox`), what
---- a worker is held to (`build.filesystem_observations`), its inputs
---- (`build.test_inputs`) and its key (`build.declared_key`).
---- build.dispatch, which hands a worker's command line to
---- build.test_worker and does nothing else of it, is left out: its
---- closure is every verb's, and would run every test again after an
---- edit to any of them.
-local harness_roots: {string} = { "build.test", "build.test_worker" }
+--- What of the test harness a worker runs, whose closure every
+--- sandboxed key holds: the worker itself, the plan of its sandbox
+--- (`build.test_sandbox`), what holds it (`build.filesystem_observations`),
+--- its inputs (`build.test_inputs`) and its key (`build.declared_key`).
+local harness_roots: {string} = {
+  "build.test_worker", "build.test_sandbox", "build.filesystem_observations",
+  "build.test_inputs", "build.declared_key",
+}
+
+--- The harness modules keyed by their own source alone: the runner,
+--- whose closure is the build's -- its compiler, its writer, the rest,
+--- which a worker never runs -- and build.dispatch, whose `--worker`
+--- branch every worker runs, and whose closure is every verb's.
+local harness_own: {string} = { "build.test", "build.dispatch" }
 
 --- The digest of the test harness the running binary carries
 --- (`declared_key.harness`), searched alone so no attached database
@@ -1601,7 +1606,12 @@ local function binary_harness(): string | nil, string
     list[#list + 1] = row[2]
   end
   for _, list in pairs(requires) do table.sort(list) end
-  return declared_key.harness(harness_roots, sources, requires), ""
+  local digest = declared_key.harness(harness_roots, sources, requires, harness_own)
+  -- A harness a test stands in for, so it can see a change to one move
+  -- every key without a binary of its own (build/sandboxed_verdicts_test.tl).
+  local salt = Env.get("COSMIC_TEST_HARNESS_SALT")
+  if salt ~= nil and salt ~= "" then digest = Hash.hex_sha256(digest .. "\0" .. salt) end
+  return digest, ""
 end
 
 --- Everything a finished job's verdict is recorded into.
