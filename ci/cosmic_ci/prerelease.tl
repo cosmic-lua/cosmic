@@ -327,14 +327,50 @@ local function verify_tag(p: Prerelease.Publish)
   assert(sha == p.commit, tag .. " names another commit")
 end
 
---- The tag exists, naming the commit: made when the API says it is absent.
-local function ensure_tag(p: Prerelease.Publish)
+--- Whether the repository's default branch holds workflows other than
+--- `p.commit`'s: the files the compare from the commit to the branch
+--- changes include one under .github/workflows/.
+local function workflows_moved(p: Prerelease.Publish): boolean
+  local repo = gh_object(p, { "api", "repos/" .. p.repository })
+  local branch = repo.default_branch
+  assert(branch is string, p.repository .. " names no default branch")
+  local compare = gh_object(p, { "api", "repos/" .. p.repository .. "/compare/" ..
+    p.commit .. "..." .. branch })
+  local files = compare.files
+  assert(files is {any}, "the compare to " .. branch .. " lists no files")
+  for _, file in ipairs(files) do
+    local name = file is {string:any} and file.filename or nil
+    if name is string and name:match("^%.github/workflows/") then return true end
+  end
+  return false
+end
+
+--- The tag exists, naming the commit: made when the API says it is
+--- absent. False, with nothing made, when GitHub refuses the tag because
+--- the default branch's workflows have moved past the commit: a
+--- GITHUB_TOKEN, which holds no `workflows` permission, may not make a
+--- ref whose workflows differ from the default branch's (run
+--- 36333356031, whose tag for 525e6f1 was refused once #2244, which
+--- rewrote the workflows, had landed on main first). Any other refusal
+--- raises.
+-- TODO: publish with a token that holds the `workflows` permission (a
+-- GitHub App's installation token, kept as a secret) rather than
+-- GITHUB_TOKEN, so such a commit is tagged too, and drop the skip.
+local function ensure_tag(p: Prerelease.Publish): boolean
   local tag = tag_of(p)
   if not api_probe(p, "repos/" .. p.repository .. "/git/ref/tags/" .. tag) then
-    gh(p, { "api", "--method", "POST", "repos/" .. p.repository .. "/git/refs",
-      "-f", "ref=refs/tags/" .. tag, "-f", "sha=" .. p.commit }, "null")
+    local made = gh_run(p, { "api", "--include", "--method", "POST",
+      "repos/" .. p.repository .. "/git/refs", "-f", "ref=refs/tags/" .. tag,
+      "-f", "sha=" .. p.commit }, "capture")
+    if not made.ok then
+      local status = Prerelease.http_status(made.stdout or "")
+      if status == "403" and workflows_moved(p) then return false end
+      error("gh api --method POST repos/" .. p.repository .. "/git/refs -f ref=refs/tags/" ..
+        tag .. " failed (HTTP status " .. tostring(status) .. ")", 0)
+    end
   end
   verify_tag(p)
+  return true
 end
 
 local function view(p: Prerelease.Publish, fields: string): {string:any}
@@ -395,7 +431,8 @@ end
 --- Publishes the release staged under `p.release` as next-<commit>, or
 --- verifies the one already there. A draft left by an interrupted run is
 --- resumed only by accepting the assets it holds that are identical to
---- the staged ones. Raises on any failure; the line to print on success.
+--- the staged ones. Raises on any failure; the line to print on success,
+--- or on a skip (`ensure_tag`), a warning annotation.
 function Prerelease.publish(p: Prerelease.Publish): string
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))
@@ -413,7 +450,10 @@ function Prerelease.publish(p: Prerelease.Publish): string
       return "prerelease already published and verified: " .. tag
     end
   else
-    ensure_tag(p)
+    if not ensure_tag(p) then
+      return "::warning::prerelease skipped: " .. tag .. ": GitHub refused the tag, " ..
+        "the default branch's workflows having moved past it"
+    end
     gh(p, { "release", "create", tag, "--repo", p.repository, "--verify-tag",
       "--title", tag, "--notes-file", p.release .. "/notes.md", "--prerelease", "--draft" })
     verify_tag(p)
