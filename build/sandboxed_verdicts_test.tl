@@ -26,7 +26,7 @@ local Test = require("cosmic.test")
 --- program it runs.
 Test.needs{
   host = { "/dev/urandom", "/etc", "/proc", "/usr/" },
-  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX" },
+  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
 }
 
@@ -81,16 +81,19 @@ end
 end
 
 --- Whether a run that said `text` sandboxed no worker, where that is
---- allowed: false where it did sandbox them, and a failure where the run
---- is held to sandboxing and this test is in no sandbox of its own --
---- in one, the kernel may refuse its run's workers one of their own.
+--- allowed: false where it did sandbox them, and a failure where this
+--- run is held to sandboxing -- COSMIC_TEST_SANDBOX=1, as CI's suites
+--- set it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1 -- so a run
+--- held to it proves the runs it starts sandbox theirs, nested in its
+--- own as they are (CI's unprivileged runner nests them, as
+--- build/shared_verdicts_test.tl's `shares` holds it to). Elsewhere, a
+--- host that refuses a worker's workers a sandbox of their own -- one
+--- running the tests as root in a sandbox already -- checks nothing here.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  -- Turned off by this run's own switch, it is asked not to.
-  if text:find("(COSMIC_TEST_SANDBOX=0)", 1, true) then return true end
-  local held = sys.getenv("COSMIC_SANDBOX") == "must" or
-    sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
-  assert(not held or observations.sandboxed(), "the run is held to sandboxing, but " .. text)
+  local held = sys.getenv("COSMIC_TEST_SANDBOX") == "1" or
+    sys.getenv("COSMIC_SANDBOX") == "must" or sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+  assert(not held, "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
 

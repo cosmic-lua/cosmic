@@ -17,6 +17,10 @@
 --- The key is the digest of
 ---
 --- - the test: its module's path and its name (`id`);
+--- - the test harness every worker runs, as the running binary carries
+---   it (`harness`, and `build.test`'s `harness_roots`) --
+---   COSMIC_TEST_HARNESS_SALT, for a test alone, stands in for a change
+---   to it;
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark

@@ -340,3 +340,35 @@ local function test_the_program_is_keyed_by_its_contents(tmp: string)
   assert(declared_key.program_identity(digests, { tmp .. "/program", tmp .. "/.verified-core" }) ==
     now, "the stamp moved it")
 end
+
+--- A module keyed by its own source (`own`) moves the harness when its
+--- source does, not when what it imports does -- unless a root reaches
+--- it, when its closure is walked as any other.
+local function test_an_own_module_is_keyed_by_its_source_alone()
+  local imports: {string:{string}} = {
+    ["build.test_worker"] = { "build.caches" },
+    ["build.test"] = { "build.importer" },
+    ["build.writer"] = { "build.schema" },
+  }
+  local sources: {string:string} = {
+    ["build.test_worker"] = "w", ["build.caches"] = "c", ["build.test"] = "t",
+    ["build.importer"] = "i", ["build.writer"] = "r", ["build.schema"] = "s",
+  }
+  local roots = { "build.test_worker" }
+  local own = { "build.test", "build.writer" }
+  local function digest(): string return declared_key.harness(roots, sources, imports, own) end
+  local before = digest()
+  sources["build.caches"] = "c2"
+  assert(digest() ~= before, "a root's closure")
+  sources["build.caches"] = "c"
+  sources["build.test"] = "t2"
+  assert(digest() ~= before, "an own module's source")
+  sources["build.test"] = "t"
+  sources["build.importer"] = "i2"
+  assert(digest() == before, "what an own module imports")
+  -- Reached from a root, an own module's closure is walked.
+  imports["build.test_worker"] = { "build.caches", "build.writer" }
+  local reached = digest()
+  sources["build.schema"] = "s2"
+  assert(digest() ~= reached, "an own module a root reaches")
+end

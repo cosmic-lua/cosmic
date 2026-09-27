@@ -1572,10 +1572,15 @@ local harness_roots: {string} = {
 }
 
 --- The harness modules keyed by their own source alone: the runner,
---- whose closure is the build's -- its compiler, its writer, the rest,
---- which a worker never runs -- and build.dispatch, whose `--worker`
---- branch every worker runs, and whose closure is every verb's.
-local harness_own: {string} = { "build.test", "build.dispatch" }
+--- whose closure is the build's -- its compiler and the rest, which a
+--- worker never runs; build.dispatch, whose `--worker` branch every
+--- worker runs, and whose closure is every verb's; the writer and the
+--- schema that shape the projection every worker loads its modules
+--- from (`build.writer`, `build.schema`); and the shared verdicts'
+--- cache, which a key is looked up in (`build.shared_verdicts`).
+local harness_own: {string} = {
+  "build.test", "build.dispatch", "build.writer", "build.schema", "build.shared_verdicts",
+}
 
 --- The digest of the test harness the running binary carries
 --- (`declared_key.harness`), searched alone so no attached database
