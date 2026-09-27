@@ -232,6 +232,39 @@ local function check_transported(fixture_dir: string, finished: string,
   Fixture.contains(second_run.out, "second portable application")
 end
 
+-- Run just build/embed_test.tl under the real portable runtime. Its cases
+-- cover the portable database, the retained prefix, and host programs
+-- made from the running core; every one of them must run, none answered
+-- from a verdict, however many the file holds. It is a test of its own,
+-- apart from the primary project's, which reads nothing it writes: the
+-- one run took 21 s on a slow macOS runner (run 36345675442), most of the
+-- 30 s the two once had together.
+local function test_identity_focused_embed(tmp: string)
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local work = tmp
+  local diagnostics = work .. "/logs"
+  Fixture.mkdir(diagnostics)
+
+  local focused = work .. "/focused-embed"
+  Fixture.mkdir(focused)
+  copy_tree("copy-build", root .. "/build", focused .. "/build")
+  -- The rest of build/'s tests are no part of this one's closure, and
+  -- compiling them was most of this step: over the test's own deadline on
+  -- a slow macOS runner.
+  drop_other_tests(focused .. "/build", "embed_test.tl")
+  local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
+    "test", "build/embed_test.tl" }, focused, diagnostics,
+    { COSMIC_PORTABLE_CACHE = work .. "/cache" })
+  local cases = 0
+  for _ in Fixture.read(focused .. "/build/embed_test.tl"):gmatch("\nlocal function test_") do
+    cases = cases + 1
+  end
+  assert(cases > 0, "build/embed_test.tl holds no tests")
+  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. " tests, 1 modules; " ..
+    cases .. " ran, 0 stood")
+end
+
 -- Build the primary project, check every runtime context against it, then
 -- check it again transported to a new location.
 local function test_identity_primary(tmp: string)
@@ -250,28 +283,6 @@ local function test_identity_primary(tmp: string)
     project .. "/cmd/second/main.tl")
   local counter = project .. "/test-runs"
   local cache = work .. "/cache"
-
-  -- Run just build/embed_test.tl under the real portable runtime. Its cases
-  -- cover the portable database, the retained prefix, and host programs
-  -- made from the running core; every one of them must run, none answered
-  -- from a verdict, however many the file holds.
-  local focused = work .. "/focused-embed"
-  Fixture.mkdir(focused)
-  copy_tree("copy-build", root .. "/build", focused .. "/build")
-  -- The rest of build/'s tests are no part of this one's closure, and
-  -- compiling them was most of this step: over the test's own deadline on
-  -- a slow macOS runner.
-  drop_other_tests(focused .. "/build", "embed_test.tl")
-  local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
-    "test", "build/embed_test.tl" }, focused, diagnostics,
-    { COSMIC_PORTABLE_CACHE = cache })
-  local cases = 0
-  for _ in Fixture.read(focused .. "/build/embed_test.tl"):gmatch("\nlocal function test_") do
-    cases = cases + 1
-  end
-  assert(cases > 0, "build/embed_test.tl holds no tests")
-  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. " tests, 1 modules; " ..
-    cases .. " ran, 0 stood")
 
   local build1 = Fixture.run("build", { fixture_dir .. "/runtime.old", "build" },
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
