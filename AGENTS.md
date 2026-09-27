@@ -51,13 +51,13 @@
    status rather than piping it away. Only the tree's own tool (under
    `o/`) rebuilds or boots; another cosmic run in the tree when it is
    stale -- a release, the bootstrap cache's -- refuses, exiting 3.
-4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
-   module key and runtime, same contents for every file opened, and same stat
-   and directory read answers under the root -- is not run again, so a run
-   after a small edit takes seconds. Every checkout whose workers run
-   sandboxed (below) also shares its passing verdicts through
-   `~/.cache/cosmic/verdicts/verdicts.db`, keyed without the
-   tree's location: a fresh
+4. Run `timeout 30 o/bin/cosmic test`. Its workers run sandboxed to each
+   test's declared inputs where the kernel can -- the default on Linux --
+   and a test whose declared inputs, closure, core, harness and host are
+   what they were when it last passed is not run again (below), so a run
+   after a small edit takes seconds. Every sandboxed checkout also shares
+   its passing verdicts through `~/.cache/cosmic/verdicts/verdicts.db`,
+   keyed without the tree's location: a fresh
    worktree runs only what no checkout has run on the same content and core,
    and a test that failed in this checkout never stands on another's pass.
    So a test must not depend on where the tree is (its absolute path); CI
@@ -75,7 +75,8 @@
    the store its module does not declare, has no key: it runs every
    time, and the summary counts it so -- declare `store = true` beside
    `tool = true` where a test's process reads the tree's store, as one
-   starting this program does. `--all` (`COSMIC_TEST_ALL=1`) runs
+   starting this program does, and wherever a test queries the store
+   through `cosmic.store` (`Store.databases()` and the like). `--all` (`COSMIC_TEST_ALL=1`) runs
    everything. The worker still reads the system's own paths, /dev,
    /proc and the projection besides, keyed only through the host's
    identity. A test that starts this program declares `tool = true`:
