@@ -2978,6 +2978,10 @@ function test.run(argv: {integer:string}): integer
     declared_key.freeze(rec.digests)
   end
   local jobs: {Job} = {}
+  -- The tests looked up in the shared cache, and whether any was found:
+  -- where none was, `unmatched` says why.
+  local looked: {string:boolean} = {}
+  local looked_count, found_count = 0, 0
   for _, m in ipairs(selected_modules) do
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
@@ -2994,6 +2998,8 @@ function test.run(argv: {integer:string}): integer
           local answer, trouble = shared_verdicts.declared(rec.shared, key)
           if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
           elsewhere = answer
+          looked[id], looked_count = true, looked_count + 1
+          if answer ~= nil then found_count = found_count + 1 end
         end
         if key == nil or forced or (own ~= nil and not own.passed) or
             (own == nil and elsewhere == nil) then
@@ -3030,6 +3036,16 @@ function test.run(argv: {integer:string}): integer
         end
       end
     end
+  end
+  if sandboxed and rec.shared ~= nil and looked_count > 0 and found_count == 0 then
+    local census, _ = shared_verdicts.census(rec.shared, looked)
+    local line = census ~= nil and shared_verdicts.unmatched(rec.shared.path, looked_count,
+      census, {
+        { "host", rec.host }, { "runtime", Hash.hex_sha256(rec.runtime or "") },
+        { "compiler", Hash.hex_sha256(rec.compiler or "") },
+        { "harness", Hash.hex_sha256(rec.harness or "") },
+      }) or nil
+    if line ~= nil then log:say(line) end
   end
   if sandboxed then
     -- From here each key looks again: a verdict is kept only under a

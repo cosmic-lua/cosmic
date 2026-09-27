@@ -416,6 +416,40 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   checkout(tmp .. "/second", "one\n")
   local second = run(tmp .. "/second", tmp .. "/second.out", env, { "suite/reads_test.tl" })
   assert(second:find("4 ran, 0 stood", 1, true), second)
+  -- And says why: the cache held these very tests, under keys it no
+  -- longer reaches.
+  assert(second:find("none of 4 tests looked up stood, though " .. cache ..
+    " holds 4 rows, 4 of them of those tests: their keys moved (host ", 1, true), second)
+end
+
+--- A run none of whose lookups stood is told what the cache held: its
+--- rows, those of the tests it looked up, and the digests every key of
+--- it holds; an empty cache says nothing.
+local function test_a_cache_that_answers_nothing_says_what_it_holds(tmp: string)
+  local path = tmp .. "/cache/verdicts.db"
+  local cache = assert(shared_verdicts.open(path))
+  local empty = assert(shared_verdicts.census(cache, {}))
+  assert(empty.rows == 0 and empty.of_tests == 0)
+  assert(shared_verdicts.unmatched(path, 3, empty, {}) == nil, "an empty cache said something")
+  local kept: {shared_verdicts.Kept} = {}
+  for i, test in ipairs({ "a_test.tl test_a", "a_test.tl test_b", "b_test.tl test_c" }) do
+    kept[#kept + 1] = { key = "k" .. i, test = test, hits = "", elapsed_ns = 1 }
+  end
+  assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} },
+    Time.now_ns()))
+  local census = assert(shared_verdicts.census(cache, { ["a_test.tl test_a"] = true,
+    ["a_test.tl test_b"] = true, ["c_test.tl test_d"] = true }))
+  assert(census.rows == 3 and census.of_tests == 2, census.rows .. " " .. census.of_tests)
+  local line = assert(shared_verdicts.unmatched(path, 3, census,
+    { { "host", string.rep("ab", 32) }, { "runtime", string.rep("cd", 32) } }))
+  assert(line == "test: shared verdicts: none of 3 tests looked up stood, though " .. path ..
+    " holds 3 rows, 2 of them of those tests: their keys moved (host abababababab, " ..
+    "runtime cdcdcdcdcdcd)", line)
+  assert(shared_verdicts.unmatched(path, 0, census, {}) == nil, "no lookup, yet a line")
+  local other = assert(shared_verdicts.census(cache, { ["c_test.tl test_d"] = true }))
+  local unreached = assert(shared_verdicts.unmatched(path, 1, other, {}))
+  assert(unreached:find("0 of them of those tests: no other run reached them", 1, true), unreached)
+  shared_verdicts.close(cache)
 end
 
 --- A cache that cannot answer -- its pages overwritten, or this

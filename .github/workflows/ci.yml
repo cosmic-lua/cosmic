@@ -146,7 +146,7 @@
         # Which event started the run: a Linux leg's suites stand on the
         # verdicts their tests' declared inputs key (build/declared_key.tl),
         # this leg's earlier runs' among them (restored below), in a
-        # branch push's run alone; the merge queue's, a manual one and the
+        # push's run, main's and a branch's alike; the merge queue's, a manual one and the
         # scheduled one run every test, and so does the macOS leg's, whose
         # workers run unsandboxed. See orchestration.tl's `stands`.
         COSMIC_CI_EVENT: "${{ github.event_name }}",
@@ -309,20 +309,28 @@
         # seccomp profile and every docker option, all of them
         # leg-container.sh's and seccomp-profile.sh's, which are hashed --
         # and the engine's version. Not ci.yml itself, whose every edit
-        # would move it.
+        # would move it. Its verdict cache is named by the processor's
+        # features too (`verdicts`, .github/scripts/cpu-features.sh),
+        # which every key also holds and which differ between runners of
+        # one leg: named by the container alone, a run restored the
+        # newest cache of any runner, and where that one's processor
+        # differed, no verdict of it stood (main's run 36320764857 on
+        # linux-x86_64, 0 stood, where its other Linux legs and two
+        # branch pushes stood 1506 on the same cache).
         {
           name: "name the leg's container",
           id: "host-id",
           if: "matrix.image",
           "working-directory": ".",
           shell: "sh",
-          run: "id=\"${{ matrix.image }} ${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }} docker-$(docker version --format '{{.Server.Version}}')\"; echo \"COSMIC_HOST_ID=$id\" >> \"$GITHUB_ENV\"; echo \"prefix=verdicts-${{ matrix.name }}-$(printf %s \"$id\" | sha256sum | cut -c1-16)-\" >> \"$GITHUB_OUTPUT\"",
+          run: "id=\"${{ matrix.image }} ${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }} docker-$(docker version --format '{{.Server.Version}}')\"; echo \"COSMIC_HOST_ID=$id\" >> \"$GITHUB_ENV\"; prefix=\"verdicts-${{ matrix.name }}-$(printf %s \"$id\" | sha256sum | cut -c1-16)-\"; echo \"prefix=$prefix\" >> \"$GITHUB_OUTPUT\"; echo \"verdicts=$prefix$(sh .github/scripts/cpu-features.sh)-\" >> \"$GITHUB_OUTPUT\"",
         },
 
         # The test verdicts this leg reached before, in the same container
         # (COSMIC_VERDICT_CACHE, .github/scripts/cosmic-driver.sh): the
         # newest this ref can restore under its name -- its own, else
-        # main's. Only a Linux leg's branch push stands on them
+        # main's, from a host of the same processor features. Only a
+        # Linux leg's push, main's or a branch's, stands on them
         # (COSMIC_CI_EVENT).
         {
           name: "restore test verdicts",
@@ -331,8 +339,8 @@
           uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
-            "restore-keys": "${{ steps.host-id.outputs.prefix }}\n",
+            key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
 
@@ -630,7 +638,7 @@
           uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+            key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
           },
         },
       ],
