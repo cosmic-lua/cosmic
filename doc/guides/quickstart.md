@@ -82,13 +82,16 @@ end
 ```teal
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 
 local output = tmp .. "/child-output"
 local fd = assert(Fs.open_write(output))
-local result, trouble = Child.run({
-  assert(Proc.executable()), tmp .. "/greeter.tl", "cosmic",
-}, { stdout = fd, timeout_ms = 5000 })
+-- This very cosmic, started past its launcher as `cosmic test` starts
+-- a worker; `{ Proc.executable(), ... }` starts it through the
+-- launcher, which takes a shell.
+local greeter = observations.program({ tmp .. "/greeter.tl", "cosmic" },
+  { stdout = fd, timeout_ms = 5000 })
+local result, trouble = Child.run(greeter.argv, greeter.options)
 assert(Fs.close(fd))
 if result == nil then error(trouble) end
 local finished = assert(result)

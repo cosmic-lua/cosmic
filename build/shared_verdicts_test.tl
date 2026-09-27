@@ -8,7 +8,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
@@ -24,12 +23,13 @@ Test.needs{ tool = true }
 local function run(root: string, output: string, env: {string:string},
                    words?: {string}, fails?: boolean): string
   local fd = assert(Fs.open_write(output))
-  local argv: {string} = { assert(Proc.executable()), "test" }
-  for _, word in ipairs(words or {}) do argv[#argv + 1] = word end
-  local result, trouble = Child.run(argv, {
+  local args: {string} = { "test" }
+  for _, word in ipairs(words or {}) do args[#args + 1] = word end
+  local started = observations.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(result ~= nil and result.ok == not fails, tostring(trouble) .. text)

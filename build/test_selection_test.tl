@@ -3,7 +3,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
@@ -11,8 +10,7 @@ local Test = require("cosmic.test")
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
 
-local function invoke(program: string, root: string, output: string,
-    selector: string): Child.Result
+local function invoke(root: string, output: string, selector: string): Child.Result
   local fd = assert(Fs.open_write(output))
   -- Sandboxed wherever it can be, whatever this run's switch: the rerun
   -- line it prints repeats a switch it was given.
@@ -20,10 +18,11 @@ local function invoke(program: string, root: string, output: string,
   env.COSMIC_TEST_SANDBOX = nil
   -- What its failing tests keep stays in this test's directory.
   env.TMPDIR = Fs.dirname(output)
-  local result, trouble = Child.run({ program, "test", selector }, {
+  local started = observations.program({ "test", selector }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 30000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   return (assert(result, trouble))
 end
@@ -49,10 +48,9 @@ end
 end
 
 local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
-  local program = assert(Proc.executable())
   local root = project(tmp)
   local output = tmp .. "/selected.out"
-  local result = invoke(program, root, output, "suite/selected_test.tl")
+  local result = invoke(root, output, "suite/selected_test.tl")
   assert(result.ok, assert(Fs.read(output)))
   local text = assert(Fs.read(output))
   assert(text:find("1 ran, 0 stood", 1, true), text)
@@ -65,11 +63,10 @@ local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
 end
 
 local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
-  local program = assert(Proc.executable())
   local root = project(tmp)
   for run, expected in ipairs({ "1 ran, 0 stood", "0 ran, 1 stood" }) do
     local output = tmp .. "/run-" .. tostring(run) .. ".out"
-    local result = invoke(program, root, output, "suite/selected_test.tl")
+    local result = invoke(root, output, "suite/selected_test.tl")
     local text = assert(Fs.read(output))
     assert(result.ok, text)
     assert(text:find(expected, 1, true), text)
@@ -89,7 +86,6 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
 end
 
 local function test_cli_runs_only_the_one_test_a_selector_names(tmp: string)
-  local program = assert(Proc.executable())
   local root = project(tmp)
   assert(Fs.write(root .. "/suite/selected_test.tl", [[
 local helper = require("suite.helper")
@@ -102,14 +98,14 @@ end
 ]]))
   for run, expected in ipairs({ "1 ran, 0 stood", "0 ran, 1 stood" }) do
     local output = tmp .. "/named-" .. tostring(run) .. ".out"
-    local result = invoke(program, root, output, "./suite/selected_test.tl:test_selected")
+    local result = invoke(root, output, "./suite/selected_test.tl:test_selected")
     local text = assert(Fs.read(output))
     assert(result.ok, text)
     assert(text:find("1 tests, 1 modules; " .. expected, 1, true), text)
     assert(not text:find("executed", 1, true), text)
   end
   local output = tmp .. "/module.out"
-  local result = invoke(program, root, output, "suite.selected_test:test_selected")
+  local result = invoke(root, output, "suite.selected_test:test_selected")
   local text = assert(Fs.read(output))
   assert(result.ok, text)
   assert(text:find("0 ran, 1 stood", 1, true), text)
@@ -121,10 +117,9 @@ end
 end
 
 local function test_cli_fails_when_the_named_test_is_not_in_its_module(tmp: string)
-  local program = assert(Proc.executable())
   local root = project(tmp)
   local output = tmp .. "/missing.out"
-  local result = invoke(program, root, output, "suite/selected_test.tl:test_missing")
+  local result = invoke(root, output, "suite/selected_test.tl:test_missing")
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   assert(text:find("no test in suite.selected_test is named test_missing; " ..
@@ -133,7 +128,6 @@ local function test_cli_fails_when_the_named_test_is_not_in_its_module(tmp: stri
 end
 
 local function test_cli_runs_one_example_by_its_name(tmp: string)
-  local program = assert(Proc.executable())
   local root = project(tmp)
   assert(Fs.write(root .. "/suite/answer_example.tl", [[
 local Example = {}
@@ -146,12 +140,12 @@ end
 return Example
 ]]))
   local output = tmp .. "/example.out"
-  local result = invoke(program, root, output, "suite/answer_example.tl:answer")
+  local result = invoke(root, output, "suite/answer_example.tl:answer")
   local text = assert(Fs.read(output))
   assert(result.ok, text)
   assert(text:find("1 tests, 1 modules; 1 ran", 1, true), text)
   output = tmp .. "/prefixed.out"
-  result = invoke(program, root, output, "suite/answer_example.tl:Example.answer")
+  result = invoke(root, output, "suite/answer_example.tl:Example.answer")
   text = assert(Fs.read(output))
   assert(result.ok, text)
   assert(text:find("1 tests, 1 modules; 0 ran, 1 stood", 1, true), text)
@@ -162,7 +156,6 @@ end
 --- that selector, given back to `cosmic test`, runs that one test and no
 --- other.
 local function test_a_failure_names_the_selector_that_reruns_it(tmp: string)
-  local program = assert(Proc.executable())
   local root = project(tmp)
   local failing = [[
 local function test_unrelated()
@@ -176,7 +169,7 @@ end
   assert(Fs.mkdirs(root .. "/suite/two words"))
   assert(Fs.write(root .. "/suite/two words/spaced_test.tl", failing))
   local output = tmp .. "/all.out"
-  local result = invoke(program, root, output, ".")
+  local result = invoke(root, output, ".")
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   for _, case in ipairs({
@@ -197,7 +190,7 @@ end
     local rerun = "  rerun: cosmic test " .. case.printed .. "\n"
     assert(text:sub(line_end + 1, line_end + #rerun) == rerun, text)
     output = tmp .. "/rerun.out"
-    result = invoke(program, root, output, case.selector)
+    result = invoke(root, output, case.selector)
     local again = assert(Fs.read(output))
     assert(not result.ok, again)
     assert(again:find("unrelated test executed", 1, true), again)
@@ -207,11 +200,10 @@ end
 end
 
 local function test_cli_fails_when_no_module_matches(tmp: string)
-  local program = assert(Proc.executable())
   for index, selector in ipairs({ "suite/missing_test.tl", "", "/" }) do
     local root = project(tmp .. "/case-" .. tostring(index))
     local output = tmp .. "/missing-" .. tostring(index) .. ".out"
-    local result = invoke(program, root, output, selector)
+    local result = invoke(root, output, selector)
     assert(not result.ok, assert(Fs.read(output)))
     local text = assert(Fs.read(output))
     assert(text:find("no test module matches:", 1, true), text)
@@ -223,7 +215,6 @@ end
 --- short duration must be recorded as having taken at least that long, and
 --- comfortably less than a generous upper bound.
 local function test_records_the_tests_elapsed_duration(tmp: string)
-  local program = assert(Proc.executable())
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/timing"))
   assert(Fs.write(root .. "/timing/sleep_test.tl", [[
@@ -233,7 +224,7 @@ local function test_sleeps_a_known_duration()
 end
 ]]))
   local output = tmp .. "/sleep.out"
-  local result = invoke(program, root, output, "timing/sleep_test.tl")
+  local result = invoke(root, output, "timing/sleep_test.tl")
   assert(result.ok, assert(Fs.read(output)))
   local db = assert(Sqlite.open(root .. "/o/build.db", false))
   local rows = assert(Sqlite.text_rows(db,
@@ -250,7 +241,6 @@ end
 end
 
 local function test_cli_accepts_relative_and_absolute_project_root(tmp: string)
-  local program = assert(Proc.executable())
   for index, selector in ipairs({ ".", "./", "absolute", "absolute-slash" }) do
     local root = project(tmp .. "/case-" .. tostring(index))
     assert(Fs.write(root .. "/suite/unrelated_test.tl", [[
@@ -262,7 +252,7 @@ end
       selector == "./" and "./" or
       selector == "absolute" and root or root .. "/"
     local output = tmp .. "/" .. selector .. ".out"
-    local result = invoke(program, root, output, argument)
+    local result = invoke(root, output, argument)
     assert(result.ok, assert(Fs.read(output)))
     local text = assert(Fs.read(output))
     assert(text:find("2 ran, 0 stood", 1, true), text)
@@ -270,10 +260,9 @@ end
 end
 
 local function test_another_project_counts_none_of_the_cores_c(tmp: string)
-  local program = assert(Proc.executable())
   local root = project(tmp)
   local output = tmp .. "/project.out"
-  local result = invoke(program, root, output, "suite/selected_test.tl")
+  local result = invoke(root, output, "suite/selected_test.tl")
   assert(result.ok, assert(Fs.read(output)))
   local db = assert(Sqlite.open(root .. "/o/build.db", false))
   local lines = assert(Sqlite.text_rows(db,
@@ -295,9 +284,10 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   -- Where no sandbox can be tried either, the run goes on unsandboxed.
   environment.COSMIC_TEST_SANDBOX = nil
   local fd = assert(Fs.open_write(output))
-  local result = assert(Child.run({ assert(Proc.executable()), "test", "suite/selected_test.tl" }, {
+  local started = observations.program({ "test", "suite/selected_test.tl" }, {
     cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ms = 30000,
-  }))
+  })
+  local result = assert(Child.run(started.argv, started.options))
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(not result.ok, text)

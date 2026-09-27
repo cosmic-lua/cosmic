@@ -120,11 +120,12 @@ end
 local function run(root: string, output: string, env: {string:string}, words?: {string},
                    unchecked?: boolean): string
   local fd = assert(Fs.open_write(output))
-  local argv: {string} = { assert(Proc.executable()), "test" }
-  for _, word in ipairs(words or {}) do argv[#argv + 1] = word end
-  local result, trouble = Child.run(argv, {
+  local args: {string} = { "test" }
+  for _, word in ipairs(words or {}) do args[#args + 1] = word end
+  local started = observations.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
   })
+  local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
   assert(unchecked or (result ~= nil and result.ok), tostring(trouble) .. text)
@@ -249,13 +250,14 @@ local function tool_checkout(root: string)
   assert(Fs.write(root .. "/o/bin/stand-in", "one\n"))
   assert(Fs.write(root .. "/suite/tool_test.tl", [[
 local Child = require("cosmic.child")
-local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
+local observations = require("build.filesystem_observations")
 
 Test.needs { tool = true }
 
 local function test_runs_the_tool()
-  local result = assert(Child.run({ assert(Proc.executable()), "-e", "" }))
+  local started = observations.program({ "-e", "" })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.ok)
 end
 ]]))
@@ -406,9 +408,10 @@ end
   assert(first:find("1 ran, 0 stood", 1, true), first)
   -- Forced, and moved as it runs: it fails.
   local fd = assert(Fs.open_write(tmp .. "/forced.out"))
-  local handle = assert(Child.start({ assert(Proc.executable()), "test", "--all" }, {
+  local all = observations.program({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
-  }))
+  })
+  local handle = assert(Child.start(all.argv, all.options))
   local deadline = Time.monotonic_ns() + 30000000000
   local started = false
   while not started and Time.monotonic_ns() < deadline do

@@ -26,11 +26,10 @@ end
 local function test_a_relative_artifact_path_is_refused()
   local relaunch = Proc.relaunch()
   if relaunch == nil or #relaunch.argv < 3 then return end
-  local argv = { relaunch.argv[1], relaunch.argv[2], "relative/artifact" }
-  local env = environment()
-  for name, value in pairs(relaunch.env) do env[name] = value end
-  local r = assert(Child.run(argv, { env = env, fds = relaunch.fds,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({}, { env = observations.environment(),
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  local argv = { started.argv[1], started.argv[2], "relative/artifact" }
+  local r = assert(Child.run(argv, started.options))
   assert(r.code == 2, "exit " .. tostring(r.code))
   assert((assert(r.stderr)):find("cosmic: portable artifact path is not absolute",
     1, true), tostring(r.stderr))

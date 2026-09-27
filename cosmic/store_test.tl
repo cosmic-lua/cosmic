@@ -1,6 +1,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
@@ -92,9 +92,10 @@ end
 local function test_a_project_cannot_shadow_a_raw_value_wrapper(tmp: string)
   local script = tmp .. "/shadowing.tl"
   assert(Fs.write(script, shadowing))
-  local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script,
-    tmp .. "/project.db" }, { env = { XDG_CACHE_HOME = tmp .. "/cache" },
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ "--standalone", script, tmp .. "/project.db" },
+    { env = { XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, tostring(result.stderr))
   local out = assert(result.stdout)
   for _, name in ipairs({ "build.artifact", "build.fuzz", "cosmic.store" }) do

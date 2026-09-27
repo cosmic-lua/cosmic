@@ -35,15 +35,9 @@ return function(): integer
   return 0
 end
 ]]))
-  local argv: {string} = {}
-  for i, value in ipairs(relaunch.argv) do argv[i] = value end
-  argv[#argv + 1] = script
-  local env = observations.environment()
-  for name, value in pairs(relaunch.env) do env[name] = value end
-  local fds: {integer:integer | string} = {}
-  for number, fd in pairs(relaunch.fds) do fds[number] = fd end
-  local r = assert(Child.run(argv, { env = env, fds = fds, cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ script }, { env = observations.environment(), cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local expected = table.concat({ assert(Store.meta("host_image")),
     assert(Store.meta("runtime")), (assert(Proc.executable())) }, "\t") .. "\n"
@@ -54,8 +48,7 @@ end
 --- child it spawns does, even when this one ignored it: exec hands on
 --- an ignored signal, and a pipeline downstream of it would never end.
 local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
-  local relaunch = Proc.relaunch()
-  if relaunch == nil then return end -- a native start has nothing to relaunch
+  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
   if not Fs.exists("/proc/self/status") then return end -- nothing to ask
   -- The case is a process that ignored SIGPIPE itself. One started with
   -- it already ignored hands that on, as its parent chose, and so does
@@ -80,15 +73,9 @@ return function(): integer
   return 1
 end
 ]]))
-  local argv: {string} = {}
-  for i, value in ipairs(relaunch.argv) do argv[i] = value end
-  argv[#argv + 1] = script
-  local env = observations.environment()
-  for name, value in pairs(relaunch.env) do env[name] = value end
-  local fds: {integer:integer | string} = {}
-  for number, fd in pairs(relaunch.fds) do fds[number] = fd end
-  local r = assert(Child.run(argv, { env = env, fds = fds, cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ script }, { env = observations.environment(), cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local ignored = assert(assert(r.stdout):match("SigIgn:%s*(%x+)"), r.stdout)
   local mask = math.tointeger(tonumber(ignored, 16)) or 0

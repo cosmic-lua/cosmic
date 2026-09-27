@@ -7,7 +7,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
@@ -158,11 +158,12 @@ end
 local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp: string)
   local script = assert(Fs.absolute("build/zig.tl"))
   local function run(): Child.Result
-    return (assert(Child.run({ assert(Proc.executable()), "--standalone", script, "version" }, {
+    local started = observations.program({ "--standalone", script, "version" }, {
       env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
         XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ms = 30000,
-    })))
+    })
+    return (assert(Child.run(started.argv, started.options)))
   end
   local missing = run()
   assert(missing.code == 127, tostring(missing.stderr))
@@ -556,11 +557,12 @@ local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string
     "#!/bin/sh\ntrap 'exit 0' INT\nkill -INT 0\nexit 0\n", 0x1ed))
   -- Child.run starts it in a group of its own, so `kill -INT 0` stays
   -- inside it.
-  local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script, "build" }, {
+  local started = observations.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
       XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture", timeout_ms = 30000,
-  }))
+  })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.signal == nil and result.code == 0,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end
@@ -571,11 +573,12 @@ end
 local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local script = bare_root(tmp)
   assert(Fs.write(tmp .. "/zig-for-test", "#!/bin/sh\nkill -TERM $PPID\nexit 0\n", 0x1ed))
-  local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script, "build" }, {
+  local started = observations.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
       XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture", timeout_ms = 30000,
-  }))
+  })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.signal == sys.SIGTERM,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end

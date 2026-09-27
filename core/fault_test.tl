@@ -10,12 +10,11 @@
 --- it; any other core has no instrument to arm one with.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- The program itself, which the fixtures run.
@@ -253,11 +252,8 @@ return function(): integer
   return 0
 end
 ]]))
-  local environment = Env.all()
-  environment.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  environment.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
-  local result = assert(Child.run({ assert(Proc.executable()), fixture },
-    { env = environment, stdout = "capture", stderr = "capture" }))
+  local started = observations.program({ fixture }, { stdout = "capture", stderr = "capture" })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "the fixture exited " .. tostring(result.code) .. ": " ..
     tostring(result.stderr))
 end

@@ -4,7 +4,9 @@
 
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
 path to a file to run. Each example here starts the `cosmic` that runs
-it, through `cosmic.child`, and shows what it prints.
+it, through `cosmic.child`, and shows what it prints. Most start it the
+way `cosmic test` starts its workers, past its launcher
+(`observations.program`), so they need no shell.
 
 ## a one-liner
 
@@ -14,13 +16,14 @@ its `...`, and an integer it returns is the exit code.
 
 ```teal
 local Child = require("cosmic.child")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 
-local cosmic = assert(Proc.executable())
-local said = assert(Child.run({ cosmic, "-e", "print(select('#', ...), ...)", "a", "b" },
-  { stdout = "capture", timeout_ms = 10000 }))
+local chunk = observations.program({ "-e", "print(select('#', ...), ...)", "a", "b" },
+  { stdout = "capture", timeout_ms = 10000 })
+local said = assert(Child.run(chunk.argv, chunk.options))
 print(((said.stdout or ""):gsub("\n$", "")))
-local exited = assert(Child.run({ cosmic, "-e", "return 3" }, { timeout_ms = 10000 }))
+local three = observations.program({ "-e", "return 3" }, { timeout_ms = 10000 })
+local exited = assert(Child.run(three.argv, three.options))
 print("exit " .. tostring(exited.code))
 ```
 
@@ -40,10 +43,11 @@ anywhere on a verb's line, before a `--`, does the same.
 
 ```teal
 local Child = require("cosmic.child")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 
-local result = assert(Child.run({ assert(Proc.executable()), "help", "db" },
-  { cwd = tmp, stdout = "capture", timeout_ms = 10000 }))
+local help = observations.program({ "help", "db" },
+  { cwd = tmp, stdout = "capture", timeout_ms = 10000 })
+local result = assert(Child.run(help.argv, help.options))
 local out = result.stdout or ""
 print(out:match("^`cosmic db[^`]*`"))
 local verbs = 0
