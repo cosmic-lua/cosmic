@@ -21,10 +21,16 @@
 --- The key is the digest of
 ---
 --- - the test: its module's path and its name (`id`);
+--- - `version`, which names how the rest are computed;
 --- - the test harness every worker runs, as the running binary carries
----   it (`harness`, and `build.test`'s `harness_roots`), each module by
----   its source and its bytecode -- COSMIC_TEST_HARNESS_SALT, for a test
----   alone, stands in for a change to it;
+---   it (`harness`): each module a worker loads besides its test's
+---   closure (`build.test_worker`'s `worker.loads`) and the plan of its
+---   sandbox's maker (`build.test`'s `harness_own`), each by its source
+---   and its bytecode, and the code that makes a key and looks a
+---   verdict up under one (`build.test`'s `key_code`: build.test, and
+---   this module's closure and build.shared_verdicts') by its stripped
+---   bytecode -- COSMIC_TEST_HARNESS_SALT, for a test alone, stands in
+---   for a change to it;
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark
@@ -71,13 +77,33 @@
 --- holds by bytecode; the compiler Teal itself compiles to
 --- (`vendor.tl`) is carried beside build.teal, the one module that
 --- loads it, by its bytecode too. Whether a module compiles at all is
---- no verdict of a test: a build that refuses one runs none. It would
---- be unsound for a worker to load compiled code that is of neither
---- its closure nor the harness -- as a top-level require added to
---- build.dispatch would be until named among `build.test`'s
---- `harness_roots` (the TODO there) -- or to read the compiler's
---- identity by any means but `Store.meta`'s `compiler` and
---- `compiled_by`, held as above.
+--- no verdict of a test: a build that refuses one runs none. So what a
+--- worker runs of the tree is keyed exactly when it is of its closure
+--- or of the harness, and `build.test_worker`'s `judge` fails a test
+--- whose worker loaded a module the tool carries that is of neither --
+--- a top-level require added to build.dispatch, a lazy one a worker
+--- reaches -- naming it. The harness is what a worker loads, not
+--- every module its modules require: a `local type` require is erased
+--- by Teal and loads nothing, and what an imported type does at run
+--- time (an `is` against a record's `where`, an enum's membership) is
+--- compiled into the importer's bytecode, which `harness` holds.
+---
+--- The code that computes a key is held too, but by what Lua runs of
+--- it: a version of it that maps a test's inputs to the key another
+--- version computes for other inputs -- a digest that misses a rewrite
+--- of the same size and times -- keeps its verdict under that key, in
+--- o/build.db and in the verdicts every checkout shares, where it would
+--- stand after the fix. So each version of build.test, of this module
+--- and what it requires, and of build.shared_verdicts keys apart, by
+--- the digest of its bytecode dumped stripped of its lines and names
+--- (`build.test`'s `stripped`): an edit to its comments or docs leaves
+--- every key alone, and one to its code runs every test again. That
+--- holds what build.test decides of a worker's holds as well -- the
+--- names of the tree's modules and declarations a `require` or a
+--- lookup in the store refuses -- which it hands a worker and no other
+--- part of a key names. It would be unsound to read the compiler's identity
+--- by any means but `Store.meta`'s `compiler` and `compiled_by`, held
+--- as above.
 ---
 --- The host caches it declares are not: they are content-addressed,
 --- and never change a result (`build.caches`). Nor are the variables
@@ -202,6 +228,14 @@ local record declared_key
     uid: integer
   end
 end
+
+--- What every key begins with, which names how its parts are computed:
+--- bumped by hand for a fix to how one is computed by code no key
+--- holds by its code -- the build's, which computes a module's graph
+--- key (`build.importer`) -- which would otherwise leave standing a
+--- verdict kept under a key computed wrong. A change to this code moves
+--- every key by itself: it is held by its stripped bytecode (above).
+local version <const> = "declared-3"
 
 --- A file modified this recently may be modified again within the same
 --- timestamp tick, which `lstat` would not tell: hashed again rather
@@ -586,7 +620,7 @@ function declared_key.compute(digests: declared_key.Digests,
   end)
   digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
   if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
-  return Hash.hex_sha256("declared-3\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
+  return Hash.hex_sha256(version .. "\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
     inputs), ""
 end
 
@@ -917,36 +951,21 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
   return Hash.hex_sha256(table.concat(parts)):sub(1, 16)
 end
 
---- The test harness every worker runs, as a digest: each module the
---- modules `roots` require, directly or not, and themselves, and each of
---- `own` alone -- one whose requires are the runner's, not a worker's --
---- by name and what it is, from `sources` (what each module is, by
---- name: `build.test` gives its source's hash and its bytecode's, so
---- what the compiler made of it moves it as its source does) and
---- `imports` (the names each requires), as the running binary's own
---- database holds them. A module no source names is left out.
-function declared_key.harness(roots: {string}, sources: {string:string},
-                              imports: {string:{string}}, own?: {string}): string
+--- The test harness every worker runs, as a digest: each module of
+--- `names` by name and what it is, from `sources` (what each module
+--- is, by name: `build.test` gives its source's hash and its
+--- bytecode's, so what the compiler made of it moves it as its source
+--- does), as the running binary's own database holds them. Nothing
+--- they require is walked: `names` is what a worker runs, which
+--- `build.test_worker`'s `judge` holds it to. A module no source
+--- names is left out.
+function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: {string:boolean} = {}
   local lines: {string} = {}
-  local stack: {string} = {}
-  for _, name in ipairs(own or {}) do
+  for _, name in ipairs(names) do
     if sources[name] ~= nil and not seen[name] then
       seen[name] = true
       lines[#lines + 1] = name .. " " .. sources[name]
-    end
-  end
-  for _, root in ipairs(roots) do stack[#stack + 1] = root end
-  local walked: {string:boolean} = {}
-  while #stack > 0 do
-    local name = table.remove(stack)
-    if not walked[name] and sources[name] ~= nil then
-      walked[name] = true
-      if not seen[name] then
-        seen[name] = true
-        lines[#lines + 1] = name .. " " .. sources[name]
-      end
-      for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end
     end
   end
   table.sort(lines)

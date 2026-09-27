@@ -12,8 +12,10 @@
 --- the test exited the process, crashed it, or ran past its deadline --
 --- is itself the runner's answer that the test failed.
 
+local type Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
@@ -47,15 +49,111 @@ local record worker
     test_reads: {observations.Observation}
     load_hits: Coverage.Hits
     test_hits: Coverage.Hits
+    --- The name of every module in the worker's `package.loaded` once
+    --- its test has run, sorted: what it ran, which `judge` holds to
+    --- what a key holds of it (`loads`).
+    modules: {string}
+  end
+
+  --- What starts one test's worker (`invocation`).
+  record Invocation
+    --- How this program is started again (`program`).
+    start: Proc.Relaunch
+    --- The environment the worker is given, less what starting it adds
+    --- (`invocation`).
+    env: {string:string}
+    --- The tree and the test's scratch directory as the worker sees
+    --- them, and where it runs (nil for here); the test's module and
+    --- its name; what the build read of the module's `needs`
+    --- (`test_inputs.canonical`), and what its sandbox holds a
+    --- process it starts to, a path a line ("" for none).
+    root: string
+    cwd: string
+    module_path: string
+    name: string
+    scratch: string
+    needs: string
+    held: string
+    --- Whether it may not run this program (`--worker-no-tool`), and
+    --- whether the store's hold is off (`--open`).
+    no_tool: boolean
+    open: boolean
+    --- The names of the module's import closure, of every module of
+    --- the tree, and of what only a declaration of the tree answers
+    --- for (see `run`).
+    closure: {string}
+    tree: {string}
+    declared: {string}
+    --- The worker's sandbox, or nil where it runs unsandboxed.
+    sandbox: Child.Sandbox
+  end
+
+  --- How a worker starts (`invocation`): its command line and its
+  --- start options, for `Child.start`.
+  record Command
+    argv: {string}
+    options: Child.Options
+  end
+
+  --- What `judge` reads a finished worker by.
+  record Judging
+    --- The worker's end, or nil where it could not be started or
+    --- supervised.
+    result: Child.Result
+    --- Why there is no result; with one, what the worker left running
+    --- past its end, or "" for nothing.
+    trouble: string
+    timeout_ms: integer
+    sandboxed: boolean
+    --- Where the loaded set is held (`unkeyed`): the modules of the
+    --- tree the tool carries and the test's import closure, each a set
+    --- of names; nil for no such hold.
+    carried: {string:boolean}
+    closure: {string:boolean}
+  end
+
+  --- A finished worker's verdict: its report, nil where there is none,
+  --- and whether its test passed, with what to say of it.
+  record Judgement
+    report: Report
+    passed: boolean
+    message: string
   end
 
   --- The descriptor the report is written to.
   report_fd: integer
+
+  loads: {string}
 end
 
 worker.report_fd = 3
 
-local HEADER <const> = "cosmic-test-report-1"
+local HEADER <const> = "cosmic-test-report-2"
+
+--- The modules of the tree a worker loads besides its test's import
+--- closure: cosmic's own main, which every process runs first, and
+--- build.dispatch, whose `--worker` branch starts this; this module and
+--- what it requires, directly or not, at its top level or on the way
+--- its `run` takes; and `cosmic.removed`, which the core loads in any
+--- test that reaches for a removed global, to say what to write
+--- instead (`diagnostics`); each by its source and its bytecode, the code a
+--- worker runs of the tree but its test's. Every sandboxed key holds
+--- them (`build.test`'s `binary_harness`), and `judge` fails a
+--- sandboxed test whose worker loaded a module of the tree the tool
+--- carries that is neither here nor in its closure, so what a worker
+--- runs is keyed, and a module
+--- added to its way is named here by the first test that reaches it,
+--- rather than trusted to a walk of the `imports` table, which follows
+--- `local type` requires Teal erases and requires inside functions no
+--- worker calls.
+worker.loads = {
+  "build.caches", "build.clock", "build.dispatch", "build.exit_status",
+  "build.filesystem_observations", "build.test_inputs", "build.test_worker", "build.verdict",
+  "cmd.cosmic.main", "cosmic.cli", "cosmic.codec", "cosmic.coverage", "cosmic.env",
+  "cosmic.errors", "cosmic.flags", "cosmic.fs", "cosmic.hash", "cosmic.log", "cosmic.proc",
+  "cosmic.removed", "cosmic.sqlite", "cosmic.store", "cosmic.string", "cosmic.test",
+  "cosmic.time",
+}
 
 local hex_byte: {string:string} = {}
 for byte = 0, 255 do
@@ -148,6 +246,7 @@ function worker.encode(report: worker.Report): string
   encode_reads(lines, "test-read", report.test_reads)
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
+  for _, name in ipairs(report.modules or {}) do lines[#lines + 1] = "module " .. hex(name) end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"
 end
@@ -157,7 +256,7 @@ function worker.decode(text: string): worker.Report | nil, string
   if text == nil or text == "" then return nil, "no report" end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
-    load_reads = {}, test_reads = {}, load_hits = {}, test_hits = {},
+    load_reads = {}, test_reads = {}, load_hits = {}, test_hits = {}, modules = {},
   }
   local first = true
   local finished = false
@@ -197,6 +296,10 @@ function worker.decode(text: string): worker.Report | nil, string
           per_line[math.tointeger(tonumber(number)) or 0] = true
         end
         into[decoded] = per_line
+      elseif tag == "module" then
+        local decoded = unhex(rest)
+        if decoded == nil or decoded == "" then return nil, "a malformed module: " .. line end
+        report.modules[#report.modules + 1] = decoded
       else
         return nil, "an unknown line: " .. line
       end
@@ -210,8 +313,10 @@ end
 --- Modules of the tree any test may `require` beyond its closure:
 --- `cosmic.removed`, which core/surface.c requires to say what to
 --- write instead of a removed global (`os.getenv`) a test reached for.
---- It is a diagnostic the core loads, not an input of the test: what a
---- test does with the error is no read of it.
+--- It is a diagnostic the core loads, which any test may reach, so
+--- every key holds it among what every worker loads (`loads`) rather
+--- than a test's closure: what it says is what a test that catches the
+--- error sees.
 local diagnostics <const>: {string:boolean} = { ["cosmic.removed"] = true }
 
 --- Why the module `module_path`'s tests may not `require` `name`, or
@@ -339,6 +444,130 @@ local function hold_store(module_path: string, closure: {string:boolean},
     "%s's verdict is keyed by what the store holds of its import closure alone. " ..
     "Declare store = true in its Test.needs to read them, at the cost of running its " ..
     "tests again on every edit to the tree", module_path))
+end
+
+--- How a worker is started: this exact program again -- the same core,
+--- whose runtime identity every verdict of the run is keyed under. A
+--- process not started from a portable artifact starts its logical
+--- executable instead. What it answers is the relaunch's own: the
+--- arguments that lead its command line, the variables it adds, and
+--- the descriptors it hands on.
+function worker.program(): Proc.Relaunch | nil, string
+  local relaunch, _ = Proc.relaunch()
+  if relaunch ~= nil then
+    local env: {string:string} = {}
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    return { argv = relaunch.argv, env = env, fds = relaunch.fds }, ""
+  end
+  local executable, trouble = Proc.executable()
+  if executable == nil then return nil, trouble end
+  return { argv = { executable }, env = {}, fds = {} }, ""
+end
+
+--- The command line and the start options of the worker `given`
+--- describes: `start`'s program (`program`), then `test --worker
+--- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
+--- <held> [--open] <closure>... --tree <tree>... --declared
+--- <declared>...` (`run`), with the report captured at `report_fd`,
+--- and its environment `env` with `start`'s variables added and
+--- coverage collected from its first instruction (core/coverage.c,
+--- COSMIC_COVERAGE_STARTUP), so its first window holds the Lua that
+--- loaded before it could open. An
+--- unsandboxed worker leads a process group of its own, which its end
+--- ends; a sandboxed one is pid 2 of a pid namespace of its own, which
+--- ends with it, ending all it started: no group to end, and no stray
+--- left for the runner to adopt (`build.test`'s `run_jobs`).
+function worker.invocation(given: worker.Invocation): worker.Command
+  local argv: {string} = {}
+  for i, value in ipairs(given.start.argv) do argv[i] = value end
+  for _, value in ipairs({ "test", given.no_tool and "--worker-no-tool" or "--worker",
+                           given.root, given.module_path, given.name, given.scratch .. "/tmp",
+                           given.scratch .. "/children", given.needs, given.held }) do
+    argv[#argv + 1] = value
+  end
+  if given.open then argv[#argv + 1] = "--open" end
+  for _, name in ipairs(given.closure) do argv[#argv + 1] = name end
+  argv[#argv + 1] = "--tree"
+  for _, name in ipairs(given.tree) do argv[#argv + 1] = name end
+  argv[#argv + 1] = "--declared"
+  for _, name in ipairs(given.declared) do argv[#argv + 1] = name end
+  local env: {string:string} = {}
+  for name, value in pairs(given.env) do env[name] = value end
+  for name, value in pairs(given.start.env) do env[name] = value end
+  env.COSMIC_COVERAGE_STARTUP = "1"
+  local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
+  for number, fd in pairs(given.start.fds) do fds[number] = fd end
+  return { argv = argv, options = {
+    env = env, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
+    fds = fds, sandbox = given.sandbox, process_group = given.sandbox == nil,
+  } }
+end
+
+--- The modules of `modules`, a worker's `Report.modules`, that it ran
+--- and no key of its test holds, sorted: each of the tree the tool
+--- carries (`carried`) that is neither in `loads` nor in the test's
+--- import closure (`closure`). A module the tool does not carry is the core's own,
+--- or Lua's, which the runtime's identity holds; one it carries that is
+--- no module of the tree is the TODO above `refusal`.
+local function unkeyed(modules: {string}, carried: {string:boolean},
+                       closure: {string:boolean}): {string}
+  local listed: {string:boolean} = {}
+  for _, name in ipairs(worker.loads) do listed[name] = true end
+  local out: {string} = {}
+  for _, name in ipairs(modules) do
+    if carried[name] and not listed[name] and not closure[name] then
+      out[#out + 1] = name
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+local function ending(result: Child.Result): string
+  if result.signal ~= nil then return "was killed by signal " .. tostring(result.signal) end
+  return "exited with status " .. tostring(result.code)
+end
+
+--- Reads a finished worker (`judging`) into its test's verdict: what it
+--- reported, unless it could not be supervised, ran past its deadline,
+--- or ended before it reported; a pass fails where what it started
+--- outlived it, or where it ran a module no key of its test holds
+--- (`unkeyed`), which would let an edit to that module leave the pass
+--- standing.
+function worker.judge(judging: worker.Judging): worker.Judgement
+  local result = judging.result
+  if result == nil then
+    return { passed = false,
+      message = "the test process could not be supervised: " .. judging.trouble }
+  end
+  if result.timed_out then
+    return { passed = false, message = "timed out after " ..
+      tostring(judging.timeout_ms // 1000) .. " s; " ..
+      (judging.sandboxed and "its pid namespace" or "its process group") .. " was ended" }
+  end
+  local report, decode_trouble = worker.decode(result.captured[worker.report_fd])
+  if report == nil then
+    return { passed = false, message = "the test process " .. ending(result) ..
+      " before it reported (" .. decode_trouble .. ")" }
+  end
+  local judgement: worker.Judgement = { report = report, passed = report.passed,
+    message = report.message }
+  if judgement.passed and judging.carried ~= nil and judging.closure ~= nil then
+    local names = unkeyed(report.modules, judging.carried, judging.closure)
+    if #names > 0 then
+      judgement.passed = false
+      judgement.message = "its worker ran " .. table.concat(names, ", ") .. ", which the " ..
+        "tool carries and neither its module's import closure nor the modules every " ..
+        "worker loads hold, so no key of its test does: require " ..
+        (#names == 1 and "it" or "each") .. " at the top level of its module, or, where " ..
+        "every worker loads it, name it in build/test_worker.tl's `worker.loads`"
+    end
+  end
+  if judgement.passed and judging.trouble ~= "" then
+    -- The test passed, but what it started outlived it.
+    judgement.passed, judgement.message = false, judging.trouble
+  end
+  return judgement
 end
 
 --- Runs the one test the command line names and writes its report.
@@ -512,6 +741,14 @@ function worker.run(argv: {integer:string}): integer
     local into = report.test_hits or report.load_hits
     child_hits(children, into or {})
   end
+  -- What it ran, as `judge` holds it: taken last, so it holds what the
+  -- test loaded as well as what this did.
+  local modules: {string} = {}
+  for loaded_name in pairs(package.loaded) do
+    if loaded_name is string then modules[#modules + 1] = loaded_name end
+  end
+  table.sort(modules)
+  report.modules = modules
   local written, trouble = Fs.put(worker.report_fd, worker.encode(report))
   if not written then
     log:complain("the test report: " .. trouble)

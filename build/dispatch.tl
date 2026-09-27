@@ -520,6 +520,12 @@ function dispatch.main(argv: {integer:string}): integer
     -- One test in a process of its own, started by `cosmic test`: see
     -- build.test_worker. Never stale-checked or rebuilt, since the run
     -- that started it already was.
+    -- TODO: start a worker from cmd/cosmic/main.tl, ahead of this
+    -- module, and drop this branch, so build.dispatch and what only it
+    -- requires (build.clock, build.exit_status, cosmic.cli,
+    -- cosmic.flags) leave build/test_worker.tl's `worker.loads`, which
+    -- is what shrinks: every edit to build/dispatch.tl runs every
+    -- sandboxed test again.
     local worker = require("build.test_worker")
     return worker.run(argv)
   end

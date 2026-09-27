@@ -1605,75 +1605,334 @@ local function binary_tables(): string | nil, string
   return rows[1][1], ""
 end
 
---- What of the test harness a worker runs, whose closure every
---- sandboxed key holds: the worker itself, the plan of its sandbox
---- (`build.test_sandbox`), what holds it (`build.filesystem_observations`),
---- its inputs (`build.test_inputs`) and its key (`build.declared_key`);
---- and what build.dispatch requires at its top level that none of them
---- does, which every worker loads on its way to its `--worker` branch.
--- TODO: take build.dispatch's top-level requires from the `imports`
--- table rather than naming them here, once it tells a require at a
--- module's top level from one inside a function (build.dispatch's
--- closure is every verb's): a top-level require added to it is keyed
--- by no test's key until it is named here.
-local harness_roots: {string} = {
-  "build.test_worker", "build.test_sandbox", "build.filesystem_observations",
-  "build.test_inputs", "build.declared_key",
-  "build.clock", "build.exit_status", "cosmic.cli", "cosmic.flags",
-}
+--- What of the running binary every sandboxed key holds of the code a
+--- worker runs, or that writes what it is given (`binary_harness`).
+local record Harness
+  --- The digest of the test harness (`declared_key.harness`): what a
+  --- worker runs, and the code that makes and reads its key.
+  digest: string
+  --- The digest of the code that writes a closure store, which salts
+  --- each store's address (`build.writer`'s `closure_address`).
+  store_salt: string
+  --- The set of the names of the modules the binary carries, which
+  --- `worker.judge` holds what a worker loaded to.
+  carried: {string:boolean}
+end
 
---- The harness modules keyed by their own source and bytecode alone:
---- the runner, whose closure is the build's -- its compiler and the
---- rest, which a worker never runs; cosmic's own main
---- (`cmd.cosmic.main`), which every worker runs first and which
---- requires only build.dispatch; build.dispatch, whose `--worker`
---- branch every worker runs, and whose closure is every verb's; the
---- writer and the schema that shape the projection every worker loads
---- its modules from (`build.writer`, `build.schema`); and the shared
---- verdicts' cache, which a key is looked up in (`build.shared_verdicts`).
-local harness_own: {string} = {
-  "build.test", "cmd.cosmic.main", "build.dispatch", "build.writer", "build.schema",
-  "build.shared_verdicts",
-}
+--- The modules of the harness keyed by their source and bytecode
+--- beside what every worker loads (`build.test_worker`'s
+--- `worker.loads`): the plan of a worker's sandbox, which the runner
+--- makes (`build.test_sandbox`'s `plan`): what it binds, unveils and
+--- holds, and the environment it gives. What else of the runner shapes
+--- a worker -- its command line and start options, and how its report
+--- is read into a verdict (`worker.invocation`, `worker.judge`) -- is
+--- the worker's own module's, which `worker.loads` names, and the rest
+--- of build.test passes it only what a key holds by itself: the test's
+--- declaration, its closure's names, which the store's address holds,
+--- and whether it may run this program (`Spec.runs_tool`) -- or what
+--- `key_code` holds: the names of the tree's modules and declarations,
+--- which decide what a worker's holds refuse.
+-- TODO: key the sandbox's plan by what it is -- its unveils and binds,
+-- with the tree, the scratch directory and the host caches named
+-- relatively, and its environment -- rather than by build.test_sandbox's
+-- source, once `held` and the caches' binds name no host location, so
+-- an edit to build/test_sandbox.tl that leaves every plan alone
+-- leaves every key alone too; every edit to it runs every test again.
+local harness_own <const>: {string} = { "build.test_sandbox" }
 
---- The digest of the test harness the running binary carries
---- (`declared_key.harness`), each module by its source's hash and its
---- bytecode's, searched alone so no attached database stands in for
---- it: every worker runs it, so every sandboxed key holds it, and what
---- the compiler made of it with it -- a key holds the compiler's
---- identity only where its closure reads it (`build.declared_key`).
-local function binary_harness(): string | nil, string
+--- The code that makes a key and looks a verdict up under one, held by
+--- what Lua runs of it (`test.stripped`) rather than its source:
+--- build.test itself, whose closure is the build's, and the closure of
+--- the key's computation (`build.declared_key`) and of the shared
+--- verdicts' (`build.shared_verdicts`), as the `imports` table has it.
+--- A key is looked up by its value, but that is not enough: a version
+--- of this code that maps some inputs to the key another version
+--- computes for other inputs -- a digest that misses a rewrite, say --
+--- keeps a verdict under that key, in o/build.db and in the verdicts
+--- every checkout shares, which would stand after the fix. So each
+--- version of it keys apart, as the source-keyed harness had it; but a
+--- comment or doc edit, which leaves what Lua runs and only moves its
+--- lines, leaves every key alone. What build.test decides of a
+--- worker's holds -- which names of the tree and its declarations a
+--- `require` or a lookup in the store refuses (`tree_names`,
+--- `declared_names`) -- is held so too.
+local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
+local key_own <const>: {string} = { "build.test" }
+
+--- The code that writes a closure store: build.writer's, the schema it
+--- writes it by (`build.schema`), and what binds its statements'
+--- values (`build.bind`). The store's address holds
+--- the rows it carries by their digests (`writer.closure_basis`), but
+--- not which of them, nor which tables, the writer copies: a table
+--- added to what it copies would move no address.
+-- TODO: salt a store's address by the closure store's own writer
+-- alone, once it is a module of its own (writer.tl's `closed`,
+-- `closure_meta`, `closure_basis`, `closure_address` and `closure` out
+-- into build/closure_store.tl), so an edit to the projection's writer
+-- leaves every address alone; every edit to build/writer.tl, build/schema.tl
+-- or build/bind.tl runs every test that does not declare `store` again.
+local store_writer <const>: {string} = { "build.writer", "build.schema", "build.bind" }
+
+--- The names `key_roots` and `key_own` hold: each root and every module
+--- it requires, directly or not, by `imports` (the names each module
+--- requires), and each of `key_own` alone.
+local function key_code(imports: {string:{string}}): {string}
+  local seen: {string:boolean} = {}
+  local names: {string} = {}
+  local stack: {string} = {}
+  for _, name in ipairs(key_own) do
+    seen[name] = true
+    names[#names + 1] = name
+  end
+  for _, name in ipairs(key_roots) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not seen[name] then
+      seen[name] = true
+      names[#names + 1] = name
+      for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end
+    end
+  end
+  return names
+end
+
+--- What Lua runs of `dump`, a chunk dumped stripped
+--- (`string.dump(chunk, true)`, vendor/lua/src/ldump.c's format): the
+--- dump's own bytes -- each function's parameters, flags, stack size,
+--- code, constants, upvalues and nested functions -- less the lines each
+--- function is defined between, which a stripped dump keeps, and the
+--- padding that aligns its code after them. What is left decodes as
+--- one dump alone, so two chunks that differ in what runs differ in it
+--- too. Raises on a dump it cannot read, and on one of another Lua's
+--- format.
+local function runs_of(dump: string): string
+  local pos = 1
+  local kept: {string} = {}
+  -- Where the bytes kept since the last span cut out begin.
+  local from = 1
+  local function take(n: integer): string
+    if n < 0 or pos + n - 1 > #dump then error("a dump cut short at " .. tostring(pos)) end
+    local piece = dump:sub(pos, pos + n - 1)
+    pos = pos + n
+    return piece
+  end
+  local function byte(): integer
+    return take(1):byte()
+  end
+  -- A size, MSB first, seven bits a byte, each but the last with its
+  -- high bit set (ldump.c's `dumpVarint`).
+  local function varint(): integer
+    local value = 0
+    local b: integer
+    repeat
+      b = byte()
+      value = (value << 7) | (b & 0x7f)
+    until b & 0x80 == 0
+    return value
+  end
+  -- Leaves the bytes read since `start` out of what is kept.
+  local function cut(start: integer)
+    kept[#kept + 1] = dump:sub(from, start - 1)
+    from = pos
+  end
+  -- Skips, and cuts, the zeros that align what follows to `size` bytes
+  -- from the dump's start (`dumpAlign`).
+  local function align(size: integer)
+    local offset = (pos - 1) % size
+    if offset ~= 0 then
+      local start = pos
+      take(size - offset)
+      cut(start)
+    end
+  end
+  -- A string: its size plus one and its bytes, or 0 and the index of
+  -- one dumped before (`dumpString`).
+  local function str()
+    local size = varint()
+    if size == 0 then
+      varint()
+    else
+      take(size)
+    end
+  end
+  if take(4) ~= "\27Lua" then error("not a Lua chunk") end
+  local version, format = byte(), byte()
+  if version ~= 0x55 or format ~= 0 then
+    error(string.format("Lua bytecode format %02x %02x, not the 5.5 dump this walks; " ..
+      "update runs_of against vendor/lua/src/ldump.c", version, format))
+  end
+  take(6)
+  local sizes: {integer} = {}
+  for i = 1, 4 do
+    sizes[i] = byte()
+    take(sizes[i])
+  end
+  local instruction, number = sizes[2], sizes[4]
+  byte()
+  local function func()
+    -- The lines it is defined between: what a comment above it moves.
+    local start = pos
+    local _, _ = varint(), varint()
+    cut(start)
+    take(3)
+    local code = varint()
+    align(instruction)
+    take(code * instruction)
+    for _ = 1, varint() do
+      local tag = byte()
+      if tag == 19 then
+        take(number)
+      elseif tag == 3 then
+        varint()
+      elseif tag == 4 or tag == 20 then
+        str()
+      elseif tag ~= 0 and tag ~= 1 and tag ~= 17 then
+        error("a constant of an unknown kind " .. tostring(tag))
+      end
+    end
+    take(3 * varint())
+    for _ = 1, varint() do func() end
+    str()
+    take(varint())
+    local absolute = varint()
+    if absolute > 0 then
+      align(sizes[1])
+      take(absolute * 2 * sizes[1])
+    end
+    for _ = 1, varint() do
+      str()
+      local _, _ = varint(), varint()
+    end
+    for _ = 1, varint() do str() end
+  end
+  func()
+  if pos <= #dump then error("bytes after the chunk") end
+  kept[#kept + 1] = dump:sub(from)
+  return table.concat(kept)
+end
+
+--- The digest of what Lua runs of `bytecode`, a compiled chunk
+--- (`runs_of`): of it dumped again stripped of its debugging
+--- information -- its lines, its locals' names, its source's name --
+--- less the lines each function is defined between, so a chunk
+--- compiled from a source that differs only in comments and blank
+--- lines has the same; nil and why where it does not load.
+function test.stripped(bytecode: string): string | nil, string
+  local chunk, trouble = load(bytecode, "=stripped", "b")
+  if chunk == nil then return nil, trouble end
+  local ok, produced = pcall(runs_of, string.dump(chunk, true))
+  if not ok or not produced is string then return nil, tostring(produced) end
+  return Hash.hex_sha256(produced), ""
+end
+
+--- The digest of the test harness and that of the code that writes a
+--- closure store (`Harness`), over what the binary carries
+--- (`binary_harness`, which fills in `carried`): `sources`, each
+--- module's source and bytecode hashes by name, `stripped`, what Lua
+--- runs of each module `key_code` names (`test.stripped`), and
+--- `imports`, the names each module requires. A module both lists
+--- name is held by its source and bytecode. Nil and why where a module
+--- `key_code` names has no stripped digest: one that is no longer a
+--- module the binary carries, which the harness would otherwise leave
+--- out unnoticed.
+function test.harness(sources: {string:string}, stripped: {string:string},
+                      imports: {string:{string}}): Harness | nil, string
+  local names: {string} = {}
+  local held: {string:string} = {}
+  for _, list in ipairs({ worker.loads, harness_own }) do
+    for _, name in ipairs(list) do
+      names[#names + 1] = name
+      held[name] = sources[name]
+    end
+  end
+  for _, name in ipairs(key_code(imports)) do
+    if held[name] == nil then
+      if stripped[name] == nil then
+        return nil, name .. ", which makes or reads a key, is no module the binary " ..
+          "carries whose bytecode the harness can hold"
+      end
+      names[#names + 1] = name
+      held[name] = "stripped " .. stripped[name]
+    end
+  end
+  return { digest = declared_key.harness(names, held),
+    store_salt = declared_key.harness(store_writer, sources), carried = {} }, ""
+end
+
+--- What of the running binary every sandboxed key holds of the code a
+--- worker runs (`Harness`), searched alone so no attached database
+--- stands in for it, each module by its source's hash and its
+--- bytecode's: what the compiler made of it with it -- a key holds the
+--- compiler's identity only where its closure reads it
+--- (`build.declared_key`). What a worker runs is what every worker
+--- loads (`worker.loads`), which `worker.judge` holds each worker to,
+--- and `harness_own`; no `imports` closure of it is walked, which would
+--- follow the requires a worker never runs: Teal erases a `local type`
+--- one, and what an imported type does at run time (an `is` against a
+--- record's `where`, an enum's test) is compiled into the importer's
+--- bytecode, which its hash holds. The code that makes a key is held
+--- by what Lua runs of it (`key_code`).
+local function binary_harness(): Harness | nil, string
   local modules: {{string}} = nil
   local imports: {{string}} = nil
+  local chunks: Sqlite.Rows = nil
   local trouble = "the running binary has no database"
   Store.alone(function()
     local databases = Store.databases()
     local binary = databases[#databases]
-    if binary ~= nil then
-      modules, trouble = Sqlite.text_rows(binary,
-        "SELECT path, source_hash || ' ' || lower(hex(sha256(bytecode))) FROM modules " ..
-        "WHERE kind IN ('module', 'main')")
-      if modules ~= nil then
-        imports, trouble = Sqlite.text_rows(binary, "SELECT path, requires FROM imports")
-      end
+    if binary == nil then return end
+    modules, trouble = Sqlite.text_rows(binary,
+      "SELECT path, source_hash || ' ' || lower(hex(sha256(bytecode))) FROM modules " ..
+      "WHERE kind IN ('module', 'main')")
+    if modules == nil then return end
+    imports, trouble = Sqlite.text_rows(binary, "SELECT path, requires FROM imports")
+    if imports == nil then return end
+    local requires: {string:{string}} = {}
+    for _, row in ipairs(imports) do
+      local list = requires[row[1]] or {}
+      requires[row[1]] = list
+      list[#list + 1] = row[2]
     end
+    local names = key_code(requires)
+    local values: {Sqlite.Value} = {}
+    local marks: {string} = {}
+    for i, name in ipairs(names) do
+      values[i] = text(name)
+      marks[i] = "?" .. tostring(i)
+    end
+    chunks, trouble = Sqlite.rows(binary, "SELECT path, bytecode FROM modules " ..
+      "WHERE kind IN ('module', 'main') AND path IN (" .. table.concat(marks, ", ") .. ")",
+      values)
   end)
-  if modules == nil or imports == nil then return nil, trouble end
+  if modules == nil or imports == nil or chunks == nil then return nil, trouble end
   local sources: {string:string} = {}
-  for _, row in ipairs(modules) do sources[row[1]] = row[2] end
+  local carried: {string:boolean} = {}
+  for _, row in ipairs(modules) do
+    sources[row[1]] = row[2]
+    carried[row[1]] = true
+  end
   local requires: {string:{string}} = {}
   for _, row in ipairs(imports) do
     local list = requires[row[1]] or {}
     requires[row[1]] = list
     list[#list + 1] = row[2]
   end
-  for _, list in pairs(requires) do table.sort(list) end
-  local digest = declared_key.harness(harness_roots, sources, requires, harness_own)
+  local stripped: {string:string} = {}
+  for _, row in ipairs(chunks) do
+    local digest, why = test.stripped(row[2].blob or row[2].text or "")
+    if digest == nil then return nil, (row[1].text or "") .. ": " .. why end
+    stripped[row[1].text] = digest
+  end
+  local harness, harness_trouble = test.harness(sources, stripped, requires)
+  if harness == nil then return nil, harness_trouble end
+  harness.carried = carried
   -- A harness a test stands in for, so it can see a change to one move
   -- every key without a binary of its own (build/sandboxed_verdicts_test.tl).
   local salt = Env.get("COSMIC_TEST_HARNESS_SALT")
-  if salt ~= nil and salt ~= "" then digest = Hash.hex_sha256(digest .. "\0" .. salt) end
-  return digest, ""
+  if salt ~= nil and salt ~= "" then
+    harness.digest = Hash.hex_sha256(harness.digest .. "\0" .. salt)
+  end
+  return harness, ""
 end
 
 --- Everything a finished job's verdict is recorded into.
@@ -1750,6 +2009,11 @@ local record Recording
   --- (`declared_key.program_identity`).
   harness: string
   program: string
+  --- The digest of the code that writes a closure store (`Harness`),
+  --- and the set of the modules of the tree the binary carries, which
+  --- a worker's loads are held to (`worker.judge`).
+  store_salt: string
+  carried: {string:boolean}
   --- Sandboxed, where an artifact runs the tests (o/bin/cosmic, or a
   --- portable cosmic), what runs its core
   --- (`declared_key.launcher_identity`), which every key holds; nil
@@ -1766,6 +2030,9 @@ local record Recording
   --- modules, which its worker holds its `require`s to
   --- (`test_inputs.modules`, `build.test_worker`).
   closures: {string:{string}}
+  --- The same, each a set of names, made as a verdict needs one
+  --- (`closure_set`).
+  closure_sets: {string:{string:boolean}}
   --- Every module of the tree, by path, sorted: what a worker refuses a
   --- `require` of outside its closure (`build.test_worker`).
   tree_names: {string}
@@ -1874,6 +2141,23 @@ local function can_forbid(rec: Recording, m: importer.Module): boolean
   return found
 end
 
+--- How a sandboxed worker of `m`'s tests stands to running this
+--- program: "declared" where its module declares `tool`, "forbidden"
+--- where it is kept from running it (`can_forbid`), and "allowed" where
+--- it cannot be, which its key holds as if its module declared `tool`
+--- (`Spec.runs_tool`). Its key and its command line (`--worker-no-tool`)
+--- both take it from here.
+local enum ToolUse
+  "declared"
+  "forbidden"
+  "allowed"
+end
+
+local function tool_use(rec: Recording, m: importer.Module): ToolUse
+  if rec.effective[m.path].tool then return "declared" end
+  return can_forbid(rec, m) and "forbidden" or "allowed"
+end
+
 --- Whether a worker of `m`'s tests can read the compiler's identity,
 --- which it reads from the running tool (`declared_key.reads_compiler`):
 --- not one given the whole projection, which carries its own and is
@@ -1887,6 +2171,11 @@ end
 --- (`build.declared_key`): nil for one that reaches a network beyond
 --- loopback, or reads a link out of the tree, which no key holds -- the
 --- second said once in `rec.unkeyed`.
+-- TODO: key the limits a worker runs under -- its timeout, as data
+-- beside the sandbox's plan (the TODO above `harness_own`) -- once a
+-- key holds what a worker is given as data rather than by its maker's
+-- code: today a pass reached under a longer timeout stands under a
+-- shorter one.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
   if not declared_key.keyable(effective) then return nil end
@@ -1896,7 +2185,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     system = rec.system,
     harness = rec.harness, program = rec.program, launcher = rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
-    environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
+    environment = view_of(rec, m), runs_tool = tool_use(rec, m) == "allowed",
     closure_store = rec.stores[m.path],
   })
   if key == nil then rec.unkeyed[m.path] = why end
@@ -2039,41 +2328,40 @@ local function share(rec: Recording, m: importer.Module, name: string, id: strin
   rec.owed.used[#rec.owed.used + 1] = key
 end
 
---- How a worker's process ended, for a failure that has no report.
-local function ending(result: Child.Result): string
-  if result.signal ~= nil then return "was killed by signal " .. tostring(result.signal) end
-  return "exited with status " .. tostring(result.code)
+--- The set of the names of `m`'s import closure (`closures`), made
+--- once a run.
+local function closure_set(rec: Recording, m: importer.Module): {string:boolean}
+  local set = rec.closure_sets[m.path]
+  if set == nil then
+    set = {}
+    for _, name in ipairs(rec.closures[m.path] or {}) do set[name] = true end
+    rec.closure_sets[m.path] = set
+  end
+  return set
 end
 
 --- Records one finished job: the verdict its worker reported, or a
---- failure that says why there is no report to go by.
+--- failure that says why there is no report to go by
+--- (`build.test_worker`'s `judge`). Sandboxed, where a key holds what
+--- a worker runs by `worker.loads` and the test's closure, a worker
+--- that ran a module of the tree the tool carries beyond both fails
+--- its test.
 local function finish(rec: Recording, job: Job, result: Child.Result,
                       trouble: string, limits: test.Limits)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Time.monotonic_ns() - job.started_ns
-  local reported: worker.Report
-  local message: string
-  if result == nil then
-    message = "the test process could not be supervised: " .. trouble
-  elseif result.timed_out then
-    message = "timed out after " .. tostring(limits.timeout_ms // 1000) ..
-      " s; " .. (rec.sandbox and "its pid namespace" or "its process group") .. " was ended"
-  else
-    local decoded, decode_trouble = worker.decode(result.captured[worker.report_fd])
-    if decoded == nil then
-      message = "the test process " .. ending(result) .. " before it reported (" ..
-        decode_trouble .. ")"
-    else
-      reported = decoded
-    end
-  end
-  local passed = false
+  local judged = worker.judge({
+    result = result, trouble = trouble, timeout_ms = limits.timeout_ms,
+    sandboxed = rec.sandbox,
+    carried = rec.sandbox and rec.carried or nil,
+    closure = rec.sandbox and closure_set(rec, job.m) or nil,
+  })
+  local reported, passed, message = judged.report, judged.passed, judged.message
   local reads: {observations.Observation} = {}
   local elapsed = wall_ns
   local cacheable = false
   if reported ~= nil then
-    passed, message = reported.passed, reported.message
     if job.plan ~= nil and job.scratch ~= nil then
       -- Where the host has what the sandboxed worker read at /tree and
       -- /tmp, so its key and its audit are those of an unsandboxed run.
@@ -2100,10 +2388,6 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     end
     merge_hits(rec.hits, hit)
     rec.by_test[id] = encode_hits(hit)
-    if passed and trouble ~= "" then
-      -- The test passed, but what it started outlived it.
-      passed, message = false, trouble
-    end
   end
   if rec.sandbox then
     -- Keyed by what it was given: its declared inputs, as they were
@@ -2238,27 +2522,6 @@ worker_view = function(): {string:string}
   return worker_view_memo
 end
 
---- How a worker is started: this exact program again -- the same core,
---- whose runtime identity every verdict of the run is keyed under -- with
---- `test.worker_environment`. A process not started from a portable
---- artifact starts its logical executable instead. The worker also
---- collects coverage from its first instruction (core/coverage.c), so
---- its first window holds the Lua that loaded before it could open.
---- The environment is the runner's additions alone -- the relaunch's
---- own, and coverage from the first instruction -- which `launch` adds
---- to the worker's (`test.worker_environment`, or a sandboxed one's).
-local function worker_start(): Proc.Relaunch | nil, string
-  local env: {string:string} = { COSMIC_COVERAGE_STARTUP = "1" }
-  local relaunch, _ = Proc.relaunch()
-  if relaunch ~= nil then
-    for name, value in pairs(relaunch.env) do env[name] = value end
-    return { argv = relaunch.argv, env = env, fds = relaunch.fds }, ""
-  end
-  local executable, trouble = Proc.executable()
-  if executable == nil then return nil, trouble end
-  return { argv = { executable }, env = env, fds = {} }, ""
-end
-
 --- A fresh scratch directory for one test, resolved (so nothing in
 --- its own path is a link, even where the system temp directory is
 --- one), holding `real`, an empty directory, and `tmp`, a link to it
@@ -2337,7 +2600,7 @@ local function address_stores(rec: Recording, modules: {importer.Module},
         not (declared ~= nil and declared.store) then
       local names = rec.closures[m.path] or test_inputs.modules(m, by_path, declarations)
       rec.closures[m.path] = names
-      rec.stores[m.path] = writer.closure_address(basis, names, rec.harness)
+      rec.stores[m.path] = writer.closure_address(basis, names, rec.store_salt)
     end
   end
   return true, ""
@@ -2437,46 +2700,23 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
     held = table.concat(plan.held, "\n")
   end
-  local given: {string:string} = {}
-  for name, value in pairs(env) do given[name] = value end
-  for name, value in pairs(start.env) do given[name] = value end
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
-  local argv: {string} = {}
-  for i, value in ipairs(start.argv) do argv[i] = value end
-  -- What the build read of the module's `needs`, which the worker holds
-  -- the call to; what its sandbox holds a process it starts to; and its
-  -- import closure, which it holds its `require`s, and unless its
-  -- module declares `store` or `tool` its other lookups in the store, to. Sandboxed, a
-  -- worker whose module does not declare `tool` may not run this
-  -- program (`observations.forbid_running`): what it would run is no
-  -- input of its test's key.
-  local forbidding = rec.sandbox and not rec.effective[job.m.path].tool and
-    can_forbid(rec, job.m)
-  for _, value in ipairs({ "test", forbidding and "--worker-no-tool" or "--worker", root,
-                           job.m.path, job.name, inside .. "/tmp",
-                           inside .. "/children", test_inputs.canonical(job.m.inputs),
-                           held }) do
-    argv[#argv + 1] = value
-  end
-  -- A module whose key holds the whole projection, or the program and
-  -- the modules it carries, has no hold on the store (`build.test_worker`).
+  -- Sandboxed, a worker whose module does not declare `tool` may not
+  -- run this program (`observations.forbid_running`): what it would run
+  -- is no input of its test's key. A module whose key holds the whole
+  -- projection, or the program and the modules it carries, has no hold
+  -- on the store (`build.test_worker`).
   local declared = job.m.inputs
-  if declared ~= nil and (declared.store or declared.tool) then argv[#argv + 1] = "--open" end
-  for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
-  argv[#argv + 1] = "--tree"
-  for _, name in ipairs(rec.tree_names) do argv[#argv + 1] = name end
-  argv[#argv + 1] = "--declared"
-  for _, name in ipairs(rec.declared_names) do argv[#argv + 1] = name end
-  local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
-  for number, fd in pairs(start.fds) do fds[number] = fd end
-  -- An unsandboxed worker leads a process group of its own, which its
-  -- end ends; a sandboxed one is pid 2 of a pid namespace of its own,
-  -- which ends with it, ending all it started: no group to end, and no
-  -- stray left for this process to adopt (`run_jobs`).
-  local handle, trouble = Child.start(argv,
-    { env = given, cwd = cwd, stdin = "null", stdout = "capture", stderr = "stdout", fds = fds,
-      sandbox = sandbox, process_group = not rec.sandbox })
+  local command = worker.invocation({
+    start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
+    name = job.name, scratch = inside, needs = test_inputs.canonical(declared), held = held,
+    no_tool = rec.sandbox and tool_use(rec, job.m) == "forbidden",
+    open = declared ~= nil and (declared.store or declared.tool),
+    closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
+    sandbox = sandbox,
+  })
+  local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then
     finish(rec, job, nil, trouble, limits)
     return false
@@ -2493,7 +2733,7 @@ end
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
                         guard: Child.Guard | nil): integer
   if #jobs == 0 then return 0 end
-  local start, start_trouble = worker_start()
+  local start, start_trouble = worker.program()
   if start == nil then
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
     return 0
@@ -2636,7 +2876,7 @@ end
 --- Whether this host can run a worker sandboxed (`test_sandbox.available`),
 --- and why not where it cannot.
 local function sandbox_here(): boolean, string
-  local start, start_trouble = worker_start()
+  local start, start_trouble = worker.program()
   if start == nil then return false, "the test runner cannot find itself: " .. start_trouble end
   local directory, trouble = test_sandbox.probe_directory()
   if directory == nil then return false, "a directory to try it in: " .. trouble end
@@ -2990,7 +3230,8 @@ function test.run(argv: {integer:string}): integer
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
     sandbox = sandboxed, views = {}, caches = {}, unkeyed = {}, forbiddable = {},
-    harness = harness,
+    harness = harness.digest, store_salt = harness.store_salt, carried = harness.carried,
+    closure_sets = {},
     rerun_prefix = sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or "",
   }
@@ -3027,6 +3268,13 @@ function test.run(argv: {integer:string}): integer
   rec.closures, rec.tree_names, rec.declared_names = {}, {}, {}
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
   table.sort(rec.tree_names)
+  -- A module the binary carries that is no module of the tree -- in a
+  -- project's tree, the standard library's -- is no key's either way
+  -- (the TODO above build.test_worker's `refusal`): a worker may load
+  -- one.
+  for name in pairs(rec.carried) do
+    if by_path[name] == nil then rec.carried[name] = nil end
+  end
   for name in pairs(declarations) do
     if by_path[name] == nil then rec.declared_names[#rec.declared_names + 1] = name end
   end
