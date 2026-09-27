@@ -2080,11 +2080,6 @@ int cosmic_spawn_unobserved (lua_State *L) {
     break;
   }
   close(status_read);
-  /* TODO: remove what a root built unmapped leaves in root_dir -- the
-   * mount points `build_root` makes on it itself, where a tmpfs would
-   * take no file (a sandbox nested in another) -- which this rmdir
-   * cannot: today each such spawn leaves a cosmic-root-* skeleton in
-   * TMPDIR, which a test's own directory removes with it. */
   if (root_dir[0] != '\0') rmdir(root_dir);
   if (received != 0 || read_error != 0 || pid < 0) {
     int ignored; while (pid > 0 && waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
