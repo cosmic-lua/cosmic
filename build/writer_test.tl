@@ -47,11 +47,12 @@ end
 --- Compiles the project at `root` and writes it to `out`, returning the
 --- open working handle and its compiled result so the caller can write
 --- again against it.
-local function build_and_write(root: string, whom: string, out: string): work.Handle, importer.Result
+local function build_and_write(root: string, whom: string, out: string,
+                               tool?: string): work.Handle, importer.Result
   write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, built, tool or "writer-test"))
   assert(writer.write_result(handle, out, result))
   return handle, result
 end
@@ -440,4 +441,77 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(row[2] == "0", "a doc of a module outside the closure is in its store")
   assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
   assert(row[4] == first, row[4])
+end
+
+--- The store of an import closure holds what the compiler made of it,
+--- not the compiler's identity: compiled again by a compiler of
+--- another identity that makes the same bytecode and rows, it keeps
+--- its address and its bytes, and a test given it keeps its key
+--- (`build.declared_key`); a module's bytecode, or a row the store
+--- carries of it, moves its address though its source stays.
+local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    "local function test_hello()",
+    '  assert(greet.hello() ~= "")',
+    "end",
+    "",
+  }, "\n")))
+  local names = { "greet", "greet_test" }
+  local function store(tool: string, out: string): string
+    local handle = build_and_write(root, "world", tmp .. "/whole.db", tool)
+    assert(work.close(handle))
+    local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
+    local address = writer.closure_address(basis, names, "salt")
+    assert(writer.closure(tmp .. "/whole.db", out, names, basis, address))
+    return address
+  end
+  local first = store("one compiler", tmp .. "/first.db")
+  local whole = assert(Fs.read(tmp .. "/whole.db"))
+  local again = store("another compiler", tmp .. "/again.db")
+  assert(assert(Fs.read(tmp .. "/whole.db")) ~= whole,
+    "the projection did not name the other compiler")
+  assert(again == first, "a compiler of another identity moved the address")
+  assert(Fs.read(tmp .. "/again.db") == Fs.read(tmp .. "/first.db"),
+    "a compiler of another identity moved the store")
+
+  -- Each statement against a projection written afresh -- not taken for
+  -- the one its signature names -- after `setup`: the address before
+  -- it and after differ.
+  local function moved(what: string, statement: string, setup?: string)
+    assert(Fs.remove(tmp .. "/whole.db"))
+    assert(store("one compiler", tmp .. "/first.db") == first)
+    local function address(sql?: string): string
+      if sql ~= nil then
+        local db = assert(Sqlite.open(tmp .. "/whole.db", true))
+        assert(db:exec(sql))
+        assert(db:close())
+      end
+      local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
+      return writer.closure_address(basis, names, "salt")
+    end
+    local before = address(setup)
+    assert(address(statement) ~= before, what .. " left the address")
+  end
+  local doc = "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+    "text, file, line) VALUES "
+  moved("a module's bytecode", "UPDATE modules SET bytecode = bytecode || X'00' " ..
+    "WHERE path = 'greet'")
+  moved("a doc", doc .. "('greet', 'greet.x', 'greet.x', 1, 'function', '', 'X.', 'greet.tl', 1)")
+  moved("a use", "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
+    "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)")
+  moved("a catalog row", "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
+    "line) VALUES ('error', 'greet', 'greet.hello', 'no', NULL, 'greet.tl', 1)")
+  moved("an import", "INSERT INTO imports (path, requires) VALUES ('greet', 'greet_test')")
+  moved("an example", "INSERT INTO examples (module, name, text, file, line, source) " ..
+    "VALUES ('greet', 'hello', 'Greets.', 'greet.tl', 1, 'greet.hello()')")
+  moved("a declaration's doc", doc .. "('extra', 'extra.y', 'extra.y', 1, 'function', '', " ..
+    "'Y.', 'extra.d.tl', 1)", "INSERT INTO decls (path, source) VALUES ('extra', X'')")
+  -- quote() ends a text at its first NUL: what follows it moves the
+  -- address too.
+  moved("a doc's text past a NUL", "UPDATE docs SET text = 'a' || char(0) || 'c' " ..
+    "WHERE symbol = 'greet.z'", doc .. "('greet', 'greet.z', 'greet.z', 1, 'function', '', " ..
+    "'a' || char(0) || 'b', 'greet.tl', 1)")
 end

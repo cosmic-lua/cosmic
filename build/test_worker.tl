@@ -229,8 +229,9 @@ local diagnostics <const>: {string:boolean} = { ["cosmic.removed"] = true }
 -- and the pins): today a release that changes only the standard
 -- library's Teal leaves standing a verdict that read one of them
 -- outside its closure. In this tree every module the program carries
--- is a module of the tree, and `vendor.tl`, which is not, is keyed by
--- the compiler's identity.
+-- is a module of the tree, and `vendor.tl`, which is not, is carried
+-- by its bytecode in the store of a closure that holds build.teal, the
+-- one module that loads it (`build.writer`'s `loaded_beside`).
 local function refusal(name: string, module_path: string, closure: {string:boolean},
                         tree: {string:boolean}): string | nil
   if closure[name] or diagnostics[name] or not tree[name] then return nil end
@@ -318,8 +319,10 @@ end
 -- TODO: hold `Store.meta` too, once a key holds the meta rows a test
 -- reads -- the projection's `projected`, `boot_hash` and `image_hash`
 -- move with every edit to the tree, which no key of a test without
--- `store` or `tool` holds -- or it answers only the keys a runtime
--- names (`compiler`, `runtime_basis`) under a hold.
+-- `store` or `tool` holds -- or it answers only the keys a key holds
+-- under a hold: `runtime_basis`, which the runtime identity names, and
+-- `compiler` and `compiled_by` only for a closure that reads them
+-- (`build.declared_key`'s `compiler_readers`).
 local function hold_store(module_path: string, closure: {string:boolean},
                           tree: {string:boolean}, declared: {string:boolean})
   local names: {string:boolean} = {}

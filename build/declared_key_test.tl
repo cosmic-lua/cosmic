@@ -298,6 +298,28 @@ local function test_a_harness_module_moves_the_harness(tmp: string)
   assert(key_of(tmp, s) ~= key)
 end
 
+--- A key holds the compiler's identity only where the test's closure
+--- holds a module that reads it: two runs of a test whose closure reads
+--- none, under compilers of two identities that made the same bytecode
+--- -- the same store, the same harness -- share a key.
+local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: string)
+  local reader = declared_key.compiler_readers[1]
+  assert(declared_key.reads_compiler({ "suite.lib", reader, "suite.t_test" }))
+  assert(not declared_key.reads_compiler({ "suite.lib", "suite.t_test" }))
+  assert(not declared_key.reads_compiler({}))
+  tree(tmp)
+  local function run_under(compiler: string, closure: {string}): string
+    local s = spec()
+    s.closure_store = "the same store"
+    s.compiler = declared_key.reads_compiler(closure) and compiler or ""
+    return key_of(tmp, s)
+  end
+  local plain = { "suite.lib", "suite.t_test" }
+  assert(run_under("one compiler", plain) == run_under("another compiler", plain))
+  local reading = { reader, "suite.t_test" }
+  assert(run_under("one compiler", reading) ~= run_under("another compiler", reading))
+end
+
 --- Each part of the host's identity moves it: its package database, its
 --- system files, the processor's features, the status of this process,
 --- the user, which /proc a sandbox gets, and what the host says of

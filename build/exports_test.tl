@@ -38,6 +38,8 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
+allowed["build.declared_key.compiler_readers"] = "what build/compiler_readers_test.tl " ..
+  "holds the tree to: every module that reads the compiler's identity is one a key names"
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..

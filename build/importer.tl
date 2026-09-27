@@ -645,6 +645,13 @@ local function names_by_hash(db: Sqlite.Handle,
   return out
 end
 
+--- A module's key, and its `graph_key`: the same digest less the
+--- compiler.
+local record Keys
+  key: string
+  graph: string
+end
+
 local record Dependency
   kind: string
   source_hash: string
@@ -654,10 +661,11 @@ end
 --- The identity of every source the checker can load from this tree.
 --- A declaration wins over a source of the same name, just as
 --- `build.teal`'s module search does. Embedded standard-library sources
---- are content-addressed when a project imports them.
+--- are content-addressed when a project imports them. Each module's
+--- `Keys`, by path.
 local function dependency_keys(db: Sqlite.Handle, modules: {Module},
                                built: compiler,
-                               tool: string): {string:string} | nil, string
+                               tool: string): {string:Keys} | nil, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
@@ -720,7 +728,7 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
   -- order part of the key. When a declaration shadows an implementation,
   -- both matter: the checker reads the declaration, while the generated
   -- `require` loads the implementation at runtime.
-  local identify = function(name: string): string | nil, string
+  local identify = function(name: string): Keys | nil, string
     local seen: {string:boolean} = {}
     local graph: {string} = {}
     local visit: function(string, string): boolean, string
@@ -763,16 +771,18 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
       return nil, trouble
     end
     table.sort(graph)
-    return Hash.hex_sha256(table.concat(graph, "\n\0\n") .. "\n" .. tool), ""
+    local sources = table.concat(graph, "\n\0\n")
+    return { key = Hash.hex_sha256(sources .. "\n" .. tool),
+      graph = Hash.hex_sha256(sources) }, ""
   end
 
-  local out: {string:string} = {}
+  local out: {string:Keys} = {}
   for _, m in ipairs(modules) do
-    local key, trouble = identify(m.path)
-    if key == nil then
+    local keys, trouble = identify(m.path)
+    if keys == nil then
       return nil, trouble
     end
-    out[m.path] = key
+    out[m.path] = keys
   end
   return out, ""
 end
@@ -835,6 +845,7 @@ local function collect(handle: work.Handle, self_tree: boolean,
       has_top_level_return = has_return == "1",
       generated = origin == "doctest",
       key = "",
+      graph_key = "",
       lua = "",
     }
   end
@@ -1416,7 +1427,8 @@ function importer.compile(handle: work.Handle, built: compiler,
     end
 
     for ordinal, m in ipairs(order) do
-      m.key = keys[m.path]
+      m.key = keys[m.path].key
+      m.graph_key = keys[m.path].graph
 
       if m.kind == "test" and collides_with_test_tail(m) then
         -- Refused on its own, narrowly: every other module still
