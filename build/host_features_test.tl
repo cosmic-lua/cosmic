@@ -8,7 +8,7 @@ local declared_key = require("build.declared_key")
 local Test = require("cosmic.test")
 
 --- The script, run by the system's `sh`.
-Test.needs{ reads = { ".github/scripts/host-features.sh" } }
+Test.needs{ reads = { ".github/scripts/host-features.sh" }, system = true }
 
 local SCRIPT <const> = ".github/scripts/host-features.sh"
 

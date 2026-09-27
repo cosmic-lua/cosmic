@@ -5,8 +5,9 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Notes = require("eval.check.notes")
 
---- The environment the module under test starts its scripts with.
-Test.needs{ env = { "*" } }
+--- The environment the module under test starts its scripts with, and
+--- the system's `sh`, which runs them.
+Test.needs{ env = { "*" }, system = true }
 
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.

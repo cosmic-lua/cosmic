@@ -6,8 +6,9 @@ local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start.
-Test.needs{ tool = true }
+--- The program itself, which its tests start, and the system's `sh`,
+--- which a program they start runs.
+Test.needs{ tool = true, system = true }
 
 --- The public wrapper and annotated syscall name the same directly executable
 --- logical program. Native mode preserves the physical executable answer;

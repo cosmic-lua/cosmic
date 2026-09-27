@@ -24,9 +24,11 @@
 --- - the host caches the module declares (`build.caches`), writable,
 ---   each at its own name, made first where missing, and the variables
 ---   that locate them;
---- - the system's own paths, the program, its core and the stamp that
----   says the core was verified (`observations.worker_unveil`), and the
----   `host` paths the module declares, each at its own name;
+--- - /proc and the devices every program takes for granted, the
+---   program, its core and the stamp that says the core was verified
+---   (`observations.worker_unveil`), the system's own paths (/usr, /bin,
+---   /lib, /etc and the like) only where the module declares `system`,
+---   and the `host` paths the module declares, each at its own name;
 --- - no network but a loopback, unless the module declares `network`
 ---   beyond loopback hosts (`test_inputs.offline`);
 --- - the pinned environment and the variables it declares, `"*"` for
@@ -78,8 +80,9 @@ local record test_sandbox
     kept: {string}
     --- What a process the worker starts can read of what it was given,
     --- as the worker sees each path, for the key of a test that starts
-    --- one (`observations.Resolving`'s `held`): the system's own paths,
-    --- the program, and what the module declares of the tree and the
+    --- one (`observations.Resolving`'s `held`): the runtime's paths, the
+    --- system's where the module declares `system`, the program, and
+    --- what the module declares of the tree and the
     --- host, and the store it is given -- not its closure's files, which
     --- its module's key holds already.
     held: {string}
@@ -145,7 +148,7 @@ end
 --- store of its closure, keyed by its address.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string): test_sandbox.Plan
-  local base = observations.worker_unveil(root, nil, scratch)
+  local base = observations.worker_unveil(root, nil, scratch, effective.system)
   local reads: {string} = {}
   local at: {string:string} = {}
   local seen: {string:boolean} = {}
@@ -377,8 +380,8 @@ end
 --- started again with `env` and `fds`, runs a chunk that holds itself
 --- to running anything but this program, as a worker whose test does not
 --- declare `tool` does (`observations.forbid_running`), held to the
---- least a worker is given -- the system's own paths and the program --
---- offline, in `scratch`. False and why where it cannot: no worker then
+--- least a worker is given -- /proc, the devices and the program, none
+--- of the system's own paths -- offline, in `scratch`. False and why where it cannot: no worker then
 --- runs sandboxed, and no verdict is keyed by its declared inputs.
 function test_sandbox.available(argv: {string}, env: {string:string}, fds: {integer:integer},
                                 scratch: string): boolean, string

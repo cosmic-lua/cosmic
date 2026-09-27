@@ -20,11 +20,12 @@ local type Raw = require("cosmic.internal.observations")
 --- ports; and /proc, where a program a test starts reads its own command
 --- line.
 Test.needs{
-  host = { "/etc", "/proc", "/usr" },
+  host = { "/proc" },
   env = { "*" },
   network = { "127.0.0.1", "127.0.0.2" },
   processes = true,
   tool = true,
+  system = true,
 }
 
 local type Searcher = function(string): any, any
@@ -784,8 +785,10 @@ local function spawn_fds(started: observations.Program): {integer:integer}
 end
 
 --- Runs `worker_chunk` in a worker of this very program sandboxed to
---- `worker_unveil`'s paths, in `tmp`: the lines it said, or nil where
---- there is no portable artifact to start again, or no sandbox to be had.
+--- `worker_unveil`'s paths, the system's among them, as a worker whose
+--- module declares `system` is (the chunk starts the system's `sh`), in
+--- `tmp`: the lines it said, or nil where there is no portable artifact
+--- to start again, or no sandbox to be had.
 local function sandboxed_worker(tmp: string): {string} | nil
   if Proc.relaunch() == nil then return nil end -- no portable artifact to start again
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
@@ -793,7 +796,7 @@ local function sandboxed_worker(tmp: string): {string} | nil
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
   local tree = assert(sys.getcwd())
-  local unveil = observations.worker_unveil(tree, tree, tmp)
+  local unveil = observations.worker_unveil(tree, tree, tmp, true)
   -- Given no environment but the relaunch's, as `cosmic test` gives
   -- its worker none but what it pins.
   local worker = observations.program({ "-e", worker_chunk, given, hidden }, { env = {} })
@@ -1204,6 +1207,33 @@ local function test_a_process_a_sandboxed_worker_starts_is_noted_by_what_it_hold
     online:find("x the network\n", 1, true), online)
   local plain = started({ tree = tmp .. "/tree", own = { own } })
   assert(plain:find("p /bin/sh\n", 1, true) and not plain:find("u ", 1, true), plain)
+end
+
+--- A sandboxed worker's process is noted "y" by the program it runs and
+--- the interpreter a script's first line names, for the audit, which
+--- asks `system` of the system's own; these survive encoding. Unheld,
+--- nothing is noted "y".
+local function test_a_sandboxed_worker_s_process_is_noted_by_what_it_runs(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own))
+  local script = own .. "/script"
+  assert(Fs.write(script, "#!/bin/sh\nexit 0\n"))
+  assert(sys.chmod(script, 493)) -- 0o755
+  local function ran(resolving: observations.Resolving): {string}
+    local run = observations.call(function()
+      local r = assert(Child.run({ script }))
+      assert(r.ok)
+    end, nil, resolving)
+    assert(run.passed, run.message)
+    local programs: {string} = {}
+    for _, observation in ipairs(assert(observations.decode(observations.encode(run.reads)))) do
+      if observation.kind == "y" then programs[#programs + 1] = observation.path end
+    end
+    return programs
+  end
+  local held = ran({ tree = tmp .. "/tree", own = { own }, held = { own } })
+  assert(table.concat(held, " ") == script .. " /bin/sh", table.concat(held, " "))
+  assert(#ran({ tree = tmp .. "/tree", own = { own } }) == 0)
 end
 
 --- What a stat answers leaves out the owner, as `sys.tree_digest`'s

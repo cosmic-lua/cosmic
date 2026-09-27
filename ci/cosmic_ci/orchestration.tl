@@ -56,7 +56,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- its cron line (the TODO on ci.yml's `schedule`).
 -- TODO: share verdicts across runners of a leg only once the key holds
 -- what a host's package database does not say (the TODO on
--- build/declared_key.tl's `host_identity`): today a leg's verdicts are
+-- build/declared_key.tl's `system_identity`): today a leg's verdicts are
 -- keyed by its container as ci.yml names it (COSMIC_HOST_ID: the image
 -- reference, a hash of .github/scripts/leg-container.sh and the seccomp
 -- profile, which hold every option and host setting it starts with, and

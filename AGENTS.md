@@ -68,9 +68,11 @@
    `cosmic test` has none unless it names one.
    Run sandboxed (the default where the kernel can), a test is keyed by
    what it declares -- its closure, its `Test.needs`, their contents and
-   values, the core -- and by the host (its packages, kernel, user and
-   capabilities), before it runs (`build/declared_key.tl`): it stands
-   while none of that changes, and nothing is assumed. A test whose
+   values, the core -- and by the host (its kernel, processor, user and
+   capabilities; its packages and system only for a module that declares
+   `system`, or a `host` directory), before it runs
+   (`build/declared_key.tl`): it stands while none of that changes, and
+   nothing is assumed. A test whose
    module declares the network has no key: it runs every time, and the
    summary counts it so -- unless it declares only loopback hosts
    (`localhost`, `::1`, `127.a.b.c`), whose worker runs offline, on a
@@ -91,8 +93,9 @@
    its tests need not -- since that test runs again on every edit to
    the tree.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still
-   reads the system's own paths, /dev and /proc, keyed only through the
-   host's identity, and the program, its core and its database, keyed
+   reads /proc, /dev/null, /dev/zero and /dev/urandom, keyed only
+   through the host's identity, and the program, its core and its
+   database, keyed
    through the runtime's identity but for the database's modules, which
    the hold above keeps a test from reading through the store unless it
    declares `store` or `tool` -- but not through the descriptor a
@@ -135,7 +138,13 @@
    Each worker runs sandboxed to those inputs (`build/test_sandbox.tl`),
    wherever the kernel can sandbox one: the tree at /tree, its directory
    at /tmp, and nothing else of either, with every process it starts, so
-   a test that reads what it does not declare fails. Where none can be
+   a test that reads what it does not declare fails. Nor has it the
+   system's own paths (/usr, /bin, /lib, /etc and the like) unless its
+   module declares `system = true`, as one that starts a host program --
+   a shell, `sleep`, a compiler -- must; a test that starts only cosmic
+   needs none, and one that reads a file or two of the system names them
+   in `host`. `--audit` names a host program a test ran undeclared.
+   Where none can be
    (macOS, a host refusing user namespaces), or with
    `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed and the run shares
    no verdict; `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's

@@ -21,8 +21,8 @@ local observations = require("build.filesystem_observations")
 local refresh = require("build.refresh")
 
 --- The vendored bundle and zones a refresh replaces, and the tool it
---- refreshes.
-Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true }
+--- refreshes, whose launcher the system's `sh` runs.
+Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true, system = true }
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 local zones <const> = "vendor/tzdata/zoneinfo"

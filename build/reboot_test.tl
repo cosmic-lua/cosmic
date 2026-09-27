@@ -1,5 +1,9 @@
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local reboot = require("build.reboot")
+
+--- The system's `sh`, which runs the stand-in bin/zig.
+Test.needs{ system = true }
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 local function test_auto_boot_unless_told_not_to()

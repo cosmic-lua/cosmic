@@ -6,8 +6,9 @@ local VerifyCodesign = require("build.verify_codesign")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- The environment the module under test starts codesign with.
-Test.needs{ env = { "*" } }
+--- The environment the module under test starts codesign with, and the
+--- system's `sh`, which runs the stand-in codesign.
+Test.needs{ env = { "*" }, system = true }
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
 --- arguments to `log` and exits `status`.

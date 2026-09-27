@@ -4,15 +4,19 @@
 --- to read, and a verdict under it stands with no observation to replay.
 ---
 --- A sandboxed worker reads its declared inputs, and besides them what
---- every worker is given (`observations.worker_unveil`): the system's
---- own paths (/usr, /bin, /lib, /etc and the like), /dev, /proc, the
---- program and its core, and a store at o/cosmic.db, held as below;
---- and it runs as whoever runs the tests, with their capabilities. The
---- key holds the rest by the host's identity (`host_identity`) and the
---- runtime's, not by their contents: what is left out is in the TODOs
---- on `host_identity`. It may not run this program unless it declares
---- `tool` (`observations.forbid_running`), which runs the tool's own
---- modules, which no key of the test holds but o/bin's.
+--- every worker is given (`observations.worker_unveil`): /proc, the
+--- devices every program takes for granted (/dev/null, /dev/zero,
+--- /dev/urandom), the program and its core, and a store at
+--- o/cosmic.db, held as below -- and the system's own paths (/usr,
+--- /bin, /lib, /etc and the like) only where its module declares
+--- `system`; and it runs as whoever runs the tests, with their
+--- capabilities. The key holds the rest by the host's identity
+--- (`host_identity`), the system's where the module declares `system`
+--- (`system_identity`), and the runtime's, not by their contents: what
+--- is left out is in the TODOs on each. It may not run this program
+--- unless it declares `tool` (`observations.forbid_running`), which
+--- runs the tool's own modules, which no key of the test holds but
+--- o/bin's.
 ---
 --- The key is the digest of
 ---
@@ -26,9 +30,12 @@
 ---   digest of the binary's data tables and the `sandboxed` mark
 ---   (`runtime`); and, where an artifact runs it (o/bin/cosmic, or a
 ---   portable cosmic), what runs that core (`launcher_identity`);
---- - the host it runs on (`host_identity`): its packages, its system and
----   kernel, the user and capabilities the tests run with, and which
----   /proc a sandbox gets;
+--- - the host it runs on (`host_identity`): its kernel and processor,
+---   the user and capabilities the tests run with, which /proc a
+---   sandbox gets and what the host says of itself; and, only for a
+---   module that declares `system`, or a `host` directory, which is
+---   keyed by its name alone (`host`), what the host has installed
+---   (`system_identity`): its packages and the system it says it is;
 --- - the module's graph key (`build.positions`' `graph_key`), over its
 ---   import graph's kinds and sources, the standard library's included;
 --- - the compiler's identity (`build.work`'s `Identities`), as the
@@ -149,8 +156,12 @@ local record declared_key
     --- (`program_identity`): o/bin/cosmic, or o/sanitized's, or a
     --- portable cosmic, whichever is running.
     program: string
-    --- The host's identity (`host_identity`).
+    --- The host's identity (`host_identity`), which every key holds.
     host: string
+    --- What the host has installed (`system_identity`), which only the
+    --- key of a module that declares `system`, or a `host` directory,
+    --- holds; nil for none.
+    system: string
     --- Where an artifact runs the tests (Store.meta's
     --- `runtime_context` "portable-v1": o/bin/cosmic, or a portable
     --- cosmic), what runs its core (`launcher_identity`); nil where a
@@ -173,11 +184,14 @@ local record declared_key
     closure_store: string
   end
 
-  --- Where `host_identity` looks, for a test: each a path, but
-  --- `machine`, `own_proc`, whether a sandbox gets a /proc of its own,
-  --- `host_id`, the value of `host_variable`, and `uid`.
+  --- Where `host_identity` and `system_identity` look, for a test: each
+  --- a path, but `machine`, `own_proc`, whether a sandbox gets a /proc
+  --- of its own, `host_id`, the value of `host_variable`, and `uid`.
   record HostSources
     packages: {string}
+    --- The system the host says it is, then its kernel's release and
+    --- version: `system_identity` reads the first, `host_identity` the
+    --- other two.
     system: {string}
     status: string
     cpuinfo: string
@@ -649,12 +663,20 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   local hosts: {string} = {}
   for _, path in ipairs(effective.host) do hosts[#hosts + 1] = test_inputs.plain(path) end
   table.sort(hosts)
+  -- What the host has installed, for a module given the system's paths,
+  -- and for one given a directory of the host's, which `host` keys by
+  -- its name alone: the package database stands for what either holds.
+  -- /proc and /dev are no package's: every worker is given them.
+  local installed = effective.system
   for _, path in ipairs(hosts) do
     if not seen[path] then
       seen[path] = true
-      lines[#lines + 1] = part("h", path, host(digests, path))
+      local answer = host(digests, path)
+      if answer == "dir" and not observations.in_runtime(path) then installed = true end
+      lines[#lines + 1] = part("h", path, answer)
     end
   end
+  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
   local names: {string} = {}
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
@@ -724,37 +746,61 @@ local package_databases: {string} = {
   "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/rpm/Packages",
 }
 
+--- Where `host_identity` and `system_identity` read the system the
+--- host says it is, and its kernel's release and version (`HostSources`'
+--- `system`).
+local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osrelease",
+  "/proc/sys/kernel/version" }
+
 --- The variable a host names more of itself in than `host_identity`
 --- finds there: CI's legs, the container they run in -- its image, the
 --- seccomp profile and options it is started with, the container
 --- engine's version -- which no file inside it tells.
 local host_variable <const> = "COSMIC_HOST_ID"
 
---- What of this host every sandboxed worker is given without declaring
---- it, as a key holds it: the database of the packages it has installed
---- (`package_databases`), by contents, where there is one; the system it
---- says it is (/etc/os-release) and its kernel's release and version;
---- its name and machine; the processor's features a core chooses code
---- by (/proc/cpuinfo's flags, each once, `dispatched`); the user,
---- groups and capabilities this process -- and so every worker -- runs
---- with, and whether no_new_privs and a seccomp filter hold it
---- (/proc/self/status); whether a sandbox gets a /proc of its own
---- (`observations.own_proc_given`); and what the host says of itself
---- besides (`host_variable`). Worked out once a run; the
---- package database is hashed only when its `lstat` moves. `sources`
---- moves where it looks, for a test; a field it leaves nil is this
---- host's own. Of these, what differs between runners of one CI leg --
---- the processor's features and the kernel -- names the leg's verdict
---- cache too (`host_features`, .github/scripts/host-features.sh): a
---- change to how either is keyed changes both, and the script.
--- TODO: key what a package database does not say: a file under /usr,
--- /etc or /lib changed by hand or by a tool other than the package
--- manager, a package installed from source into /usr/local, and a
--- container image's own layers where no `host_variable` names the
--- image. Wants a walk of the system's paths cheap enough to take every
--- run (/usr's stamps take half a second). Nor is the clock keyed: a
--- test whose verdict turns on the date stands on one reached another
--- day, which only a forced run (CI's scheduled one) catches.
+--- What of this host every sandboxed worker runs on, whatever its
+--- module declares, as every key holds it -- each part because it
+--- decides what the core does, or what a sandbox lets a worker do:
+---
+--- - its kernel's release and version (/proc/sys/kernel/osrelease and
+---   version): the syscalls the core makes, and what a sandbox is
+---   (namespaces, Landlock's ABI, whether a procfs may be mounted), are
+---   the kernel's;
+--- - its name and machine (`uname`): the core a run selects;
+--- - the processor's features a core chooses code by (/proc/cpuinfo's
+---   flags, each once, `dispatched`);
+--- - the user, groups and capabilities this process -- and so every
+---   worker -- runs with, and whether no_new_privs and a seccomp filter
+---   hold it (/proc/self/status): whether a file's permissions refuse a
+---   read, whether a sandbox may map ids or nest another, and which
+---   calls a filter refuses are theirs;
+--- - whether a sandbox gets a /proc of its own
+---   (`observations.own_proc_given`), which a test of the sandbox
+---   expects different things of; and
+--- - what the host says of itself besides (`host_variable`): CI names
+---   the container's seccomp profile and engine there, which decide
+---   what a sandbox may do, beside its image.
+---
+--- What the host has installed -- its packages and the system it says
+--- it is -- is `system_identity`'s, which only the key of a module given
+--- the system's paths holds: a worker that is not given them reads
+--- nothing of them. Worked out once a run. `sources` moves where it
+--- looks, for a test; a field it leaves nil is this host's own. Of
+--- these, what differs between runners of one CI leg -- the processor's
+--- features and the kernel -- names the leg's verdict cache too
+--- (`host_features`, .github/scripts/host-features.sh): a change to how
+--- either is keyed changes both, and the script.
+-- TODO: key the image apart from the seccomp profile and the engine, in
+-- `system_identity`, once ci.yml names them in variables of their own
+-- (with the verdict caches' naming, which a later change reconsiders):
+-- today COSMIC_HOST_ID holds all three, and every key holds it, so
+-- CI's legs of two images share no verdict that turns on neither.
+-- TODO: key the kernel by what a test can tell of it -- its series and
+-- the features the core probes (Landlock's ABI, whether a user
+-- namespace may mount a procfs) -- rather than its release and build
+-- string whole, once the core reports what it found (a `cosmic.sys`
+-- table of the probes' answers): today every kernel update splits
+-- every verdict, though almost none turns on it.
 -- TODO: key whether a new network namespace gets IPv6 -- /proc/sys/net/ipv6
 -- there at all (ipv6.disable=1 at boot), net.ipv6.conf.all.disable_ipv6
 -- and net.core.devconf_inherit_init_net -- which the kernel's release
@@ -766,17 +812,10 @@ function declared_key.host_identity(digests: declared_key.Digests,
   local started = Time.monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
-  for _, path in ipairs(from.packages or package_databases) do
-    local st, _ = sys.stat(path)
-    if st ~= nil and st.kind == "file" then
-      lines[#lines + 1] = "packages " .. path .. " " .. contents(digests, path, st)
-      break
-    end
-  end
-  for _, path in ipairs(from.system or { "/etc/os-release", "/proc/sys/kernel/osrelease",
-                                         "/proc/sys/kernel/version" }) do
-    local text, _ = Fs.read(path)
-    lines[#lines + 1] = path .. " " .. (text or "missing")
+  local system = from.system or default_system
+  for i = 2, 3 do
+    local text, _ = Fs.read(system[i] or "")
+    lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
   end
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
@@ -819,6 +858,41 @@ function declared_key.host_identity(digests: declared_key.Digests,
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
+--- What the host has installed, as the key of a module given the
+--- system's paths (`Test.needs`'s `system`) holds it: the database of
+--- the packages it has installed (`package_databases`), by contents,
+--- where there is one, hashed only when its `lstat` moves; and the
+--- system it says it is (/etc/os-release). `sources` moves where it
+--- looks (`packages`, and `system`'s first path), for a test.
+-- TODO: key what a package database does not say: a file under /usr,
+-- /etc or /lib changed by hand or by a tool other than the package
+-- manager, a package installed from source into /usr/local, and a
+-- container image's own layers where no `host_variable` names the
+-- image. Wants a walk of the system's paths cheap enough to take every
+-- run (/usr's stamps take half a second). Nor is the clock keyed: a
+-- test whose verdict turns on the date stands on one reached another
+-- day, which only a forced run (CI's scheduled one) catches.
+function declared_key.system_identity(digests: declared_key.Digests,
+                                      sources?: declared_key.HostSources): string
+  local started = Time.monotonic_ns()
+  local from: declared_key.HostSources = sources or {}
+  local lines: {string} = {}
+  for _, path in ipairs(from.packages or package_databases) do
+    local st, _ = sys.stat(path)
+    if st ~= nil and st.kind == "file" then
+      lines[#lines + 1] = "packages " .. path .. " " .. contents(digests, path, st)
+      break
+    end
+  end
+  local release = (from.system or default_system)[1]
+  if release ~= nil then
+    local text, _ = Fs.read(release)
+    lines[#lines + 1] = release .. " " .. (text or "missing")
+  end
+  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
+  return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
 --- What of `host_identity` differs between runners of one CI leg, as
 --- the first 16 hex digits of a sha256: the processor's features, a
 --- line each (`features`), then the kernel's release and version as
@@ -829,8 +903,7 @@ end
 --- `system`'s second and third paths), for a test.
 function declared_key.host_features(sources?: declared_key.HostSources): string
   local from: declared_key.HostSources = sources or {}
-  local system = from.system or { "/etc/os-release", "/proc/sys/kernel/osrelease",
-                                  "/proc/sys/kernel/version" }
+  local system = from.system or default_system
   local parts: {string} = {}
   for _, flag in ipairs(features(from.cpuinfo, from.machine)) do
     parts[#parts + 1] = flag .. "\n"

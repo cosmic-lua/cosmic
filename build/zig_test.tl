@@ -15,8 +15,8 @@ local Zig = require("build.zig")
 
 --- A source whose build a test interrupts, and the environment the module
 --- under test starts its child with, and the program itself, which its
---- tests start.
-Test.needs{ reads = { "build/patch.tl" }, env = { "*" }, tool = true }
+--- tests start; and the system's `sh`, which runs the stand-ins.
+Test.needs{ reads = { "build/patch.tl" }, env = { "*" }, tool = true, system = true }
 
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(

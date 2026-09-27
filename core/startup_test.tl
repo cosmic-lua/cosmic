@@ -12,8 +12,9 @@ local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start.
-Test.needs{ tool = true }
+--- The program itself, which its tests start, and the system's `sh`,
+--- which runs its launcher.
+Test.needs{ tool = true, system = true }
 
 local function environment(): {string:string}
   local env = observations.environment()

@@ -1018,9 +1018,15 @@ end
 
 --- What of `reads`, one test's observations, `effective` does not hold
 --- (`build.test_inputs`): each read of the tree or the host beyond it,
---- each variable, each request and each thing a process was handed
---- past observation, as
---- the field of `cosmic.test`'s `Needs` that would declare it, once each. What
+--- each variable, each request, each thing a process was handed past
+--- observation, and each program of the system's own a process ran
+--- (`observations.in_system`), or the interpreter a script it ran names,
+--- as the field of `cosmic.test`'s `Needs` that would declare it, once
+--- each: a read of the system's own paths by the test itself asks
+--- `host` of them, which keys a file by its contents, and a program run
+--- from them asks `system`, since what a host program reads beside
+--- itself -- its loader, its libraries, its configuration -- is no
+--- observation. What
 --- no test declares is left out, as `test.keyable` leaves it out of a
 --- key: what a read landed on in the test's own directory, `scratch`,
 --- or one it made -- a link there that leads out is judged by where it
@@ -1106,10 +1112,19 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
         path:sub(1, 1) == "/" and runs_the_tool(path) then
       add("tool", path)
     end
-    if kind == "p" then
+    if (kind == "p" or kind == "y") and not effective.system and path:sub(1, 1) == "/" and
+        observations.in_system(path) then
+      -- A program of the system's own, or the interpreter a script's
+      -- first line names: a sandboxed worker is given the system's
+      -- paths only where its module declares `system`, and one declared
+      -- in `host` alone runs without the loader and the libraries it
+      -- reads unobserved.
+      add("system", path)
+    end
+    if kind == "p" or kind == "y" then
       -- A process started needs no declaration: a sandboxed worker's is
       -- held by its sandbox, and an unsandboxed one's run never stands
-      -- (`cosmic.test`'s `processes`).
+      -- (`cosmic.test`'s `processes`) -- but for what it runs, above.
     elseif kind == "x" then
       -- A request's URL, which names its scheme; any other is what no
       -- observation could account for, which a process is handed.
@@ -1152,7 +1167,8 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
         end
       elseif the_tool(judged) or the_tool(path) then
         if not effective.tool then add("tool", judged) end
-      elseif not test_inputs.covers_host(effective, test_inputs.plain(judged), kind) then
+      elseif not test_inputs.covers_host(effective, test_inputs.plain(judged), kind) and
+          not (effective.system and observations.in_system(judged)) then
         add("host", test_inputs.plain(judged))
       end
     end
@@ -1697,9 +1713,12 @@ local record Recording
   digests: declared_key.Digests
   compiler: string
   --- Sandboxed, the host's identity every key holds
-  --- (`declared_key.host_identity`), and why each module whose tests
+  --- (`declared_key.host_identity`), what it has installed, which only
+  --- the key of a module given the system's paths holds
+  --- (`declared_key.system_identity`), and why each module whose tests
   --- have no key has none, but for the network, by module path.
   host: string
+  system: string
   --- Sandboxed, the harness every worker runs (`binary_harness`), and
   --- the program a test that runs this program runs
   --- (`declared_key.program_identity`).
@@ -1848,6 +1867,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "", host = rec.host,
+    system = rec.system,
     harness = rec.harness, program = rec.program, launcher = rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
@@ -3017,6 +3037,7 @@ function test.run(argv: {integer:string}): integer
     rec.digests = declared_key.digests(root, remembered)
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
+    rec.system = declared_key.system_identity(rec.digests)
     rec.tool = rec.tool or observations.itself()
     rec.program = declared_key.program_identity(rec.digests, rec.tool)
     -- The runtime identity holds the core an artifact selects, not the
@@ -3105,6 +3126,7 @@ function test.run(argv: {integer:string}): integer
         -- As .github/scripts/host-features.sh names CI's verdict cache.
         { "host features", declared_key.host_features() },
         { "host", rec.host:sub(1, 12) },
+        { "system", (rec.system or ""):sub(1, 12) },
         { "runtime", Hash.hex_sha256(rec.runtime or ""):sub(1, 12) },
         { "compiler", (rec.compiler or ""):sub(1, 12) },
         { "harness", (rec.harness or ""):sub(1, 12) },

@@ -35,8 +35,9 @@ local type raw_process = require("cosmic.internal.process")
 local Test = require("cosmic.test")
 
 --- `test_attach_leaves_no_connection_whenever_an_allocation_fails` counts
---- the store's databases, which a test sees only when it declares the store.
-Test.needs{ store = true }
+--- the store's databases, which a test sees only when it declares the store;
+--- and the system's `sh`, which the checked core's spawn cases start.
+Test.needs{ store = true, system = true }
 
 local type Searcher = function(string): any, any
 
