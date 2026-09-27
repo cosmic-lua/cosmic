@@ -156,17 +156,20 @@ bare trap. it is built for the host's shipped target, not the host's
 own libc: static musl on Linux and libSystem on macOS, so the checks
 run over the libc that ships, its floats are the release core's (a
 glibc host's libm chose FMA variants by the processor and rounded a
-last bit apart), and every runner of an architecture builds the same
-checked core. glibc's headers would have added null-argument and
-`_FORTIFY_SOURCE` checks, which musl's lack (the `TODO:` above the
-checked core in `build.zig`). `bin/zig build sanitized` boots with
-that core and embeds it in `o/sanitized/bin/cosmic`; every full CI run
-(merge queue, main, or a manual run) verifies the embedded core bytes
-and, on the Linux x86-64 leg, runs the test suite under a 180-second
-limit, with full undefined-behavior checking and coverage collection
-enabled: every test in main's scheduled run and a manual one, and in
-the merge queue's and main's only the tests whose sandboxed verdict
-does not stand from an earlier run (`ci/cosmic_ci/orchestration.tl`'s
+last bit apart), and every runner of an architecture builds its
+checked core for the same target, whichever libc the runner has (its
+bytes still carry the path it was built at, below). glibc's headers
+would have added null-argument and `_FORTIFY_SOURCE` checks, which
+musl's lack; a `TODO:` above the checked core in `build.zig` for each
+says how a header the checked build force-includes would recover them.
+`bin/zig build sanitized` boots with that core and embeds it in
+`o/sanitized/bin/cosmic`; every full CI run (merge queue, main, or a
+manual run) verifies the embedded core bytes and, on the Linux x86-64
+leg, runs the test suite under a 320-second limit, with full
+undefined-behavior checking and coverage collection enabled: every
+test in main's scheduled run and a manual one, and in the merge
+queue's and main's only the tests whose sandboxed verdict does not
+stand from an earlier run (`ci/cosmic_ci/orchestration.tl`'s
 `stands`). zig
 ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
@@ -667,9 +670,8 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
 the processor is keyed, for good, by the features a core chooses code by
 alone (`dispatched` in `build/declared_key.tl`, which
 `.github/scripts/host-features.sh` mirrors): mbedtls's AES and xz's CRC
-instructions, and glibc's FMA libm, which a checked core linked before it
-was static musl on Linux (the `TODO:` at `LIBC` in
-`build/dispatched_features_test.tl` drops it). the rest of
+instructions. no Linux core links a libm that dispatches: every one,
+the checked core too, is static musl. the rest of
 /proc/cpuinfo's flags, its model and its microcode choose no code a test runs,
 and keying them split hosted runners of one leg for nothing.
 `build/dispatched_features_test.tl` fails when the tree comes to ask the

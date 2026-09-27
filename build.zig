@@ -794,20 +794,29 @@ pub fn build(b: *std.Build) void {
     // and rounded a last bit differently (a Teal benchmark printed
     // -831.56112555875472 on a glibc checked core, -831.5611255587545 on
     // the release and musl ones); and every runner of one architecture,
-    // glibc or musl, builds the same checked core.
+    // glibc or musl, builds its checked core for the same target.
     //
-    // What that gives up is what glibc's headers carried. Their
-    // `_FORTIFY_SOURCE` checked copies (77 `__*_chk` calls) are given up
-    // for good: musl has no fortify headers and zig ships none for it. The
-    // stack protector, which catches the overflows they would have caught
-    // only once they reach a return address, remains. And `__nonnull` on
-    // their declarations gave the sanitizer 1389 null-argument checks
-    // (`__ubsan_handle_nonnull_arg`), where musl's headers declare none.
+    // What that gives up, for now, is what glibc's headers carried, which
+    // musl's do not and zig adds nothing to: `__nonnull` on their
+    // declarations gave the sanitizer 1389 null-argument checks
+    // (`__ubsan_handle_nonnull_arg`), and `_FORTIFY_SOURCE` 77 calls to
+    // checked copies (`__*_chk`) where an object's size is known. The
+    // stack protector, which catches an overflow only once it reaches a
+    // return address, remains.
     // TODO: recover the null-argument checks with a header the checked
     // build force-includes (`-include`), redeclaring with
     // `__attribute__((nonnull))` the libc functions the tree calls; it
     // waits on a list of those functions and their nonnull arguments,
     // which nothing in the tree yet derives from glibc's headers.
+    // TODO: recover the fortify checks the same way, or with vendored
+    // fortify-headers: 34 of the 77 were memcpy, memmove, memset and
+    // strcpy, whose `__*_chk` zig's compiler_rt exports
+    // (lib/compiler_rt/ssp.zig), so the header need only route them
+    // through `__builtin___*_chk` with `__builtin_object_size`; the other
+    // 43 (vsnprintf, vfprintf, read, pread, poll, getcwd, readlink,
+    // realpath, explicit_bzero, longjmp) want wrappers in the header that
+    // compare the size and call `__chk_fail`. It waits on that header,
+    // and on the list of the calls it is to cover.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const analyzed = b.step("analyze", "run the static analyzer over the tree's own C");
     analyze(b, analyzed, own, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson);

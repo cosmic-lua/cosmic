@@ -71,10 +71,11 @@ local function test_the_script_and_the_key_name_the_host_alike(tmp: string)
 end
 
 --- On x86_64, only the features a core chooses code by are keyed --
---- mbedtls's AES-NI, xz's carry-less CRCs, glibc's FMA libm, which a
---- checked core linked before it was static musl on Linux -- so hosted
---- runners that differ in any other split neither the verdicts nor
---- their cache, and a host lacking one of them keys apart.
+--- mbedtls's AES-NI and xz's carry-less CRCs -- so hosted runners that
+--- differ in any other split neither the verdicts nor their cache, and
+--- a host lacking one of them keys apart. The FMA features, which
+--- chose a glibc libm's code when a checked core linked one, are no
+--- longer among them.
 local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: string)
   local base = "fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms"
   local write, both = host(tmp, "x86_64", "processor : 0\nflags : " .. base .. "\n")
@@ -87,10 +88,12 @@ local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: stri
   both("string features fewer", false)
   write("cpuinfo", "flags : " .. (base:gsub(" aes", "")) .. "\n")
   both("no aes", true)
-  write("cpuinfo", "flags : " .. (base:gsub(" fma", "")) .. "\n")
-  both("no fma", true)
+  write("cpuinfo", "flags : " .. (base:gsub(" fma avx2", "")) .. "\n")
+  both("no fma or avx2", false)
   write("cpuinfo", "flags : " .. base .. " fma4\n")
-  both("fma4 more", true)
+  both("fma4 more", false)
+  write("cpuinfo", "flags : " .. (base:gsub(" pclmulqdq", "")) .. "\n")
+  both("no pclmulqdq", true)
 end
 
 --- On aarch64, only the features a core chooses code by are keyed --
