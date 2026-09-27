@@ -37,9 +37,12 @@
 ---   each file of its import closure; each path of the tree it `reads`
 ---   and the fuzz corpora, a file by its contents and a directory by
 ---   its listing and every entry's contents beneath it; o/bin when it
----   declares `tool`; the projection, o/cosmic.db, when it declares
----   `store`, and else the address of the store of its closure it is
----   given there in the projection's place; and each `host` path;
+---   declares `tool`, each program in it -- and the program that runs
+---   it (`program_identity`) -- by its image and the rows it carries,
+---   but for those every edit of the tree moves (`program`); the
+---   projection, o/cosmic.db, when it declares `store`, and else the
+---   address of the store of its closure it is given there in the
+---   projection's place; and each `host` path;
 --- - the environment its worker is given (`test_sandbox.environment`):
 ---   the pinned variables and the declared ones, all of them for `"*"`.
 ---
@@ -67,8 +70,10 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local artifact = require("build.artifact")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 
@@ -209,16 +214,153 @@ local function contents(digests: declared_key.Digests, path: string, st: sys.Sta
   return hash
 end
 
+--- The rows of a carried database that move with the whole tree, not
+--- with what the program carrying it does: `boot_hash`, a digest of
+--- every file the tool's trees hold, its tests' included, and
+--- `projected`, the signature of the whole projection it was written
+--- from. What reads them at run time compares them with a value the
+--- same binary carries, or with a tree's own fingerprint, which at test
+--- time is the tree the binary was built from (a stale tool rebuilds
+--- before it tests, or refuses) and in a fixture is a tree of the
+--- test's own; or names a cache entry by them, or prints them -- none
+--- turns a verdict (see `program`).
+local tree_wide_meta <const> = "('boot_hash', 'projected')"
+
+--- The digest of every row the SQLite database `database` holds, and
+--- its schema, but for `tree_wide_meta`: each table's rows in order of
+--- their quoted values, so the digest turns on what the rows are, not on
+--- the pages they were written to. A virtual table is left to the shadow
+--- tables that hold its rows. Nil and why where it cannot be read.
+local function carried_digest(database: string): string | nil, string
+  -- TODO: read the database in place, through a VFS over a range of a
+  -- file other than the running artifact's, once cosmic.sqlite opens
+  -- one (core/vfs.c opens the running artifact's alone): today it is
+  -- copied out to a scratch file, as build.refresh does.
+  local scratch, scratch_trouble = Fs.mkdtemp("cosmic-program-")
+  if scratch == nil then return nil, scratch_trouble end
+  local path = scratch .. "/carried.db"
+  local answer: string = nil
+  local trouble = ""
+  local written, write_trouble = Fs.write(path, database)
+  if not written then
+    trouble = write_trouble
+  else
+    local db, open_trouble = Sqlite.open(path, false)
+    if db == nil then
+      trouble = open_trouble
+    else
+      local lines: {string} = {}
+      local schema, schema_trouble = Sqlite.text_rows(db,
+        "SELECT type, name, coalesce(sql, '') FROM sqlite_schema ORDER BY type, name")
+      if schema == nil then trouble = schema_trouble end
+      for _, row in ipairs(schema or {}) do
+        lines[#lines + 1] = row[1] .. " " .. row[2] .. " " .. row[3]
+        if row[1] == "table" and row[2]:sub(1, 7) ~= "sqlite_" and
+            row[3]:upper():sub(1, 20) ~= "CREATE VIRTUAL TABLE" then
+          local quoted = row[2]:gsub('"', '""')
+          local columns, columns_trouble = Sqlite.text_rows(db,
+            "SELECT name FROM pragma_table_info(?1) ORDER BY cid", { { text = row[2] } })
+          if columns == nil then
+            trouble = columns_trouble
+            break
+          end
+          local parts: {string} = {}
+          for _, column in ipairs(columns) do
+            parts[#parts + 1] = 'quote("' .. column[1]:gsub('"', '""') .. '")'
+          end
+          local where = row[2] == "meta" and (" WHERE key NOT IN " .. tree_wide_meta) or ""
+          local digest, digest_trouble = Sqlite.text_rows(db,
+            "SELECT lower(hex(sha256(coalesce(group_concat(r, char(10) ORDER BY r), '')))) " ..
+            "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
+            quoted .. '"' .. where .. ")")
+          if digest == nil then
+            trouble = digest_trouble
+            break
+          end
+          lines[#lines + 1] = "rows " .. row[2] .. " " .. digest[1][1]
+        end
+      end
+      local _, _ = db:close()
+      if trouble == "" then answer = Hash.hex_sha256(table.concat(lines, "\n")) end
+    end
+  end
+  local _, _ = Fs.remove_tree(scratch)
+  if answer == nil then return nil, trouble end
+  return answer, ""
+end
+
+--- What the regular file at `path`, which `st` describes, runs as, for
+--- a key: where it is an artifact (`artifact.split`), the digest of
+--- everything ahead of its database -- the launcher, the cores and
+--- their manifest -- whether it is a host program, and the rows it
+--- carries (`carried_digest`), which is all a run of it can turn on;
+--- else the digest of its contents. Remembered in `digests` as a file's
+--- hash is, under a name of its own.
+---
+--- So a program rebuilt from a tree whose edit moved nothing it carries
+--- -- a comment in a test, which no binary carries -- keys the same,
+--- though `tree_wide_meta` moved every byte of its database's meta.
+--- What reads those rows, and why none can turn a verdict:
+---
+--- - `boot_hash`: build.reboot compares it with the fingerprint of the
+---   tree a run is in -- cosmic's own tree only (`build.tree`'s
+---   `is_own`) -- which is the running tool's own tree at test time,
+---   since a run rebuilds a stale tool before it tests, or refuses; a
+---   fixture's tree is a test's own, whose fingerprint matches only a
+---   tree holding every file of the tool's trees, each of which that
+---   test would declare, and each keyed by it. build.writer's `running`
+---   and build.importer's `receivers_identity` ask the same question of
+---   the tree, or only whether there is one; `analyzer_identity` and
+---   `receivers_identity` name the binary by it only where it carries
+---   no source for its analyzer, which a built binary does; the value
+---   names a cache entry (build.standalone's `cached_path`), and the
+---   bill of materials' version (build.bom), which only moves a name;
+---   and an unsandboxed verdict's identity (build.test's `identity_of`),
+---   which a sandboxed key is not.
+--- - `projected`: build.writer reads it from a projection it wrote, to
+---   skip writing the same one again, never from a binary.
+---
+--- And every sandboxed worker runs this same binary, with these same
+--- rows in reach of `Store.meta`, whether its test declares `tool` or
+--- not, and no key of one that does not has ever held them.
+local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
+  local said = signature(st)
+  local name = "program\0" .. path
+  digests.used[name] = true
+  local was = digests.hashed[name]
+  if was ~= nil and was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
+  local data, _ = Fs.read(path)
+  digests.read = digests.read + 1
+  if data == nil then return "unreadable" end
+  local hash: string
+  local split, _ = artifact.split(data)
+  if split ~= nil then
+    local carried, trouble = carried_digest(split.database)
+    -- Unreadable, it is keyed by its bytes, as any other file.
+    hash = Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
+      Hash.hex_sha256(split.head) .. "\n" .. carried) or ("unread " .. trouble .. "\n" .. data))
+  else
+    hash = Hash.hex_sha256("file\n" .. data)
+  end
+  if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
+    digests.hashed[name] = said .. "\0" .. hash
+  end
+  return hash
+end
+
 --- What one entry is, for its line in a key: "missing", "file" and its
 --- contents' hash -- "file+x" when anyone may run it -- "link" and its
 --- target, unfollowed, "dir" or "other". `follow` describes what a link
---- at `path` itself leads to, as a bind of it does.
-local function entry(digests: declared_key.Digests, path: string, follow: boolean): string, string
+--- at `path` itself leads to, as a bind of it does. A file is keyed as
+--- a `program` where `programs` says to.
+local function entry(digests: declared_key.Digests, path: string, follow: boolean,
+                     programs?: boolean): string, string
   local st, _ = (follow and sys.stat or sys.lstat)(path)
   if st == nil then return "missing", "missing" end
   if st.kind == "file" then
     local runnable = st.mode & 73 ~= 0 -- 0o111
-    return "file", (runnable and "file+x " or "file ") .. contents(digests, path, st)
+    return "file", (runnable and "file+x " or "file ") ..
+      (programs and ("program " .. program(digests, path, st)) or contents(digests, path, st))
   elseif st.kind == "link" then
     local target, _ = sys.readlink(path)
     return "link", "link " .. (target or "unreadable")
@@ -266,10 +408,11 @@ end
 --- What `path` holds, followed where it is a link, as a sandbox binds
 --- it: an entry's answer, or for a directory "dir" and the digest of
 --- every entry beneath it, links unfollowed, in name order -- each by
---- its name beneath `path`, what it is and what it holds.
-local function tree(digests: declared_key.Digests, path: string): string
-  return once(digests, "t\0" .. path, function(): string
-    local kind, answer = entry(digests, path, true)
+--- its name beneath `path`, what it is and what it holds; each file as
+--- a `program` where `programs` says to.
+local function tree(digests: declared_key.Digests, path: string, programs?: boolean): string
+  return once(digests, (programs and "p\0" or "t\0") .. path, function(): string
+    local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
     local lines: {string} = {}
     local refused: string = nil
@@ -285,7 +428,7 @@ local function tree(digests: declared_key.Digests, path: string): string
       for _, name in ipairs(names) do
         local here = directory .. "/" .. name
         local named = prefix == "" and name or (prefix .. "/" .. name)
-        local what, said = entry(digests, here, false)
+        local what, said = entry(digests, here, false, programs)
         lines[#lines + 1] = named .. "\0" .. said
         if what == "link" and refused == nil then refused = leads_out(digests, here, directory) end
         if said == "dir" then
@@ -387,7 +530,13 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   local reads: {string} = {}
   for _, read in ipairs(effective.reads) do reads[#reads + 1] = read end
   if effective.tool or spec.runs_tool then
-    reads[#reads + 1] = "o/bin"
+    -- o/bin, as its sandbox gives it, each program in it by what it
+    -- runs as rather than its bytes (`program`): a rebuild that moved
+    -- only what the whole tree's edits move leaves it.
+    local _, bin = of_tree(digests, "o/bin")
+    local answer = tree(digests, bin, true)
+    if answer:sub(1, 8) == "refused " then return answer end
+    lines[#lines + 1] = part("tool", "o/bin", answer)
     -- And what actually runs, which need not be o/bin/cosmic.
     lines[#lines + 1] = part("program", spec.program or "", "")
   end
@@ -557,16 +706,18 @@ function declared_key.harness(roots: {string}, sources: {string:string},
 end
 
 --- What this very program is, for a test that runs it: each of `paths`
---- (`observations.itself()`: the program and its core) by contents,
---- hashed only when its `lstat` moves. The stamp that says a core was
---- verified (`.verified-<core>`) is left out: it is there or not by
---- whether a run has verified the core yet, not by what runs.
+--- (`observations.itself()`: the program and its core) by what it runs
+--- as (`program`) -- an artifact by its image and the rows it carries,
+--- anything else by contents -- worked out only when its `lstat` moves.
+--- The stamp that says a core was verified (`.verified-<core>`) is left
+--- out: it is there or not by whether a run has verified the core yet,
+--- not by what runs.
 function declared_key.program_identity(digests: declared_key.Digests, paths: {string}): string
   local lines: {string} = {}
   for _, path in ipairs(paths) do
     if path:match("/%.verified%-[^/]*$") ~= nil then goto continue end
     local st, _ = sys.stat(path)
-    lines[#lines + 1] = (st ~= nil and st.kind == "file") and contents(digests, path, st) or
+    lines[#lines + 1] = (st ~= nil and st.kind == "file") and program(digests, path, st) or
       "missing"
     ::continue::
   end

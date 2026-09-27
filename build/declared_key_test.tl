@@ -2,7 +2,10 @@
 --- does not, and how little a run reads to compute it.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
+local artifact = require("build.artifact")
 local declared_key = require("build.declared_key")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
@@ -345,6 +348,91 @@ local function test_the_program_is_keyed_by_its_contents(tmp: string)
   assert(Fs.write(tmp .. "/.verified-core", "stamp"))
   assert(declared_key.program_identity(digests, { tmp .. "/program", tmp .. "/.verified-core" }) ==
     now, "the stamp moved it")
+end
+
+--- A program as an artifact lays it out (`artifact.host_program`),
+--- written to `path`: `core` ahead of a database carrying `meta` and
+--- one module, `cosmic.thing`, whose bytecode is `bytecode`.
+local function program_at(path: string, core: string, meta: {string:string}, bytecode: string)
+  local db_path = path .. ".db"
+  local _, _ = Fs.remove(db_path)
+  local db = assert(Sqlite.open(db_path, true))
+  assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
+    "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
+  local keys: {string} = {}
+  for key in pairs(meta) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+      { { text = key }, { text = meta[key] } }))
+  end
+  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode) VALUES ('cosmic.thing', ?1)",
+    { { blob = bytecode } }))
+  assert(db:close())
+  local database = assert(Fs.read(db_path))
+  assert(Fs.remove(db_path))
+  local bytes = assert(artifact.host_program({ bytes = core, target_id = 1,
+    configuration_id = 1, digest = Hash.sha256(core) }, database))
+  local _, _ = Fs.remove(path)
+  assert(Fs.write(path, bytes))
+  assert(sys.chmod(path, 493)) -- 0o755
+end
+
+--- A program is keyed by what it runs as: its image and the rows it
+--- carries, but not the rows of its `meta` every edit of the tree
+--- moves -- `boot_hash`, over every file of the tool's trees, its tests'
+--- included, and `projected`, over the whole projection -- so a tool
+--- rebuilt for a comment in a test keys as it did, in the program that
+--- runs and in o/bin alike, while a carried module and the core move
+--- both.
+local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
+  tree(tmp)
+  assert(Fs.mkdirs(tmp .. "/o/bin"))
+  local root = assert(Fs.absolute(tmp))
+  local tool = root .. "/o/bin/cosmic"
+  local s = spec()
+  s.effective.tool = true
+  local function keys(): string, string
+    s.program = declared_key.program_identity(declared_key.digests(root), { tool })
+    return s.program, key_of(root, s)
+  end
+  local meta = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
+  program_at(tool, "core one", meta, "bytecode one")
+  local program, key = keys()
+  -- Rebuilt for an edit no binary carries: its bytes move, not its key.
+  local bytes = assert(Fs.read(tool))
+  meta.boot_hash, meta.projected = "two", "two"
+  program_at(tool, "core one", meta, "bytecode one")
+  assert(assert(Fs.read(tool)) ~= bytes, "the rebuilt program's bytes did not move")
+  local rebuilt_program, rebuilt_key = keys()
+  assert(rebuilt_program == program, "boot_hash and projected moved the program")
+  assert(rebuilt_key == key, "boot_hash and projected moved the key")
+  -- Any other row of its meta does.
+  meta.writer = "another writer"
+  program_at(tool, "core one", meta, "bytecode one")
+  local writer_program, writer_key = keys()
+  assert(writer_program ~= program and writer_key ~= key, "the writer left the key")
+  meta.writer = "w"
+  -- A carried module.
+  program_at(tool, "core one", meta, "bytecode two")
+  local module_program, module_key = keys()
+  assert(module_program ~= program and module_program ~= writer_program,
+    "a carried module left the program")
+  assert(module_key ~= key and module_key ~= writer_key, "a carried module left the key")
+  -- The image: the core ahead of the database.
+  program_at(tool, "core two", meta, "bytecode one")
+  local image_program, image_key = keys()
+  assert(image_program ~= program and image_program ~= module_program,
+    "the image left the program")
+  assert(image_key ~= key and image_key ~= module_key, "the image left the key")
+  -- A file in o/bin that is no artifact is keyed by its contents.
+  program_at(tool, "core one", meta, "bytecode one")
+  assert(select(2, keys()) == key)
+  assert(Fs.write(root .. "/o/bin/other", "one"))
+  local other = select(2, keys()) as string
+  assert(other ~= key, "a file added to o/bin left the key")
+  assert(Fs.write(root .. "/o/bin/other", "two"))
+  assert(select(2, keys()) ~= other, "a file of o/bin's contents left the key")
 end
 
 --- A module keyed by its own source (`own`) moves the harness when its

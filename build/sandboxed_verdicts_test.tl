@@ -10,13 +10,16 @@
 --- test is not itself in a sandbox, whose runs of its own the kernel
 --- refuses one: then it fails. A test that runs this program
 --- undeclared is refused it, sandboxed, and one that declares `tool`
---- runs again when the tool does.
+--- runs again when the tool does -- when what the tool runs as does,
+--- not when only the rows every edit of the tree moves do.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local artifact = require("build.artifact")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
@@ -241,6 +244,76 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   assert(Fs.write(root .. "/o/bin/stand-in", "two\n"))
   local rebuilt = run(root, tmp .. "/rebuilt.out", env)
   assert(rebuilt:find("1 ran, 1 stood", 1, true), rebuilt)
+end
+
+--- This program, rebuilt at `path` with `statements` run on the
+--- database it carries (`artifact.split`), as a rebuild of the tool
+--- moves it.
+local function rebuilt(tmp: string, path: string, statements: string)
+  local executable = assert(Proc.executable())
+  local parts = assert(artifact.split((assert(Fs.read(executable)))))
+  local db_path = tmp .. "/carried.db"
+  local _, _ = Fs.remove(db_path)
+  assert(Fs.write(db_path, parts.database))
+  local db = assert(Sqlite.open(db_path, true))
+  assert(db:exec(statements))
+  assert(db:close())
+  local program = assert(artifact.rejoin(parts, (assert(Fs.read(db_path)))))
+  local _, _ = Fs.remove(path)
+  assert(Fs.write(path, program))
+  assert(sys.chmod(path, 493)) -- 0o755
+end
+
+--- A test that declares `tool` stands across a rebuild of the tool that
+--- moved only `boot_hash` and `projected` -- what a comment in a test,
+--- which no binary carries, moves -- and runs again when a module the
+--- tool carries moves; one that does not declare it stands across both.
+-- The tree's own tool rebuilds for such an edit only in cosmic's own
+-- tree, too big to copy here: the program run instead is this one,
+-- its carried rows rewritten as each rebuild would leave them.
+local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_carries(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/o/bin"))
+  -- Its worker does not start the tool, which a sandbox nested in this
+  -- test's confinement could not find at its name under this test's
+  -- /tmp: what it declares is all its key turns on.
+  assert(Fs.write(root .. "/suite/tool_test.tl",
+    "local Test = require(\"cosmic.test\")\n\nTest.needs { tool = true }\n\n" ..
+    "local function test_tool()\nend\n"))
+  assert(Fs.write(root .. "/suite/plain_test.tl", "local function test_plain()\nend\n"))
+  local tool = root .. "/o/bin/cosmic"
+  local function rebuild(statements: string)
+    rebuilt(tmp, tool, statements)
+  end
+  rebuild("UPDATE meta SET value = 'one' WHERE key IN ('boot_hash', 'projected')")
+  local env = environment(tmp .. "/cache/verdicts.db")
+  env.COSMIC_VERDICT_CACHE = "0"
+  local step = 0
+  local function ran(wanted: string, unchecked?: boolean): string
+    step = step + 1
+    local fd = assert(Fs.open_write(tmp .. "/" .. step .. ".out"))
+    local result, trouble = Child.run({ tool, "test" }, {
+      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
+    })
+    assert(Fs.close(fd))
+    local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
+    assert(unchecked or (result ~= nil and result.ok), tostring(trouble) .. text)
+    if wanted ~= "" then assert(text:find(wanted, 1, true), step .. ": " .. text) end
+    return text
+  end
+  local first = ran("", true)
+  if unsandboxed(first) then return end
+  assert(first:find("test: PASS", 1, true) and first:find("2 ran, 0 stood", 1, true), first)
+  ran("0 ran, 2 stood")
+  -- Rebuilt for an edit no binary carries: every byte of the program
+  -- after its image moved, and nothing it runs.
+  rebuild("UPDATE meta SET value = 'two' WHERE key IN ('boot_hash', 'projected')")
+  ran("0 ran, 2 stood")
+  -- Rebuilt for an edit to a module it carries.
+  rebuild("UPDATE modules SET source = deflate(CAST(inflate(source) AS TEXT) || " ..
+    "char(10) || '-- edited' || char(10)) WHERE path = 'cosmic.json'")
+  ran("1 ran, 1 stood")
 end
 
 --- Writes `data` over the file at `path` in place, as a sandbox that
