@@ -1566,27 +1566,40 @@ end
 --- What of the test harness a worker runs, whose closure every
 --- sandboxed key holds: the worker itself, the plan of its sandbox
 --- (`build.test_sandbox`), what holds it (`build.filesystem_observations`),
---- its inputs (`build.test_inputs`) and its key (`build.declared_key`).
+--- its inputs (`build.test_inputs`) and its key (`build.declared_key`);
+--- and what build.dispatch requires at its top level that none of them
+--- does, which every worker loads on its way to its `--worker` branch.
+-- TODO: take build.dispatch's top-level requires from the `imports`
+-- table rather than naming them here, once it tells a require at a
+-- module's top level from one inside a function (build.dispatch's
+-- closure is every verb's): a top-level require added to it is keyed
+-- by no test's key until it is named here.
 local harness_roots: {string} = {
   "build.test_worker", "build.test_sandbox", "build.filesystem_observations",
   "build.test_inputs", "build.declared_key",
+  "build.clock", "build.exit_status", "cosmic.cli", "cosmic.flags",
 }
 
---- The harness modules keyed by their own source alone: the runner,
---- whose closure is the build's -- its compiler and the rest, which a
---- worker never runs; build.dispatch, whose `--worker` branch every
---- worker runs, and whose closure is every verb's; the writer and the
---- schema that shape the projection every worker loads its modules
---- from (`build.writer`, `build.schema`); and the shared verdicts'
---- cache, which a key is looked up in (`build.shared_verdicts`).
+--- The harness modules keyed by their own source and bytecode alone:
+--- the runner, whose closure is the build's -- its compiler and the
+--- rest, which a worker never runs; cosmic's own main
+--- (`cmd.cosmic.main`), which every worker runs first and which
+--- requires only build.dispatch; build.dispatch, whose `--worker`
+--- branch every worker runs, and whose closure is every verb's; the
+--- writer and the schema that shape the projection every worker loads
+--- its modules from (`build.writer`, `build.schema`); and the shared
+--- verdicts' cache, which a key is looked up in (`build.shared_verdicts`).
 local harness_own: {string} = {
-  "build.test", "build.dispatch", "build.writer", "build.schema", "build.shared_verdicts",
+  "build.test", "cmd.cosmic.main", "build.dispatch", "build.writer", "build.schema",
+  "build.shared_verdicts",
 }
 
 --- The digest of the test harness the running binary carries
---- (`declared_key.harness`), searched alone so no attached database
---- stands in for it: every worker runs it, so every sandboxed key holds
---- it -- the compiler's identity holds only the importer's closure.
+--- (`declared_key.harness`), each module by its source's hash and its
+--- bytecode's, searched alone so no attached database stands in for
+--- it: every worker runs it, so every sandboxed key holds it, and what
+--- the compiler made of it with it -- a key holds the compiler's
+--- identity only where its closure reads it (`build.declared_key`).
 local function binary_harness(): string | nil, string
   local modules: {{string}} = nil
   local imports: {{string}} = nil
@@ -1596,7 +1609,8 @@ local function binary_harness(): string | nil, string
     local binary = databases[#databases]
     if binary ~= nil then
       modules, trouble = Sqlite.text_rows(binary,
-        "SELECT path, source_hash FROM modules WHERE kind = 'module'")
+        "SELECT path, source_hash || ' ' || lower(hex(sha256(bytecode))) FROM modules " ..
+        "WHERE kind IN ('module', 'main')")
       if modules ~= nil then
         imports, trouble = Sqlite.text_rows(binary, "SELECT path, requires FROM imports")
       end
@@ -1677,7 +1691,9 @@ local record Recording
   views: {string:{string:string}}
   --- Sandboxed, what keys each verdict (`build.declared_key`): the
   --- digests of the tree's files the run has taken, and the compiler's
-  --- identity (`build.work`'s `Identities`).
+  --- identity (`build.work`'s `Identities`) as the running tool's `meta`
+  --- names it, `compiler` and then `compiled_by`, which a key holds
+  --- only where its closure reads it (`declared_key.reads_compiler`).
   digests: declared_key.Digests
   compiler: string
   --- Sandboxed, the host's identity every key holds
@@ -1813,6 +1829,15 @@ local function can_forbid(rec: Recording, m: importer.Module): boolean
   return found
 end
 
+--- Whether a worker of `m`'s tests can read the compiler's identity,
+--- which it reads from the running tool (`declared_key.reads_compiler`):
+--- not one given the whole projection, which carries its own and is
+--- keyed by its contents.
+local function reads_compiler(rec: Recording, m: importer.Module): boolean
+  if rec.stores[m.path] == nil then return false end
+  return declared_key.reads_compiler(rec.closures[m.path] or {})
+end
+
 --- A sandboxed test's key, over its declared inputs as they are now
 --- (`build.declared_key`): nil for one that reaches a network beyond
 --- loopback, or reads a link out of the tree, which no key holds -- the
@@ -1821,8 +1846,9 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   local effective = rec.effective[m.path]
   if not declared_key.keyable(effective) then return nil end
   local key, why = declared_key.compute(rec.digests, {
-    id = id, group = m.path, module_key = m.key, runtime = rec.runtime, compiler = rec.compiler,
-    host = rec.host, harness = rec.harness, program = rec.program, launcher = rec.launcher,
+    id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
+    compiler = reads_compiler(rec, m) and rec.compiler or "", host = rec.host,
+    harness = rec.harness, program = rec.program, launcher = rec.launcher,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
     closure_store = rec.stores[m.path],
@@ -2701,6 +2727,17 @@ function test.run(argv: {integer:string}): integer
   -- ahead of the binary's: they name this binary, and a project's own
   -- projection carries the ones of whichever binary wrote it.
   local tool = Store.meta("compiler") or ""
+  local compiled_by = Store.meta("compiled_by") or ""
+  -- A compiler a test stands in for, in a tree not cosmic's own, so it
+  -- can see a compiler of another identity that makes the same
+  -- bytecode move only the keys of a closure that reads it, without a
+  -- binary of its own (build/sandboxed_verdicts_test.tl): the tree is
+  -- compiled under it, and the run keys by it.
+  local compiler_salt = Env.get("COSMIC_TEST_COMPILER_SALT")
+  if not own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
+    tool = Hash.hex_sha256(tool .. "\0" .. compiler_salt)
+    compiled_by = tool
+  end
   local identity = Store.meta("runtime")
   if identity == nil or identity == "" then
     local _, _ = work.close(handle)
@@ -2977,7 +3014,8 @@ function test.run(argv: {integer:string}): integer
       return 1
     end
     sweep_stores(rec)
-    rec.digests, rec.compiler = declared_key.digests(root, remembered), tool
+    rec.digests = declared_key.digests(root, remembered)
+    rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
     rec.tool = rec.tool or observations.itself()
     rec.program = declared_key.program_identity(rec.digests, rec.tool)
