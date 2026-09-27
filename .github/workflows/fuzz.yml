@@ -117,6 +117,10 @@
         # As ci.yml's platform legs: after the driver's bootstrap, the
         # checkout moves to a path of this commit's own, which the log
         # names; this job is the leg the path is chosen for.
+        # TODO: drop this and the move back once this job runs in a
+        # container given what spawn's sandbox needs, as ci.yml's Linux
+        # legs do: its workers then see the tree at /tree wherever it is
+        # (build/test_sandbox.tl), where today they run unsandboxed.
         {
           name: "move the tree to a path of this commit's own",
           env: {COSMIC_WORKER: "fuzz"},

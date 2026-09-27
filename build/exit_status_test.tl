@@ -7,13 +7,13 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local embed = require("build.embed")
 local exit_status = require("build.exit_status")
-local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 local function run_program(path: string): Child.Result
-  return (assert(Child.run({ path }, { env = observations.environment(),
+  return (assert(Child.run({ path }, {
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })))
 end
 

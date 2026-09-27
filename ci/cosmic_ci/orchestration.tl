@@ -34,6 +34,11 @@ local function environment(extra?: {string:string}): {string:string}
   -- A suite stands on no verdict another checkout reached, only on
   -- what it runs itself; see the TODO in .github/workflows/ci.yml.
   all.COSMIC_TEST_NO_SHARED = "1"
+  -- Where the leg is given what spawn's sandbox needs, every suite runs
+  -- each worker sandboxed (build/test_sandbox.tl), as `cosmic test`
+  -- does by default wherever it can, and fails where it cannot rather
+  -- than run them unsandboxed.
+  if all.COSMIC_CI_REQUIRE_SANDBOX == "1" then all.COSMIC_TEST_SANDBOX = "1" end
   if extra then for k, v in pairs(extra) do all[k] = v end end
   return all
 end
@@ -156,10 +161,6 @@ local checked_compile_timeout_ms <const> = 300000
 -- the run's own bound leaves room for a runner several times slower.
 local suite_timeout_ms <const> = 120000
 local suite_test_timeout_s <const> = "10"
--- The same suite with each worker sandboxed (`phase_sandboxed`), which
--- runs every test (its verdicts are keyed apart from the unsandboxed
--- run's) and pays each worker's sandbox besides.
-local sandboxed_suite_timeout_ms <const> = 240000
 
 local function copy_flat_tl_dir(source: string, destination: string)
   local names: {string} = {}
@@ -194,6 +195,13 @@ local function fixture_test(c: Context, work: string, name: string,
   mkdir(diagnostics); mkdir(diagnostics .. "/tmp")
   local fixture_environment = environment(extra)
   fixture_environment.TMPDIR = diagnostics .. "/tmp"
+  -- Unsandboxed: a fixture reads and runs the candidate and its
+  -- products where the host has them, which its environment names
+  -- (COSMIC_FIXTURE_*), and a sandboxed worker would be given none of.
+  -- TODO: run the fixtures sandboxed once `Test.needs` can declare a
+  -- host path a variable names (COSMIC_FIXTURE_ROOT, _PRODUCT,
+  -- _RUNTIME), which today it takes only written out in the source.
+  fixture_environment.COSMIC_TEST_SANDBOX = "0"
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
   return logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
@@ -444,58 +452,6 @@ local function phase_sandbox(p: PlatformContext): integer
   return 0
 end
 
---- The native suite again, with each worker sandboxed to its declared
---- inputs (`COSMIC_TEST_SANDBOX=1`, build/test_sandbox.tl): a shadow of
---- the suite that gates nothing yet -- ci.yml runs it on the Linux legs
---- with continue-on-error -- until the tests that fail there declare
---- what they read. Every test runs, since a sandboxed run's verdicts are
---- keyed apart from an unsandboxed one's. It writes to the log and the
---- summary how many tests failed sandboxed, and which, and answers the
---- suite's status; where no worker could be sandboxed and
---- COSMIC_CI_REQUIRE_SANDBOX=1, it fails saying so.
-local function phase_sandboxed(p: PlatformContext): integer
-  local c = p.operation
-  local diagnostics = p.work .. "/sandboxed-diagnostics"
-  mkdir(diagnostics)
-  local out = diagnostics .. "/sandboxed-test.out"
-  local err = diagnostics .. "/sandboxed-test.err"
-  local values = environment({ COSMIC_TEST_SANDBOX = "1" })
-  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
-  local status = operation(c, "sandboxed suite", { p.root .. "/o/bin/cosmic", "test", "--all" },
-    sandboxed_suite_timeout_ms, c.root, values, out, err)
-  local said = read(out) .. read(err)
-  local failed: {string} = {}
-  for id in said:gmatch("\ntest: FAIL  ([^:\n]+):") do failed[#failed + 1] = id end
-  if said:sub(1, 12) == "test: FAIL  " then
-    failed[#failed + 1] = said:match("^test: FAIL  ([^:\n]+):")
-  end
-  local verdict = said:match("test: FAIL %(([^\n]*)%)") or said:match("test: PASS %(([^\n]*)%)") or
-    "no verdict; the run ended with status " .. tostring(status)
-  local sandboxed = said:find("; sandboxed)", 1, true) ~= nil
-  local lines: {string} = {
-    "## Sandboxed suite (" .. c.worker .. ")", "",
-    string.format("%d tests failed with each worker sandboxed (COSMIC_TEST_SANDBOX=1): %s.",
-      #failed, verdict),
-  }
-  if not sandboxed then
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "No worker was sandboxed: " ..
-      (said:match("test: sandbox: ([^\n]*)") or "the run said nothing of the sandbox")
-  end
-  if #failed > 0 then
-    lines[#lines + 1] = ""
-    for _, id in ipairs(failed) do lines[#lines + 1] = "- `" .. id .. "`" end
-  end
-  local report = table.concat(lines, "\n") .. "\n"
-  ContextEnv.summarize(report .. "\n")
-  assert(Fs.put(Fs.stdout, report))
-  if not sandboxed and named("COSMIC_CI_REQUIRE_SANDBOX") == "1" then
-    assert(Fs.put(Fs.stderr, "sandboxed suite: no worker was sandboxed on this worker\n"))
-    return status ~= 0 and status or 1
-  end
-  return status
-end
-
 --- The tree's format check, which `fix --check` also builds and
 --- type-checks it for: the first thing assemble does, and all a branch
 --- push's light run does after the native suite (see ci.yml's
@@ -678,7 +634,6 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   elseif phase == "local-boundary" then return phase_local_boundary(p)
   elseif phase == "format" then return format_check(p)
   elseif phase == "sandbox" then return phase_sandbox(p)
-  elseif phase == "sandboxed" then return phase_sandboxed(p)
   elseif phase == "assemble" then return phase_assemble(p)
   elseif phase == "portable" then return phase_portable(p)
   elseif phase == "portable-boundary" then return phase_portable_boundary(p)

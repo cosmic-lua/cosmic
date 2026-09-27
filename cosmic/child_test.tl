@@ -6,16 +6,12 @@ local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
-local observations = require("build.filesystem_observations")
 
 --- The processes Child starts, which inherit the environment unless given
 --- one, and what a sandboxed one is given of the host, and /proc, where
---- a test finds a child's processes.
-Test.needs{ host = { "/etc", "/proc", "/usr" }, env = { "*" }, processes = true }
-
--- What these tests start is a shell, the system's own, or this very
--- program.
-observations.confine({ reads = observations.itself() })
+--- a test finds a child's processes; and the program itself, which its
+--- tests start.
+Test.needs{ host = { "/etc", "/proc", "/usr" }, env = { "*" }, processes = true, tool = true }
 
 local function path_exists(path: string): boolean
   local answer, trouble = Fs.exists(path)
@@ -25,10 +21,11 @@ end
 
 --- The pid, in this process's pid namespace, of the process that `pid`
 --- names in the pid namespace of `within`, a live child of this
---- process: the same number, unless `within` was started confined, in a
---- pid namespace of its own (`observations.confine`), where it is found
+--- process: the same number, unless `within` was started in a pid
+--- namespace of its own (a `sandbox` that unveils), where it is found
 --- by the namespace's own pid, the last of its NSpid; nil where none is
---- found.
+--- found. A process this test starts with none is in this worker's own,
+--- sandboxed or not: only `Child` ends the group it leads.
 local function host_pid(within: integer, pid: integer): integer | nil
   local own, _ = sys.readlink("/proc/self/ns/pid")
   local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
@@ -43,18 +40,6 @@ local function host_pid(within: integer, pid: integer): integer | nil
     end
   end
   return nil
-end
-
---- Runs `fn` with this file's declaration lifted, so what it starts runs
---- unconfined: a child confined runs in a pid namespace of its own, which
---- ends everything in it when it ends, and so would pass a check of
---- `Child`'s own ending of a group that `Child` failed. A test that does
---- so never stands; the declaration is back once `fn` returns.
-local function unconfined(fn: function())
-  observations.confine(nil)
-  local ok, trouble: boolean, any = pcall(fn)
-  observations.confine({ reads = observations.itself() })
-  if not ok then error(trouble, 0) end
 end
 
 local function output(dir: string, name: string): integer, string
@@ -134,7 +119,6 @@ local function test_nonzero_and_signal_status()
   assert(signaled.code == nil and signaled.signal == sys.SIGTERM)
 end
 
---- Run unconfined too (`unconfined`), where only `Child` ends the group.
 local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
   local function check(name: string)
     local fd, path = output(tmp, name)
@@ -158,18 +142,31 @@ local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
     local alive = sys.kill(pid, 0)
     assert(not alive)
   end
-  check("confined")
-  unconfined(function() check("unconfined") end)
+  check("group")
 end
 
 --- A shell that catches nothing is ended by a timeout's SIGTERM, not
---- left for the SIGKILL after the grace period: confined, it is its pid
---- namespace's pid 2, not the pid 1 that would pass over a signal it does
---- not catch from outside the namespace.
+--- left for the SIGKILL after the grace period -- and so is one started
+--- in a sandbox of its own, where it is its pid namespace's pid 2, not
+--- the pid 1 that would pass over a signal it does not catch from
+--- outside the namespace. Where the kernel will not sandbox a child, the
+--- sandboxed case is the kernel's to refuse.
 local function test_a_timeout_ends_a_shell_that_catches_nothing()
   local r = assert(Child.run({ "/bin/sh", "-c", "sleep 100" },
     { timeout_ms = 200, process_group = false }))
   assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
+  local reads: {string} = {}
+  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64", "/etc", "/proc", "/dev/null" }) do
+    if path_exists(dir) then reads[#reads + 1] = dir end
+  end
+  local sandboxed, trouble = Child.run({ "/bin/sh", "-c", "sleep 100" },
+    { timeout_ms = 200, sandbox = { unveil = { reads = reads }, offline = true } })
+  if sandboxed == nil then
+    assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. trouble)
+    return
+  end
+  assert(sandboxed.timed_out and sandboxed.signal == sys.SIGTERM,
+    "sandboxed, ended by " .. tostring(sandboxed.signal))
 end
 
 local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
@@ -610,9 +607,7 @@ end
 --- A leader that exits leaves no member of its group behind, and none of
 --- them a zombie: a descendant that outlives the leader is ended and
 --- reaped before the wait answers.
---- The descendant is looked for by its group, the leader's pid: the pid
---- it printed is its own pid namespace's where the shell is confined.
---- Run unconfined too (`unconfined`), where only `Child` ends the group.
+--- The descendant is looked for by its group, the leader's pid.
 local function test_exit_ends_and_reaps_what_the_group_left_behind()
   local function check()
     local h = assert(Child.start({ "/bin/sh", "-c", "sleep 30 & printf %s $!" },
@@ -624,18 +619,17 @@ local function test_exit_ends_and_reaps_what_the_group_left_behind()
       " survived")
   end
   check()
-  unconfined(check)
 end
 
 --- `end_strays` ends a stray whatever it calls itself: one named as a
 --- sandbox's init is (/proc/<pid>/comm), since only the process table's
---- own record says which children are inits. Unconfined (`unconfined`),
---- so the stray is orphaned to this process, not to a sandbox's init.
+--- own record says which children are inits. The stray is orphaned to
+--- this process, which adopts it, in the worker's pid namespace.
 --- Only where /proc lists a process's children does `end_strays` find
 --- any (Linux, as the guard test's zombie check finds /proc there).
 local function test_end_strays_ends_a_stray_named_as_an_init()
   if not path_exists("/proc/thread-self/children") then return end
-  unconfined(function()
+  do
     -- A group started first makes this process the subreaper it adopts
     -- the stray as.
     assert(Child.run({ "/bin/sh", "-c", "true" }))
@@ -653,7 +647,7 @@ local function test_end_strays_ends_a_stray_named_as_an_init()
     assert(Child.end_strays() >= 1)
     local alive, _, errno = sys.kill(pid, 0)
     assert(not alive and errno == sys.ESRCH, "the stray named cosmic-init survived")
-  end)
+  end
 end
 
 --- Completion is the leader's exit: a descendant that left the group

@@ -10,9 +10,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 --- Runs `cosmic test` on `root` with `words` after it -- `--all`, so a
 --- test no key holds runs, unless others are given.
@@ -94,6 +95,8 @@ end
 ]]))
   local program = assert(Proc.executable())
   local env = observations.environment()
+  -- Unsandboxed: what is keyed is a worker's read of the host.
+  env.COSMIC_TEST_SANDBOX = "0"
   env.OUTSIDE = tmp .. "/outside"
   local first = run(program, root, tmp .. "/first.out", env)
   assert(first:find("6 ran, 0 stood", 1, true), first)
@@ -137,6 +140,8 @@ end
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
   local program = assert(Proc.executable())
   local env = observations.environment()
+  -- Unsandboxed: what is keyed is a worker's read of the host.
+  env.COSMIC_TEST_SANDBOX = "0"
   env.OUTSIDE = tmp .. "/outside"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil

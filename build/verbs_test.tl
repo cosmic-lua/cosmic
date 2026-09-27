@@ -24,9 +24,6 @@ Test.needs{
   tool = true,
 }
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
-
 --- The verbs that end in no verdict line: those whose words after the
 --- file are the program's own, so no option or argument is theirs to
 --- refuse, and whose output is the program's; and `--version`, whose
@@ -120,6 +117,9 @@ local function cosmic(dir: string, args: {string}): invoke.Result
   end
   local argv: {string} = { (assert(Proc.executable())) }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
+  -- What of the environment the program needs, its temporary files --
+  -- the directory of a test `cosmic test bad` fails, which it keeps --
+  -- in this test's own directory.
   local result, trouble = Child.run(argv, {
     cwd = dir, env = observations.environment(), stdout = "capture", stderr = "capture",
     timeout_ms = 60000,

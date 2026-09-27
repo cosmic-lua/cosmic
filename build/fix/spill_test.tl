@@ -4,13 +4,10 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
-local observations = require("build.filesystem_observations")
 
 --- Where the checker looks for modules, which a test runs it without.
-Test.needs{ env = { "TL_PATH" } }
-
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- And the program itself, which its tests start.
+Test.needs{ env = { "TL_PATH" }, tool = true }
 
 --- Only the call the checker names is wrapped, whatever its arguments,
 --- and nothing else on the line moves.
@@ -61,7 +58,7 @@ end
 local function fix(root: string, check: boolean): Child.Result
   local argv: {string} = { assert(Proc.executable()), "fix" }
   if check then argv[#argv + 1] = "--check" end
-  return (assert(Child.run(argv, { cwd = root, env = observations.environment(),
+  return (assert(Child.run(argv, { cwd = root,
     stdout = "capture", stderr = "stdout", timeout_ms = 60000 })))
 end
 

@@ -1157,3 +1157,50 @@ local function test_a_declaration_of_stat_s_times_is_noted_and_kept()
   end
   assert(kept, "the declaration did not survive encoding")
 end
+
+--- A process started with no confinement declared, by a test whose
+--- worker runs in a sandbox of its own (`Resolving`'s `held`), runs as
+--- it is -- the worker's sandbox holds it, and it reads what the worker
+--- may -- and is noted by each path that sandbox gives it, "u", not "p",
+--- one not there yet included; and, where the sandbox holds it to
+--- nothing a key can hold (`unkeyable`), "x" besides. Without `held` it
+--- is noted "p", as ever.
+local function test_a_process_a_sandboxed_worker_starts_is_noted_by_what_it_holds(tmp: string)
+  local given, own = tmp .. "/given", tmp .. "/own"
+  for _, dir in ipairs({ given, own }) do assert(Fs.mkdirs(dir)) end
+  local function started(resolving: observations.Resolving): string
+    local run = observations.call(function()
+      local r = assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
+      assert(r.ok)
+    end, nil, resolving)
+    assert(run.passed, run.message)
+    return (confined_notes(run))
+  end
+  local held = started({ tree = tmp .. "/tree", own = { own },
+    held = { given, tmp .. "/not-yet" } })
+  assert(held:find("u " .. given .. "\n", 1, true) and
+    held:find("u " .. tmp .. "/not-yet\n", 1, true), held)
+  assert(not held:find("\np ", 1, true) and held:sub(1, 2) ~= "p " and
+    not held:find("x ", 1, true), held)
+  local online = started({ tree = tmp .. "/tree", own = { own }, held = { given },
+    unkeyable = "the network" })
+  assert(online:find("u " .. given .. "\n", 1, true) and
+    online:find("x the network\n", 1, true), online)
+  local plain = started({ tree = tmp .. "/tree", own = { own } })
+  assert(plain:find("p /bin/sh\n", 1, true) and not plain:find("u ", 1, true), plain)
+end
+
+--- What a stat answers leaves out the owner, as `sys.tree_digest`'s
+--- stamps do: a sandbox nested in another answers it as the overflow
+--- id, where the host has its own, and a change of it moves the change
+--- time, which the answer keeps.
+local function test_a_stat_answer_leaves_out_the_owner(tmp: string)
+  assert(Fs.write(tmp .. "/f", "x"))
+  local st = assert(sys.stat(tmp .. "/f"))
+  local answer = observations.stat_answer(tmp .. "/f")
+  local fields: {string} = {}
+  for field in answer:gmatch("%S+") do fields[#fields + 1] = field end
+  assert(#fields == 11, answer)
+  assert(fields[1] == "ok" and fields[2] == tostring(st.size) and fields[10] == tostring(st.ctime),
+    answer)
+end

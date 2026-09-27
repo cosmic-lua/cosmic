@@ -6,15 +6,22 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 local function invoke(program: string, root: string, output: string,
     selector: string): Child.Result
   local fd = assert(Fs.open_write(output))
+  -- Sandboxed wherever it can be, whatever this run's switch: the rerun
+  -- line it prints repeats a switch it was given.
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = nil
+  -- What its failing tests keep stays in this test's directory.
+  env.TMPDIR = Fs.dirname(output)
   local result, trouble = Child.run({ program, "test", selector }, {
-    cwd = root, env = observations.environment(), stdout = fd, stderr = fd,
+    cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 30000,
   })
   assert(Fs.close(fd))
@@ -285,6 +292,8 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   local output = tmp .. "/nowhere.out"
   local environment = observations.environment()
   environment.TMPDIR = tmp .. "/missing"
+  -- Where no sandbox can be tried either, the run goes on unsandboxed.
+  environment.COSMIC_TEST_SANDBOX = nil
   local fd = assert(Fs.open_write(output))
   local result = assert(Child.run({ assert(Proc.executable()), "test", "suite/selected_test.tl" }, {
     cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ms = 30000,

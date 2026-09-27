@@ -265,7 +265,7 @@ COSMIC_SYSCALL(readdir, 1);
  * --- What a tree holds, digested: `tree_digest`'s answer.
  * ---@class TreeDigest
  * ---@field digest string the hex sha256 of every entry at and beneath the path, links unfollowed, in name order: each one's contents where asked for, and otherwise what `lstat` says of it -- type and permissions, size, modification and change times, and inode
- * ---@field special boolean whether it holds a socket, a FIFO or a device other than /dev/null, /dev/zero or /dev/urandom, each of which answers from past the tree, or anything the walk could not see: an entry it could not read or list, or one more than 128 directories down
+ * ---@field special boolean whether it holds a socket, a FIFO or a device other than /dev/null, /dev/zero or /dev/urandom, each of which answers from past the tree, or anything the walk could not see: an entry it could not read or list, or one more than 128 directories down -- but for one it was refused (EACCES, EPERM), digested by its permissions and owner, which is all a process with no more privilege than the walk's could learn of it
  */
 
 /*
