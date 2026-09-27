@@ -238,6 +238,33 @@ local function prepare(db: Sqlite.Handle): boolean, string
   return db:exec("COMMIT")
 end
 
+--- Whether `trouble`, from a statement on the cache, says another
+--- connection holds a lock the statement needs, rather than anything
+--- of the file. Read as `corrupt` below reads its own: SQLite answers
+--- its reason only as text.
+local function busy(trouble: string): boolean
+  return trouble:find("locked", 1, true) ~= nil or trouble:find("busy", 1, true) ~= nil
+end
+
+--- Puts `db` in write-ahead mode, so a build's reads never wait on
+--- another's write. The switch is one statement that reads the file's
+--- header, then writes it, and SQLite answers "database is locked" at
+--- once, calling no busy handler, when another connection holds the
+--- write lock between those two -- as two builds meeting a fresh cache
+--- do -- so a locked answer is tried again, up to the busy timeout;
+--- once the other's switch is written, this one reads the header and
+--- has nothing to write.
+local function to_wal(db: Sqlite.Handle): boolean, string
+  local waited_ms = 0
+  while true do
+    local rows, trouble = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
+    if rows ~= nil then return true, "" end
+    if not busy(trouble) or waited_ms >= busy_ms then return false, trouble end
+    local _, _ = Time.sleep_ns(10 * 1000000)
+    waited_ms = waited_ms + 10
+  end
+end
+
 --- Opens the cache at `path`, making it and its directory when missing.
 --- Its directory is made 0700 when missing, and the file 0600 before
 --- SQLite opens it, so no build ever meets it wider; it and the file must be
@@ -268,8 +295,8 @@ function shared_compiles.open(path: string): shared_compiles.Cache | nil, string
   end
   local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
   if not timed then return fail(time_trouble) end
-  local journal, journal_trouble = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
-  if journal == nil then return fail(journal_trouble) end
+  local journal, journal_trouble = to_wal(db)
+  if not journal then return fail(journal_trouble) end
   local prepared, prepare_trouble = prepare(db)
   if not prepared then return fail(prepare_trouble) end
   return { db = db, path = path }

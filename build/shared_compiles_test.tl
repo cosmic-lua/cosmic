@@ -11,6 +11,7 @@ local Sqlite = require("cosmic.sqlite")
 local observations = require("build.filesystem_observations")
 local shared_compiles = require("build.shared_compiles")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -319,6 +320,48 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
     built(tmp .. "/" .. name .. "_again", env,
       "(0 compiled, 3 cached, 3 of them taken from another checkout;")
   end
+end
+
+--- Two builds meeting a fresh cache at once: the second's switch to
+--- write-ahead mode finds the first holding the file's write lock, and
+--- SQLite answers "database is locked" at once, calling no busy handler
+--- (the switch reads the header in one transaction, then writes it);
+--- the open tries again rather than leaving that build without the cache.
+local function test_a_cache_another_build_is_making_is_opened(tmp: string)
+  tmp = assert(Fs.absolute(tmp))
+  local _, path = environment(tmp)
+  assert(Fs.mkdirs(Fs.dirname(path)))
+  assert(Fs.chmod(Fs.dirname(path), 0x1c0))
+  local held = tmp .. "/held"
+  -- Another build, as far as the file is concerned: it holds the write
+  -- lock of the fresh, rollback-mode file for half a second.
+  local chunk = string.format([[
+local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
+local db = assert(Sqlite.open(%q, true))
+assert(db:exec("BEGIN IMMEDIATE"))
+assert(Fs.write(%q, ""))
+assert(Time.sleep_ns(500 * 1000000))
+assert(db:exec("COMMIT"))
+assert(db:close())
+return 0
+]], path, held)
+  local started = observations.program({ "-e", chunk }, { process_group = true })
+  local handle = assert(Child.start(started.argv, started.options))
+  local waited = 0
+  while Fs.exists(held) ~= true do
+    assert(waited < 10000, "the holder never took the lock")
+    assert(Time.sleep_ns(10 * 1000000))
+    waited = waited + 10
+  end
+  local cache, trouble = shared_compiles.open(path)
+  assert(cache ~= nil, trouble)
+  local rows = assert(Sqlite.text_rows(cache.db, "PRAGMA journal_mode"))
+  assert(rows[1][1] == "wal", rows[1][1])
+  shared_compiles.close(cache)
+  local result, wait_trouble = handle:wait(10000)
+  assert(result ~= nil and result.ok, tostring(wait_trouble))
 end
 
 --- A key names what decides a compile beside the module's own key:
