@@ -19,6 +19,12 @@
 --   fail/ref-transport            git/ref/tags/ fails before any HTTP
 --   fail/transport                every `gh api` fails before any HTTP
 --   fail/edit-draft               `release edit` leaves the draft flag
+--   fail/create-ref               POST git/refs answers HTTP 403 with
+--                                 this file's message, or GitHub's to a
+--                                 GITHUB_TOKEN refused a ref when empty
+--   compare                       the files the compare from any commit
+--                                 to the default branch (main) changes,
+--                                 a line each; none when absent
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -118,10 +124,13 @@ local function api(p: Parsed, repo: string): integer
     return fail("error connecting to api.github.com")
   end
   local endpoint = assert(p.positional[1], "api: no endpoint")
+  local method = p.options["--method"] or "GET"
+  if endpoint == "repos/" .. repo and method == "GET" then
+    return http(p, "200 OK", json({ full_name = repo, default_branch = "main" }))
+  end
   local prefix = "repos/" .. repo .. "/"
   if endpoint:sub(1, #prefix) ~= prefix then return fail("unexpected endpoint " .. endpoint) end
   local rest = endpoint:sub(#prefix + 1)
-  local method = p.options["--method"] or "GET"
   if rest == "releases?per_page=100" and method == "GET" then
     assert(p.options["--paginate"] and p.options["--slurp"], "the list is not paginated")
     -- One release to a page, so a caller must gather every page.
@@ -165,13 +174,28 @@ local function api(p: Parsed, repo: string): integer
     end
     return fail("No commit found for SHA: " .. resolved .. " (HTTP 422)")
   end
+  local base = rest:match("^compare/(%x+)%.%.%.main$")
+  if base and method == "GET" then
+    local files: {any} = {}
+    if exists(state .. "/compare") then
+      for name in read(state .. "/compare"):gmatch("[^\n]+") do files[#files + 1] = { filename = name } end
+    end
+    return http(p, "200 OK", json({ status = "ahead", files = Json.array(files) }))
+  end
   if rest == "git/refs" and method == "POST" then
     local tag = assert(p.fields.ref, "no ref"):match("^refs/tags/(.+)$")
     assert(tag and p.fields.sha, "no tag or sha")
-    if exists(state .. "/tags/" .. tag) then return fail("Reference already exists (HTTP 422)") end
+    if exists(state .. "/fail/create-ref") then
+      local message = read(state .. "/fail/create-ref")
+      if message == "" then message = "Resource not accessible by integration" end
+      return http(p, "403 Forbidden", json({ message = message }))
+    end
+    if exists(state .. "/tags/" .. tag) then
+      return http(p, "422 Unprocessable Entity", '{"message":"Reference already exists"}')
+    end
     assert(Fs.mkdirs(state .. "/tags"))
     write(state .. "/tags/" .. tag, p.fields.sha)
-    return out(json({ ref = p.fields.ref, object = { sha = p.fields.sha } }))
+    return http(p, "201 Created", json({ ref = p.fields.ref, object = { sha = p.fields.sha } }))
   end
   return fail("unexpected api call " .. method .. " " .. endpoint)
 end
