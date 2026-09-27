@@ -51,9 +51,8 @@ end
 --- there it fails.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  local held = Env.get("COSMIC_TEST_SANDBOX") == "1" or
-    Env.get("COSMIC_SANDBOX") == "must" or Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
-  assert(not held, "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  assert(not observations.held_to_sandbox(),
+    "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
 

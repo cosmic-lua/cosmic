@@ -126,9 +126,10 @@
    in a container or not, a sandbox nests only two deep (the TODO in
    core/syscalls.c's `map_ids`) -- those tests return before asserting,
    or fail where the run is held to sandboxing (`COSMIC_TEST_SANDBOX=1`,
-   `COSMIC_SANDBOX=must`). CI's unprivileged runners nest at any depth;
-   locally, check them by running the suite as an unprivileged user, as
-   `ci/run-local` runs its driver as `nobody`.
+   `COSMIC_SANDBOX=must` or `COSMIC_CI_REQUIRE_SANDBOX=1`:
+   `observations.held_to_sandbox`). CI's unprivileged runners nest at
+   any depth; locally, check them by running the suite as an
+   unprivileged user, as `ci/run-local` runs its driver as `nobody`.
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see

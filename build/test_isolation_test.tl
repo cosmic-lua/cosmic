@@ -42,9 +42,8 @@ end
 --- unprivileged runners nest them, and there it fails.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return false end
-  local held = sys.getenv("COSMIC_TEST_SANDBOX") == "1" or
-    sys.getenv("COSMIC_SANDBOX") == "must" or sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
-  assert(not held, "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  assert(not observations.held_to_sandbox(),
+    "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
 
