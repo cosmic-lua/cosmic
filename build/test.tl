@@ -1091,15 +1091,18 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   -- This program, started by the test -- given to a confined process
   -- ("u"), as `observations.itself()` gives it, or started unconfined
   -- ("p") -- runs what no key of the test holds but the tool's: a
-  -- `tool` finding, which a sandboxed worker enforces
-  -- (`observations.forbid_running`).
+  -- `tool` finding.
   local function runs_the_tool(path: string): boolean
     return the_tool(path) or the_tool(observations.resolution(path))
   end
   for _, observation in ipairs(reads) do
     local kind, path = observation.kind, observation.path
-    if (kind == "u" or kind == "p") and not effective.tool and path:sub(1, 1) == "/" and
-        runs_the_tool(path) then
+    -- Sandboxed, every process the test starts is noted "u" of all its
+    -- worker's sandbox holds, the program among it, whatever it runs; a
+    -- sandboxed worker that may not run the program is refused it
+    -- (`observations.forbid_running`) rather than audited.
+    if (kind == "p" or (kind == "u" and not sandboxed)) and not effective.tool and
+        path:sub(1, 1) == "/" and runs_the_tool(path) then
       add("tool", path)
     end
     if kind == "p" then

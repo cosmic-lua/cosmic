@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 --- What the host's identity reads (`declared_key.host_identity`), on
 --- whichever system this is, and a file a link leads out of the tree to.
 Test.needs{
-  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc/sys/kernel/",
+  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc/",
     "/usr/lib/os-release", "/usr/lib/sysimage/rpm/", "/var/lib/dpkg/status", "/var/lib/rpm/" },
 }
 
