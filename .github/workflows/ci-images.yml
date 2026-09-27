@@ -6,12 +6,15 @@
   # Builds the images ci.yml's Linux legs run in (ci/images/*/Dockerfile),
   # so a CI run installs nothing from a package mirror. A branch push only
   # builds them, to show the Dockerfiles still work; a push to main, or a
-  # manual run on main, also publishes them to GHCR as
-  # ghcr.io/<repo>-ci-<image>:<commit> and writes each index's digest to the
-  # run's summary. ci.yml names an image by that digest, so publishing a new
-  # one changes nothing until an edit to ci.yml moves the digest. The jobs
-  # run on the CI driver (ci/cosmic_ci/images.tl), so a change to it merged
-  # to main publishes both images again under that commit's tag.
+  # manual run on main, also pushes each architecture's image to GHCR as
+  # ghcr.io/<repo>-ci-<image>:<commit>-<arch>, and ci-images-publish.yml,
+  # on that run's success, joins them under <commit> and writes each
+  # index's digest to its run's summary. ci.yml names an image by that
+  # digest, so publishing a new one changes nothing until an edit to
+  # ci.yml moves the digest. The jobs run on the CI driver
+  # (ci/cosmic_ci/images.tl): what goes into an image, the driver's code
+  # that builds and publishes one, the driver's pin, and the publish
+  # workflow start them, but not every change to the rest of the driver.
   # TODO: rebuild on a schedule, so a security update in either base is a
   # published image waiting for its digest to move, not a build to start.
   # TODO: prune old tags from GHCR, keeping every digest ci.yml has ever
@@ -24,12 +27,9 @@
       paths: [
         "ci/images/**",
         ".github/workflows/ci-images.yml",
-        # What the jobs run: the driver, the one CI pins, and what fetches it.
-        "ci/cosmic_ci/**",
+        ".github/workflows/ci-images-publish.yml",
+        "ci/cosmic_ci/images.tl",
         "ci/cosmic-driver.pin",
-        "bin/cosmic-bootstrap",
-        ".github/scripts/cosmic-driver.sh",
-        ".github/actions/cosmic-driver/**",
       ],
     },
     workflow_dispatch: {},
@@ -88,47 +88,6 @@
           },
           "working-directory": "ci",
           run: "cosmic-driver cosmic_ci/driver.tl image-build",
-        },
-      ],
-    },
-
-    publish: {
-      name: "publish ${{ matrix.image }}",
-      needs: "build",
-      if: "github.repository == 'cosmic-lua/cosmic' && github.ref == 'refs/heads/main'",
-      "runs-on": "ubuntu-24.04",
-      "timeout-minutes": 10,
-      permissions: {
-        contents: "read",
-        packages: "write",
-      },
-      strategy: {
-        matrix: {
-          include: [
-            {image: "ubuntu", arches: "amd64 arm64"},
-            {image: "alpine", arches: "amd64"},
-          ],
-        },
-      },
-      steps: [
-        {
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-        },
-
-        {
-          name: "bootstrap the pinned CI driver",
-          uses: "./.github/actions/cosmic-driver",
-        },
-
-        {
-          name: "join the architectures under one tag and report its digest",
-          env: {
-            IMAGE: "${{ matrix.image }}",
-            ARCHES: "${{ matrix.arches }}",
-            TOKEN: "${{ secrets.GITHUB_TOKEN }}",
-          },
-          "working-directory": "ci",
-          run: "cosmic-driver cosmic_ci/driver.tl image-publish",
         },
       ],
     },

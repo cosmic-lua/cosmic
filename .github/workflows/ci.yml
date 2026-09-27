@@ -64,7 +64,7 @@
             # a run installs nothing from a package mirror, and a runner image
             # update changes only the kernel under them. The ubuntu digest is
             # the multi-arch index's, which serves both x86_64 and aarch64;
-            # moving a digest is a deliberate edit, after ci-images.yml
+            # moving a digest is a deliberate edit, after ci-images-publish.yml
             # publishes a new one (its run summary gives it). The packages
             # are private, so the pull logs in with this job's token, which
             # needs packages: read (see the job's permissions). (macOS
@@ -762,30 +762,43 @@
       ],
     },
 
-    # Every successful platform/environment execution must attest and upload
-    # identical Cosmic bytes. Local product tests retain manifest, range,
-    # application, and raw-core verification, so this join only proves the
-    # cross-platform byte identity.
-    provenance: {
+    # The one check a ruleset requires, whatever a run's scope: it fails
+    # when any leg failed or was cancelled, and on a full run
+    # (COSMIC_CI_SCOPE) it is also the provenance join. Every successful
+    # platform/environment execution must attest and upload identical
+    # Cosmic bytes; local product tests retain manifest, range,
+    # application, and raw-core verification, so the join only proves the
+    # cross-platform byte identity. The join is this job's steps rather
+    # than a job of its own, which a branch push would show as skipped;
+    # prerelease.yml publishes from main's completed runs.
+    ci: {
       needs: "platform",
-      # Only a full run's legs attest and upload a product (COSMIC_CI_SCOPE).
-      if: "github.event_name != 'push' || github.ref == 'refs/heads/main'",
-      defaults: {
-        run: {"working-directory": "ci"},
-      },
+      if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
-      env: {COSMIC_WORKER: "provenance"},
+      env: {
+        COSMIC_WORKER: "provenance",
+        # Only a full run's legs attest and upload a product.
+        FULL: "${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}",
+      },
       steps: [
         {
+          name: "every leg passed",
+          env: {RESULT: "${{ needs.platform.result }}"},
+          run: "echo \"platform: $RESULT\"; [ \"$RESULT\" = success ]",
+        },
+        {
+          if: "env.FULL == 'true'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
         },
         {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
+          if: "env.FULL == 'true'",
           uses: "./.github/actions/cosmic-driver",
         },
         {
+          if: "env.FULL == 'true'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
             pattern: "portable-product-*",
@@ -794,16 +807,19 @@
         },
         {
           name: "compare the Cosmic bytes executed on every native host",
+          if: "env.FULL == 'true'",
+          "working-directory": "ci",
           run: "cosmic-driver cosmic_ci/driver.tl provenance",
         },
         {
           name: "summarize provenance operations",
           if: "always() && steps.driver.outcome == 'success'",
+          "working-directory": "ci",
           run: "cosmic-driver cosmic_ci/driver.tl summarize",
         },
         {
           name: "preserve provenance operations",
-          if: "always()",
+          if: "always() && env.FULL == 'true'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "provenance-operations",
@@ -812,30 +828,6 @@
           },
         },
       ],
-    },
-
-    # One check a ruleset can require whatever a run's scope: it passes
-    # when every job it waits on passed or was skipped (provenance, on a
-    # branch push), and fails when any failed or was cancelled.
-    ci: {
-      needs: ["platform", "provenance"],
-      if: "always()",
-      "runs-on": "ubuntu-24.04",
-      "timeout-minutes": 5,
-      steps: [
-        {
-          name: "every job passed or was skipped",
-          env: {RESULTS: "${{ join(needs.*.result, ' ') }}"},
-          run: "echo \"results: $RESULTS\"; for result in $RESULTS; do case \"$result\" in success|skipped) ;; *) exit 1 ;; esac; done",
-        },
-      ],
-    },
-
-    prerelease: {
-      needs: "provenance",
-      if: "github.repository == 'cosmic-lua/cosmic' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
-      permissions: {contents: "write"},
-      uses: "./.github/workflows/prerelease.yml",
     },
   },
 }
