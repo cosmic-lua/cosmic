@@ -335,6 +335,18 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   artifact->device = (uint64_t)artifact_stat.st_dev;
   artifact->inode = (uint64_t)artifact_stat.st_ino;
   artifact->file_size = (uint64_t)artifact_stat.st_size;
+  /* Only the joined form is held to name its descriptor's file. The
+   * two-argument form's path is the launcher's, or the one Proc.relaunch
+   * hands on from a parent whose artifact may since have been renamed or
+   * replaced, which the retained descriptor exists to survive. */
+  struct stat path_stat;
+  if (startup->artifact_path_names_descriptor &&
+      (stat(startup->artifact_path, &path_stat) != 0 ||
+       path_stat.st_dev != artifact_stat.st_dev ||
+       path_stat.st_ino != artifact_stat.st_ino))
+    return fail_adoption(artifact, startup->core_fd, -1, error,
+                         "portable artifact path does not name the retained "
+                         "artifact (a #! line cut short?)");
 
   const char *decode_error = NULL;
   if (!cosmic_portable_decode(artifact->fd, startup->target_id,

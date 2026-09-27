@@ -278,6 +278,25 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
   assert(printed:sub(-#"/o/bin/who\n") == "/o/bin/who\n", printed)
 end
 
+--- A host program's arguments are its own, a first one that reads as the
+--- core's `--artifact=<path>` included: without the private startup
+--- contract, the core takes no artifact from its command line.
+local function test_a_host_program_is_handed_a_joined_artifact_argument(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/echo"))
+  assert(Fs.write(tmp .. "/cmd/echo/main.tl", [[
+return function(argv: {string}): integer
+  print(table.concat(argv, "|"))
+  return 0
+end
+]]))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "echo", trouble)
+  local r = assert(Child.run({ tmp .. "/o/bin/echo", "--artifact=x", "y" }, {
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  assert(r.stdout == "--artifact=x|y\n", tostring(r.stdout))
+end
+
 --- A host program runs without checking its own core's digest, but the
 --- identity it would report is checked first, and one whose manifest names
 --- another digest reports none.
