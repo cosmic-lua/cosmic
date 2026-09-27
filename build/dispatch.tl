@@ -514,7 +514,7 @@ local dispatch = {}
 --- @param argv the command line, with the program's own name at slot 0
 function dispatch.main(argv: {integer:string}): integer
   local word = argv[1]
-  if word == "test" and argv[2] == "--worker" then
+  if word == "test" and (argv[2] == "--worker" or argv[2] == "--worker-held") then
     -- One test in a process of its own, started by `cosmic test`: see
     -- build.test_worker. Never stale-checked or rebuilt, since the run
     -- that started it already was.

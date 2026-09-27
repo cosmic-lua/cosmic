@@ -14,7 +14,7 @@ local Test = require("cosmic.test")
 
 --- What a confined child is given of the host, and /proc, where its
 --- coverage is found.
-Test.needs{ host = { "/proc", "/usr" } }
+Test.needs{ host = { "/proc", "/usr" }, tool = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

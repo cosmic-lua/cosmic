@@ -16,7 +16,7 @@ local observations = require("build.filesystem_observations")
 
 --- A source whose build a test interrupts, and the environment the module
 --- under test starts its child with.
-Test.needs{ reads = { "build/patch.tl" }, env = { "*" } }
+Test.needs{ reads = { "build/patch.tl" }, env = { "*" }, tool = true }
 
 -- What these tests start is this very program, running build/zig.tl.
 local program = observations.itself()

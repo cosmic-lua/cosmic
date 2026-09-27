@@ -79,9 +79,14 @@
    which keys them whole, so it stands only in its own checkout.
    Run sandboxed (`COSMIC_TEST_SANDBOX=1`), a test is keyed instead by
    what it declares -- its closure, its `Test.needs`, their contents and
-   values, the core -- before it runs (`build/declared_key.tl`): it
-   stands while none of that changes, nothing is assumed, one declaring
-   `network` always runs, and `--all` runs everything.
+   values, the core -- and by the host (its packages, kernel, user and
+   capabilities), before it runs (`build/declared_key.tl`): it stands
+   while none of that changes, nothing is assumed, one declaring
+   `network` always runs, and `--all` runs everything. The worker still
+   reads the system's own paths, /dev, /proc and the projection besides,
+   keyed only through the host's identity. A test that starts this
+   program declares `tool = true`: sandboxed, one that does not is
+   refused it, and `--audit` names it.
    Where the kernel cannot confine a process, `confine` starts it
    unconfined; `observations.must_confine` fails the spawn, and the
    test, instead, naming the part of the sandbox refused and its errno.

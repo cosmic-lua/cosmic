@@ -14,7 +14,7 @@ local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- A worker a test starts unconfined, to hang or exit.
-Test.needs{ processes = true }
+Test.needs{ processes = true, tool = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

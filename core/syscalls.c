@@ -458,6 +458,67 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
 #endif
 }
 
+/* A ruleset that handles running a file, one rule per path, and this
+ * process held to it. It handles moving a file to another directory
+ * too, granted beneath the same paths: a ruleset that leaves that
+ * unhandled refuses every such rename or link (EXDEV), as the first
+ * ABI did, so a kernel without the second is refused. Every entry is
+ * checked to be a plain string before the ruleset is made, so nothing
+ * after it can raise. */
+COSMIC_SYSCALL(landlock_restrict_execute, 1) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, 1);
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_rawgeti(L, 1, i);
+    plain_string(L, -1, "path");
+    lua_pop(L, 1);
+  }
+#if defined(__linux__)
+  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+  if (abi < 1) return cosmic_fail_effect(L, abi < 0 ? errno : ENOSYS);
+  if (abi < 2) return cosmic_fail_effect(L, EOPNOTSUPP);
+  uint64_t handled = LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_REFER;
+  struct landlock_ruleset_attr attr;
+  memset(&attr, 0, sizeof attr);
+  attr.handled_access_fs = handled;
+  long made = syscall(SYS_landlock_create_ruleset, &attr, sizeof attr.handled_access_fs, 0);
+  if (made < 0) return cosmic_fail_effect(L, errno);
+  int ruleset = (int)made;
+  int number = 0;
+  for (lua_Integer i = 1; number == 0 && i <= count; i++) {
+    lua_rawgeti(L, 1, i);
+    const char *path = lua_tostring(L, -1);
+    int fd = open(path, O_PATH | O_CLOEXEC);
+    lua_pop(L, 1);
+    if (fd < 0) {
+      number = errno;
+    } else {
+      struct stat st;
+      struct landlock_path_beneath_attr beneath = {
+        .allowed_access = handled,
+        .parent_fd = fd,
+      };
+      /* A file takes no rule for what is beneath it. */
+      if (fstat(fd, &st) == 0 && !S_ISDIR(st.st_mode)) {
+        beneath.allowed_access = LANDLOCK_ACCESS_FS_EXECUTE;
+      }
+      if (syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0) {
+        number = errno;
+      }
+      close(fd);
+    }
+  }
+  if (number == 0 && prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) number = errno;
+  if (number == 0 && syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) number = errno;
+  close(ruleset);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+#else
+  (void)count;
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
 #if defined(__linux__)
 #if defined(__x86_64__)
 #define PLEDGE_ARCH AUDIT_ARCH_X86_64

@@ -16,7 +16,7 @@ local observations = require("build.filesystem_observations")
 -- resolves): the zone database (/var/db/timezone/zoneinfo) differs on macOS, where the audit would find these
 -- reads undeclared; only Linux enforces declarations for now.
 --- The host's own zones, which a test compares the carried ones with.
-Test.needs{ host = { "/usr/share/zoneinfo/" } }
+Test.needs{ host = { "/usr/share/zoneinfo/" }, tool = true }
 
 local NS <const> = 1000000000
 

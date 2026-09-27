@@ -296,7 +296,12 @@ end
 --- the names of the module's import closure (`test_inputs.modules`),
 --- one argument each, which its load and its test may `require` of
 --- the tree and nothing else of it (`refusal`), absent for no such
---- hold -- a closure holds its module at least.
+--- hold -- a closure holds its module at least. `--worker-held` in
+--- place of `--worker` holds the worker, before anything of the test
+--- loads, to running anything but this very program
+--- (`observations.forbid_running`): a sandboxed worker's whose module
+--- does not declare `tool`, so what the program would run -- the tool's
+--- own modules, which no key of the test holds -- is none of its test's.
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
@@ -305,6 +310,14 @@ function worker.run(argv: {integer:string}): integer
       children_path == nil then
     log:complain("test --worker needs a root, a module, a test and two directories")
     return 2
+  end
+  if argv[2] == "--worker-held" then
+    local forbidden, forbid_trouble = observations.forbid_running(observations.itself())
+    if not forbidden then
+      log:complain("test --worker-held: this program cannot be kept from running itself: " ..
+        forbid_trouble)
+      return 2
+    end
   end
   local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")
   if not attached then

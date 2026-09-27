@@ -252,16 +252,23 @@ function test_sandbox.to_host(reads: {observations.Observation}, root: string,
 end
 
 --- Whether this host can run a worker sandboxed: `argv`, this program
---- started again with `env` and `fds`, runs a chunk that does nothing,
---- held to the least a worker is given -- the system's own paths and
---- the program -- offline, in `scratch`. False and why where it cannot.
+--- started again with `env` and `fds`, runs a chunk that holds itself
+--- to running anything but this program, as a worker whose test does not
+--- declare `tool` does (`observations.forbid_running`), held to the
+--- least a worker is given -- the system's own paths and the program --
+--- offline, in `scratch`. False and why where it cannot: no worker then
+--- runs sandboxed, and no verdict is keyed by its declared inputs.
 function test_sandbox.available(argv: {string}, env: {string:string}, fds: {integer:integer},
                                 scratch: string): boolean, string
   local base = observations.worker_unveil(scratch, nil, scratch)
   local command: {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
+  -- As a worker whose test does not declare `tool` holds itself
+  -- (`observations.forbid_running`): where it cannot, no worker is
+  -- sandboxed, since what such a test would run no key holds.
   command[#command + 1] = "-e"
-  command[#command + 1] = ""
+  command[#command + 1] = "local o = require('build.filesystem_observations') " ..
+    "local ok, why = o.forbid_running(o.itself()) if not ok then error(why) end"
   local given: {integer:integer | string} = {}
   for number, fd in pairs(fds) do given[number] = fd end
   -- Started and waited for, not `Child.run`, which would take the one

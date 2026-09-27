@@ -1063,15 +1063,28 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   -- TODO: hold each path a confined process was given ("u") to the
   -- effective inputs too, once `observations.confine` narrows a
   -- worker's own inputs rather than adding to them: a sandboxed worker
-  -- can give its process only what it has (nested confinement).
+  -- can give its process only what it has (nested confinement). Only
+  -- the program itself is held to them today, below.
   local function the_tool(path: string): boolean
     for _, program in ipairs(tool) do
       if path == program then return true end
     end
     return false
   end
+  -- This program, started by the test -- given to a confined process
+  -- ("u"), as `observations.itself()` gives it, or started unconfined
+  -- ("p") -- runs what no key of the test holds but the tool's: a
+  -- `tool` finding, which a sandboxed worker enforces
+  -- (`observations.forbid_running`).
+  local function runs_the_tool(path: string): boolean
+    return the_tool(path) or the_tool(observations.resolution(path))
+  end
   for _, observation in ipairs(reads) do
     local kind, path = observation.kind, observation.path
+    if (kind == "u" or kind == "p") and not effective.tool and path:sub(1, 1) == "/" and
+        runs_the_tool(path) then
+      add("tool", path)
+    end
     if kind == "p" then
       if not effective.processes then add("processes", path) end
     elseif kind == "x" then
@@ -1580,6 +1593,11 @@ local record Recording
   --- identity (`build.work`'s `Identities`).
   digests: declared_key.Digests
   compiler: string
+  --- Sandboxed, the host's identity every key holds
+  --- (`declared_key.host_identity`), and why each module whose tests
+  --- have no key has none, but for the network, by module path.
+  host: string
+  unkeyed: {string:string}
   --- Where the host caches each module declares are (`build.caches`),
   --- by module path, as `caches_of` resolves them.
   caches: {string:{string}}
@@ -1655,16 +1673,19 @@ local function identity_of(rec: Recording, m: importer.Module): string
 end
 
 --- A sandboxed test's key, over its declared inputs as they are now
---- (`build.declared_key`): nil for one that reaches the network, which
---- no key holds.
+--- (`build.declared_key`): nil for one that reaches the network, or
+--- reads a link out of the tree, which no key holds -- the second said
+--- once in `rec.unkeyed`.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
   if not declared_key.keyable(effective) then return nil end
-  return declared_key.compute(rec.digests, {
+  local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.key, runtime = rec.runtime, compiler = rec.compiler,
-    declaration = test_inputs.canonical(m.inputs), effective = effective,
+    host = rec.host, declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m),
   })
+  if key == nil then rec.unkeyed[m.path] = why end
+  return key
 end
 
 --- What a test read the last time it ran, for its `runs` row where a
@@ -1964,6 +1985,15 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       if not saved then
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
+    elseif key ~= nil and not passed then
+      -- Its inputs moved while it ran, so the failure is of no one state
+      -- of them -- but it may be of the one it started from, and a pass
+      -- kept under that key would stand for it: gone.
+      saved, save_trouble = Sqlite.run(rec.records, "DELETE FROM verdicts WHERE key = ?1",
+        { text(key) })
+      if not saved then
+        rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      end
     end
     if not passed and key ~= nil then
       rec.owed.failed[#rec.owed.failed + 1] = key
@@ -2177,7 +2207,12 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- What the build read of the module's `needs`, which the worker holds
   -- the call to, and its import closure, which it holds its `require`s
   -- to.
-  for _, value in ipairs({ "test", "--worker", root, job.m.path, job.name, inside .. "/tmp",
+  -- Sandboxed, a worker whose module does not declare `tool` may not
+  -- run this program (`observations.forbid_running`): what it would
+  -- run is no input of its test's key.
+  local held = rec.sandbox and not rec.effective[job.m.path].tool
+  for _, value in ipairs({ "test", held and "--worker-held" or "--worker", root, job.m.path,
+                           job.name, inside .. "/tmp",
                            inside .. "/children", test_inputs.canonical(job.m.inputs) }) do
     argv[#argv + 1] = value
   end
@@ -2675,7 +2710,7 @@ function test.run(argv: {integer:string}): integer
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
-    sandbox = sandboxed, views = {}, caches = {},
+    sandbox = sandboxed, views = {}, caches = {}, unkeyed = {},
   }
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
@@ -2722,17 +2757,8 @@ function test.run(argv: {integer:string}): integer
     end
   end
   if sandboxed then
-    -- What the stage knows of each file it hashed, so a key reads none
-    -- of them again (`build.declared_key`).
-    local staged_rows, staged_trouble = Sqlite.text_rows(records,
-      "SELECT path, size, coalesce(mtime_ns, ''), ino, dev, sha256 FROM files " ..
-      "UNION ALL SELECT path, size, coalesce(mtime_ns, ''), ino, dev, sha256 FROM tool")
-    if staged_rows == nil then
-      local _, _ = work.rollback(handle)
-      local _, _ = work.close(handle)
-      log:complain(records_path .. ": " .. staged_trouble)
-      return 1
-    end
+    -- What an earlier run hashed, so a key reads none of it again
+    -- (`build.declared_key`).
     local remembered, remembered_trouble = Sqlite.text_rows(records,
       "SELECT path, signature, sha256 FROM digests")
     if remembered == nil then
@@ -2741,7 +2767,8 @@ function test.run(argv: {integer:string}): integer
       log:complain(records_path .. ": " .. remembered_trouble)
       return 1
     end
-    rec.digests, rec.compiler = declared_key.digests(root, staged_rows, remembered), tool
+    rec.digests, rec.compiler = declared_key.digests(root, remembered), tool
+    rec.host = declared_key.host_identity(rec.digests)
     -- Every test is keyed before any starts: one look at each input
     -- serves them all.
     declared_key.freeze(rec.digests)
@@ -2815,6 +2842,13 @@ function test.run(argv: {integer:string}): integer
     for _, m in ipairs(selected_modules) do tests = tests + #selected_tests[m.path] end
     log:say(string.format("test: sandbox: %d tests keyed by their declared inputs in %.1f ms " ..
       "(%d files read)", tests, rec.digests.spent_ns / 1e6, rec.digests.read))
+    local unkeyed: {string} = {}
+    for path in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = path end
+    table.sort(unkeyed)
+    for _, path in ipairs(unkeyed) do
+      log:say("test: sandbox: " .. path .. " has no key, so its tests run every time: " ..
+        rec.unkeyed[path])
+    end
   end
   if #jobs > 0 then
     -- Nil when this process already holds a guard: `test.run` called

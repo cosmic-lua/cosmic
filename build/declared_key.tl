@@ -1,9 +1,18 @@
 --- A sandboxed test's verdict key: a digest of what the test was given
 --- (`build.test_sandbox`), computed before it runs, from its declared
 --- inputs alone (`build.test_inputs`), rather than of what it was seen
---- to read. A sandboxed worker can read nothing else, so a key over all
---- of it holds everything its verdict is a function of, and a verdict
---- under it stands with no observation to replay.
+--- to read, and a verdict under it stands with no observation to replay.
+---
+--- A sandboxed worker reads its declared inputs, and besides them what
+--- every worker is given (`observations.worker_unveil`): the system's
+--- own paths (/usr, /bin, /lib, /etc and the like), /dev, /proc, the
+--- program and its core, and the whole projection, o/cosmic.db; and it
+--- runs as whoever runs the tests, with their capabilities. The key
+--- holds those by the host's identity (`host_identity`) and the
+--- runtime's, not by their contents: what is left out is in the TODOs
+--- on `host_identity`. It may not run this program unless it declares
+--- `tool` (`observations.forbid_running`), which runs the tool's own
+--- modules, which no key of the test holds but o/bin's.
 ---
 --- The key is the digest of
 ---
@@ -14,6 +23,9 @@
 ---   (`runtime`), and the compiler (`compiler`, `build.work`'s
 ---   `Identities`), which compiled every module of the closure and is
 ---   what build.teal loads as bytecode;
+--- - the host it runs on (`host_identity`): its packages, its system and
+---   kernel, the user and capabilities the tests run with, and which
+---   /proc a sandbox gets;
 --- - the module's key (`build.importer`), over its import graph's
 ---   sources, the standard library's included, and the compiler;
 --- - the declaration itself, as `test_inputs.canonical` spells it;
@@ -27,18 +39,26 @@
 ---   the pinned variables and the declared ones, all of them for `"*"`.
 ---
 --- The host caches it declares are not: they are content-addressed,
---- and never change a result (`build.caches`). A test that declares
---- `network` has no key that holds what it reached, and always runs.
+--- and never change a result (`build.caches`). Nor are the variables
+--- the runner adds to start a worker at all (`Proc.relaunch`'s, and
+--- COSMIC_COVERAGE_STARTUP): they name where the core is and which
+--- descriptors it is handed, which the runtime identity holds already,
+--- and would name where this host keeps its cache in every key. A test
+--- that declares `network` has no key that holds what it reached, and
+--- always runs; nor does one that reads a declared directory holding a
+--- link that leads out of the tree, which a sandbox follows to what
+--- the key would not hold.
 ---
 --- Nothing in a key names where the tree is -- a path of it is keyed by
---- its name there, and a variable's value by `observations.tree_name`
---- -- so another checkout of the same content reaches the same key, and
---- a verdict is shared by it alone (`build.shared_verdicts`).
+--- its name there, and a variable's value, each of its `:`-separated
+--- parts, by `observations.tree_name` -- so another checkout of the same
+--- content reaches the same key, and a verdict is shared by it alone
+--- (`build.shared_verdicts`).
 ---
 --- Files are hashed once a run, and a file whose `lstat` says the same
---- as when the build staged it is not read at all: `Digests` remembers
---- each hash by what `lstat` said of the file, seeded with the build's
---- staged hashes (`build.work`).
+--- as when a run last hashed it is not read at all: `Digests` remembers
+--- each hash by what `lstat` said of the file, its change time included,
+--- and o/build.db keeps them from run to run.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -51,6 +71,8 @@ local record declared_key
   --- What a run knows of the files it keys, kept for the run.
   record Digests
     root: string
+    --- `root` with its links resolved.
+    real_root: string
     --- Each file's hash by its absolute path, with what `lstat` said of
     --- it when it was hashed: `signature` .. "\0" .. hex sha256.
     hashed: {string:string}
@@ -74,6 +96,8 @@ local record declared_key
     module_key: string
     runtime: string
     compiler: string
+    --- The host's identity (`host_identity`).
+    host: string
     --- The module's declaration, as `test_inputs.canonical` spells it.
     declaration: string
     effective: test_inputs.Effective
@@ -87,30 +111,28 @@ end
 --- than remembered, as `build.work` stages it.
 local settle_ns <const> = 2 * 1000 * 1000 * 1000
 
---- What `lstat` says of a file that its hash is remembered by: what the
---- build's stage keeps of it too (`build.work`).
+--- What `lstat` says of a file that its hash is remembered by: its
+--- size, modification and change times, inode and device. The change
+--- time is what no write can set back, as `touch -r` or `cp -p` sets
+--- the modification time back over a rewrite of the same size.
 local function signature(st: sys.Stat): string
   return tostring(st.size) .. " " .. tostring(st.mtime * 1000000000 + st.mtime_ns) .. " " ..
-    tostring(st.ino) .. " " .. tostring(st.dev)
+    tostring(st.ctime * 1000000000 + st.ctime_ns) .. " " .. tostring(st.ino) .. " " ..
+    tostring(st.dev)
 end
 
 --- A run's digests of the tree at `root`, seeded with `remembered`, what
 --- `kept` answered in an earlier run -- absolute path, what `lstat` said,
---- sha256 -- and with `staged`: each staged file's hash and what its
---- stage recorded of it, as `build.work`'s tables hold them -- path,
---- size, mtime_ns, ino, dev, sha256 -- by path of the tree; a row with
---- no modification time was staged unsettled, and is not trusted.
-function declared_key.digests(root: string, staged?: {{string}},
-                              remembered?: {{string}}): declared_key.Digests
+--- sha256.
+-- The build's staged hashes are not taken: its stage keeps no change
+-- time, so a file rewritten in place with its modification time set
+-- back would answer the hash it had before.
+function declared_key.digests(root: string, remembered?: {{string}}): declared_key.Digests
   local hashed: {string:string} = {}
   for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end
-  for _, row in ipairs(staged or {}) do
-    if row[3] ~= "" then
-      hashed[root .. "/" .. row[1]] = row[2] .. " " .. row[3] .. " " .. row[4] .. " " .. row[5] ..
-        "\0" .. row[6]
-    end
-  end
-  return { root = root, hashed = hashed, used = {}, read = 0, spent_ns = 0 }
+  local real, _ = sys.realpath(root)
+  return { root = root, real_root = real or root, hashed = hashed, used = {}, read = 0,
+    spent_ns = 0 }
 end
 
 --- What of `digests` a later run is to remember, as `digests` takes it:
@@ -185,6 +207,28 @@ local function once(digests: declared_key.Digests, tag: string,
   return answer
 end
 
+--- Why the link at `path`, in `directory`, leads where a key does not
+--- follow it -- out of the tree, where a sandbox finds what it leads to
+--- if it was given that too (the system's own paths among them) -- or
+--- nil: one that leads within the tree is keyed by where it leads, as
+--- what is there is keyed where it is given, and is nothing where it is
+--- not. Judged by where it resolves, and by its target as written where
+--- it resolves nowhere.
+local function leads_out(digests: declared_key.Digests, path: string,
+                         directory: string): string | nil
+  local real, _ = sys.realpath(path)
+  if real ~= nil then
+    if Fs.within(real, digests.real_root) then return nil end
+    return path .. " leads out of the tree, to " .. real
+  end
+  local target, _ = sys.readlink(path)
+  if target == nil then return nil end
+  local lexical = test_inputs.plain(target:sub(1, 1) == "/" and target or
+    (directory .. "/" .. target))
+  if Fs.within(lexical, digests.root) or Fs.within(lexical, digests.real_root) then return nil end
+  return path .. " leads out of the tree, to " .. target
+end
+
 --- What `path` holds, followed where it is a link, as a sandbox binds
 --- it: an entry's answer, or for a directory "dir" and the digest of
 --- every entry beneath it, links unfollowed, in name order -- each by
@@ -194,6 +238,7 @@ local function tree(digests: declared_key.Digests, path: string): string
     local kind, answer = entry(digests, path, true)
     if kind ~= "dir" then return answer end
     local lines: {string} = {}
+    local refused: string = nil
     local function walk(directory: string, prefix: string, depth: integer)
       local listed, trouble = sys.readdir(directory)
       if listed == nil then
@@ -206,8 +251,9 @@ local function tree(digests: declared_key.Digests, path: string): string
       for _, name in ipairs(names) do
         local here = directory .. "/" .. name
         local named = prefix == "" and name or (prefix .. "/" .. name)
-        local _, said = entry(digests, here, false)
+        local what, said = entry(digests, here, false)
         lines[#lines + 1] = named .. "\0" .. said
+        if what == "link" and refused == nil then refused = leads_out(digests, here, directory) end
         if said == "dir" then
           -- Deeper than a walk goes is keyed as what could not be seen.
           if depth >= 128 then
@@ -219,6 +265,7 @@ local function tree(digests: declared_key.Digests, path: string): string
       end
     end
     walk(path, "", 0)
+    if refused ~= nil then return "refused " .. refused end
     return "dir " .. Hash.hex_sha256(table.concat(lines, "\n"))
   end)
 end
@@ -252,19 +299,32 @@ end
 --- The digest of what a test of `spec` is given, but for its name.
 local inputs_of: function(declared_key.Digests, declared_key.Spec): string
 
---- The key of the test `spec` describes, over what `digests` finds now.
+--- The key of the test `spec` describes, over what `digests` finds now,
+--- or nil and why there is none: a declared directory holds a link out
+--- of the tree (`leads_out`).
 function declared_key.compute(digests: declared_key.Digests,
-                              spec: declared_key.Spec): string
+                              spec: declared_key.Spec): string | nil, string
   local started = Time.monotonic_ns()
   -- All but the test's name is its module's, and the same for each of
   -- its tests: digested once, while a snapshot holds.
   local inputs = once(digests, "m\0" .. spec.group, function(): string
     return inputs_of(digests, spec)
   end)
-  local key = Hash.hex_sha256("declared-1\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
-    inputs)
   digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
-  return key
+  if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
+  return Hash.hex_sha256("declared-2\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
+    inputs), ""
+end
+
+--- A variable's value as a key holds it: each of its `:`-separated
+--- parts that is a path of the tree by its name there
+--- (`observations.tree_name`), as PATH's are.
+local function held_value(value: string, root: string): string
+  local parts: {string} = {}
+  for part in (value .. ":"):gmatch("([^:]*):") do
+    parts[#parts + 1] = observations.tree_name(part, root)
+  end
+  return table.concat(parts, ":")
 end
 
 --- The digest of what `spec`'s test is given, but for its name.
@@ -275,6 +335,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     part("m", spec.module_key, ""),
     part("runtime", spec.runtime, ""),
     part("compiler", spec.compiler, ""),
+    part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
   local files: {string} = {}
@@ -304,7 +365,9 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     local plain, path = of_tree(digests, read)
     if not seen[plain] then
       seen[plain] = true
-      lines[#lines + 1] = part("r", plain, path ~= "" and tree(digests, path) or "outside")
+      local answer = path ~= "" and tree(digests, path) or "outside"
+      if answer:sub(1, 8) == "refused " then return answer end
+      lines[#lines + 1] = part("r", plain, answer)
     end
   end
   local hosts: {string} = {}
@@ -320,9 +383,65 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    lines[#lines + 1] = part("e", name,
-      observations.tree_name(spec.environment[name], digests.root))
+    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root))
   end
+  return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
+--- The files that say which packages this host has installed: dpkg's,
+--- apk's and rpm's databases, where each keeps them.
+local package_databases: {string} = {
+  "/var/lib/dpkg/status", "/lib/apk/db/installed", "/var/lib/rpm/rpmdb.sqlite",
+  "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/rpm/Packages",
+}
+
+--- What of this host every sandboxed worker is given without declaring
+--- it, as a key holds it: the database of the packages it has installed
+--- (`package_databases`), by contents, where there is one; the system it
+--- says it is (/etc/os-release) and its kernel's name, release and
+--- machine; the user, groups and capabilities this process -- and so
+--- every worker -- runs with, and whether no_new_privs and a seccomp
+--- filter hold it (/proc/self/status); and whether a sandbox gets a
+--- /proc of its own (`observations.own_proc_given`). Worked out once a
+--- run; the package database is hashed only when its `lstat` moves.
+-- TODO: key what a package database does not say: a file under /usr,
+-- /etc or /lib changed by hand or by a tool other than the package
+-- manager, a package installed from source into /usr/local, and a
+-- container image's own layers. Wants the image's digest where the
+-- tests run in one (CI's legs could name it, from ci.yml's pinned
+-- image, in a variable held here), or a walk of the system's paths
+-- cheap enough to take every run (/usr's stamps take half a second).
+-- Until then a verdict is shared only among hosts whose packages alone
+-- set them apart, which CI's shared verdicts wait on
+-- (ci/cosmic_ci/orchestration.tl's TODO on the sandboxed suite).
+function declared_key.host_identity(digests: declared_key.Digests): string
+  local started = Time.monotonic_ns()
+  local lines: {string} = {}
+  for _, path in ipairs(package_databases) do
+    local st, _ = sys.stat(path)
+    if st ~= nil and st.kind == "file" then
+      lines[#lines + 1] = "packages " .. path .. " " .. contents(digests, path, st)
+      break
+    end
+  end
+  for _, path in ipairs({ "/etc/os-release", "/proc/sys/kernel/osrelease",
+                          "/proc/sys/kernel/version" }) do
+    local text, _ = Fs.read(path)
+    lines[#lines + 1] = path .. " " .. (text or "missing")
+  end
+  local names, _ = sys.uname()
+  if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
+  lines[#lines + 1] = "uid " .. tostring(sys.getuid())
+  local status, _ = Fs.read("/proc/self/status")
+  for line in (status or ""):gmatch("[^\n]+") do
+    local name = line:match("^(%a+):")
+    if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
+        name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
+      lines[#lines + 1] = line
+    end
+  end
+  lines[#lines + 1] = "own proc " .. tostring(observations.own_proc_given())
+  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 

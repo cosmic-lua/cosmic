@@ -497,11 +497,11 @@ end
 -- mount beneath /proc the kernel lets through (a host's
 -- /proc/fs/nfsd, an NFS server's) is not taken for a mask: today it
 -- is, and the tests that ask expect the fallback where there is none.
--- TODO: key a verdict by which /proc a confined process gets, once a
--- key can hold a fact of the host that is no file (the kernel's answer
--- above): today one that stood where a sandbox gets a procfs of its own
--- stands where it gets the host's, and the other way about, though the
--- tests that ask expect different things of each.
+-- TODO: key an unsandboxed verdict by which /proc a confined process
+-- gets, as a sandboxed one's is (`declared_key.host_identity`): today
+-- one that stood where a sandbox gets a procfs of its own stands where
+-- it gets the host's, and the other way about, though the tests that
+-- ask expect different things of each.
 function observations.own_proc_given(): boolean
   local text, _ = Fs.read("/proc/self/mountinfo")
   if text == nil then return false end
@@ -543,6 +543,66 @@ function observations.worker_unveil(tree: string, cwd: string | nil, scratch: st
   add((tree == "/" and "" or tree) .. "/o/cosmic.db")
   if cwd ~= nil then add(cwd) end
   return { reads = reads, writes = { scratch } }
+end
+
+--- Holds this process, and every process it starts, to running
+--- anything but `programs` -- this very program (`itself`), for a
+--- sandboxed worker whose test does not declare `tool` -- through a
+--- Landlock ruleset that handles running a file alone
+--- (core/process.h's `landlock_restrict_execute`): every entry of
+--- every directory above one of them, down from /, may be run beneath
+--- it but for the ones on the way to them, and those are walked the same
+--- way, so each program alone is left out -- by where it resolves, so a
+--- link to it, /proc/self/exe among them, runs nothing either. A link
+--- on the way that leads above one of them is left out too. For good:
+--- nothing lets it off, and it may not confine a process of its own in a
+--- root of its own after. False and why where there is no Landlock.
+-- TODO: hold a copy of the program as the program -- one a test copies
+-- or links elsewhere and runs, or a core it loads some other way than
+-- by exec -- once a ruleset can name a file by its contents: today a
+-- test that copies the program into its own directory runs it
+-- undeclared.
+function observations.forbid_running(programs: {string}): boolean, string
+  local held: {string:boolean} = {}
+  local above: {string:boolean} = {}
+  for _, program in ipairs(programs) do
+    local real, _ = realpath(program)
+    for _, path in ipairs({ program, real or program }) do
+      held[path] = true
+      local dir = path:match("^(.*)/[^/]*$")
+      while dir ~= nil and dir ~= "" do
+        above[dir] = true
+        dir = dir:match("^(.*)/[^/]*$")
+      end
+    end
+  end
+  local allowed: {string} = {}
+  local function walk(dir: string)
+    -- A directory above a program that cannot be listed is run nothing
+    -- beneath: the safe way to be wrong.
+    local listed, _ = syscalls.readdir(dir == "" and "/" or dir)
+    if listed == nil then return end
+    local names: {string} = {}
+    for name in pairs(listed) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+      local path = dir .. "/" .. name
+      local real, _ = realpath(path)
+      if held[path] or (real ~= nil and held[real]) then
+        -- The program, or a link to it.
+      elseif above[path] then
+        walk(path)
+      elseif real ~= nil and above[real] then
+        -- A link to a directory above it.
+      else
+        allowed[#allowed + 1] = path
+      end
+    end
+  end
+  walk("")
+  local held_now, trouble = process.landlock_restrict_execute(allowed)
+  if not held_now then return false, trouble end
+  return true, ""
 end
 
 --- What of the environment a process of this very program needs, for a

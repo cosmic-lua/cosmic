@@ -13,7 +13,7 @@ local artifact = require("build.artifact")
 local observations = require("build.filesystem_observations")
 
 --- The bridge a stand-in tree boots through.
-Test.needs{ reads = { "core/bridge.lua" } }
+Test.needs{ reads = { "core/bridge.lua" }, tool = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

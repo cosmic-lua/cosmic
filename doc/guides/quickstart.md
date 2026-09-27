@@ -1,6 +1,6 @@
 # quickstart
 
-<!-- needs: processes = true -->
+<!-- needs: processes = true, tool = true -->
 
 cosmic is one executable: the Lua runtime, the Teal compiler, and a
 standard library, `cosmic.*`, for the everyday things a script needs.

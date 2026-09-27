@@ -5,6 +5,14 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
 local test_inputs = require("build.test_inputs")
+local Test = require("cosmic.test")
+
+--- What the host's identity reads (`declared_key.host_identity`), on
+--- whichever system this is, and a file a link leads out of the tree to.
+Test.needs{
+  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc/sys/kernel/",
+    "/usr/lib/os-release", "/usr/lib/sysimage/rpm/", "/var/lib/dpkg/status", "/var/lib/rpm/" },
+}
 
 --- A tree at `root` holding a module, the module it requires, a
 --- declared data directory, and a file nothing declares.
@@ -27,14 +35,16 @@ local function spec(env?: {string:string}): declared_key.Spec
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
-    runtime = "runtime sandboxed", compiler = "compiler",
+    runtime = "runtime sandboxed", compiler = "compiler", host = "host",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
   }
 end
 
 local function key_of(root: string, s?: declared_key.Spec): string
-  return declared_key.compute(declared_key.digests(root), s or spec())
+  local key, why = declared_key.compute(declared_key.digests(root), s or spec())
+  assert(key ~= nil, why)
+  return key
 end
 
 --- Nothing declared changed: the same key, in a run of its own, and in
@@ -49,6 +59,10 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
   assert(key_of(one) == key_of(two))
   assert(key_of(one, spec({ DECLARED = one .. "/suite", TMPDIR = "/tmp" })) ==
     key_of(two, spec({ DECLARED = two .. "/suite", TMPDIR = "/tmp" })))
+  -- Every part of a PATH-like value, not only its first.
+  assert(key_of(one, spec({ DECLARED = "/usr/bin:" .. one .. "/o/bin:" .. one .. "/bin",
+    TMPDIR = "/tmp" })) == key_of(two, spec({ DECLARED = "/usr/bin:" .. two .. "/o/bin:" ..
+    two .. "/bin", TMPDIR = "/tmp" })))
 end
 
 --- A file of the tree nothing declares, and the host's caches, are no
@@ -86,6 +100,8 @@ local function test_each_input_moves_it(tmp: string)
   differs("a declared file's mode")
   assert(Fs.symlink("a.txt", tmp .. "/suite/data/link"))
   differs("a link beneath a declared directory")
+  assert(Fs.symlink("../../lib.tl", tmp .. "/suite/data/deeper/up"))
+  differs("a link beneath a declared directory to a file of the tree")
   assert(Fs.write(tmp .. "/suite/lib.tl", "return { changed = true }\n"))
   differs("a module of the closure")
   local s = spec()
@@ -99,6 +115,9 @@ local function test_each_input_moves_it(tmp: string)
   s = spec()
   s.compiler = "another compiler"
   differs("the compiler", s)
+  s = spec()
+  s.host = "another host"
+  differs("the host", s)
   s = spec()
   s.module_key = "another module"
   differs("the module's key", s)
@@ -141,12 +160,62 @@ local function test_a_file_hashed_once_is_not_read_again(tmp: string)
   assert(digests.read == 4, tostring(digests.read))
   assert(declared_key.compute(digests, spec()) == first)
   assert(digests.read == 4, tostring(digests.read))
-  local later = declared_key.digests(tmp, nil, declared_key.kept(digests))
+  local later = declared_key.digests(tmp, declared_key.kept(digests))
   assert(declared_key.compute(later, spec()) == first)
   assert(later.read == 0, tostring(later.read))
   assert(Fs.write(tmp .. "/suite/lib.tl", "return 1\n"))
   assert(declared_key.compute(later, spec()) ~= first)
   assert(later.read == 1, tostring(later.read))
+end
+
+--- A file rewritten in place, its size and modification time set back
+--- as they were (`touch -r`, `cp -p`), is read again: its change time
+--- moved, which no write can set back.
+local function test_a_rewrite_with_its_time_set_back_is_read_again(tmp: string)
+  tree(tmp)
+  local file = tmp .. "/suite/data/a.txt"
+  assert(sys.utimensat(file, 1000000000, 0, 1000000000, 0))
+  local digests = declared_key.digests(tmp)
+  local first = declared_key.compute(digests, spec())
+  local later = declared_key.digests(tmp, declared_key.kept(digests))
+  local fd = assert(sys.open(file, sys.O_WRONLY))
+  assert(sys.write(fd, "b\n") == 2)
+  assert(sys.close(fd))
+  assert(sys.utimensat(file, 1000000000, 0, 1000000000, 0))
+  assert(declared_key.compute(later, spec()) ~= first, "a stale digest answered")
+end
+
+--- A link beneath a declared directory that leads out of the tree --
+--- where a sandbox finds what it leads to, if it was given that -- has
+--- no key: its test runs every time, and why is said. One that leads
+--- within the tree, or nowhere out of it, is keyed.
+local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
+  tree(tmp .. "/root")
+  local root = tmp .. "/root"
+  assert(Fs.write(tmp .. "/outside.txt", "o\n"))
+  assert(Fs.symlink("../../../../outside.txt", root .. "/suite/data/deeper/out"))
+  local key, why = declared_key.compute(declared_key.digests(root), spec())
+  assert(key == nil and why:find("leads out of the tree", 1, true), why)
+  assert(Fs.remove(root .. "/suite/data/deeper/out"))
+  assert(Fs.symlink("/etc/passwd", root .. "/suite/data/abs"))
+  key, why = declared_key.compute(declared_key.digests(root), spec())
+  assert(key == nil and why:find("/etc/passwd", 1, true), why)
+  -- Dangling, and absolute: out of the tree by what it says.
+  assert(Fs.remove(root .. "/suite/data/abs"))
+  assert(Fs.symlink("/nowhere/at/all", root .. "/suite/data/abs"))
+  key, why = declared_key.compute(declared_key.digests(root), spec())
+  assert(key == nil and why:find("/nowhere/at/all", 1, true), why)
+  assert(Fs.remove(root .. "/suite/data/abs"))
+  assert(Fs.symlink("../../lib.tl", root .. "/suite/data/deeper/in"))
+  assert(key_of(root) ~= nil)
+end
+
+--- The host's identity is the same from one look to the next, and says
+--- something: at least the user and the kernel.
+local function test_the_host_identity_is_stable(tmp: string)
+  local digests = declared_key.digests(tmp)
+  local one = declared_key.host_identity(digests)
+  assert(#one == 64 and one == declared_key.host_identity(digests), one)
 end
 
 --- While frozen, a run's keys look at each input once, for every test

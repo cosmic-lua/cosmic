@@ -468,7 +468,11 @@ local function phase_sandboxed(p: PlatformContext): integer
   -- cache -- answers for. An unsandboxed run's verdicts are never
   -- shared with a sandboxed one's (their keys differ), and the macOS
   -- leg keeps `--all` and COSMIC_TEST_NO_SHARED, uncached, as the
-  -- backstop.
+  -- backstop. Sharing across runners waits besides on the key holding
+  -- what the host's package database does not say (the TODO on
+  -- build/declared_key.tl's `host_identity`): the leg's container
+  -- image, by the digest ci.yml pins it at, handed to the run in a
+  -- variable the key holds.
   local values = environment({ COSMIC_TEST_SANDBOX = "1" })
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   local status = operation(c, "sandboxed suite", { p.root .. "/o/bin/cosmic", "test", "--all" },

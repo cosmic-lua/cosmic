@@ -12,6 +12,11 @@ local Fuzz = require("build.fuzz")
 local embed = require("build.embed")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
+
+--- What these tests start is this very program, which runs the
+--- tool's own modules besides the closure's.
+Test.needs{ tool = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

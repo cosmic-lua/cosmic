@@ -11,7 +11,7 @@ local observations = require("build.filesystem_observations")
 --- The processes Child starts, which inherit the environment unless given
 --- one, and what a sandboxed one is given of the host, and /proc, where
 --- a test finds a child's processes.
-Test.needs{ host = { "/etc", "/proc", "/usr" }, env = { "*" }, processes = true }
+Test.needs{ host = { "/etc", "/proc", "/usr" }, env = { "*" }, processes = true, tool = true }
 
 -- What these tests start is a shell, the system's own, or this very
 -- program.

@@ -11,6 +11,11 @@ local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
+
+--- What these tests start is this very program, which runs the
+--- tool's own modules besides the closure's.
+Test.needs{ tool = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })

@@ -7,7 +7,7 @@ local teal = require("build.teal")
 local observations = require("build.filesystem_observations")
 
 --- Where the checker looks for modules, which a test runs it without.
-Test.needs{ env = { "TL_PATH" } }
+Test.needs{ env = { "TL_PATH" }, tool = true }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
