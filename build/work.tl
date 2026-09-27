@@ -1148,6 +1148,42 @@ function work.recorded_boot_hash(handle: work.Handle): string | nil, string
   return rows[1][1]
 end
 
+--- The Teal compiler's and Lua's pins and patches, as one text: part
+--- of the compiler's identity, and the whole of `runtime_basis`.
+local pins <const> =
+  "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
+  "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
+  "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
+
+--- The hash of the modules in `root`'s import closure whose path
+--- matches `glob`, then `extra`.
+local function closure(root: string, glob: string, extra: string): string
+  return "WITH RECURSIVE closure(path) AS (SELECT '" .. root .. "' UNION " ..
+    "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
+    "JOIN requires r ON r.source_hash = i.source_hash) " ..
+    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
+    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
+    "(SELECT path FROM closure) AND path GLOB '" .. glob .. "'), '') || " ..
+    "char(10) || " .. extra .. ")))"
+end
+
+--- The compiler's identity (`Identities.compiler`) over what the
+--- working database holds now, recorded nowhere. Its closure follows
+--- `requires`, which only a parse fills, so before `build.importer.derive`
+--- it reaches only what earlier parses found: the same modules, and so
+--- the same identity, while none of them has changed, and another
+--- whenever one it reaches has, since each one's source hash is in it.
+--- What a boot names its analyzer by before it parses
+--- (`build.importer.tree_code`).
+function work.compiler_identity(handle: work.Handle): string | nil, string
+  local rows, trouble = Sqlite.text_rows(handle.db,
+    closure("build.importer", "build.*", pins))
+  if rows == nil then
+    return nil, trouble
+  end
+  return rows[1][1]
+end
+
 --- The identities, computed over the tree and written into `meta` for
 --- the projections to carry. Returns them. See `Identities` for what each is over.
 --- The compiler's closes over `requires`, so the tree must be parsed
@@ -1156,24 +1192,8 @@ end
 --- made under that identity would match no later build's.
 function work.record_identities(handle: work.Handle): work.Identities | nil, string
   local db = handle.db
-  local pins =
-    "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
-    "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
-    "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
-  --- The hash of the modules in `root`'s import closure whose path
-  --- matches `glob`, then `extra`.
-  local function closure(root: string, glob: string, extra: string): string
-    return "WITH RECURSIVE closure(path) AS (SELECT '" .. root .. "' UNION " ..
-      "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
-      "JOIN requires r ON r.source_hash = i.source_hash) " ..
-      "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-      "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
-      "(SELECT path FROM closure) AND path GLOB '" .. glob .. "'), '') || " ..
-      "char(10) || " .. extra .. ")))"
-  end
-  local compilers, compiler_trouble = Sqlite.text_rows(db,
-    closure("build.importer", "build.*", pins))
-  if compilers == nil then
+  local compiler, compiler_trouble = work.compiler_identity(handle)
+  if compiler == nil then
     return nil, compiler_trouble
   end
   local writers, writer_trouble = Sqlite.text_rows(db,
@@ -1188,7 +1208,7 @@ function work.record_identities(handle: work.Handle): work.Identities | nil, str
     return nil, basis_trouble
   end
   local identities: work.Identities = {
-    compiler = compilers[1][1],
+    compiler = compiler,
     runtime_basis = bases[1][1],
     writer = writers[1][1],
   }
