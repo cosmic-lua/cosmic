@@ -5,8 +5,9 @@
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
 path to a file to run. Each example here starts the `cosmic` that runs
 it, through `cosmic.child`, and shows what it prints. Most start it the
-way `cosmic test` starts its workers, past its launcher
-(`observations.program`), so they need no shell.
+way `cosmic test` starts its workers, past its launcher: `Proc.relaunch`
+names the core it runs on and what the launcher would hand it, so the
+start needs no shell.
 
 ## a one-liner
 
@@ -16,14 +17,22 @@ its `...`, and an integer it returns is the exit code.
 
 ```teal
 local Child = require("cosmic.child")
-local observations = require("build.filesystem_observations")
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
 
-local chunk = observations.program({ "-e", "print(select('#', ...), ...)", "a", "b" },
-  { stdout = "capture", timeout_ms = 10000 })
-local said = assert(Child.run(chunk.argv, chunk.options))
+local relaunch = assert(Proc.relaunch())
+local env = Env.all()
+for name, value in pairs(relaunch.env) do env[name] = value end
+local function cosmic(...: string): {string}
+  local argv = { table.unpack(relaunch.argv) }
+  for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
+  return argv
+end
+local said = assert(Child.run(cosmic("-e", "print(select('#', ...), ...)", "a", "b"),
+  { env = env, fds = relaunch.fds, stdout = "capture", timeout_ms = 10000 }))
 print(((said.stdout or ""):gsub("\n$", "")))
-local three = observations.program({ "-e", "return 3" }, { timeout_ms = 10000 })
-local exited = assert(Child.run(three.argv, three.options))
+local exited = assert(Child.run(cosmic("-e", "return 3"),
+  { env = env, fds = relaunch.fds, timeout_ms = 10000 }))
 print("exit " .. tostring(exited.code))
 ```
 
@@ -43,11 +52,17 @@ anywhere on a verb's line, before a `--`, does the same.
 
 ```teal
 local Child = require("cosmic.child")
-local observations = require("build.filesystem_observations")
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
 
-local help = observations.program({ "help", "db" },
-  { cwd = tmp, stdout = "capture", timeout_ms = 10000 })
-local result = assert(Child.run(help.argv, help.options))
+local relaunch = assert(Proc.relaunch())
+local env = Env.all()
+for name, value in pairs(relaunch.env) do env[name] = value end
+local argv = { table.unpack(relaunch.argv) }
+argv[#argv + 1] = "help"
+argv[#argv + 1] = "db"
+local result = assert(Child.run(argv,
+  { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ms = 10000 }))
 local out = result.stdout or ""
 print(out:match("^`cosmic db[^`]*`"))
 local verbs = 0

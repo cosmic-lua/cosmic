@@ -17,9 +17,10 @@ local type Raw = require("cosmic.internal.observations")
 -- reads undeclared; only Linux enforces declarations for now.
 --- What the observer is tested observing: processes it cannot confine, the
 --- system's own directories, the environment, and requests to closed local
---- ports.
+--- ports; and /proc, where a program a test starts reads its own command
+--- line.
 Test.needs{
-  host = { "/etc", "/usr" },
+  host = { "/etc", "/proc", "/usr" },
   env = { "*" },
   network = { "127.0.0.1", "127.0.0.2" },
   processes = true,
@@ -766,6 +767,22 @@ end
 print(table.concat(said, "\n"))
 ]==]
 
+--- The descriptors `observations.program` hands its child, as
+--- `process.spawn` takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only `cosmic.child`
+--- reads.
+local function spawn_fds(started: observations.Program): {integer:integer}
+  local fds: {integer:integer} = {}
+  for number, fd in pairs(started.options.fds) do
+    if fd is integer then
+      fds[number] = fd
+    else
+      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
+    end
+  end
+  return fds
+end
+
 --- Runs `worker_chunk` in a worker of this very program sandboxed to
 --- `worker_unveil`'s paths, in `tmp`: the lines it said, or nil where
 --- there is no portable artifact to start again, or no sandbox to be had.
@@ -784,7 +801,7 @@ local function sandboxed_worker(tmp: string): {string} | nil
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = raw_process_table()
   local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output,
-    output, false, opts.fds as {integer:integer}, -- cast: the relaunch's, every one a descriptor
+    output, false, spawn_fds(worker),
     { unveil = unveil, offline = true })
   if pid == nil then
     sys.close(output)
@@ -1220,7 +1237,7 @@ end
 
 --- `program` starts the core the relaunch names with its arguments and
 --- the program's after them, or, with no artifact to relaunch, the
---- program itself.
+--- program itself; either way without the startup test's handshake.
 local function test_program_starts_the_relaunch_or_else_the_executable()
   relaunching({ argv = { "/cache/core-x", "--artifact", "/tree/o/bin/cosmic" }, env = {},
     fds = {} }, function()
@@ -1229,9 +1246,16 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
         table.concat(argv, " "))
     end)
   relaunching(nil, function()
-    local argv = observations.program({ "-e", "" }).argv
+    local started = observations.program({ "-e", "" }, { env = { HOME = "/home",
+      COSMIC_PORTABLE_STARTUP_TEST_READY = "r", COSMIC_PORTABLE_STARTUP_TEST_GO = "g" },
+      fds = { [3] = 1 } })
+    local argv = started.argv
     assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
       argv[3] == "", table.concat(argv, " "))
+    local env = started.options.env
+    assert(env.HOME == "/home" and env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
+      env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+    assert(started.options.fds[3] == 1 and next(started.options.fds, 3) == nil)
   end)
   -- And this very program's: its relaunch where it has one.
   local relaunch = Proc.relaunch()
@@ -1244,28 +1268,41 @@ end
 --- `program` adds the relaunch's variables to the environment the
 --- caller gives, in a copy, or to the whole of this process's where it
 --- gives none, and takes out the startup test's handshake either way;
---- the relaunch's descriptors go over the caller's; every other option
---- is the caller's, and the caller's table is left as it was.
+--- the relaunch's descriptors go beside the caller's, and one the
+--- caller names already raises; every other option is the caller's,
+--- and the caller's tables are left as they were.
 local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
   local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--artifact", "/a" },
-    env = { COSMIC_PORTABLE_ARTIFACT = "/a", SHARED = "relaunch" }, fds = { [254] = 7, [255] = 8 } }
+    env = { COSMIC_PORTABLE_ARTIFACT = "/a", SHARED = "relaunch" },
+    fds = { [254] = 7, [255] = 8 } }
   relaunching(relaunch, function()
-    local env: {string:string} = { HOME = "/home", SHARED = "caller", COSMIC_PORTABLE_STARTUP_TEST_READY = "r",
-      COSMIC_PORTABLE_STARTUP_TEST_GO = "g" }
-    local fds: {integer:integer | string} = { [3] = 1, [254] = "capture" }
-    local given: Child.Options = { env = env, fds = fds, cwd = "/somewhere", timeout_ms = 5 }
+    local env: {string:string} = { HOME = "/home", SHARED = "caller",
+      COSMIC_PORTABLE_STARTUP_TEST_READY = "r", COSMIC_PORTABLE_STARTUP_TEST_GO = "g" }
+    local fds: {integer:integer | string} = { [3] = 1, [4] = "capture" }
+    local sandbox: Child.Sandbox = { offline = true }
+    -- Every field of `Child.Options`, so one the copy drops fails.
+    local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "pipe", input = "bytes",
+      stdout = "capture", stderr = "stdout", fds = fds, capture_limit = 9,
+      process_group = true, timeout_ms = 5, sandbox = sandbox }
     local opts = observations.program({}, given).options
     assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
     assert(opts.env.HOME == "/home" and opts.env.COSMIC_PORTABLE_ARTIFACT == "/a" and
       opts.env.SHARED == "relaunch")
     assert(opts.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
       opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
-    assert(opts.fds[3] == 1 and opts.fds[254] == 7 and opts.fds[255] == 8)
-    assert(opts.cwd == "/somewhere" and opts.timeout_ms == 5)
+    assert(opts.fds[3] == 1 and opts.fds[4] == "capture" and opts.fds[254] == 7 and
+      opts.fds[255] == 8)
+    assert(opts.cwd == "/somewhere" and opts.stdin == "pipe" and opts.stdout == "capture" and
+      opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
+      opts.timeout_ms == 5 and opts.sandbox == sandbox)
     assert(given.env == env and given.fds == fds)
     assert(env.SHARED == "caller" and env.COSMIC_PORTABLE_ARTIFACT == nil and
       env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
-    assert(fds[254] == "capture" and fds[255] == nil)
+    assert(fds[254] == nil and fds[255] == nil)
+    -- A descriptor the relaunch hands the core its artifact as, named
+    -- by the caller too, raises rather than being dropped.
+    local ok, trouble = pcall(observations.program, {}, { fds = { [254] = "capture" } })
+    assert(not ok and tostring(trouble):find("descriptor 254", 1, true), tostring(trouble))
     -- No environment given: this process's whole, which a child given
     -- none would have inherited, with the relaunch's added.
     local whole = observations.program({ "x" }).options
@@ -1283,12 +1320,19 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
   end)
 end
 
---- This very program, started as `program` says, runs with an empty
---- environment: its launcher, which a start of the core skips, is what
---- needs one.
+--- This very program, started as `program` says, starts with an empty
+--- environment on the core the relaunch names: not the one a launcher
+--- given no cache home would find or unpack elsewhere.
 local function test_program_starts_this_program_with_no_environment(tmp: string)
-  local started = observations.program({ "-e", "print('started')" }, { env = {}, cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  local started = observations.program({ "-e", [[
+local Fs = require("cosmic.fs")
+local cmdline = Fs.read("/proc/self/cmdline")
+print(cmdline ~= nil and cmdline:match("^[^%z]*") or "")
+]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok and r.stdout == "started\n", tostring(r.stdout) .. tostring(r.stderr))
+  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  local relaunch = Proc.relaunch()
+  if relaunch == nil or not Fs.exists("/proc/self/cmdline") then return end
+  assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
+    relaunch.argv[1])
 end

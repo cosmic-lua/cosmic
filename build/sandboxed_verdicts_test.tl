@@ -248,27 +248,46 @@ local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/o/bin"))
   assert(Fs.write(root .. "/o/bin/stand-in", "one\n"))
-  assert(Fs.write(root .. "/suite/tool_test.tl", [[
+  -- Each starts this program past its launcher by hand, as
+  -- `observations.program` would: another project cannot reach build/.
+  -- TODO: start it through `observations.program` once that moves to
+  -- `cosmic.test` (the TODO above it in build/filesystem_observations.tl).
+  local started = [[
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+
+local function started(args: {string}): Child.Result | nil, string
+  local relaunch = Proc.relaunch()
+  local argv: {string} = {}
+  for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
+    argv[#argv + 1] = word
+  end
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
+  local env = Env.all()
+  for name, value in pairs(relaunch ~= nil and relaunch.env or {}) do env[name] = value end
+  return Child.run(argv, { env = env, fds = relaunch ~= nil and relaunch.fds or {} })
+end
+]]
+  assert(Fs.write(root .. "/suite/tool_test.tl", started .. [[
 local Test = require("cosmic.test")
-local observations = require("build.filesystem_observations")
 
 Test.needs { tool = true }
 
 local function test_runs_the_tool()
-  local started = observations.program({ "-e", "" })
-  local result = assert(Child.run(started.argv, started.options))
+  local result = assert(started({ "-e", "" }))
   assert(result.ok)
 end
 ]]))
-  assert(Fs.write(root .. "/suite/undeclared_test.tl", [[
-local Child = require("cosmic.child")
-local Proc = require("cosmic.proc")
+  assert(Fs.write(root .. "/suite/undeclared_test.tl", started .. [[
 
 local function test_is_refused_the_tool()
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })
   assert(result == nil, "the program ran undeclared")
   assert(trouble:find("ermission denied", 1, true), trouble)
+  local core, core_trouble = started({ "-e", "" })
+  assert(core == nil, "the program's core ran undeclared")
+  assert(core_trouble:find("ermission denied", 1, true), core_trouble)
   local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" })
   assert(exe == nil, "the program ran through /proc/self/exe")
   local _ = exe_trouble

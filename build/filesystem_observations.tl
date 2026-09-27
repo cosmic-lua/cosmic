@@ -679,7 +679,8 @@ local handshake: {string} = {
 --- child given none inherits them, and nothing can be added to an
 --- inherited environment), with the relaunch's added and the startup
 --- test's handshake taken out; and its `fds`, with the relaunch's
---- descriptors over them.
+--- descriptors beside them. `opts.fds` naming a number the relaunch
+--- hands the child its artifact or core as raises.
 ---
 --- What the launcher does, a program started this way never sees: it
 --- makes no core cache under XDG_CACHE_HOME or HOME, nor checks the one
@@ -705,7 +706,13 @@ function observations.program(args: {string}, opts?: Child.Options): observation
   for number, fd in pairs(given.fds or {}) do fds[number] = fd end
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
-    for number, fd in pairs(relaunch.fds) do fds[number] = fd end
+    for number, fd in pairs(relaunch.fds) do
+      if fds[number] ~= nil then
+        error("observations.program: descriptor " .. tostring(number) ..
+          " is the one the relaunch hands the program its artifact or core as", 2)
+      end
+      fds[number] = fd
+    end
   end
   for _, name in ipairs(handshake) do env[name] = nil end
   -- Field by field: a record has no copy that keeps its type. A field

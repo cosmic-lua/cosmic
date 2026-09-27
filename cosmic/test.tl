@@ -30,12 +30,13 @@
 --- process, whichever module makes it: a test module never requires
 --- another test module that calls `needs`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
--- TODO: take `reads_stat_times` and `environment` from
+-- TODO: take `reads_stat_times`, `environment` and `program` from
 -- build.filesystem_observations, which a test calls to say what it
--- reads of a stat and what a process of this program it starts needs,
--- once each can be read from the source as `needs` is: another
--- project's tests cannot reach build/. (`confine` stays there: only the
--- sandbox's own tests nest one sandbox in another.)
+-- reads of a stat, what a process of this program it starts needs and
+-- how to start one past its launcher, once each can be read from the
+-- source as `needs` is: another project's tests cannot reach build/.
+-- (`confine` stays there: only the sandbox's own tests nest one sandbox
+-- in another.)
 
 local Errors = require("cosmic.errors")
 

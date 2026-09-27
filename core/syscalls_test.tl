@@ -54,6 +54,22 @@ local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/int
 -- the run's summary beside ran, stood and assumed, once build/test.tl's
 -- tally has a skipped verdict: today, without COSMIC_SANDBOX=must, a
 -- host that cannot sandbox passes them as though it had checked them.
+--- The descriptors `observations.program` hands its child, as
+--- `process.spawn` takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only `cosmic.child`
+--- reads.
+local function spawn_fds(started: observations.Program): {integer:integer}
+  local fds: {integer:integer} = {}
+  for number, fd in pairs(started.options.fds) do
+    if fd is integer then
+      fds[number] = fd
+    else
+      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
+    end
+  end
+  return fds
+end
+
 local function sandbox_required(): boolean
   return sys.getenv("COSMIC_SANDBOX") == "must"
 end
@@ -1175,7 +1191,7 @@ local function in_own_session(tmp: string, chunk: string, ...: string): string |
   local argv: {string} = { setsid }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local pid = assert(process.spawn(setsid, argv, started.options.env, tmp, nil, report, report,
-    false, started.options.fds as {integer:integer})) -- cast: the relaunch's, each a descriptor
+    false, spawn_fds(started)))
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(report, 65536, 0))
   sys.close(report)
@@ -1259,7 +1275,7 @@ sys.nanosleep(30 * 1000000000)
 ]==], table.concat(reads, ":") })
   local parent = assert(process.spawn(started.argv[1], started.argv, started.options.env, tmp,
     nil, report, report, false,
-    started.options.fds as {integer:integer})) -- cast: the relaunch's, each a descriptor
+    spawn_fds(started)))
   local said = ""
   local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 30 * 1000000000
   while not said:find("\n") and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
@@ -1367,7 +1383,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
     "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" })
   local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
     tmp, nil, report, report, false,
-    started.options.fds as {integer:integer}, -- cast: the relaunch's, each a descriptor
+    spawn_fds(started),
     { offline = true })
   if pid == nil then
     sys.close(report)
