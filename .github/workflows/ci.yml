@@ -122,15 +122,20 @@
         COSMIC_WORKER: "${{ matrix.name }}",
         TARGET: "${{ matrix.target }}",
         # A branch push (a PR's run) is `light`: each leg builds, runs its
-        # native suite and the format check, and stops. The merge queue,
-        # main and a manual run are `full`: the checked core, the product and
-        # portable suites, the regressions, attestation and provenance, so
-        # nothing lands on main without all of it.
+        # native suite and the format check (COSMIC_CI_FORMAT), and stops.
+        # The merge queue, main and a manual run are `full`: the checked
+        # core, the product and portable suites, the regressions,
+        # attestation and provenance, so nothing lands on main without all
+        # of it.
         COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
         # The checked core's whole suite (about a minute a leg) runs on
         # linux-x86_64 alone; every leg still builds and verifies the
         # checked core. See orchestration.tl's checked_suite.
         COSMIC_CI_CHECKED_SUITE: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
+        # So does the format check (`fix --check`, which type-checks the
+        # tree too): a tree formats the same on every platform. See
+        # orchestration.tl's format_check.
+        COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
         # A Linux leg fails where the sandbox probe finds a confined
         # test's parts do not all hold: its container is given what they
         # need (see "start the leg's container"). See orchestration.tl's
@@ -345,6 +350,42 @@
           },
         },
 
+        # cosmic_ci's own tests ("check the pinned CI driver", below)
+        # answer the same while nothing they read changes: ci/ (the
+        # driver, its tests, their testdata and the pin, which names the
+        # release that runs them), bin/ (the bootstrap and the scripts
+        # they run through it), the scripts and the action that install
+        # the driver and place the tree, this workflow, which sets their
+        # environment, and the leg's host: its image as the runner names
+        # it (ImageOS, ImageVersion) and, on a Linux leg, its container
+        # (COSMIC_HOST_ID's hash, in the verdicts' prefix). A marker saved
+        # under a key of those after a passing check lets a branch push's
+        # run skip the check on an exact hit; main's scheduled run and a
+        # manual one run it whatever was saved. The key names the event,
+        # which reaches the tests through the job's environment
+        # (COSMIC_CI_EVENT among it), so the merge queue, whose markers no
+        # other ref reads, never stands on a push's. Named before the tree
+        # moves, since hashFiles reads the checkout.
+        {
+          name: "name the CI driver check",
+          id: "driver-check-key",
+          "working-directory": ".",
+          shell: "sh",
+          run: "echo \"key=driver-checked-v1-${{ github.event_name }}-${{ matrix.name }}-${ImageOS:-}-${ImageVersion:-}-${{ steps.host-id.outputs.prefix }}${{ hashFiles('ci/**', 'bin/**', '.github/scripts/**', '.github/actions/cosmic-driver/**', '.github/workflows/ci.yml') }}\" >> \"$GITHUB_OUTPUT\"",
+        },
+
+        {
+          name: "find a passing CI driver check",
+          id: "driver-check-restore",
+          if: "github.event_name == 'push'",
+          uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/driver-checked",
+            key: "${{ steps.driver-check-key.outputs.key }}",
+            "lookup-only": true,
+          },
+        },
+
         # After the driver's bootstrap, whose cache key hashes a file in
         # the checkout: from here on the checkout is at a path of this
         # commit's and this leg's own (COSMIC_WORKER), which the log names,
@@ -364,6 +405,8 @@
 
         {
           name: "check the pinned CI driver",
+          id: "driver-check",
+          if: "steps.driver-check-restore.outputs.cache-hit != 'true'",
           # Without --all, a run would assume a test no key holds from the
           # shared verdicts: this one reads none, and writes none.
           env: {COSMIC_VERDICT_CACHE: "0"},
@@ -436,6 +479,27 @@
           with: {
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+          },
+        },
+
+        # Saved here, where the tree is back at the path actions/cache
+        # archives from (see above), and only after a check that ran and
+        # passed, whatever came after it.
+        {
+          name: "mark the CI driver check passed",
+          if: "always() && steps.driver-check.outcome == 'success'",
+          "working-directory": ".",
+          shell: "sh",
+          run: "mkdir -p \"$RUNNER_TEMP/driver-checked\" && echo \"${{ steps.driver-check-key.outputs.key }}\" > \"$RUNNER_TEMP/driver-checked/key\"",
+        },
+
+        {
+          name: "save the CI driver check's marker",
+          if: "always() && steps.driver-check.outcome == 'success' && github.event_name == 'push'",
+          uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/driver-checked",
+            key: "${{ steps.driver-check-key.outputs.key }}",
           },
         },
 
