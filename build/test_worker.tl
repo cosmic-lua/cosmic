@@ -131,8 +131,9 @@ worker.report_fd = 3
 local HEADER <const> = "cosmic-test-report-2"
 
 --- The modules of the tree a worker loads besides its test's import
---- closure: cosmic's own main, which every process runs first, and
---- build.dispatch, whose `--worker` branch starts this; this module and
+--- closure: cosmic's own main, which every process runs first and
+--- which starts this ahead of build.dispatch, which a worker never
+--- loads (cmd/cosmic/main.tl), nor what only it requires; this module and
 --- what it requires, directly or not, at its top level or on the way
 --- its `run` takes; and `cosmic.removed`, which the core loads in any
 --- test that reaches for a removed global, to say what to write
@@ -147,12 +148,10 @@ local HEADER <const> = "cosmic-test-report-2"
 --- `local type` requires Teal erases and requires inside functions no
 --- worker calls.
 worker.loads = {
-  "build.caches", "build.clock", "build.dispatch", "build.exit_status",
-  "build.filesystem_observations", "build.test_inputs", "build.test_worker", "build.verdict",
-  "cmd.cosmic.main", "cosmic.cli", "cosmic.codec", "cosmic.coverage", "cosmic.env",
-  "cosmic.errors", "cosmic.flags", "cosmic.fs", "cosmic.hash", "cosmic.log", "cosmic.proc",
-  "cosmic.removed", "cosmic.sqlite", "cosmic.store", "cosmic.string", "cosmic.test",
-  "cosmic.time",
+  "build.caches", "build.filesystem_observations", "build.test_inputs", "build.test_worker",
+  "build.verdict", "cmd.cosmic.main", "cosmic.codec", "cosmic.coverage", "cosmic.env",
+  "cosmic.errors", "cosmic.fs", "cosmic.hash", "cosmic.log", "cosmic.proc", "cosmic.removed",
+  "cosmic.sqlite", "cosmic.store", "cosmic.string", "cosmic.test", "cosmic.time",
 }
 
 local hex_byte: {string:string} = {}

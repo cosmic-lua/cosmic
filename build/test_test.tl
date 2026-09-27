@@ -827,7 +827,9 @@ end
 --- of them moves the harness, so a verdict a wrong key kept does not
 --- stand after the fix. An edit to the worker, to the plan of its
 --- sandbox, to cosmic's main or to the diagnostic the core loads moves
---- the harness, and one to the store's writer the address.
+--- the harness, and one to the store's writer the address; one to
+--- build.dispatch, or to what only it requires, moves neither: cosmic's
+--- main starts a worker ahead of it (cmd/cosmic/main.tl).
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local chunk = "local label = %q\n%sreturn function() return label end\n"
   local function compiled(text: string): string, string
@@ -880,9 +882,14 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   for _, name in ipairs({ "build.test_worker", "build.test_sandbox", "cmd.cosmic.main",
                           "build.filesystem_observations", "build.test_inputs",
-                          "build.dispatch", "cosmic.store", "cosmic.removed" }) do
+                          "cosmic.store", "cosmic.removed" }) do
     assert(moves(name, commented_source, commented) == "harness", name .. " moved " ..
       moves(name, commented_source, commented))
+  end
+  for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",
+                          "cosmic.flags" }) do
+    assert(moves(name, changed_source, changed) == "", name .. " moved " ..
+      moves(name, changed_source, changed))
   end
   for _, name in ipairs({ "build.writer", "build.schema" }) do
     assert(moves(name, commented_source, commented) == "store", name .. " moved " ..
