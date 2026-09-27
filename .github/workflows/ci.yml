@@ -409,10 +409,13 @@
         # and the engine's version. Not ci.yml itself, whose every edit
         # would move it. Its verdict cache is named by what else of the
         # host every key holds and differs between runners of one leg
-        # (`verdicts`, .github/scripts/host-features.sh): the processor's
-        # features and the kernel's release and version, which the
-        # container's /proc tells `host_identity` from the runner's
-        # kernel. Named by the container alone, a run restored the newest
+        # (`verdicts`, .github/scripts/host-features.sh): the processor
+        # features a core chooses code by (build/declared_key.tl's
+        # `dispatched`, and none of the rest of /proc/cpuinfo's flags,
+        # which split hosted runners on what nothing reads) and the
+        # kernel's release and version, which the container's /proc
+        # tells `host_identity` from the runner's kernel. Named by the
+        # container alone, a run restored the newest
         # cache of any runner of the leg, and none of its verdicts stood
         # where that runner's host differed: main's run 36320764857
         # stood 0 on linux-x86_64, where its other Linux legs and two
