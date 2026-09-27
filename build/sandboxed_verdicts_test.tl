@@ -80,13 +80,15 @@ end
 
 --- Whether a run that said `text` sandboxed no worker, where that is
 --- allowed: false where it did sandbox them, and a failure where the run
---- is held to sandboxing and this test is in no sandbox of its own.
+--- is held to sandboxing and this test is in no sandbox of its own --
+--- in one, the kernel may refuse its run's workers one of their own.
 local function unsandboxed(text: string): boolean
-  if not text:find("no worker can be sandboxed here", 1, true) then return false end
+  if text:find("; sandboxed)", 1, true) then return false end
+  -- Turned off by this run's own switch, it is asked not to.
+  if text:find("(COSMIC_TEST_SANDBOX=0)", 1, true) then return true end
   local held = sys.getenv("COSMIC_SANDBOX") == "must" or
     sys.getenv("COSMIC_CI_REQUIRE_SANDBOX") == "1"
-  local here, _ = sys.getcwd()
-  assert(not held or here == "/tree", "the run is held to sandboxing, but " .. text)
+  assert(not held or observations.sandboxed(), "the run is held to sandboxing, but " .. text)
   return true
 end
 
