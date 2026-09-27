@@ -28,13 +28,14 @@
 
   permissions: {contents: "read"},
 
-  # A newer push supersedes a branch's run, but every main run finishes: its
-  # zig build cache is the one every other branch can restore, and its
-  # prerelease is published only from a completed run. So each main commit
-  # is a group of its own: one shared group would queue each main run behind
-  # the last (minutes, with the merge queue landing back to back), and
-  # GitHub keeps only one pending run per group, cancelling the one queued
-  # before it when a third arrives.
+  # A newer push supersedes a branch's run, but every main run finishes:
+  # what it saves (its zig build cache, its test verdicts) is what every
+  # other branch can restore, and its prerelease is published only from a
+  # completed run. So each main commit is a group of its own: one shared
+  # group would queue each main run behind the last (minutes, with the
+  # merge queue landing back to back), and GitHub keeps only one pending
+  # run per group, cancelling the one queued before it when a third
+  # arrives.
   concurrency: {
     group: "${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}",
     "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
@@ -247,7 +248,7 @@
 
         {
           name: "cache the pinned zig",
-          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",
             # v2: installs are named by the pin's sha too (build/zig.tl's
@@ -279,27 +280,115 @@
         # leg costs a bit of duplicate cache storage in exchange for every
         # leg reliably saving and reusing its own.
         # A saved entry is never replaced under its own key, so every save
-        # takes a key of its own (the run's id), and a restore takes the
-        # newest entry for these exact inputs, else the newest for this leg.
-        # main saves after every run, so what every branch restores keeps
-        # up with main; other refs save only when nothing for these exact
-        # inputs was there to restore, as the single fixed key did, which
-        # keeps a branch's pushes from filling the repository's cache.
+        # takes a key of its own:
+        #
+        #     zig-build-<leg>-<vendor>-<scope>-<core>-<run>-<attempt>
+        #
+        # `vendor` hashes what compiles the vendored libraries (the pin,
+        # build.zig, vendor/, patch/ and its applier, the configuration
+        # headers they read from core/), `core` what compiles the core's
+        # own C (core/'s .c, .h and .zig, test/portable's .c): nothing
+        # else under core/, whose tests build.zig never reads. `scope` is
+        # `full` where assemble ("build local portable and checked
+        # artifacts") passed, all of it -- the format and codesign checks,
+        # the fixtures, the checked core and its suite, the hook cores --
+        # else `light`; it comes before `core` so that "a full entry for
+        # this vendor part" is a prefix. Only which entry is
+        # restored turns on the key: zig's cache is keyed by content, so
+        # whatever is restored, the build compiles what it lacks.
+        #
+        # The restore takes the newest entry for this vendor part --
+        # `full` with this core part, else `full`, else either -- whose
+        # vendored objects are all there, so a changed core file costs a
+        # recompile of that file (every core object, for a header). Where
+        # none has this vendor part, a run off main takes the newest entry
+        # of the leg in a second step and compiles vendor/ from what it
+        # holds; main's runs compile it from nothing (below). Two steps,
+        # since GitHub searches this ref's entries for every key before
+        # the default branch's: in one, a branch's own entry of an older
+        # vendor part would win over main's of this one.
+        #
+        # A run saves only where it had nothing for this vendor part --
+        # where assemble passed, nothing `full` for it -- so an entry is
+        # saved once per vendor part and leg, not once per core change:
+        # main pushes moved the old key's inputs in 27 of 51 commits
+        # (09-25 to 09-27), the core part in 23 and the vendor part in 5
+        # (build.zig in 4 of them), and 3 moved the old key with nothing
+        # zig compiles. The merge queue saves nothing (no other ref restores
+        # its entries), and main's scheduled run restores nothing: it
+        # compiles cold, minutes no one waits on, and saves a compact
+        # `full` entry, which the day's runs restore until the vendor
+        # part moves. Since main never takes another vendor part's entry
+        # either, every entry it saves is a cold build's: about 150 MB on
+        # each Linux leg and 123 MB on macOS (runs 36268737048 and
+        # 36292711231), 0.6 GB a save for the four legs. So a day's saves
+        # from main are 0.6 GB for the nightly and 0.6 GB for each change
+        # to the vendor part, whatever the push rate: 3.6 GB at 09-26's
+        # five. A branch saves `light` where it moved the vendor part,
+        # restorable only by its own runs. The cost: a vendor change's
+        # first main run builds cold (about 5 minutes more a Linux leg, 7
+        # on macOS: runs 36292711231 against 36325134876), and a core change is
+        # compiled again, incrementally, by every run after it until the
+        # nightly save (seconds, or a minute or two for a header), where
+        # an eviction costs a cold build of everything to whoever meets
+        # it next (the fuzz job's checked core took 4m45s).
+        #
+        # Before, main saved after every run and a branch wherever its
+        # exact inputs missed: 230-610 MB a leg a save (run 36322968083
+        # restored 584 MB on alpine, 347 on linux-x86_64, 323 on
+        # linux-aarch64, 234 on macOS), about 28 GB on 09-26 from main
+        # alone. The repository's cache holds 10 GB, and GitHub evicted
+        # the least recently used entries: the nightly fuzz job's zig and
+        # bootstrap caches (run 36321208908), and linux-x86_64's,
+        # linux-aarch64's and macOS's own, which run 36292711231 found
+        # under no key and compiled cold. Every save held all that was
+        # restored and more, and zig never prunes its cache, so an entry
+        # only grew: the Linux legs saved about 150 MB cold in run
+        # 36268737048, and twelve main runs later run 36325134876 restored
+        # 369 MB on linux-x86_64 and 607 MB on alpine. Alpine's was the
+        # larger only for being older: the other legs' were evicted, and
+        # started cold again, before run 36292711231, while alpine's
+        # carried on. Nor can a sweep prune one: a build that finds its
+        # outputs up to date writes nothing (h/timestamp aside), so an
+        # entry it used keeps the times the restore gave it, as one it
+        # did not does. The nightly cold build is what bounds an entry.
+        # TODO: find what a run adds to the cache when its inputs match
+        # the entry it restored, and compiles again on every such run:
+        # linux-x86_64's grew 323 -> 347 -> 369 -> 388 MB over runs
+        # 36317996933 to 36325134876, all with one input hash, where a
+        # checkout at a new path, built from the same entry (even through
+        # a tar round trip), writes nothing. zig's build runner, compiled
+        # for the runner's detected CPU, is the likeliest (40 MB, and
+        # about 3 s to compile here); a step listing what the build wrote
+        # under zig-build (find -newer a stamp made after the restore)
+        # would say.
         {
           name: "name the zig build cache",
           id: "zig-cache-key",
           shell: "sh",
-          run: "echo \"prefix=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**', 'build/patch.tl') }}-\" >> \"$GITHUB_OUTPUT\"",
+          run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'vendor/**', 'patch/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"",
         },
 
         {
           name: "restore zig build outputs",
           id: "zig-cache-restore",
-          uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          if: "github.event_name != 'schedule'",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/zig-build",
-            key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
-            "restore-keys": "${{ steps.zig-cache-key.outputs.prefix }}\nzig-build-${{ matrix.name }}-\n",
+            key: "${{ steps.zig-cache-key.outputs.vendor }}full-${{ steps.zig-cache-key.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.zig-cache-key.outputs.vendor }}full-${{ steps.zig-cache-key.outputs.core }}-\n${{ steps.zig-cache-key.outputs.vendor }}full-\n${{ steps.zig-cache-key.outputs.vendor }}\n",
+          },
+        },
+
+        {
+          name: "restore zig build outputs of another vendor part",
+          if: "github.ref != 'refs/heads/main' && steps.zig-cache-restore.outputs.cache-matched-key == ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.zig-cache-key.outputs.vendor }}full-${{ steps.zig-cache-key.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "zig-build-${{ matrix.name }}-\n",
           },
         },
 
@@ -344,7 +433,7 @@
           name: "restore test verdicts",
           id: "verdicts-restore",
           if: "matrix.image",
-          uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
             key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
@@ -396,7 +485,7 @@
           name: "find a passing CI driver check",
           id: "driver-check-restore",
           if: "github.event_name == 'push'",
-          uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/driver-checked",
             key: "${{ steps.driver-check-key.outputs.key }}",
@@ -463,6 +552,7 @@
 
         {
           name: "build local portable and checked artifacts",
+          id: "assemble",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
@@ -478,10 +568,10 @@
         # path relative to it (../../_temp/zig-build): tar follows the
         # link place-tree.sh left there, to a tree one to three
         # directories deep, where that path names nothing unless the tree
-        # is one deep ("Cannot stat", "Cache save failed"). So the tree
-        # is put back where it was checked out for the save, as the last
-        # step does, and moved to its own path again after, where the
-        # steps below run. The restores above ran before it moved.
+        # is one deep (tar's "Cannot stat", and no entry saved). So the
+        # tree is put back where it was checked out for the save, as the
+        # last step does, and moved to its own path again after, where
+        # the steps below run. The restores above ran before it moved.
         {
           name: "put the tree back for the zig cache save",
           if: "always()",
@@ -490,13 +580,16 @@
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
 
+        # Only where the run had nothing for this vendor part, or nothing
+        # `full` for it where assemble passed (see "name the zig build
+        # cache"); never from the merge queue.
         {
           name: "upload zig build outputs",
-          if: "always() && steps.driver.outcome == 'success' && (github.ref == 'refs/heads/main' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, steps.zig-cache-key.outputs.prefix))",
-          uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          if: "always() && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}{1}', steps.zig-cache-key.outputs.vendor, steps.assemble.outcome == 'success' && 'full-' || ''))",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/zig-build",
-            key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+            key: "${{ steps.zig-cache-key.outputs.vendor }}${{ steps.assemble.outcome == 'success' && 'full' || 'light' }}-${{ steps.zig-cache-key.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
           },
         },
 
@@ -514,7 +607,7 @@
         {
           name: "save the CI driver check's marker",
           if: "always() && steps.driver-check.outcome == 'success' && github.event_name == 'push'",
-          uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/driver-checked",
             key: "${{ steps.driver-check-key.outputs.key }}",
@@ -649,7 +742,7 @@
         {
           name: "save test verdicts",
           if: "always() && matrix.image && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' || steps.verdicts-restore.outputs.cache-matched-key == '')",
-          uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
             key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
