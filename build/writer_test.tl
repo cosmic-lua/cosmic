@@ -368,9 +368,10 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
 end
 
 --- The store of an import closure holds that closure's modules alone,
---- with every declaration and the names of the tree's carried modules,
---- and nothing that moves with a module outside it: an edit there leaves
---- its address and its bytes as they were, and one inside moves both.
+--- with every declaration, and nothing that moves with a module outside
+--- it: an edit there, or a module added, leaves its address and its
+--- bytes as they were; one inside moves both, and so do a declaration
+--- and the code that writes it (the salt).
 local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local root = tmp .. "/a"
   assert(Fs.mkdirs(root))
@@ -395,11 +396,11 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   end
   other("one")
   local names = { "greet", "greet_test" }
-  local function store(whom: string, out: string): string
+  local function store(whom: string, out: string, salt?: string): string
     local handle = build_and_write(root, whom, tmp .. "/whole.db")
     assert(work.close(handle))
     local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
-    local address = writer.closure_address(basis, names, "salt")
+    local address = writer.closure_address(basis, names, salt or "salt")
     assert(writer.closure(tmp .. "/whole.db", out, names, basis, address))
     return address
   end
@@ -411,6 +412,17 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(outside == first, "an edit outside the closure moved its address")
   assert(Fs.read(tmp .. "/outside.db") == Fs.read(tmp .. "/first.db"),
     "an edit outside the closure moved its store")
+  assert(Fs.write(root .. "/added.tl", "return {}\n"))
+  local added = store("world", tmp .. "/added.db")
+  assert(added == first, "a module added outside the closure moved its address")
+  assert(Fs.read(tmp .. "/added.db") == Fs.read(tmp .. "/first.db"),
+    "a module added outside the closure moved its store")
+  assert(store("world", tmp .. "/salted.db", "another writer") ~= first,
+    "the code that writes it left its address")
+  assert(Fs.write(root .. "/extra.d.tl", "local record extra\nend\nreturn extra\n"))
+  local declared = store("world", tmp .. "/declared.db")
+  assert(declared ~= first, "a declaration left its address")
+  assert(Fs.remove(root .. "/extra.d.tl"))
   local inside = store("there", tmp .. "/inside.db")
   assert(inside ~= first, "an edit inside the closure left its address")
   assert(Fs.read(tmp .. "/inside.db") ~= Fs.read(tmp .. "/first.db"),
@@ -421,13 +433,11 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
     "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
     "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
-    "(SELECT value FROM meta WHERE key = 'closure'), " ..
-    "(SELECT value FROM meta WHERE key = 'tree_modules')"))
+    "(SELECT value FROM meta WHERE key = 'closure')"))
   assert(db:close())
   local row = rows[1]
   assert(row[1] == "greet greet_test", row[1])
   assert(row[2] == "0", "a doc of a module outside the closure is in its store")
   assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
   assert(row[4] == first, row[4])
-  assert(row[5] == "cmd.hello.main\ngreet\nother", row[5])
 end

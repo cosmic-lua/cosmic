@@ -223,7 +223,8 @@ end
 
 --- `cosmic db [path...]`: describes `o/cosmic.db`, `o/carried.db` (what
 --- the tool built from cosmic's own tree carries) and `o/build.db` under
---- the working directory, each one there is, printing a verdict line and
+--- the working directory, each one there is, and how many closure stores
+--- `o/stores` holds and their bytes, printing a verdict line and
 --- returning the exit code. Paths narrow it to the rows about the sources under them: each
 --- table's count of those rows, and the slowest of those tests. The
 --- coverage rows counted are every kept run's, not only the latest.
@@ -305,6 +306,20 @@ function databases.run(argv: {integer:string}): integer
           return 1
         end
       end
+    end
+  end
+  -- The stores of test modules' closures a sandboxed `cosmic test`
+  -- gives its workers (`build.writer`'s `closure`), as a whole.
+  if #paths == 0 then
+    local stores = root .. "/o/stores"
+    local listed, _ = Fs.list(stores)
+    if listed ~= nil and #listed > 0 then
+      local bytes = 0
+      for _, entry in ipairs(listed) do
+        local st, _ = Fs.stat(stores .. "/" .. entry)
+        bytes = bytes + (st ~= nil and st.size or 0)
+      end
+      log:say(stores .. "  " .. #listed .. " closure stores, " .. bytes .. " bytes")
     end
   end
   if seen == 0 then

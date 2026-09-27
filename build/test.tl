@@ -192,8 +192,7 @@ local record test
     shared: integer
     --- Of those that ran sandboxed, how many no key holds, which run
     --- every time: one whose module declares the network, or reads a
-    --- link out of the tree, or that started a process that could read
-    --- what no key holds (`test_sandbox.Plan`'s `unkeyable`).
+    --- link out of the tree.
     every: integer
   end
 
@@ -1699,6 +1698,9 @@ local record Recording
   --- modules, which its worker holds its `require`s to
   --- (`test_inputs.modules`, `build.test_worker`).
   closures: {string:{string}}
+  --- Every module of the tree, by path, sorted: what a worker refuses a
+  --- `require` of outside its closure (`build.test_worker`).
+  tree_names: {string}
   --- Sandboxed, the address of the store of each module's import
   --- closure its workers are given at o/cosmic.db (`build.writer`'s
   --- `closure`), by path, for every test and example module of the
@@ -2025,20 +2027,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     -- before it started -- and still are, or the verdict describes no
     -- one state of them, and is not kept.
     local key = job.declared
-    -- A process it started that its sandbox could let read what no key
-    -- holds -- the network, or a whole projection undeclared, where no
-    -- closure store was given (`Plan.unkeyable`, noted "x" by the
-    -- process's start) -- makes a run no key holds:
-    -- kept under none, so the test runs every time.
-    local unkeyable = job.plan ~= nil and job.plan.unkeyable or ""
-    local reached_past = key == nil
-    for _, observation in ipairs(reads) do
-      if unkeyable ~= "" and observation.kind == "x" and observation.path == unkeyable then
-        reached_past = true
-      end
-    end
-    if reached_past then rec.tally.every = rec.tally.every + 1 end
-    local held = not reached_past and declared_of(rec, job.m, id) == key
+    -- One with no key -- it reaches the network -- is kept under none,
+    -- and runs every time. What a process it starts reads, its sandbox
+    -- holds to what its key holds (`test_sandbox.Plan`'s `held`).
+    if key == nil then rec.tally.every = rec.tally.every + 1 end
+    local held = key ~= nil and declared_of(rec, job.m, id) == key
     local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
       message, Time.now_ns(), reads, run_key(key or "", key), rec.run_at_ns, elapsed)
     if not saved then
@@ -2050,20 +2043,18 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       if not saved then
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
-    elseif key ~= nil and (not passed or reached_past) then
+    elseif key ~= nil and not passed then
       -- Its inputs moved while it ran, so the failure is of no one state
       -- of them -- but it may be of the one it started from, and a pass
-      -- kept under that key would stand for it: gone; and so is one
-      -- under the key of a run that reached past it.
+      -- kept under that key would stand for it: gone.
       saved, save_trouble = Sqlite.run(rec.records, "DELETE FROM verdicts WHERE key = ?1",
         { text(key) })
       if not saved then
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
     end
-    -- A pass another run shared under its key goes too where this run
-    -- reached past it: that pass stood for what no key holds.
-    if key ~= nil and (not passed or reached_past) then
+    -- A pass another run shared under its key goes too where it failed.
+    if key ~= nil and not passed then
       rec.owed.failed[#rec.owed.failed + 1] = key
     elseif passed and held and reported ~= nil then
       rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
@@ -2355,9 +2346,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     job.plan = plan
     env, sandbox = plan.env, plan.sandbox
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
-    -- Why none of it keys such a process leads, as a line of its own.
-    held = (plan.unkeyable ~= "" and ("!" .. plan.unkeyable .. "\n") or "") ..
-      table.concat(plan.held, "\n")
+    held = table.concat(plan.held, "\n")
   end
   local given: {string:string} = {}
   for name, value in pairs(env) do given[name] = value end
@@ -2381,6 +2370,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     argv[#argv + 1] = value
   end
   for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
+  argv[#argv + 1] = "--tree"
+  for _, name in ipairs(rec.tree_names) do argv[#argv + 1] = name end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(start.fds) do fds[number] = fd end
   -- An unsandboxed worker leads a process group of its own, which its
@@ -2923,7 +2914,9 @@ function test.run(argv: {integer:string}): integer
   end
   local declarations: {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
-  rec.closures = {}
+  rec.closures, rec.tree_names = {}, {}
+  for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
+  table.sort(rec.tree_names)
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
   end

@@ -63,16 +63,10 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(host:sub(1, 5) ~= "/tmp/" or holds(plan.kept, host), host)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and unveil.at[scratch] == "/tmp")
   -- A process the worker starts is keyed by what it declares, as the
-  -- worker sees it, and the system's own paths -- not by its closure's
-  -- files, nor by the store it does not declare.
+  -- worker sees it, the system's own paths and the store -- not by its
+  -- closure's files.
   assert(holds(plan.held, "/tree/data") and holds(plan.held, host) and holds(plan.held, "/usr"))
-  assert(not holds(plan.held, "/tree/a/x.tl") and not holds(plan.held, "/tree/o/cosmic.db"))
-  -- Undeclared, the store is one a process could read unkeyed.
-  assert(plan.unkeyable == "the store", plan.unkeyable)
-  inputs.store = true
-  local stored = test_sandbox.plan(root, scratch, inputs, {})
-  assert(holds(stored.held, "/tree/o/cosmic.db") and stored.unkeyable == "", stored.unkeyable)
-  inputs.store = false
+  assert(not holds(plan.held, "/tree/a/x.tl") and holds(plan.held, "/tree/o/cosmic.db"))
   -- Given the store of its closure, a worker has it at o/cosmic.db in
   -- the projection's place, which it has nowhere, and a process it
   -- starts is keyed by it; declaring `store` keeps the projection.
@@ -82,7 +76,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   local closed = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
   assert(closed.sandbox.unveil.at[closure_store] == "/tree/o/cosmic.db" and
     not holds(closed.sandbox.unveil.reads, root .. "/o/cosmic.db"))
-  assert(holds(closed.held, "/tree/o/cosmic.db") and closed.unkeyable == "", closed.unkeyable)
+  assert(holds(closed.held, "/tree/o/cosmic.db"))
   inputs.store = true
   local whole = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
   assert(whole.sandbox.unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db" and
@@ -112,10 +106,6 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   inputs.tool = true
   local online = test_sandbox.plan(root, scratch, inputs, {})
   assert(online.sandbox.offline == false)
-  -- Online, a process the worker starts could reach what no key holds.
-  inputs.store = true
-  assert(test_sandbox.plan(root, scratch, inputs, {}).unkeyable == "the network")
-  inputs.store = false
   -- No o/bin here to give.
   assert(not holds(online.sandbox.unveil.reads, root .. "/o/bin"))
 end

@@ -394,7 +394,11 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   -- The store its worker is given at o/cosmic.db: the whole projection,
   -- by its contents, where the module declares `store`; else the store
   -- of its closure, by its address, which is a digest of all its bytes
-  -- follow from -- so an edit outside the closure moves neither.
+  -- follow from -- so neither an edit to a module outside the closure
+  -- nor adding or removing one moves it (`build.writer`'s
+  -- `closure_address`). The names of the tree's modules a worker
+  -- refuses a `require` of are no part of it: a name there only turns
+  -- such a `require` into a refusal, never into a load.
   if effective.store then
     reads[#reads + 1] = "o/cosmic.db"
   elseif spec.closure_store ~= nil then

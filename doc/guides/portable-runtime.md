@@ -61,8 +61,10 @@ later write skips work only when the file at the output path carries the same
 signature. A side record in `o/build.db` cannot make a replaced output look
 current.
 
-The running projection exposes its identities through
-[`cosmic.store`](../../cosmic/store.tl). This example runs with the guide:
+[`cosmic.store`](../../cosmic/store.tl) exposes these identities: each
+attached database is searched first, then the running binary's own, which
+carries the `meta` of the projection it was built from. This example runs
+with the guide:
 
 ```teal
 local Store = require("cosmic.store")

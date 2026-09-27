@@ -82,11 +82,6 @@ local record test_sandbox
     --- host, and the store it is given -- not its closure's files, which
     --- its module's key holds already.
     held: {string}
-    --- Why a process the worker starts can be keyed by none of `held`,
-    --- or "": its sandbox is online ("the network"), or holds the whole
-    --- projection its module does not declare, given no closure store
-    --- ("the store").
-    unkeyable: string
     --- The directories of the tree the sandbox makes to hold what it
     --- gives beneath them, at /tree and below, each by the name the
     --- worker sees it by, which it holds only part of the host's (see
@@ -142,8 +137,11 @@ end
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
 --- with the runner's view of a worker's environment `environment`, and
 --- at o/cosmic.db the closure store at `closure_store` (`build.writer`'s
---- `closure`) where the module does not declare `store`: nil gives the
---- whole projection.
+--- `closure`) where the module does not declare `store`, else the whole
+--- projection. A caller keys the store as it gives it
+--- (`build.declared_key`): the whole projection by its contents only
+--- where the module declares `store`, so it gives one that does not the
+--- store of its closure, keyed by its address.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string): test_sandbox.Plan
   local base = observations.worker_unveil(root, nil, scratch)
@@ -175,15 +173,10 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- today it is given at its own name, which `Proc.executable()` answers,
   -- so a worker still sees where the host keeps the checkout there.
   -- The store at o/cosmic.db is the one its worker attaches to load
-  -- every module of the closure (`build.test_worker`): `closure_store`,
-  -- the store of the module's import closure (`build.writer`'s
-  -- `closure`), where one is given and the module does not declare
-  -- `store`, which the key holds by its address; the whole projection
-  -- otherwise, which `store` declares, and the key holds by its
-  -- contents. Either is held for a process the worker starts, which
-  -- reads what the worker could; with neither declared nor a closure
-  -- store given, such a process could read the projection unkeyed, and
-  -- is no process a key holds (`unkeyable`).
+  -- every module of the closure (`build.test_worker`): `closure_store`
+  -- where the module does not declare `store`, and the whole projection
+  -- where it does. Either is held for a process the worker starts,
+  -- which reads what the worker could.
   -- TODO: hide from a worker where the host keeps what it is given:
   -- /proc/self/mountinfo names each bind's source, the tree's location,
   -- the scratch directory's and the program's among them. Wants a
@@ -193,8 +186,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   if closure_store ~= nil and not effective.store then given_store = closure_store end
   for _, path in ipairs(base.reads) do
     if path == store then
-      give(given_store, test_sandbox.tree .. "/o/cosmic.db",
-        effective.store or given_store ~= store)
+      give(given_store, test_sandbox.tree .. "/o/cosmic.db", true)
     else
       give(path, nil, true)
     end
@@ -263,10 +255,6 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- ::1, localhost) offline, whose loopback reaches them, rather than
   -- give it the host's network.
   local offline = next(effective.network) == nil
-  -- Why a process the worker starts is none a key holds, or "": it
-  -- could reach the network, or read the store unkeyed (see above).
-  local unkeyable = not offline and "the network" or
-    ((not effective.store and closure_store == nil) and "the store" or "")
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
     env = test_sandbox.environment(environment, effective),
@@ -274,7 +262,6 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     trouble = made and "" or "a cache it declares: " .. trouble,
     kept = kept,
     held = held,
-    unkeyable = unkeyable,
     made = made_dirs,
   }
 end

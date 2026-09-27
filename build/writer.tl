@@ -11,6 +11,7 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
@@ -29,15 +30,15 @@ local record writer
   --- what its bytecode, source, docs, uses and catalog rows follow from,
   --- the key holding the compiler that compiled and parsed it -- and a
   --- digest of what every store holds alike: the `meta` rows it keeps
-  --- (`closure_meta`), the declarations, and `tree`.
+  --- (`closure_meta`) and the declarations.
   record Basis
     modules: {string:string}
     shared: string
-    --- The tree's modules a build carries into the tool -- neither tests
-    --- nor examples -- sorted: what a worker refuses a `require` of
-    --- outside its closure (`build.test_worker`), else it would load the
-    --- tool's copy, and what an example is paired with by name.
-    tree: {string}
+    --- Each module's kind, by path.
+    kinds: {string:string}
+    --- The modules an example can be paired with -- neither tests nor
+    --- examples -- sorted (see `insert_examples`).
+    pairable: {string}
   end
 end
 
@@ -552,11 +553,13 @@ function writer.closure_basis(whole: string): writer.Basis | nil, string
     local names, names_trouble = Sqlite.text_rows(db,
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
-    local basis: writer.Basis = { modules = {}, tree = {} }
-    for _, row in ipairs(rows) do basis.modules[row[1]] = row[2] end
-    for i, row in ipairs(names) do basis.tree[i] = row[1] end
-    basis.shared = Hash.hex_sha256("closure-store-1\n" .. shared[1][1] .. "\n" ..
-      table.concat(basis.tree, "\n"))
+    local basis: writer.Basis = { modules = {}, kinds = {}, pairable = {} }
+    for _, row in ipairs(rows) do
+      basis.modules[row[1]] = row[2]
+      basis.kinds[row[1]] = row[2]:match("^[^\t]*\t([^\t]*)")
+    end
+    for i, row in ipairs(names) do basis.pairable[i] = row[1] end
+    basis.shared = Hash.hex_sha256("closure-store-2\n" .. shared[1][1])
     return basis, ""
   end
   local basis, read_trouble = read()
@@ -591,17 +594,36 @@ local function stored(basis: writer.Basis, names: {string}): {string}
   return out
 end
 
+--- The modules of `basis` the example module `name` could be paired
+--- with by its name (`insert_examples`): each that it is less
+--- `_example`, or that it starts with, followed by `_`. Which of them
+--- is longest names the module its examples are about.
+local function candidates(basis: writer.Basis, name: string): {string}
+  local stem = name:sub(1, #name - #"_example")
+  local out: {string} = {}
+  for _, path in ipairs(basis.pairable) do
+    if path == stem or stem:sub(1, #path + 1) == path .. "_" then out[#out + 1] = path end
+  end
+  return out
+end
+
 --- The address of the closure store for `names` over `basis`: the
 --- digest of everything its bytes follow from -- its modules' lines,
---- the basis's shared digest, and `salt`, which names the code that
---- writes it (`build.test` passes the harness digest, which holds
---- build.writer's and build.schema's sources). An edit to a module
---- outside the closure moves none of them, and so neither the address
---- nor the store, but for adding or removing a module a build carries
---- (`Basis.tree`).
+--- the modules each example module among them could be paired with
+--- (`candidates`), the basis's shared digest, and `salt`, which names
+--- the code that writes it (`build.test` passes the harness digest,
+--- which holds build.writer's and build.schema's sources). An edit to a
+--- module outside the closure moves none of them, and neither does
+--- adding or removing one, but for one an example of the closure could
+--- be paired with: so neither the address nor the store moves.
 function writer.closure_address(basis: writer.Basis, names: {string}, salt: string): string
   local lines: {string} = { basis.shared, salt }
-  for _, name in ipairs(stored(basis, names)) do lines[#lines + 1] = basis.modules[name] end
+  for _, name in ipairs(stored(basis, names)) do
+    lines[#lines + 1] = basis.modules[name]
+    if basis.kinds[name] == "example" then
+      lines[#lines + 1] = "pairs " .. name .. " " .. table.concat(candidates(basis, name), " ")
+    end
+  end
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
@@ -634,15 +656,27 @@ local closed: {string} = {
     "WHERE module IN temp.wanted ORDER BY id",
 }
 
+--- Flushes the file at `path` to the disk: `VACUUM INTO` leaves its
+--- output unsynced, and a store cut short by a crash after its rename
+--- would stand at its address for good.
+local function sync(path: string): boolean, string
+  local fd, trouble = sys.open(path, sys.O_RDONLY)
+  if fd == nil then return false, path .. ": " .. trouble end
+  local synced, sync_trouble = sys.fsync(fd)
+  local _, _ = sys.close(fd)
+  if not synced then return false, path .. ": " .. sync_trouble end
+  return true, ""
+end
+
 --- Writes at `out` the closure store for `names` (see
 --- `closure_address`) of the projection at `whole`, whose basis is
 --- `basis`: what a sandboxed worker of a test whose module's import
 --- closure `names` holds is given at o/cosmic.db in the projection's
 --- place (`build.test_sandbox`), so an edit outside the closure leaves
---- it as it was. Its `meta` names `address` as `closure`, and the
---- tree's carried modules (`Basis.tree`) as `tree_modules`, one a line.
---- Like the projection, a function of its inputs alone: a fresh
---- schema, filled in one order, vacuumed.
+--- it as it was. Its `meta` names `address` as `closure`. Like the
+--- projection, a function of its inputs alone: a fresh schema, filled
+--- in one order, vacuumed; and synced before it is moved into place,
+--- since a store is written once and read as it is from then on.
 function writer.closure(whole: string, out: string, names: {string}, basis: writer.Basis,
                         address: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
@@ -668,8 +702,7 @@ function writer.closure(whole: string, out: string, names: {string}, basis: writ
         if not ok then return false, failure end
       end
       local noted, note_trouble = Sqlite.run(db,
-        "INSERT INTO main.meta (key, value) VALUES ('closure', ?1), ('tree_modules', ?2)",
-        { text(address), text(table.concat(basis.tree, "\n")) })
+        "INSERT INTO main.meta (key, value) VALUES ('closure', ?1)", { text(address) })
       if not noted then return false, note_trouble end
       for _, statement in ipairs(rebuild_fts) do
         local ok, failure = db:exec((statement:gsub("out%.", "main.")))
@@ -682,6 +715,8 @@ function writer.closure(whole: string, out: string, names: {string}, basis: writ
     local _, _ = Fs.remove(out .. ".building")
     local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1", { text(out .. ".building") })
     if not vacuumed then return false, vacuum_trouble end
+    local synced, sync_trouble = sync(out .. ".building")
+    if not synced then return false, sync_trouble end
     return Fs.rename(out .. ".building", out)
   end
   local db, open_trouble = Sqlite.memory()

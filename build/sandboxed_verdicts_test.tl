@@ -338,16 +338,21 @@ end
 --- the projection's place: it holds none of the tree's modules outside
 --- the closure, which a `require` is refused anyway, and its verdict
 --- stands across an edit to one of them -- which rewrites the projection
---- -- while one to a module of the closure runs it again. A store no
---- module names any longer is taken out.
+--- -- and across a module added, which a `require` is refused too; while
+--- one to a module of the closure runs it again. A store no module names
+--- any longer is taken out.
 local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
   assert(Fs.write(root .. "/suite/other.tl", "return { value = 1 }\n"))
   assert(Fs.write(root .. "/suite/closed_test.tl", [[
+local Env = require("cosmic.env")
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
 local lib = require("suite.lib")
+
+Test.needs { env = { "ADDED" } }
 
 local function test_closed()
   assert(lib.value == 1)
@@ -356,10 +361,17 @@ local function test_closed()
   assert(bytes == nil, "a module outside the closure is in the store")
   local ok, why = pcall(require, ("suite." .. "other"))
   assert(not ok and tostring(why):find("outside the import closure", 1, true), tostring(why))
+  if Env.get("ADDED") == "1" then
+    local added, added_why = pcall(require, ("suite." .. "added"))
+    assert(not added and tostring(added_why):find("outside the import closure", 1, true),
+      tostring(added_why))
+  end
 end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
-  -- Unsandboxed, the whole projection is attached, and the test fails.
+  -- Unchecked: where no worker can be sandboxed, the run is
+  -- unsandboxed, its worker attaches the whole projection, and the
+  -- test fails -- `unsandboxed` then ends this one.
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
   assert(first:find("test: PASS", 1, true) and first:find("1 ran, 0 stood", 1, true), first)
@@ -371,6 +383,16 @@ end
   local outside = run(root, tmp .. "/outside.out", env)
   assert(outside:find("0 ran, 1 stood", 1, true), outside)
   assert(assert(Fs.read(root .. "/o/cosmic.db")) ~= projection, "the projection did not move")
+  -- A module added: it stands, on the same store; told to look, it
+  -- finds a `require` of the new module refused.
+  assert(Fs.write(root .. "/suite/added.tl", "return {}\n"))
+  local added = run(root, tmp .. "/added.out", env)
+  assert(added:find("0 ran, 1 stood", 1, true), added)
+  assert(#assert(Fs.list(root .. "/o/stores")) == 1)
+  env.ADDED = "1"
+  local looked = run(root, tmp .. "/looked.out", env)
+  assert(looked:find("1 ran, 0 stood", 1, true), looked)
+  env.ADDED = nil
   -- Inside it: it runs again, given a store of its own, and the one
   -- before is taken out.
   assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
