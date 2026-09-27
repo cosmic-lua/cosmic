@@ -373,7 +373,7 @@ chmod 755 o/bin/cosmic
       COSMIC_CI_SCOPE = "light", COSMIC_CI_EVENT = "push",
       COSMIC_CI_CHECKED_SUITE = "skip", COSMIC_CI_REQUIRE_SANDBOX = "1",
       HOME = "/home/runner", HTTPS_PROXY = "http://proxy:3128",
-      SSL_CERT_FILE = "/etc/ssl/cert.pem", XDG_CACHE_HOME = "/cache",
+      SSL_CERT_FILE = "/etc/ssl/cert.pem", XDG_CACHE_HOME = tmp .. "/cache",
     }))
   assert(outcome.result.ok, "the build failed: " .. Fixture.read(outcome.err))
   local env: {string:string} = {}
@@ -392,7 +392,7 @@ chmod 755 o/bin/cosmic
   end
   for name, value in pairs({ COSMIC_CI_REQUIRE_SANDBOX = "1", HOME = "/home/runner",
       HTTPS_PROXY = "http://proxy:3128", SSL_CERT_FILE = "/etc/ssl/cert.pem",
-      XDG_CACHE_HOME = "/cache", TARGET = "x86_64-linux-musl",
+      XDG_CACHE_HOME = tmp .. "/cache", TARGET = "x86_64-linux-musl",
       COSMIC_WORKER = "worker", FUZZ_ITERS = "0", COSMIC_TEST_SANDBOX = "1" }) do
     assert(env[name] == value, name .. " did not reach the suite: " .. tostring(env[name]))
   end
