@@ -13,6 +13,9 @@ local State = require("cosmic_ci.state")
 local Time = require("cosmic.time")
 
 local record Orchestration
+  stands: function(env: {string:string}): boolean
+  test_words: function(env: {string:string}, force?: boolean): {string}
+  shares: function(env: {string:string}, force?: boolean)
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -22,45 +25,55 @@ local is_dir = Predicate.is_dir
 local function read(path: string): string return (assert(Fs.read(path))) end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
+--- Whether a suite stands on the verdicts its tests' declared inputs
+--- key (build/declared_key.tl), this leg's earlier runs' among them
+--- (COSMIC_VERDICT_CACHE, which ci.yml restores per leg), in `env`: on a
+--- leg whose workers are sandboxed, and required to be
+--- (COSMIC_CI_REQUIRE_SANDBOX=1) -- the Linux legs -- in a run of a
+--- branch's push (COSMIC_CI_EVENT=push). The merge queue's run, a
+--- manual one and main's scheduled one run every test (`--all`) and
+--- stand on nothing another run reached (COSMIC_TEST_NO_SHARED=1), and
+--- so does the macOS leg's, whose workers run unsandboxed, whatever
+--- the event: a pass a key does not answer for -- a test that turns on
+--- the clock, or a flaky one -- is run again before it lands, and
+--- every day.
+-- TODO: share verdicts across runners of a leg only once the key holds
+-- what a host's package database does not say (the TODO on
+-- build/declared_key.tl's `host_identity`): today a leg's verdicts are
+-- keyed by its container as ci.yml names it (COSMIC_HOST_ID: the image
+-- reference, the seccomp profile, the leg's docker options and the
+-- engine's version), but a change inside an image under the same
+-- reference, or on the runner beneath it, is not.
+function Orchestration.stands(env: {string:string}): boolean
+  return env.COSMIC_CI_REQUIRE_SANDBOX == "1" and env.COSMIC_CI_EVENT == "push"
+end
+
+--- Sets `env` for a suite that stands on nothing another run reached
+--- (COSMIC_TEST_NO_SHARED=1) where it does not stand on verdicts
+--- (`stands`), or `force` says it runs every test.
+function Orchestration.shares(env: {string:string}, force?: boolean)
+  if force or not Orchestration.stands(env) then env.COSMIC_TEST_NO_SHARED = "1" end
+end
+
+--- A suite's `cosmic test` words in `env`: `--all` where it stands on
+--- nothing (`stands`), or where `force` says to anyway.
+function Orchestration.test_words(env: {string:string}, force?: boolean): {string}
+  if Orchestration.stands(env) and not force then return { "test" } end
+  return { "test", "--all" }
+end
+
 --- The environment every operation runs in: the driver's own, with
 --- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
 --- night with a seed of its own: a check that gates a change answers the
 --- same on every run, and one that searches runs where a find blocks
 --- nobody's merge.
---- Whether a suite stands on the verdicts its tests' declared inputs
---- key (build/declared_key.tl), this leg's earlier runs' among them
---- (COSMIC_VERDICT_CACHE, which ci.yml restores and saves per leg): on
---- a leg whose workers are sandboxed, and required to be
---- (COSMIC_CI_REQUIRE_SANDBOX=1), that ci.yml tells to (COSMIC_CI_STAND=1)
---- -- the Linux legs, but for a manual run. Otherwise it runs every test
---- (`--all`) and stands on nothing another run reached
---- (COSMIC_TEST_NO_SHARED=1): the macOS leg, whose workers run
---- unsandboxed, is the merge queue's uncached backstop.
--- TODO: key what a host's package database does not say before sharing
--- verdicts across runners of a leg -- its container image, by the digest
--- ci.yml pins it at, handed to the run in a variable the key holds (the
--- TODO on build/declared_key.tl's `host_identity`): today a leg's cache
--- is its own, and its image a pinned digest, so a verdict is shared only
--- among runs on the same image, but a runner's own changes under /usr
--- beside the container's are not keyed.
-local function stands(): boolean
-  return Env.get("COSMIC_CI_STAND") == "1" and Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
-end
-
---- A suite's `cosmic test` words: `--all` where it stands on nothing
---- (`stands`).
-local function test_words(): {string}
-  if stands() then return { "test" } end
-  return { "test", "--all" }
-end
-
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
   -- Where it does not stand on verdicts (`stands`), a suite stands on
   -- none another run reached, only on what it runs itself.
-  if not stands() then all.COSMIC_TEST_NO_SHARED = "1" end
+  Orchestration.shares(all)
   -- Where the leg is given what spawn's sandbox needs, every suite runs
   -- each worker sandboxed (build/test_sandbox.tl), as `cosmic test`
   -- does by default wherever it can, and fails where it cannot rather
@@ -310,7 +323,9 @@ local function checked_suite(c: Context, target: string, work: string): integer
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
   local checked_argv: {string} = { cosmic }
-  for _, word in ipairs(test_words()) do checked_argv[#checked_argv + 1] = word end
+  for _, word in ipairs(Orchestration.test_words(Env.all())) do
+    checked_argv[#checked_argv + 1] = word
+  end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     180000, c.root, environment())
@@ -359,17 +374,21 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   return answer
 end
 
+--- One suite of `c`'s candidate, run by `executable`: with every test
+--- run (`--all`) and nothing stood on where `force` says so, whatever
+--- `Orchestration.stands` answers.
 local function suite(c: Context, name: string, executable: string,
-    diagnostics: string, env?: {string:string}): integer
+    diagnostics: string, env?: {string:string}, force?: boolean): integer
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
   local values = environment(env)
+  Orchestration.shares(values, force)
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
   local argv: {string} = { executable }
-  for _, word in ipairs(test_words()) do argv[#argv + 1] = word end
+  for _, word in ipairs(Orchestration.test_words(values, force)) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ms, c.root, values)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
@@ -557,8 +576,11 @@ local function phase_portable(p: PlatformContext): integer
   local executable = portable_d .. "/cosmic-portable"
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver }
+  -- Forced: the tree it runs was built afresh from tracked source by
+  -- another program, and the verdicts it could stand on are the local
+  -- suite's of minutes ago -- standing on them would check nothing.
   local s = suite(portable_context, "portable", executable, portable_d,
-    { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache" })
+    { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache" }, true)
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
     assert(read(portable_d .. "/portable-artifact.before.sha256") ==
