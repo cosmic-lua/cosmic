@@ -81,7 +81,7 @@
 --- worker runs of the tree is keyed exactly when it is of its closure
 --- or of the harness, and `build.test_worker`'s `judge` fails a test
 --- whose worker loaded a module the tool carries that is of neither --
---- a top-level require added to build.dispatch, a lazy one a worker
+--- a top-level require added to build.test_worker, a lazy one a worker
 --- reaches -- naming it. The harness is what a worker loads, not
 --- every module its modules require: a `local type` require is erased
 --- by Teal and loads nothing, and what an imported type does at run

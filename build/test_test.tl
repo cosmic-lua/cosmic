@@ -825,7 +825,9 @@ end
 --- verdict a wrong key kept does not stand after the fix; so does one
 --- to the worker, to the plan of its sandbox, to cosmic's main or to
 --- the diagnostic the core loads, and one to the store's writer moves
---- the address. One to a module of none of them moves neither.
+--- the address. One to a module of none of them moves neither: not
+--- one to build.dispatch, or to what only it requires, since cosmic's
+--- main starts a worker ahead of it (cmd/cosmic/main.tl).
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local function compiled(text: string): string
     local bytecode = string.dump((assert(load(text, "=compiled", "t"))))
@@ -857,11 +859,14 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
                           "build.artifact", "build.test_worker", "build.test_sandbox",
                           "cmd.cosmic.main", "build.filesystem_observations",
-                          "build.test_inputs", "build.dispatch", "cosmic.store",
-                          "cosmic.removed" }) do
+                          "build.test_inputs", "cosmic.store", "cosmic.removed" }) do
     assert(moves(name) == "harness", name .. " moved " .. moves(name))
   end
   for _, name in ipairs({ "build.importer", "build.analyzer" }) do
+    assert(moves(name) == "", name .. " moved " .. moves(name))
+  end
+  for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",
+                          "cosmic.flags" }) do
     assert(moves(name) == "", name .. " moved " .. moves(name))
   end
   for _, name in ipairs({ "build.writer", "build.schema" }) do
