@@ -50,8 +50,10 @@ its encoder are fuzzed here, in `cosmic/json_fuzz_test.tl`.
 - publish `cosmic-debug`, the sanitized build, once there is a way to
   distribute one fat, cross-platform debug build. until then the checked core
   is built and run only in CI, where its build paths do not matter. the core
-  links its host's libc and carries build paths in `.rodata` and its line
-  tables, so a published one would be built at a fixed path on every runner.
+  is static musl on Linux and links libSystem on macOS, as the release cores
+  do, so one built on any runner of an architecture runs on the others; it
+  carries build paths in `.rodata` and its line tables, so a published one
+  would be built at a fixed path on every runner.
 
 ## process isolation and containment
 

@@ -36,7 +36,7 @@ machine=${4:-$(uname -m 2>/dev/null || true)}
 # says which code reads each: a feature added there is added here. A
 # machine no audit has read keeps every feature.
 case $machine in
-  x86_64) keep='aes avx2 fma fma4 pclmulqdq sse4_1 ssse3' ;;
+  x86_64) keep='aes pclmulqdq sse4_1 ssse3' ;;
   aarch64) keep='aes asimd crc32 pmull' ;;
   *) keep='' ;;
 esac
