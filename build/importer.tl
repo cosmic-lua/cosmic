@@ -66,13 +66,15 @@ end
 -- `compiled`'s primary key once per `typed_refs` row ("USING INDEX
 -- sqlite_autoindex_compiled_1 FOR IN-OPERATOR"), and that key is the
 -- WITHOUT ROWID table itself, its `lua` and `bytecode` inline, so each
--- probe walks a b-tree of overflow pages: on cosmic's own tree, 5912
--- rows cost 779,368 pread64 calls and 300-390 ms of a warm build that
--- otherwise takes about 200. The unary `+` makes `key` an expression,
--- which SQLite's documented rule keeps from using an index, so the
--- planner reads `compiled` once into a list ("LIST SUBQUERY") and the
--- statement takes about 2 ms. Both `key` columns are NOT NULL, so
--- `NOT IN` meets no NULL.
+-- probe reads the overflow chain of every cell it compares: on
+-- cosmic's own tree, about 5900 rows cost 200,000-780,000 pread64
+-- calls (two measurements, by the database's layout) and 300-390 ms
+-- of a warm build that otherwise takes about 200. The unary `+` makes
+-- `key` an expression, which SQLite's documented rule keeps from
+-- using an index, so the planner reads `compiled` once into a list
+-- ("LIST SUBQUERY") and the statement takes about 2 ms. Neither `key`
+-- is ever NULL (`typed_refs`' is declared so, `compiled`'s is a
+-- WITHOUT ROWID primary key), so `NOT IN` meets no NULL.
 importer.prune_references =
   "DELETE FROM typed_refs WHERE key NOT IN (SELECT +key FROM compiled)"
 
