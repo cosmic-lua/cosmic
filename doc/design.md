@@ -155,8 +155,12 @@ undefined-behavior checking with a message and a trace rather than a
 bare trap. `bin/zig build sanitized` boots with that core and embeds
 it in `o/sanitized/bin/cosmic`; every full CI run (merge queue, main,
 or a manual run) verifies the embedded core bytes and, on the Linux
-x86-64 leg, runs the whole test suite under a 180-second limit, with
-full undefined-behavior checking and coverage collection enabled. zig
+x86-64 leg, runs the test suite under a 180-second limit, with full
+undefined-behavior checking and coverage collection enabled: every
+test in main's scheduled run and a manual one, and in the merge
+queue's and main's only the tests whose sandboxed verdict does not
+stand from an earlier run (`ci/cosmic_ci/orchestration.tl`'s
+`stands`). zig
 ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
 toolchain and with that caveat stated, is a later addition. a
