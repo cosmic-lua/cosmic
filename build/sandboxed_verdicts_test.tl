@@ -173,11 +173,13 @@ local function test_a_sandboxed_verdict_stands_in_another_checkout(tmp: string)
   assert(first:find("4 ran, 0 stood", 1, true), first)
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
-  assert(second:find("1 ran, 3 stood, 3 of them on another checkout's verdict", 1, true), second)
+  assert(second:find("1 ran, 3 stood, 1 run every time", 1, true) and
+    second:find("3 of them on another checkout's verdict", 1, true), second)
   checkout(tmp .. "/third")
   assert(Fs.write(tmp .. "/third/suite/data/f", "three\n"))
   local third = run(tmp .. "/third", tmp .. "/third.out", env)
-  assert(third:find("2 ran, 2 stood, 2 of them on another checkout's verdict", 1, true), third)
+  assert(third:find("2 ran, 2 stood, 1 run every time", 1, true) and
+    third:find("2 of them on another checkout's verdict", 1, true), third)
   -- Told to stand on none of them, a checkout runs everything.
   checkout(tmp .. "/unshared")
   local unshared = run(tmp .. "/unshared", tmp .. "/unshared.out", env, { "--no-shared" })
@@ -195,7 +197,7 @@ local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
-Test.needs { tool = true }
+Test.needs { tool = true, store = true }
 
 local function test_runs_the_tool()
   local result = assert(Child.run({ assert(Proc.executable()), "-e", "" }))
@@ -205,6 +207,9 @@ end
   assert(Fs.write(root .. "/suite/undeclared_test.tl", [[
 local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
+local Test = require("cosmic.test")
+
+Test.needs { store = true }
 
 local function test_is_refused_the_tool()
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })

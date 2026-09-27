@@ -2527,7 +2527,10 @@ function test.run(argv: {integer:string}): integer
     local why: string
     sandboxed, why = sandbox_here()
     if sandboxed then
-      runtime = runtime .. " sandboxed"
+      -- And whether it is held to confining what it starts
+      -- (`observations.must_confine`), which a test's verdict turns on.
+      runtime = runtime .. " sandboxed" ..
+        (Env.get("COSMIC_SANDBOX") == "must" and " must" or "")
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
         test_sandbox.tree)

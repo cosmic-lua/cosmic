@@ -240,8 +240,9 @@ end
 
 --- COSMIC_SANDBOX=must makes every `confine` a `must_confine`, and runs
 --- every test no key holds, as `--all` does, where a run without it
---- assumes one: a test that fell back to an unconfined process, passed
---- and so is assumed, runs again and fails. Any other value fails the
+--- assumes one -- and a sandboxed run keys every test by it -- so a
+--- test that fell back to an unconfined process, passed and so is
+--- assumed or stands, runs again and fails. Any other value fails the
 --- test that confines.
 local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   local root = tmp .. "/root"
@@ -269,8 +270,11 @@ end
 ]]))
   local text, ok = run(root, tmp .. "/first", environment(nil))
   assert(ok and text:find("1 ran", 1, true), text)
+  -- Unsandboxed, it is assumed; sandboxed, it stands on its declared
+  -- key, which holds the mode below.
   text, ok = run(root, tmp .. "/assumed", environment(nil))
-  assert(ok and text:find("0 ran, 0 stood, 1 assumed", 1, true), text)
+  assert(ok and (text:find("0 ran, 0 stood, 1 assumed", 1, true) or
+    (text:find("; sandboxed)", 1, true) and text:find("0 ran, 1 stood", 1, true))), text)
   text, ok = run(root, tmp .. "/must", environment("must"))
   assert(not ok, text)
   assert(text:find("FAIL  suite.fallback_test test_falls_back: confine (COSMIC_SANDBOX=must): " ..
