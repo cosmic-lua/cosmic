@@ -130,6 +130,13 @@
         # (COSMIC_TEST_SANDBOX=1, build/test_sandbox.tl), and fail where
         # none can be; the macOS leg's run unsandboxed.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
+        # A Linux leg's suites stand on the verdicts their tests' declared
+        # inputs key (build/declared_key.tl), this leg's earlier runs'
+        # among them (restored below), and run only what none answers
+        # for; a manual run runs every test. The macOS leg, whose workers
+        # run unsandboxed, runs every test and stands on none, as the
+        # merge queue's uncached backstop. See orchestration.tl's `stands`.
+        COSMIC_CI_STAND: "${{ matrix.image && github.event_name != 'workflow_dispatch' && '1' || '0' }}",
       },
       steps: [
         {
@@ -280,6 +287,21 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.zig-cache-key.outputs.prefix }}\nzig-build-${{ matrix.name }}-\n",
+          },
+        },
+
+        # The test verdicts this leg reached before (COSMIC_VERDICT_CACHE,
+        # .github/scripts/cosmic-driver.sh), each leg its own: the newest
+        # this ref can restore -- its own, else main's. Only a Linux leg
+        # stands on them (COSMIC_CI_STAND).
+        {
+          name: "restore test verdicts",
+          if: "matrix.image",
+          uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "verdicts-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "verdicts-${{ matrix.name }}-\n",
           },
         },
 
@@ -496,6 +518,22 @@
           "working-directory": ".",
           shell: "sh",
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+        },
+
+        # What every suite of the leg reached, saved after the last of
+        # them, whatever failed (a failing verdict takes a passing one
+        # out), under a key of this run's own, for the next run of this
+        # leg -- on this ref, or, from main, on any -- to restore. After
+        # the tree is back where it was checked out, for the reason the
+        # zig cache save above is.
+        {
+          name: "save test verdicts",
+          if: "always() && matrix.image && steps.driver.outcome == 'success'",
+          uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "verdicts-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}",
+          },
         },
       ],
     },

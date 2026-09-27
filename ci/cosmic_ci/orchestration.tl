@@ -28,12 +28,39 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- night with a seed of its own: a check that gates a change answers the
 --- same on every run, and one that searches runs where a find blocks
 --- nobody's merge.
+--- Whether a suite stands on the verdicts its tests' declared inputs
+--- key (build/declared_key.tl), this leg's earlier runs' among them
+--- (COSMIC_VERDICT_CACHE, which ci.yml restores and saves per leg): on
+--- a leg whose workers are sandboxed, and required to be
+--- (COSMIC_CI_REQUIRE_SANDBOX=1), that ci.yml tells to (COSMIC_CI_STAND=1)
+--- -- the Linux legs, but for a manual run. Otherwise it runs every test
+--- (`--all`) and stands on nothing another run reached
+--- (COSMIC_TEST_NO_SHARED=1): the macOS leg, whose workers run
+--- unsandboxed, is the merge queue's uncached backstop.
+-- TODO: key what a host's package database does not say before sharing
+-- verdicts across runners of a leg -- its container image, by the digest
+-- ci.yml pins it at, handed to the run in a variable the key holds (the
+-- TODO on build/declared_key.tl's `host_identity`): today a leg's cache
+-- is its own, and its image a pinned digest, so a verdict is shared only
+-- among runs on the same image, but a runner's own changes under /usr
+-- beside the container's are not keyed.
+local function stands(): boolean
+  return Env.get("COSMIC_CI_STAND") == "1" and Env.get("COSMIC_CI_REQUIRE_SANDBOX") == "1"
+end
+
+--- A suite's `cosmic test` words: `--all` where it stands on nothing
+--- (`stands`).
+local function test_words(): {string}
+  if stands() then return { "test" } end
+  return { "test", "--all" }
+end
+
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
-  -- A suite stands on no verdict another checkout reached, only on
-  -- what it runs itself; see the TODO in .github/workflows/ci.yml.
-  all.COSMIC_TEST_NO_SHARED = "1"
+  -- Where it does not stand on verdicts (`stands`), a suite stands on
+  -- none another run reached, only on what it runs itself.
+  if not stands() then all.COSMIC_TEST_NO_SHARED = "1" end
   -- Where the leg is given what spawn's sandbox needs, every suite runs
   -- each worker sandboxed (build/test_sandbox.tl), as `cosmic test`
   -- does by default wherever it can, and fails where it cannot rather
@@ -280,9 +307,11 @@ local function checked_suite(c: Context, target: string, work: string): integer
   -- workers, 90 to 100 s whole on a 4-core host under ci/run-local,
   -- no one test past 7 s -- a suite grown to 1400 tests, which 90 s
   -- no longer held.
-  -- --all: CI answers for every test, the ones no verdict can stand
-  -- for included, whatever o/ holds.
-  s = logged(c, "checked suite", { cosmic, "test", "--all" },
+  -- --all where it stands on no verdict (`stands`): CI answers for
+  -- every test then, whatever o/ holds.
+  local checked_argv: {string} = { cosmic }
+  for _, word in ipairs(test_words()) do checked_argv[#checked_argv + 1] = word end
+  s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     180000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
@@ -337,9 +366,11 @@ local function suite(c: Context, name: string, executable: string,
   local err = diagnostics .. "/" .. name .. "-test.err"
   local values = environment(env)
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
-  -- --all: CI answers for every test, the ones no verdict can stand
-  -- for included, whatever o/ holds.
-  local status = logged(c, name .. " suite", { executable, "test", "--all" }, out, err,
+  -- --all where it stands on no verdict (`stands`): CI answers for
+  -- every test then, whatever o/ holds.
+  local argv: {string} = { executable }
+  for _, word in ipairs(test_words()) do argv[#argv + 1] = word end
+  local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ms, c.root, values)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snap_called, snap_answer = pcall(snapshot, c, diagnostics,

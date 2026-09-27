@@ -615,15 +615,16 @@ checks. each independently builds the complete product, runs it, and uploads the
 executed bytes. a separate provenance job compares the four products and their
 attestations.
 
-#### before CI stands on shared verdicts
+#### what an observed key leaves out
 
-CI writes the shared verdicts but stands only on what it runs itself
-(`COSMIC_TEST_NO_SHARED=1`, set in `.github/scripts/cosmic-driver.sh` and
-`ci/cosmic_ci/orchestration.tl`): a verdict another checkout reached stands
-wherever its key is reached again, so everything a test's verdict turns on that
-the key leaves out is a way for a sibling's pass to answer for a failure. each
-gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
-are closed:
+CI's Linux legs stand on shared verdicts: those of sandboxed runs, keyed by
+each test's declared inputs (`build/declared_key.tl`), which the sandbox holds
+the test to, and the host's identity. what that key still leaves out is in the
+`TODO:`s on `host_identity` there and in `ci/cosmic_ci/orchestration.tl`'s
+`stands`. an unsandboxed run -- the macOS leg's, which runs every test and
+stands on none -- is keyed instead by what its tests were observed to read, and
+shares nothing. what an observed key leaves out, each with a `TODO:` where its
+fix goes:
 
 - [x] *the tree's location* (`build/filesystem_observations.tl`, above
   `tree_name`): no input to a test, by rule. a test may not turn on where the
