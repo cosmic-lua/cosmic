@@ -52,6 +52,8 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
     "lib/declared.d.tl lib/deep/init.tl lib/helper.tl lib/thing_test.tl", table.concat(files, " "))
   assert(#effective.reads == 0 and #effective.host == 0)
   assert(effective.env.TMPDIR and effective.env.HOME and effective.env.FUZZ_SEED)
+  -- How a test of the sandbox itself confines what it starts.
+  assert(effective.env.COSMIC_SANDBOX)
   assert(not effective.env.USER and not effective.env["*"])
   assert(next(effective.network) == nil)
   assert(not effective.processes and not effective.tool and not effective.store)

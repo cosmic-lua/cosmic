@@ -10,9 +10,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
+local Test = require("cosmic.test")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 --- `name` built at run time, so the build cannot follow it.
 local function computed(...: string): string

@@ -69,6 +69,12 @@ local record observations
   record Resolving
     tree: string
     own: {string}
+    --- What this process's own sandbox gives it to read, every process
+    --- it starts inheriting it -- `cosmic test`'s sandboxed worker
+    --- (build/test_sandbox.tl) -- or nil where it runs unsandboxed. A
+    --- process the test starts with no confinement of its own is held
+    --- to that, and noted as a confined one is: by each of these paths.
+    held: {string}
   end
 
   --- What a test declares the processes it starts need, beyond the
@@ -278,12 +284,17 @@ end
 --- not even `getenv("")`.
 local environ_path = "\0environ"
 
---- Every field exposed by `sys.stat` but the access time, including an
---- error result: what the path is, its size and permissions first, then
---- its modification time, inode, device, link count and owner, and its
---- change time last. A read moves the access time, so keying on it would
---- make every verdict that reads a file stale by reading it -- a declared
---- test's (`observations.reads_stat_times`) included.
+--- Every field exposed by `sys.stat` but the access time and the owner,
+--- including an error result: what the path is, its size and
+--- permissions first, then its modification time, inode, device and
+--- link count, and its change time last. A read moves the access time,
+--- so keying on it would make every verdict that reads a file stale by
+--- reading it -- a declared test's (`observations.reads_stat_times`)
+--- included. The owner is left out as `sys.tree_digest`'s stamps leave
+--- it out: a change of it moves the change time, and a sandbox nested
+--- in another -- a sandboxed worker's, started by a test of a sandboxed
+--- run -- maps no ids, and answers it as the overflow id (65534) where
+--- the host has its own.
 local function stat_result_answer(st: sys.Stat | nil, trouble: string,
                                   errno: integer): string
   if st == nil then
@@ -291,7 +302,7 @@ local function stat_result_answer(st: sys.Stat | nil, trouble: string,
   end
   return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
     tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
-    tostring(st.nlink), tostring(st.uid), tostring(st.gid), tostring(st.ctime),
+    tostring(st.nlink), tostring(st.ctime),
     tostring(st.ctime_ns) }, " ")
 end
 
@@ -405,6 +416,10 @@ local function declare(declared: observations.Confinement | nil, must: string | 
   confinement, strict = { reads = reads, writes = writes }, must
 end
 
+--- For a test of the sandbox itself, which nests one sandbox in
+--- another: any other test declares what its processes read in its
+--- module's `Test.needs`, whose sandboxed worker holds them to it
+--- (`Resolving`'s `held`).
 --- Declares what every process the calling test starts from here on
 --- needs: `declared.reads`, read-only, and `declared.writes`, which it
 --- may change, beside `system` and the test's own
@@ -449,12 +464,11 @@ end
 ---
 --- It covers only a test that declares: a process started with no
 --- declaration in force, after `confine(nil)` or in a test that never
---- confines, runs unconfined and never stands, as it always has.
--- TODO: hold every test's processes, declared or not, once the test
--- worker runs sandboxed by default (build/test_sandbox.tl, today behind
--- COSMIC_TEST_SANDBOX=1) and every child inherits its sandbox: a
--- process no declaration holds is then confined to the worker's own,
--- and must mode can refuse the rest.
+--- confines, has the sandboxed worker's own sandbox and is keyed by it
+--- (`Resolving`'s `held`), or, where the worker runs unsandboxed,
+--- runs unconfined and never stands. Only the sandbox's own tests
+--- confine: every other test's processes are the worker's to hold,
+--- which its module's `Test.needs` declares for them.
 function observations.must_confine(declared: observations.Confinement | nil)
   must_everywhere() -- a misspelt mode raises here too
   declare(declared, "must_confine")
@@ -907,8 +921,9 @@ end
 
 --- Declares that the calling test's verdict turns on what `stat` says
 --- of a file of the tree beyond what it is, its size and its
---- permissions: its modification or change time, its inode, device,
---- link count or owner -- a staleness check comparing one file's time
+--- permissions: its modification or change time, its inode, device or
+--- link count -- its owner no key holds, whose change moves the change
+--- time (`stat_result_answer`) -- a staleness check comparing one file's time
 --- with another's, say, or a test of `Fs.copy` keeping a source's times.
 --- Noted "z" by every running capture, it keys each stat and lstat the
 --- test made of a path under the tree, what `stat` says now of each file
@@ -1170,10 +1185,24 @@ local function start(resolving: observations.Resolving | nil):
         "a sandbox of its own that does not unveil and take the network, which " ..
         "must_confine does not add to", sys.EINVAL), sys.EINVAL
     end
-    -- TODO: confine a process a `declared` call starts too, and refuse
-    -- it under `must_confine`, once the test worker runs sandboxed
-    -- itself and every child inherits its sandbox: today one started
-    -- while `declaring` runs as it would have, noted "h".
+    -- A process this sandboxed process starts with no sandbox of its
+    -- own and no confinement declared has this one's sandbox and no
+    -- more: noted by what that gives it to read, as a confined one is,
+    -- and started as it is, with no sandbox nested in it. Where it
+    -- starts, and with what environment, are as the test asked.
+    local held = resolving ~= nil and resolving.held or nil
+    if sandbox == nil and confinement == nil and declaring == 0 and held ~= nil then
+      local own = test_own()
+      local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
+        process_group, fds, nil)
+      -- Whether it started turns on the same paths as what it read.
+      note_unveiled(held, {}, own, environment, stdin, stdout, stderr, fds)
+      return pid, trouble, errno
+    end
+    -- TODO: note a process a `declared` call starts by what the worker's
+    -- sandbox holds it to too, as one it starts undeclared is above,
+    -- rather than "h": today one started while `declaring` runs is
+    -- keyed by nothing it read, sandboxed or not (build/c/init.tl's zig).
     if sandbox == nil and confinement ~= nil and declaring == 0 then
       local declared: observations.Confinement = confinement
       local own = test_own()

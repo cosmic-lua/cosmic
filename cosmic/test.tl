@@ -30,10 +30,12 @@
 --- process, whichever module makes it: a test module never requires
 --- another test module that calls `needs`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
--- TODO: take `confine`, `reads_stat_times` and `environment` from
+-- TODO: take `reads_stat_times` and `environment` from
 -- build.filesystem_observations, which a test calls to say what it
--- starts and what it reads of a stat, once each can be read from the
--- source as `needs` is: another project's tests cannot reach build/.
+-- reads of a stat and what a process of this program it starts needs,
+-- once each can be read from the source as `needs` is: another
+-- project's tests cannot reach build/. (`confine` stays there: only the
+-- sandbox's own tests nest one sandbox in another.)
 
 local Errors = require("cosmic.errors")
 
@@ -58,6 +60,13 @@ local record Test
     network: boolean | {string}
     --- Whether the tests start processes no sandbox holds, or hand one
     --- what no observation accounts for: a descriptor, a path of /proc.
+    --- Only a worker run unsandboxed (macOS, a host refusing user
+    --- namespaces) starts one: a sandboxed worker holds every process it
+    --- starts to what the module declares, and its audit asks nothing
+    --- of this.
+    -- TODO: drop `processes` once every host a test runs on sandboxes
+    -- its worker (macOS has no spawn sandbox: core/process.h's `unveil`
+    -- is Linux's alone), and its audit never asks for it.
     processes: boolean
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them.

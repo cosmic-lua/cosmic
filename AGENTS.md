@@ -75,32 +75,37 @@
    as CI's driver passes. Run `--all` before pushing a change such a test
    covers. A key holds of a stat of the tree only its kind, size and mode
    across checkouts: a test whose verdict turns on a file's times, inode,
-   device, link count or owner calls `observations.reads_stat_times()`,
+   device or link count calls `observations.reads_stat_times()`,
    which keys them whole, so it stands only in its own checkout.
-   Where the kernel cannot confine a process, `confine` starts it
-   unconfined; `observations.must_confine` fails the spawn, and the
-   test, instead, naming the part of the sandbox refused and its errno.
-   `COSMIC_SANDBOX=must` (off by default) makes every `confine` one,
-   runs every assumed test as `--all` does, and fails
-   `core/syscalls_test.tl`'s sandbox tests rather than letting them
-   return unchecked. It covers only tests that confine: a process
-   started with no declaration in force still runs unconfined.
+   Only the sandbox's own tests nest one sandbox in another with
+   `observations.confine`: where the kernel cannot confine a process,
+   `confine` starts it unconfined; `observations.must_confine` fails
+   the spawn, and the test, instead, naming the part of the sandbox
+   refused and its errno. `COSMIC_SANDBOX=must` (off by default) makes
+   every `confine` one, runs every assumed test as `--all` does, and
+   fails `core/syscalls_test.tl`'s sandbox tests rather than letting
+   them return unchecked.
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
    `o/bin/cosmic docs cosmic.test`); `o/bin/cosmic test --audit` runs
    every test and names what each read undeclared, with the `needs`
    call that would hold it. Keep it clean, narrowing a test before declaring
-   a large set: a process it starts is given `observations.environment()`
-   rather than the whole environment. The closure is what the build
+   a large set. What it declares, it declares for the processes it
+   starts too, which inherit its worker's sandbox and environment; build
+   a process's environment from `observations.environment()` only where
+   the test means to choose it. The closure is what the build
    finds `require`d by a literal name, and a test's `require` of any
    other module of the tree (a computed name, `pcall(require, ...)`)
    fails, naming it: require it statically, at the top level.
-   `COSMIC_TEST_SANDBOX=1` (off by default) runs each worker sandboxed
-   to those inputs (`build/test_sandbox.tl`): the tree at /tree, its
-   directory at /tmp, and nothing else of either, so a test that reads
-   what it does not declare fails there; CI's Linux legs run the suite
-   so as a shadow that gates nothing yet.
+   Each worker runs sandboxed to those inputs (`build/test_sandbox.tl`),
+   wherever the kernel can sandbox one: the tree at /tree, its directory
+   at /tmp, and nothing else of either, with every process it starts, so
+   a test that reads what it does not declare fails. Where none can be
+   (macOS, a host refusing user namespaces), or with
+   `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed and the run shares
+   no verdict; `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's
+   Linux legs set it.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and

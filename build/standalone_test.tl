@@ -6,10 +6,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
-local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 --- `standalone.compile` with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
@@ -139,7 +139,7 @@ return Script
 ]]))
   local cosmic = assert(Proc.executable())
   local result = assert(Child.run({ cosmic, "--standalone", script, "one", "two" }, {
-    cwd = tmp, env = observations.environment(), stdout = "capture", stderr = "capture",
+    cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ms = 30000,
   }))
   assert(result.code == 5, tostring(result.stderr))
@@ -208,7 +208,7 @@ end
 local function test_a_run_without_a_file_is_a_usage_error()
   local cosmic = assert(Proc.executable())
   local result = assert(Child.run({ cosmic, "--standalone" }, {
-    env = observations.environment(), stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000,
   }))
   assert(result.code == 2)
   assert(tostring(result.stderr):find("usage", 1, true) ~= nil)

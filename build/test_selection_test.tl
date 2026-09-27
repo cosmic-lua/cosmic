@@ -6,9 +6,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 local function invoke(program: string, root: string, output: string,
     selector: string): Child.Result

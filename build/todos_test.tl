@@ -7,7 +7,6 @@ local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
 local narrow = require("build.narrow")
 local work = require("build.work")
-local observations = require("build.filesystem_observations")
 
 --- git, and the environment `cosmic todos` starts it with.
 -- TODO: name git by what PATH finds rather than where this host keeps
@@ -15,9 +14,6 @@ local observations = require("build.filesystem_observations")
 -- the sandbox resolves): on a host with git elsewhere, the audit finds
 -- that read undeclared.
 Test.needs{ host = { "/usr/bin/git" }, env = { "*" } }
-
--- What these tests start is git, the system's own.
-observations.confine({})
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.
@@ -273,7 +269,7 @@ local function git_in(root: string, args: {string}): boolean
   for _, each in ipairs(args) do
     argv[#argv + 1] = each
   end
-  local result = Child.run(argv, { env = observations.environment(), stdin = "null",
+  local result = Child.run(argv, { stdin = "null",
     stdout = "null", stderr = "null" })
   return result ~= nil and result.ok
 end

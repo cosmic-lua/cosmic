@@ -68,10 +68,13 @@ local record test_inputs
 end
 
 --- The variables every test may read undeclared, which a sandboxed
---- worker is given pinned: what the checker and the fuzzer read, and
---- what a process of the program running the tests reads to run at
---- all (`observations.runtime_environment`).
-local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE" }
+--- worker is given pinned: what the checker and the fuzzer read, how a
+--- test of the sandbox itself confines what it starts (COSMIC_SANDBOX,
+--- `observations.must_confine`), and what a process of the program
+--- running the tests reads to run at all
+--- (`observations.runtime_environment`).
+local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
+  "COSMIC_SANDBOX" }
 for _, name in ipairs(observations.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
 --- Where `build.fuzz` keeps the corpus of every property.

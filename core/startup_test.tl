@@ -9,9 +9,10 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
+local Test = require("cosmic.test")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 local function environment(): {string:string}
   local env = observations.environment()

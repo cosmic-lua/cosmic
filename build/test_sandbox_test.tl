@@ -13,9 +13,6 @@ local Test = require("cosmic.test")
 --- What a worker's plan gives it of the host, and the program it runs.
 Test.needs{ host = { "/dev/urandom", "/etc", "/proc", "/usr/" }, tool = true }
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
-
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
   local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
@@ -63,6 +60,14 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   -- One given at its own name beneath /tmp is kept where it is.
   assert(host:sub(1, 5) ~= "/tmp/" or holds(plan.kept, host), host)
   assert(#unveil.writes == 1 and unveil.writes[1] == scratch and unveil.at[scratch] == "/tmp")
+  -- A process the worker starts is keyed by what it declares, as the
+  -- worker sees it, and the system's own paths -- not by its closure's
+  -- files, nor by the store it does not declare.
+  assert(holds(plan.held, "/tree/data") and holds(plan.held, host) and holds(plan.held, "/usr"))
+  assert(not holds(plan.held, "/tree/a/x.tl") and not holds(plan.held, "/tree/o/cosmic.db"))
+  inputs.store = true
+  assert(holds(test_sandbox.plan(root, scratch, inputs, {}).held, "/tree/o/cosmic.db"))
+  inputs.store = false
   -- A declared cache is given to write at its own name, made first.
   inputs.cache_paths = { tmp .. "/caches/zig-global" }
   local cached = test_sandbox.plan(root, scratch, inputs, {})
@@ -90,7 +95,7 @@ local function test_a_worker_is_given_only_the_variables_it_may_read()
   local env = test_sandbox.environment(view, inputs)
   assert(env.PATH == "/bin" and env.DECLARED == "d" and env.UNDECLARED == nil)
   assert(env.TMPDIR == "/tmp")
-  assert(env.COSMIC_SANDBOX == "must", "how the test's own processes are confined is carried")
+  assert(env.COSMIC_SANDBOX == nil, "only what is pinned or declared is given")
   inputs.env = { ["*"] = true }
   local all = test_sandbox.environment(view, inputs)
   assert(all.UNDECLARED == "u" and all.TMPDIR == "/tmp")
@@ -149,15 +154,15 @@ local function run(root: string, output: string, env: {string:string}): string, 
   return text, result.ok
 end
 
---- End to end: with the switch on, a test's worker runs in /tree, has
---- its own directory under /tmp, reads what its module declares of the
---- tree and nothing else of it, sees nothing of the host it was not
---- given, and reads only the variables it declares; and the run says it
---- was sandboxed. The same suite unsandboxed reads all of it. Where this
---- host cannot sandbox the run's workers -- the kernel refuses, or this
---- test runs as root in a sandbox already, where the kernel refuses a
---- third level -- the run says so, and runs them as it would have. A
---- switch that is neither "1" nor off is refused.
+--- End to end: by default, a test's worker runs in /tree, has its own
+--- directory under /tmp, reads what its module declares of the tree
+--- and nothing else of it, sees nothing of the host it was not given,
+--- and reads only the variables it declares -- and so does a process it
+--- starts; and the run says it was sandboxed. The same suite with the
+--- switch off reads all of it, and says it shares no verdict. Where
+--- this host cannot sandbox the run's workers the run says so, and runs
+--- them unsandboxed, sharing none -- but with the switch on, where it
+--- fails. A switch that is neither "1", "0" nor unset is refused.
 local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -165,6 +170,7 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   assert(Fs.write(root .. "/suite/data.txt", "declared"))
   assert(Fs.write(root .. "/suite/secret.txt", "undeclared"))
   assert(Fs.write(root .. "/suite/view_test.tl", string.format([[
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -173,11 +179,15 @@ Test.needs { reads = { "suite/data.txt" }, env = { "DECLARED_VAR" } }
 
 local function test_view(tmp: string)
   local here = assert(sys.getcwd())
+  -- What a process it starts sees, with the worker's environment.
+  local child = assert(Child.run({ "/bin/sh", "-c",
+    "cat suite/data.txt suite/secret.txt 2>/dev/null; printf '/%%s/%%s' \"$DECLARED_VAR\" \"$UNDECLARED_VAR\"" },
+    { stdout = "capture" }))
   error(table.concat({ "seen", here, tmp,
     tostring((Fs.read(here .. "/suite/data.txt"))),
     tostring((Fs.read(here .. "/suite/secret.txt"))),
     tostring(sys.stat(%q) ~= nil), tostring(sys.getenv("DECLARED_VAR")),
-    tostring(sys.getenv("UNDECLARED_VAR")), "end" }, "|"))
+    tostring(sys.getenv("UNDECLARED_VAR")), tostring(child.stdout), "end" }, "|"))
 end
 ]], hidden)))
   local env = observations.environment()
@@ -187,36 +197,53 @@ end
   env.DECLARED_VAR = "d"
   env.UNDECLARED_VAR = "u"
   local real_root = assert(Fs.absolute(root))
+  env.COSMIC_TEST_SANDBOX = "0"
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
+  assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), sharing no verdicts)", 1, true), text)
+  assert(text:find("rerun: COSMIC_TEST_SANDBOX=0 cosmic test suite/view_test.tl:test_view", 1,
+    true), text)
   local seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
   local fields: {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
-    fields[5] == "true" and fields[6] == "d" and fields[7] == "u", seen)
-  env.COSMIC_TEST_SANDBOX = "1"
+    fields[5] == "true" and fields[6] == "d" and fields[7] == "u" and
+    fields[8] == "declaredundeclared/d/u", seen)
+  env.COSMIC_TEST_SANDBOX = nil
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
   if text:find("no worker can be sandboxed here", 1, true) then
-    assert(text:find("; unsandboxed, as no worker can be sandboxed here", 1, true), text)
+    assert(text:find("; unsandboxed, as no worker can be sandboxed here, sharing no verdicts)", 1,
+      true), text)
+    -- Required, the run fails instead.
+    env.COSMIC_TEST_SANDBOX = "1"
+    text, ok = run(root, tmp .. "/required", env)
+    assert(not ok and text:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
+      1, true), text)
     return
   end
-  assert(text:find("; sandboxed", 1, true), text)
+  assert(text:find("; sandboxed)", 1, true), text)
   seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
   fields = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == "/tree" and fields[2] == "/tmp/tmp" and fields[3] == "declared" and
-    fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil", seen)
+    fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and
+    fields[8] == "declared/d/", seen)
   -- Its failure names what it read undeclared, the declaration that
-  -- would give it, and how to run it again sandboxed.
+  -- would give it, and how to run it again as it ran.
   assert(text:find("sandboxed, it read what its module does not declare:", 1, true), text)
   assert(text:find("reads        suite/secret.txt", 1, true), text)
   assert(text:find("env          UNDECLARED_VAR", 1, true), text)
   assert(text:find("declare: Test.needs {", 1, true), text)
-  assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1, true),
-    text)
+  assert(text:find("rerun: cosmic test suite/view_test.tl:test_view", 1, true), text)
+  -- Required where it can be, the same.
+  env.COSMIC_TEST_SANDBOX = "1"
+  text, ok = run(root, tmp .. "/required", env)
+  assert(not ok and text:find("; sandboxed)", 1, true), text)
+  assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1,
+    true), text)
   -- A misspelt switch is refused.
   env.COSMIC_TEST_SANDBOX = "yes"
   text, ok = run(root, tmp .. "/misspelt", env)
@@ -252,7 +279,6 @@ end
   env.COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE or Fs.cache_path("cores")
   env.XDG_CACHE_HOME = xdg
   env.COSMIC_ZIG_CACHE, env.COSMIC_ZIG_GLOBAL_CACHE = nil, nil
-  env.COSMIC_TEST_SANDBOX = "1"
   local text, ok = run(root, tmp .. "/out", env)
   assert(not ok, text)
   if text:find("no worker can be sandboxed here", 1, true) then return end
