@@ -864,30 +864,82 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local tool = importer.analyzer_identity(binary)
   assert(not tool:find("^binary "), tool)
 
-  -- The next boot, before and after it parses.
-  local function boot_names(): string, string
+  -- The next boot: what it names the analyzer before and after it
+  -- parses, what it leaves `meta` naming it, and whether a row planted
+  -- under build.other's source (which only forgetting every parse
+  -- removes) survived. Run as a boot runs, with no `boot_hash`: the
+  -- suite's binary carries one, so `Store.meta` is stood in for across
+  -- the derive. `before_derive` changes the working database first.
+  local function boot(before_derive?: function(work.Handle)): string, string, string, boolean
     local again = assert(work.open(root))
     assert(work.stage(again, true))
+    assert(Sqlite.run(again.db,
+      "INSERT OR REPLACE INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
+      "exported, kind, signature, text, line) SELECT source_hash, 99, " ..
+      "'Planted', 'Planted', 0, 'record', '', '', 1 " ..
+      "FROM inputs WHERE path = 'build.other'"))
+    if before_derive ~= nil then before_derive(again) end
     local before = importer.analyzer_identity((assert(importer.tree_code(again))))
-    assert(importer.derive(again, true, built))
+    local meta = Store.meta
+    Store.meta = function(key: string): string | nil
+      if key == "boot_hash" then return nil end
+      return meta(key)
+    end
+    local ok, derived, trouble = pcall(importer.derive, again, true, built)
+    Store.meta = meta
+    assert(ok, tostring(derived))
+    assert(derived, trouble)
     local after = importer.analyzer_identity((assert(importer.tree_code(again))))
+    local recorded = assert(Sqlite.text_rows(again.db,
+      "SELECT value FROM meta WHERE key = 'analyzer'"))
+    local planted = assert(Sqlite.text_rows(again.db,
+      "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(again)
-    return before, after
+    return before, after, recorded[1][1], planted[1][1] == "1"
   end
-  local before, after = boot_names()
+  -- The first boot after the suite's own binary derived: that binary's
+  -- rows go, and the boot names its own as the tool does.
+  local before, after, recorded, kept = boot()
   assert(before == tool, "a boot names the analyzer otherwise than the tool it wrote")
   assert(after == tool, "a boot's parse moved the analyzer's name")
+  assert(recorded == tool, "a boot recorded another name than the tool's")
+  assert(not kept, "rows another analyzer derived were kept")
+  before, after, recorded, kept = boot()
+  assert(recorded == tool and kept, "a boot forgot what a boot of the same tree derived")
 
   assert(Fs.write(root .. "/build/other.tl", files["build/other.tl"] .. "-- edited\n"))
-  before, after = boot_names()
-  assert(before == tool and after == tool,
+  before, after, recorded, kept = boot()
+  assert(before == tool and after == tool and recorded == tool,
     "an edit outside the analyzer moved its name")
   -- A new require of an analyzer module is found only by the parse: the
-  -- edit alone moves the name, and the parse settles it.
+  -- edit alone moves the name, the parse settles it, and the boot
+  -- records it, so the next boot forgets nothing.
   assert(Fs.write(root .. "/build/ast.tl", module_of("ast", { "raw", "other" })))
-  before, after = boot_names()
+  before, after, recorded, kept = boot()
   assert(before ~= tool and after ~= tool and after ~= before,
     "an edit to an analyzer module did not move its name")
+  assert(recorded == after, "a boot recorded the name before its parse")
+  local settled = after
+  before, after, recorded, kept = boot()
+  assert(before == settled and recorded == settled and kept,
+    "a boot forgot what the boot before it derived of the same tree")
+  -- Rows that are not the whole of a parse -- build.ast's missing, and
+  -- the analyzer named by what is left -- move the name when the parse
+  -- mends them, though nothing was forgotten: every row is forgotten
+  -- and the tree parsed again.
+  before, after, recorded, kept = boot(function(cut: work.Handle)
+    for _, table_name in ipairs({ "parsed", "requires", "tests", "catalog", "docs",
+                                  "refs", "examples", "test_inputs" }) do
+      assert(cut.db:exec("DELETE FROM " .. table_name .. " WHERE source_hash IN " ..
+        "(SELECT source_hash FROM inputs WHERE path = 'build.ast')"))
+    end
+    assert(Sqlite.run(cut.db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
+      { { text = importer.analyzer_identity((assert(importer.tree_code(cut)))) } }))
+  end)
+  assert(before ~= settled and after == settled and recorded == settled,
+    "a cut parse was named otherwise than the whole one")
+  assert(not kept, "rows a cut parse left were kept under the mended name")
   assert(out:close())
 end
 

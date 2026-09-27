@@ -421,8 +421,12 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
   end
   local db = handle.db
   -- What the binary's `imports` holds (`build.writer`): the requires of
-  -- every source of a planned name, kept where they name a planned
-  -- module. The build plans every input but a declaration.
+  -- each module the build plans, kept where they name a planned module.
+  -- Every input but a declaration stands for a planned one here: the
+  -- only others left out -- a test or an example the compile refuses,
+  -- and every test and example once the tool's carried database drops
+  -- them -- no analyzer module requires, so the walk from the analyzer
+  -- never reaches them.
   local function requires(name: string): {string} | nil, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT DISTINCT r.name FROM inputs i " ..
@@ -499,42 +503,67 @@ local function record_analyzer(db: Sqlite.Handle, identity: string): boolean, st
     { text(identity) })
 end
 
---- Forgets every derived row when the code that derives them has
---- changed since they were made. A row keyed by its source's hash is
---- found again for as long as that source stands, which is right only
---- while the analyzer stands too: an extractor that learns to see
---- something new, or a generator that emits differently, must see
---- every source again. The analyzer is named by the code that is
---- running it (`running_analyzer`), not by the tree: a stale tool
---- rebuilding itself derives and parses with its own, older code before
---- the new tool re-enters, and must not leave rows the new tool takes
---- for its own. Only a change to that code reparses everything; an edit
---- anywhere else in the tool reparses just what it edited.
-local function forget_stale_analysis(handle: work.Handle): boolean, string
-  local db = handle.db
-  local identity, identity_trouble = running_analyzer(handle)
-  if identity == nil then
-    return false, identity_trouble
-  end
-  local last, last_trouble = Sqlite.text_rows(db,
+--- What `meta` names the analysis tables' rows as derived by, "" for
+--- none.
+local function recorded_analyzer(db: Sqlite.Handle): string | nil, string
+  local last, trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'analyzer'")
   if last == nil then
-    return false, last_trouble
+    return nil, trouble
   end
-  if #last > 0 and last[1][1] == identity then
-    return true, ""
-  end
+  return #last > 0 and last[1][1] or "", ""
+end
+
+--- Forgets every derived row: every parse, and every derivation but
+--- the compiler's.
+local function forget_analysis(db: Sqlite.Handle): boolean, string
   for _, table_name in ipairs(analysis_tables) do
     local ok, trouble = db:exec("DELETE FROM " .. table_name)
     if not ok then
       return false, trouble
     end
   end
-  local swept, sweep_trouble = db:exec("DELETE FROM derived WHERE origin <> 'vendor'")
-  if not swept then
-    return false, sweep_trouble
+  return db:exec("DELETE FROM derived WHERE origin <> 'vendor'")
+end
+
+--- Forgets every derived row when the code that derives them has
+--- changed since they were made, and answers whether it did. A row
+--- keyed by its source's hash is found again for as long as that
+--- source stands, which is right only while the analyzer stands too: an
+--- extractor that learns to see something new, or a generator that
+--- emits differently, must see every source again. The analyzer is
+--- named by the code that is running it (`running_analyzer`), not by
+--- the tree: a stale tool rebuilding itself derives and parses with its
+--- own, older code before the new tool re-enters, and must not leave
+--- rows the new tool takes for its own. Only a change to that code
+--- reparses everything; an edit anywhere else in the tool reparses just
+--- what it edited. A boot no longer forgets as a side effect of being
+--- one (it was named "binary " once, and so reparsed the tree after any
+--- change to the core's C, build.zig or a pin): the analyzer's name is
+--- a function of the compiler, the pins and the Teal sources it
+--- reaches, and of nothing else, by design.
+local function forget_stale_analysis(handle: work.Handle): boolean | nil, string
+  local db = handle.db
+  local identity, identity_trouble = running_analyzer(handle)
+  if identity == nil then
+    return nil, identity_trouble
   end
-  return record_analyzer(db, identity)
+  local last, last_trouble = recorded_analyzer(db)
+  if last == nil then
+    return nil, last_trouble
+  end
+  if last == identity then
+    return false, ""
+  end
+  local forgot, forget_trouble = forget_analysis(db)
+  if not forgot then
+    return nil, forget_trouble
+  end
+  local recorded, record_trouble = record_analyzer(db, identity)
+  if not recorded then
+    return nil, record_trouble
+  end
+  return true, ""
 end
 
 --- The identity of the code that finds `typed_refs` and checks the
@@ -600,6 +629,37 @@ local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
     { text(identity) })
 end
 
+--- Derives and parses what the staged tree holds that the tables do
+--- not, and drops what no input refers to any more (`importer.derive`).
+local function derive_new(db: Sqlite.Handle, built: compiler): boolean, string
+  local swept, sweep_trouble = db:exec(
+    "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
+    "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
+    "AND f.sha256 = derived.from_hash)")
+  if not swept then
+    return false, sweep_trouble
+  end
+  local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
+  for _, step in ipairs(steps) do
+    local ok, trouble = step(db)
+    if not ok then
+      return false, trouble
+    end
+  end
+  local parsed, parse_trouble = parse_new(db, built)
+  if not parsed then
+    return false, parse_trouble
+  end
+  for _, table_name in ipairs(analysis_tables) do
+    local ok, trouble = db:exec("DELETE FROM " .. table_name ..
+      " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
+    if not ok then
+      return false, trouble
+    end
+  end
+  return true, ""
+end
+
 --- Brings `derived` and the parse tables up to the staged tree, inside
 --- the run's transaction: a derived row whose file changed or vanished goes, and
 --- only what is new is extracted, generated, or parsed. The compiler's
@@ -636,48 +696,46 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
   end
 
   local forgotten, forget_trouble = forget_stale_analysis(handle)
-  if not forgotten then
+  if forgotten == nil then
     return false, forget_trouble
   end
-
-  local swept, sweep_trouble = db:exec(
-    "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
-    "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
-    "AND f.sha256 = derived.from_hash)")
-  if not swept then
-    return false, sweep_trouble
+  local derived, derive_trouble = derive_new(db, built)
+  if not derived then
+    return false, derive_trouble
   end
-  local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
-  for _, step in ipairs(steps) do
-    local ok, trouble = step(db)
-    if not ok then
-      return false, trouble
-    end
-  end
-  local parsed, parse_trouble = parse_new(db, built)
-  if not parsed then
-    return false, parse_trouble
-  end
-  for _, table_name in ipairs(analysis_tables) do
-    local ok, trouble = db:exec("DELETE FROM " .. table_name ..
-      " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
-    if not ok then
-      return false, trouble
-    end
+  if Store.meta("boot_hash") ~= nil then
+    return true, ""
   end
   -- A boot names its analyzer again now that every source is parsed:
   -- what an analyzer module whose source is new requires is found only
   -- by this parse, and the tool the boot writes walks it
-  -- (`importer.tree_code`). The rows are all the tree's code's either
-  -- way, kept under the same name or derived again by it.
-  if Store.meta("boot_hash") == nil then
-    local identity, identity_trouble = running_analyzer(handle)
-    if identity == nil then
-      return false, identity_trouble
-    end
-    return record_analyzer(db, identity)
+  -- (`importer.tree_code`). A name the parse moved when nothing was
+  -- forgotten can only come of rows that were not the whole of a parse
+  -- (one cut short, say), so they are forgotten and the tree parsed
+  -- again, rather than kept under a name they do not hold to.
+  local before, before_trouble = recorded_analyzer(db)
+  if before == nil then
+    return false, before_trouble
   end
-  return true, ""
+  local after, after_trouble = running_analyzer(handle)
+  if after == nil then
+    return false, after_trouble
+  end
+  if after ~= before and not forgotten then
+    local forgot, forgot_trouble = forget_analysis(db)
+    if not forgot then
+      return false, forgot_trouble
+    end
+    local again, again_trouble = derive_new(db, built)
+    if not again then
+      return false, again_trouble
+    end
+    after, after_trouble = running_analyzer(handle)
+    if after == nil then
+      return false, after_trouble
+    end
+  end
+  return record_analyzer(db, after)
 end
 
 --- What `test_inputs` holds, by source hash: each `_inputs`

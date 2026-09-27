@@ -388,11 +388,10 @@ end
 ---   ask the same question of the tree, or only whether there is one;
 ---   `analyzer_identity` and `receivers_identity` name the binary by it
 ---   only where it carries no source for its analyzer, which a built
----   binary does; the value
----   names a cache entry (build.standalone's `cached_path`), and the
----   bill of materials' version (build.bom), which only moves a name;
----   and an unsandboxed verdict's identity (build.test's `identity_of`),
----   which a sandboxed key is not.
+---   binary does; the value names a cache entry (build.standalone's
+---   `cached_path`), and the bill of materials' version (build.bom),
+---   which only moves a name; and an unsandboxed verdict's identity
+---   (build.test's `identity_of`), which a sandboxed key is not.
 --- - `projected`: build.writer reads it from a projection it wrote, to
 ---   skip writing the same one again, never from a binary.
 ---
