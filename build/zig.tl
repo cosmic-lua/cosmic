@@ -950,14 +950,31 @@ end
 --- which build.zig reads (`-Dpatched=`). Answers the manifest's path.
 --- build.zig compiles every vendored file from these directories, each
 --- named by its contents, so its path is the same from every checkout.
+--- The binary is started past its launcher (`Proc.relaunch`), as a test
+--- worker is, so running the script takes no shell and lands on this
+--- same core; one with no artifact to relaunch is started as
+--- `Proc.executable` names it.
 local function patch(root: string, project: string): string | nil, string
-  local self, self_trouble = Proc.executable()
-  if self == nil then
-    return nil, self_trouble
+  local argv: {string} = {}
+  local env: {string:string} = Env.all()
+  local fds: {integer:integer | string} = {}
+  local relaunch, _ = Proc.relaunch()
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for number, fd in pairs(relaunch.fds) do fds[number] = fd end
+  else
+    local self, self_trouble = Proc.executable()
+    if self == nil then
+      return nil, self_trouble
+    end
+    argv[1] = self
   end
-  local result, trouble = Child.run({ self, "--standalone",
-    root .. "/build/patch.tl", root, project .. "/cosmic-vendor" },
-    { stdout = "capture" })
+  for _, word in ipairs({ "--standalone", root .. "/build/patch.tl", root,
+      project .. "/cosmic-vendor" }) do
+    argv[#argv + 1] = word
+  end
+  local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture" })
   if result == nil then
     return nil, "build/patch.tl: " .. trouble
   end
