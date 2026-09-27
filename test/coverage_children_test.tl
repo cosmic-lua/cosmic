@@ -14,7 +14,7 @@ local Test = require("cosmic.test")
 
 --- What a confined child is given of the host, and /proc, where its
 --- coverage is found; and the program itself, which its tests start.
-Test.needs{ host = { "/proc", "/usr" }, tool = true }
+Test.needs{ host = { "/proc" }, tool = true, system = true }
 
 local function test_a_started_process_reports_its_c(tmp: string)
   if next(Coverage.native_lines()) == nil then return end

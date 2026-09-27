@@ -296,7 +296,9 @@ end
 --- (`reboot.own_tool`) does either; another refuses with
 --- `foreign_refusal`, rebuilding nothing. A fresh tool of the tree's
 --- own whose database another writer wrote (`unsettled`) writes itself
---- again, as a rebuild does, and re-enters `argv`.
+--- again, as a rebuild does, and re-enters `argv`; so does one a
+--- rebuild just wrote that is stale by its own code, which a rebuild
+--- across a change to the fingerprint itself leaves.
 ---
 --- `handle` is the working database of `root`, which must be cosmic's
 --- own tree (`tree.is_own`), open and staged. Answers nil when the tool
@@ -346,6 +348,18 @@ function reboot.guard(handle: work.Handle, root: string,
     return 3
   end
   -- state == "teal"
+  -- A rebuild records the tree's fingerprint by the rebuilding tool's
+  -- own build.work, so when the tree moved what that fingerprint covers
+  -- (`is_tool`, `record_fingerprint`) the tool it wrote is stale by its
+  -- own code. build.work is in the writer's closure, so that tool is
+  -- `unsettled` too: it builds itself again, once, as a fresh unsettled
+  -- tool does, rather than refusing; `into` sets the marker to "2", so
+  -- a tool stale after that refuses.
+  if sys.getenv(marker) == "1" and unsettled() then
+    log:complain("the tool's database was built by other code than its own; building it again")
+    log:complain(into(handle, teal.lazy(), argv, true))
+    return 3
+  end
   log:complain("the tool is stale; rebuilding it from the tree")
   log:complain(into(handle, teal.lazy(), argv, false))
   return 3

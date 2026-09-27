@@ -8,8 +8,9 @@ local observations = require("build.filesystem_observations")
 local rules = require("build.c.rules")
 
 --- The core's C and the headers it includes, which zig parses to a syntax
---- tree, and what bin/zig reads to find or fetch zig; the bootstrap
---- cosmic and zig, and the caches zig builds in, which it writes.
+--- tree, and what bin/zig reads to find or fetch zig, which the system's
+--- `sh` runs; the bootstrap cosmic and zig, and the caches zig builds
+--- in, which it writes.
 Test.needs{
   reads = { "bin/cosmic-bootstrap", "bin/zig", "bin/zig.pin", "ci/cosmic-driver.pin", "core/",
     "vendor/bzip2/", "vendor/cares/include/", "vendor/curl/include/", "vendor/lua/src/",
@@ -19,6 +20,7 @@ Test.needs{
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
+  system = true,
   caches = { "bootstrap", "zig" },
 }
 

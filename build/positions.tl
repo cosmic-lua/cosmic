@@ -90,7 +90,10 @@ end
 --- of the directory around it, so it is the one path into a closed
 --- directory from outside, and a nested directory without one has no
 --- path in at all. In cosmic's own tree `build/` is private as well:
---- only `may_import_build`'s files may import from it.
+--- only `may_import_build`'s files may import from it; and a test is
+--- private to tests: the tool's identity leaves every test out
+--- (`build.work`'s `is_tool`), so one it carried for a module requiring
+--- it could change under it unseen.
 ---
 --- Declarations (`.d.tl`) never reach this check: `collect` leaves
 --- them out, and `cosmic/internal/`'s are guarded by the reserved
@@ -121,6 +124,10 @@ function positions.check(modules: {positions.Module}, own_tree: boolean): boolea
         if own_tree and Fs.within(other.file, "build") and not may_import_build(m) then
           return false, m.file .. ": " .. name .. " is private to build/; " ..
             "only build/, cmd/, test/ and tests may import it"
+        end
+        if own_tree and other.kind == "test" and m.kind ~= "test" then
+          return false, m.file .. ": " .. name .. " is a test; only a test may " ..
+            "import one, since the tool carries none"
         end
       end
     end

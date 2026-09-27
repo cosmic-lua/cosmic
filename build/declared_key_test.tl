@@ -320,18 +320,20 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   assert(run_under("one compiler", reading) ~= run_under("another compiler", reading))
 end
 
---- Each part of the host's identity moves it: its package database, its
---- system files, the processor's features, the status of this process,
---- the user, which /proc a sandbox gets, and what the host says of
---- itself; the processor's features are each counted once, and only
---- those a core chooses code by.
+--- Each part of the host's identity moves it: its kernel, the
+--- processor's features, the status of this process, the user, which
+--- /proc a sandbox gets, and what the host says of itself; the
+--- processor's features are each counted once, and only those a core
+--- chooses code by. Its package database and the system it says it is
+--- move what it has installed (`system_identity`) instead, and not it.
 local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   local function write(name: string, text: string): string
     assert(Fs.write(tmp .. "/" .. name, text))
     return tmp .. "/" .. name
   end
   local sources: declared_key.HostSources = {
-    packages = { write("packages", "p1") }, system = { write("os", "o1") },
+    packages = { write("packages", "p1") },
+    system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
     cpuinfo = write("cpuinfo", "flags : aes fma\nflags : fma aes\n"), machine = "x86_64",
     status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
     own_proc = true, host_id = "h1", uid = 1,
@@ -349,12 +351,20 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   assert(identity() == identity(), "the same host")
   write("cpuinfo", "flags : fma aes avx512f\n")
   assert(seen[identity()] == "the start", "each feature is counted once, if a core reads it")
+  local installed = declared_key.system_identity(declared_key.digests(tmp), sources)
   write("packages", "p2")
-  differs("the packages")
   write("os", "o2")
-  differs("the system")
+  assert(seen[identity()] == "the start", "what the host has installed moved it")
+  local now = declared_key.system_identity(declared_key.digests(tmp), sources)
+  assert(now ~= installed, "the packages and the system moved nothing installed")
+  write("packages", "p3")
+  assert(declared_key.system_identity(declared_key.digests(tmp), sources) ~= now, "the packages")
+  write("release", "r2")
+  differs("the kernel's release")
+  write("version", "v2")
+  differs("the kernel's version")
   write("cpuinfo", "flags : aes\n")
-  assert(seen[identity()] == "the system", "a feature no core reads")
+  assert(seen[identity()] == "the kernel's version", "a feature no core reads")
   write("cpuinfo", "flags : aes fma pclmulqdq\n")
   differs("a feature of the processor")
   write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
@@ -367,6 +377,44 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   differs("what the host says of itself")
   sources.uid = 2
   differs("the user")
+end
+
+--- Two hosts that differ only in what they have installed -- their
+--- package databases and the systems they say they are -- key a test
+--- alike where its module is given none of the system's paths, and
+--- where it names a file of the host's, keyed by its contents; apart
+--- where it declares `system`, or a directory of the host's, which is
+--- keyed by its name alone and stands on what is installed.
+local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed(tmp: string)
+  tree(tmp .. "/tree")
+  assert(Fs.mkdirs(tmp .. "/host/dir"))
+  assert(Fs.write(tmp .. "/host/file", "f\n"))
+  local function installed(packages: string, release: string): string
+    assert(Fs.write(tmp .. "/packages", packages))
+    assert(Fs.write(tmp .. "/os-release", release))
+    return declared_key.system_identity(declared_key.digests(tmp), {
+      packages = { tmp .. "/packages" }, system = { tmp .. "/os-release" },
+    })
+  end
+  local one = installed("dpkg one\n", "ID=one\n")
+  local other = installed("dpkg other\n", "ID=other\n")
+  assert(one ~= other)
+  local function key_on(system: string, declares_system: boolean, host: {string}): string
+    local s = spec()
+    s.system = system
+    s.effective.system = declares_system
+    s.effective.host = host
+    return key_of(tmp .. "/tree", s)
+  end
+  assert(key_on(one, false, {}) == key_on(other, false, {}), "a module not given the system")
+  local file = { tmp .. "/host/file" }
+  assert(key_on(one, false, file) == key_on(other, false, file), "a module given a file of the host's")
+  assert(key_on(one, false, { "/proc/" }) == key_on(other, false, { "/proc/" }),
+    "a module given /proc, which no package installs")
+  assert(key_on(one, true, {}) ~= key_on(other, true, {}), "a module given the system")
+  assert(key_on(one, false, { tmp .. "/host/dir" }) ~= key_on(other, false, { tmp .. "/host/dir" }),
+    "a module given a directory of the host's")
+  assert(key_on(one, true, {}) ~= key_on(one, false, {}), "declaring the system")
 end
 
 --- The program's identity is its files' contents, but for the stamp
@@ -413,11 +461,11 @@ end
 
 --- A program is keyed by what it runs as: its image and the rows it
 --- carries, but not the rows of its `meta` every edit of the tree
---- moves -- `boot_hash`, over every file of the tool's trees, its tests'
---- included, and `projected`, over the whole projection -- so a tool
---- rebuilt for a comment in a test keys as it did, in the program that
---- runs and in o/bin alike, while a carried module and the core move
---- both.
+--- moves -- `boot_hash`, over every file of the tool's trees but their
+--- tests, and `projected`, over the whole projection -- so a tool
+--- written again for an edit that moved nothing it carries (a boot
+--- after a comment in a test) keys as it did, in the program that runs
+--- and in o/bin alike, while a carried module and the core move both.
 local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   tree(tmp)
   assert(Fs.mkdirs(tmp .. "/o/bin"))

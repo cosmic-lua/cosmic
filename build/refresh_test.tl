@@ -21,8 +21,8 @@ local observations = require("build.filesystem_observations")
 local refresh = require("build.refresh")
 
 --- The vendored bundle and zones a refresh replaces, and the tool it
---- refreshes.
-Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true }
+--- refreshes, whose launcher the system's `sh` runs.
+Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true, system = true }
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 local zones <const> = "vendor/tzdata/zoneinfo"
@@ -208,6 +208,11 @@ end
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
+  -- Unsandboxed: the tables are keyed in the runtime of a run sandboxed
+  -- or not, and a sandbox nested in this test's own is one a host may
+  -- refuse (root nests one only two deep), so the runs mean the same
+  -- everywhere.
+  env.COSMIC_TEST_SANDBOX = "0"
   local function run(binary: string, name: string): boolean, string
     local output = tmp .. "/" .. name .. ".out"
     local fd = assert(Fs.open_write(output))

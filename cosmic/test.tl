@@ -98,6 +98,22 @@ local record Test
     --- `hold_store`), nor is the descriptor a portable start keeps on
     --- the program (the TODO above core/syscalls_fs.c's `read`).
     store: boolean
+    --- Whether the tests, or the processes they start, read the system's
+    --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and
+    --- /etc, as a host program or its dynamic loader needs them -- a
+    --- shell, `sleep`, a compiler's headers, the zone database. Without
+    --- it a sandboxed worker has none of them, only /proc and the
+    --- devices every program takes for granted (/dev/null, /dev/zero,
+    --- /dev/urandom), and its key holds nothing of which packages the
+    --- host has installed or which system it says it is: a verdict that
+    --- stood on one host stands on another of the same kernel and
+    --- processor. A test that starts this program only past its launcher
+    --- -- its core, relaunched (build.filesystem_observations'
+    --- `program`) -- needs none; one that runs the launcher itself
+    --- (o/bin/cosmic, `#!/bin/sh`) needs it. One that reads a file or two
+    --- of the system rather names them in `host`, which keys a file by
+    --- its contents.
+    system: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
@@ -117,7 +133,7 @@ end
 --- in the source to the same table (`build.analyzer`).
 Test.fields = {
   reads = "list", host = "list", env = "list", network = "either",
-  processes = "flag", tool = "flag", store = "flag", caches = "list",
+  processes = "flag", tool = "flag", store = "flag", system = "flag", caches = "list",
 }
 
 --- What a test runner installed as `__runner` on this module's table

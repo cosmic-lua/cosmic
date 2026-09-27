@@ -10,13 +10,16 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
-local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start.
-Test.needs{ tool = true }
+--- The program itself, which its tests start, and what holds a run to
+--- sandboxing (`shares`).
+Test.needs{
+  env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
+  tool = true,
+}
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed.
@@ -36,17 +39,32 @@ local function run(root: string, output: string, env: {string:string},
   return text
 end
 
---- Whether the run that printed `text` shared its verdicts: where no
---- worker can be sandboxed, none is shared, and a case of sharing
---- has nothing to check. The run takes this one's switch
---- (COSMIC_TEST_SANDBOX, pinned): turned off, it shares nothing; and
---- where this test's own worker is sandboxed and the switch requires
---- it, a run that shared nothing fails the case rather than skip it.
+--- Whether the run that printed `text` shared its verdicts: only a run
+--- whose workers are sandboxed shares any, and a case of sharing has
+--- nothing to check where none can be. Its workers are nested in this
+--- test's own sandbox, which a host may refuse them (the kernel lets
+--- root nest one only two deep: core/syscalls.c's `map_ids`), where the
+--- case returns unchecked -- unless this run is held to sandboxing
+--- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must
+--- or COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest
+--- them, and there a run that shared nothing fails the case rather
+--- than skip it.
 local function shares(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return true end
-  assert(not (observations.sandboxed() and sys.getenv("COSMIC_TEST_SANDBOX") == "1"),
-    "sandboxed, and required to be, but the run it started was not:\n" .. text)
+  assert(not observations.held_to_sandbox(),
+    "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return false
+end
+
+--- The environment a run of the suite is started with: the pinned one,
+--- its workers sandboxed where they can be, whatever this run's own
+--- switch says -- this test's worker, unsandboxed, may start runs that
+--- are, and a run sandboxed and required to be may start runs that
+--- cannot be, which `shares` holds it to.
+local function environment(): {string:string}
+  local env = observations.environment()
+  env.COSMIC_TEST_SANDBOX = nil
+  return env
 end
 
 --- A checkout of the suite at `root`, its data file holding `data`, its
@@ -109,7 +127,7 @@ local function seeded(tmp: string): {string:string}, Said, string
   tmp = assert(Fs.absolute(tmp))
   assert(Fs.mkdirs(tmp .. "/outside"))
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.OUTSIDE = tmp .. "/outside"
   env.FLAVOUR = "sweet"
@@ -223,7 +241,7 @@ end
 --- something else runs the test again, and fails it, while one whose
 --- database is the same stands on the first one's verdict.
 local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string)
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -289,7 +307,7 @@ end
 --- `tmp`, once a first checkout whose link leads to "a" has run and
 --- shared its verdicts; nil where it shared nothing.
 local function linked(tmp: string): {string:string} | nil
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -332,7 +350,7 @@ end
 --- module that declares the working database, which every run
 --- rewrites, runs every time.
 local function test_a_database_attached_through_the_store_is_keyed_by_its_contents(tmp: string)
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -389,11 +407,15 @@ end
 local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_stands(tmp: string)
   assert(Fs.mkdirs(tmp .. "/real-temp"))
   assert(Fs.symlink("real-temp", tmp .. "/temp"))
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
   env.TMPDIR = tmp .. "/temp"
+  -- Unsandboxed, as on macOS, whose /var the link stands for: the case
+  -- is a verdict keyed by what its test read, which a sandboxed one is
+  -- not, its directory at /tmp through no link.
+  env.COSMIC_TEST_SANDBOX = "0"
   local root = tmp .. "/checkout"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/own_database_test.tl", [[
@@ -417,7 +439,7 @@ end
 --- it, and a test that read the working database, which every run
 --- rewrites, runs every time.
 local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: string)
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -462,7 +484,7 @@ end
 --- whose key differs, its test and module the same, runs.
 local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(tmp: string)
   local cache = tmp .. "/cache/verdicts.db"
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = cache
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
@@ -483,7 +505,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   -- longer reaches.
   assert(second:find("none of 4 tests looked up stood, though " .. cache ..
     " holds 4 rows, 4 of them of those tests: none under the keys this run reached", 1, true), second)
-  assert(second:find("host features %x+, host %x+, runtime %x+") ~= nil, second)
+  assert(second:find("host features %x+, host %x+, system %x+, runtime %x+") ~= nil, second)
 end
 
 --- A run none of whose lookups stood is told what the cache held: its
@@ -520,7 +542,7 @@ end
 --- format's table in another shape -- is said so once and done without:
 --- the run runs what it must and passes.
 local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
-  local env = observations.environment()
+  local env = environment()
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
   local corrupt = tmp .. "/corrupt/verdicts.db"
@@ -546,7 +568,7 @@ end
 --- A cache holding this format's table in the shape of none is said so
 --- once and done without: the run runs what it must and passes.
 local function test_a_cache_of_another_shape_is_done_without(tmp: string)
-  local env = observations.environment()
+  local env = environment()
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
   local other = tmp .. "/other/verdicts.db"
@@ -579,7 +601,7 @@ end
 --- again, with the shared cache on as off: a declared key holds what a
 --- file holds, not when it was written.
 local function test_a_touched_file_runs_nothing_again(tmp: string)
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
@@ -601,7 +623,7 @@ end
 --- A checkout made again at the path of one removed is another
 --- checkout: it stands on what the removed one reached.
 local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tmp: string)
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.FLAVOUR = "sweet"
   env.OUTSIDE = tmp
@@ -623,7 +645,7 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
   tmp = assert(Fs.absolute(tmp))
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -665,7 +687,7 @@ local function early_suite(tmp: string): {string:string}, string
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
   tmp = assert(Fs.absolute(tmp))
-  local env = observations.environment()
+  local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
