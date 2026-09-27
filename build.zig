@@ -780,9 +780,43 @@ pub fn build(b: *std.Build) void {
     }
 
     // A fourth core, checked for undefined behavior: same sources, built
-    // for the host only, and installed beside the release cores. Its portable
-    // artifact still carries all three required release entries, plus this
-    // host's configuration-2 entry selected by its private launcher.
+    // for the host's shipped target only, and installed beside the release
+    // cores. Its portable artifact still carries all three required release
+    // entries, plus this host's configuration-2 entry selected by its private
+    // launcher.
+    //
+    // It is built for the shipped triple, static musl on Linux and
+    // libSystem on macOS, never the build host's own libc: the libc under
+    // test is then the one that ships (zig's lib/c and musl, whose printf
+    // measures a string with core/strnlen.c, where glibc's used its own); its
+    // floats are the release core's, where glibc's libm picked FMA
+    // variants of pow, asin, acos and atan2 by the processor's features
+    // and rounded a last bit differently (a Teal benchmark printed
+    // -831.56112555875472 on a glibc checked core, -831.5611255587545 on
+    // the release and musl ones); and every runner of one architecture,
+    // glibc or musl, builds its checked core for the same target.
+    //
+    // What that gives up, for now, is what glibc's headers carried, which
+    // musl's do not and zig adds nothing to: `__nonnull` on their
+    // declarations gave the sanitizer 1389 null-argument checks
+    // (`__ubsan_handle_nonnull_arg`), and `_FORTIFY_SOURCE` 77 calls to
+    // checked copies (`__*_chk`) where an object's size is known. The
+    // stack protector, which catches an overflow only once it reaches a
+    // return address, remains.
+    // TODO: recover the null-argument checks with a header the checked
+    // build force-includes (`-include`), redeclaring with
+    // `__attribute__((nonnull))` the libc functions the tree calls; it
+    // waits on a list of those functions and their nonnull arguments,
+    // which nothing in the tree yet derives from glibc's headers.
+    // TODO: recover the fortify checks the same way, or with vendored
+    // fortify-headers: 34 of the 77 were memcpy, memmove, memset and
+    // strcpy, whose `__*_chk` zig's compiler_rt exports
+    // (lib/compiler_rt/ssp.zig), so the header need only route them
+    // through `__builtin___*_chk` with `__builtin_object_size`; the other
+    // 43 (vsnprintf, vfprintf, read, pread, poll, getcwd, readlink,
+    // realpath, explicit_bzero, longjmp) want wrappers in the header that
+    // compare the size and call `__chk_fail`. It waits on that header,
+    // and on the list of the calls it is to cover.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const analyzed = b.step("analyze", "run the static analyzer over the tree's own C");
     analyze(b, analyzed, own, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson);
@@ -791,7 +825,7 @@ pub fn build(b: *std.Build) void {
     // kind of thing, found without running anything.
     sanitized.dependOn(analyzed);
     const checked_target = hostTarget(b);
-    const checked_host = baselineHostTarget(b);
+    const checked_host = baselineTarget(b, checked_target.query);
     const checked_vendor = vendorLibrary(b, checked_target, sanitized_configuration, checked_host, sources);
     const checked = observedCore(b, mapper, sanitized, checked_target, sanitized_configuration, checked_host, sources, checked_vendor);
     const checked_install = b.addInstallFile(
@@ -1525,41 +1559,50 @@ fn hostName(b: *std.Build) []const u8 {
 
 /// The host's architecture, OS and ABI, with the baseline CPU and the
 /// OS's and libc's default versions: nothing detected on the build machine.
-/// `b.graph.host` includes CPU features detected there, which an exported
-/// checked core cannot assume on its runner.
+/// `b.graph.host` includes CPU features detected there.
 ///
-/// Every tool the build runs on the host is built for this target too, not
+/// Every tool the build runs on the host is built for this target, not
 /// `b.graph.host`: a tool's bytes are part of the cache key of every step
 /// that runs it. Built for the detected CPU, a restored cache from a runner
 /// on other hardware missed on every such step; built for the detected
 /// kernel and glibc versions, it missed after every runner image update
 /// (linux-aarch64 compiled for over a minute a run once its image moved
 /// from 20260907 to 20260920, when the patch applier was such a tool and
-/// every vendored object compiled from its output).
+/// every vendored object compiled from its output). No core is built for
+/// it: the checked core is built for the host's shipped target (`hostTarget`).
 fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     const host = b.graph.host.result;
-    const query: std.Target.Query = .{
+    return baselineTarget(b, .{
         .cpu_arch = host.cpu.arch,
         .cpu_model = .baseline,
         .os_tag = host.os.tag,
         .abi = host.abi,
-    };
+    });
+}
+
+/// `query` resolved, refusing a CPU other than its architecture's baseline:
+/// a host tool's bytes key the build's cache, and the checked core runs on
+/// runners other than the one that built it.
+fn baselineTarget(b: *std.Build, query: std.Target.Query) std.Build.ResolvedTarget {
     const resolved = b.resolveTargetQuery(query);
     const expected = std.Target.Cpu.Model.baseline(
         resolved.result.cpu.arch,
         resolved.result.os,
     );
     if (resolved.result.cpu.model != expected)
-        @panic("checked core did not resolve the baseline host CPU");
+        @panic("a host tool or the checked core resolved a CPU other than the baseline");
     return resolved;
 }
 
 fn hostTarget(b: *std.Build) Target {
     const host = b.graph.host.result;
     for (targets) |target| {
-        // The sanitized core uses the native host libc, while its target
-        // identity names the shipped OS/architecture pair. ABI is therefore
-        // deliberately not part of this match.
+        // The shipped target this host runs: the one the bridge boots
+        // with, and the one the checked core is built for. The host's ABI
+        // is not matched: it names only the libc the build machine has
+        // (gnu on a glibc runner, musl on Alpine, none on macOS), which no
+        // core links, and every shipped Linux core is static musl, which
+        // runs on either libc's host.
         if (target.query.os_tag == host.os.tag and
             target.query.cpu_arch == host.cpu.arch) return target;
     }

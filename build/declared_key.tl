@@ -640,8 +640,7 @@ end
 --- A machine not named here, whose cores no audit has read, keys its
 --- whole list.
 local dispatched: {string:{string:boolean}} = {
-  x86_64 = { aes = true, pclmulqdq = true, ssse3 = true, sse4_1 = true, fma = true,
-    avx2 = true, fma4 = true },
+  x86_64 = { aes = true, pclmulqdq = true, ssse3 = true, sse4_1 = true },
   aarch64 = { asimd = true, aes = true, pmull = true, crc32 = true },
 }
 
@@ -755,15 +754,14 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- which an audit of the vendored C and the disassembled cores found:
   -- mbedtls's aesni.c (`aes`, `pclmulqdq`) and aesce.c (`asimd`, `aes`,
   -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
-  -- crc32_arm64.h (`crc32`); and, for the checked core, which links
-  -- glibc's libm where it is built on a glibc host, its pow, asin, acos
-  -- and atan2, whose FMA variants (`fma` with `avx2`, else `fma4` for
-  -- asin, acos and atan2) round a last bit otherwise. The other libm
-  -- functions it imports, frexp and ldexp, have no variants, and
-  -- atan2's `avx` one only re-encodes SSE and changes no result, so
-  -- `avx` is not keyed. No grep finds glibc's choices, which are in the
-  -- host's libm, not the tree: this comment is their record. Nothing
-  -- else the core carries dispatches, nor does its build, so the
+  -- crc32_arm64.h (`crc32`). No Linux core links a libm that
+  -- dispatches: every one, the checked core too, is static musl, and
+  -- the libm zig and musl carry chooses no code by the processor. A
+  -- checked core that linked a glibc host's libm keyed `fma`, `avx2`
+  -- and `fma4`, which chose its pow, asin, acos and atan2's variants;
+  -- none of its verdicts can stand for another core, since every key
+  -- holds the core's digest (`runtime`). Nothing else the core carries
+  -- dispatches, nor does its build, so the
   -- processor's model and microcode, which choose no code, are not
   -- keyed either. The whole list split GitHub's hosted runners of one
   -- leg on flags nothing reads (avx512*, a hypervisor's bits,
