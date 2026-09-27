@@ -344,6 +344,15 @@ function reboot.guard(handle: work.Handle, root: string,
     return 3
   end
   -- state == "teal"
+  -- TODO: a rebuild records the tree's fingerprint by the rebuilding
+  -- tool's own build.work, so when the tree moved what that fingerprint
+  -- covers (`is_tool`, `record_fingerprint`) the tool it writes is
+  -- stale by its own code, and re-entered here it refuses once ("still
+  -- stale after a reboot") until the next command rebuilds it again.
+  -- Settle instead -- `into` with `settle`, as a fresh unsettled tool
+  -- does -- when COSMIC_REBOOTED is "1" and the tool is `unsettled`
+  -- (build.work is in the writer's closure, so such a change always
+  -- leaves it so), with a fixture that rebuilds across such a change.
   log:complain("the tool is stale; rebuilding it from the tree")
   log:complain(into(handle, teal.lazy(), argv, false))
   return 3

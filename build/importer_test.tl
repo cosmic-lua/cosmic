@@ -282,8 +282,8 @@ local function image_hash_of(root: string): string
   return fingerprint.image
 end
 
---- A Teal test beside the core's C is not a core input: an edit to one
---- rebuilds the tool's database, never the core.
+--- A Teal test beside the core's C is not a core input, nor one of the
+--- tool's: no binary carries it, so an edit to one rebuilds neither.
 local function test_image_hash_leaves_out_teal_under_core()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-image-hash-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "bin" }) do
@@ -295,7 +295,7 @@ local function test_image_hash_leaves_out_teal_under_core()
   local boot = boot_hash_of(root)
   assert(Fs.write(root .. "/core/main_test.tl", "changed"))
   assert(image_hash_of(root) == image, "a Teal test moved the core's hash")
-  assert(boot_hash_of(root) ~= boot, "a Teal test did not move the tool's hash")
+  assert(boot_hash_of(root) == boot, "a Teal test moved the tool's hash")
   assert(Fs.write(root .. "/core/main.c", "changed"))
   assert(image_hash_of(root) ~= image, "the core's C did not move its hash")
 end
@@ -349,8 +349,8 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime basis")
 end
 
---- Embedded library code and tests must invalidate the self-tree guard,
---- just as native code and the compiler's patched sources do. A
+--- Embedded library code and examples must invalidate the self-tree
+--- guard, just as native code and the compiler's patched sources do. A
 --- vendored tree counts through its pin and the records that patch it:
 --- it is never edited in place, so its contents are not walked.
 local function test_boot_hash_tracks_embedded_inputs()
@@ -360,7 +360,7 @@ local function test_boot_hash_tracks_embedded_inputs()
   end
   local paths = {
     "build/main.tl", "core/main.c", "cosmic/example.tl",
-    "cosmic/example_test.tl", "patch/tl/example.patch", "vendor/tl/PIN",
+    "cosmic/example_example.tl", "patch/tl/example.patch", "vendor/tl/PIN",
     "cmd/cosmic/main.tl", "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin",
   }
   for _, path in ipairs(paths) do
@@ -386,6 +386,43 @@ local function test_boot_hash_tracks_embedded_inputs()
   -- edited in place, so a stray write there is not an input.
   assert(Fs.write(root .. "/vendor/tl/tl.lua", "edited in place"))
   assert(boot_hash_of(root) == original, "walked into a vendored tree")
+end
+
+--- A Teal test is none of what the tool is made of: no binary carries
+--- one (`build.writer`'s `carried`), so an edit to one, a new one or one
+--- removed leaves the tool fresh, whichever of the tool's trees holds
+--- it, and a module beside it still moves the hash. The test is staged
+--- as an input all the same, for `cosmic test` to build.
+local function test_boot_hash_leaves_out_tests()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-hash-tests-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  local tests = { "build/main_test.tl", "core/main_test.tl", "cosmic/example_test.tl",
+                  "cmd/cosmic/main_test.tl" }
+  assert(Fs.write(root .. "/cosmic/example.tl", "original"))
+  for _, path in ipairs(tests) do
+    assert(Fs.write(root .. "/" .. path, "original"))
+  end
+  local original = boot_hash_of(root)
+  for _, path in ipairs(tests) do
+    assert(Fs.write(root .. "/" .. path, "changed"))
+    assert(boot_hash_of(root) == original, "a test moved the tool's hash: " .. path)
+  end
+  assert(Fs.write(root .. "/cosmic/added_test.tl", "new test"))
+  assert(boot_hash_of(root) == original, "a new test moved the tool's hash")
+  assert(Fs.remove(root .. "/cosmic/example_test.tl"))
+  assert(boot_hash_of(root) == original, "a removed test moved the tool's hash")
+  assert(Fs.write(root .. "/cosmic/example.tl", "changed"))
+  assert(boot_hash_of(root) ~= original, "the module beside the tests did not move it")
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local rows = assert(Sqlite.text_rows(handle.db,
+    "SELECT (SELECT count(*) FROM tool WHERE path GLOB '*_test.tl'), " ..
+    "(SELECT count(*) FROM files WHERE path = 'cosmic/added_test.tl')"))
+  work.close(handle)
+  assert(rows[1][1] == "0", "the tool's rows hold a test")
+  assert(rows[1][2] == "1", "a test was not staged as an input")
 end
 
 --- A tree that is not cosmic's own can `require` the standard library

@@ -413,11 +413,11 @@ end
 
 --- A program is keyed by what it runs as: its image and the rows it
 --- carries, but not the rows of its `meta` every edit of the tree
---- moves -- `boot_hash`, over every file of the tool's trees, its tests'
---- included, and `projected`, over the whole projection -- so a tool
---- rebuilt for a comment in a test keys as it did, in the program that
---- runs and in o/bin alike, while a carried module and the core move
---- both.
+--- moves -- `boot_hash`, over every file of the tool's trees but their
+--- tests, and `projected`, over the whole projection -- so a tool
+--- written again for an edit that moved nothing it carries (a boot
+--- after a comment in a test) keys as it did, in the program that runs
+--- and in o/bin alike, while a carried module and the core move both.
 local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   tree(tmp)
   assert(Fs.mkdirs(tmp .. "/o/bin"))

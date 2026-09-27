@@ -415,8 +415,9 @@ local function tool_project(tmp: string): function(string), function(string): st
 end
 
 --- A test that declares `tool` stands across a rebuild of the tool that
---- moved only `boot_hash` and `projected` -- what a comment in a test,
---- which no binary carries, moves; so does one that does not declare it.
+--- moved only `boot_hash` and `projected` -- what an edit to nothing a
+--- binary carries moves, as a boot after a comment in a test does; so
+--- does one that does not declare it.
 local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_carries(tmp: string)
   local rebuild, ran = tool_project(tmp)
   if rebuild == nil then return end
