@@ -88,6 +88,9 @@ local record declared_key
     hashed: {string:string}
     --- The paths of `hashed` this run looked up, which `kept` answers.
     used: {string:boolean}
+    --- Each program's key (`program`) too fresh to keep in `hashed`, as
+    --- `hashed` holds it, for this run alone.
+    this_run: {string:string}
     --- While set, each answer by what asked for it: the whole
     --- selection of a run keys its tests before any of them starts, so
     --- one answer serves them all. Nil after, when each asks again.
@@ -170,8 +173,8 @@ function declared_key.digests(root: string, remembered?: {{string}}): declared_k
   local hashed: {string:string} = {}
   for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end
   local real, _ = sys.realpath(root)
-  return { root = root, real_root = real or root, hashed = hashed, used = {}, read = 0,
-    spent_ns = 0 }
+  return { root = root, real_root = real or root, hashed = hashed, used = {}, this_run = {},
+    read = 0, spent_ns = 0 }
 end
 
 --- What of `digests` a later run is to remember, as `digests` takes it:
@@ -264,9 +267,16 @@ local function carried_digest(database: string): string | nil, string
             trouble = columns_trouble
             break
           end
+          -- Each value by its type and its bytes: quote() ends a text
+          -- at its first NUL, which a blob's hex does not.
           local parts: {string} = {}
+          -- And a rowid table's rowids, which a read in no other order
+          -- (ca_roots', zoneinfo's) turns on.
+          if not row[3]:upper():find("WITHOUT%s+ROWID") then parts[1] = "quote(rowid)" end
           for _, column in ipairs(columns) do
-            parts[#parts + 1] = 'quote("' .. column[1]:gsub('"', '""') .. '")'
+            local named = '"' .. column[1]:gsub('"', '""') .. '"'
+            parts[#parts + 1] = "typeof(" .. named .. ") || ':' || quote(CASE WHEN typeof(" ..
+              named .. ") = 'text' THEN CAST(" .. named .. " AS BLOB) ELSE " .. named .. " END)"
           end
           local where = row[2] == "meta" and (" WHERE key NOT IN " .. tree_wide_meta) or ""
           local digest, digest_trouble = Sqlite.text_rows(db,
@@ -327,7 +337,7 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
   local said = signature(st)
   local name = "program\0" .. path
   digests.used[name] = true
-  local was = digests.hashed[name]
+  local was = digests.hashed[name] or digests.this_run[name]
   if was ~= nil and was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
   local data, _ = Fs.read(path)
   digests.read = digests.read + 1
@@ -335,15 +345,21 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
   local hash: string
   local split, _ = artifact.split(data)
   if split ~= nil then
-    local carried, trouble = carried_digest(split.database)
-    -- Unreadable, it is keyed by its bytes, as any other file.
+    local carried, _ = carried_digest(split.database)
+    -- Unreadable, it is keyed by its bytes alone, as any other file --
+    -- not by why, which may name a scratch path no other run shares.
     hash = Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
-      Hash.hex_sha256(split.head) .. "\n" .. carried) or ("unread " .. trouble .. "\n" .. data))
+      Hash.hex_sha256(split.head) .. "\n" .. carried) or ("unread\n" .. data))
   else
     hash = Hash.hex_sha256("file\n" .. data)
   end
   if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
     digests.hashed[name] = said .. "\0" .. hash
+  else
+    -- Too fresh to keep for a later run, but a program just rebuilt is
+    -- keyed again as each test ends: this run takes it again by the
+    -- same `lstat`, a rebuild publishing a new file, not a rewrite.
+    digests.this_run[name] = said .. "\0" .. hash
   end
   return hash
 end

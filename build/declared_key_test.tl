@@ -396,7 +396,7 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
     s.program = declared_key.program_identity(declared_key.digests(root), { tool })
     return s.program, key_of(root, s)
   end
-  local meta = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
+  local meta: {string:string} = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
   program_at(tool, "core one", meta, "bytecode one")
   local program, key = keys()
   -- Rebuilt for an edit no binary carries: its bytes move, not its key.
@@ -425,6 +425,14 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   assert(image_program ~= program and image_program ~= module_program,
     "the image left the program")
   assert(image_key ~= key and image_key ~= module_key, "the image left the key")
+  -- A text's bytes after a NUL, which quote() would end it at.
+  meta.note = "a\0one"
+  program_at(tool, "core one", meta, "bytecode one")
+  local one_program = keys()
+  meta.note = "a\0two"
+  program_at(tool, "core one", meta, "bytecode one")
+  assert(keys() ~= one_program, "a text's bytes after a NUL left the program")
+  meta.note = nil
   -- A file in o/bin that is no artifact is keyed by its contents.
   program_at(tool, "core one", meta, "bytecode one")
   assert(select(2, keys()) == key)
