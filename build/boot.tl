@@ -165,22 +165,22 @@ local function boot(root: string, argv: {integer:string},
   -- The tree's own identities, which are this boot's: the bridge runs the
   -- tree's build code. Parsed first, so the compiler closure is whole on a
   -- fresh working database and keys exactly as a warm build does.
-  local derived, derive_trouble = importer.derive(handle, true, compiler)
-  if not derived then
-    local _, _ = work.close(handle)
-    log:verdict("boot", false, derive_trouble)
-    return 1
+  local shared = shared_compiles.for_build()
+  local derived, derive_trouble = importer.derive(handle, true, compiler, shared)
+  local identities, identity_trouble: work.Identities, string = nil, derive_trouble
+  if derived ~= nil then
+    identities, identity_trouble = work.record_identities(handle)
   end
-  local identities, identity_trouble = work.record_identities(handle)
-  if identities == nil then
+  if derived == nil or identities == nil then
+    -- `compile` finishes the cache; here nothing will.
+    if shared ~= nil then shared.finish() end
     local _, _ = work.close(handle)
     log:verdict("boot", false, identity_trouble)
     return 1
   end
 
   local result, compile_trouble =
-    importer.compile(handle, compiler, identities.compiler, false,
-      shared_compiles.for_build())
+    importer.compile(handle, compiler, identities.compiler, false, shared)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -239,7 +239,9 @@ local function boot(root: string, argv: {integer:string},
   end
 
   log:verdict("boot", true, #targets .. " targets, " .. staged.files ..
-    " files staged, " .. result.compiled .. " modules compiled, " ..
+    " files staged, " .. derived.parsed + result.parses.parsed .. " sources parsed, " ..
+    derived.shared + result.parses.shared .. " taken from another checkout, " ..
+    result.compiled .. " modules compiled, " ..
     result.shared .. " taken from another checkout, " ..
     #database .. " database bytes, " .. clock.took(started))
   return 0

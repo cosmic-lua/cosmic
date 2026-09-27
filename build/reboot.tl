@@ -201,12 +201,15 @@ local function into(handle: work.Handle, built: compiler,
   -- made is never taken for the tree's compiler's. The tool that replaces
   -- this one carries the tree's identities, and compiles again itself
   -- whatever this compiler compiled (`unsettled`).
-  local derived, derive_trouble = importer.derive(handle, true, built)
-  if not derived then
-    return closing(handle, derive_trouble)
+  local shared = shared_compiles.for_build()
+  local derived, derive_trouble = importer.derive(handle, true, built, shared)
+  local identities, identity_trouble: work.Identities, string = nil, derive_trouble
+  if derived ~= nil then
+    identities, identity_trouble = work.record_identities(handle)
   end
-  local identities, identity_trouble = work.record_identities(handle)
   if identities == nil then
+    -- `compile` finishes the cache; here nothing will.
+    if shared ~= nil then shared.finish() end
     return closing(handle, identity_trouble)
   end
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
@@ -214,8 +217,7 @@ local function into(handle: work.Handle, built: compiler,
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble =
-    importer.compile(handle, built, Store.meta("compiler") or "", true,
-      shared_compiles.for_build())
+    importer.compile(handle, built, Store.meta("compiler") or "", true, shared)
   if result == nil then
     return closing(handle, compile_trouble)
   end

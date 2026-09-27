@@ -492,27 +492,30 @@
           run: "sh .github/scripts/restored-cache.sh 'test verdicts' \"$KEY\"",
         },
 
-        # The compiles this leg's last run used (COSMIC_BUILD_CACHE,
-        # .github/scripts/cosmic-driver.sh; build/shared_compiles.tl), so
-        # a boot of a tree the last run built compiles only what moved:
-        # the build says how many it took ("taken from another
-        # checkout"). Every leg's, the macOS leg's too; a full run's
-        # portable suite, a build of a fresh copy of the tree by the
-        # product assembled from it, takes the boot's too, where it
-        # compiles under the same identity. A row is keyed by what it was
-        # compiled from and by what compiled it, so a restored one that
-        # no longer answers is a miss, never a wrong compile, and the
-        # cache needs naming by nothing but the leg: the newest this ref
-        # can restore, its own or else main's, as the verdicts above
-        # are. The builds
+        # The compiles and parses this leg's last run used
+        # (COSMIC_BUILD_CACHE, .github/scripts/cosmic-driver.sh;
+        # build/shared_compiles.tl), so a boot of a tree the last run built
+        # parses and compiles only what moved: the build says how many it
+        # took ("taken from another checkout"). Every leg's, the macOS
+        # leg's too; a full run's portable suite, a build of a fresh copy
+        # of the tree by the product assembled from it, takes the boot's
+        # too, where it compiles under the same identity. A compile is
+        # keyed by what it was compiled from and by what compiled it, and
+        # a parse by its source and the analyzer that parsed it, which a
+        # boot takes only where the rows that analyzer found name it again
+        # over this tree (build/importer.tl's `shared_analyzer`), so a
+        # restored row that no longer answers is a miss, never a wrong
+        # compile or parse, and the cache needs naming by nothing but the
+        # leg: the newest this ref can restore, its own or else main's, as
+        # the verdicts above are. The builds
         # hold the file to this user's and its directory to 0700, or do
         # without it; actions/cache, on the host, restores it as the
         # host's user, whose uid a Linux leg's `runner` has, with the
         # modes it was saved with less the umask. A run keeps only what
-        # it used ("keep only this run's compiles", below), so what is
+        # it used ("keep only this run's compiles and parses", below), so what is
         # saved is one tree's worth, a few MB.
         {
-          name: "restore compiles",
+          name: "restore compiles and parses",
           id: "compiles-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
@@ -522,11 +525,11 @@
           },
         },
 
-        # Which run's compiles were restored, and from when on a compile
-        # counts as this run's: the builds stamp what they use by the
+        # Which run's compiles and parses were restored, and from when on
+        # a row counts as this run's: the builds stamp what they use by the
         # same clock, the container's being the host's.
         {
-          name: "name the restored compiles",
+          name: "name the restored compiles and parses",
           id: "compiles-restored",
           "working-directory": ".",
           shell: "sh",
@@ -743,18 +746,18 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform attest \"${{ strategy.job-total }}\"",
         },
 
-        # The compiles the next run restores are the ones this run used
-        # or made, since "name the restored compiles": the cache bounds
-        # itself only at 256 MB, and every change to the build's own
-        # modules moves every key, so a file saved back whole would grow
-        # by a tree's worth of compiles with most commits to main. Here,
+        # The compiles and parses the next run restores are the ones this
+        # run used or made, since "name the restored compiles and parses":
+        # the cache bounds itself only at 256 MB, and every change to the
+        # build's own modules moves every key, so a file saved back whole
+        # would grow by a tree's worth of rows with most commits to main. Here,
         # before the container goes, after the last build that shares
         # them (the fixtures share none: cosmic_ci/orchestration.tl's
         # `fixture`); saved below, only where the native build passed. A
         # trim that cannot read the file says why and fails nothing, as
         # the builds fail nothing over it.
         {
-          name: "keep only this run's compiles",
+          name: "keep only this run's compiles and parses",
           if: "always() && steps.driver.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.compiles-restored.outputs.since }}\"",
         },
@@ -896,13 +899,13 @@
         # What the next run of the leg restores, trimmed above to this
         # run's, saved when and where the verdicts are, for their reasons:
         # from main while its commit is main's head, so an older run's
-        # compiles never come to be the newest; elsewhere only where
+        # rows never come to be the newest; elsewhere only where
         # nothing was restored; never from the merge queue. Every leg's,
         # the macOS leg's too. Only where the native build and suite
         # passed: a run that stopped short would leave the next only what
-        # it reached (see "keep only this run's compiles").
+        # it reached (see "keep only this run's compiles and parses").
         {
-          name: "save compiles",
+          name: "save compiles and parses",
           if: "always() && steps.driver.outcome == 'success' && steps.release-suite.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' && steps.main-head.outputs.head != 'false' || github.ref != 'refs/heads/main' && steps.compiles-restore.outputs.cache-matched-key == '')",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {

@@ -1,4 +1,4 @@
---- The compiles a leg keeps from one run to the next: the file
+--- The compiles and parses a leg keeps from one run to the next: the file
 --- COSMIC_BUILD_CACHE names (build/shared_compiles.tl in the candidate),
 --- which ci.yml restores before the leg's builds and saves after them.
 ---
@@ -81,16 +81,16 @@ function Compiles.remove_set_aside(path: string): {string}
   return removed
 end
 
---- Removes from the cache at `path` every compile no build has used or
---- made since `since_ns` (the wall clock, as the cache's `used_ns` is),
+--- Removes from the cache at `path` every compile and parse no build has
+--- used or made since `since_ns` (the wall clock, as the cache's `used_ns` is),
 --- then rewrites the file without the space they took. Nil and "" for a
 --- file that is not there, which a leg whose builds never started
 --- leaves, and nil and why where the file could not be trimmed.
 -- TODO: ask the tool to trim its cache to what one run used, once
 -- build/shared_compiles.tl can (a verb, or a bound the environment
 -- sets), rather than reach into its tables here: this reads every table
--- of its formats (`compiled_v<n>`) by its `used_ns` column, and leaves a
--- table without one whole.
+-- of its formats (`compiled_v<n>`, `parsed_v<n>`) by its `used_ns`
+-- column, and leaves a table without one whole.
 function Compiles.trim(path: string, since_ns: integer): Compiles.Trimmed | nil, string
   if not Predicate.exists(path) then return nil, "" end
   local before_bytes = size(path)
@@ -104,7 +104,8 @@ function Compiles.trim(path: string, since_ns: integer): Compiles.Trimmed | nil,
   local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
   if not timed then return fail(time_trouble) end
   local tables, trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v[0-9]*'")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
+    "(name GLOB 'compiled_v[0-9]*' OR name GLOB 'parsed_v[0-9]*')")
   if tables == nil then return fail(trouble) end
   local kept, removed = 0, 0
   for _, row in ipairs(tables) do
