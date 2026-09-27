@@ -332,3 +332,132 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
     if case.ran then assert(ran == "fix --check .", ran) end
   end
 end
+
+--- A gating suite's workers are given none of what names the run --
+--- GitHub's GITHUB_*, RUNNER_* and ACTIONS_*, CI, systemd's per-unit
+--- variables, the container's HOSTNAME, the driver's own COSMIC_CI_*
+--- switches -- so a test that reads the whole environment (`env =
+--- {"*"}`) is keyed the same from run to run and can stand on an
+--- earlier run's verdict. The rest reaches them: PATH, HOME, the proxy
+--- and certificate variables, COSMIC_CI_REQUIRE_SANDBOX, which a test
+--- reads, and what the driver sets. What the suite does is still decided
+--- from the driver's own environment: a Linux push's run stands on
+--- verdicts (no --all) though COSMIC_CI_EVENT does not reach the suite.
+local function test_a_suite_is_given_nothing_that_names_the_run(tmp: string)
+  local base, project = command(tmp)
+  local fake = tmp .. "/fake"
+  assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
+  local seen = tmp .. "/seen"
+  Fixture.write(fake .. "/bin/zig", [[#!/bin/sh
+mkdir -p o/bin
+printf 'db' > o/build.db
+cat > o/bin/cosmic <<'SCRIPT'
+#!/bin/sh
+if [ "$1" = test ]; then printf '%s\n' "$*" > "$SEEN.words"; env > "$SEEN.env"; fi
+exit 0
+SCRIPT
+chmod 755 o/bin/cosmic
+]], 493)
+  local runner_temp = tmp .. "/runner-temp"
+  assert(Fs.mkdirs(runner_temp))
+  local outcome = Fixture.call("forgets-run", append(base, { "platform", "build" }),
+    project, tmp .. "/logs", context(fake, runner_temp, {
+      TARGET = "x86_64-linux-musl", SEEN = seen,
+      GITHUB_RUN_ID = "36306898411", GITHUB_SHA = "0123abcd",
+      GITHUB_STEP_SUMMARY = runner_temp .. "/summary.md",
+      RUNNER_NAME = "GitHub Actions 12", RUNNER_TRACKING_ID = "github_1f2e",
+      ACTIONS_RUNTIME_TOKEN = "token", CI = "true", INVOCATION_ID = "abc",
+      JOURNAL_STREAM = "8:1234", HOSTNAME = "4f1c2d3e5a6b",
+      COSMIC_CI_SCOPE = "light", COSMIC_CI_EVENT = "push",
+      COSMIC_CI_CHECKED_SUITE = "skip", COSMIC_CI_REQUIRE_SANDBOX = "1",
+      HOME = "/home/runner", HTTPS_PROXY = "http://proxy:3128",
+      SSL_CERT_FILE = "/etc/ssl/cert.pem", XDG_CACHE_HOME = tmp .. "/cache",
+    }))
+  assert(outcome.result.ok, "the build failed: " .. Fixture.read(outcome.err))
+  local env: {string:string} = {}
+  for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
+    local name, value = line:match("^([^=]+)=(.*)$")
+    if name then env[name] = value end
+  end
+  for name in pairs(env) do
+    assert(not (name:match("^GITHUB_") or name:match("^RUNNER_") or
+      name:match("^ACTIONS_")), "the suite was given " .. name)
+    assert(name == "COSMIC_CI_REQUIRE_SANDBOX" or not name:match("^COSMIC_CI_"),
+      "the suite was given " .. name)
+  end
+  for _, name in ipairs({ "CI", "INVOCATION_ID", "JOURNAL_STREAM", "HOSTNAME" }) do
+    assert(env[name] == nil, "the suite was given " .. name)
+  end
+  for name, value in pairs({ COSMIC_CI_REQUIRE_SANDBOX = "1", HOME = "/home/runner",
+      HTTPS_PROXY = "http://proxy:3128", SSL_CERT_FILE = "/etc/ssl/cert.pem",
+      XDG_CACHE_HOME = tmp .. "/cache", TARGET = "x86_64-linux-musl",
+      COSMIC_WORKER = "worker", FUZZ_ITERS = "0", COSMIC_TEST_SANDBOX = "1" }) do
+    assert(env[name] == value, name .. " did not reach the suite: " .. tostring(env[name]))
+  end
+  assert(env.PATH ~= nil and env.PATH ~= "", "PATH did not reach the suite")
+  assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
+  assert(Fs.read(seen .. ".words") == "test\n", "a Linux push's suite ran --all")
+end
+
+--- The checked suite and the others alike (`suite_run`): the words are
+--- decided on the driver's environment, then what names the run is
+--- forgotten and the rest is kept.
+local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local words, env = Orchestration.suite_run({
+    GITHUB_RUN_ID = "1", RUNNER_NAME = "r", ACTIONS_RUNTIME_TOKEN = "t",
+    CI = "true", HOSTNAME = "4f1c", COSMIC_CI_SCOPE = "light",
+    COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+    HOME = "/home/runner", COSMIC_WORKER = "w",
+  })
+  assert(table.concat(words, " ") == "test", "a Linux push's run ran --all")
+  for _, name in ipairs({ "GITHUB_RUN_ID", "RUNNER_NAME", "ACTIONS_RUNTIME_TOKEN",
+      "CI", "HOSTNAME", "COSMIC_CI_SCOPE", "COSMIC_CI_EVENT" }) do
+    assert(env[name] == nil, "the suite was given " .. name)
+  end
+  assert(env.COSMIC_CI_REQUIRE_SANDBOX == "1" and env.HOME == "/home/runner" and
+    env.COSMIC_WORKER == "w" and env.FUZZ_ITERS == "0")
+  local forced, forced_env = Orchestration.suite_run({
+    COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1" }, true)
+  assert(table.concat(forced, " ") == "test --all" and
+    forced_env.COSMIC_TEST_NO_SHARED == "1", "forced")
+end
+
+--- The files that name a variable a suite forgets, and why each may:
+--- it sets the variable itself, in its own child's environment.
+local sets_what_it_reads: {string:boolean} = {
+  ["build/place_tree_test.tl"] = true,
+}
+
+--- No tree source names a variable a gating suite's workers are not
+--- given (`Orchestration.forget_run`) but one that sets it itself
+--- (`sets_what_it_reads`): a test that read one would find it unset in
+--- CI. A new one is kept out of `forget_run` or set by the test.
+local function test_no_tree_source_reads_what_a_suite_forgets()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local root = checkout_root()
+  local found: {string} = {}
+  for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
+    for _, path in ipairs((assert(Fs.walk(root .. "/" .. dir)))) do
+      local relative = dir .. "/" .. path
+      if (relative:match("%.tl$") or relative:match("%.lua$") or
+          relative:match("%.[ch]$")) and not sets_what_it_reads[relative] then
+        local names: {string:string} = {}
+        for name in (assert(Fs.read(root .. "/" .. relative))):gmatch("[%u%d_]+") do
+          -- CI is a word of prose too often to tell a read of it.
+          if name ~= "CI" then names[name] = name end
+        end
+        local kept: {string:string} = {}
+        for name, value in pairs(names) do kept[name] = value end
+        Orchestration.forget_run(kept)
+        for name in pairs(names) do
+          if kept[name] == nil then found[#found + 1] = relative .. ": " .. name end
+        end
+      end
+    end
+  end
+  assert(#found == 0, "a tree source names a variable a suite forgets: " ..
+    table.concat(found, ", "))
+end

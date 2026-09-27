@@ -17,6 +17,8 @@ local record Orchestration
   test_words: function(env: {string:string}, force?: boolean): {string}
   shares: function(env: {string:string}, force?: boolean)
   fixture: function(env: {string:string}, tmpdir: string): {string:string}
+  forget_run: function(env: {string:string})
+  suite_run: function(extra?: {string:string}, force?: boolean): {string}, {string:string}
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -69,7 +71,8 @@ end
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
 --- night with a seed of its own: a check that gates a change answers the
 --- same on every run, and one that searches runs where a find blocks
---- nobody's merge.
+--- nobody's merge. A gating suite's is then rid of what names the run
+--- (`suite_run`, `forget_run`).
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
@@ -83,6 +86,55 @@ local function environment(extra?: {string:string}): {string:string}
   if all.COSMIC_CI_REQUIRE_SANDBOX == "1" then all.COSMIC_TEST_SANDBOX = "1" end
   if extra then for k, v in pairs(extra) do all[k] = v end end
   return all
+end
+
+--- Variables that name this run, its runner or its container rather than
+--- anything a test is given: systemd's per-unit ones where a runner is a
+--- service, CI, and the container's HOSTNAME (its ID, new every job).
+local run_only: {string:boolean} = {
+  CI = true, INVOCATION_ID = true, JOURNAL_STREAM = true, HOSTNAME = true,
+}
+
+--- Whether `name` says which run, runner or job this is, or is a switch
+--- the driver alone reads: GitHub's (GITHUB_*, RUNNER_*, ACTIONS_*),
+--- `run_only`'s, and the driver's COSMIC_CI_* but
+--- COSMIC_CI_REQUIRE_SANDBOX, which a test reads
+--- (build/sandboxed_verdicts_test.tl).
+local function names_the_run(name: string): boolean
+  if name == "COSMIC_CI_REQUIRE_SANDBOX" then return false end
+  return run_only[name] or name:sub(1, 7) == "GITHUB_" or
+    name:sub(1, 7) == "RUNNER_" or name:sub(1, 8) == "ACTIONS_" or
+    name:sub(1, 10) == "COSMIC_CI_"
+end
+
+--- Removes from `env`, a gating suite's, every variable that names the
+--- run (`names_the_run`). A test that reads the whole environment
+--- (`env = {"*"}`) is keyed by every variable its worker is given, so
+--- one that moves each run (GITHUB_RUN_ID, GITHUB_SHA, RUNNER_NAME,
+--- COSMIC_CI_SCOPE, ...) would keep such a test from standing on any
+--- earlier run's verdict. No tree test reads one, so none is given one,
+--- and what a key holds is still what the worker gets. The driver
+--- decides what the suite does (`stands`, `test_words`, `shares`) before
+--- this, from the environment it was given.
+function Orchestration.forget_run(env: {string:string})
+  local names: {string} = {}
+  for name in pairs(env) do
+    if names_the_run(name) then names[#names + 1] = name end
+  end
+  for _, name in ipairs(names) do env[name] = nil end
+end
+
+--- A gating suite's `cosmic test` words and environment, `extra` added
+--- to `environment()`'s: `--all` and nothing shared where it stands on
+--- no verdict (`stands`, `shares`) or `force` says so, decided on the
+--- driver's own environment, which then forgets the run (`forget_run`).
+function Orchestration.suite_run(extra?: {string:string},
+    force?: boolean): {string}, {string:string}
+  local values = environment(extra)
+  Orchestration.shares(values, force)
+  local words = Orchestration.test_words(values, force)
+  Orchestration.forget_run(values)
+  return words, values
 end
 
 local record Context
@@ -348,12 +400,13 @@ local function checked_suite(c: Context, target: string, work: string): integer
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
   local checked_argv: {string} = { cosmic }
-  for _, word in ipairs(Orchestration.test_words(Env.all())) do
+  local checked_words, checked_environment = Orchestration.suite_run()
+  for _, word in ipairs(checked_words) do
     checked_argv[#checked_argv + 1] = word
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    320000, c.root, environment())
+    320000, c.root, checked_environment)
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   return s
 end
@@ -407,13 +460,12 @@ local function suite(c: Context, name: string, executable: string,
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
-  local values = environment(env)
-  Orchestration.shares(values, force)
-  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
+  local words, values = Orchestration.suite_run(env, force)
+  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   local argv: {string} = { executable }
-  for _, word in ipairs(Orchestration.test_words(values, force)) do argv[#argv + 1] = word end
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ms, c.root, values)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
