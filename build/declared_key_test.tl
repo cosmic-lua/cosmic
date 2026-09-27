@@ -132,6 +132,12 @@ local function test_each_input_moves_it(tmp: string)
   s.program = "another program"
   differs("the program that runs, for one that runs the tool", s)
   s = spec()
+  s.closure_store = "one address"
+  differs("the store of the closure, given", s)
+  s = spec()
+  s.closure_store = "another address"
+  differs("the store of the closure's address", s)
+  s = spec()
   s.module_key = "another module"
   differs("the module's key", s)
   s = spec()
@@ -371,4 +377,23 @@ local function test_an_own_module_is_keyed_by_its_source_alone()
   local reached = digest()
   sources["build.schema"] = "s2"
   assert(digest() ~= reached, "an own module a root reaches")
+end
+
+--- The store a worker is given at o/cosmic.db: the whole projection by
+--- its contents where the module declares `store`, and the store of its
+--- closure by its address where it does not -- so a projection moved by
+--- an edit outside the closure moves only the first.
+local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
+  tree(tmp)
+  assert(Fs.mkdirs(tmp .. "/o"))
+  assert(Fs.write(tmp .. "/o/cosmic.db", "one"))
+  local closed = spec()
+  closed.closure_store = "address"
+  local whole = spec()
+  whole.effective.store = true
+  whole.closure_store = "address"
+  local closed_before, whole_before = key_of(tmp, closed), key_of(tmp, whole)
+  assert(Fs.write(tmp .. "/o/cosmic.db", "two"))
+  assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")
+  assert(key_of(tmp, whole) ~= whole_before, "the projection left a declared store's key")
 end

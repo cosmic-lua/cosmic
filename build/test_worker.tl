@@ -220,6 +220,25 @@ local function refusal(name: string, module_path: string, closure: {string:boole
     name, module_path, name, module_path, module_path, name)
 end
 
+--- The modules of the tree a worker refuses outside its closure, from
+--- `projection`, the database it attached at o/cosmic.db: a closure
+--- store's `tree_modules` (`build.writer`'s `closure`), which holds only
+--- its closure's own modules, or the whole projection's modules.
+local function tree_modules(projection: Sqlite.Handle): {string:boolean} | nil, string
+  local noted, trouble = Sqlite.text_rows(projection,
+    "SELECT value FROM meta WHERE key = 'tree_modules'")
+  if noted == nil then return nil, trouble end
+  local tree: {string:boolean} = {}
+  if noted[1] ~= nil then
+    for name in noted[1][1]:gmatch("[^\n]+") do tree[name] = true end
+    return tree, ""
+  end
+  local rows, rows_trouble = Sqlite.text_rows(projection, "SELECT path FROM modules")
+  if rows == nil then return nil, rows_trouble end
+  for _, row in ipairs(rows) do tree[row[1]] = true end
+  return tree, ""
+end
+
 --- A call made with the `require`s of the tree's modules held to
 --- `closure`, the set of the names `module_path`'s import closure
 --- holds.
@@ -237,15 +256,14 @@ local type Held = function(fn: function(any...): (any...), argument?: any): any
 ---
 --- It holds `require` alone: a chunk a test loads by hand
 --- (`Store.bytecode` and `load`, or a searcher it calls itself, or
---- takes out of `package.searchers`) is read from the projection
---- directly and neither refused nor audited -- the TODO on
+--- takes out of `package.searchers`) is read from the store directly
+--- -- sandboxed, from the program's own where the closure's store does
+--- not hold it -- and neither refused nor audited: the TODO on
 --- `cosmic.test`'s `Needs.store`.
 local function hold_requires(module_path: string, closure: {string:boolean},
                              projection: Sqlite.Handle): Held | nil, string
-  local rows, trouble = Sqlite.text_rows(projection, "SELECT path FROM modules")
-  if rows == nil then return nil, "the tree's modules: " .. trouble end
-  local tree: {string:boolean} = {}
-  for _, row in ipairs(rows) do tree[row[1]] = true end
+  local tree, trouble = tree_modules(projection)
+  if tree == nil then return nil, "the tree's modules: " .. trouble end
   -- A refusal is a loader that raises, not a searcher that does: a
   -- caller that asks every searcher by hand for the raw value one
   -- hands a wrapper (core/syscalls_test.tl's `raw_behind`) finds none

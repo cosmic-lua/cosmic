@@ -10,6 +10,7 @@
 --- is byte-identical.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
@@ -22,6 +23,22 @@ local work = require("build.work")
 local bind = require("build.bind")
 
 local record writer
+  --- What every closure store a projection yields is a function of,
+  --- read once from the projection (`writer.closure_basis`): each module
+  --- as a line naming its path, kind, file, source hash, key and tests --
+  --- what its bytecode, source, docs, uses and catalog rows follow from,
+  --- the key holding the compiler that compiled and parsed it -- and a
+  --- digest of what every store holds alike: the `meta` rows it keeps
+  --- (`closure_meta`), the declarations, and `tree`.
+  record Basis
+    modules: {string:string}
+    shared: string
+    --- The tree's modules a build carries into the tool -- neither tests
+    --- nor examples -- sorted: what a worker refuses a `require` of
+    --- outside its closure (`build.test_worker`), else it would load the
+    --- tool's copy, and what an example is paired with by name.
+    tree: {string}
+  end
 end
 
 local text = bind.text
@@ -502,6 +519,176 @@ function writer.carried(whole: string, out: string): boolean, string
   if not ok then
     return false, trouble
   end
+  return true, ""
+end
+
+--- The `meta` rows of a projection a closure store keeps: none that
+--- moves with a module outside the closure. `boot_hash` hashes every
+--- file of the tree and `projected` signs every module; `writer` and
+--- `written_by` name the writer's import closure, which holds much of
+--- the standard library (cosmic.json among it). Each left out is
+--- answered by the tool's own `meta`, the next database `Store.meta`
+--- searches; what writes a closure store is named in its address
+--- instead (`closure_address`'s `salt`).
+local closure_meta <const> = "('compiled_by', 'compiler', 'image_hash', 'main', 'runtime_basis')"
+
+--- The basis of the closure stores of the projection at `whole`.
+function writer.closure_basis(whole: string): writer.Basis | nil, string
+  local opened, trouble = Sqlite.open(whole, false)
+  if opened == nil then return nil, whole .. ": " .. trouble end
+  local db: Sqlite.Handle = opened
+  local function read(): writer.Basis | nil, string
+    local rows, rows_trouble = Sqlite.text_rows(db,
+      "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
+      "lower(hex(source_hash)) || char(9) || lower(hex(key)) || char(9) || " ..
+      "lower(hex(sha256(tests))) FROM modules ORDER BY path")
+    if rows == nil then return nil, rows_trouble end
+    local shared, shared_trouble = Sqlite.text_rows(db,
+      "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
+      "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '') || char(10) || " ..
+      "coalesce((SELECT group_concat(path || ' ' || lower(hex(sha256(source))), char(10) " ..
+      "ORDER BY path) FROM decls), '')")
+    if shared == nil then return nil, shared_trouble end
+    local names, names_trouble = Sqlite.text_rows(db,
+      "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
+    if names == nil then return nil, names_trouble end
+    local basis: writer.Basis = { modules = {}, tree = {} }
+    for _, row in ipairs(rows) do basis.modules[row[1]] = row[2] end
+    for i, row in ipairs(names) do basis.tree[i] = row[1] end
+    basis.shared = Hash.hex_sha256("closure-store-1\n" .. shared[1][1] .. "\n" ..
+      table.concat(basis.tree, "\n"))
+    return basis, ""
+  end
+  local basis, read_trouble = read()
+  local _, _ = db:close()
+  if basis == nil then return nil, whole .. ": " .. read_trouble end
+  return basis, ""
+end
+
+--- Modules a module loads by other means than `require`, which a
+--- closure store carries beside it: build.teal loads the compiler as
+--- bytecode (`Store.bytecode("vendor.tl")`), which no parse follows.
+local loaded_beside: {string:{string}} = { ["build.teal"] = { "vendor.tl" } }
+
+--- The modules of `basis` a closure store for `names` -- an import
+--- closure's module names (`test_inputs.modules`) -- holds, sorted: each
+--- that the projection holds, and what each loads beside
+--- (`loaded_beside`). A name only a declaration answers for is none:
+--- every declaration is carried whole.
+local function stored(basis: writer.Basis, names: {string}): {string}
+  local seen: {string:boolean} = {}
+  local out: {string} = {}
+  local function add(name: string)
+    if seen[name] or basis.modules[name] == nil then return end
+    seen[name] = true
+    out[#out + 1] = name
+  end
+  for _, name in ipairs(names) do
+    add(name)
+    for _, beside in ipairs(loaded_beside[name] or {}) do add(beside) end
+  end
+  table.sort(out)
+  return out
+end
+
+--- The address of the closure store for `names` over `basis`: the
+--- digest of everything its bytes follow from -- its modules' lines,
+--- the basis's shared digest, and `salt`, which names the code that
+--- writes it (`build.test` passes the harness digest, which holds
+--- build.writer's and build.schema's sources). An edit to a module
+--- outside the closure moves none of them, and so neither the address
+--- nor the store, but for adding or removing a module a build carries
+--- (`Basis.tree`).
+function writer.closure_address(basis: writer.Basis, names: {string}, salt: string): string
+  local lines: {string} = { basis.shared, salt }
+  for _, name in ipairs(stored(basis, names)) do lines[#lines + 1] = basis.modules[name] end
+  return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
+--- Fills a closure store's fresh schema from the projection attached
+--- as `whole`, for the modules `temp.wanted` names: their rows, the
+--- edges among them, their docs, uses (those they make), catalog, and
+--- the examples of the example files among them; every declaration and
+--- its docs; and the `meta` rows `closure_meta` keeps. The zones, CA
+--- roots, components and notices are left out: the core, `cosmic.time`
+--- and `build.bom` read those from the tool's own database alone.
+local closed: {string} = {
+  "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
+    " ORDER BY key",
+  "INSERT INTO main.modules SELECT * FROM whole.modules " ..
+    "WHERE path IN temp.wanted ORDER BY path",
+  "INSERT INTO main.imports SELECT * FROM whole.imports " ..
+    "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
+  "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
+  "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
+    "text, file, line) SELECT module, symbol, source_symbol, exported, kind, signature, " ..
+    "text, file, line FROM whole.docs WHERE module IN temp.wanted " ..
+    "OR module IN (SELECT path FROM whole.decls) ORDER BY id",
+  "INSERT INTO main.uses SELECT * FROM whole.uses WHERE from_module IN temp.wanted " ..
+    "ORDER BY module, symbol, from_module, line",
+  "INSERT INTO main.examples (module, name, text, file, line, source) " ..
+    "SELECT module, name, text, file, line, source FROM whole.examples " ..
+    "WHERE file IN (SELECT file FROM whole.modules WHERE path IN temp.wanted) ORDER BY id",
+  "INSERT INTO main.catalog (kind, module, symbol, message, text, file, line) " ..
+    "SELECT kind, module, symbol, message, text, file, line FROM whole.catalog " ..
+    "WHERE module IN temp.wanted ORDER BY id",
+}
+
+--- Writes at `out` the closure store for `names` (see
+--- `closure_address`) of the projection at `whole`, whose basis is
+--- `basis`: what a sandboxed worker of a test whose module's import
+--- closure `names` holds is given at o/cosmic.db in the projection's
+--- place (`build.test_sandbox`), so an edit outside the closure leaves
+--- it as it was. Its `meta` names `address` as `closure`, and the
+--- tree's carried modules (`Basis.tree`) as `tree_modules`, one a line.
+--- Like the projection, a function of its inputs alone: a fresh
+--- schema, filled in one order, vacuumed.
+function writer.closure(whole: string, out: string, names: {string}, basis: writer.Basis,
+                        address: string): boolean, string
+  local function fill(db: Sqlite.Handle): boolean, string
+    local statements: {string} = {}
+    for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
+    for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
+    statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"
+    for _, statement in ipairs(statements) do
+      local ok, failure = db:exec(statement)
+      if not ok then return false, failure end
+    end
+    for _, name in ipairs(stored(basis, names)) do
+      local ok, failure = Sqlite.run(db, "INSERT INTO temp.wanted (path) VALUES (?1)",
+        { text(name) })
+      if not ok then return false, failure end
+    end
+    local attached, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS whole",
+      { text(whole) })
+    if not attached then return false, attach_trouble end
+    local made, refused = Sqlite.transact(db, function(): boolean, string
+      for _, statement in ipairs(closed) do
+        local ok, failure = db:exec(statement)
+        if not ok then return false, failure end
+      end
+      local noted, note_trouble = Sqlite.run(db,
+        "INSERT INTO main.meta (key, value) VALUES ('closure', ?1), ('tree_modules', ?2)",
+        { text(address), text(table.concat(basis.tree, "\n")) })
+      if not noted then return false, note_trouble end
+      for _, statement in ipairs(rebuild_fts) do
+        local ok, failure = db:exec((statement:gsub("out%.", "main.")))
+        if not ok then return false, failure end
+      end
+      return true, ""
+    end)
+    local _, _ = db:exec("DETACH whole")
+    if not made then return false, refused end
+    local _, _ = Fs.remove(out .. ".building")
+    local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1", { text(out .. ".building") })
+    if not vacuumed then return false, vacuum_trouble end
+    return Fs.rename(out .. ".building", out)
+  end
+  local db, open_trouble = Sqlite.memory()
+  if db == nil then return false, open_trouble end
+  local ok, trouble = fill(db)
+  local _, _ = db:close()
+  if not ok then return false, trouble end
   return true, ""
 end
 

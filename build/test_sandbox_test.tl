@@ -73,6 +73,21 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   local stored = test_sandbox.plan(root, scratch, inputs, {})
   assert(holds(stored.held, "/tree/o/cosmic.db") and stored.unkeyable == "", stored.unkeyable)
   inputs.store = false
+  -- Given the store of its closure, a worker has it at o/cosmic.db in
+  -- the projection's place, which it has nowhere, and a process it
+  -- starts is keyed by it; declaring `store` keeps the projection.
+  assert(Fs.mkdirs(root .. "/o/stores"))
+  local closure_store = root .. "/o/stores/closure.db"
+  assert(Fs.write(closure_store, "c"))
+  local closed = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
+  assert(closed.sandbox.unveil.at[closure_store] == "/tree/o/cosmic.db" and
+    not holds(closed.sandbox.unveil.reads, root .. "/o/cosmic.db"))
+  assert(holds(closed.held, "/tree/o/cosmic.db") and closed.unkeyable == "", closed.unkeyable)
+  inputs.store = true
+  local whole = test_sandbox.plan(root, scratch, inputs, {}, closure_store)
+  assert(whole.sandbox.unveil.at[root .. "/o/cosmic.db"] == "/tree/o/cosmic.db" and
+    not holds(whole.sandbox.unveil.reads, closure_store))
+  inputs.store = false
   -- A declared path not there yet is held all the same, keyed as
   -- missing until it is made; nothing is given for it.
   inputs.reads = { "data/", "later/x" }
@@ -347,9 +362,10 @@ end
 --- module declares. Run again, the test stands; a change to a file of
 --- the tree it does not declare leaves it standing; a change to one it
 --- declares runs it again, and so does making one it declares that was
---- not there when it last ran. A module that declares the network, or
---- starts a process that could read the store it does not declare, has
---- no verdict a key holds: it runs every time, and none is assumed.
+--- not there when it last ran. A module that declares the network has
+--- no verdict a key holds: it runs every time, and none is assumed. One
+--- that does not declare `store` stands too: what it starts can read
+--- only the store of its closure, which its key holds.
 local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -372,7 +388,7 @@ end
   assert(Fs.write(root .. "/suite/unstored_test.tl", [[
 local Child = require("cosmic.child")
 
-local function test_child_could_read_the_store()
+local function test_child_reads_the_closure_store()
   assert(assert(Child.run({ "/bin/sh", "-c", "exit 0" })).ok)
 end
 ]]))
@@ -404,13 +420,13 @@ end
     return
   end
   if not first:find("; sandboxed)", 1, true) then return end -- COSMIC_TEST_SANDBOX=0
-  local again = said("2 ran, 1 stood, 2 run every time (no key holds them)")
+  local again = said("1 ran, 2 stood, 1 run every time (no key holds them)")
   assert(not again:find("assumed", 1, true), again)
   assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
-  said("2 ran, 1 stood, 2 run every time")
+  said("1 ran, 2 stood, 1 run every time")
   assert(Fs.write(root .. "/suite/data.txt", "two"))
-  said("3 ran, 0 stood, 2 run every time")
-  said("2 ran, 1 stood, 2 run every time")
+  said("2 ran, 1 stood, 1 run every time")
+  said("1 ran, 2 stood, 1 run every time")
   -- Made since, what the child reads is there, and the test fails.
   assert(Fs.write(root .. "/suite/later.txt", "made"))
   said("FAIL  suite.child_test test_child_reads: ", false)

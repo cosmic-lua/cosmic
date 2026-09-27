@@ -635,9 +635,13 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   if it is a directory, and the system's own paths every worker is given by the
   package database, the image `COSMIC_HOST_ID` names and the kernel alone
   (`host_identity`); a change under /usr no package manager made is not keyed.
-- *the projection*: every worker attaches `o/cosmic.db` whole; a test that
-  queries it without declaring `store` reads rows no key holds but its
-  closure's (`build/declared_key.tl`, the TODO on `store`).
+- *a module reached around `require`*: a worker whose module does not
+  declare `store` is given at `o/cosmic.db` the store of its import closure
+  alone (`build/writer.tl`'s `closure`, kept under `o/stores/` by the
+  address its key holds), but a module outside the closure it reaches through
+  `Store.bytecode` or a searcher called by hand falls through to the
+  program's own copy, which no key of a test that does not declare `tool`
+  holds (`cosmic/test.tl`, the TODO on `store`).
 - *the processor*: its features are keyed (/proc/cpuinfo's flags); its model
   and microcode are not.
 - *build.dispatch*: the harness digest holds the runner's and the worker's
@@ -961,7 +965,7 @@ cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
 doc/                prose
-o/                  output; o/cosmic.db, o/carried.db, o/build.db; never committed
+o/                  output; o/cosmic.db, o/carried.db, o/build.db, o/stores/; never committed
 ```
 
 every directory name is singular: `doc`, not `docs`; `patch`, not
