@@ -647,10 +647,16 @@ local dispatched: {string:{string:boolean}} = {
 
 --- The features a core on `machine` chooses code by (`dispatched`), in
 --- byte order, or nil for a machine no audit has read, whose key holds
---- every feature.
-function declared_key.dispatched(machine: string): {string}
-  local kept = dispatched[machine]
-  if kept == nil then return nil end
+--- every feature; with no `machine`, the machines audited, in byte
+--- order.
+function declared_key.dispatched(machine?: string): {string}
+  local kept: {string:boolean} = {}
+  if machine == nil then
+    for name in pairs(dispatched) do kept[name] = true end
+  else
+    kept = dispatched[machine]
+    if kept == nil then return nil end
+  end
   local sorted: {string} = {}
   for flag in pairs(kept) do sorted[#sorted + 1] = flag end
   table.sort(sorted)
@@ -751,12 +757,13 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- atan2's `avx` one only re-encodes SSE and changes no result, so
   -- `avx` is not keyed. No grep finds glibc's choices, which are in the
   -- host's libm, not the tree: this comment is their record. Nothing
-  -- else the core carries dispatches, nor does its build, so the processor's model and microcode, which choose no code,
-  -- are not keyed either. The whole list split GitHub's hosted runners of
-  -- one leg on flags nothing reads (avx512*, a hypervisor's bits,
-  -- md_clear), each split a verdict not shared. A vendored library
-  -- that comes to dispatch on another feature adds it to `dispatched`
-  -- and to .github/scripts/host-features.sh alike.
+  -- else the core carries dispatches, nor does its build, so the
+  -- processor's model and microcode, which choose no code, are not
+  -- keyed either. The whole list split GitHub's hosted runners of one
+  -- leg on flags nothing reads (avx512*, a hypervisor's bits,
+  -- md_clear), each split a verdict not shared. A vendored library that
+  -- comes to dispatch on another feature adds it to `dispatched` and to
+  -- .github/scripts/host-features.sh alike.
   lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo, from.machine), " ")
   lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
   local status, _ = Fs.read(from.status or "/proc/self/status")
