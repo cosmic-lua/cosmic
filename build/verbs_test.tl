@@ -102,8 +102,6 @@ local function needs_a_process(args: {string}): string | nil
   end
   if args[1] == "test" and not asks_help then
     return "it starts a process for each test, and coverage this one is keeping"
-  elseif args[1] == "todos" and not asks_help then
-    return "it starts git to ask who wrote each line"
   elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$")) then
     return "a file run loads its tree's modules into the process"
   end

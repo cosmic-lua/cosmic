@@ -1,10 +1,10 @@
 # the command line
 
-<!-- needs: processes = true, tool = true, system = true -->
+<!-- needs: processes = true, tool = true -->
 
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
 path to a file to run. Each example here starts the `cosmic` that runs
-it, through `cosmic.child`, and shows what it prints. Most start it the
+it, through `cosmic.child`, and shows what it prints. Each starts it the
 way `cosmic test` starts its workers, past its launcher: `Proc.relaunch`
 names the core it runs on and what the launcher would hand it, so the
 start needs no shell.
@@ -82,7 +82,8 @@ true
 ## paths narrow a verb
 
 A verb takes paths to narrow it. `cosmic build cmd/hi` builds the tree
-but writes only the programs under `cmd/hi`.
+but writes only the programs under `cmd/hi`. With `--host`, as here, each
+is this system's native executable, which runs with no launcher.
 
 ```teal file=cmd/hi/main.tl
 return function(): integer
@@ -100,11 +101,17 @@ end
 
 ```teal
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 
-local built = assert(Child.run({ assert(Proc.executable()), "build", "cmd/hi" },
-  { cwd = tmp, stdout = "capture", timeout_ms = 60000 }))
+local relaunch = assert(Proc.relaunch())
+local env = Env.all()
+for name, value in pairs(relaunch.env) do env[name] = value end
+local argv = { table.unpack(relaunch.argv) }
+for _, word in ipairs({ "build", "--host", "cmd/hi" }) do argv[#argv + 1] = word end
+local built = assert(Child.run(argv,
+  { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ms = 60000 }))
 print("exit " .. tostring(built.code))
 local hi, _ = Fs.exists(tmp .. "/o/bin/hi")
 local bye, _ = Fs.exists(tmp .. "/o/bin/bye")

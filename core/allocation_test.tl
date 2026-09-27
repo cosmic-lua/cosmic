@@ -25,6 +25,7 @@ local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Observations = require("build.filesystem_observations")
+local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
@@ -36,11 +37,10 @@ local Test = require("cosmic.test")
 
 --- `test_attach_leaves_no_connection_whenever_an_allocation_fails` counts
 --- the store's databases, which a test sees only when it declares the store;
---- and the system's `sh`, which only the checked core's spawn cases start
---- (`test_waitpid_never_loses_a_status_to_a_failed_allocation` and the
---- spawn refusal), though every test of the module is given it and keyed by
---- what the host has installed: they share one declaration.
-Test.needs{ store = true, system = true }
+--- and the program itself, which the checked core starts again in
+--- `test_waitpid_never_loses_a_status_to_a_failed_allocation` (the
+--- spawn refusal names it, and never starts it).
+Test.needs{ store = true, tool = true }
 
 local type Searcher = function(string): any, any
 
@@ -275,8 +275,15 @@ end
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   if not checked then return end
-  local pid = assert(process.spawn("/bin/sh", { "sh", "-c", "exit 7" }, nil, nil, nil,
-    nil, nil, false))
+  -- This program again, past its launcher, as `Observations.program`
+  -- starts it, handed a chunk that exits 7: a real status to reap. A
+  -- test's worker always runs from a portable artifact.
+  local relaunch = assert(Proc.relaunch())
+  local argv: {string} = { table.unpack(relaunch.argv) }
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = "return 7"
+  local pid = assert(process.spawn(argv[1], argv, relaunch.env, nil, nil, nil, nil, false,
+    relaunch.fds))
   local received: raw_process.ChildStatus
   local reaped: raw_process.ChildStatus
   under_every_failure(function()
@@ -589,6 +596,9 @@ local function test_a_call_whose_record_is_refused_does_nothing(tmp: string)
   local taken = Observations.capture(function() held = process.spawn end)
   assert(taken.ok, tostring(taken.produced))
   local here = assert(sys.getcwd())
+  -- This program, which the refusal keeps from ever starting: named
+  -- before, since finding it is a call the log records.
+  local program = assert(Proc.executable())
   local refusals: {string: function(): any, any, integer} = {
     open = function(): any, any, integer
       return sys.open(tmp .. "/created", sys.O_CREAT | sys.O_WRONLY, 420)
@@ -597,7 +607,7 @@ local function test_a_call_whose_record_is_refused_does_nothing(tmp: string)
     mkdtemp = function(): any, any, integer return sys.mkdtemp(tmp .. "/temporary-XXXXXX") end,
     chdir = function(): any, any, integer return sys.chdir(tmp) end,
     spawn = function(): any, any, integer
-      return held("/bin/sh", { "sh", "-c", "exit 0" }, nil, nil, nil, nil, nil, false)
+      return held(program, { program, "-e", "" }, nil, nil, nil, nil, nil, false)
     end,
     http = function(): any, any, integer
       local response, trouble = Http.open("http://127.0.0.1:1/")

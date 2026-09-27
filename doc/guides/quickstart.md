@@ -1,6 +1,6 @@
 # quickstart
 
-<!-- needs: processes = true, tool = true, system = true -->
+<!-- needs: processes = true, tool = true -->
 
 cosmic is one executable: the Lua runtime, the Teal compiler, and a
 standard library, `cosmic.*`, for the everyday things a script needs.
@@ -118,19 +118,33 @@ exit 0
 waits for the first of several to finish. When its timeout passes first it
 answers `nil` and `""`: nothing finished, and nothing failed. A reason other
 than `""` is a failure to report, never a message to read for its meaning.
+The child's own `wait` then waits for it to finish, and answers how it
+ended.
 
 ```teal
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
 
-local sleeper = assert(Child.start({ "/bin/sh", "-c", "sleep 5" }))
+-- This cosmic again, past its launcher, running a chunk that sleeps
+-- for half a second and exits 3.
+local relaunch = assert(Proc.relaunch())
+local argv = { table.unpack(relaunch.argv) }
+argv[#argv + 1] = "-e"
+argv[#argv + 1] = "require('cosmic.time').sleep_ns(500000000) return 3"
+local env = Env.all()
+for name, value in pairs(relaunch.env) do env[name] = value end
+local sleeper <close> = assert(Child.start(argv, { env = env, fds = relaunch.fds }))
 local done, trouble = Child.wait_any({ sleeper }, 10)
 if done == nil and trouble ~= "" then error(trouble) end
 print(done == nil and "still running" or "finished")
-assert(sleeper:close())
+local ended = assert(sleeper:wait())
+print("exit " .. tostring(ended.code))
 ```
 
 ```output
 still running
+exit 3
 ```
 
 ## ending early

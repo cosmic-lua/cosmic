@@ -4,18 +4,21 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- The processes the examples start, as a program would: the system's.
-Test.needs{ processes = true, system = true }
+--- The processes the examples start, as a program would: this program
+--- itself, past its launcher (`Proc.relaunch`), so no start takes a
+--- shell.
+Test.needs{ processes = true, tool = true }
 
--- TODO: confine the shell these examples start, so their verdicts can
--- stand, once an example may declare what its processes need: examples
--- are shown by `cosmic docs`, and may not import
--- build.filesystem_observations.
+-- TODO: confine the processes these examples start, once an example
+-- may declare what its processes need, as a test does through
+-- `observations.confine`: examples are shown by `cosmic docs`, and may
+-- not import build.filesystem_observations.
 
 local Example = {}
 
@@ -25,9 +28,14 @@ local Example = {}
 --- it again once every child is gone.
 function Example.guard()
   local guard <close> = assert(Child.guard())
+  -- This program again, past its launcher, each child exiting with its i.
+  local again = assert(Proc.relaunch())
   local running: {Child.Handle} = {}
   for i = 1, 3 do
-    running[i] = assert(Child.start({ "/bin/sh", "-c", "exit " .. tostring(i) }))
+    local argv = { table.unpack(again.argv) }
+    argv[#argv + 1] = "-e"
+    argv[#argv + 1] = "return " .. tostring(i)
+    running[i] = assert(Child.start(argv, { env = again.env, fds = again.fds }))
   end
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, 100)
@@ -54,7 +62,12 @@ end
 --- release, which keeps a signal that lands between them.
 function Example.release()
   local guard <close> = assert(Child.guard())
-  local h = assert(Child.start({ "/bin/sh", "-c", "exit 0" }))
+  -- This program again, past its launcher, running an empty chunk.
+  local again = assert(Proc.relaunch())
+  local argv = { table.unpack(again.argv) }
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = ""
+  local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
   local result: Child.Result
   while result == nil do
     local state = assert(h:try_wait())
@@ -78,8 +91,20 @@ end
 --- a filter fed through its stdin stream while its stdout stream is
 --- read, neither side stalling on the other however much goes through.
 function Example.start()
-  local h <close> = assert(Child.start({ "/bin/sh", "-c", "tr a-z A-Z" },
-    { stdin = "stream", stdout = "stream" }))
+  -- This program again, past its launcher, as a filter: stdin to
+  -- stdout, upper-cased, until stdin ends.
+  local again = assert(Proc.relaunch())
+  local argv = { table.unpack(again.argv) }
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = [[
+local Fs = require("cosmic.fs")
+while true do
+  local s = assert(Fs.take(0, 65536))
+  if s == "" then break end
+  assert(Fs.put(1, s:upper()))
+end]]
+  local h <close> = assert(Child.start(argv,
+    { env = again.env, fds = again.fds, stdin = "stream", stdout = "stream" }))
   local stdin = assert(h.stdin_stream)
   assert(stdin:write("streamed\n"))
   assert(stdin:close())
