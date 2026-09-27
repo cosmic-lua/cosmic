@@ -400,3 +400,64 @@ chmod 755 o/bin/cosmic
   assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
   assert(Fs.read(seen .. ".words") == "test\n", "a Linux push's suite ran --all")
 end
+
+--- The checked suite and the others alike (`suite_run`): the words are
+--- decided on the driver's environment, then what names the run is
+--- forgotten and the rest is kept.
+local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local words, env = Orchestration.suite_run({
+    GITHUB_RUN_ID = "1", RUNNER_NAME = "r", ACTIONS_RUNTIME_TOKEN = "t",
+    CI = "true", HOSTNAME = "4f1c", COSMIC_CI_SCOPE = "light",
+    COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+    HOME = "/home/runner", COSMIC_WORKER = "w",
+  })
+  assert(table.concat(words, " ") == "test", "a Linux push's run ran --all")
+  for _, name in ipairs({ "GITHUB_RUN_ID", "RUNNER_NAME", "ACTIONS_RUNTIME_TOKEN",
+      "CI", "HOSTNAME", "COSMIC_CI_SCOPE", "COSMIC_CI_EVENT" }) do
+    assert(env[name] == nil, "the suite was given " .. name)
+  end
+  assert(env.COSMIC_CI_REQUIRE_SANDBOX == "1" and env.HOME == "/home/runner" and
+    env.COSMIC_WORKER == "w" and env.FUZZ_ITERS == "0")
+  local forced, forced_env = Orchestration.suite_run({
+    COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1" }, true)
+  assert(table.concat(forced, " ") == "test --all" and
+    forced_env.COSMIC_TEST_NO_SHARED == "1", "forced")
+end
+
+--- The files that name a variable a suite forgets, and why each may:
+--- it sets the variable itself, in its own child's environment.
+local sets_what_it_reads: {string:boolean} = {
+  ["build/place_tree_test.tl"] = true,
+}
+
+--- No tree source names a variable a gating suite's workers are not
+--- given (`Orchestration.forget_run`) but one that sets it itself
+--- (`sets_what_it_reads`): a test that read one would find it unset in
+--- CI. A new one is kept out of `forget_run` or set by the test.
+local function test_no_tree_source_reads_what_a_suite_forgets()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local root = checkout_root()
+  local found: {string} = {}
+  for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
+    for _, path in ipairs((assert(Fs.walk(root .. "/" .. dir)))) do
+      local relative = dir .. "/" .. path
+      if (relative:match("%.tl$") or relative:match("%.lua$") or
+          relative:match("%.[ch]$")) and not sets_what_it_reads[relative] then
+        local names: {string:string} = {}
+        for name in (assert(Fs.read(root .. "/" .. relative))):gmatch("[%u%d_]+") do
+          -- CI is a word of prose too often to tell a read of it.
+          if name ~= "CI" then names[name] = name end
+        end
+        local kept: {string:string} = {}
+        for name, value in pairs(names) do kept[name] = value end
+        Orchestration.forget_run(kept)
+        for name in pairs(names) do
+          if kept[name] == nil then found[#found + 1] = relative .. ": " .. name end
+        end
+      end
+    end
+  end
+  assert(#found == 0, "a tree source names a variable a suite forgets: " ..
+    table.concat(found, ", "))
+end

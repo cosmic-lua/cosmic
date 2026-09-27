@@ -18,6 +18,7 @@ local record Orchestration
   shares: function(env: {string:string}, force?: boolean)
   fixture: function(env: {string:string}, tmpdir: string): {string:string}
   forget_run: function(env: {string:string})
+  suite_run: function(extra?: {string:string}, force?: boolean): {string}, {string:string}
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -70,7 +71,8 @@ end
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
 --- night with a seed of its own: a check that gates a change answers the
 --- same on every run, and one that searches runs where a find blocks
---- nobody's merge.
+--- nobody's merge. A gating suite's is then rid of what names the run
+--- (`suite_run`, `forget_run`).
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
@@ -120,6 +122,19 @@ function Orchestration.forget_run(env: {string:string})
     if names_the_run(name) then names[#names + 1] = name end
   end
   for _, name in ipairs(names) do env[name] = nil end
+end
+
+--- A gating suite's `cosmic test` words and environment, `extra` added
+--- to `environment()`'s: `--all` and nothing shared where it stands on
+--- no verdict (`stands`, `shares`) or `force` says so, decided on the
+--- driver's own environment, which then forgets the run (`forget_run`).
+function Orchestration.suite_run(extra?: {string:string},
+    force?: boolean): {string}, {string:string}
+  local values = environment(extra)
+  Orchestration.shares(values, force)
+  local words = Orchestration.test_words(values, force)
+  Orchestration.forget_run(values)
+  return words, values
 end
 
 local record Context
@@ -385,11 +400,10 @@ local function checked_suite(c: Context, target: string, work: string): integer
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
   local checked_argv: {string} = { cosmic }
-  for _, word in ipairs(Orchestration.test_words(Env.all())) do
+  local checked_words, checked_environment = Orchestration.suite_run()
+  for _, word in ipairs(checked_words) do
     checked_argv[#checked_argv + 1] = word
   end
-  local checked_environment = environment()
-  Orchestration.forget_run(checked_environment)
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     320000, c.root, checked_environment)
@@ -446,14 +460,12 @@ local function suite(c: Context, name: string, executable: string,
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
-  local values = environment(env)
-  Orchestration.shares(values, force)
-  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
+  local words, values = Orchestration.suite_run(env, force)
+  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   local argv: {string} = { executable }
-  for _, word in ipairs(Orchestration.test_words(values, force)) do argv[#argv + 1] = word end
-  Orchestration.forget_run(values)
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ms, c.root, values)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
