@@ -72,22 +72,27 @@ local record Test
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them.
     tool: boolean
-    -- TODO: hold a module a test reaches outside its closure another
-    -- way than `require` -- `cosmic.store`'s `bytecode` and `source`, a
-    -- searcher called by hand or taken out of `package.searchers` --
-    -- once the store's own lookups (core/store.c) consult the worker's
-    -- hold: sandboxed, the store it is given holds only its closure, so
-    -- such a read falls through to the program's own copy, which no key
-    -- of a test that does not declare `tool` holds; unsandboxed, it reads
-    -- the whole projection. Among them are the `Store.source` reads of
-    -- `cosmic.*` sources that build/teal.tl's `standard` and
-    -- build/importer.tl's `dependency_keys` make when a test
-    -- type-checks a snippet (build/importer_test.tl,
-    -- build/analyzer_test.tl), which read the program's own always.
-    --- Whether the tests open the tree's projection, `o/cosmic.db`,
-    --- whole. Without it, a sandboxed worker is given at o/cosmic.db the
-    --- store of its module's import closure alone, which its key holds,
-    --- and a `require` reaches only that closure (see the TODO above).
+    --- Whether the tests read the tree's projection, `o/cosmic.db`, or
+    --- the rows of modules of the tree outside their import closure.
+    --- Without it, a sandboxed worker is given at o/cosmic.db the store
+    --- of its module's import closure alone, which its key holds, and
+    --- a `require` reaches only that closure; and unless the module
+    --- declares `store` or `tool`, every other lookup in the store is
+    --- held to it too (`build.test_worker`'s `hold_store`), from the
+    --- module's load until the worker ends: `Store.bytecode`,
+    --- `Store.source` or `Store.requires` of a module of the tree
+    --- outside the closure, or the store's searcher called by hand,
+    --- answers none, and `Store.databases()`, whose handles read every
+    --- module's rows, raises -- sandboxed or not, since without the
+    --- hold such a read reaches the program's own database, or the
+    --- whole projection, which no key of the test holds. Among them
+    --- are the `Store.source` reads of `cosmic.*` sources and
+    --- declarations that build/teal.tl's `standard` makes when a test
+    --- type-checks a snippet: a module the snippet requires goes in the
+    --- test's closure (`local type _ = require(...)`) or the test
+    --- declares `store`. `Store.meta` is not held (the TODO on
+    --- `hold_store`), nor is the descriptor a portable start keeps on
+    --- the program (the TODO above core/syscalls_fs.c's `read`).
     store: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project

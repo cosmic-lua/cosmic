@@ -32,6 +32,11 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
+local Test = require("cosmic.test")
+
+--- `test_attach_leaves_no_connection_whenever_an_allocation_fails` counts
+--- the store's databases, which a test sees only when it declares the store.
+Test.needs{ store = true }
 
 local type Searcher = function(string): any, any
 

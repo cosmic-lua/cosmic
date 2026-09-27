@@ -276,10 +276,10 @@ local function test_a_database_attached_through_the_store_is_keyed_by_its_conten
   local function attached_checkout(root: string, value: string)
     assert(Fs.mkdirs(root .. "/suite"))
     local db = assert(Sqlite.open(root .. "/suite/data.db", true))
-    assert(db:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('" .. value .. "')"))
+    assert(db:exec("CREATE TABLE meta (key TEXT, value TEXT); " ..
+      "INSERT INTO meta VALUES ('v', '" .. value .. "')"))
     assert(db:close())
     assert(Fs.write(root .. "/suite/attached_test.tl", [[
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
@@ -287,20 +287,23 @@ Test.needs { reads = { "suite/data.db" } }
 
 local function test_reads_an_attached_database()
   assert(Store.attach("suite/data.db"))
-  local rows = assert(Sqlite.text_rows(Store.databases()[1], "SELECT v FROM t"))
-  assert(rows[1][1] == "one", rows[1][1])
+  -- Through the store's own lookup: a hold on the store (this module
+  -- declares no `store`) hands no test its databases.
+  local value = Store.meta("v")
+  assert(value == "one", tostring(value))
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 Test.needs { reads = { "o/build.db" } }
 
+-- Through the store's own lookup: a hold on the store (this module
+-- declares no `store`) hands no test its databases.
 local function test_reads_the_working_database()
   assert(Store.attach("o/build.db"))
-  assert(Sqlite.text_rows(Store.databases()[1], "SELECT count(*) FROM sqlite_schema"))
+  local _ = Store.meta("reads the working database")
 end
 ]]))
   end

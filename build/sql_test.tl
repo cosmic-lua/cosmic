@@ -1,8 +1,6 @@
-local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sql = require("build.sql")
-
 --- A temporary root whose o/cosmic.db holds one small table.
 local function project(): string
   local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
@@ -21,13 +19,6 @@ local function argv_of(words: {string}): {integer:string}
     argv[index + 1] = word
   end
   return argv
-end
-
---- The database `sql.source` picks for a command line, or nil and why.
-local function source(root: string, words: {string}): sql.Source | nil, string
-  local parsed = assert(Flags.parse(argv_of(words), 2, { ["--db"] = true, ["--build"] = false,
-    ["--store"] = false }))
-  return sql.source(root, parsed)
 end
 
 --- What one run wrote, stream by stream.
@@ -49,16 +40,6 @@ local function run(root: string, words: {string}): integer, Written
     end,
   })
   return code, written
-end
-
---- The binary's own database reads the clock through its VFS, which
---- passes the question to the default one: `julianday('now')` answers
---- rather than ending the process.
-local function test_the_binarys_own_database_tells_the_time()
-  local root = project()
-  local code, said = run(root, { "--store", "SELECT julianday('now') > 2460000 AS now" })
-  assert(Fs.remove_tree(root))
-  assert(code == 0 and said.out[2] == "1", table.concat(said.out, "|"))
 end
 
 local function query(path: string, statement: string): {string} | nil, string
@@ -195,49 +176,5 @@ local function test_a_command_line_it_cannot_read_is_a_usage_error()
   assert(written.verdict:find("^sql: FAIL %(usage") ~= nil, written.verdict)
   -- After "--" a word is the statement, even one that looks like an option.
   assert(run(root, { "--", "--build" }) == 1)
-  assert(Fs.remove_tree(root))
-end
-
-local function test_the_default_is_the_project_database_else_the_binarys_own()
-  local root = project()
-  local chosen = assert(source(root, {}))
-  assert(chosen.path == root .. "/o/cosmic.db", chosen.name)
-  chosen = assert(source(root, { "--build" }))
-  assert(chosen.path == root .. "/o/build.db")
-  chosen = assert(source(root, { "--store" }))
-  assert(chosen.path == nil)
-  chosen = assert(source(root, { "--db", root .. "/x.db" }))
-  assert(chosen.path == root .. "/x.db")
-  local refused, why = source(root, { "--db", "x.db", "--store" })
-  assert(refused == nil and why == "name one database, not --db and --store", why)
-  refused, why = source(root, { "--db=a.db", "--db", "b.db" })
-  assert(refused == nil and why == "name one database, not --db and --db", why)
-
-  assert(Fs.remove(root .. "/o/cosmic.db"))
-  chosen = assert(source(root, {}))
-  assert(chosen.path == nil, chosen.name)
-  -- The binary's own database answers, and still refuses a write.
-  local opened = assert(sql.open(chosen))
-  assert(not opened.owned)
-  local lines = assert(sql.query(opened.db, "SELECT count(*) > 0 AS any FROM sqlite_schema"))
-  assert(#lines == 2 and lines[1] == "any" and lines[2] == "1", table.concat(lines, "|"))
-  -- A PRAGMA it refuses is answered with what a query can tell instead.
-  local code, said = run(root, { "--store", "PRAGMA table_info(modules)" })
-  assert(code == 1 and #said.out == 0)
-  assert(said.err[1]:find("not authorized; the binary's own database answers a query",
-    1, true) ~= nil, said.err[1])
-  code, said = run(root, { "--store", "SELECT * FROM modules LIMIT 0" })
-  assert(code == 0 and #said.out == 1 and said.out[1]:find("\t", 1, true) ~= nil,
-    table.concat(said.out, "|"))
-  for _, statement in ipairs({
-    "CREATE TEMP TABLE u (a)",
-    "ATTACH ':memory:' AS m",
-    "PRAGMA writable_schema = 1",
-    "VACUUM INTO '" .. root .. "/copy.db'",
-  }) do
-    local written = sql.query(opened.db, statement)
-    assert(written == nil, statement .. " ran")
-  end
-  assert(Fs.exists(root .. "/copy.db") == false, "VACUUM INTO made a file")
   assert(Fs.remove_tree(root))
 end

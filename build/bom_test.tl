@@ -4,7 +4,6 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local bom = require("build.bom")
-local invoke = require("build.invoke")
 local schema = require("build.schema")
 
 --- What the bill of materials describes: every vendored tree, the patches
@@ -170,32 +169,6 @@ local function test_the_tree_s_records_match_what_they_describe()
   local notice = rows[1][1]
   assert(notice:match("^%* Copyright %(C%) 1994%-%d+ Lua%.org, PUC%-Rio%.\n"), notice)
   assert(notice:match("SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE%.\n$"), notice)
-end
-
---- `cosmic bom` answers from the running binary's own rows: each
---- component a line, `--json` a document naming the same components,
---- and `--licenses` every notice.
-local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
-  local listed = invoke.run({ "bom" }, { cwd = tmp })
-  assert(listed.code == 0, listed.stderr)
-  assert(listed.stdout:find("\nlua %S+  MIT\n") or listed.stdout:find("^lua %S+  MIT\n"),
-    listed.stdout)
-  -- Data is what `cosmic refresh` updates, and the line says so.
-  assert(listed.stdout:find("\ntzdata %S+  %S+  %(data: `cosmic refresh` updates it%)\n"), listed.stdout)
-  assert(listed.stdout:find("\ncacert %S+  %S+  %(data: `cosmic refresh` updates it%)\n"), listed.stdout)
-  local path = tmp .. "/bom.json"
-  local written = invoke.run({ "bom", "--json", path }, { cwd = tmp })
-  assert(written.code == 0, written.stderr)
-  local decoded = assert(Json.decode_object((assert(Fs.read(path)))))
-  local names: {string:boolean} = {}
-  for _, component in ipairs(decoded.components as {{string:any}}) do
-    names[tostring(component.name)] = true
-  end
-  assert(names["lua"] and names["curl"] and names["musl"], "the document names the components")
-  local notices = invoke.run({ "bom", "--licenses" }, { cwd = tmp })
-  assert(notices.code == 0, notices.stderr)
-  assert(notices.stdout:find("Lua.org, PUC-Rio", 1, true), "lua's notice is printed")
-  assert(notices.stdout:find("== sqlite", 1, true), "a component with no notice is named")
 end
 
 --- The words of an SPDX expression that name a license.

@@ -1701,6 +1701,10 @@ local record Recording
   --- Every module of the tree, by path, sorted: what a worker refuses a
   --- `require` of outside its closure (`build.test_worker`).
   tree_names: {string}
+  --- Every name only a declaration of the tree answers for, sorted:
+  --- what a worker's store holds a lookup of outside its closure beside
+  --- `tree_names` (`build.test_worker`).
+  declared_names: {string}
   --- Sandboxed, the address of the store of each module's import
   --- closure its workers are given at o/cosmic.db (`build.writer`'s
   --- `closure`), by path, for every test and example module of the
@@ -2357,7 +2361,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   for i, value in ipairs(start.argv) do argv[i] = value end
   -- What the build read of the module's `needs`, which the worker holds
   -- the call to; what its sandbox holds a process it starts to; and its
-  -- import closure, which it holds its `require`s to. Sandboxed, a
+  -- import closure, which it holds its `require`s, and unless its
+  -- module declares `store` or `tool` its other lookups in the store, to. Sandboxed, a
   -- worker whose module does not declare `tool` may not run this
   -- program (`observations.forbid_running`): what it would run is no
   -- input of its test's key.
@@ -2369,9 +2374,15 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                            held }) do
     argv[#argv + 1] = value
   end
+  -- A module whose key holds the whole projection, or the program and
+  -- the modules it carries, has no hold on the store (`build.test_worker`).
+  local declared = job.m.inputs
+  if declared ~= nil and (declared.store or declared.tool) then argv[#argv + 1] = "--open" end
   for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
   argv[#argv + 1] = "--tree"
   for _, name in ipairs(rec.tree_names) do argv[#argv + 1] = name end
+  argv[#argv + 1] = "--declared"
+  for _, name in ipairs(rec.declared_names) do argv[#argv + 1] = name end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(start.fds) do fds[number] = fd end
   -- An unsandboxed worker leads a process group of its own, which its
@@ -2914,9 +2925,13 @@ function test.run(argv: {integer:string}): integer
   end
   local declarations: {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
-  rec.closures, rec.tree_names = {}, {}
+  rec.closures, rec.tree_names, rec.declared_names = {}, {}, {}
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
   table.sort(rec.tree_names)
+  for name in pairs(declarations) do
+    if by_path[name] == nil then rec.declared_names[#rec.declared_names + 1] = name end
+  end
+  table.sort(rec.declared_names)
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
   end

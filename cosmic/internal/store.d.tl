@@ -41,6 +41,27 @@ local record store
   --- puts every other back, whether it returned or raised.
   alone: function(function())
 
+  --- The names the binary's own `imports` table records a module
+  --- requiring, sorted: none for a name it holds no row of. Nil and why
+  --- when a hold holds the name, or the query failed.
+  requires: function(name: string): {string} | nil, string
+
+  --- One time zone's TZif file, by IANA name, from the binary's own
+  --- database: nil and why when it carries no such zone or the query
+  --- failed.
+  zoneinfo: function(name: string): string | nil, string
+
+  --- Every time zone name the binary's own database carries, as a set,
+  --- or nil and why when the query failed.
+  zone_names: function(): {string:boolean} | nil, string
+
+  --- Private: puts up a hold, for the rest of the process, on the names
+  --- the set holds as keys, saying why of a module with the first text
+  --- and why of `databases` with the second; raises when one is up
+  --- already. While it is up, the searcher, `bytecode`, `source` and
+  --- `requires` answer none of those names, and `databases` raises.
+  hold: function(names: {string:boolean}, why: string, why_databases: string)
+
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.
   trusted_prefix: function(): string | nil, string

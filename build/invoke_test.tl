@@ -1,6 +1,11 @@
 local Store = require("cosmic.store")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+--- The verbs it runs in this process read the running program's own
+--- database -- `help`, every module's docs -- through `Store.databases()`.
+Test.needs{ store = true }
 
 --- What a verb writes -- `print`'s C included -- and what it exits with
 --- come back as a started binary's would.

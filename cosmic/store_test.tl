@@ -152,3 +152,37 @@ local function test_the_binary_s_database_inflates_its_source()
   assert(#rows == 1 and rows[1][1] == assert(Store.source("cosmic.store")),
     "the query and Store.source read the same text")
 end
+
+--- Asserts a call failed as a store handle's refusal does: nil or false,
+--- and why.
+local function refused(value: any, message: any)
+  assert(value == nil or value == false, "not refused: " .. tostring(value))
+  assert(message is string and message ~= "", "a refusal says why")
+end
+
+--- A borrowed handle on a store database reads, and nothing else: a
+--- read-only open still leaves a connection a writable temp schema and
+--- ATTACH, and a temp `modules` stands in front of the rows `require`
+--- loads -- a planted row once replaced `cosmic.compress` for every
+--- later require, and a temp view of that name made the next require
+--- end the process. Each is refused, and require is unaffected.
+local function test_a_store_database_handle_only_reads()
+  local databases = Store.databases()
+  assert(#databases >= 1, "the store searches the binary's own database")
+  for _, db in ipairs(databases) do
+    refused(db:exec("CREATE TEMP TABLE modules (path TEXT, bytecode BLOB, kind TEXT)"))
+    refused(db:exec("CREATE TEMP VIEW modules AS SELECT 1 AS path"))
+    refused(db:exec("CREATE TEMP TRIGGER t AFTER INSERT ON meta BEGIN SELECT 1; END"))
+    refused(db:exec("ATTACH DATABASE ':memory:' AS other"))
+    refused(db:exec("INSERT INTO meta (key, value) VALUES ('planted', 'x')"))
+    refused(db:exec("PRAGMA query_only = 0"))
+    refused(db:exec("BEGIN"))
+    local statement = assert(db:prepare("SELECT count(*) FROM modules"))
+    assert(statement:step() == "row")
+    statement:finalize()
+  end
+  local Compress = require("cosmic.compress")
+  local packed = assert(Compress.deflate("zlib", "unaffected"))
+  assert(Compress.inflate("zlib", packed, 10) == "unaffected")
+  assert(Store.bytecode("cosmic.compress"))
+end
