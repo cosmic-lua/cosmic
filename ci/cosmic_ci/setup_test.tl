@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
@@ -36,4 +37,27 @@ local function test_runtime_setup_rejects_missing_writer(tmp: string)
       tmp .. "/work")
   end, "missing-writer")
   assert(Fs.exists(tmp .. "/runtime") == false, "failed setup created a runtime")
+end
+
+--- The product fixture runs once, before the portable suite and the
+--- regressions; after them the driver checks every file of the product
+--- against the hashes its setup recorded, as the fixture's second run did.
+local function test_a_product_file_changed_after_setup_is_named(tmp: string)
+  local product = tmp .. "/product"
+  assert(Fs.mkdirs(product .. "/apps"))
+  assert(Fs.write(product .. "/cosmic", "cosmic"))
+  assert(Fs.write(product .. "/apps/hello", "hello"))
+  local recorded = Hash.hex_sha256("cosmic") .. "  cosmic\n" ..
+    Hash.hex_sha256("hello") .. "  apps/hello\n"
+  assert(Fs.write(product .. "/hashes.sha256", recorded))
+  assert(ProductSetup.changed(product, recorded) == nil, "an unchanged product changed")
+  assert(Fs.write(product .. "/apps/hello", "changed"))
+  local changed = ProductSetup.changed(product, recorded)
+  assert(changed == "apps/hello", "changed: " .. tostring(changed))
+  assert(Fs.remove(product .. "/apps/hello"))
+  changed = ProductSetup.changed(product, recorded)
+  assert(changed == "apps/hello", "removed: " .. tostring(changed))
+  assert(Fs.write(product .. "/hashes.sha256", "0  cosmic\n"))
+  changed = ProductSetup.changed(product, recorded)
+  assert(changed == "hashes.sha256", "record: " .. tostring(changed))
 end

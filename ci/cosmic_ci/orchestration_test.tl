@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
+local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -321,7 +322,7 @@ local function test_a_fixture_neither_reads_nor_writes_shared_verdicts(tmp: stri
 end
 
 --- COSMIC_CI_FORMAT=skip skips the format check on a leg, as ci.yml
---- sets on every leg but linux-x86_64; any other value runs it.
+--- sets on every leg but one; any other value runs it.
 local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
@@ -346,6 +347,89 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
     if case.ran then assert(ran == "fix --check .", ran) end
   end
+end
+
+--- Every leg verifies its checked artifact -- the manifest entry of its
+--- checked core, read by the release cosmic, and that the artifact runs
+--- that core -- but only the leg that runs the checked suite
+--- (COSMIC_CI_CHECKED_SUITE) runs the sanitized cosmic in the tree,
+--- whose first run there compiles it: a leg that skips the suite does
+--- not pay for the compile.
+local function test_only_a_leg_that_runs_the_checked_suite_compiles_the_tree(tmp: string)
+  local base, project = command(tmp)
+  local core = "the checked core"
+  local digest = Hash.hex_sha256(core)
+  local target = "x86_64-linux-musl"
+  local function candidate(name: string, host_image: string): string
+    local fake = tmp .. "/checked-" .. name
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/o/sanitized/bin"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    assert(Fs.write(fake .. "/o/sanitized/targets.tsv",
+      "1\t1\trelease\t" .. target .. "\tLinux\tx86_64\n" ..
+      "1\t2\tsanitized\tsanitized-" .. target .. "\tLinux\tx86_64\n"))
+    assert(Fs.write(fake .. "/o/sanitized/cosmic-core", core))
+    local entry = "printf '%s\\t%s\\t%s\\n' 16384 " .. #core .. " " .. digest .. "\n"
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.ran\"\n" ..
+      entry .. "exit 0\n", 493)
+    -- The checked artifact: a script that answers each run as the tool
+    -- would, its core at the first aligned offset past it.
+    local script = "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$0.ran\"\n" ..
+      "if [ \"$1\" = -e ]; then printf '%s\\t%s\\t%s\\n' portable-v1 " .. target ..
+      " " .. host_image .. "; exit 0; fi\n" ..
+      "if [ \"$1\" = test ]; then exit 0; fi\n" .. entry .. "exit 0\n"
+    Fixture.write(fake .. "/o/sanitized/bin/cosmic",
+      script .. string.rep("#", 16384 - #script) .. core, 493)
+    return fake
+  end
+  for _, case in ipairs({
+    { name = "skip", switch = "skip", image = digest, ok = true,
+      ran = "-e\n" },
+    { name = "run", switch = "run", image = digest, ok = true,
+      ran = "-e\n/tool.tl\ntest\n" },
+    { name = "another-core", switch = "skip", image = string.rep("0", 64), ok = false,
+      ran = "-e\n" },
+  }) do
+    local fake = candidate(case.name, case.image)
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(runner_temp))
+    local outcome = Fixture.call("checked-" .. case.name, append(base, { "platform", "checked" }),
+      project, tmp .. "/logs", context(fake, runner_temp, {
+        TARGET = target, COSMIC_CI_CHECKED_SUITE = case.switch,
+      }))
+    assert(outcome.result.ok == case.ok, case.name .. ": the checked phase answered " ..
+      tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
+    local ran = (assert(Fs.read(fake .. "/o/sanitized/bin/cosmic.ran"))):
+       gsub("[^\n]*/test/portable/tool%.tl", "/tool.tl")
+    assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. ran)
+    local released = assert(Fs.read(fake .. "/o/bin/cosmic.ran"))
+    assert(released:match("^[^\n]*/test/portable/tool%.tl entry [^\n]*/o/sanitized/bin/cosmic 1 2\n$"),
+      case.name .. ": the release cosmic ran: " .. released)
+  end
+end
+
+--- The checked core's suite and the format check each run on one leg
+--- of ci.yml's platform job (COSMIC_CI_CHECKED_SUITE, COSMIC_CI_FORMAT),
+--- and not on the same one: the checked suite makes its leg the run's
+--- longest, and the format check, which answers the same on every leg,
+--- would only lengthen it.
+local function test_the_checked_suite_and_the_format_check_run_on_different_legs()
+  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
+  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local legs: {string: boolean} = {}
+  local strategy = platform.strategy as {string: {string: any}}
+  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
+    legs[leg.name] = true
+  end
+  local env = platform.env as {string: string}
+  local function leg(name: string): string
+    local value = assert(env[name], "ci.yml's platform job sets no " .. name)
+    local one = value:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
+    assert(one and legs[one], name .. " runs on no one leg of the matrix: " .. value)
+    return one
+  end
+  local checked, format = leg("COSMIC_CI_CHECKED_SUITE"), leg("COSMIC_CI_FORMAT")
+  assert(checked ~= format, "the checked suite and the format check both run on " .. checked)
 end
 
 --- A gating suite's workers are given none of what names the run --

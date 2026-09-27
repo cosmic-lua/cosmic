@@ -122,21 +122,25 @@
       env: {
         COSMIC_WORKER: "${{ matrix.name }}",
         TARGET: "${{ matrix.target }}",
-        # A branch push (a PR's run) is `light`: each leg builds, runs its
-        # native suite and the format check (COSMIC_CI_FORMAT), and stops.
+        # A branch push (a PR's run) is `light`: each leg builds and runs
+        # its native suite, one leg the format check (COSMIC_CI_FORMAT)
+        # too, and stops.
         # The merge queue, main and a manual run are `full`: the checked
         # core, the product and portable suites, the regressions,
         # attestation and provenance, so nothing lands on main without all
         # of it.
         COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
-        # The checked core's whole suite (about a minute a leg) runs on
+        # The checked core's whole suite (two to three minutes) runs on
         # linux-x86_64 alone; every leg still builds and verifies the
         # checked core. See orchestration.tl's checked_suite.
         COSMIC_CI_CHECKED_SUITE: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
         # So does the format check (`fix --check`, which type-checks the
-        # tree too): a tree formats the same on every platform. See
-        # orchestration.tl's format_check.
-        COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
+        # tree too), on another leg: a tree formats the same on every
+        # platform, its C checked for x86_64-linux-musl on every host
+        # (build/c/init.tl), and linux-x86_64, which runs the checked
+        # suite, is the run's longest leg. See orchestration.tl's
+        # format_check.
+        COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
         # A Linux leg fails where the sandbox probe finds a confined
         # test's parts do not all hold: its container is given what they
         # need (see "start the leg's container"). See orchestration.tl's
