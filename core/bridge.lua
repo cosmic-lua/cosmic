@@ -151,6 +151,13 @@ local function searcher_for(tl)
       end
       file = dir_file
     end
+    -- TODO: take this compile from the compiles every checkout shares
+    -- (build/shared_compiles.tl), keyed by the module's source, its
+    -- closure's and the compiler's: every boot compiles the build.boot
+    -- closure again (with tl.tl below, some 3.6 s of CPU) though it
+    -- changes only with them. Waits on a reader of that table in plain
+    -- Lua, over the SQLite the boot preloads (cosmic.internal.sqlite):
+    -- no Teal module has loaded yet here.
     local code, result = tl.gen(source, env, nil, 'tl')
     local trouble = complain(file, result)
     if not code or trouble ~= '' then
@@ -176,6 +183,9 @@ local function bootstrap(stage0, tl_dir)
   local env = assert(stage0.new_env({ defaults = {
     feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
   } }))
+  -- TODO: take this compile from the compiles every checkout shares
+  -- (build/shared_compiles.tl), keyed by the patched tl.tl's source and
+  -- stage0's, as `searcher_for`'s TODO says of the modules it compiles.
   local code, result = stage0.gen(source, env, nil, 'tl')
   local trouble = complain(file, result and {
     syntax_errors = result.syntax_errors, type_errors = result.type_errors,

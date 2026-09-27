@@ -68,6 +68,31 @@ local record importer
     -- from `compiled` under a key that stood.
     compiled: integer
     cached: integer
+    --- How many of those `cached` came from the compiles every
+    --- checkout shares (`Shared`) rather than this one's own.
+    shared: integer
+  end
+
+  --- The compiles every checkout shares (`build.shared_compiles`), as
+  --- the caller that opened them hands them to `compile`: looked in
+  --- when a module's key misses this checkout's own, and given every
+  --- compile made here that is not refused.
+  record Shared
+    --- One compile: what a compile writes of a module.
+    record Compile
+      lua: string
+      bytecode: string
+      --- The record-field uses its checker found (`typed_refs`).
+      references: {receivers.Reference}
+    end
+    --- The compile another checkout made of `m` in a tree that is or
+    --- is not cosmic's own, or nil.
+    look: function(m: Module, own_tree: boolean): Compile | nil
+    --- Offers a compile of `m` made here to every other checkout.
+    keep: function(m: Module, own_tree: boolean, made: Compile)
+    --- Writes what was offered; `compile` calls it once, as it ends,
+    --- whether or not it compiled everything.
+    finish: function()
   end
 
   --- The statement that drops the record-field uses of every compile
@@ -845,6 +870,13 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
   -- A module's own compile is keyed from its implementation. Imports of
   -- that same path still resolve through `dependencies`, and therefore
   -- through its declaration when it has one.
+  -- TODO: key a module's own compile by its file too (`m.file`), not
+  -- its import path alone: `x.tl` and `x/init.tl` are both `x`, and
+  -- build.contracts names its exemptions by file, so a module moved
+  -- from one to the other keeps a compile its new file's rules might
+  -- refuse. Waits on a change that may move every local key at once, one
+  -- of its own; build.shared_compiles' `key` salts the shared key with
+  -- the file meanwhile, and drops that salt then.
   for _, m in ipairs(modules) do
     dependencies["\0" .. m.path] = {
       kind = m.kind, source_hash = m.source_hash, requires = m.requires,
@@ -1447,7 +1479,9 @@ end
 --- The vendored compiler, planned and cached like any module: its Lua
 --- is its source, so only the bytecode is made, and only once per
 --- compiler identity. Nothing to do when the working database holds no compiler,
---- as a project's does not.
+--- as a project's does not. Never taken from the compiles every checkout
+--- shares (`Shared`): loading and dumping it takes some ten milliseconds,
+--- about what reading its half-megabyte row back would.
 local function plan_compiler(handle: work.Handle, cache: Cache,
                              tool: string, ordinal: integer): boolean, string
   local rows, trouble = Sqlite.text_rows(handle.db,
@@ -1479,32 +1513,9 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
     string.dump(chunk, false), false)
 end
 
---- Compiles every module, in import order, into Lua and bytecode --
---- or finds it already compiled under the same key. The keys and the
---- compiles land in the working database inside the run's
---- transaction, kept even when a later module refuses, so a run that
---- fails still pays for each module once; a compile another tool
---- made, or one no run has used lately, is dropped.
----
---- The checker's environment (`build.teal`'s `environment_for`) is made
---- on first use, right before the first module that actually needs one
---- to compile, rather than up front: `new_env` parses and type-checks
---- tl's own prelude and stdlib declarations, so a build that finds
---- every module already cached never pays for it.
---- @param handle the working database the tree is staged in
---- @param built the compiler, loaded and ready
---- @param tool the identity of the compiler doing the compiling, which
----   every key carries
---- @param unjudged whether a module `build.contracts` refuses is kept
----   rather than refused: a stale tool rebuilding itself (`build.reboot`)
----   judges the tree by its own, older rules and exemptions, so it
----   leaves the last word to the tool it builds, which re-enters the
----   command. A compile the old rules refuse is kept only for this run's
----   database, never reused, so the next run compiles and judges the
----   module again; one they pass is cached as any other, since a change
----   to the rules themselves forgets every compile (`forget_stale_receivers`).
-function importer.compile(handle: work.Handle, built: compiler,
-                          tool: string, unjudged?: boolean): importer.Result | nil, string
+--- `importer.compile`, less finishing what it shares.
+local function compile(handle: work.Handle, built: compiler, tool: string,
+                       unjudged: boolean, shared: importer.Shared): importer.Result | nil, string
   local own_tree, own_trouble = tree.is_own(handle.root)
   if own_tree == nil then return nil, own_trouble end
   local modules, trouble = collect(handle, own_tree, built)
@@ -1525,7 +1536,7 @@ function importer.compile(handle: work.Handle, built: compiler,
   end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = {},
-    compiled = 0, cached = 0,
+    compiled = 0, cached = 0, shared = 0,
   }
   local db = handle.db
   local failure = ""
@@ -1610,8 +1621,22 @@ function importer.compile(handle: work.Handle, built: compiler,
         end
         local bytecode: string | nil = nil
         local refused = false
+        -- Another checkout's compile stands for one made here: its key
+        -- and what else decides it are the same (`build.shared_compiles`),
+        -- and it lands as a compile does, uses and all.
+        local elsewhere = lua == nil and shared ~= nil and shared.look(m, own_tree) or nil
         if lua ~= nil then
           result.cached = result.cached + 1
+        elseif elsewhere ~= nil then
+          lua = elsewhere.lua
+          bytecode = elsewhere.bytecode
+          result.cached = result.cached + 1
+          result.shared = result.shared + 1
+          local kept_refs, refs_trouble = keep_references(db, m.key, elsewhere.references)
+          if not kept_refs then
+            finish_cache(cache)
+            return false, m.file .. ": " .. refs_trouble
+          end
         else
           if env == nil then
             local made_env, env_trouble = teal.environment_for(built, handle)
@@ -1637,6 +1662,12 @@ function importer.compile(handle: work.Handle, built: compiler,
           if not kept_refs then
             finish_cache(cache)
             return false, m.file .. ": " .. refs_trouble
+          end
+          -- A refused compile is this run's alone (`remember`), and
+          -- never another checkout's.
+          if shared ~= nil and not refused then
+            shared.keep(m, own_tree, { lua = generated.lua, bytecode = generated.bytecode,
+              references = generated.references })
           end
         end
         m.lua = lua
@@ -1687,6 +1718,43 @@ function importer.compile(handle: work.Handle, built: compiler,
     return nil, failure
   end
   return result
+end
+
+--- Compiles every module, in import order, into Lua and bytecode --
+--- or finds it already compiled under the same key. The keys and the
+--- compiles land in the working database inside the run's
+--- transaction, kept even when a later module refuses, so a run that
+--- fails still pays for each module once; a compile another tool
+--- made, or one no run has used lately, is dropped.
+---
+--- The checker's environment (`build.teal`'s `environment_for`) is made
+--- on first use, right before the first module that actually needs one
+--- to compile, rather than up front: `new_env` parses and type-checks
+--- tl's own prelude and stdlib declarations, so a build that finds
+--- every module already cached never pays for it.
+--- @param handle the working database the tree is staged in
+--- @param built the compiler, loaded and ready
+--- @param tool the identity of the compiler doing the compiling, which
+---   every key carries
+--- @param unjudged whether a module `build.contracts` refuses is kept
+---   rather than refused: a stale tool rebuilding itself (`build.reboot`)
+---   judges the tree by its own, older rules and exemptions, so it
+---   leaves the last word to the tool it builds, which re-enters the
+---   command. A compile the old rules refuse is kept only for this run's
+---   database, never reused, so the next run compiles and judges the
+---   module again; one they pass is cached as any other, since a change
+---   to the rules themselves forgets every compile (`forget_stale_receivers`).
+--- @param shared the compiles every checkout shares, or nil for none:
+---   a module whose key misses here is taken from them rather than
+---   compiled, and every compile made here but a refused one is offered
+---   them. Finished before this returns, whatever it returns.
+function importer.compile(handle: work.Handle, built: compiler,
+                          tool: string, unjudged?: boolean,
+                          shared?: importer.Shared): importer.Result | nil, string
+  local result, trouble = compile(handle, built, tool, unjudged, shared)
+  if shared ~= nil then shared.finish() end
+  if result == nil then return nil, trouble end
+  return result, ""
 end
 
 return importer

@@ -24,6 +24,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local importer = require("build.importer")
+local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -213,7 +214,8 @@ local function into(handle: work.Handle, built: compiler,
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble =
-    importer.compile(handle, built, Store.meta("compiler") or "", true)
+    importer.compile(handle, built, Store.meta("compiler") or "", true,
+      shared_compiles.for_build())
   if result == nil then
     return closing(handle, compile_trouble)
   end

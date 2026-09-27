@@ -1193,6 +1193,13 @@ end
 --- whenever one it reaches has, since each one's source hash is in it.
 --- What a boot names its analyzer by before it parses
 --- (`build.importer.tree_code`).
+-- TODO: take in `cosmic.removed`'s source hash too: `build.teal`'s
+-- `environment_for` strips the names it lists from the checker, so a
+-- binary stripping other names accepts what this one refuses, under the
+-- same identity. Waits on a change that may move every compile and
+-- verdict key at once, one of its own; build.shared_compiles' `key`
+-- salts the shared key with those names meanwhile, and drops that salt
+-- then.
 function work.compiler_identity(handle: work.Handle): string | nil, string
   local rows, trouble = Sqlite.text_rows(handle.db,
     closure("build.importer", "build.*", pins))

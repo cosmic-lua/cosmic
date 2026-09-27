@@ -186,6 +186,7 @@ end
 ---   slot 1; the file sees only what follows it, as its own `argv`
 local function run(file: string, argv: {integer:string}): integer
   local importer = require("build.importer")
+  local shared_compiles = require("build.shared_compiles")
   local reboot = require("build.reboot")
   local teal = require("build.teal")
   local tree = require("build.tree")
@@ -238,7 +239,8 @@ local function run(file: string, argv: {integer:string}): integer
 
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, tool)
+  local result, compile_trouble = importer.compile(handle, built, tool, false,
+    shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

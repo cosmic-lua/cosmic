@@ -63,7 +63,11 @@ local record Cli
   --- in o/build.db, or one any checkout of the same content did, which
   --- every run shares through $XDG_CACHE_HOME/cosmic/verdicts
   --- (~/.cache/cosmic/verdicts): COSMIC_VERDICT_CACHE names another
-  --- file, and COSMIC_VERDICT_CACHE=0 turns it off
+  --- file, and COSMIC_VERDICT_CACHE=0 turns it off. A module is not
+  --- compiled again either where any checkout compiled the same, through
+  --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
+  --- COSMIC_BUILD_CACHE names another file, and
+  --- COSMIC_BUILD_CACHE=0 turns it off
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in
   --- the working directory structurally, then writes it back out as

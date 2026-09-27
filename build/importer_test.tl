@@ -11,6 +11,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local schema = require("build.schema")
+local shared_compiles = require("build.shared_compiles")
 
 --- The projection, asked directly, and whether the tree is cosmic's own.
 Test.needs{ reads = { "core" }, store = true }
@@ -1385,6 +1386,51 @@ local function test_an_unjudged_compile_is_judged_by_the_next()
   work.close(handle)
   assert(result == nil)
   assert(trouble:find("cosmic/casting.tl:3: Casting.value: a cast", 1, true), trouble)
+end
+
+--- A compile a stale tool's rebuild keeps though build.contracts
+--- refuses it is that run's alone: never offered the compiles every
+--- checkout shares, while the rest of the same run's are.
+local function test_an_unjudged_refused_compile_is_not_shared()
+  local root = assert(write_fixture("unjudged-shared", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    ["core/syscalls.h"] = table.concat({
+      "/**",
+      " * --- Reads bytes.",
+      " * ---@param fd integer descriptor",
+      " * ---@return string|nil data bytes",
+      " * ---@return string error failure",
+      " * ---@return integer errno number",
+      " */",
+      "COSMIC_SYSCALL(read, 1);",
+    }, "\n") .. "\n",
+    ["cosmic/casting.tl"] = table.concat({
+      "local record Casting end",
+      "function Casting.value(v: any): integer",
+      "  return v as integer",
+      "end",
+      "return Casting",
+    }, "\n") .. "\n",
+    ["cosmic/clean.tl"] = "local record Clean end\nreturn Clean\n",
+  }))
+  local path = root .. "/cache/cache.db"
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local result, trouble = importer.compile(handle, built, "unjudged-test", true,
+    shared_compiles.for_build({ COSMIC_BUILD_CACHE = path }))
+  work.close(handle)
+  assert(result ~= nil, trouble)
+  local cache = assert(shared_compiles.open(path))
+  local shared: {string:boolean} = {}
+  for _, m in ipairs(result.modules) do
+    local found, look_trouble = shared_compiles.look(cache,
+      shared_compiles.key(m.key, true, m.generated, m.file))
+    assert(look_trouble == "", look_trouble)
+    shared[m.path] = found ~= nil
+  end
+  shared_compiles.close(cache)
+  assert(shared["cosmic.clean"] == true, "the passing compile was not shared")
+  assert(shared["cosmic.casting"] == false, "the refused compile was shared")
 end
 
 --- A module a stale tool's rebuild compiles and its contracts pass is

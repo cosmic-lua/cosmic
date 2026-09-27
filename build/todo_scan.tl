@@ -92,6 +92,12 @@ function todo_scan.scan(source: string): {todo_scan.Found}
       index = index + 1
       while index <= #lines do
         local next_indent, next_marker, next_rest = comment_of(lines[index])
+        -- TODO: a line ending in `.` followed by one starting with a
+        -- capital ends the TODO below, which cuts a TODO of several
+        -- sentences short (build/exports_test.tl's and build/test.tl's
+        -- lose their second halves today); apply that break only to a
+        -- script's leading `#` header, or take comments from the parser
+        -- as the TODO in `comment_of` proposes, and drop it here.
         local aligned = next_indent == indent or
           (following ~= marker and next_indent == indent .. " ")
         if not aligned or

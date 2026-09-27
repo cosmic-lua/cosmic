@@ -21,6 +21,7 @@
 local Store = require("cosmic.store")
 local ast = require("build.ast")
 local importer = require("build.importer")
+local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -102,7 +103,7 @@ function spill.check(root: string): spill.Sites | nil, string
   end
   local built = teal.lazy()
   local result, compile_trouble = importer.compile(handle, built,
-    Store.meta("compiler") or "")
+    Store.meta("compiler") or "", false, shared_compiles.for_build())
   local closed, close_trouble = work.close(handle)
   if not closed then return nil, close_trouble end
   if result ~= nil then

@@ -12,6 +12,7 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local compiler = require("build.compiler")
 local importer = require("build.importer")
+local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local writer = require("build.writer")
 
@@ -178,7 +179,8 @@ local function boot(root: string, argv: {integer:string},
   end
 
   local result, compile_trouble =
-    importer.compile(handle, compiler, identities.compiler)
+    importer.compile(handle, compiler, identities.compiler, false,
+      shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -238,6 +240,7 @@ local function boot(root: string, argv: {integer:string},
 
   log:verdict("boot", true, #targets .. " targets, " .. staged.files ..
     " files staged, " .. result.compiled .. " modules compiled, " ..
+    result.shared .. " taken from another checkout, " ..
     #database .. " database bytes, " .. clock.took(started))
   return 0
 end
