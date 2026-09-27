@@ -9,11 +9,6 @@
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Test = require("cosmic.test")
-
---- The projection its tests query through the store, which every
---- worker attaches.
-Test.needs{ store = true }
 
 --- Asserts `value, message` is the failure shape SQLite's methods use:
 --- `nil` or `false`, then a non-empty message. SQLite has no errno, so
@@ -337,7 +332,7 @@ local function test_a_store_database_handle_only_reads()
   local Compress = require("cosmic.compress")
   local packed = assert(Compress.deflate("zlib", "unaffected"))
   assert(Compress.inflate("zlib", packed, 10) == "unaffected")
-  assert(Store.bytecode("cosmic.fs"))
+  assert(Store.bytecode("cosmic.compress"))
 end
 
 --- A connection that meets another's lock waits it out, sleeping

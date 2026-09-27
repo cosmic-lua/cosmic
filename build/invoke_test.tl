@@ -1,11 +1,6 @@
 local Store = require("cosmic.store")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
---- The projection its tests query through the store, which every
---- worker attaches.
-Test.needs{ store = true }
 
 --- What a verb writes -- `print`'s C included -- and what it exits with
 --- come back as a started binary's would.

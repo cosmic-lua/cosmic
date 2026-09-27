@@ -19,6 +19,7 @@
 --- CI runs this suite on it; any other core has no instrument to
 --- refuse one with, which these tests say rather than pass unseen.
 
+local _ = require("cosmic.child") -- in the closure: `process_table` searches for it by hand
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
@@ -31,11 +32,6 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
-local Test = require("cosmic.test")
-
---- The projection its tests query through the store, which every
---- worker attaches.
-Test.needs{ store = true }
 
 local type Searcher = function(string): any, any
 

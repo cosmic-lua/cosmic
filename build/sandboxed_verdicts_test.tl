@@ -203,7 +203,7 @@ local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
-Test.needs { tool = true, store = true }
+Test.needs { tool = true }
 
 local function test_runs_the_tool()
   local result = assert(Child.run({ assert(Proc.executable()), "-e", "" }))
@@ -213,9 +213,6 @@ end
   assert(Fs.write(root .. "/suite/undeclared_test.tl", [[
 local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
-local Test = require("cosmic.test")
-
-Test.needs { store = true }
 
 local function test_is_refused_the_tool()
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })

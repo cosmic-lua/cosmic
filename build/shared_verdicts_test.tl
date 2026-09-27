@@ -17,7 +17,7 @@ local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed.
@@ -95,7 +95,15 @@ end
 ]]))
 end
 
-local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: string)
+--- A shared cache seeded by a first checkout's run under `tmp`: the
+--- environment its runs are given, a `said` that runs `cosmic test` on
+--- a checkout and checks what it printed, and that first run's output,
+--- or nil where the run shared nothing, as `shares` has it. Each case
+--- below seeds its own, so none starts more nested runs than a test's
+--- bound (10 s in CI) holds under load.
+local type Said = function(string, string, string, ?{string}): string
+
+local function seeded(tmp: string): {string:string}, Said, string
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
   tmp = assert(Fs.absolute(tmp))
@@ -114,7 +122,14 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   end
   checkout(tmp .. "/first", "one\n")
   local first = said("first", tmp .. "/first", "5 ran, 0 stood")
-  if not shares(first) then return end
+  if not shares(first) then return env, said, nil end
+  return env, said, first
+end
+
+local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: string)
+  local env, said, first = seeded(tmp)
+  if first == nil then return end
+  tmp = assert(Fs.absolute(tmp))
   -- Every file of the second has an inode and times of its own.
   checkout(tmp .. "/second", "one\n")
   local second = said("second", tmp .. "/second",
@@ -133,8 +148,12 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   env.OLDPWD = tmp .. "/elsewhere"
   checkout(tmp .. "/rebooted", "one\n")
   said("rebooted", tmp .. "/rebooted", "0 ran, 5 stood")
-  env.COSMIC_REBOOTED = nil
-  env.OLDPWD = nil
+end
+
+local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: string)
+  local env, said, first = seeded(tmp)
+  if first == nil then return end
+  tmp = assert(Fs.absolute(tmp))
   -- A file beneath what a module declares differs: its tests run.
   checkout(tmp .. "/changed", "two\n")
   said("changed", tmp .. "/changed", "4 ran, 1 stood")

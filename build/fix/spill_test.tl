@@ -7,7 +7,7 @@ local teal = require("build.teal")
 
 --- Where the checker looks for modules, which a test runs it without.
 --- And the program itself, which its tests start.
-Test.needs{ env = { "TL_PATH" }, tool = true, store = true }
+Test.needs{ env = { "TL_PATH" }, tool = true }
 
 --- Only the call the checker names is wrapped, whatever its arguments,
 --- and nothing else on the line moves.

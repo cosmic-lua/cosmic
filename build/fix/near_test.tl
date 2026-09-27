@@ -7,7 +7,8 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local fixture = require("build.docs_fixture")
 
---- The standard library's sources, which a test holds to earn no note.
+--- The standard library's sources, which a test holds to earn no note,
+--- and the whole projection, whose docs of every module it walks.
 Test.needs{ reads = { "cosmic/" }, store = true }
 
 --- Lines as one source file's text.

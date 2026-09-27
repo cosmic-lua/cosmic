@@ -22,7 +22,6 @@ Test.needs{
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
   tool = true,
-  store = true,
 }
 
 --- The verbs that end in no verdict line: those whose words after the

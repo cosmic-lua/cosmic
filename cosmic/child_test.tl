@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 --- one, and what a sandboxed one is given of the host, and /proc, where
 --- a test finds a child's processes; and the program itself, which its
 --- tests start.
-Test.needs{ host = { "/etc", "/proc", "/usr" }, env = { "*" }, processes = true, tool = true, store = true }
+Test.needs{ host = { "/etc", "/proc", "/usr" }, env = { "*" }, processes = true, tool = true }
 
 local function path_exists(path: string): boolean
   local answer, trouble = Fs.exists(path)

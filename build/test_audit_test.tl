@@ -12,7 +12,7 @@ local type positions = require("build.positions")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 --- Runs `cosmic test --audit` on `root`, answering whether it passed and
 --- what it printed.

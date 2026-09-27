@@ -18,8 +18,8 @@ local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
---- The program itself, which the fixtures run, on the store it reads.
-Test.needs{ tool = true, store = true }
+--- The program itself, which the fixtures run.
+Test.needs{ tool = true }
 
 local checked = testing.configuration == "sanitized"
 

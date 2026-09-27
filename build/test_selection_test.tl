@@ -9,7 +9,7 @@ local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 local function invoke(program: string, root: string, output: string,
     selector: string): Child.Result
