@@ -60,8 +60,10 @@
 --- with status 1; an unknown verb ends with 2. The script's end is
 --- status 0.
 
-local embed = require("build.embed")
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local observations = require("build.filesystem_observations")
+local type _ = require("build.embed")
 
 local record stand_in
 end
@@ -335,22 +337,43 @@ return function(argv: {string}): integer
 end
 ]==]
 
+--- What builds the stand-in's tree, `...` its root, in a process of
+--- its own.
+local build_chunk <const> = [[
+local names, trouble = require("build.embed").tree((...), true)
+if names == nil then
+  require("cosmic.fs").put(2, trouble .. "\n")
+  return 1
+end
+return 0
+]]
+
 --- Builds a stand-in under `dir`, made if it is not there, and answers
---- the executable's path: `dir/o/bin/probe`.
+--- the executable's path: `dir/o/bin/probe`. The build runs in a
+--- process of this program of its own, started past its launcher
+--- (`observations.program`) with the environment a process of this
+--- program needs (`observations.environment`): a test worker's coverage
+--- hook, which a child is not given, would make it several times slower.
 function stand_in.build(dir: string): string | nil, string
   -- TODO: compile only cmd/probe/main.tl, against the modules this
   -- program already carries, and append it to the core, rather than
   -- stage, check and project a whole tree with `embed.tree`, once
   -- build.embed takes a prebuilt store (or build.importer compiles one
   -- module to a database on its own): a whole tree's build takes about
-  -- 0.7 s, and under a test worker's coverage hook on the checked core
-  -- about 7 s, of a test's 30.
+  -- 0.7 s, and on the checked core about 2 s.
   local made, trouble = Fs.mkdirs(dir .. "/cmd/probe")
   if not made then return nil, trouble end
   local written, write_trouble = Fs.write(dir .. "/cmd/probe/main.tl", main_source)
   if not written then return nil, write_trouble end
-  local names, build_trouble = embed.tree(dir, true)
-  if names == nil then return nil, build_trouble end
+  local started = observations.program({ "-e", build_chunk, dir },
+    { env = observations.environment(), stdout = "null", stderr = "capture" })
+  local result, run_trouble = Child.run(started.argv, started.options)
+  if result == nil then return nil, "building the stand-in: " .. run_trouble end
+  if not result.ok then
+    local said = result.stderr or ""
+    return nil, "building the stand-in failed" ..
+      (said ~= "" and ": " .. said or " (" .. tostring(result.code or result.signal) .. ")")
+  end
   return dir .. "/o/bin/probe", ""
 end
 
