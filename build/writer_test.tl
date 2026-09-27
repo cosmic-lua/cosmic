@@ -366,3 +366,78 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   assert(examples == "cosmic.fs", "the examples carried: " .. examples)
   assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)
 end
+
+--- The store of an import closure holds that closure's modules alone,
+--- with every declaration, and nothing that moves with a module outside
+--- it: an edit there, or a module added, leaves its address and its
+--- bytes as they were; one inside moves both, and so do a declaration
+--- and the code that writes it (the salt).
+local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    "local function test_hello()",
+    '  assert(greet.hello() ~= "")',
+    "end",
+    "",
+  }, "\n")))
+  local function other(body: string)
+    assert(Fs.write(root .. "/other.tl", table.concat({
+      "local record other",
+      "end",
+      "--- " .. body,
+      "function other.name(): string",
+      '  return "' .. body .. '"',
+      "end",
+      "return other",
+      "",
+    }, "\n")))
+  end
+  other("one")
+  local names = { "greet", "greet_test" }
+  local function store(whom: string, out: string, salt?: string): string
+    local handle = build_and_write(root, whom, tmp .. "/whole.db")
+    assert(work.close(handle))
+    local basis = assert(writer.closure_basis(tmp .. "/whole.db"))
+    local address = writer.closure_address(basis, names, salt or "salt")
+    assert(writer.closure(tmp .. "/whole.db", out, names, basis, address))
+    return address
+  end
+  local first = store("world", tmp .. "/first.db")
+  local whole = assert(Fs.read(tmp .. "/whole.db"))
+  other("two")
+  local outside = store("world", tmp .. "/outside.db")
+  assert(assert(Fs.read(tmp .. "/whole.db")) ~= whole, "the projection did not move")
+  assert(outside == first, "an edit outside the closure moved its address")
+  assert(Fs.read(tmp .. "/outside.db") == Fs.read(tmp .. "/first.db"),
+    "an edit outside the closure moved its store")
+  assert(Fs.write(root .. "/added.tl", "return {}\n"))
+  local added = store("world", tmp .. "/added.db")
+  assert(added == first, "a module added outside the closure moved its address")
+  assert(Fs.read(tmp .. "/added.db") == Fs.read(tmp .. "/first.db"),
+    "a module added outside the closure moved its store")
+  assert(store("world", tmp .. "/salted.db", "another writer") ~= first,
+    "the code that writes it left its address")
+  assert(Fs.write(root .. "/extra.d.tl", "local record extra\nend\nreturn extra\n"))
+  local declared = store("world", tmp .. "/declared.db")
+  assert(declared ~= first, "a declaration left its address")
+  assert(Fs.remove(root .. "/extra.d.tl"))
+  local inside = store("there", tmp .. "/inside.db")
+  assert(inside ~= first, "an edit inside the closure left its address")
+  assert(Fs.read(tmp .. "/inside.db") ~= Fs.read(tmp .. "/first.db"),
+    "an edit inside the closure left its store")
+
+  local db = assert(Sqlite.open(tmp .. "/first.db", false))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
+    "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
+    "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
+    "(SELECT value FROM meta WHERE key = 'closure')"))
+  assert(db:close())
+  local row = rows[1]
+  assert(row[1] == "greet greet_test", row[1])
+  assert(row[2] == "0", "a doc of a module outside the closure is in its store")
+  assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
+  assert(row[4] == first, row[4])
+end

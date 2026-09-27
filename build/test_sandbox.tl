@@ -10,8 +10,10 @@
 --- What a sandboxed worker has (`test_sandbox.plan`):
 ---
 --- - the tree at `test_sandbox.tree`, /tree, wherever the host keeps
----   it, and its working directory there, holding only its store
----   (o/cosmic.db), its module's import closure as source files, the
+---   it, and its working directory there, holding only its store at
+---   o/cosmic.db -- the store of its module's import closure
+---   (`build.writer`'s `closure`), or the whole projection for a module
+---   that declares `store` -- its module's import closure as source files, the
 ---   fuzz corpora for a module that uses `build.fuzz`, and what the
 ---   module declares it `reads`, with o/bin for one that declares `tool`
 ---   -- each read-only;
@@ -77,13 +79,9 @@ local record test_sandbox
     --- as the worker sees each path, for the key of a test that starts
     --- one (`observations.Resolving`'s `held`): the system's own paths,
     --- the program, and what the module declares of the tree and the
-    --- host -- not its closure's files, which its module's key holds
-    --- already, nor the store unless it declares `store`.
+    --- host, and the store it is given -- not its closure's files, which
+    --- its module's key holds already.
     held: {string}
-    --- Why a process the worker starts can be keyed by none of `held`,
-    --- or "": its sandbox is online ("the network"), or holds the store
-    --- its module does not declare ("the store").
-    unkeyable: string
     --- The directories of the tree the sandbox makes to hold what it
     --- gives beneath them, at /tree and below, each by the name the
     --- worker sees it by, which it holds only part of the host's (see
@@ -137,9 +135,15 @@ end
 
 --- The sandbox a worker of the tree at `root` runs a test of the module
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
---- with the runner's view of a worker's environment `environment`.
+--- with the runner's view of a worker's environment `environment`, and
+--- at o/cosmic.db the closure store at `closure_store` (`build.writer`'s
+--- `closure`) where the module does not declare `store`, else the whole
+--- projection. A caller keys the store as it gives it
+--- (`build.declared_key`): the whole projection by its contents only
+--- where the module declares `store`, so it gives one that does not the
+--- store of its closure, keyed by its address.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
-                           environment: {string:string}): test_sandbox.Plan
+                           environment: {string:string}, closure_store?: string): test_sandbox.Plan
   local base = observations.worker_unveil(root, nil, scratch)
   local reads: {string} = {}
   local at: {string:string} = {}
@@ -168,29 +172,21 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- runner name the artifact's path to the worker (core/startup.c):
   -- today it is given at its own name, which `Proc.executable()` answers,
   -- so a worker still sees where the host keeps the checkout there.
-  -- The projection is given whatever `store` says: the worker attaches
-  -- it to load every module of the closure (`build.test_worker`), and
-  -- `store` declares a test's own open of it besides.
+  -- The store at o/cosmic.db is the one its worker attaches to load
+  -- every module of the closure (`build.test_worker`): `closure_store`
+  -- where the module does not declare `store`, and the whole projection
+  -- where it does. Either is held for a process the worker starts,
+  -- which reads what the worker could.
   -- TODO: hide from a worker where the host keeps what it is given:
   -- /proc/self/mountinfo names each bind's source, the tree's location,
   -- the scratch directory's and the program's among them. Wants a
   -- procfs that shows a mount's source as its target (none does), or
   -- mountinfo refused to a test (a Landlock rule on /proc files).
-  -- TODO: bind a store derived from the module's import closure at
-  -- /tree/o/cosmic.db in place of the whole projection, once the build
-  -- derives one (cosmic/test.tl's TODO on `store`): the bind is this
-  -- one path's, and nothing else of the plan changes.
-  -- The store is held for a process the worker starts only where the
-  -- module declares it; where it does not, such a process could read it
-  -- unkeyed, and is no process a key holds (`unkeyable`).
-  -- TODO: hold a process a worker starts to a store it can key -- one
-  -- derived from the module's import closure, bound in the projection's
-  -- place (the TODO above) -- once the build derives one: today one
-  -- whose module does not declare `store` is no process a key holds, and
-  -- its test runs every time rather than standing.
+  local given_store = store
+  if closure_store ~= nil and not effective.store then given_store = closure_store end
   for _, path in ipairs(base.reads) do
     if path == store then
-      give(path, test_sandbox.tree .. "/o/cosmic.db", effective.store)
+      give(given_store, test_sandbox.tree .. "/o/cosmic.db", true)
     else
       give(path, nil, true)
     end
@@ -259,10 +255,6 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- ::1, localhost) offline, whose loopback reaches them, rather than
   -- give it the host's network.
   local offline = next(effective.network) == nil
-  -- Why a process the worker starts is none a key holds, or "": it
-  -- could reach the network, or read the store unkeyed (see above).
-  local unkeyable = not offline and "the network" or
-    (not effective.store and "the store" or "")
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
     env = test_sandbox.environment(environment, effective),
@@ -270,7 +262,6 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     trouble = made and "" or "a cache it declares: " .. trouble,
     kept = kept,
     held = held,
-    unkeyable = unkeyable,
     made = made_dirs,
   }
 end

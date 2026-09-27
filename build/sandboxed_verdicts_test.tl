@@ -17,9 +17,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
-local Sqlite = require("cosmic.sqlite")
 local observations = require("build.filesystem_observations")
-local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, and the
@@ -335,40 +333,71 @@ local function test_a_change_to_the_harness_runs_every_test_again(tmp: string)
   assert(moved:find("4 ran, 0 stood", 1, true), moved)
 end
 
---- A test that reached past its key -- started a process that could
---- read the store its module does not declare -- takes a pass shared
---- under that key out of the cache, though it passed: the pass stood
---- for what no key holds.
-local function test_a_run_past_its_key_takes_a_shared_pass_out(tmp: string)
+--- A test whose module does not declare `store` is given the store of
+--- its import closure at o/cosmic.db (build/writer.tl's `closure`), in
+--- the projection's place: it holds none of the tree's modules outside
+--- the closure, which a `require` is refused anyway, and its verdict
+--- stands across an edit to one of them -- which rewrites the projection
+--- -- and across a module added, which a `require` is refused too; while
+--- one to a module of the closure runs it again. A store no module names
+--- any longer is taken out.
+local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/past_test.tl", [[
-local Child = require("cosmic.child")
+  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/other.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/closed_test.tl", [[
+local Env = require("cosmic.env")
+local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+local lib = require("suite.lib")
 
-local function test_past()
-  assert(assert(Child.run({ "/bin/sh", "-c", "exit 0" })).ok)
+Test.needs { env = { "ADDED" } }
+
+local function test_closed()
+  assert(lib.value == 1)
+  assert(Store.bytecode("suite.lib") ~= nil, "the closure is not in the store")
+  local bytes, _ = Store.bytecode("suite.other")
+  assert(bytes == nil, "a module outside the closure is in the store")
+  local ok, why = pcall(require, ("suite." .. "other"))
+  assert(not ok and tostring(why):find("outside the import closure", 1, true), tostring(why))
+  if Env.get("ADDED") == "1" then
+    local added, added_why = pcall(require, ("suite." .. "added"))
+    assert(not added and tostring(added_why):find("outside the import closure", 1, true),
+      tostring(added_why))
+  end
 end
 ]]))
-  local cache = tmp .. "/cache/verdicts.db"
-  local env = environment(cache)
-  local first = run(root, tmp .. "/first.out", env)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  -- Unchecked: where no worker can be sandboxed, the run is
+  -- unsandboxed, its worker attaches the whole projection, and the
+  -- test fails -- `unsandboxed` then ends this one.
+  local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("1 run every time", 1, true), first)
-  -- The key it ran under, as its run recorded it.
-  local db = assert(Sqlite.open(root .. "/o/build.db", false))
-  local rows = assert(Sqlite.text_rows(db, "SELECT key FROM runs WHERE test = 'test_past'"))
-  assert(db:close())
-  local key = assert(rows[1][1]:match("^(%S+)"))
-  -- A pass under it, as another run could have shared.
-  local shared = assert(shared_verdicts.open(cache))
-  assert(shared_verdicts.settle(shared, "elsewhere", { kept = { { key = key,
-    test = "suite.past_test test_past", hits = "", elapsed_ns = 1 } }, used = {}, failed = {} },
-    Time.now_ns()))
-  shared_verdicts.close(shared)
-  local forced = run(root, tmp .. "/forced.out", env, { "--all" })
-  assert(forced:find("1 ran", 1, true), forced)
-  shared = assert(shared_verdicts.open(cache))
-  local left = shared_verdicts.declared(shared, key)
-  shared_verdicts.close(shared)
-  assert(left == nil, "a pass shared under a key its test reached past stayed")
+  assert(first:find("test: PASS", 1, true) and first:find("1 ran, 0 stood", 1, true), first)
+  local projection = assert(Fs.read(root .. "/o/cosmic.db"))
+  local stores = assert(Fs.list(root .. "/o/stores"))
+  assert(#stores == 1, table.concat(stores, " "))
+  -- Outside the closure: the projection moves, the verdict stands.
+  assert(Fs.write(root .. "/suite/other.tl", "return { value = 2 }\n"))
+  local outside = run(root, tmp .. "/outside.out", env)
+  assert(outside:find("0 ran, 1 stood", 1, true), outside)
+  assert(assert(Fs.read(root .. "/o/cosmic.db")) ~= projection, "the projection did not move")
+  -- A module added: it stands, on the same store; told to look, it
+  -- finds a `require` of the new module refused.
+  assert(Fs.write(root .. "/suite/added.tl", "return {}\n"))
+  local added = run(root, tmp .. "/added.out", env)
+  assert(added:find("0 ran, 1 stood", 1, true), added)
+  assert(#assert(Fs.list(root .. "/o/stores")) == 1)
+  env.ADDED = "1"
+  local looked = run(root, tmp .. "/looked.out", env)
+  assert(looked:find("1 ran, 0 stood", 1, true), looked)
+  env.ADDED = nil
+  -- Inside it: it runs again, given a store of its own, and the one
+  -- before is taken out.
+  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  local inside = run(root, tmp .. "/inside.out", env)
+  assert(inside:find("1 ran, 0 stood", 1, true), inside)
+  local now = assert(Fs.list(root .. "/o/stores"))
+  assert(#now == 1 and now[1] ~= stores[1], table.concat(now, " "))
 end

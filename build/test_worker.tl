@@ -14,7 +14,6 @@
 
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -225,27 +224,23 @@ end
 --- holds.
 local type Held = function(fn: function(any...): (any...), argument?: any): any
 
---- Reads the tree's modules from `projection`, the handle on its
---- projection, and answers a `Held`: it calls `fn` with `argument`
+--- Answers a `Held`, `tree` the set of the tree's modules: it calls
+--- `fn` with `argument`
 --- while a searcher ahead of every other answers a module `refusal`
 --- refuses with a loader that raises why, where it was required, and
 --- while each such module the worker itself has loaded already is out
 --- of `package.loaded`, so a `require` of it reaches the searcher too;
 --- then puts both back, whether `fn` returned or raised, and returns
---- or raises as it did. Nil and why when the tree's modules cannot be
---- read.
+--- or raises as it did.
 ---
 --- It holds `require` alone: a chunk a test loads by hand
 --- (`Store.bytecode` and `load`, or a searcher it calls itself, or
---- takes out of `package.searchers`) is read from the projection
---- directly and neither refused nor audited -- the TODO on
+--- takes out of `package.searchers`) is read from the store directly
+--- -- sandboxed, from the program's own where the closure's store does
+--- not hold it -- and neither refused nor audited: the TODO on
 --- `cosmic.test`'s `Needs.store`.
 local function hold_requires(module_path: string, closure: {string:boolean},
-                             projection: Sqlite.Handle): Held | nil, string
-  local rows, trouble = Sqlite.text_rows(projection, "SELECT path FROM modules")
-  if rows == nil then return nil, "the tree's modules: " .. trouble end
-  local tree: {string:boolean} = {}
-  for _, row in ipairs(rows) do tree[row[1]] = true end
+                             tree: {string:boolean}): Held
   -- A refusal is a loader that raises, not a searcher that does: a
   -- caller that asks every searcher by hand for the raw value one
   -- hands a wrapper (core/syscalls_test.tl's `raw_behind`) finds none
@@ -275,7 +270,7 @@ local function hold_requires(module_path: string, closure: {string:boolean},
     -- Level 0: the value raised, as it was raised.
     if not ok then error(produced, 0) end
     return produced
-  end, ""
+  end
 end
 
 --- Runs the one test the command line names and writes its report.
@@ -288,20 +283,23 @@ local function install(module: any, runner: any)
 end
 
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> <held> <closure>...`, `children` a directory, not yet there, to
+--- <needs> <held> <closure>... --tree <tree>...`, `children` a directory,
+--- not yet there, to
 --- collect the coverage of the processes the test starts in, `needs` what
 --- the build read of the module's `cosmic.test` declaration
 --- (`test_inputs.canonical`), "" or absent for none: a module whose
 --- `needs` call was handed anything else fails to load; `held` what this
 --- worker's own sandbox holds a process it starts to, one path a line
---- (`test_sandbox.Plan`'s `held`), after a line "!" and why none of it
---- keys such a process where none does (its `unkeyable`), "" or absent
---- where it runs unsandboxed (`observations.Resolving`'s `held`); and
---- `closure`
---- the names of the module's import closure (`test_inputs.modules`),
---- one argument each, which its load and its test may `require` of
---- the tree and nothing else of it (`refusal`), absent for no such
---- hold -- a closure holds its module at least. `--worker-no-tool` in
+--- (`test_sandbox.Plan`'s `held`), "" or absent where it runs
+--- unsandboxed (`observations.Resolving`'s `held`); `closure` the names
+--- of the module's import closure (`test_inputs.modules`), one argument
+--- each, which its load and its test may `require` of the tree and
+--- nothing else of it (`refusal`), absent for no such hold -- a closure
+--- holds its module at least; and `tree` the names of every module of
+--- the tree, one argument each, which the store a sandboxed worker is
+--- given does not hold beyond its closure, and which a key need not
+--- hold: a name there only turns a `require` of a module outside the
+--- closure into a refusal, never into a load. `--worker-no-tool` in
 --- place of `--worker` holds the worker, before anything of the test
 --- loads, to running anything but this very program
 --- (`observations.forbid_running`): a sandboxed worker's whose module
@@ -330,25 +328,24 @@ function worker.run(argv: {integer:string}): integer
     log:complain(attach_trouble)
     return 2
   end
-  -- Attached last, the projection is searched first.
-  local projection = Store.databases()[1]
   -- Without a closure, a call as it is.
   local held: Held = function(fn: function(any...): (any...), argument?: any): any
     return fn(argument)
   end
   if argv[10] ~= nil then
     local closure: {string:boolean} = {}
+    local tree: {string:boolean} = {}
+    local into = closure
     local i = 10
     while argv[i] ~= nil do
-      closure[argv[i]] = true
+      if argv[i] == "--tree" and into == closure then
+        into = tree
+      else
+        into[argv[i]] = true
+      end
       i = i + 1
     end
-    local holding, hold_trouble = hold_requires(module_path, closure, projection)
-    if holding == nil then
-      log:complain(root .. "/o/cosmic.db: " .. hold_trouble)
-      return 2
-    end
-    held = holding
+    held = hold_requires(module_path, closure, tree)
   end
   -- The worker's own connection: no test is keyed by all of it (see
   -- `observations.exclude_held_files`; a query of it is the TODO above
@@ -375,13 +372,7 @@ function worker.run(argv: {integer:string}): integer
   -- Sandboxed, a process the test starts has this worker's sandbox.
   if held_paths ~= "" then
     resolving.held = {}
-    for line in held_paths:gmatch("[^\n]+") do
-      if line:sub(1, 1) == "!" then
-        resolving.unkeyable = line:sub(2)
-      else
-        resolving.held[#resolving.held + 1] = line
-      end
-    end
+    for line in held_paths:gmatch("[^\n]+") do resolving.held[#resolving.held + 1] = line end
   end
   -- What the module's `needs` call is handed as it loads, through the
   -- hook `cosmic.test` leaves for a runner; once it has loaded, a call

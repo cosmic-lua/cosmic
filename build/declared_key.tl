@@ -6,9 +6,9 @@
 --- A sandboxed worker reads its declared inputs, and besides them what
 --- every worker is given (`observations.worker_unveil`): the system's
 --- own paths (/usr, /bin, /lib, /etc and the like), /dev, /proc, the
---- program and its core, and the whole projection, o/cosmic.db; and it
---- runs as whoever runs the tests, with their capabilities. The key
---- holds those by the host's identity (`host_identity`) and the
+--- program and its core, and a store at o/cosmic.db, held as below;
+--- and it runs as whoever runs the tests, with their capabilities. The
+--- key holds the rest by the host's identity (`host_identity`) and the
 --- runtime's, not by their contents: what is left out is in the TODOs
 --- on `host_identity`. It may not run this program unless it declares
 --- `tool` (`observations.forbid_running`), which runs the tool's own
@@ -38,7 +38,8 @@
 ---   and the fuzz corpora, a file by its contents and a directory by
 ---   its listing and every entry's contents beneath it; o/bin when it
 ---   declares `tool`; the projection, o/cosmic.db, when it declares
----   `store`; and each `host` path;
+---   `store`, and else the address of the store of its closure it is
+---   given there in the projection's place; and each `host` path;
 --- - the environment its worker is given (`test_sandbox.environment`):
 ---   the pinned variables and the declared ones, all of them for `"*"`.
 ---
@@ -118,6 +119,11 @@ local record declared_key
     --- not declare `tool` (`build.test`'s `can_forbid`): o/bin is keyed
     --- as if it did.
     runs_tool: boolean
+    --- The address of the store of its module's import closure its
+    --- worker is given at o/cosmic.db where its module does not declare
+    --- `store` (`build.writer`'s `closure_address`), or nil where it is
+    --- given the whole projection, keyed by its contents.
+    closure_store: string
   end
 
   --- Where `host_identity` looks, for a test: each a path, but
@@ -385,13 +391,19 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     -- And what actually runs, which need not be o/bin/cosmic.
     lines[#lines + 1] = part("program", spec.program or "", "")
   end
-  -- TODO: key the projection a worker attaches whatever it declares
-  -- by what of it the worker can query, once it is a store derived from
-  -- the closure (the TODO in test_sandbox.plan): today a test that
-  -- queries the whole projection through `cosmic.store` without
-  -- declaring `store` reads rows its key does not hold -- the other
-  -- modules' -- where only the closure's are keyed.
-  if effective.store then reads[#reads + 1] = "o/cosmic.db" end
+  -- The store its worker is given at o/cosmic.db: the whole projection,
+  -- by its contents, where the module declares `store`; else the store
+  -- of its closure, by its address, which is a digest of all its bytes
+  -- follow from -- so neither an edit to a module outside the closure
+  -- nor adding or removing one moves it (`build.writer`'s
+  -- `closure_address`). The names of the tree's modules a worker
+  -- refuses a `require` of are no part of it: a name there only turns
+  -- such a `require` into a refusal, never into a load.
+  if effective.store then
+    reads[#reads + 1] = "o/cosmic.db"
+  elseif spec.closure_store ~= nil then
+    lines[#lines + 1] = part("store", spec.closure_store, "")
+  end
   table.sort(reads)
   local seen: {string:boolean} = {}
   for _, read in ipairs(reads) do

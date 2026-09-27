@@ -72,22 +72,22 @@ local record Test
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them.
     tool: boolean
-    -- TODO: give each test a store derived from its import closure, and
-    -- take `store` for the whole one, once the sandboxed worker (a
-    -- later phase of declared inputs) binds one at o/cosmic.db. The
-    -- worker refuses a `require` outside the closure, but not a module
-    -- reached another way: `cosmic.store`'s `bytecode` and `source`, a
+    -- TODO: hold a module a test reaches outside its closure another
+    -- way than `require` -- `cosmic.store`'s `bytecode` and `source`, a
     -- searcher called by hand or taken out of `package.searchers` --
-    -- among them the `Store.source` reads of `cosmic.*` sources that
-    -- build/teal.tl's `standard` and build/importer.tl's
-    -- `dependency_keys` make when a test type-checks a snippet
-    -- (build/importer_test.tl, build/analyzer_test.tl). Such a read is
-    -- neither refused nor audited, and a key built from the closure's
-    -- digest misses it.
+    -- once the store's own lookups (core/store.c) consult the worker's
+    -- hold: sandboxed, the store it is given holds only its closure, so
+    -- such a read falls through to the program's own copy, which no key
+    -- of a test that does not declare `tool` holds; unsandboxed, it reads
+    -- the whole projection. Among them are the `Store.source` reads of
+    -- `cosmic.*` sources that build/teal.tl's `standard` and
+    -- build/importer.tl's `dependency_keys` make when a test
+    -- type-checks a snippet (build/importer_test.tl,
+    -- build/analyzer_test.tl), which read the program's own always.
     --- Whether the tests open the tree's projection, `o/cosmic.db`,
-    --- themselves rather than through `require` and `cosmic.store`.
-    --- Through `require` they reach only their import closure; nothing
-    --- holds a read of it made another way yet (see the TODO above).
+    --- whole. Without it, a sandboxed worker is given at o/cosmic.db the
+    --- store of its module's import closure alone, which its key holds,
+    --- and a `require` reaches only that closure (see the TODO above).
     store: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project

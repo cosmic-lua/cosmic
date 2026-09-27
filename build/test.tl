@@ -192,8 +192,7 @@ local record test
     shared: integer
     --- Of those that ran sandboxed, how many no key holds, which run
     --- every time: one whose module declares the network, or reads a
-    --- link out of the tree, or that started a process that could read
-    --- what no key holds (`test_sandbox.Plan`'s `unkeyable`).
+    --- link out of the tree.
     every: integer
   end
 
@@ -1699,6 +1698,23 @@ local record Recording
   --- modules, which its worker holds its `require`s to
   --- (`test_inputs.modules`, `build.test_worker`).
   closures: {string:{string}}
+  --- Every module of the tree, by path, sorted: what a worker refuses a
+  --- `require` of outside its closure (`build.test_worker`).
+  tree_names: {string}
+  --- Sandboxed, the address of the store of each module's import
+  --- closure its workers are given at o/cosmic.db (`build.writer`'s
+  --- `closure`), by path, for every test and example module of the
+  --- tree that does not declare `store`; the projection that store is
+  --- derived from, its basis, and each store built or found this run,
+  --- by address (`closure_store`).
+  stores: {string:string}
+  projection: string
+  basis: writer.Basis
+  built: {string:string}
+  --- How many of them this run wrote, their bytes, and the time taken.
+  written: integer
+  written_bytes: integer
+  writing_ns: integer
 end
 
 --- The environment the workers of `m`'s tests are given, which a
@@ -1798,6 +1814,7 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     host = rec.host, harness = rec.harness, program = rec.program,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
+    closure_store = rec.stores[m.path],
   })
   if key == nil then rec.unkeyed[m.path] = why end
   return key
@@ -2010,19 +2027,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     -- before it started -- and still are, or the verdict describes no
     -- one state of them, and is not kept.
     local key = job.declared
-    -- A process it started that its sandbox could let read what no key
-    -- holds -- the network, or the store undeclared (`Plan.unkeyable`,
-    -- noted "x" by the process's start) -- makes a run no key holds:
-    -- kept under none, so the test runs every time.
-    local unkeyable = job.plan ~= nil and job.plan.unkeyable or ""
-    local reached_past = key == nil
-    for _, observation in ipairs(reads) do
-      if unkeyable ~= "" and observation.kind == "x" and observation.path == unkeyable then
-        reached_past = true
-      end
-    end
-    if reached_past then rec.tally.every = rec.tally.every + 1 end
-    local held = not reached_past and declared_of(rec, job.m, id) == key
+    -- One with no key -- it reaches the network -- is kept under none,
+    -- and runs every time. What a process it starts reads, its sandbox
+    -- holds to what its key holds (`test_sandbox.Plan`'s `held`).
+    if key == nil then rec.tally.every = rec.tally.every + 1 end
+    local held = key ~= nil and declared_of(rec, job.m, id) == key
     local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
       message, Time.now_ns(), reads, run_key(key or "", key), rec.run_at_ns, elapsed)
     if not saved then
@@ -2034,20 +2043,18 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       if not saved then
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
-    elseif key ~= nil and (not passed or reached_past) then
+    elseif key ~= nil and not passed then
       -- Its inputs moved while it ran, so the failure is of no one state
       -- of them -- but it may be of the one it started from, and a pass
-      -- kept under that key would stand for it: gone; and so is one
-      -- under the key of a run that reached past it.
+      -- kept under that key would stand for it: gone.
       saved, save_trouble = Sqlite.run(rec.records, "DELETE FROM verdicts WHERE key = ?1",
         { text(key) })
       if not saved then
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
     end
-    -- A pass another run shared under its key goes too where this run
-    -- reached past it: that pass stood for what no key holds.
-    if key ~= nil and (not passed or reached_past) then
+    -- A pass another run shared under its key goes too where it failed.
+    if key ~= nil and not passed then
       rec.owed.failed[#rec.owed.failed + 1] = key
     elseif passed and held and reported ~= nil then
       rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
@@ -2216,6 +2223,87 @@ local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
   end
 end
 
+--- Where the tree at `root` keeps the stores of its test modules'
+--- import closures, each named by its address (`build.writer`'s
+--- `closure_address`).
+local function stores_directory(root: string): string
+  return root .. "/o/stores"
+end
+
+--- The address of the closure store of each test and example module of
+--- `modules` that does not declare `store`, by path, over the
+--- projection `rec.projection` (`closure_basis`): every one the tree
+--- has, selected or not, so a run that selects some leaves the others'
+--- stores, and `sweep_stores` takes out only what no module names.
+local function address_stores(rec: Recording, modules: {importer.Module},
+                              by_path: {string:importer.Module},
+                              declarations: {string:string}): boolean, string
+  local basis, trouble = writer.closure_basis(rec.projection)
+  if basis == nil then return false, trouble end
+  rec.basis, rec.stores, rec.built = basis, {}, {}
+  rec.written, rec.written_bytes, rec.writing_ns = 0, 0, 0
+  for _, m in ipairs(modules) do
+    local declared = m.inputs
+    if (m.kind == "test" or m.kind == "example") and
+        not (declared ~= nil and declared.store) then
+      local names = rec.closures[m.path] or test_inputs.modules(m, by_path, declarations)
+      rec.closures[m.path] = names
+      rec.stores[m.path] = writer.closure_address(basis, names, rec.harness)
+    end
+  end
+  return true, ""
+end
+
+--- Takes out of the stores directory every entry no module of this run
+--- names (`address_stores`): a closure edited since, or a module gone,
+--- leaves a store nothing will ask for again, and one cut short (a
+--- `.building` file) is written again from the start. A failure to
+--- take one out costs only room, and is said once.
+local function sweep_stores(rec: Recording)
+  local directory = stores_directory(rec.root)
+  local named: {string:boolean} = {}
+  for _, address in pairs(rec.stores) do named[address .. ".db"] = true end
+  local listed, _ = Fs.list(directory)
+  for _, entry in ipairs(listed or {}) do
+    if not named[entry] then
+      local gone, trouble = Fs.remove(directory .. "/" .. entry)
+      if not gone then
+        log:complain("test: " .. directory .. "/" .. entry .. ": " .. trouble)
+        return
+      end
+    end
+  end
+end
+
+--- The path of the closure store a worker of `m`'s tests is given, made
+--- from the projection where it is not there yet -- written aside and
+--- moved into place, so a store there is whole -- or nil where `m`
+--- declares `store` and is given the whole projection; nil and why
+--- where it could not be made.
+local function closure_store(rec: Recording, m: importer.Module): string | nil, string
+  local address = rec.stores ~= nil and rec.stores[m.path] or nil
+  if address == nil then return nil, "" end
+  local path = rec.built[address]
+  if path ~= nil then return path, "" end
+  local directory = stores_directory(rec.root)
+  path = directory .. "/" .. address .. ".db"
+  local there, _ = sys.stat(path)
+  if there == nil then
+    local made, trouble = Fs.mkdirs(directory)
+    if not made then return nil, directory .. ": " .. trouble end
+    local started = Time.monotonic_ns()
+    local written, write_trouble = writer.closure(rec.projection, path, rec.closures[m.path],
+      rec.basis, address)
+    if not written then return nil, "the store of its closure: " .. write_trouble end
+    rec.writing_ns = rec.writing_ns + (Time.monotonic_ns() - started)
+    local wrote, _ = sys.stat(path)
+    rec.written = rec.written + 1
+    rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0)
+  end
+  rec.built[address] = path
+  return path, ""
+end
+
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure.
 local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
@@ -2239,7 +2327,13 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- holds one: "" for none.
   local held = ""
   if rec.sandbox then
-    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view())
+    local store, store_trouble = closure_store(rec, job.m)
+    if store == nil and store_trouble ~= "" then
+      finish(rec, job, nil, store_trouble, limits)
+      return false
+    end
+    local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
+      store)
     if plan.over > 0 then
       finish(rec, job, nil, string.format("its sandbox would give it %d paths more than " ..
         "the most one holds", plan.over), limits)
@@ -2252,9 +2346,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     job.plan = plan
     env, sandbox = plan.env, plan.sandbox
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
-    -- Why none of it keys such a process leads, as a line of its own.
-    held = (plan.unkeyable ~= "" and ("!" .. plan.unkeyable .. "\n") or "") ..
-      table.concat(plan.held, "\n")
+    held = table.concat(plan.held, "\n")
   end
   local given: {string:string} = {}
   for name, value in pairs(env) do given[name] = value end
@@ -2278,6 +2370,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     argv[#argv + 1] = value
   end
   for _, name in ipairs(rec.closures[job.m.path]) do argv[#argv + 1] = name end
+  argv[#argv + 1] = "--tree"
+  for _, name in ipairs(rec.tree_names) do argv[#argv + 1] = name end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(start.fds) do fds[number] = fd end
   -- An unsandboxed worker leads a process group of its own, which its
@@ -2820,7 +2914,9 @@ function test.run(argv: {integer:string}): integer
   end
   local declarations: {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row[1]] = row[2] end
-  rec.closures = {}
+  rec.closures, rec.tree_names = {}, {}
+  for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
+  table.sort(rec.tree_names)
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
   end
@@ -2847,6 +2943,17 @@ function test.run(argv: {integer:string}): integer
       log:complain(records_path .. ": " .. remembered_trouble)
       return 1
     end
+    -- The store of each test module's closure, by the address its key
+    -- holds, and none that no module names any longer.
+    rec.projection = database
+    local addressed, address_trouble = address_stores(rec, result.modules, by_path, declarations)
+    if not addressed then
+      local _, _ = work.rollback(handle)
+      local _, _ = work.close(handle)
+      log:complain("test: the stores of the test modules' closures: " .. address_trouble)
+      return 1
+    end
+    sweep_stores(rec)
     rec.digests, rec.compiler = declared_key.digests(root, remembered), tool
     rec.host = declared_key.host_identity(rec.digests)
     rec.tool = rec.tool or observations.itself()
@@ -2949,6 +3056,10 @@ function test.run(argv: {integer:string}): integer
         return 130
       end
     end
+  end
+  if sandboxed and rec.written > 0 then
+    log:say(string.format("test: sandbox: %d closure stores written (%d bytes) in %.1f ms",
+      rec.written, rec.written_bytes, rec.writing_ns / 1e6))
   end
   local total = tally.ran + tally.cached + tally.assumed
 
