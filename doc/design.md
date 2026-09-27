@@ -551,7 +551,12 @@ carries; and the runtime it is, over its host image and the same
 pins, which every test verdict carries. the standard library the
 importer runs on is in neither, so an edit there reaches what
 imports it and nothing more. a row compiled by another compiler is
-never mistaken for this one's.
+never mistaken for this one's. a sandboxed test's key holds what the
+compiler made rather than its identity -- the bytecode and rows of
+the store of the test's import closure, and the harness's bytecode --
+so an edit to the importer that compiles every module as before runs
+again only the tests whose closure holds or reads the compiler
+(`build/declared_key.tl`).
 
 the C stage is hermetic and checked. `build.zig` runs with both of
 zig's caches, keyed by content, in the user's cosmic cache directory
@@ -666,7 +671,10 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   digests, which move with every edit (`build/test_worker.tl`, the TODO on
   `hold_store`).
 - *build.dispatch*: the harness digest holds the runner's and the worker's
-  closures, not the verb dispatcher that hands a worker its command line.
+  closures, and of the verb dispatcher that hands a worker its command line
+  only its own source and bytecode and what it requires at its top level,
+  named by hand (`build/test.tl`'s `harness_roots`): a top-level require
+  added to it is keyed nowhere until it is named there.
 
 the processor is keyed, for good, by the features a core chooses code by
 alone (`dispatched` in `build/declared_key.tl`, which

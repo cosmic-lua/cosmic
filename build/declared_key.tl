@@ -18,22 +18,25 @@
 ---
 --- - the test: its module's path and its name (`id`);
 --- - the test harness every worker runs, as the running binary carries
----   it (`harness`, and `build.test`'s `harness_roots`) --
----   COSMIC_TEST_HARNESS_SALT, for a test alone, stands in for a change
----   to it;
+---   it (`harness`, and `build.test`'s `harness_roots`), each module by
+---   its source and its bytecode -- COSMIC_TEST_HARNESS_SALT, for a test
+---   alone, stands in for a change to it;
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark
----   (`runtime`), and the compiler (`compiler`, `build.work`'s
----   `Identities`), which compiled every module of the closure and is
----   what build.teal loads as bytecode; and, where an artifact runs it
----   (o/bin/cosmic, or a portable cosmic), what runs that core
----   (`launcher_identity`);
+---   (`runtime`); and, where an artifact runs it (o/bin/cosmic, or a
+---   portable cosmic), what runs that core (`launcher_identity`);
 --- - the host it runs on (`host_identity`): its packages, its system and
 ---   kernel, the user and capabilities the tests run with, and which
 ---   /proc a sandbox gets;
---- - the module's key (`build.importer`), over its import graph's
----   sources, the standard library's included, and the compiler;
+--- - the module's graph key (`build.positions`' `graph_key`), over its
+---   import graph's kinds and sources, the standard library's included;
+--- - the compiler's identity (`build.work`'s `Identities`), as the
+---   running tool names it, only where the module's import closure holds
+---   a module that reads it (`compiler_readers`), which a worker's
+---   `Store.meta` answers from the tool's own database --
+---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
+---   compiler of another identity that makes the same bytecode;
 --- - the declaration itself, as `test_inputs.canonical` spells it;
 --- - the contents of every input it declares or is given by default:
 ---   each file of its import closure; each path of the tree it `reads`
@@ -47,6 +50,27 @@
 ---   projection's place; and each `host` path;
 --- - the environment its worker is given (`test_sandbox.environment`):
 ---   the pinned variables and the declared ones, all of them for `"*"`.
+---
+--- The compiler is held by what it made, not by its identity. Its
+--- identity digests every module of the importer's closure, most of
+--- which change nothing it makes (the working database's sweeps and
+--- caches, staging, a verb's reporting): holding it would run every
+--- test again for an edit to any of them. What a worker runs of the
+--- compiler's making is the bytecode of its closure's modules, which
+--- its store holds by address (`build.writer`'s `closure_address`,
+--- over each module's bytecode and the rows a store carries of it) or
+--- the projection by its contents, and the harness's -- cosmic's own
+--- main, which every worker runs first, among it -- which `harness`
+--- holds by bytecode; the compiler Teal itself compiles to
+--- (`vendor.tl`) is carried beside build.teal, the one module that
+--- loads it, by its bytecode too. Whether a module compiles at all is
+--- no verdict of a test: a build that refuses one runs none. It would
+--- be unsound for a worker to load compiled code that is of neither
+--- its closure nor the harness -- as a top-level require added to
+--- build.dispatch would be until named among `build.test`'s
+--- `harness_roots` (the TODO there) -- or to read the compiler's
+--- identity by any means but `Store.meta`'s `compiler` and
+--- `compiled_by`, held as above.
 ---
 --- The host caches it declares are not: they are content-addressed,
 --- and never change a result (`build.caches`). Nor are the variables
@@ -80,6 +104,8 @@ local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 
 local record declared_key
+  compiler_readers: {string}
+
   --- What a run knows of the files it keys, kept for the run.
   record Digests
     root: string
@@ -108,8 +134,13 @@ local record declared_key
     --- What names the tests whose specs are the same but for `id`:
     --- their module's path.
     group: string
+    --- The module's `graph_key` (`build.positions`): its key less the
+    --- compiler.
     module_key: string
     runtime: string
+    --- The compiler's identity as the running tool's `meta` names it --
+    --- its `compiler` and `compiled_by` -- where the module's closure
+    --- reads it (`reads_compiler`), and "" elsewhere.
     compiler: string
     --- The test harness a worker runs, as the running binary carries it
     --- (`harness`): every worker runs it, the tree's or not.
@@ -814,8 +845,10 @@ end
 --- The test harness every worker runs, as a digest: each module the
 --- modules `roots` require, directly or not, and themselves, and each of
 --- `own` alone -- one whose requires are the runner's, not a worker's --
---- by name and source hash, from `sources` (source hash by module name)
---- and `imports` (the names each requires), as the running binary's own
+--- by name and what it is, from `sources` (what each module is, by
+--- name: `build.test` gives its source's hash and its bytecode's, so
+--- what the compiler made of it moves it as its source does) and
+--- `imports` (the names each requires), as the running binary's own
 --- database holds them. A module no source names is left out.
 function declared_key.harness(roots: {string}, sources: {string:string},
                               imports: {string:{string}}, own?: {string}): string
@@ -862,6 +895,28 @@ function declared_key.program_identity(digests: declared_key.Digests, paths: {st
     ::continue::
   end
   return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
+--- The modules of the tree that read the compiler's identity
+--- (`Store.meta`'s `compiler` or `compiled_by`), which a closure store
+--- does not carry: a worker's reads of it are answered from the running
+--- tool's own `meta`, so a test whose closure holds one of them is keyed
+--- by the tool's (`Spec.compiler`). build/compiler_readers_test.tl fails
+--- when a module of the tree reads it and is not named here.
+declared_key.compiler_readers = {
+  "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
+  "build.test", "core.allocation_test", "cosmic.store_test", "doc.guides.portable-runtime",
+}
+
+--- Whether an import closure, the names of its modules, holds a module
+--- that reads the compiler's identity (`compiler_readers`).
+function declared_key.reads_compiler(closure: {string}): boolean
+  local readers: {string:boolean} = {}
+  for _, name in ipairs(declared_key.compiler_readers) do readers[name] = true end
+  for _, name in ipairs(closure) do
+    if readers[name] then return true end
+  end
+  return false
 end
 
 --- Whether a test of `effective` has a key at all: one that reaches the

@@ -101,9 +101,10 @@ local corpora <const> = "testdata/fuzz/"
 --- The compiler -- `vendor.tl`, derived from vendor/tl/ and its
 --- patches -- is no file of it, though build.teal loads it as bytecode
 --- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
---- parse follows it: a key over the closure holds it apart, by the
---- compiler's identity (`build.declared_key`'s `Spec.compiler`), which
---- compiled every module of the closure besides.
+--- parse follows it: a key over the closure holds it apart, by its
+--- bytecode, in the address of the closure store that carries it beside
+--- build.teal (`build.writer`'s `loaded_beside`), as it holds every
+--- module of the closure by what the compiler made of it.
 local function closure(m: Module, by_path: {string:Module},
                        declarations: {string:string}): {string}, boolean, {string}
   local seen: {string:boolean} = {}
