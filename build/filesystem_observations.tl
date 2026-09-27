@@ -1528,17 +1528,6 @@ function observations.tree_name(path: string, tree: string): string
   return tree_marker .. "/" .. rest
 end
 
---- `observations.tree_name` undone: the path a name it gave stands for
---- under `tree`, which may be another checkout's than the one it came
---- from.
-function observations.tree_path(name: string, tree: string): string
-  if name == tree_marker then return tree end
-  if name:sub(1, #tree_marker + 1) == tree_marker .. "/" then
-    return tree .. name:sub(#tree_marker + 1)
-  end
-  return name
-end
-
 --- An "e" observation's answer as a key holds it, the same in every
 --- checkout of `tree`: a value that is a path under it -- the working
 --- directory in PWD, which a shell sets -- named by `tree_name`, in a

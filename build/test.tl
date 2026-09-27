@@ -190,6 +190,11 @@ local record test
     --- Of those that stood or were assumed, how many on a verdict
     --- another checkout reached (`build.shared_verdicts`).
     shared: integer
+    --- Of those that ran sandboxed, how many no key holds, which run
+    --- every time: one whose module declares the network, or reads a
+    --- link out of the tree, or that started a process that could read
+    --- what no key holds (`test_sandbox.Plan`'s `unkeyable`).
+    every: integer
   end
 
   --- How a run is bounded, from the command line and the environment.
@@ -1814,113 +1819,35 @@ local function assume(rec: Recording, credited: test.Credited, m: importer.Modul
   if shared_key ~= nil then rec.owed.used[#rec.owed.used + 1] = shared_key end
 end
 
---- A verdict another checkout reached that stands, or is assumed, here.
-local record Shared
-  --- The key it stands under here, and the one it is shared under.
-  key: string
-  shared: string
-  --- What the run read, in this checkout's paths: all of it for one
-  --- that stands, and what `runs` keeps of it for one assumed.
-  reads: {observations.Observation}
-  assumed: boolean
-  found: shared_verdicts.Found
-end
-
---- The verdict `rec.shared` holds for a test that stands here on the
---- terms `standing` holds a verdict of this checkout to -- or, unless
---- `asked`, that is assumed on those `assumable` does -- or nil. This
---- checkout's own evidence comes first: content its last run of the
---- test reached the same shared key over -- passing or failing, a file
---- touched since or not -- a test whose last run here failed, over
---- whatever content, and a key `verdicts` holds any verdict
---- under are never answered from another checkout's, and one that
---- failed here takes the shared row out. Nor is a row this checkout
---- wrote itself.
-local function shared_standing(rec: Recording, previous: {string:test.Previous},
-                               verdicts: {string:test.Verdict}, m: importer.Module,
-                               id: string, asked: boolean): Shared | nil
-  local last = previous[id]
-  -- A run from before runs recorded their shared key says nothing of
-  -- which content it was over: this checkout has run the test, and
-  -- runs it again rather than guess.
-  if last ~= nil and last.shared == nil then return nil end
-  -- A test that failed here runs until it passes here: a failing run
-  -- may stop short of reads a passing one makes, so no shared key tells
-  -- its content from the one another checkout passed on.
-  if last ~= nil and not last.passed then return nil end
-  local candidates, trouble = shared_verdicts.candidates(rec.shared, rec.root, id, m.key)
-  if candidates == nil then
-    drop_shared(rec, trouble)
-    return nil
-  end
-  for _, candidate in ipairs(candidates) do
-    local was: test.Previous = nil
-    if candidate.origin ~= rec.origin then
-      was = previous_of(candidate.reads, candidate.key, true)
-    end
-    local reads: {observations.Observation} = nil
-    local assumed = false
-    if was ~= nil and was.reads ~= nil then
-      reads = was.reads
-    elseif was ~= nil and not asked and was.identity == identity_of(rec, m) then
-      reads, assumed = was.kept, true
-    end
-    if reads ~= nil then
-      local now = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime, reads,
-        rec.key_parts, nil, view_of(rec, m))
-      local own = verdicts[now.key]
-      local own_failed = own ~= nil and not own.passed
-      local known = last ~= nil and last.shared == now.shared
-      if now.stable and now.shared == candidate.key and (own ~= nil or known) then
-        if own_failed or (known and not last.passed) then
-          rec.owed.failed[#rec.owed.failed + 1] = candidate.key
-        end
-      elseif now.stable and now.shared == candidate.key then
-        local found, found_trouble = shared_verdicts.found(rec.shared, candidate.key)
-        if found ~= nil then
-          return { key = now.key, shared = candidate.key, reads = reads, assumed = assumed,
-            found = found }
-        elseif found_trouble ~= "" then
-          drop_shared(rec, found_trouble)
-          return nil
-        end
-      end
-    end
-  end
-  return nil
-end
-
---- Records one test answered from a verdict another checkout reached:
---- as this run's own, with the lines that run hit, so a later run of
---- this checkout stands on it without the shared cache.
+--- Records one sandboxed test answered from the verdict another
+--- checkout reached under its declared `key` (`found`): as this run's
+--- own, with the lines that run hit, so a later run of this checkout
+--- stands on it without the shared cache. `reads` is what its last run
+--- here read, for its `runs` row.
 local function share(rec: Recording, m: importer.Module, name: string, id: string,
-                     from: Shared)
-  if from.assumed then
-    rec.tally.assumed = rec.tally.assumed + 1
-  else
-    rec.tally.cached = rec.tally.cached + 1
-  end
+                     key: string, found: shared_verdicts.Found,
+                     reads: {observations.Observation})
+  rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
   local hit: Coverage.Hits = {}
-  decode_hits(from.found.hits, hit)
+  decode_hits(found.hits, hit)
   for path in pairs(rec.unowned) do
     hit[path] = nil
   end
   merge_hits(rec.hits, hit)
   rec.by_test[id] = encode_hits(hit)
-  local elapsed = from.found.elapsed_ns
+  local elapsed = found.elapsed_ns
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), from.reads, run_key(from.key, from.shared), rec.run_at_ns, elapsed,
-    not from.assumed, identity_of(rec, m))
+    Time.now_ns(), reads, run_key(key, key), rec.run_at_ns, elapsed)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
-  kept, keep_trouble = record_verdict(rec.records, from.key, true, rec.run_at_ns, rec.run,
+  kept, keep_trouble = record_verdict(rec.records, key, true, rec.run_at_ns, rec.run,
     elapsed)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
   end
-  rec.owed.used[#rec.owed.used + 1] = from.shared
+  rec.owed.used[#rec.owed.used + 1] = key
 end
 
 --- How a worker's process ended, for a failure that has no report.
@@ -1994,7 +1921,19 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     -- before it started -- and still are, or the verdict describes no
     -- one state of them, and is not kept.
     local key = job.declared
-    local held = key ~= nil and declared_of(rec, job.m, id) == key
+    -- A process it started that its sandbox could let read what no key
+    -- holds -- the network, or the store undeclared (`Plan.unkeyable`,
+    -- noted "x" by the process's start) -- makes a run no key holds:
+    -- kept under none, so the test runs every time.
+    local unkeyable = job.plan ~= nil and job.plan.unkeyable or ""
+    local reached_past = key == nil
+    for _, observation in ipairs(reads) do
+      if unkeyable ~= "" and observation.kind == "x" and observation.path == unkeyable then
+        reached_past = true
+      end
+    end
+    if reached_past then rec.tally.every = rec.tally.every + 1 end
+    local held = not reached_past and declared_of(rec, job.m, id) == key
     local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
       message, Time.now_ns(), reads, run_key(key or "", key), rec.run_at_ns, elapsed)
     if not saved then
@@ -2006,10 +1945,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       if not saved then
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
-    elseif key ~= nil and not passed then
+    elseif key ~= nil and (not passed or reached_past) then
       -- Its inputs moved while it ran, so the failure is of no one state
       -- of them -- but it may be of the one it started from, and a pass
-      -- kept under that key would stand for it: gone.
+      -- kept under that key would stand for it: gone; and so is one
+      -- under the key of a run that reached past it.
       saved, save_trouble = Sqlite.run(rec.records, "DELETE FROM verdicts WHERE key = ?1",
         { text(key) })
       if not saved then
@@ -2019,8 +1959,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     if not passed and key ~= nil then
       rec.owed.failed[#rec.owed.failed + 1] = key
     elseif passed and held and reported ~= nil then
-      rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, module_key = job.m.key,
-        reads = "", hits = rec.by_test[id], elapsed_ns = elapsed, declared = true }
+      rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
+        elapsed_ns = elapsed }
     end
   else
     local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
@@ -2040,14 +1980,6 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       if not saved then
         rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
       end
-    end
-    if not passed then
-      rec.owed.failed[#rec.owed.failed + 1] = verdict_reached.shared
-    elseif not late and reported ~= nil then
-      rec.owed.kept[#rec.owed.kept + 1] = { key = verdict_reached.shared, test = id,
-        module_key = job.m.key,
-        reads = encoded_reads(reads, (stable or late) and cacheable, identity_of(rec, job.m)),
-        hits = rec.by_test[id], elapsed_ns = elapsed }
     end
   end
   job.passed = passed
@@ -2723,7 +2655,7 @@ function test.run(argv: {integer:string}): integer
   end
   local credited: test.Credited = {}
 
-  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0 }
+  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0, every = 0 }
   local modules_run = #selected_modules
   local failures: {string} = {}
   local errors: {string} = {}
@@ -2841,8 +2773,7 @@ function test.run(argv: {integer:string}): integer
           rec.shared_keys[key] = key
           stand(rec, credited, m, name, id, own, last_reads(previous, id), key)
         else
-          share(rec, m, name, id, { key = key, shared = key, reads = last_reads(previous, id),
-            assumed = false, found = elsewhere })
+          share(rec, m, name, id, key, elsewhere, last_reads(previous, id))
         end
       else
         -- TODO: key an unsandboxed run by its declared inputs too, where
@@ -2861,16 +2792,10 @@ function test.run(argv: {integer:string}): integer
           local answer, _ = assumable(rec, previous, verdicts, m, id)
           assumed = answer
         end
-        local from: Shared = nil
-        if stood == nil and assumed == nil and consult and rec.shared ~= nil then
-          from = shared_standing(rec, previous, verdicts, m, id, asked)
-        end
         if stood ~= nil then
           stand(rec, credited, m, name, id, stood, reads, key)
         elseif assumed ~= nil then
           assume(rec, credited, m, name, id, assumed.verdict, assumed.key, assumed.kept)
-        elseif from ~= nil then
-          share(rec, m, name, id, from)
         else
           jobs[#jobs + 1] = { m = m, name = name, id = id }
         end
@@ -2990,7 +2915,7 @@ function test.run(argv: {integer:string}): integer
   -- this checkout's own records took it: a passing verdict is one
   -- whatever went wrong with keeping it here.
   if rec.shared ~= nil then
-    local settled, settle_trouble = shared_verdicts.settle(rec.shared, root, rec.origin, rec.owed,
+    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin, rec.owed,
       Time.now_ns())
     shared_verdicts.close(rec.shared)
     if not settled then
@@ -3043,6 +2968,7 @@ function test.run(argv: {integer:string}): integer
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
     log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
+      (tally.every > 0 and (tally.every .. " run every time (no key holds them), ") or "") ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
       clock.took(started) .. sandbox_summary)

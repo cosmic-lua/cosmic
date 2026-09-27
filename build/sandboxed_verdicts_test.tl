@@ -98,7 +98,8 @@ local function environment(cache: string): {string:string}
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_NO_SHARED = nil
   env.COSMIC_SANDBOX = nil
-  env.COSMIC_TEST_SANDBOX = "1"
+  -- This run's own switch: off, the run it starts shares nothing.
+  env.COSMIC_TEST_SANDBOX = sys.getenv("COSMIC_TEST_SANDBOX")
   env.FLAVOUR = "sweet"
   return env
 end

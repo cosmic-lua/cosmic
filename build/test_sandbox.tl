@@ -187,7 +187,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- derived from the module's import closure, bound in the projection's
   -- place (the TODO above) -- once the build derives one: today one
   -- whose module does not declare `store` is no process a key holds, and
-  -- its test is assumed rather than standing.
+  -- its test runs every time rather than standing.
   for _, path in ipairs(base.reads) do
     if path == store then
       give(path, test_sandbox.tree .. "/o/cosmic.db", effective.store)

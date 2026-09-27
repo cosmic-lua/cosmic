@@ -1,9 +1,8 @@
 --- End to end: a verdict one checkout of a tree reached stands in
 --- another checkout of the same content, at another path with its own
---- o/, through the cache `COSMIC_VERDICT_CACHE` names -- one a run no
---- key could hold reached is assumed there on the terms it is in its
---- own -- while a changed file or variable it read, or `--all` for one
---- assumed, runs it again. Only a run whose workers are sandboxed
+--- o/, through the cache `COSMIC_VERDICT_CACHE` names, by its declared
+--- key (build/declared_key.tl), while a changed file or variable its
+--- module declares, or `--all`, runs it again. Only a run whose workers are sandboxed
 --- shares its verdicts: each suite declares what its tests read, and a
 --- case stops where the run it starts cannot sandbox one (`shares`).
 
@@ -119,35 +118,34 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   -- Every file of the second has an inode and times of its own.
   checkout(tmp .. "/second", "one\n")
   local second = said("second", tmp .. "/second",
-    "0 ran, 4 stood, 1 assumed (--all runs them), 5 of them on another checkout's verdict")
+    "0 ran, 5 stood, 5 of them on another checkout's verdict")
   -- Credited the lines the first run's tests hit.
   local covered = first:match("coverage [^\n]*")
   assert(covered ~= nil and covered == second:match("coverage [^\n]*"), first .. second)
   -- Now its own: its o/ holds them -- the read of the whole environment
   -- too, keyed on what its worker saw, where the cache is off, not on
   -- what the run that started it sees.
-  local again = said("again", tmp .. "/second", "0 ran, 4 stood, 1 assumed")
+  local again = said("again", tmp .. "/second", "0 ran, 5 stood")
   assert(not again:find("another checkout", 1, true), again)
   -- Started after the tool rebuilt itself, from a shell that was
   -- elsewhere before its last `cd`: nothing a test is given differs.
   env.COSMIC_REBOOTED = "1"
   env.OLDPWD = tmp .. "/elsewhere"
   checkout(tmp .. "/rebooted", "one\n")
-  said("rebooted", tmp .. "/rebooted", "0 ran, 4 stood, 1 assumed")
+  said("rebooted", tmp .. "/rebooted", "0 ran, 5 stood")
   env.COSMIC_REBOOTED = nil
   env.OLDPWD = nil
-  -- A file one test read differs: that test runs.
+  -- A file beneath what a module declares differs: its tests run.
   checkout(tmp .. "/changed", "two\n")
-  said("changed", tmp .. "/changed", "1 ran, 3 stood, 1 assumed")
-  -- A variable two tests read differs -- one by name, one in the whole
-  -- environment: those run.
+  said("changed", tmp .. "/changed", "4 ran, 1 stood")
+  -- A variable a module declares differs: its tests run.
   env.FLAVOUR = "salty"
   checkout(tmp .. "/salty", "one\n")
-  said("salty", tmp .. "/salty", "2 ran, 2 stood, 1 assumed")
+  said("salty", tmp .. "/salty", "4 ran, 1 stood")
   env.FLAVOUR = "sweet"
-  -- Asked for, a test no key holds runs, whoever last ran it.
+  -- Asked for, every test runs, whatever stands.
   checkout(tmp .. "/all", "one\n")
-  said("all", tmp .. "/all", "1 ran, 4 stood, 4 of them", { "--all" })
+  said("all", tmp .. "/all", "5 ran, 0 stood", { "--all" })
   -- Told to stand on none of them, a checkout runs everything.
   checkout(tmp .. "/unshared", "one\n")
   said("unshared", tmp .. "/unshared", "5 ran, 0 stood", { "--no-shared" })
@@ -248,10 +246,9 @@ end
 --- A database a test attaches through the store (`cosmic.store`'s
 --- `attach`) is read by SQLite in C too: a checkout whose database
 --- holds something else runs the test again, and fails it, while one
---- whose database is the same stands on the first one's verdict. The
---- working database attached so runs every time, which a key over its
---- bytes would too: the case covers that attaching it is noted, not
---- that the verdict is unkept rather than keyed.
+--- whose database is the same stands on the first one's verdict. A
+--- module that declares the working database, which every run
+--- rewrites, runs every time.
 local function test_a_database_attached_through_the_store_is_keyed_by_its_contents(tmp: string)
   local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
@@ -267,13 +264,20 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.db", "o/build.db" } }
+Test.needs { reads = { "suite/data.db" } }
 
 local function test_reads_an_attached_database()
   assert(Store.attach("suite/data.db"))
   local rows = assert(Sqlite.text_rows(Store.databases()[1], "SELECT v FROM t"))
   assert(rows[1][1] == "one", rows[1][1])
 end
+]]))
+    assert(Fs.write(root .. "/suite/working_test.tl", [[
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "o/build.db" } }
 
 local function test_reads_the_working_database()
   assert(Store.attach("o/build.db"))
@@ -341,12 +345,18 @@ local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: strin
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "o/bin/tool", "o/build.db" } }
+Test.needs { reads = { "o/bin/tool" } }
 
 local function test_reads_the_tool()
   assert(Fs.read("o/bin/tool") ~= nil)
   assert(Fs.stat("o/bin/tool") ~= nil)
 end
+]]))
+    assert(Fs.write(root .. "/suite/working_test.tl", [[
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "o/build.db" } }
 
 local function test_reads_the_working_database()
   assert(Fs.read("o/build.db") ~= nil)
@@ -377,7 +387,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   if not shares(first) then return end
   local db = assert(Sqlite.open(cache, true))
   local tables = assert(Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'verdicts%'"))
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   assert(#tables == 1, "one table")
   assert(db:exec("UPDATE " .. tables[1][1] .. " SET key = 'another runtime ' || key"))
   assert(db:close())
@@ -417,7 +427,7 @@ local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   local db = assert(Sqlite.open(other, true))
   local probe = assert(shared_verdicts.open(tmp .. "/probe/verdicts.db"))
   local named = assert(Sqlite.text_rows(probe.db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'verdicts%'"))
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
   assert(db:exec("CREATE TABLE " .. named[1][1] .. " (x TEXT)"))
   assert(db:close())
@@ -437,10 +447,10 @@ local function touch(path: string)
   assert(Fs.write(path, data))
 end
 
---- A file touched in a checkout runs again what stat'd it there, with
---- the shared cache on as off: the row its own last run wrote does not
---- answer for it.
-local function test_a_touched_file_runs_what_stated_it(tmp: string)
+--- A file touched in a checkout, its contents the same, runs nothing
+--- again, with the shared cache on as off: a declared key holds what a
+--- file holds, not when it was written.
+local function test_a_touched_file_runs_nothing_again(tmp: string)
   local env = observations.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.FLAVOUR = "sweet"
@@ -452,12 +462,12 @@ local function test_a_touched_file_runs_what_stated_it(tmp: string)
   if not shares(first) then return end
   touch(tmp .. "/first/suite/data.txt")
   local touched = run(tmp .. "/first", tmp .. "/touched.out", env, words)
-  assert(touched:find("1 ran, 3 stood", 1, true), touched)
+  assert(touched:find("0 ran, 4 stood", 1, true), touched)
   assert(not touched:find("another checkout", 1, true), touched)
   env.COSMIC_VERDICT_CACHE = "0"
   touch(tmp .. "/first/suite/data.txt")
   local alone = run(tmp .. "/first", tmp .. "/alone.out", env, words)
-  assert(alone:find("1 ran, 3 stood", 1, true), alone)
+  assert(alone:find("0 ran, 4 stood", 1, true), alone)
 end
 
 --- A checkout made again at the path of one removed is another
@@ -564,62 +574,42 @@ end
   assert(alone:find("1 of 1 failed", 1, true), alone)
 end
 
---- A declared test's run (`observations.reads_stat_times`) keeps its
---- declaration through the cache: its paths are moved to the checkout
---- that asks, and its "z", which names no path, is left as it is, so
---- the key that checkout reaches is a declared one.
-local function test_a_declaration_is_kept_as_it_is_through_the_cache(tmp: string)
-  local cache = assert(shared_verdicts.open(tmp .. "/cache/verdicts.db"))
-  local first, second = tmp .. "/first", tmp .. "/second"
-  local reads = observations.encode({
-    { kind = "z", path = "", answer = "" },
-    { kind = "s", path = first .. "/f", answer = "" },
-  })
-  assert(shared_verdicts.settle(cache, first, "first", { kept = { {
-    key = "shared", test = "suite/t_test.tl test_t", module_key = "module", reads = reads,
-    hits = "", elapsed_ns = 1 } }, used = {}, failed = {} }, Time.now_ns()))
-  local found = assert(shared_verdicts.candidates(cache, second, "suite/t_test.tl test_t",
-    "module"))
-  shared_verdicts.close(cache)
-  assert(#found == 1, "the verdict was not kept")
-  local back = assert(observations.decode(found[1].reads))
-  assert(#back == 2, found[1].reads)
-  assert(back[1].kind == "z" and back[1].path == "" and back[1].answer == "",
-    "the declaration was moved: " .. back[1].kind .. " " .. back[1].path)
-  assert(back[2].kind == "s" and back[2].path == second .. "/f", back[2].path)
-end
-
---- A sandboxed verdict is kept by its declared key alone
---- (build/declared_key.tl), with no reads to check it by: found under
---- that key, freshened by a run that relies on it, and taken out by
---- one that fails under it. A cache made before the map was is given
---- one, its other verdicts kept.
-local function test_a_sandboxed_verdict_is_kept_by_its_key_alone(tmp: string)
+--- A verdict is kept by its declared key alone (build/declared_key.tl),
+--- with no reads to check it by: found under that key, freshened by a
+--- run that relies on it, and taken out by one that fails under it. A
+--- cache from before the map has the tables observation-keyed runs
+--- shared dropped, and the map made.
+local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   local path = tmp .. "/cache/verdicts.db"
   local cache = assert(shared_verdicts.open(path))
-  assert(shared_verdicts.settle(cache, tmp .. "/first", "first", { kept = { {
-    key = "unsandboxed", test = "suite/t_test.tl test_t", module_key = "module",
-    reads = observations.encode({}), hits = "", elapsed_ns = 1 } }, used = {}, failed = {} },
-    Time.now_ns()))
   shared_verdicts.close(cache)
-  -- As a cache from before the map: without its table.
+  -- As a cache from before the map: an earlier table, and none of its.
   local db = assert(Sqlite.open(path, true))
   assert(db:exec("DROP TABLE declared_v1"))
+  assert(db:exec("CREATE TABLE verdicts_v4 (key TEXT PRIMARY KEY)"))
   assert(db:close())
   cache = assert(shared_verdicts.open(path))
-  assert(#assert(shared_verdicts.candidates(cache, tmp .. "/second", "suite/t_test.tl test_t",
-    "module")) == 1, "a verdict of the earlier table was dropped")
+  local tables = assert(Sqlite.text_rows(cache.db,
+    "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
+  assert(#tables == 1 and tables[1][1] == "declared_v1", tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
-  assert(shared_verdicts.settle(cache, tmp .. "/first", "first", { kept = { {
-    key = "declared", test = "suite/t_test.tl test_t", module_key = "module", reads = "",
-    hits = "suite/t_test.tl\t1,2,5\n", elapsed_ns = 7, declared = true } }, used = {},
-    failed = {} }, Time.now_ns()))
+  assert(shared_verdicts.settle(cache, "first", { kept = { {
+    key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",
+    elapsed_ns = 7 } }, used = {}, failed = {} }, Time.now_ns()))
   local found = assert(shared_verdicts.declared(cache, "declared"))
   assert(found.elapsed_ns == 7 and found.hits == "suite/t_test.tl\t1,2,5\n", found.hits)
-  -- Only the key finds it: no candidate of the test is one.
-  assert(#assert(shared_verdicts.candidates(cache, tmp .. "/second", "suite/t_test.tl test_t",
-    "module")) == 1)
-  assert(shared_verdicts.settle(cache, tmp .. "/second", "second", { kept = {}, used = {},
+  -- Relied on long after it was written, it stays; unrelied, it goes.
+  local later = Time.now_ns() + 29 * 24 * 3600 * 1000000000
+  assert(shared_verdicts.settle(cache, "second", { kept = {}, used = { "declared" },
+    failed = {} }, later))
+  assert(shared_verdicts.declared(cache, "declared") ~= nil, "a verdict relied on went")
+  assert(shared_verdicts.settle(cache, "second", { kept = {}, used = {}, failed = {} },
+    later + 31 * 24 * 3600 * 1000000000))
+  assert(shared_verdicts.declared(cache, "declared") == nil, "an unrelied verdict stayed")
+  assert(shared_verdicts.settle(cache, "first", { kept = { { key = "declared",
+    test = "suite/t_test.tl test_t", hits = "", elapsed_ns = 1 } }, used = {}, failed = {} },
+    Time.now_ns()))
+  assert(shared_verdicts.settle(cache, "second", { kept = {}, used = {},
     failed = { "declared" } }, Time.now_ns()))
   assert(shared_verdicts.declared(cache, "declared") == nil, "a failure kept it")
   shared_verdicts.close(cache)
