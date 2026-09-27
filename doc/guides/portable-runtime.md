@@ -174,6 +174,15 @@ and one for the selected core. It passes their numbers, the selected identity,
 ranges, and digests in a bounded `COSMIC_PORTABLE_*` environment.
 `COSMIC_PORTABLE_CACHE` is the only public setting in that namespace.
 
+The launcher executes the core as `<core> --artifact <artifact> <args...>`.
+The core also takes `--artifact=<artifact>` as one argument, since a `#!` line
+hands its interpreter one argument at most: a script whose first line is
+`#!<core> --artifact=<artifact>`, started with the private contract in its
+environment and its descriptors open, runs as the launcher would run it.
+Either way the runtime's own arguments begin with the artifact path. Linux
+reads only the first 255 bytes of a `#!` line and cuts an argument off past
+them, so a core or artifact at a long path cannot be named that way.
+
 ## validate before Lua starts
 
 [`core/startup.c`](../../core/startup.c) consumes the private launch contract.
