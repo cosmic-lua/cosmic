@@ -60,6 +60,9 @@ allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal "
   "text without a compile"
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
+allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
+  "SQLite for the statement's plan, which must read `compiled` once rather " ..
+  "than probe it per row, and no behaviour tells the two apart"
 allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
   "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
 allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..
