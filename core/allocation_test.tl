@@ -19,6 +19,7 @@
 --- CI runs this suite on it; any other core has no instrument to
 --- refuse one with, which these tests say rather than pass unseen.
 
+local _ = require("cosmic.child") -- in the closure: `process_table` searches for it by hand
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")

@@ -25,8 +25,10 @@ local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
 --- Every declaration of the core's raw modules, and the process table's
---- header.
-Test.needs{ reads = { "core/process.h", "cosmic/internal/" } }
+--- header; and the whole projection, since it walks every database's
+--- modules and searches by hand for wrappers outside its closure, which
+--- the store of its closure would leave to the program's own database.
+Test.needs{ reads = { "core/process.h", "cosmic/internal/" }, store = true }
 
 local built = assert(teal.load())
 
