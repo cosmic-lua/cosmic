@@ -1,6 +1,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
@@ -56,10 +56,11 @@ local function test_the_checker_names_the_spilling_assert()
 end
 
 local function fix(root: string, check: boolean): Child.Result
-  local argv: {string} = { assert(Proc.executable()), "fix" }
-  if check then argv[#argv + 1] = "--check" end
-  return (assert(Child.run(argv, { cwd = root,
-    stdout = "capture", stderr = "stdout", timeout_ms = 60000 })))
+  local args: {string} = { "fix" }
+  if check then args[#args + 1] = "--check" end
+  local started = observations.program(args, { cwd = root,
+    stdout = "capture", stderr = "stdout", timeout_ms = 60000 })
+  return (assert(Child.run(started.argv, started.options)))
 end
 
 --- `cosmic fix` builds the project, wraps the assert the checker names,

@@ -7,7 +7,6 @@ local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
@@ -68,12 +67,10 @@ return function(): integer
   return 0
 end
 ]]))
-  local env = observations.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
-  local r = assert(Child.run({ assert(Proc.executable()), script },
-    { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
-      timeout_ms = 30000 }))
+  local started = observations.program({ script },
+    { env = observations.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
+      timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local out = assert(r.stdout)
   local first, second = out:match("^(%d+)\t(%d+)\n$")

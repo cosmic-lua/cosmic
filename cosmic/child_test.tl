@@ -6,6 +6,7 @@ local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
+local observations = require("build.filesystem_observations")
 
 --- The processes Child starts, which inherit the environment unless given
 --- one, and what a sandboxed one is given of the host, and /proc, where
@@ -200,9 +201,8 @@ return function(): integer
   return result.ok and 0 or 21
 end
 ]]))
-  local executable = assert(Proc.executable())
-  local result = assert(Child.run({ executable, fixture },
-    { env = nested_cosmic_environment() }))
+  local started = observations.program({ fixture })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "descriptor fixture exited " .. tostring(result.code))
 end
 
@@ -222,11 +222,9 @@ return function(argv: {string}): integer
 end
 ]]))
   local fd, diagnostic = output(tmp, "driver.log")
-  local executable = assert(Proc.executable())
-  local driver = assert(Child.start({ executable, fixture,
-    descendant_path, ready },
-    { env = nested_cosmic_environment(), stdout = fd, stderr = fd,
-      process_group = false }))
+  local started = observations.program({ fixture, descendant_path, ready },
+    { stdout = fd, stderr = fd, process_group = false })
+  local driver = assert(Child.start(started.argv, started.options))
   -- The driver is a nested cosmic that compiles its fixture before it
   -- spawns anything; on the checked core, on a loaded runner, that has
   -- taken more than 3 s. The wait ends as soon as it is ready.
@@ -548,8 +546,7 @@ end
 --- in a relaunched process, since one that already ignores SIGPIPE (a
 --- test runner that fed some child `input`) has no case to show.
 local function test_writing_to_a_gone_stdin_pipe_fails_instead_of_ending(tmp: string)
-  local relaunch = Proc.relaunch()
-  if relaunch == nil then return end -- a native start has nothing to relaunch
+  if Proc.relaunch() == nil then return end -- a native start has nothing to relaunch
   local script = tmp .. "/writes.tl"
   assert(Fs.write(script, [[
 local Child = require("cosmic.child")
@@ -570,15 +567,9 @@ return function(): integer
   return 0
 end
 ]]))
-  local argv: {string} = {}
-  for i, value in ipairs(relaunch.argv) do argv[i] = value end
-  argv[#argv + 1] = script
-  local env = Env.all()
-  for name, value in pairs(relaunch.env) do env[name] = value end
-  local fds: {integer:integer | string} = {}
-  for number, fd in pairs(relaunch.fds) do fds[number] = fd end
-  local r = assert(Child.run(argv, { env = env, fds = fds, cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ script }, { cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.signal == nil and r.ok, "ended by signal " .. tostring(r.signal) .. ": " ..
     tostring(r.stderr))
   assert(assert(r.stdout):find("^false "), r.stdout)
@@ -790,8 +781,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
-    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ fixture, report },
+    { stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   local cancelled = "true cancelled by signal " .. tostring(sys.SIGTERM)
   local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
     "3 false", tostring(sys.SIGTERM) }, "|")
@@ -834,8 +826,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
-    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ fixture, report },
+    { stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
@@ -868,8 +861,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
-    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ fixture, report },
+    { stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))
   local int, term = tostring(sys.SIGINT), tostring(sys.SIGTERM)
@@ -902,8 +896,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
-    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  local started = observations.program({ fixture, report },
+    { stderr = "capture", timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
     " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)

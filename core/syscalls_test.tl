@@ -54,6 +54,22 @@ local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/int
 -- the run's summary beside ran, stood and assumed, once build/test.tl's
 -- tally has a skipped verdict: today, without COSMIC_SANDBOX=must, a
 -- host that cannot sandbox passes them as though it had checked them.
+--- The descriptors `observations.program` hands its child, as
+--- `process.spawn` takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only `cosmic.child`
+--- reads.
+local function spawn_fds(started: observations.Program): {integer:integer}
+  local fds: {integer:integer} = {}
+  for number, fd in pairs(started.options.fds) do
+    if fd is integer then
+      fds[number] = fd
+    else
+      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
+    end
+  end
+  return fds
+end
+
 local function sandbox_required(): boolean
   return sys.getenv("COSMIC_SANDBOX") == "must"
 end
@@ -1169,9 +1185,13 @@ local function in_own_session(tmp: string, chunk: string, ...: string): string |
   local setsid = setsid_program()
   if setsid == nil then return nil end
   local report = create(tmp .. "/session")
-  local argv: {string} = { setsid, assert(sys.executable()), "-e", chunk }
-  for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
-  local pid = assert(process.spawn(setsid, argv, nil, tmp, nil, report, report, false))
+  local args: {string} = { "-e", chunk }
+  for _, word in ipairs({ ... }) do args[#args + 1] = word end
+  local started = observations.program(args)
+  local argv: {string} = { setsid }
+  for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
+  local pid = assert(process.spawn(setsid, argv, started.options.env, tmp, nil, report, report,
+    false, spawn_fds(started)))
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(report, 65536, 0))
   sys.close(report)
@@ -1246,14 +1266,16 @@ local function test_a_confined_child_ends_with_its_parent(tmp: string)
   if reads == nil then return end
   local adopting = process.subreaper()
   if not adopting then return end -- no subreaper to be (not Linux)
-  local cosmic = assert(sys.executable())
   local report = create(tmp .. "/parent")
-  local parent = assert(process.spawn(cosmic, { "cosmic", "-e", session_preamble .. [==[
+  local started = observations.program({ "-e", session_preamble .. [==[
 local pid, trouble = process.spawn("/bin/sh", { "sh", "-c", "exec sleep 30" }, nil, "/", nil,
   nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
 print(pid or "refused " .. trouble)
 sys.nanosleep(30 * 1000000000)
-]==], table.concat(reads, ":") }, nil, tmp, nil, report, report, false))
+]==], table.concat(reads, ":") })
+  local parent = assert(process.spawn(started.argv[1], started.argv, started.options.env, tmp,
+    nil, report, report, false,
+    spawn_fds(started)))
   local said = ""
   local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 30 * 1000000000
   while not said:find("\n") and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
@@ -1356,11 +1378,13 @@ end
 -- message words the two alike.
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local report = create(tmp .. "/report")
-  local cosmic = assert(sys.executable())
-  local pid, trouble, errno = process.spawn(cosmic, { "cosmic", "-e",
+  local started = observations.program({ "-e",
     "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
-    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" },
-    nil, tmp, nil, report, report, false, nil, { offline = true })
+    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" })
+  local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
+    tmp, nil, report, report, false,
+    spawn_fds(started),
+    { offline = true })
   if pid == nil then
     sys.close(report)
     assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no network namespace: " .. trouble)

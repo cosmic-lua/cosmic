@@ -8,7 +8,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
@@ -42,12 +41,11 @@ return function(): integer
 end
 ]]))
   local env = observations.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
   env.COSMIC_COVERAGE_STARTUP = startup and "1" or nil
-  local r = assert(Child.run({ assert(Proc.executable()), "windows.tl" },
+  local started = observations.program({ "windows.tl" },
     { env = env, cwd = dir, stdout = "capture", stderr = "capture",
-      timeout_ms = 30000 }))
+      timeout_ms = 30000 })
+  local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   return assert(r.stdout)
 end

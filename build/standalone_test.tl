@@ -3,7 +3,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
+local observations = require("build.filesystem_observations")
 local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -137,11 +137,11 @@ Script.main = function(argv: {string}): integer
 end
 return Script
 ]]))
-  local cosmic = assert(Proc.executable())
-  local result = assert(Child.run({ cosmic, "--standalone", script, "one", "two" }, {
+  local started = observations.program({ "--standalone", script, "one", "two" }, {
     cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ms = 30000,
-  }))
+  })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 5, tostring(result.stderr))
   assert(result.stdout == script .. "|one,two\n", tostring(result.stdout))
   local names = assert(Fs.list(tmp))
@@ -154,11 +154,11 @@ end
 local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp: string)
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
-  local cosmic = assert(Proc.executable())
   local function run(env: {string:string}): integer
-    local result = assert(Child.run({ cosmic, "--standalone", script }, {
+    local started = observations.program({ "--standalone", script }, {
       env = env, stdout = "capture", stderr = "capture", timeout_ms = 30000,
-    }))
+    })
+    local result = assert(Child.run(started.argv, started.options))
     return result.code
   end
   local cache = tmp .. "/cache"
@@ -180,15 +180,15 @@ end
 --- complaint naming the file rather than cmd.cosmic.main; one that has
 --- a whole value is that value.
 local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
-  local cosmic = assert(Proc.executable())
   local function run(returned: string): Child.Result
     local script = tmp .. "/script.tl"
     assert(Fs.write(script, "return function(_argv: {string}): any\n  return " ..
       returned .. "\nend\n"))
-    return (assert(Child.run({ cosmic, "--standalone", script }, {
+    local started = observations.program({ "--standalone", script }, {
       env = { XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ms = 30000,
-    })))
+    })
+    return (assert(Child.run(started.argv, started.options)))
   end
   for returned, shown in pairs({ ["300"] = "300", ["\"three\""] = "\"three\"",
       ["1.5"] = "1.5" } as {string:string}) do
@@ -206,10 +206,10 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
 end
 
 local function test_a_run_without_a_file_is_a_usage_error()
-  local cosmic = assert(Proc.executable())
-  local result = assert(Child.run({ cosmic, "--standalone" }, {
+  local started = observations.program({ "--standalone" }, {
     stdout = "capture", stderr = "capture", timeout_ms = 30000,
-  }))
+  })
+  local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 2)
   assert(tostring(result.stderr):find("usage", 1, true) ~= nil)
 end

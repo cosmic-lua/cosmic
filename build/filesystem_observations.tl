@@ -1,10 +1,12 @@
 --- Filesystem queries whose answers may affect a test verdict.
 
 local Codec = require("cosmic.codec")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local type Child = require("cosmic.child")
 
 --- The raw process table, whose `spawn` `cosmic.child` starts every
 --- child with; SQLite's, which records the files SQLite opens in C;
@@ -117,6 +119,13 @@ local record observations
   runtime_environment: {string}
   --- The most paths a sandbox unveils, its reads and writes together.
   unveil_max: integer
+
+  --- How to start this very program (`program`): the command line and
+  --- the options to hand `Child.run` or `Child.start`.
+  record Program
+    argv: {string}
+    options: Child.Options
+  end
 end
 
 observations.runtime_environment = {
@@ -649,6 +658,70 @@ function observations.environment(): {string:string}
     end
   end
   return out
+end
+
+--- The variables of this process's own start that no process it starts
+--- may inherit: the portable startup test's handshake
+--- (core/startup_test.tl's launches), which a child would wait on for
+--- a signal no one sends it.
+local handshake: {string} = {
+  "COSMIC_PORTABLE_STARTUP_TEST_READY", "COSMIC_PORTABLE_STARTUP_TEST_GO",
+}
+
+--- How to start this very program with `args` after it, skipping its
+--- launcher, as `cosmic test` starts a worker: the core it runs on,
+--- handed its artifact, database and startup contract directly
+--- (`Proc.relaunch`), so starting it takes no shell and lands on no
+--- other core; or, with no artifact to relaunch, the program as
+--- `Proc.executable` names it. The options are a copy of `opts`, whose
+--- tables are left as they were, but for its `env`: the caller's
+--- variables, or, where it gives none, the whole of this process's (a
+--- child given none inherits them, and nothing can be added to an
+--- inherited environment), with the relaunch's added and the startup
+--- test's handshake taken out; and its `fds`, with the relaunch's
+--- descriptors beside them. `opts.fds` naming a number the relaunch
+--- hands the child its artifact or core as raises.
+---
+--- What the launcher does, a program started this way never sees: it
+--- makes no core cache under XDG_CACHE_HOME or HOME, nor checks the one
+--- COSMIC_PORTABLE_CACHE names, stamps no core `.verified-`, and needs
+--- no PATH, HOME or TMPDIR to start. A test of any of that starts the
+--- program itself, by `Proc.executable`.
+-- TODO: move this to `cosmic.test`, with `environment` (the TODO atop
+-- cosmic/test.tl), so another project's tests start their program this
+-- way: today it lives in build/, which they cannot reach.
+function observations.program(args: {string}, opts?: Child.Options): observations.Program
+  local relaunch, _ = Proc.relaunch()
+  local argv: {string} = {}
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+  else
+    argv[1] = assert(Proc.executable())
+  end
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
+  local given: Child.Options = opts or {}
+  local env: {string:string} = {}
+  for name, value in pairs(given.env or Env.all()) do env[name] = value end
+  local fds: {integer:integer | string} = {}
+  for number, fd in pairs(given.fds or {}) do fds[number] = fd end
+  if relaunch ~= nil then
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for number, fd in pairs(relaunch.fds) do
+      if fds[number] ~= nil then
+        error("observations.program: descriptor " .. tostring(number) ..
+          " is the one the relaunch hands the program its artifact or core as", 2)
+      end
+      fds[number] = fd
+    end
+  end
+  for _, name in ipairs(handshake) do env[name] = nil end
+  -- Field by field: a record has no copy that keeps its type. A field
+  -- `Child.Options` gains is copied here too.
+  return { argv = argv, options = {
+    env = env, fds = fds, cwd = given.cwd, stdin = given.stdin, input = given.input,
+    stdout = given.stdout, stderr = given.stderr, capture_limit = given.capture_limit,
+    process_group = given.process_group, timeout_ms = given.timeout_ms, sandbox = given.sandbox,
+  } }
 end
 
 --- The errnos a confined spawn fails with where the kernel cannot

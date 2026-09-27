@@ -81,14 +81,24 @@ end
 
 ```teal
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 
 local output = tmp .. "/child-output"
 local fd = assert(Fs.open_write(output))
-local result, trouble = Child.run({
-  assert(Proc.executable()), tmp .. "/greeter.tl", "cosmic",
-}, { stdout = fd, timeout_ms = 5000 })
+-- This very cosmic, started past its launcher as `cosmic test` starts
+-- a worker: the core it runs on, with what the launcher would hand it.
+-- `{ Proc.executable(), ... }` starts it through the launcher instead,
+-- which takes a shell.
+local relaunch = assert(Proc.relaunch())
+local argv = { table.unpack(relaunch.argv) }
+argv[#argv + 1] = tmp .. "/greeter.tl"
+argv[#argv + 1] = "cosmic"
+local env = Env.all()
+for name, value in pairs(relaunch.env) do env[name] = value end
+local result, trouble = Child.run(argv,
+  { env = env, fds = relaunch.fds, stdout = fd, timeout_ms = 5000 })
 assert(Fs.close(fd))
 if result == nil then error(trouble) end
 local finished = assert(result)
