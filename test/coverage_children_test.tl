@@ -29,6 +29,11 @@ return function(): integer
   return 0
 end
 ]]))
+  -- TODO: start this program through `observations.program`, in this
+  -- parent and in test_processes_confined_apart_report_apart's, once it
+  -- moves to `cosmic.test` (the TODO above it in
+  -- build/filesystem_observations.tl): a file run cannot reach build/,
+  -- so each relaunches by hand.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
