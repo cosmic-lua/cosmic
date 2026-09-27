@@ -351,16 +351,23 @@ end
 
 --- Every leg verifies its checked artifact -- the manifest entry of its
 --- checked core, as the contract's decoder reads it, and that the
---- artifact runs that core -- but only the leg that runs the checked
---- suite (COSMIC_CI_CHECKED_SUITE) has a cosmic run a file in the tree,
---- the first of which after the checked build builds the tree's
---- database again: a leg that skips the suite does not pay for it.
-local function test_only_a_leg_that_runs_the_checked_suite_runs_a_file_in_the_tree(tmp: string)
+--- artifact runs that core -- and pays the tree's database rebuild after
+--- the checked build with the release cosmic, whose `tool.tl entry` must
+--- agree with the decoder. Only the leg that runs the checked suite
+--- (COSMIC_CI_CHECKED_SUITE) runs the checked cosmic on a file in the
+--- tree, whose entry must agree too.
+local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosmic_in_the_tree(tmp: string)
   local base, project = command(tmp)
   local core = "the checked core"
   local digest = Hash.hex_sha256(core)
   local target = "x86_64-linux-musl"
-  local function candidate(name: string, host_image: string): string, string
+  local right = "16384 " .. #core .. " " .. digest
+  local wrong = "16384 " .. #core .. " " .. string.rep("0", 64)
+  local function entry(fields: string): string
+    return "printf '%s\\t%s\\t%s\\n' " .. fields .. "\n"
+  end
+  local function candidate(name: string, host_image: string, released: string,
+      checked: string): string, string
     local fake = tmp .. "/checked-" .. name
     local runner_temp = fake .. "-runner-temp"
     local format = runner_temp .. "/cosmic-ci/platform/contract/format"
@@ -371,9 +378,9 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_a_file_in_the_tr
       "1\t1\trelease\t" .. target .. "\tLinux\tx86_64\n" ..
       "1\t2\tsanitized\tsanitized-" .. target .. "\tLinux\tx86_64\n"))
     assert(Fs.write(fake .. "/o/sanitized/cosmic-core", core))
-    local entry = "printf '%s\\t%s\\t%s\\n' 16384 " .. #core .. " " .. digest .. "\n"
-    -- The release cosmic, which no case may run.
-    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.ran\"\nexit 9\n", 493)
+    -- The release cosmic, which answers `tool.tl entry` with `released`.
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.ran\"\n" ..
+      entry(released) .. "exit 0\n", 493)
     -- The contract's decoder, which reads the checked artifact's entry.
     Fixture.write(format .. "/format-test-" .. target, "#!/bin/sh\n" ..
       "case \"$1 $2\" in '--inspect '*/o/sanitized/bin/cosmic) ;; *) exit 9 ;; esac\n" ..
@@ -381,37 +388,44 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_a_file_in_the_tr
       "'entry 1 1 16384 1 " .. string.rep("1", 64) .. "' " ..
       "'entry 1 2 16384 " .. #core .. " " .. digest .. "'\n", 493)
     -- The checked artifact: a script that answers each run as the tool
-    -- would, its core at the first aligned offset past it. Its `-e`
-    -- answers only a chunk that prints the three keys, in order.
+    -- would, `tool.tl entry` with `checked`, its core at the first
+    -- aligned offset past it. Its `-e` answers only a chunk that prints
+    -- the three keys, in order.
     local script = "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$0.ran\"\n" ..
       "if [ \"$1\" = -e ]; then case \"$2\" in " ..
       "*\"print(Store.meta('runtime_context'), Store.meta('host'), Store.meta('host_image'))\"*) ;; " ..
       "*) exit 9 ;; esac\n" ..
       "printf '%s\\t%s\\t%s\\n' portable-v1 " .. target .. " " .. host_image .. "; exit 0; fi\n" ..
-      "if [ \"$1\" = test ]; then exit 0; fi\n" .. entry .. "exit 0\n"
+      "if [ \"$1\" = test ]; then exit 0; fi\n" .. entry(checked) .. "exit 0\n"
     Fixture.write(fake .. "/o/sanitized/bin/cosmic",
       script .. string.rep("#", 16384 - #script) .. core, 493)
     return fake, runner_temp
   end
   for _, case in ipairs({
-    { name = "skip", switch = "skip", image = digest, ok = true,
-      ran = "-e\n" },
-    { name = "run", switch = "run", image = digest, ok = true,
-      ran = "-e\n/tool.tl\ntest\n" },
-    { name = "another-core", switch = "skip", image = string.rep("0", 64), ok = false,
-      ran = "-e\n" },
+    { name = "skip", switch = "skip", image = digest, released = right, checked = right,
+      ok = true, ran = "-e\n" },
+    { name = "run", switch = "run", image = digest, released = right, checked = right,
+      ok = true, ran = "-e\n/tool.tl\ntest\n" },
+    { name = "another-core", switch = "skip", image = string.rep("0", 64), released = right,
+      checked = right, ok = false, ran = "-e\n" },
+    { name = "release-disagrees", switch = "run", image = digest, released = wrong,
+      checked = right, ok = false, ran = nil },
+    { name = "checked-disagrees", switch = "run", image = digest, released = right,
+      checked = wrong, ok = false, ran = "-e\n/tool.tl\n" },
   }) do
-    local fake, runner_temp = candidate(case.name, case.image)
+    local fake, runner_temp = candidate(case.name, case.image, case.released, case.checked)
     local outcome = Fixture.call("checked-" .. case.name, append(base, { "platform", "checked" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = target, COSMIC_CI_CHECKED_SUITE = case.switch,
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the checked phase answered " ..
       tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
-    local ran = (assert(Fs.read(fake .. "/o/sanitized/bin/cosmic.ran"))):
-       gsub("[^\n]*/test/portable/tool%.tl", "/tool.tl")
-    assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. ran)
-    assert(not Fs.read(fake .. "/o/bin/cosmic.ran"), case.name .. ": the release cosmic ran")
+    local ran = Fs.read(fake .. "/o/sanitized/bin/cosmic.ran")
+    if ran then ran = ran:gsub("[^\n]*/test/portable/tool%.tl", "/tool.tl") end
+    assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. tostring(ran))
+    local released = assert(Fs.read(fake .. "/o/bin/cosmic.ran"))
+    assert(released:match("^[^\n]*/test/portable/tool%.tl entry [^\n]*/o/sanitized/bin/cosmic 1 2\n$"),
+      case.name .. ": the release cosmic ran: " .. released)
   end
 end
 

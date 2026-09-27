@@ -283,10 +283,9 @@ local runtime_test_timeout_ms <const> = 180000
 local sandbox_probe_timeout_ms <const> = 60000
 local identity_test_timeout_ms <const> = 120000
 -- The first file a cosmic runs in the tree after the checked build,
--- which builds the tree's database again (30-35 s under ci/run-local on
--- a 4-core host, and 41 s once, past the 30 s bound it then had): run
--- once, on the leg that runs the checked suite, before the suite is
--- timed.
+-- which builds the tree's database again (`checked_suite`): 15 s by the
+-- release cosmic under ci/run-local on a 4-core host, 30-35 s by the
+-- checked one, which once took 41 s, past the 30 s bound it then had.
 local checked_compile_timeout_ms <const> = 300000
 
 -- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
@@ -394,10 +393,7 @@ local function checked_suite(c: Context, target: string, work: string,
   local core = sanitized .. "/cosmic-core"
   local entry = work .. "/checked-entry.txt"
   -- The checked artifact's manifest entry, as the contract's decoder
-  -- reads it (as ci/fixtures/product_test.tl reads the product's): no
-  -- cosmic runs a file in the tree for it. The first to do so after the
-  -- checked build builds the tree's database again (30-35 s), which only
-  -- the suite below needs.
+  -- reads it (as ci/fixtures/product_test.tl reads the product's).
   local s = capture_small(c, "checked manifest entry",
     { decoder, "--inspect", cosmic }, entry, 30000)
   if s ~= 0 then return s end
@@ -413,6 +409,25 @@ local function checked_suite(c: Context, target: string, work: string,
   assert(#extracted == length and Hash.hex_sha256(extracted) == digest and
     extracted == raw, "checked core range differs")
   write(work .. "/checked.core", extracted)
+  local expected = offset .. "\t" .. length .. "\t" .. digest .. "\n"
+  -- `zig build sanitized` wrote o/build.db, so the first file a cosmic
+  -- runs in the tree after it builds the tree's database again (the
+  -- release tool says "the tool's database was built by other code than
+  -- its own; building it again"): 15 s by the release cosmic here, and
+  -- CI's x86 runners are up to 1.7x slower. Every leg runs such files
+  -- after this -- RuntimeSetup's tool.tl runs, under a fixture's 30 s
+  -- bound, the runtime and identity fixtures, the checked suite -- so it
+  -- is paid here, once, by the release cosmic, under a bound of its own:
+  -- `tool.tl entry`, whose entry must be the decoder's.
+  -- TODO: drop this step once the release and checked tools stop
+  -- rebuilding o/build.db after each other's boot.
+  local rebuilt = work .. "/checked-entry-release.txt"
+  s = capture_small(c, "tree database rebuild", { c.root .. "/o/bin/cosmic",
+    c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
+    rebuilt, checked_compile_timeout_ms)
+  if s ~= 0 then return s end
+  assert(read(rebuilt) == expected,
+    "the release cosmic reads another checked manifest entry: " .. read(rebuilt))
   -- That the checked artifact runs the checked core: its runtime
   -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
   -- which builds and writes nothing.
@@ -432,24 +447,24 @@ local function checked_suite(c: Context, target: string, work: string,
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
   -- off linux-x86_64: a leg that skips the suite runs the checked cosmic
   -- only on a chunk (`-e`, above), no longer on a file in the tree, whose
-  -- build (staging it, writing SQLite) was the one real code it ran
-  -- there. A checked run of only the tests that enter that C, on the legs
+  -- build (staging it, writing SQLite), which the release cosmic now
+  -- pays, was the one real code it ran there. A checked run of only the tests that enter that C, on the legs
   -- that skip the whole suite, would cover it for seconds.
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
     Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
       "(COSMIC_CI_CHECKED_SUITE=skip)\n")
     return 0
   end
-  -- The checked cosmic's first file in the tree, which builds the
-  -- tree's database again (`checked_compile_timeout_ms`), under a bound
-  -- of its own, so the suite's bound below times the suite: `tool.tl
-  -- entry`, whose entry must be the decoder's.
+  -- The checked cosmic's first file in the tree, `tool.tl entry`, whose
+  -- entry must be the decoder's, under the rebuild's bound in case it
+  -- builds the tree's database again, so the suite's bound below times
+  -- the suite.
   local compiled = work .. "/checked-compile.txt"
-  s = capture_small(c, "checked tool compile", { cosmic,
+  s = capture_small(c, "checked tool entry", { cosmic,
     c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
     compiled, checked_compile_timeout_ms)
   if s ~= 0 then return s end
-  assert(read(compiled) == offset .. "\t" .. length .. "\t" .. digest .. "\n",
+  assert(read(compiled) == expected,
     "the checked cosmic reads another manifest entry: " .. read(compiled))
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
