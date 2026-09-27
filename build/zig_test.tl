@@ -8,15 +8,17 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local observations = require("build.filesystem_observations")
+local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 local Zig = require("build.zig")
 
---- A source whose build a test interrupts, and the environment the module
---- under test starts its child with, and the program itself, which its
---- tests start; and the system's `sh`, which runs the stand-ins.
-Test.needs{ reads = { "build/patch.tl" }, env = { "*" }, tool = true, system = true }
+--- A source whose build a test interrupts, and the program itself, which
+--- its tests start and whose core building the stand-in zig reads
+--- (`build.stand_in`). bin/zig is started with an environment of the
+--- test's own, and the stand-in reads none of the one it inherits.
+Test.needs{ reads = { "build/patch.tl" }, tool = true }
 
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(
@@ -159,8 +161,7 @@ local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp:
   local script = assert(Fs.absolute("build/zig.tl"))
   local function run(): Child.Result
     local started = observations.program({ "--standalone", script, "version" }, {
-      env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
-        XDG_CACHE_HOME = tmp .. "/cache" },
+      env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ms = 30000,
     })
     return (assert(Child.run(started.argv, started.options)))
@@ -518,18 +519,20 @@ local function test_child_status_is_the_shells()
     captured = {}, truncated = false }) == 128 + sys.SIGKILL)
 end
 
-local function test_run_answers_as_the_child_did()
-  assert(Zig.run({ "/bin/sh", "-c", "exit 0" }) == 0)
-  assert(Zig.run({ "/bin/sh", "-c", "exit 3" }) == 3)
-  assert(Zig.run({ "/bin/sh", "-c", "kill -KILL $$" }) == 128 + sys.SIGKILL)
+local function test_run_answers_as_the_child_did(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(Zig.run({ probe, "exit 0" }) == 0)
+  assert(Zig.run({ probe, "exit 3" }) == 3)
+  assert(Zig.run({ probe, "signal KILL" }) == 128 + sys.SIGKILL)
 end
 
-local function test_run_passes_on_a_signal_sent_to_it_alone()
+local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
   -- The child has this process interrupted, as a `kill -INT` aimed at
   -- bin/zig alone would; the child hears of it only if it is passed on.
   local started = Time.monotonic_ns()
-  local status = Zig.run({ "/bin/sh", "-c",
-    "trap 'exit 42' INT; kill -INT $PPID; sleep 10 & wait" })
+  local status = Zig.run({ probe,
+    "trap 42; signal INT " .. tostring(sys.getpid()) .. "; sleep 10000" })
   assert(status == 42, tostring(status))
   assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end
@@ -546,6 +549,28 @@ local function bare_root(tmp: string): string
   return tmp .. "/root/build/zig.tl"
 end
 
+--- Runs `build/zig.tl` from `script` as bin/zig, building with the
+--- stand-in `tmp/zig-for-test`, and answers how it ended. Once it has
+--- started, `tmp/zig-pid` holds its pid -- negated, naming its process
+--- group, which it leads, when `group` -- for the stand-in to wait for
+--- and signal, as a shell's `$PPID` or `0` would name it.
+-- TODO: have the stand-in signal its parent, or its own process group,
+-- itself, as the shell's `kill $PPID` and `kill 0` did, rather than wait
+-- for the pid in a file, once cosmic.sys carries getppid and a kill of
+-- pid 0 (its binding refuses 0 as out of range): today a program has
+-- neither, and /proc/self/stat, which names both, is Linux's alone.
+local function build_with_stand_in(tmp: string, script: string, group: boolean): Child.Result
+  local started = observations.program({ "--standalone", script, "build" }, {
+    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
+    stdout = "capture", stderr = "capture",
+  })
+  local h = assert(Child.start(started.argv, started.options))
+  -- Written whole under another name, so the stand-in never reads half.
+  assert(Fs.write(tmp .. "/zig-pid.writing", (group and "-" or "") .. tostring(h.pid)))
+  assert(Fs.rename(tmp .. "/zig-pid.writing", tmp .. "/zig-pid"))
+  return (assert(h:wait(30000)))
+end
+
 --- A Ctrl-C that reached zig and `bin/zig` both, which zig caught and
 --- exited cleanly from before `bin/zig` passed it on, is answered by
 --- zig's status, as bash answers it: `bin/zig` exits 0 rather than
@@ -553,16 +578,12 @@ end
 --- does, and exits at once, well inside the pass-on window.
 local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)
   local script = bare_root(tmp)
-  assert(Fs.write(tmp .. "/zig-for-test",
-    "#!/bin/sh\ntrap 'exit 0' INT\nkill -INT 0\nexit 0\n", 0x1ed))
-  -- Child.run starts it in a group of its own, so `kill -INT 0` stays
-  -- inside it.
-  local started = observations.program({ "--standalone", script, "build" }, {
-    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
-      XDG_CACHE_HOME = tmp .. "/cache" },
-    stdout = "capture", stderr = "capture", timeout_ms = 30000,
-  })
-  local result = assert(Child.run(started.argv, started.options))
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  -- Child.start starts bin/zig in a group of its own, so the SIGINT to
+  -- that group stays inside it.
+  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+    "trap 0; wait-for $DIR/zig-pid; signal INT @$DIR/zig-pid; exit 0"))
+  local result = build_with_stand_in(tmp, script, true)
   assert(result.signal == nil and result.code == 0,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end
@@ -572,13 +593,10 @@ end
 --- it not been running a build.
 local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local script = bare_root(tmp)
-  assert(Fs.write(tmp .. "/zig-for-test", "#!/bin/sh\nkill -TERM $PPID\nexit 0\n", 0x1ed))
-  local started = observations.program({ "--standalone", script, "build" }, {
-    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
-      XDG_CACHE_HOME = tmp .. "/cache" },
-    stdout = "capture", stderr = "capture", timeout_ms = 30000,
-  })
-  local result = assert(Child.run(started.argv, started.options))
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+    "wait-for $DIR/zig-pid; signal TERM @$DIR/zig-pid; exit 0"))
+  local result = build_with_stand_in(tmp, script, false)
   assert(result.signal == sys.SIGTERM,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end

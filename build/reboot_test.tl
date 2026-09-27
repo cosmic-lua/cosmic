@@ -1,9 +1,12 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local reboot = require("build.reboot")
+local stand_in = require("build.stand_in")
 
---- The system's `sh`, which runs the stand-in bin/zig.
-Test.needs{ system = true }
+--- The program's core, which building the stand-in bin/zig reads
+--- (`build.stand_in`): a program of its own, which the boot starts with
+--- only the environment it is given, and no shell.
+Test.needs{ tool = true }
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 local function test_auto_boot_unless_told_not_to()
@@ -17,9 +20,9 @@ end
 local function tree_with_zig(tmp: string, status: integer): string
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root .. "/bin"))
-  assert(Fs.write(root .. "/bin/zig",
-    "#!/bin/sh\necho \"$*\" > \"$(dirname \"$0\")/ran\"\n" ..
-    "echo built\nexit " .. tostring(status) .. "\n", 0x1ed))
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(stand_in.place(probe, root .. "/bin/zig",
+    "write $DIR/ran $@\nprint built\nexit " .. tostring(status)))
   return root
 end
 
@@ -40,13 +43,16 @@ local function test_boot_into_enters_the_booted_tool(tmp: string)
   assert(trouble ~= "", "boot_into returned without a reason")
 end
 
---- A tool still stale after its own boot refuses instead of booting again.
+--- A tool still stale after its own boot refuses instead of booting
+--- again. Its bin/zig cannot start, so no stand-in need be built: a
+--- boot would have been refused with another reason.
 local function test_boot_into_boots_once(tmp: string)
-  local root = tree_with_zig(tmp, 0)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.write(root .. "/bin/zig", "#!/nonexistent/interpreter\n", 0x1ed))
   local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" },
     { COSMIC_REBOOTED = "1" })
   assert(trouble == "the tool is still stale after a reboot", trouble)
-  assert(Fs.read(root .. "/bin/ran") == nil, "booted a second time")
 end
 
 --- Only a binary under the tree's o/ is its own tool, judged by the

@@ -10,18 +10,19 @@ local sys = require("cosmic.sys")
 local test = require("build.test")
 local worker = require("build.test_worker")
 local observations = require("build.filesystem_observations")
+local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
 --- hung one left running would be found; the program itself, which the
---- tests start, and the system's `sh` the runs it starts start; and what
---- holds a run to sandboxing (`unsandboxed`).
+--- tests start, and whose core building the stand-in a hung test leaves
+--- running reads (`build.stand_in`); and what holds a run to sandboxing
+--- (`unsandboxed`).
 Test.needs{
   host = { "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   processes = true,
   tool = true,
-  system = true,
 }
 
 --- The environment a run of `cosmic test` these tests start is given:
@@ -63,21 +64,34 @@ local function invoke(root: string, output: string, args: {string},
 end
 
 --- A hung test that also started a process group of its own, which the
---- end of its worker's group does not reach -- a shell named by
---- `marker`, which it keeps running; a test that ends its own process
---- after printing; and a quiet one that passes.
-local function project(tmp: string, marker: string): string
+--- end of its worker's group does not reach -- the stand-in `probe`,
+--- placed at the project's bin/probe and named by `marker`, which it
+--- keeps running; a test that ends its own process after printing; and
+--- a quiet one that passes. With no `probe`, the hung test has none to
+--- start, for a run that never runs it.
+local function project(tmp: string, marker: string, probe?: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
+  if probe ~= nil then
+    assert(Fs.mkdirs(root .. "/bin"))
+    assert(stand_in.place(probe, root .. "/bin/probe"))
+  end
   local hang = [[
 local Child = require("cosmic.child")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { system = true }
+Test.needs { reads = { "bin/probe" } }
 
 local held: {Child.Handle} = {}
 local function test_hangs()
-  held[1] = assert(Child.start({ "/bin/sh", "-c", "while :; do sleep 1; done", "MARKER" }))
+  held[1] = assert(Child.start({ "bin/probe", "sleep-forever", "MARKER" }))
+  -- Still running a moment on, so what is found gone below was there:
+  -- a probe that never started, or ended at once, fails this instead
+  -- of timing out.
+  local _, _ = sys.nanosleep(300 * 1000 * 1000)
+  local state = assert(held[1]:try_wait())
+  assert(not state.finished, "the probe is not running")
   while true do end
 end
 ]]
@@ -118,10 +132,11 @@ end
 --- runner adopts, unsandboxed; its worker's pid namespace, sandboxed
 --- (`build.test_sandbox`) -- while the rest of the run goes on.
 local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
   for _, mode in ipairs({ "0", "" }) do
     local marker = "cosmic-hang-" .. tostring(Time.monotonic_ns())
     local here = tmp .. "/mode" .. mode
-    local root = project(here, marker)
+    local root = project(here, marker, probe)
     local output = here .. "/run.out"
     -- The failing tests' directories are kept; they are kept here.
     local env = environment()
