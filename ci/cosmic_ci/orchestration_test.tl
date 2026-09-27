@@ -258,33 +258,51 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
 end
 
 --- A suite stands on declared-key verdicts on a Linux leg -- its
---- workers sandboxed, and required to be -- in a branch push's run, and
---- nowhere else: the merge queue's, a manual run's, main's scheduled
+--- workers sandboxed, and required to be -- in a branch push's run and
+--- the merge queue's, and nowhere else: a manual run's, main's scheduled
 --- one's and the macOS leg's each run every test, as does one forced.
-local function test_a_suite_stands_on_verdicts_only_in_a_linux_push()
+local function test_a_suite_stands_on_verdicts_in_a_linux_push_or_merge_queue()
   local Orchestration = require("cosmic_ci.orchestration")
   local function words(env: {string:string}, force?: boolean): string
     return table.concat(Orchestration.test_words(env, force), " ")
   end
-  local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push" }
-  assert(Orchestration.stands(linux) and words(linux) == "test")
-  assert(words(linux, true) == "test --all", "forced")
-  for _, event in ipairs({ "merge_group", "workflow_dispatch", "schedule", "pull_request", "" }) do
+  for _, event in ipairs({ "push", "merge_group" }) do
+    local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = event }
+    assert(Orchestration.stands(linux) and words(linux) == "test", event)
+    assert(words(linux, true) == "test --all", event .. ", forced")
+    local mac = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_EVENT = event }
+    assert(not Orchestration.stands(mac) and words(mac) == "test --all", "macOS " .. event)
+  end
+  for _, event in ipairs({ "workflow_dispatch", "schedule", "pull_request", "" }) do
     local env = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = event }
     assert(not Orchestration.stands(env) and words(env) == "test --all", event)
   end
-  local mac = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_EVENT = "push" }
-  assert(not Orchestration.stands(mac) and words(mac) == "test --all")
   assert(not Orchestration.stands({}), "run-local, and any run that names no event")
   -- Standing, it may stand on what another run reached; else not.
-  local shared: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push" }
-  Orchestration.shares(shared)
-  assert(shared.COSMIC_TEST_NO_SHARED == nil)
-  Orchestration.shares(shared, true)
-  assert(shared.COSMIC_TEST_NO_SHARED == "1", "forced")
   local queued: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group" }
   Orchestration.shares(queued)
-  assert(queued.COSMIC_TEST_NO_SHARED == "1", "the merge queue")
+  assert(queued.COSMIC_TEST_NO_SHARED == nil, "the merge queue")
+  Orchestration.shares(queued, true)
+  assert(queued.COSMIC_TEST_NO_SHARED == "1", "forced")
+  local scheduled: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "schedule" }
+  Orchestration.shares(scheduled)
+  assert(scheduled.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
+end
+
+--- The portable suite keeps its verdicts in a file of its own beside
+--- the other suites', in the directory ci.yml caches, and none where
+--- the driver names no absolute path or turns the cache off.
+local function test_the_portable_suite_keeps_verdicts_of_its_own()
+  local Orchestration = require("cosmic_ci.orchestration")
+  for shared, portable in pairs({
+    ["/runner/_temp/verdicts/verdicts.db"] = "/runner/_temp/verdicts/portable.db",
+    ["/verdicts.db"] = "/portable.db",
+    ["0"] = "0", [""] = "0", ["verdicts.db"] = "0",
+  }) do
+    local said = Orchestration.portable_verdicts({ COSMIC_VERDICT_CACHE = shared })
+    assert(said == portable, shared .. ": " .. said)
+  end
+  assert(Orchestration.portable_verdicts({}) == "0", "unset")
 end
 
 --- A fixture reads inputs its environment names (COSMIC_FIXTURE_*),
@@ -399,6 +417,59 @@ chmod 755 o/bin/cosmic
   assert(env.PATH ~= nil and env.PATH ~= "", "PATH did not reach the suite")
   assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
   assert(Fs.read(seen .. ".words") == "test\n", "a Linux push's suite ran --all")
+end
+
+--- The portable suite stands on verdicts where the other suites do --
+--- a Linux leg's push or merge queue run -- on those of its own file
+--- (`Orchestration.portable_verdicts`), never the local suite's; where
+--- they do not (main's scheduled run), it runs every test.
+local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
+  local base, project = command(tmp)
+  for _, case in ipairs({
+    { event = "merge_group", words = "test\n", shared = false },
+    { event = "push", words = "test\n", shared = false },
+    { event = "schedule", words = "test --all\n", shared = true },
+  }) do
+    local fake = tmp .. "/portable-" .. case.event
+    local runner_temp = fake .. "-runner-temp"
+    local work = runner_temp .. "/cosmic-ci/platform"
+    local diagnostics = work .. "/portable-diagnostics"
+    local fresh = work .. "/portable-source"
+    assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
+      Fs.mkdirs(fresh .. "/o") and Fs.mkdirs(fresh .. "/ci/testdata/portable"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    assert(Fs.write(fresh .. "/o/build.db", "db"))
+    assert(Fs.write(fresh .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
+    local executable = diagnostics .. "/cosmic-portable"
+    Fixture.write(executable, [[#!/bin/sh
+if [ "$1" = test ]; then printf '%s\n' "$*" > "$SEEN.words"; env > "$SEEN.env"; fi
+exit 0
+]], 493)
+    assert(Fs.write(diagnostics .. "/portable-artifact.before.sha256",
+      Hash.hex_sha256((assert(Fs.read(executable)))) .. "\n"))
+    local seen = fake .. "-seen"
+    local outcome = Fixture.call("portable-" .. case.event,
+      append(base, { "platform", "portable" }), project, tmp .. "/logs",
+      context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", SEEN = seen,
+        COSMIC_CI_EVENT = case.event, COSMIC_CI_REQUIRE_SANDBOX = "1",
+        COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
+        XDG_CACHE_HOME = tmp .. "/cache",
+      }))
+    assert(outcome.result.ok, case.event .. ": the portable phase failed: " ..
+      Fixture.read(outcome.err))
+    assert(Fs.read(seen .. ".words") == case.words, case.event .. ": " ..
+      tostring((Fs.read(seen .. ".words"))))
+    local env: {string:string} = {}
+    for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
+      local name, value = line:match("^([^=]+)=(.*)$")
+      if name then env[name] = value end
+    end
+    assert(env.COSMIC_VERDICT_CACHE == runner_temp .. "/verdicts/portable.db",
+      case.event .. ": " .. tostring(env.COSMIC_VERDICT_CACHE))
+    assert((env.COSMIC_TEST_NO_SHARED == "1") == case.shared,
+      case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env.COSMIC_TEST_NO_SHARED))
+  end
 end
 
 --- The checked suite and the others alike (`suite_run`): the words are
