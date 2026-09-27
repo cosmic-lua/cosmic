@@ -172,14 +172,17 @@ local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tm
   said("4 ran, 0 stood")
 end
 
---- A test that declares only loopback hosts runs offline, on a loopback
---- of its own, where a closed port is refused as on the host's; its
---- verdict stands as any other's, and one that declares another host
---- beside them runs every time.
+--- A test that declares only loopback hosts runs offline, in a network
+--- namespace of its own, where a closed port is refused as on the
+--- host's; its verdict stands as any other's, and one that declares
+--- another host beside them runs every time, online -- in the namespace
+--- the run itself is in, which every online worker shares. So the two
+--- are told apart by their namespaces, which each names in a failure of
+--- its own in a checkout that probes them: a worker keyed but left
+--- online would share its sibling's.
 local function test_a_test_that_declares_only_loopback_hosts_stands(tmp: string)
-  local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/suite"))
   local source = [[
+local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
 
@@ -188,18 +191,30 @@ Test.needs { network = { HOSTS } }
 local function test_refused()
   local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ms = 2000 })
   assert(response == nil and trouble ~= "")
+  if PROBE then error("NAME in " .. tostring((Fs.readlink("/proc/self/ns/net"))) .. " |") end
 end
 ]]
-  assert(Fs.write(root .. "/suite/loopback_test.tl",
-    (source:gsub("HOSTS", '"127.0.0.1", "127.0.0.2", "::1", "localhost"'))))
-  assert(Fs.write(root .. "/suite/mixed_test.tl",
-    (source:gsub("HOSTS", '"127.0.0.1", "example.com"'))))
+  local function suite(root: string, probe: boolean)
+    assert(Fs.mkdirs(root .. "/suite"))
+    for name, hosts in pairs({ loopback = '"127.0.0.1", "127.0.0.2", "::1", "localhost"',
+                               mixed = '"127.0.0.1", "example.com"' }) do
+      local text = source:gsub("HOSTS", hosts):gsub("PROBE", tostring(probe)):gsub("NAME", name)
+      assert(Fs.write(root .. "/suite/" .. name .. "_test.tl", text))
+    end
+  end
   local env = environment(tmp .. "/cache/verdicts.db")
-  local first = run(root, tmp .. "/first.out", env)
+  suite(tmp .. "/root", false)
+  local first = run(tmp .. "/root", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
   assert(first:find("2 ran, 0 stood", 1, true), first)
-  local again = run(root, tmp .. "/again.out", env)
+  local again = run(tmp .. "/root", tmp .. "/again.out", env)
   assert(again:find("1 ran, 1 stood, 1 run every time", 1, true), again)
+  suite(tmp .. "/probe", true)
+  local probed = run(tmp .. "/probe", tmp .. "/probe.out", env, nil, true)
+  local offline = probed:match("loopback in (%S+) |")
+  local online = probed:match("mixed in (%S+) |")
+  assert(offline ~= nil and online ~= nil and offline:find("^net:") and offline ~= online,
+    probed)
 end
 
 --- A checkout of the same content stands on the verdicts another

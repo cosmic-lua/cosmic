@@ -283,15 +283,15 @@ function test_inputs.covers_network(effective: test_inputs.Effective, url: strin
 end
 
 --- Whether `host`, as a `network` declaration names one, is a loopback
---- address or name: `localhost`, `::1` (bracketed or not), or a
---- dotted-quad `127.a.b.c`, each part decimal, 0 to 255, with no
---- leading zero. Strict: a name a lookup might answer elsewhere, a
---- shortened or octal spelling, `0.0.0.0`, a range, a port or `*` is
---- not one -- a declaration names hosts, which a request's host is
---- matched against whole (`covers_network`), so `127.0.0.1:8080` names
---- no host a request reaches.
+--- address or name: `localhost`, `::1`, or a dotted-quad `127.a.b.c`,
+--- each part decimal, 0 to 255, with no leading zero. Strict: a name a
+--- lookup might answer elsewhere, a shortened or octal spelling,
+--- `0.0.0.0`, a range or `*` is not one; nor is a spelling no request's
+--- host is (`host_of`, which `covers_network` matches a declaration
+--- against whole): not `127.0.0.1:8080`, whose port a request's host
+--- leaves out, nor `[::1]`, whose brackets it does.
 local function loopback_host(host: string): boolean
-  if host == "localhost" or host == "::1" or host == "[::1]" then return true end
+  if host == "localhost" or host == "::1" then return true end
   local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
   if a ~= "127" then return false end
   for _, part in ipairs({ b, c, d }) do
@@ -302,11 +302,14 @@ local function loopback_host(host: string): boolean
   return true
 end
 
---- Whether `effective` declares the network, and only loopback hosts
---- (`loopback_host`): what a worker kept offline, in a network namespace
---- of its own whose loopback is up, reaches as it would the host's.
---- Such a worker is sandboxed offline (`build.test_sandbox`'s `plan`)
---- and keyed (`build.declared_key`'s `keyable`), soundly:
+--- Whether a sandboxed worker of `effective` runs offline, in a network
+--- namespace of its own with nothing but its loopback, which is up:
+--- when it declares no network, or only loopback hosts
+--- (`loopback_host`), which that loopback answers as the host's would.
+--- The one answer both the sandbox (`build.test_sandbox`'s `plan`) and
+--- the key (`build.declared_key`'s `keyable`) take, since a worker
+--- keyed but online would stand on what the host's network answered.
+--- Keying a loopback-only worker is sound:
 ---
 --- - a new network namespace reaches only the worker's own processes,
 ---   and an abstract unix socket is its namespace's alone (core/process.h's
@@ -314,22 +317,24 @@ end
 --- - its `lo` carries 127/8, so a connection to a closed port there
 ---   (127.0.0.1:1, 127.0.0.2:1) is refused as on the host's, and a bind
 ---   finds no host listener or socket in TIME_WAIT in its way;
---- - `::1` there is as the kernel sets up a new namespace's IPv6, and
----   the kernel's release is in the key (`declared_key`'s host); and
---- - `localhost` resolves from /etc/hosts, a system path every worker
----   is given, which a key holds, as it does every system path, through
----   the host's identity.
+--- - whether `::1` is there turns on how the kernel sets up a new
+---   namespace's IPv6, which the key holds only in part: the kernel's
+---   release (`declared_key.host_identity`), not its boot parameters or
+---   sysctls; and
+--- - `localhost`, `localhost.` and any name under `.localhost` are
+---   answered by curl itself (vendor/curl/lib/vdns/hostip.c), never
+---   looked up, for a request of `cosmic.http`; a child program that
+---   resolves through libc reads /etc/hosts, a system path every worker
+---   is given and the host's identity holds.
 ---
 --- A test that needed a service of the host's on its loopback now fails,
 --- rather than standing on a verdict that service gave. Unsandboxed, a
 --- request is still an observation no key holds (`build.test`).
-function test_inputs.loopback_only(effective: test_inputs.Effective): boolean
-  local any = false
+function test_inputs.offline(effective: test_inputs.Effective): boolean
   for host in pairs(effective.network) do
     if not loopback_host(host) then return false end
-    any = true
   end
-  return any
+  return true
 end
 
 --- Paths, as `reads` or `host` would declare them: each directory that

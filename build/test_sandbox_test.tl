@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local declared_key = require("build.declared_key")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
@@ -103,10 +104,17 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(Fs.exists(tmp .. "/caches/zig-global"))
   inputs.cache_paths = {}
   -- Only loopback hosts: offline, its own loopback answering for them.
-  inputs.network = { ["127.0.0.1"] = true, ["::1"] = true, ["localhost"] = true }
-  assert(test_sandbox.plan(root, scratch, inputs, {}).sandbox.offline == true)
-  inputs.network = { ["127.0.0.1"] = true, ["example.com"] = true }
-  assert(test_sandbox.plan(root, scratch, inputs, {}).sandbox.offline == false)
+  -- Keyed exactly when offline: a worker keyed but online would stand
+  -- on what the host's network answered.
+  local offline_for: {string:boolean} = { [""] = true, ["127.0.0.1 ::1 localhost"] = true,
+    ["127.0.0.1 example.com"] = false, ["example.com"] = false, ["*"] = false }
+  for hosts, offline in pairs(offline_for) do
+    inputs.network = {}
+    for name in hosts:gmatch("%S+") do inputs.network[name] = true end
+    local planned = test_sandbox.plan(root, scratch, inputs, {})
+    assert(planned.sandbox.offline == offline, hosts)
+    assert(declared_key.keyable(inputs) == offline, hosts)
+  end
   inputs.network = { ["example.com"] = true }
   inputs.tool = true
   local online = test_sandbox.plan(root, scratch, inputs, {})
@@ -358,9 +366,10 @@ end
 --- the tree it does not declare leaves it standing; a change to one it
 --- declares runs it again, and so does making one it declares that was
 --- not there when it last ran. A module that declares a host of the
---- network, not a loopback one, has no verdict a key holds: it runs every time, and none is assumed. One
---- that does not declare `store` stands too: what it starts can read
---- only the store of its closure, which its key holds.
+--- network, not a loopback one, has no verdict a key holds: it runs
+--- every time, and none is assumed. One that does not declare `store`
+--- stands too: what it starts can read only the store of its closure,
+--- which its key holds.
 local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))

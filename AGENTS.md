@@ -74,9 +74,9 @@
    module declares the network has no key: it runs every time, and the
    summary counts it so -- unless it declares only loopback hosts
    (`localhost`, `::1`, `127.a.b.c`), whose worker runs offline, on a
-   loopback of its own, and is keyed. A worker, and every process it starts, is
-   given at o/cosmic.db the store of its module's import closure alone,
-   keyed by its address. Sandboxed or not, a worker whose module
+   loopback of its own, and is keyed. A worker, and every process it
+   starts, is given at o/cosmic.db the store of its module's import
+   closure alone, keyed by its address. Sandboxed or not, a worker whose module
    declares neither `store` nor `tool` holds every other lookup in the
    store to that closure too (`build/test_worker.tl`'s `hold_store`):
    `Store.bytecode` or `Store.source` of a module of the tree outside
