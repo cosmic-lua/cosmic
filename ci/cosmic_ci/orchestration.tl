@@ -17,6 +17,7 @@ local record Orchestration
   test_words: function(env: {string:string}, force?: boolean): {string}
   shares: function(env: {string:string}, force?: boolean)
   fixture: function(env: {string:string}, tmpdir: string): {string:string}
+  forget_run: function(env: {string:string})
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -83,6 +84,42 @@ local function environment(extra?: {string:string}): {string:string}
   if all.COSMIC_CI_REQUIRE_SANDBOX == "1" then all.COSMIC_TEST_SANDBOX = "1" end
   if extra then for k, v in pairs(extra) do all[k] = v end end
   return all
+end
+
+--- Variables that name this run, its runner or its container rather than
+--- anything a test is given: systemd's per-unit ones where a runner is a
+--- service, CI, and the container's HOSTNAME (its ID, new every job).
+local run_only: {string:boolean} = {
+  CI = true, INVOCATION_ID = true, JOURNAL_STREAM = true, HOSTNAME = true,
+}
+
+--- Whether `name` says which run, runner or job this is, or is a switch
+--- the driver alone reads: GitHub's (GITHUB_*, RUNNER_*, ACTIONS_*),
+--- `run_only`'s, and the driver's COSMIC_CI_* but
+--- COSMIC_CI_REQUIRE_SANDBOX, which a test reads
+--- (build/sandboxed_verdicts_test.tl).
+local function names_the_run(name: string): boolean
+  if name == "COSMIC_CI_REQUIRE_SANDBOX" then return false end
+  return run_only[name] or name:sub(1, 7) == "GITHUB_" or
+    name:sub(1, 7) == "RUNNER_" or name:sub(1, 8) == "ACTIONS_" or
+    name:sub(1, 10) == "COSMIC_CI_"
+end
+
+--- Removes from `env`, a gating suite's, every variable that names the
+--- run (`names_the_run`). A test that reads the whole environment
+--- (`env = {"*"}`) is keyed by every variable its worker is given, so
+--- one that moves each run (GITHUB_RUN_ID, GITHUB_SHA, RUNNER_NAME,
+--- COSMIC_CI_SCOPE, ...) would keep such a test from standing on any
+--- earlier run's verdict. No tree test reads one, so none is given one,
+--- and what a key holds is still what the worker gets. The driver
+--- decides what the suite does (`stands`, `test_words`, `shares`) before
+--- this, from the environment it was given.
+function Orchestration.forget_run(env: {string:string})
+  local names: {string} = {}
+  for name in pairs(env) do
+    if names_the_run(name) then names[#names + 1] = name end
+  end
+  for _, name in ipairs(names) do env[name] = nil end
 end
 
 local record Context
@@ -351,9 +388,11 @@ local function checked_suite(c: Context, target: string, work: string): integer
   for _, word in ipairs(Orchestration.test_words(Env.all())) do
     checked_argv[#checked_argv + 1] = word
   end
+  local checked_environment = environment()
+  Orchestration.forget_run(checked_environment)
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    320000, c.root, environment())
+    320000, c.root, checked_environment)
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   return s
 end
@@ -414,6 +453,7 @@ local function suite(c: Context, name: string, executable: string,
   -- every test then, whatever o/ holds.
   local argv: {string} = { executable }
   for _, word in ipairs(Orchestration.test_words(values, force)) do argv[#argv + 1] = word end
+  Orchestration.forget_run(values)
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ms, c.root, values)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
