@@ -13,7 +13,7 @@ local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
 --- What a worker's plan gives it of the host, and the program it runs.
-Test.needs{ host = { "/dev/urandom", "/etc", "/proc", "/usr/" }, tool = true }
+Test.needs{ host = { "/dev/urandom", "/etc", "/proc", "/usr/" }, tool = true, store = true }
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -349,7 +349,7 @@ end
 --- declares runs it again, and so does making one it declares that was
 --- not there when it last ran. A module that declares the network, or
 --- starts a process that could read the store it does not declare, has
---- no verdict a key holds: it is assumed, not standing.
+--- no verdict a key holds: it runs every time, and none is assumed.
 local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -404,16 +404,13 @@ end
     return
   end
   if not first:find("; sandboxed)", 1, true) then return end -- COSMIC_TEST_SANDBOX=0
-  -- What the process was given is walked once its test has started, on
-  -- a first run: that run keeps no verdict, and the next, which walks it
-  -- first, keeps one.
-  said("PASS")
-  said("0 ran, 1 stood, 2 assumed")
+  local again = said("2 ran, 1 stood, 2 run every time (no key holds them)")
+  assert(not again:find("assumed", 1, true), again)
   assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
-  said("0 ran, 1 stood, 2 assumed")
+  said("2 ran, 1 stood, 2 run every time")
   assert(Fs.write(root .. "/suite/data.txt", "two"))
-  said("1 ran, 0 stood, 2 assumed")
-  said("0 ran, 1 stood, 2 assumed")
+  said("3 ran, 0 stood, 2 run every time")
+  said("2 ran, 1 stood, 2 run every time")
   -- Made since, what the child reads is there, and the test fails.
   assert(Fs.write(root .. "/suite/later.txt", "made"))
   said("FAIL  suite.child_test test_child_reads: ", false)
@@ -486,4 +483,19 @@ local function test_second(tmp: string) hold(tmp) end
     if name:sub(1, 12) == "cosmic-test-" then left[#left + 1] = name end
   end
   assert(#left == 0, table.concat(left, ", ") .. "\n" .. text)
+end
+
+--- A worker that may write where this program is -- the cores a
+--- portable cosmic extracts, in the `bootstrap` cache -- cannot be kept
+--- from running it, by its name or through a link; one that writes
+--- elsewhere can.
+local function test_a_worker_that_writes_where_the_program_is_cannot_be_held(tmp: string)
+  local cores = tmp .. "/cache/cores"
+  assert(Fs.mkdirs(cores))
+  assert(Fs.write(cores .. "/core", "c"))
+  assert(Fs.symlink(cores .. "/core", tmp .. "/link"))
+  assert(test_sandbox.forbiddable({ tmp .. "/elsewhere" }, { cores .. "/core" }))
+  assert(test_sandbox.forbiddable({}, { cores .. "/core" }))
+  assert(not test_sandbox.forbiddable({ tmp .. "/cache" }, { cores .. "/core" }))
+  assert(not test_sandbox.forbiddable({ tmp .. "/cache" }, { tmp .. "/link" }))
 end

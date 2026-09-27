@@ -28,6 +28,7 @@ Test.needs{
   env = { "*" },
   processes = true,
   tool = true,
+  store = true,
 }
 
 local type Searcher = function(string): any, any
@@ -542,6 +543,55 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   assert(reported == "w\nheld\n", reported)
   local bad, bad_trouble = process.landlock_ruleset({ tmp .. "/nowhere" }, {})
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
+end
+
+--- A process held to running what is beneath some paths runs a program
+--- beneath them and no other -- one written after the hold included --
+--- and what it starts is held too; it still reads and writes as before.
+--- The hold is for good, so it is taken last: this test's worker ends
+--- with the test. Where there is no Landlock, taking one says so.
+local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: string)
+  local system: {string} = {}
+  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64" }) do
+    if sys.stat(dir) ~= nil then system[#system + 1] = dir end
+  end
+  local script = tmp .. "/run"
+  local fd = create(script)
+  assert(sys.write(fd, "#!/bin/sh\nexit 0\n") == 17)
+  sys.close(fd)
+  assert(sys.chmod(script, 493)) -- 0o755
+  local function status_of(path: string, argv: {string}): integer | string
+    local pid, trouble = process.spawn(path, argv, nil, tmp, nil, nil, nil, false)
+    if pid == nil then return trouble end
+    return assert(process.waitpid(pid, false)).code
+  end
+  assert(status_of(script, { "run" }) == 0, "the script runs before the hold")
+  -- Beneath a path given, a file may still move to another directory.
+  local given = tmp .. "/given"
+  assert(sys.mkdir(given, 0x1c0) and sys.mkdir(given .. "/a", 0x1c0) and
+    sys.mkdir(given .. "/b", 0x1c0))
+  sys.close(create(given .. "/a/f"))
+  system[#system + 1] = given
+  local held, trouble, errno = process.landlock_restrict_execute(system)
+  if not held then
+    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no Landlock: " .. trouble)
+    assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
+    return
+  end
+  assert(status_of("/bin/sh", { "sh", "-c", "exit 3" }) == 3, "a program beneath them runs")
+  assert(status_of(script, { "run" }) ~= 0, "a program elsewhere ran")
+  -- What it starts is held too: the shell may not run the script.
+  assert(status_of("/bin/sh", { "sh", "-c", script .. " || exit 7" }) == 7)
+  assert(sys.rename(given .. "/a/f", given .. "/b/f"))
+  -- Reading and writing are as they were.
+  local written = create(tmp .. "/after")
+  assert(sys.write(written, "w") == 1)
+  sys.close(written)
+  local reading = assert(sys.open(script, sys.O_RDONLY))
+  assert(sys.read(reading, 2) == "#!")
+  sys.close(reading)
+  local bad, _ = pcall(process.landlock_restrict_execute, { 1 } as {string})
+  assert(not bad, "a path that is no string is refused")
 end
 
 --- A pledged child runs under a seccomp filter, and so does what it
@@ -1532,6 +1582,7 @@ local function test_the_process_calls_are_off_the_public_table()
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "relaunch", "pipe",
       "set_nonblocking", "poll", "ignore_sigpipe", "landlock_ruleset",
+      "landlock_restrict_execute",
       "guard_child_signals", "unguard_child_signals", "cancelled_child_signal" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type(raw[name]) == "function", name .. " is not in the raw process table")

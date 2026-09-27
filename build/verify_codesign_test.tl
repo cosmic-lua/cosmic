@@ -7,7 +7,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The environment the module under test starts codesign with.
-Test.needs{ env = { "*" } }
+Test.needs{ env = { "*" }, store = true }
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
 --- arguments to `log` and exits `status`.

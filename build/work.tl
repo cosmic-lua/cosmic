@@ -220,6 +220,14 @@ local version <const> = "26"
 --- this verdict, so a test answered from it without running again
 --- still has a duration to give `runs`.
 ---
+--- `digests` is the hash of each file a sandboxed run's keys looked
+--- at (`build.declared_key`) -- declared inputs beyond what the stage
+--- hashes, o/bin/cosmic and vendor/ among them -- by absolute path,
+--- with what `lstat` said of it then: a later run whose `lstat` says
+--- the same reads none of them again. A sandboxed run that read one
+--- writes what it looked at: a run of the whole tree in place of the
+--- rest, so a file no test declares any more goes.
+---
 --- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
 --- one snapshot per `cosmic test` invocation, each run identified by
 --- its own start time in nanoseconds (`ran_at_ns`), the convention
@@ -409,6 +417,9 @@ work.schema = {
                                          run_at_ns INTEGER NOT NULL,
                                          seen INTEGER NOT NULL,
                                          elapsed_ns INTEGER NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS digests (path TEXT PRIMARY KEY,
+                                        signature TEXT NOT NULL,
+                                        sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
                                           PRIMARY KEY)]],
   [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,

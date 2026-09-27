@@ -39,7 +39,8 @@
 --- and ran under instead, and while that is unchanged and it last
 --- passed, it is assumed to pass again rather than run -- unless the
 --- run is `--all` (or `COSMIC_TEST_ALL=1`, or `COSMIC_SANDBOX=must`) or
---- names it.
+--- names it. All of this is an unsandboxed run's; a sandboxed one's
+--- keys are its tests' declared inputs, below.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -80,8 +81,17 @@
 --- kernel cannot sandbox a worker (macOS, a host refusing user
 --- namespaces), or `COSMIC_TEST_SANDBOX=0` turns it off, the run says
 --- so, runs each unsandboxed, and shares no verdict; with
---- `COSMIC_TEST_SANDBOX=1` it fails there instead. Nothing keys a
---- verdict by the declared inputs themselves yet.
+--- `COSMIC_TEST_SANDBOX=1` it fails there instead.
+---
+--- Sandboxed, a verdict is keyed by what its test was given rather than
+--- by what it read: the digest of its declared inputs, computed before
+--- it runs (`build.declared_key`). A test whose key holds a passing
+--- verdict, of this checkout or, by that key alone, of another
+--- (`build.shared_verdicts`), stands; any other runs, and its verdict is
+--- kept only when its inputs still digest to the same key once it has
+--- run. A test that declares the network has no key, and always runs.
+--- None is assumed, and `--all` (or `COSMIC_TEST_ALL=1`, or an audit)
+--- runs every test the run chooses, whatever stands.
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
@@ -110,6 +120,7 @@ local observations = require("build.filesystem_observations")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local declared_key = require("build.declared_key")
 local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
@@ -179,6 +190,11 @@ local record test
     --- Of those that stood or were assumed, how many on a verdict
     --- another checkout reached (`build.shared_verdicts`).
     shared: integer
+    --- Of those that ran sandboxed, how many no key holds, which run
+    --- every time: one whose module declares the network, or reads a
+    --- link out of the tree, or that started a process that could read
+    --- what no key holds (`test_sandbox.Plan`'s `unkeyable`).
+    every: integer
   end
 
   --- How a run is bounded, from the command line and the environment.
@@ -1064,15 +1080,31 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
   -- TODO: hold each path a confined process was given ("u") to the
   -- effective inputs too, once `observations.confine` narrows a
   -- worker's own inputs rather than adding to them: a sandboxed worker
-  -- can give its process only what it has (nested confinement).
+  -- can give its process only what it has (nested confinement). Only
+  -- the program itself is held to them today, below.
   local function the_tool(path: string): boolean
     for _, program in ipairs(tool) do
       if path == program then return true end
     end
     return false
   end
+  -- This program, started by the test -- given to a confined process
+  -- ("u"), as `observations.itself()` gives it, or started unconfined
+  -- ("p") -- runs what no key of the test holds but the tool's: a
+  -- `tool` finding.
+  local function runs_the_tool(path: string): boolean
+    return the_tool(path) or the_tool(observations.resolution(path))
+  end
   for _, observation in ipairs(reads) do
     local kind, path = observation.kind, observation.path
+    -- Sandboxed, every process the test starts is noted "u" of all its
+    -- worker's sandbox holds, the program among it, whatever it runs; a
+    -- sandboxed worker that may not run the program is refused it
+    -- (`observations.forbid_running`) rather than audited.
+    if (kind == "p" or (kind == "u" and not sandboxed)) and not effective.tool and
+        path:sub(1, 1) == "/" and runs_the_tool(path) then
+      add("tool", path)
+    end
     if kind == "p" then
       -- A process started needs no declaration: a sandboxed worker's is
       -- held by its sandbox, and an unsandboxed one's run never stands
@@ -1502,6 +1534,11 @@ local record Job
   tmp: string
   --- How its worker is sandboxed, when it is (`build.test_sandbox`).
   plan: test_sandbox.Plan
+  --- Sandboxed, the key its verdict is reached under, over its
+  --- declared inputs as they were before it started
+  --- (`build.declared_key`); nil for one that reaches the network, or
+  --- an unsandboxed run's.
+  declared: string
   passed: boolean
   handle: Child.Handle
   started_ns: integer
@@ -1523,6 +1560,63 @@ local function binary_tables(): string | nil, string
   end)
   if rows == nil then return nil, trouble end
   return rows[1][1], ""
+end
+
+--- What of the test harness a worker runs, whose closure every
+--- sandboxed key holds: the worker itself, the plan of its sandbox
+--- (`build.test_sandbox`), what holds it (`build.filesystem_observations`),
+--- its inputs (`build.test_inputs`) and its key (`build.declared_key`).
+local harness_roots: {string} = {
+  "build.test_worker", "build.test_sandbox", "build.filesystem_observations",
+  "build.test_inputs", "build.declared_key",
+}
+
+--- The harness modules keyed by their own source alone: the runner,
+--- whose closure is the build's -- its compiler and the rest, which a
+--- worker never runs; build.dispatch, whose `--worker` branch every
+--- worker runs, and whose closure is every verb's; the writer and the
+--- schema that shape the projection every worker loads its modules
+--- from (`build.writer`, `build.schema`); and the shared verdicts'
+--- cache, which a key is looked up in (`build.shared_verdicts`).
+local harness_own: {string} = {
+  "build.test", "build.dispatch", "build.writer", "build.schema", "build.shared_verdicts",
+}
+
+--- The digest of the test harness the running binary carries
+--- (`declared_key.harness`), searched alone so no attached database
+--- stands in for it: every worker runs it, so every sandboxed key holds
+--- it -- the compiler's identity holds only the importer's closure.
+local function binary_harness(): string | nil, string
+  local modules: {{string}} = nil
+  local imports: {{string}} = nil
+  local trouble = "the running binary has no database"
+  Store.alone(function()
+    local databases = Store.databases()
+    local binary = databases[#databases]
+    if binary ~= nil then
+      modules, trouble = Sqlite.text_rows(binary,
+        "SELECT path, source_hash FROM modules WHERE kind = 'module'")
+      if modules ~= nil then
+        imports, trouble = Sqlite.text_rows(binary, "SELECT path, requires FROM imports")
+      end
+    end
+  end)
+  if modules == nil or imports == nil then return nil, trouble end
+  local sources: {string:string} = {}
+  for _, row in ipairs(modules) do sources[row[1]] = row[2] end
+  local requires: {string:{string}} = {}
+  for _, row in ipairs(imports) do
+    local list = requires[row[1]] or {}
+    requires[row[1]] = list
+    list[#list + 1] = row[2]
+  end
+  for _, list in pairs(requires) do table.sort(list) end
+  local digest = declared_key.harness(harness_roots, sources, requires, harness_own)
+  -- A harness a test stands in for, so it can see a change to one move
+  -- every key without a binary of its own (build/sandboxed_verdicts_test.tl).
+  local salt = Env.get("COSMIC_TEST_HARNESS_SALT")
+  if salt ~= nil and salt ~= "" then digest = Hash.hex_sha256(digest .. "\0" .. salt) end
+  return digest, ""
 end
 
 --- Everything a finished job's verdict is recorded into.
@@ -1580,6 +1674,24 @@ local record Recording
   --- was given it (`test_sandbox.mode`), or "" when unset.
   rerun_prefix: string
   views: {string:{string:string}}
+  --- Sandboxed, what keys each verdict (`build.declared_key`): the
+  --- digests of the tree's files the run has taken, and the compiler's
+  --- identity (`build.work`'s `Identities`).
+  digests: declared_key.Digests
+  compiler: string
+  --- Sandboxed, the host's identity every key holds
+  --- (`declared_key.host_identity`), and why each module whose tests
+  --- have no key has none, but for the network, by module path.
+  host: string
+  --- Sandboxed, the harness every worker runs (`binary_harness`), and
+  --- the program a test that runs this program runs
+  --- (`declared_key.program_identity`).
+  harness: string
+  program: string
+  unkeyed: {string:string}
+  --- Whether each module's workers can be kept from running this
+  --- program (`can_forbid`), by module path.
+  forbiddable: {string:boolean}
   --- Where the host caches each module declares are (`build.caches`),
   --- by module path, as `caches_of` resolves them.
   caches: {string:{string}}
@@ -1652,6 +1764,50 @@ local function identity_of(rec: Recording, m: importer.Module): string
   -- The tool itself too, whole: a test that starts it unconfined
   -- exercises all of it, not only what the test's module loads.
   return m.key .. "\0" .. rec.runtime .. "\0" .. (Store.meta("boot_hash") or "")
+end
+
+--- Whether a sandboxed worker of `m`'s tests can be kept from running
+--- this program where its module does not declare `tool`
+--- (`observations.forbid_running`): not where it may write a directory
+--- the program is in -- the cores a portable cosmic extracts, which the
+--- `bootstrap` cache names (`build.caches`) -- since a core another
+--- cosmic extracts there after the worker holds itself could not be
+--- run. Such a worker is keyed as if it declared `tool` instead.
+-- TODO: hold such a worker too, once the core it runs is kept apart
+-- from the cores a test's own cosmic extracts (a directory of the
+-- worker's own for it, bound by the sandbox): today its verdict holds
+-- o/bin in its key, but nothing keeps it from running a stale program.
+local function can_forbid(rec: Recording, m: importer.Module): boolean
+  local found = rec.forbiddable[m.path]
+  if found ~= nil then return found end
+  rec.tool = rec.tool or observations.itself()
+  found = test_sandbox.forbiddable(rec.effective[m.path].cache_paths or {}, rec.tool)
+  rec.forbiddable[m.path] = found
+  return found
+end
+
+--- A sandboxed test's key, over its declared inputs as they are now
+--- (`build.declared_key`): nil for one that reaches the network, or
+--- reads a link out of the tree, which no key holds -- the second said
+--- once in `rec.unkeyed`.
+local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
+  local effective = rec.effective[m.path]
+  if not declared_key.keyable(effective) then return nil end
+  local key, why = declared_key.compute(rec.digests, {
+    id = id, group = m.path, module_key = m.key, runtime = rec.runtime, compiler = rec.compiler,
+    host = rec.host, harness = rec.harness, program = rec.program,
+    declaration = test_inputs.canonical(m.inputs), effective = effective,
+    environment = view_of(rec, m), runs_tool = not effective.tool and not can_forbid(rec, m),
+  })
+  if key == nil then rec.unkeyed[m.path] = why end
+  return key
+end
+
+--- What a test read the last time it ran, for its `runs` row where a
+--- sandboxed verdict stands without a run: nothing, where there is none.
+local function last_reads(previous: {string:test.Previous}, id: string): {observations.Observation}
+  local was = previous[id]
+  return was ~= nil and was.reads or {}
 end
 
 --- A verdict from a stored one that still stands: what the test read
@@ -1752,113 +1908,35 @@ local function assume(rec: Recording, credited: test.Credited, m: importer.Modul
   if shared_key ~= nil then rec.owed.used[#rec.owed.used + 1] = shared_key end
 end
 
---- A verdict another checkout reached that stands, or is assumed, here.
-local record Shared
-  --- The key it stands under here, and the one it is shared under.
-  key: string
-  shared: string
-  --- What the run read, in this checkout's paths: all of it for one
-  --- that stands, and what `runs` keeps of it for one assumed.
-  reads: {observations.Observation}
-  assumed: boolean
-  found: shared_verdicts.Found
-end
-
---- The verdict `rec.shared` holds for a test that stands here on the
---- terms `standing` holds a verdict of this checkout to -- or, unless
---- `asked`, that is assumed on those `assumable` does -- or nil. This
---- checkout's own evidence comes first: content its last run of the
---- test reached the same shared key over -- passing or failing, a file
---- touched since or not -- a test whose last run here failed, over
---- whatever content, and a key `verdicts` holds any verdict
---- under are never answered from another checkout's, and one that
---- failed here takes the shared row out. Nor is a row this checkout
---- wrote itself.
-local function shared_standing(rec: Recording, previous: {string:test.Previous},
-                               verdicts: {string:test.Verdict}, m: importer.Module,
-                               id: string, asked: boolean): Shared | nil
-  local last = previous[id]
-  -- A run from before runs recorded their shared key says nothing of
-  -- which content it was over: this checkout has run the test, and
-  -- runs it again rather than guess.
-  if last ~= nil and last.shared == nil then return nil end
-  -- A test that failed here runs until it passes here: a failing run
-  -- may stop short of reads a passing one makes, so no shared key tells
-  -- its content from the one another checkout passed on.
-  if last ~= nil and not last.passed then return nil end
-  local candidates, trouble = shared_verdicts.candidates(rec.shared, rec.root, id, m.key)
-  if candidates == nil then
-    drop_shared(rec, trouble)
-    return nil
-  end
-  for _, candidate in ipairs(candidates) do
-    local was: test.Previous = nil
-    if candidate.origin ~= rec.origin then
-      was = previous_of(candidate.reads, candidate.key, true)
-    end
-    local reads: {observations.Observation} = nil
-    local assumed = false
-    if was ~= nil and was.reads ~= nil then
-      reads = was.reads
-    elseif was ~= nil and not asked and was.identity == identity_of(rec, m) then
-      reads, assumed = was.kept, true
-    end
-    if reads ~= nil then
-      local now = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime, reads,
-        rec.key_parts, nil, view_of(rec, m))
-      local own = verdicts[now.key]
-      local own_failed = own ~= nil and not own.passed
-      local known = last ~= nil and last.shared == now.shared
-      if now.stable and now.shared == candidate.key and (own ~= nil or known) then
-        if own_failed or (known and not last.passed) then
-          rec.owed.failed[#rec.owed.failed + 1] = candidate.key
-        end
-      elseif now.stable and now.shared == candidate.key then
-        local found, found_trouble = shared_verdicts.found(rec.shared, candidate.key)
-        if found ~= nil then
-          return { key = now.key, shared = candidate.key, reads = reads, assumed = assumed,
-            found = found }
-        elseif found_trouble ~= "" then
-          drop_shared(rec, found_trouble)
-          return nil
-        end
-      end
-    end
-  end
-  return nil
-end
-
---- Records one test answered from a verdict another checkout reached:
---- as this run's own, with the lines that run hit, so a later run of
---- this checkout stands on it without the shared cache.
+--- Records one sandboxed test answered from the verdict another
+--- checkout reached under its declared `key` (`found`): as this run's
+--- own, with the lines that run hit, so a later run of this checkout
+--- stands on it without the shared cache. `reads` is what its last run
+--- here read, for its `runs` row.
 local function share(rec: Recording, m: importer.Module, name: string, id: string,
-                     from: Shared)
-  if from.assumed then
-    rec.tally.assumed = rec.tally.assumed + 1
-  else
-    rec.tally.cached = rec.tally.cached + 1
-  end
+                     key: string, found: shared_verdicts.Found,
+                     reads: {observations.Observation})
+  rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
   local hit: Coverage.Hits = {}
-  decode_hits(from.found.hits, hit)
+  decode_hits(found.hits, hit)
   for path in pairs(rec.unowned) do
     hit[path] = nil
   end
   merge_hits(rec.hits, hit)
   rec.by_test[id] = encode_hits(hit)
-  local elapsed = from.found.elapsed_ns
+  local elapsed = found.elapsed_ns
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), from.reads, run_key(from.key, from.shared), rec.run_at_ns, elapsed,
-    not from.assumed, identity_of(rec, m))
+    Time.now_ns(), reads, run_key(key, key), rec.run_at_ns, elapsed)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
-  kept, keep_trouble = record_verdict(rec.records, from.key, true, rec.run_at_ns, rec.run,
+  kept, keep_trouble = record_verdict(rec.records, key, true, rec.run_at_ns, rec.run,
     elapsed)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
   end
-  rec.owed.used[#rec.owed.used + 1] = from.shared
+  rec.owed.used[#rec.owed.used + 1] = key
 end
 
 --- How a worker's process ended, for a failure that has no report.
@@ -1912,7 +1990,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
         rec.tool, rec.sandbox)
     end
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads, caches_of(rec, job.m))
+    cacheable = reported.loaded and not rec.sandbox and
+      test.keyable(rec.root, job.scratch, reads, caches_of(rec, job.m))
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
@@ -1926,31 +2005,73 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       passed, message = false, trouble
     end
   end
-  local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
-    rec.runtime, reads, rec.key_parts, job.started_ns, view_of(rec, job.m))
-  local reached, stable = verdict_reached.key, verdict_reached.stable
-  local late = verdict_reached.late
-  local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
-    message, Time.now_ns(), reads, run_key(reached, verdict_reached.shared), rec.run_at_ns,
-    elapsed,
-    (stable or late) and cacheable, identity_of(rec, job.m))
-  if not saved then
-    rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
-  end
-  if not late then
-    saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
-      elapsed)
-    if not saved then
-      rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+  if rec.sandbox then
+    -- Keyed by what it was given: its declared inputs, as they were
+    -- before it started -- and still are, or the verdict describes no
+    -- one state of them, and is not kept.
+    local key = job.declared
+    -- A process it started that its sandbox could let read what no key
+    -- holds -- the network, or the store undeclared (`Plan.unkeyable`,
+    -- noted "x" by the process's start) -- makes a run no key holds:
+    -- kept under none, so the test runs every time.
+    local unkeyable = job.plan ~= nil and job.plan.unkeyable or ""
+    local reached_past = key == nil
+    for _, observation in ipairs(reads) do
+      if unkeyable ~= "" and observation.kind == "x" and observation.path == unkeyable then
+        reached_past = true
+      end
     end
-  end
-  if not passed then
-    rec.owed.failed[#rec.owed.failed + 1] = verdict_reached.shared
-  elseif not late and reported ~= nil then
-    rec.owed.kept[#rec.owed.kept + 1] = { key = verdict_reached.shared, test = id,
-      module_key = job.m.key,
-      reads = encoded_reads(reads, (stable or late) and cacheable, identity_of(rec, job.m)),
-      hits = rec.by_test[id], elapsed_ns = elapsed }
+    if reached_past then rec.tally.every = rec.tally.every + 1 end
+    local held = not reached_past and declared_of(rec, job.m, id) == key
+    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
+      message, Time.now_ns(), reads, run_key(key or "", key), rec.run_at_ns, elapsed)
+    if not saved then
+      rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
+    end
+    if held then
+      saved, save_trouble = record_verdict(rec.records, key, passed, rec.run_at_ns, rec.run,
+        elapsed)
+      if not saved then
+        rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      end
+    elseif key ~= nil and (not passed or reached_past) then
+      -- Its inputs moved while it ran, so the failure is of no one state
+      -- of them -- but it may be of the one it started from, and a pass
+      -- kept under that key would stand for it: gone; and so is one
+      -- under the key of a run that reached past it.
+      saved, save_trouble = Sqlite.run(rec.records, "DELETE FROM verdicts WHERE key = ?1",
+        { text(key) })
+      if not saved then
+        rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      end
+    end
+    -- A pass another run shared under its key goes too where this run
+    -- reached past it: that pass stood for what no key holds.
+    if key ~= nil and (not passed or reached_past) then
+      rec.owed.failed[#rec.owed.failed + 1] = key
+    elseif passed and held and reported ~= nil then
+      rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
+        elapsed_ns = elapsed }
+    end
+  else
+    local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
+      rec.runtime, reads, rec.key_parts, job.started_ns, view_of(rec, job.m))
+    local reached, stable = verdict_reached.key, verdict_reached.stable
+    local late = verdict_reached.late
+    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
+      message, Time.now_ns(), reads, run_key(reached, verdict_reached.shared), rec.run_at_ns,
+      elapsed,
+      (stable or late) and cacheable, identity_of(rec, job.m))
+    if not saved then
+      rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
+    end
+    if not late then
+      saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
+        elapsed)
+      if not saved then
+        rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      end
+    end
   end
   job.passed = passed
   if not passed and reported ~= nil and job.plan ~= nil then
@@ -1983,10 +2104,13 @@ end
 --- nothing a test is given: the marker a tool that rebuilt itself sets
 --- for the process it re-enters (`build.reboot`), which a run started
 --- after a rebuild holds and one started fresh does not, and the
---- directory the invoking shell was in before its last `cd`. Kept, each
+--- directory the invoking shell was in before its last `cd`, and the
+--- command it last ran (`_`, which a shell sets to the program it
+--- starts: /usr/bin/timeout for `timeout 30 cosmic test`). Kept, each
 --- would enter the key of every test that reads the whole environment,
---- and such a test would run again after a rebuild or a `cd`.
-local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true }
+--- and such a test would run again after a rebuild, a `cd`, or a run
+--- started another way.
+local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, _ = true }
 
 --- The environment a worker starts with: this process's, less the
 --- private startup hooks (`COSMIC_PORTABLE_STARTUP_TEST_*`), which pause
@@ -2141,8 +2265,14 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   for i, value in ipairs(start.argv) do argv[i] = value end
   -- What the build read of the module's `needs`, which the worker holds
   -- the call to; what its sandbox holds a process it starts to; and its
-  -- import closure, which it holds its `require`s to.
-  for _, value in ipairs({ "test", "--worker", root, job.m.path, job.name, inside .. "/tmp",
+  -- import closure, which it holds its `require`s to. Sandboxed, a
+  -- worker whose module does not declare `tool` may not run this
+  -- program (`observations.forbid_running`): what it would run is no
+  -- input of its test's key.
+  local forbidding = rec.sandbox and not rec.effective[job.m.path].tool and
+    can_forbid(rec, job.m)
+  for _, value in ipairs({ "test", forbidding and "--worker-no-tool" or "--worker", root,
+                           job.m.path, job.name, inside .. "/tmp",
                            inside .. "/children", test_inputs.canonical(job.m.inputs),
                            held }) do
     argv[#argv + 1] = value
@@ -2414,8 +2544,8 @@ function test.run(argv: {integer:string}): integer
   -- (build.filesystem_observations' `must_confine`).
   -- An audit runs every test it chooses, to observe what each reads.
   local audit = parsed.set["--audit"] == true
-  local everything = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1" or
-    Env.get("COSMIC_SANDBOX") == "must"
+  local forced = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  local everything = forced or Env.get("COSMIC_SANDBOX") == "must"
   -- A run that stands on nothing another checkout reached, though it
   -- still shares what it reaches: what answers for every test is this
   -- checkout's own evidence, or a run.
@@ -2481,6 +2611,12 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
   local runtime = identity .. " tables " .. tables
+  local harness, harness_trouble = binary_harness()
+  if harness == nil then
+    local _, _ = work.close(handle)
+    log:complain("the running binary's test harness: " .. harness_trouble)
+    return 1
+  end
   local database = root .. "/o/cosmic.db"
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off; a verdict reached so is kept apart from one
@@ -2492,7 +2628,10 @@ function test.run(argv: {integer:string}): integer
     local why: string
     sandboxed, why = sandbox_here()
     if sandboxed then
-      runtime = runtime .. " sandboxed"
+      -- And whether it is held to confining what it starts
+      -- (`observations.must_confine`), which a test's verdict turns on.
+      runtime = runtime .. " sandboxed" ..
+        (Env.get("COSMIC_SANDBOX") == "must" and " must" or "")
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
         test_sandbox.tree)
@@ -2620,7 +2759,7 @@ function test.run(argv: {integer:string}): integer
   end
   local credited: test.Credited = {}
 
-  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0 }
+  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0, every = 0 }
   local modules_run = #selected_modules
   local failures: {string} = {}
   local errors: {string} = {}
@@ -2646,7 +2785,8 @@ function test.run(argv: {integer:string}): integer
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
-    sandbox = sandboxed, views = {}, caches = {},
+    sandbox = sandboxed, views = {}, caches = {}, unkeyed = {}, forbiddable = {},
+    harness = harness,
     rerun_prefix = sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
       sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or "",
   }
@@ -2696,34 +2836,93 @@ function test.run(argv: {integer:string}): integer
       rec.effective[m.path] = effective
     end
   end
+  if sandboxed then
+    -- What an earlier run hashed, so a key reads none of it again
+    -- (`build.declared_key`).
+    local remembered, remembered_trouble = Sqlite.text_rows(records,
+      "SELECT path, signature, sha256 FROM digests")
+    if remembered == nil then
+      local _, _ = work.rollback(handle)
+      local _, _ = work.close(handle)
+      log:complain(records_path .. ": " .. remembered_trouble)
+      return 1
+    end
+    rec.digests, rec.compiler = declared_key.digests(root, remembered), tool
+    rec.host = declared_key.host_identity(rec.digests)
+    rec.tool = rec.tool or observations.itself()
+    rec.program = declared_key.program_identity(rec.digests, rec.tool)
+    -- Every test is keyed before any starts: one look at each input
+    -- serves them all.
+    declared_key.freeze(rec.digests)
+  end
   local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
-      local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
-      if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
-      local assumed: Assumed = nil
-      local asked = everything
-      for _, selector in ipairs(naming) do
-        if test.selects(selector, m.path, m.file, name) then asked = true end
-      end
-      if stood == nil and not asked then
-        local answer, _ = assumable(rec, previous, verdicts, m, id)
-        assumed = answer
-      end
-      local from: Shared = nil
-      if stood == nil and assumed == nil and consult and rec.shared ~= nil then
-        from = shared_standing(rec, previous, verdicts, m, id, asked)
-      end
-      if stood ~= nil then
-        stand(rec, credited, m, name, id, stood, reads, key)
-      elseif assumed ~= nil then
-        assume(rec, credited, m, name, id, assumed.verdict, assumed.key, assumed.kept)
-      elseif from ~= nil then
-        share(rec, m, name, id, from)
+      if sandboxed then
+        -- Sandboxed, a test is keyed by what it is given, and runs
+        -- unless a verdict under that key passed, here or in another
+        -- checkout -- or it is forced, by --all, COSMIC_TEST_ALL or an
+        -- audit, or reaches the network, which no key holds. None is
+        -- assumed.
+        local key = declared_of(rec, m, id)
+        local own = key ~= nil and verdicts[key] or nil
+        local elsewhere: shared_verdicts.Found = nil
+        if key ~= nil and not forced and own == nil and consult and rec.shared ~= nil then
+          local answer, trouble = shared_verdicts.declared(rec.shared, key)
+          if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
+          elsewhere = answer
+        end
+        if key == nil or forced or (own ~= nil and not own.passed) or
+            (own == nil and elsewhere == nil) then
+          jobs[#jobs + 1] = { m = m, name = name, id = id, declared = key }
+        elseif own ~= nil then
+          rec.shared_keys[key] = key
+          stand(rec, credited, m, name, id, own, last_reads(previous, id), key)
+        else
+          share(rec, m, name, id, key, elsewhere, last_reads(previous, id))
+        end
       else
-        jobs[#jobs + 1] = { m = m, name = name, id = id }
+        -- TODO: key an unsandboxed run by its declared inputs too, where
+        -- no sandbox can hold a worker to them (macOS), trusting the
+        -- declaration as a sandbox would enforce it: today
+        -- it is keyed by what it was seen to read, and shares only with
+        -- another unsandboxed run.
+        local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
+        if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
+        local assumed: Assumed = nil
+        local asked = everything
+        for _, selector in ipairs(naming) do
+          if test.selects(selector, m.path, m.file, name) then asked = true end
+        end
+        if stood == nil and not asked then
+          local answer, _ = assumable(rec, previous, verdicts, m, id)
+          assumed = answer
+        end
+        if stood ~= nil then
+          stand(rec, credited, m, name, id, stood, reads, key)
+        elseif assumed ~= nil then
+          assume(rec, credited, m, name, id, assumed.verdict, assumed.key, assumed.kept)
+        else
+          jobs[#jobs + 1] = { m = m, name = name, id = id }
+        end
       end
+    end
+  end
+  if sandboxed then
+    -- From here each key looks again: a verdict is kept only under a
+    -- key its inputs still reach once its test has run.
+    declared_key.thaw(rec.digests)
+    local tests = 0
+    for _, m in ipairs(selected_modules) do tests = tests + #selected_tests[m.path] end
+    log:say(string.format("test: sandbox: %d tests keyed by their declared inputs in %.1f ms " ..
+      "(%d files read)", tests, rec.digests.spent_ns / 1e6, rec.digests.read))
+    local unkeyed: {string} = {}
+    for path in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = path end
+    table.sort(unkeyed)
+    for _, path in ipairs(unkeyed) do
+      log:say("test: sandbox: " .. path .. " has no key, so its tests run every time: " ..
+        rec.unkeyed[path])
     end
   end
   if #jobs > 0 then
@@ -2794,6 +2993,21 @@ function test.run(argv: {integer:string}): integer
   if not pruned then
     errors[#errors + 1] = "prune: " .. prune_trouble
   end
+  -- What a sandboxed run hashed, for the next to look up by `lstat`:
+  -- a run of the whole tree keeps only what it looked at, and one of
+  -- some of it adds to what the rest looked at before.
+  if rec.digests ~= nil and rec.digests.read > 0 then
+    local kept, keep_trouble = true, ""
+    if #selectors == 0 then kept, keep_trouble = handle.db:exec("DELETE FROM digests") end
+    for _, row in ipairs(kept and declared_key.kept(rec.digests) or {}) do
+      if kept then
+        kept, keep_trouble = Sqlite.run(records,
+          "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
+          { text(row[1]), text(row[2]), text(row[3]) })
+      end
+    end
+    if not kept then errors[#errors + 1] = "digests: " .. keep_trouble end
+  end
   local finished: boolean
   local finish_trouble: string
   if #errors == 0 then
@@ -2808,7 +3022,7 @@ function test.run(argv: {integer:string}): integer
   -- this checkout's own records took it: a passing verdict is one
   -- whatever went wrong with keeping it here.
   if rec.shared ~= nil then
-    local settled, settle_trouble = shared_verdicts.settle(rec.shared, root, rec.origin, rec.owed,
+    local settled, settle_trouble = shared_verdicts.settle(rec.shared, rec.origin, rec.owed,
       Time.now_ns())
     shared_verdicts.close(rec.shared)
     if not settled then
@@ -2861,6 +3075,7 @@ function test.run(argv: {integer:string}): integer
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
     log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
+      (tally.every > 0 and (tally.every .. " run every time (no key holds them), ") or "") ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
       clock.took(started) .. sandbox_summary)

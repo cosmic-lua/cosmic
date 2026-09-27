@@ -173,7 +173,8 @@ local module: Module = {
   options = {
     test = {
       ["--all"] = { about = "run the tests no key can hold rather than assume they pass " ..
-        "as they last did, in this checkout or another (COSMIC_TEST_ALL=1)" },
+        "as they last did, in this checkout or another; sandboxed, run every test, " ..
+        "whatever stands (COSMIC_TEST_ALL=1)" },
       ["--audit"] = { about = "run every test, then name what each read beyond its " ..
         "default and declared inputs (build.inputs), and fail if any did" },
       ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..

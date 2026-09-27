@@ -1,6 +1,6 @@
 # the command line
 
-<!-- needs: processes = true -->
+<!-- needs: processes = true, tool = true, store = true -->
 
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
 path to a file to run. Each example here starts the `cosmic` that runs

@@ -16,7 +16,7 @@ local Test = require("cosmic.test")
 --- A worker a test starts, to hang or exit, and /proc, where what a
 --- hung one left running would be found; and the program itself, which
 --- the tests start.
-Test.needs{ host = { "/proc" }, processes = true, tool = true }
+Test.needs{ host = { "/proc" }, processes = true, tool = true, store = true }
 
 --- The environment a run of `cosmic test` these tests start is given:
 --- its workers unsandboxed (`COSMIC_TEST_SANDBOX=0`), since what they
@@ -453,11 +453,12 @@ end
   local result = invoke(root, output, { "suite/hooks_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
   local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
-    COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere" })
+    COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
+    _ = "/usr/bin/timeout" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
   -- How this run was started -- after a tool rebuilt itself, from a
   -- shell that was elsewhere before -- is no worker's to see.
-  assert(kept.COSMIC_REBOOTED == nil and kept.OLDPWD == nil)
+  assert(kept.COSMIC_REBOOTED == nil and kept.OLDPWD == nil and kept._ == nil)
   assert(kept.COSMIC_PORTABLE_CACHE == "c" and kept.PATH == "p")
 end
 

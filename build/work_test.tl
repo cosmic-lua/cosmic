@@ -7,7 +7,7 @@ local work = require("build.work")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.needs{ tool = true, store = true }
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))

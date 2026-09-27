@@ -16,6 +16,14 @@
     # checks for the queued merge commit before it lands.
     merge_group: {},
     workflow_dispatch: {},
+    # Every day, main's whole scope again, every test run whatever stood
+    # (see COSMIC_CI_EVENT): what a key does not answer for -- the clock,
+    # a flaky test -- is run where no change prompts it.
+    # TODO: tell the maintainers of a red scheduled run: GitHub notifies
+    # only whoever last edited this cron line. A step that opens (or
+    # comments on) an issue when a scheduled run fails would, once one is
+    # wanted over the checks' page.
+    schedule: [{cron: "41 3 * * *"}],
   },
 
   permissions: {contents: "read"},
@@ -130,6 +138,13 @@
         # (COSMIC_TEST_SANDBOX=1, build/test_sandbox.tl), and fail where
         # none can be; the macOS leg's run unsandboxed.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
+        # Which event started the run: a Linux leg's suites stand on the
+        # verdicts their tests' declared inputs key (build/declared_key.tl),
+        # this leg's earlier runs' among them (restored below), in a
+        # branch push's run alone; the merge queue's, a manual one and the
+        # scheduled one run every test, and so does the macOS leg's, whose
+        # workers run unsandboxed. See orchestration.tl's `stands`.
+        COSMIC_CI_EVENT: "${{ github.event_name }}",
       },
       steps: [
         {
@@ -154,17 +169,11 @@
         # (the GitHub hosts set it) withholds a new user namespace's
         # capabilities from a process no AppArmor profile lets have
         # them: with it on, no container option let any part that needs
-        # a namespace hold. It is the host's, so it is turned off here,
-        # before the container starts; a kernel without the switch has
-        # no such restriction to turn off.
-        {
-          name: "let an unprivileged process hold a user namespace",
-          if: "matrix.image",
-          "working-directory": "/",
-          shell: "sh",
-          run: "[ ! -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] || sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
-        },
-
+        # a namespace hold. It is the host's, so
+        # .github/scripts/leg-container.sh turns it off before the
+        # container starts; a kernel without the switch has no such
+        # restriction to turn off.
+        #
         # 2. Docker's default seccomp profile allows unshare, mount,
         # umount2 and mount_setattr only to a container holding
         # CAP_SYS_ADMIN, and pivot_root to none, so a new user namespace
@@ -177,6 +186,11 @@
         # 3. Docker's default AppArmor profile (docker-default) denies
         # mount: with the narrowed profile alone, unveil still failed
         # with EACCES. So the container runs unconfined by AppArmor.
+        #
+        # Each of these is .github/scripts/leg-container.sh's, and the
+        # profile .github/scripts/seccomp-profile.sh's, so the leg's
+        # container is named by those files' hash (see "name the leg's
+        # container", below), which every sandboxed verdict's key holds.
         #
         # 4. Docker's masked /proc paths keep a confined child from a
         # procfs of its own; .github/scripts/leg-container.sh starts
@@ -208,7 +222,7 @@
             TOKEN: "${{ secrets.GITHUB_TOKEN }}",
             ACTOR: "${{ github.actor }}",
           },
-          run: "sh .github/scripts/seccomp-profile.sh \"$RUNNER_TEMP/seccomp.json\" && sh .github/scripts/leg-container.sh start \"$IMAGE\" --security-opt \"seccomp=$RUNNER_TEMP/seccomp.json\" --security-opt apparmor=unconfined",
+          run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
         },
 
         {
@@ -280,6 +294,40 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.zig-cache-key.outputs.prefix }}\nzig-build-${{ matrix.name }}-\n",
+          },
+        },
+
+        # What of the leg's container no file inside it tells, which every
+        # sandboxed verdict's key holds (COSMIC_HOST_ID,
+        # build/declared_key.tl's `host_identity`) and its cache is named
+        # by: the image, how it is started -- the host's sysctl, the
+        # seccomp profile and every docker option, all of them
+        # leg-container.sh's and seccomp-profile.sh's, which are hashed --
+        # and the engine's version. Not ci.yml itself, whose every edit
+        # would move it.
+        {
+          name: "name the leg's container",
+          id: "host-id",
+          if: "matrix.image",
+          "working-directory": ".",
+          shell: "sh",
+          run: "id=\"${{ matrix.image }} ${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }} docker-$(docker version --format '{{.Server.Version}}')\"; echo \"COSMIC_HOST_ID=$id\" >> \"$GITHUB_ENV\"; echo \"prefix=verdicts-${{ matrix.name }}-$(printf %s \"$id\" | sha256sum | cut -c1-16)-\" >> \"$GITHUB_OUTPUT\"",
+        },
+
+        # The test verdicts this leg reached before, in the same container
+        # (COSMIC_VERDICT_CACHE, .github/scripts/cosmic-driver.sh): the
+        # newest this ref can restore under its name -- its own, else
+        # main's. Only a Linux leg's branch push stands on them
+        # (COSMIC_CI_EVENT).
+        {
+          name: "restore test verdicts",
+          id: "verdicts-restore",
+          if: "matrix.image",
+          uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.host-id.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.host-id.outputs.prefix }}\n",
           },
         },
 
@@ -496,6 +544,30 @@
           "working-directory": ".",
           shell: "sh",
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
+        },
+
+        # What every suite of the leg reached, saved after the last of
+        # them, whatever failed (a failing verdict takes a passing one
+        # out), under a key of this run's own, for the next run of this
+        # leg in the same container -- on this ref, or, from main, on any
+        # -- to restore: from main after every run, and elsewhere only
+        # where nothing was restored, so a branch's pushes do not fill the
+        # repository's cache; never from the merge queue, whose refs no
+        # later run restores. After the tree is back where it was checked
+        # out, for the reason the zig cache save above is.
+        # TODO: merge what a run owes the cache into the newest saved one
+        # as it saves, or save main's runs one at a time: two main runs at
+        # once each save from what they restored, and the later save can
+        # bring back a pass the other's failure took out. The scheduled
+        # run, which stands on nothing, bounds how long one stands.
+        {
+          name: "save test verdicts",
+          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' || steps.verdicts-restore.outputs.cache-matched-key == '')",
+          uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.host-id.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+          },
         },
       ],
     },

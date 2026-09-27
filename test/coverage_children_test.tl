@@ -14,7 +14,7 @@ local Test = require("cosmic.test")
 
 --- What a confined child is given of the host, and /proc, where its
 --- coverage is found; and the program itself, which its tests start.
-Test.needs{ host = { "/proc", "/usr" }, tool = true }
+Test.needs{ host = { "/proc", "/usr" }, tool = true, store = true }
 
 local function environment(): {string:string}
   local env = observations.environment()

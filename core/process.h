@@ -109,6 +109,15 @@ COSMIC_SYSCALL(spawn, 10);
 COSMIC_SYSCALL(landlock_ruleset, 2);
 
 /*
+ * --- Holds this process, and every process it starts from here on, to running only the files beneath each of `paths`: an exec of any other file -- or of a program whose interpreter is another -- is refused with EACCES; and to moving or linking a file into another directory only beneath them, EXDEV elsewhere. Nothing else is held: it reads, writes and connects as before. EOPNOTSUPP where the kernel's Landlock is older than its second ABI, whose rulesets refuse every such move. For good: no_new_privs is set, so a setuid program runs with no more privilege than its caller, and, as Landlock holds any process it holds, it may not mount or pivot_root, so it cannot confine a process of its own in a root of its own (`spawn`'s `unveil`). ENOSYS, EOPNOTSUPP or EPERM where there is no Landlock to be had: not built in, turned off, or refused by a filter.
+ * ---@param paths {string} the files and directories beneath which a file may be run
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(landlock_restrict_execute, 1);
+
+/*
  * ---@class ChildStatus
  * ---@field pid integer zero when a nonblocking wait found no finished child
  * ---@field code integer exit status, or -1 when the child was signaled or unfinished

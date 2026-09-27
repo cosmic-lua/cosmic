@@ -10,7 +10,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The processes the examples start, as a program would.
-Test.needs{ processes = true }
+Test.needs{ processes = true, store = true }
 
 -- TODO: confine the shell these examples start, so their verdicts can
 -- stand, once an example may declare what its processes need: examples

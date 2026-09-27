@@ -567,14 +567,20 @@ the target build architecture is fast, incremental, and reproducible.
 today a module whose key stands is read back from the working
 database rather than compiled again, the shipped database is a
 projection of that one, written only when what it is a function of
-moved, and a test whose verdict stands is not run again. its identity includes
-the module and runtime keys plus observed file contents, stat results, directory
-listings, and environment reads, none of it naming where the tree is. a test
-that spawns a process or makes an unsupported observation outside the tree is
-not cacheable, only assumed to pass as it last did. passing verdicts are shared
-by every checkout on the machine through a database under the cosmic cache
-directory, keyed the same way but for a stat, of which only kind, size and mode
-count, so a fresh worktree runs only what no checkout has already run. each test
+moved, and a test whose verdict stands is not run again. where the kernel can,
+each worker runs sandboxed to its test's declared inputs, as it does by default
+on Linux, and its verdict is keyed by those inputs -- the closure's sources, the
+declared paths' contents, the declared variables' values, the declaration, the
+core, the test harness the binary carries, the host's identity -- digested
+before the test runs, none of it naming where the tree is, and shared by that
+key alone through a database under the cosmic cache directory, so a fresh
+worktree runs only what no checkout has already run. a test that declares the
+network, or starts a process that could read what no key holds, runs every
+time. an unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) is keyed instead by
+the module and runtime keys plus observed file contents, stat results,
+directory listings and environment reads; a test that spawns a process or
+makes an unsupported observation outside the tree is only assumed to pass as it
+last did, and none of its verdicts is shared. each test
 that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its
@@ -611,15 +617,33 @@ checks. each independently builds the complete product, runs it, and uploads the
 executed bytes. a separate provenance job compares the four products and their
 attestations.
 
-#### before CI stands on shared verdicts
+#### what an observed key leaves out
 
-CI writes the shared verdicts but stands only on what it runs itself
-(`COSMIC_TEST_NO_SHARED=1`, set in `.github/scripts/cosmic-driver.sh` and
-`ci/cosmic_ci/orchestration.tl`): a verdict another checkout reached stands
-wherever its key is reached again, so everything a test's verdict turns on that
-the key leaves out is a way for a sibling's pass to answer for a failure. each
-gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
-are closed:
+CI's Linux legs stand on shared verdicts: those of sandboxed runs, keyed by
+each test's declared inputs (`build/declared_key.tl`), which the sandbox holds
+the test to, and the host's identity. what that key still leaves out is in the
+`TODO:`s on `host_identity` there and in `ci/cosmic_ci/orchestration.tl`'s
+`stands`. an unsandboxed run -- the macOS leg's, which runs every test and
+stands on none -- is keyed instead by what its tests were observed to read, and
+shares nothing.
+
+what the declared key leaves out, each with a `TODO:` where its fix goes:
+
+- *the clock*: a test whose verdict turns on the date stands on one reached
+  another day. CI's scheduled run, which stands on nothing, runs it daily.
+- *the host's directories*: a host path a test declares is keyed by its name
+  if it is a directory, and the system's own paths every worker is given by the
+  package database, the image `COSMIC_HOST_ID` names and the kernel alone
+  (`host_identity`); a change under /usr no package manager made is not keyed.
+- *the projection*: every worker attaches `o/cosmic.db` whole; a test that
+  queries it without declaring `store` reads rows no key holds but its
+  closure's (`build/declared_key.tl`, the TODO on `store`).
+- *the processor*: its features are keyed (/proc/cpuinfo's flags); its model
+  and microcode are not.
+- *build.dispatch*: the harness digest holds the runner's and the worker's
+  closures, not the verb dispatcher that hands a worker its command line.
+
+what an observed key leaves out, each with a `TODO:` where its fix goes:
 
 - [x] *the tree's location* (`build/filesystem_observations.tl`, above
   `tree_name`): no input to a test, by rule. a test may not turn on where the

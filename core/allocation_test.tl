@@ -31,6 +31,11 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 local type raw_process = require("cosmic.internal.process")
+local Test = require("cosmic.test")
+
+--- The projection its tests query through the store, which every
+--- worker attaches.
+Test.needs{ store = true }
 
 local type Searcher = function(string): any, any
 

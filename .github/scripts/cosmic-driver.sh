@@ -39,28 +39,10 @@ if [ "${1-}" = zig-cache ]; then
   # never found and that leg recompiled vendor/ and core/ each run.
   echo "COSMIC_ZIG_CACHE_SEED=$RUNNER_TEMP/zig-build" >> "$GITHUB_ENV"
   # The test verdicts every checkout shares (build/shared_verdicts.tl),
-  # kept in the zig-build cache so a run starts from the last saved
-  # one's. One stands only where its whole key -- the test, what it
-  # loads, the runtime, every file and variable it read -- is reached
-  # again, and the driver's --all runs every test no key can hold.
-  # CI stands only on what it runs itself (COSMIC_TEST_NO_SHARED=1),
-  # while still writing what it reaches, so the cache is warm
-  # when that changes; doc/design.md's "before CI stands on
-  # shared verdicts" is the checklist.
-  # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
-  # here and in ci/cosmic_ci/orchestration.tl) once the key holds a
-  # stat's times and inode where a test turns on them without declaring
-  # it (the TODO above build/test.tl's `held_stat`), a query of the
-  # worker's own o/cosmic.db (the TODO above core/sqlite.c's
-  # `cosmic_sqlite_push_borrowed`), a read resolved by the call itself
-  # (the TODO above core/observed.c's `log_resolution`), a file SQLite
-  # opens resolved as it opens it (the TODO above
-  # build/filesystem_observations.tl's `drain_sqlite`) and an in-tree
-  # path that crosses a link out (the TODO above build/test.tl's
-  # `under_root`).
-  echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
-  # TODO: save what the product suite from fresh tracked source
-  # reaches too: it runs after the zig-build cache is saved, so
-  # its verdicts never reach a later run, and it runs every test.
-  echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/zig-build/verdicts.db" >> "$GITHUB_ENV"
+  # keyed by what each test declares (build/declared_key.tl), kept in
+  # a cache of their own that ci.yml restores before the leg's suites
+  # and saves after them, each leg its own. Whether a suite stands on
+  # them is cosmic_ci/orchestration.tl's (`stands`): the Linux legs do,
+  # the macOS leg runs every test and stands on none.
+  echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"
 fi

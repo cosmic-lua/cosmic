@@ -35,9 +35,10 @@
 --- The worker is pid 2 of a pid
 --- namespace of its own, whose init ends when it does, ending whatever
 --- it left running there: no descendant of a sandboxed worker outlives
---- it. What the worker reports, it reports as it saw it, at /tree and
---- /tmp; `to_host` puts each path back where the host has it, so a
---- verdict's key is the same function of the tree it always was.
+--- it. Its verdict is keyed by what it was given (`build.declared_key`),
+--- not by what it read. What the worker reports, it reports as it saw
+--- it, at /tree and /tmp; `to_host` puts each path back where the host
+--- has it, for the audit of what it read and for its `runs` row.
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -186,7 +187,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- derived from the module's import closure, bound in the projection's
   -- place (the TODO above) -- once the build derives one: today one
   -- whose module does not declare `store` is no process a key holds, and
-  -- its test is assumed rather than standing.
+  -- its test runs every time rather than standing.
   for _, path in ipairs(base.reads) do
     if path == store then
       give(path, test_sandbox.tree .. "/o/cosmic.db", effective.store)
@@ -274,6 +275,27 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   }
 end
 
+--- Whether a worker given `writes` to write -- the host caches its
+--- module declares -- can be kept from running `programs`, this very
+--- program (`observations.forbid_running`): not where one of them is
+--- beneath a path it may write, by its name or where it resolves -- the
+--- cores directory a portable cosmic extracts to, which the `bootstrap`
+--- cache holds -- since a core another cosmic extracts there after the
+--- worker holds itself could not be run.
+function test_sandbox.forbiddable(writes: {string}, programs: {string}): boolean
+  for _, path in ipairs(writes) do
+    local writable = observations.resolution(path)
+    for _, program in ipairs(programs) do
+      local real = observations.resolution(program)
+      if Fs.within(program, path) or (real ~= "" and writable ~= "" and
+          Fs.within(real, writable)) then
+        return false
+      end
+    end
+  end
+  return true
+end
+
 --- `path` as the host has it, for one a sandboxed worker of the tree at
 --- `root`, its scratch directory `scratch`, saw: one at or beneath
 --- /tree or /tmp, where the sandbox bound them, beneath `root` or
@@ -322,13 +344,6 @@ end
 --- what it answers -- the sandbox's own inode, device and times, and
 --- the entries given there -- is none of the host's, and turns on what
 --- the module declares, which its key holds.
--- TODO: key a sandboxed run by what it was given rather than by what the
--- host has there -- the digest of its declared inputs, the next phase of
--- declared inputs -- so a listing of a directory of the tree it was given
--- part of, which answers that part alone, stands: today its answer
--- differs from the host's listing, and its verdict never stands. That
--- would key a stat of a directory the sandbox made, too, which is left
--- out today (`made`).
 function test_sandbox.to_host(reads: {observations.Observation}, root: string,
                               scratch: string, kept?: {string},
                               made?: {string}): {observations.Observation}
@@ -367,16 +382,23 @@ function test_sandbox.refusal(trouble: string): string
 end
 
 --- Whether this host can run a worker sandboxed: `argv`, this program
---- started again with `env` and `fds`, runs a chunk that does nothing,
---- held to the least a worker is given -- the system's own paths and
---- the program -- offline, in `scratch`. False and why where it cannot.
+--- started again with `env` and `fds`, runs a chunk that holds itself
+--- to running anything but this program, as a worker whose test does not
+--- declare `tool` does (`observations.forbid_running`), held to the
+--- least a worker is given -- the system's own paths and the program --
+--- offline, in `scratch`. False and why where it cannot: no worker then
+--- runs sandboxed, and no verdict is keyed by its declared inputs.
 function test_sandbox.available(argv: {string}, env: {string:string}, fds: {integer:integer},
                                 scratch: string): boolean, string
   local base = observations.worker_unveil(scratch, nil, scratch)
   local command: {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
+  -- As a worker whose test does not declare `tool` holds itself
+  -- (`observations.forbid_running`): where it cannot, no worker is
+  -- sandboxed, since what such a test would run no key holds.
   command[#command + 1] = "-e"
-  command[#command + 1] = ""
+  command[#command + 1] = "local o = require('build.filesystem_observations') " ..
+    "local ok, why = o.forbid_running(o.itself()) if not ok then error(why) end"
   local given: {integer:integer | string} = {}
   for number, fd in pairs(fds) do given[number] = fd end
   -- Started and waited for, not `Child.run`, which would take the one

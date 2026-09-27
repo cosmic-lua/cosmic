@@ -2,19 +2,17 @@
 --- database under the cosmic cache directory -- `verdicts/verdicts.db`
 --- by default, or the absolute path `COSMIC_VERDICT_CACHE` names, and
 --- none at all when it is `0` -- beside the one each checkout keeps in
---- `o/build.db`. A verdict key names nothing of where the tree is (see
---- `build.test`'s `verdict_key`), so a verdict one checkout reached
---- stands in another of the same content: a fresh worktree runs only
---- what no sibling has run already.
+--- `o/build.db`. Only a sandboxed run's verdicts are shared: its key is
+--- the digest of everything its test was given (`build.declared_key`),
+--- naming nothing of where the tree is, so a verdict one checkout reached
+--- stands in another of the same content, and a fresh worktree runs only
+--- what no sibling has run already. An unsandboxed run's verdicts, keyed
+--- by what its test was seen to read, are its checkout's alone.
 ---
---- A row holds one passing verdict: its key, the test and module key it
---- is of, what the run read -- as `o/build.db`'s `runs` holds it, with
---- every path under the tree named by `observations.tree_name` so any
---- checkout reads it back as its own -- the lines it hit, for the
---- coverage it is credited, and how long it took. A run no key could
---- hold is kept too, marked as `runs` marks it, with what it was
---- compiled from and ran under: it is assumed in another checkout on
---- the same terms as in its own, and never under `--all`.
+--- The cache is a plain map from key to verdict: a row holds no
+--- evidence of what the run read to check again -- the key reached is
+--- the whole check -- only the test it is of, the lines it hit, for the
+--- coverage it is credited, and how long it took.
 ---
 --- Many runs share the file at once: it is in WAL mode, so a reader
 --- never waits on a writer, and a run reads it a statement at a time
@@ -31,23 +29,12 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
-local observations = require("build.filesystem_observations")
 
 local record shared_verdicts
   --- An open cache.
   record Cache
     db: Sqlite.Handle
     path: string
-  end
-
-  --- One passing verdict the cache holds for a test: the key it was
-  --- reached under, and what its run read, as `runs` encodes it, in
-  --- the paths of the checkout that asked.
-  record Candidate
-    key: string
-    reads: string
-    --- Which checkout wrote the row: see `settle`.
-    origin: string
   end
 
   --- A passing verdict's coverage and duration.
@@ -60,9 +47,6 @@ local record shared_verdicts
   record Kept
     key: string
     test: string
-    module_key: string
-    --- What the run read, as `runs` encodes it, in its own paths.
-    reads: string
     hits: string
     elapsed_ns: integer
   end
@@ -90,17 +74,11 @@ local kept_ns <const> = 30 * 24 * 3600 * 1000000000
 --- How long a write waits on another run's: its transactions are short.
 local busy_ms <const> = 10000
 
---- How many of a test's verdicts, most lately relied on first, a run
---- tries: one per state of what it read that a checkout ran it in --
---- few for most, more for one that reads what every change moves.
-local candidates_tried <const> = 32
-
---- The table rows of this format are in: `verdicts_v<format>`. Each
---- format keeps a table of its own, so a binary of a later format
---- sharing the file never empties this one's; one of an earlier format
---- is dropped (`prepare`), since nothing writes it any more.
-local format <const> = 4
-local verdicts <const> = "verdicts_v" .. format
+--- The table rows are in, by their declared key alone: `declared_v1`.
+--- A later format keeps a table of its own, so a binary of it sharing
+--- the file never empties this one's; nor does this one empty the
+--- tables observation-keyed runs shared (`prepare`).
+local declared <const> = "declared_v1"
 
 local text = bind.text
 
@@ -134,17 +112,13 @@ function shared_verdicts.turn_off(environment: {string:string})
 end
 
 local schema <const> = {
-  "CREATE TABLE IF NOT EXISTS " .. verdicts .. [[ (key TEXT PRIMARY KEY,
-                                                   test TEXT NOT NULL,
-                                                   module_key TEXT NOT NULL,
-                                                   reads BLOB NOT NULL,
-                                                   hits BLOB NOT NULL,
-                                                   elapsed_ns INTEGER NOT NULL,
-                                                   used_ns INTEGER NOT NULL,
-                                                   origin TEXT NOT NULL)]],
-  "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_test ON " .. verdicts ..
-    " (test, module_key, used_ns)",
-  "CREATE INDEX IF NOT EXISTS " .. verdicts .. "_by_use ON " .. verdicts .. " (used_ns)",
+  "CREATE TABLE IF NOT EXISTS " .. declared .. [[ (key TEXT PRIMARY KEY,
+                                                  test TEXT NOT NULL,
+                                                  hits BLOB NOT NULL,
+                                                  elapsed_ns INTEGER NOT NULL,
+                                                  used_ns INTEGER NOT NULL,
+                                                  origin TEXT NOT NULL)]],
+  "CREATE INDEX IF NOT EXISTS " .. declared .. "_by_use ON " .. declared .. " (used_ns)",
 }
 
 --- Hits as `build.test` encodes them -- a line per module, its path, a
@@ -178,30 +152,19 @@ local function unpacked(hits: string): string
   end))
 end
 
---- Makes this format's table when the file has none yet, and drops
---- every earlier format's, in one transaction; a file that has only
---- this format's and later ones is only read.
+--- Makes this format's table when the file has none yet, in one
+--- transaction; a file that has it is only read. The tables
+--- observation-keyed runs shared (`verdicts_v<n>`) are left as they
+--- are: a binary of that format sharing the file still writes its own
+--- and ages its rows out, and none of this one's reads them.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'verdicts%'")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = '" .. declared .. "'")
   if rows == nil then return false, trouble end
-  local present = false
-  local earlier: {string} = {}
-  for _, row in ipairs(rows) do
-    local number = math.tointeger(tonumber(row[1]:match("^verdicts_v(%d+)$") or ""))
-    if row[1] == verdicts then
-      present = true
-    elseif row[1] == "verdicts" or (number ~= nil and number < format) then
-      earlier[#earlier + 1] = row[1]
-    end
-  end
-  if present and #earlier == 0 then return true, "" end
+  if #rows > 0 then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
-  local statements: {string} = {}
-  for _, name in ipairs(earlier) do statements[#statements + 1] = "DROP TABLE IF EXISTS " .. name end
-  for _, statement in ipairs(schema) do statements[#statements + 1] = statement end
-  for _, statement in ipairs(statements) do
+  for _, statement in ipairs(schema) do
     local ok, statement_trouble = db:exec(statement)
     if not ok then
       local _, _ = db:exec("ROLLBACK")
@@ -268,70 +231,12 @@ function shared_verdicts.set_aside(path: string, now_ns: integer): string | nil,
   return aside, ""
 end
 
---- `encoded`, as `runs` encodes what a run read, with each path of it
---- moved by `move`; nil when it is no such encoding.
-local function moved(encoded: string, move: function(string): string): string | nil
-  local function each(reads: {observations.Observation}): {observations.Observation}
-    local out: {observations.Observation} = {}
-    for i, observation in ipairs(reads) do
-      local kind = observation.kind
-      local path = observation.path
-      -- A variable's name, the working directory's or the program's
-      -- own "", and a declaration's "", are no paths.
-      if kind ~= "e" and kind ~= "c" and kind ~= "b" and kind ~= "z" then path = move(path) end
-      out[i] = { kind = kind, path = path, answer = observation.answer }
-    end
-    return out
-  end
-  local reads = observations.decode(encoded)
-  if reads ~= nil then return observations.encode(each(reads)) end
-  local unstable = observations.decode_unstable(encoded)
-  if unstable ~= nil then
-    return observations.encode_unstable(unstable.identity, each(unstable.reads))
-  end
-  return nil
-end
-
---- What a run under `root` read, as `runs` encodes it, with each path
---- under the root named as any checkout reads it back
---- (`rooted`); nil when it is no such encoding.
-local function portable(root: string, encoded: string): string | nil
-  return moved(encoded, function(path: string): string
-    return observations.tree_name(path, root)
-  end)
-end
-
---- `portable` undone under `root`, which may be
---- another checkout's.
-local function rooted(root: string, encoded: string): string | nil
-  return moved(encoded, function(name: string): string
-    return observations.tree_path(name, root)
-  end)
-end
-
---- The passing verdicts the cache holds for one test of a module at
---- `module_key`, most lately relied on first, with what each run read
---- in `root`'s paths.
-function shared_verdicts.candidates(cache: shared_verdicts.Cache, root: string, test: string,
-                                    module_key: string): {shared_verdicts.Candidate} | nil, string
+--- The coverage and duration of the passing verdict under the declared
+--- `key` (`build.declared_key`), or nil: the key is the whole check.
+function shared_verdicts.declared(cache: shared_verdicts.Cache,
+                                  key: string): shared_verdicts.Found | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,
-    "SELECT key, CAST(inflate(reads) AS TEXT), origin FROM " .. verdicts .. " " ..
-    "WHERE test = ?1 AND module_key = ?2 ORDER BY used_ns DESC LIMIT " .. candidates_tried,
-    { text(test), text(module_key) })
-  if rows == nil then return nil, trouble end
-  local out: {shared_verdicts.Candidate} = {}
-  for _, row in ipairs(rows) do
-    local reads = rooted(root, row[2])
-    if reads ~= nil then out[#out + 1] = { key = row[1], reads = reads, origin = row[3] } end
-  end
-  return out, ""
-end
-
---- The coverage and duration of the verdict under `key`, or nil.
-function shared_verdicts.found(cache: shared_verdicts.Cache,
-                               key: string): shared_verdicts.Found | nil, string
-  local rows, trouble = Sqlite.text_rows(cache.db,
-    "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. verdicts .. " WHERE key = ?1",
+    "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
     { text(key) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
@@ -339,41 +244,47 @@ function shared_verdicts.found(cache: shared_verdicts.Cache,
     elapsed_ns = math.tointeger(tonumber(rows[1][2]) or 0) or 0 }, ""
 end
 
---- Writes what a run under `root` owes the cache, at `now_ns`, and
---- drops what it no longer keeps, in one transaction. `origin` names
---- the checkout writing, so it never takes a row it wrote for another's.
-function shared_verdicts.settle(cache: shared_verdicts.Cache, root: string, origin: string,
+--- Writes what a run owes the cache, at `now_ns`, and drops what it no
+--- longer keeps, in one transaction. `origin` names the checkout
+--- writing each row.
+function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
                                 owed: shared_verdicts.Owed, now_ns: integer): boolean, string
   local db = cache.db
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
   local function steps(): boolean, string
+    local tables: {string} = { declared }
     for _, key in ipairs(owed.failed) do
-      local ok, trouble = Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE key = ?1", { text(key) })
-      if not ok then return false, trouble end
-    end
-    for _, kept in ipairs(owed.kept) do
-      local reads = portable(root, kept.reads)
-      if reads ~= nil then
-        local ok, trouble = Sqlite.run(db,
-          "INSERT OR REPLACE INTO " .. verdicts .. " (key, test, module_key, reads, hits, " ..
-          "elapsed_ns, used_ns, origin) VALUES (?1, ?2, ?3, deflate(?4), deflate(?5), ?6, ?7, ?8)",
-          { text(kept.key), text(kept.test), text(kept.module_key), text(reads),
-            text(packed(kept.hits)), { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin) })
+      for _, name in ipairs(tables) do
+        local ok, trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE key = ?1", { text(key) })
         if not ok then return false, trouble end
       end
     end
-    for _, key in ipairs(owed.used) do
-      local ok, trouble = Sqlite.run(db, "UPDATE " .. verdicts .. " SET used_ns = ?1 WHERE key = ?2",
-        { { integer = now_ns }, text(key) })
+    for _, kept in ipairs(owed.kept) do
+      local ok, trouble = Sqlite.run(db,
+        "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
+        "origin) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6)",
+        { text(kept.key), text(kept.test), text(packed(kept.hits)),
+          { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin) })
       if not ok then return false, trouble end
     end
-    local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE used_ns < ?1",
-      { { integer = now_ns - kept_ns } })
-    if not aged then return false, age_trouble end
-    return Sqlite.run(db, "DELETE FROM " .. verdicts .. " WHERE key IN (SELECT key FROM " ..
-      verdicts .. " " ..
-      "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+    for _, key in ipairs(owed.used) do
+      for _, name in ipairs(tables) do
+        local ok, trouble = Sqlite.run(db, "UPDATE " .. name .. " SET used_ns = ?1 WHERE key = ?2",
+          { { integer = now_ns }, text(key) })
+        if not ok then return false, trouble end
+      end
+    end
+    for _, name in ipairs(tables) do
+      local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
+        { { integer = now_ns - kept_ns } })
+      if not aged then return false, age_trouble end
+      local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
+        " WHERE key IN (SELECT key FROM " .. name .. " " ..
+        "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. kept_rows .. ")")
+      if not bounded then return false, bound_trouble end
+    end
+    return true, ""
   end
   local ok, trouble = steps()
   if not ok then

@@ -9,6 +9,11 @@
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+--- The projection its tests query through the store, which every
+--- worker attaches.
+Test.needs{ store = true }
 
 --- Asserts `value, message` is the failure shape SQLite's methods use:
 --- `nil` or `false`, then a non-empty message. SQLite has no errno, so

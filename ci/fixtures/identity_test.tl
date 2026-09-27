@@ -34,6 +34,23 @@ local function copy_tree(label: string, from: string, to: string)
   assert(copied, label .. ": " .. trouble)
 end
 
+-- Removes every test module beneath `directory` but the one named `keep`
+-- directly in it.
+local function drop_other_tests(directory: string, keep: string)
+  local function walk(dir: string, top: boolean)
+    for _, name in ipairs((assert(Fs.list(dir)))) do
+      local path = dir .. "/" .. name
+      local kind = assert(Fs.stat(path)).kind
+      if kind == "dir" then
+        walk(path, false)
+      elseif name:match("_test%.tl$") and not (top and name == keep) then
+        assert(Fs.remove(path))
+      end
+    end
+  end
+  walk(directory, true)
+end
+
 -- Counts the plain files directly inside `directory`. The portable cache is
 -- assumed flat, the same assumption launcher_test.tl's `only_core` and
 -- `no_private_entries` make about a cache directory.
@@ -241,6 +258,10 @@ local function test_identity_primary(tmp: string)
   local focused = work .. "/focused-embed"
   Fixture.mkdir(focused)
   copy_tree("copy-build", root .. "/build", focused .. "/build")
+  -- The rest of build/'s tests are no part of this one's closure, and
+  -- compiling them was most of this step: over the test's own deadline on
+  -- a slow macOS runner.
+  drop_other_tests(focused .. "/build", "embed_test.tl")
   local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
     "test", "build/embed_test.tl" }, focused, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })

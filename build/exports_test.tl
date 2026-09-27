@@ -40,8 +40,6 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
 end
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
-allowed["build.filesystem_observations.own_proc_given"] = "what the sandbox's tests " ..
-  "ask of the host to know which /proc a sandboxed process gets, which only a test asks"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.filesystem_observations.environment"] = "a test's own declaration: " ..

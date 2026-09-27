@@ -256,3 +256,33 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
     if not case.ok then Fixture.contains(outcome.err, "cannot confine a test") end
   end
 end
+
+--- A suite stands on declared-key verdicts on a Linux leg -- its
+--- workers sandboxed, and required to be -- in a branch push's run, and
+--- nowhere else: the merge queue's, a manual run's, main's scheduled
+--- one's and the macOS leg's each run every test, as does one forced.
+local function test_a_suite_stands_on_verdicts_only_in_a_linux_push()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local function words(env: {string:string}, force?: boolean): string
+    return table.concat(Orchestration.test_words(env, force), " ")
+  end
+  local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push" }
+  assert(Orchestration.stands(linux) and words(linux) == "test")
+  assert(words(linux, true) == "test --all", "forced")
+  for _, event in ipairs({ "merge_group", "workflow_dispatch", "schedule", "pull_request", "" }) do
+    local env = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = event }
+    assert(not Orchestration.stands(env) and words(env) == "test --all", event)
+  end
+  local mac = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_EVENT = "push" }
+  assert(not Orchestration.stands(mac) and words(mac) == "test --all")
+  assert(not Orchestration.stands({}), "run-local, and any run that names no event")
+  -- Standing, it may stand on what another run reached; else not.
+  local shared: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push" }
+  Orchestration.shares(shared)
+  assert(shared.COSMIC_TEST_NO_SHARED == nil)
+  Orchestration.shares(shared, true)
+  assert(shared.COSMIC_TEST_NO_SHARED == "1", "forced")
+  local queued: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group" }
+  Orchestration.shares(queued)
+  assert(queued.COSMIC_TEST_NO_SHARED == "1", "the merge queue")
+end
