@@ -592,6 +592,14 @@ local not_input: {string:boolean} = {
 }
 
 --- The trees and files the tool is made of, in cosmic's own tree.
+-- TODO: the tool carries every module of the tree but its tests and
+-- examples (build.writer's `dropped_modules`), eval/'s and test/'s
+-- included (eval/arena.tl, eval/check/notes.tl, eval/summarize.tl,
+-- test/portable/init.tl and tool.tl), yet neither is a tool tree here,
+-- so an edit to one moves no `boot_hash` and leaves a stale tool
+-- carrying the old module. Either filter `carry` to the modules under
+-- these trees (and what they require), or hash what the tool carries
+-- rather than what sits under these trees.
 local tool_trees: {string:boolean} = {
   ["build"] = true,
   ["core"] = true,
@@ -721,7 +729,13 @@ end
 
 --- Whether a file is one the tool is made of, in cosmic's own tree: a
 --- file under one of its trees, one of its named files, or a vendored
---- tree's pin.
+--- tree's pin -- but a Teal test (`*_test.tl`, the `inputs` view's
+--- `test` kind), which no binary carries: the tool leaves every test
+--- out (`build.writer`'s `carried`), and in cosmic's own tree only a
+--- test may require one (`build.positions`), so none is carried for
+--- being required either. So an edit to a test moves neither
+--- fingerprint (`work.record_fingerprint`) and never rebuilds the tool;
+--- the test is staged as an input all the same.
 local function is_tool(file: string, own_tree: boolean): boolean
   if not own_tree then
     return false
@@ -729,6 +743,9 @@ local function is_tool(file: string, own_tree: boolean): boolean
   local first = first_of(file)
   if first == "vendor" then
     return file:sub(-4) == "/PIN"
+  end
+  if String.ends_with(file, "_test.tl") then
+    return false
   end
   return tool_trees[first] == true or tool_files[file] == true
 end
@@ -1086,9 +1103,10 @@ local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
   return rows[1][1]
 end
 
---- The tool's fingerprints, over `tool`: `boot` over every row, and
+--- The tool's fingerprints, over `tool` (which holds no test,
+--- `is_tool`): `boot` over every row, and
 --- `image` over what the C core is built from -- `core/` but the Teal
---- tests beside its C, which no core is built from, the zig
+--- beside its C, which no core is built from, the zig
 --- build and wrapper, and every vendored tree's pin and patches,
 --- the Teal compiler's included, and `build/patch.tl`, which applies
 --- them: only `bin/zig build boot` applies a patch record to a pin, so

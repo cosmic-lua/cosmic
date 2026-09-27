@@ -105,6 +105,30 @@ local function test_position_keeps_build_private_in_cosmics_own_tree()
   assert(ok, trouble)
 end
 
+--- In cosmic's own tree only a test may import a test: the tool's
+--- identity leaves every test out, so it must carry none, and a module
+--- it carries that required one would carry it. A project's own
+--- program may, since its binary is built from its tree whole.
+local function test_position_keeps_tests_to_tests_in_cosmics_own_tree()
+  for _, importer in ipairs({ "cosmic/time.tl", "cosmic/time_example.tl",
+                              "build/clock.tl", "cmd/cosmic/main.tl" }) do
+    local ok, trouble = positioned({
+      { "cosmic/fixture_test.tl" }, { importer, "cosmic.fixture_test" },
+    }, true)
+    assert(not ok and trouble:find(importer .. ": cosmic.fixture_test is a test", 1, true),
+      importer .. ": " .. tostring(trouble))
+  end
+  local ok, trouble = positioned({
+    { "cosmic/fixture_test.tl" }, { "cosmic/time_test.tl", "cosmic.fixture_test" },
+  }, true)
+  assert(ok, trouble)
+  ok, trouble = positioned({
+    { "fixture_test.tl" }, { "shared_example.tl", "fixture_test" },
+    { "cmd/hello/main.tl", "fixture_test" },
+  }, false)
+  assert(ok, trouble)
+end
+
 --- A test has no more reach than any other file: one outside a closed
 --- directory is refused its siblings too.
 local function test_position_refuses_a_test_outside_a_closed_directory()

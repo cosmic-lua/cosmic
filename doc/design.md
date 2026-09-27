@@ -495,7 +495,9 @@ builds and tests a tree other than its own.
 inside cosmic's own tree, every run first compares the boot hash with
 the one the running binary carries: a fingerprint of everything the
 tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, each
-vendored tree's `PIN`, `build.zig` and the zig wrapper. a vendored
+vendored tree's `PIN`, `build.zig` and the zig wrapper, but the Teal
+tests among them, which no binary carries: an edit to a test rebuilds
+no tool, and only a test may require one. a vendored
 tree is a function of its pin and its patch records and is never
 edited in place, so those are its inputs and the tree is not walked.
 on a mismatch the tool rebuilds itself, as below, or refuses with exit 3
