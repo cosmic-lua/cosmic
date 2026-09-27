@@ -8,7 +8,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 --- The script under test.
-Test.needs{ reads = { ".github/scripts/place-tree.sh" }, store = true }
+Test.needs{ reads = { ".github/scripts/place-tree.sh" } }
 
 -- By its whole path: a process the test starts elsewhere finds it.
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/place-tree.sh"))

@@ -13,7 +13,7 @@ local work = require("build.work")
 -- it, once a declaration can name a program (`processes` by name, which
 -- the sandbox resolves): on a host with git elsewhere, the audit finds
 -- that read undeclared.
-Test.needs{ host = { "/usr/bin/git" }, env = { "*" }, store = true }
+Test.needs{ host = { "/usr/bin/git" }, env = { "*" } }
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.

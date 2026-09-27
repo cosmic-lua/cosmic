@@ -4,7 +4,7 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 --- Runs `body` as a standalone script and answers what it wrote.
 local function run(tmp: string, body: string): string, string

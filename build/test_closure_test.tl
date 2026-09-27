@@ -13,7 +13,7 @@ local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 --- `name` built at run time, so the build cannot follow it.
 local function computed(...: string): string

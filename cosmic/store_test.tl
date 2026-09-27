@@ -6,7 +6,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 local function test_attaching_a_missing_database_fails(tmp: string)
   local path = tmp .. "/missing.db"

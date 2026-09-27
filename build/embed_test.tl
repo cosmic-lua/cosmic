@@ -13,7 +13,7 @@ local embed = require("build.embed")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 local main_source = [[
 local Fs = require("cosmic.fs")

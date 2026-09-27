@@ -71,16 +71,18 @@
    values, the core -- and by the host (its packages, kernel, user and
    capabilities), before it runs (`build/declared_key.tl`): it stands
    while none of that changes, and nothing is assumed. A test whose
-   module declares the network, or that starts a process that could read
-   the store its module does not declare, has no key: it runs every
-   time, and the summary counts it so -- declare `store = true` beside
-   `tool = true` where a test's process reads the tree's store, as one
-   starting this program does, and wherever a test queries the store
-   through `cosmic.store` (`Store.databases()` and the like). `--all` (`COSMIC_TEST_ALL=1`) runs
-   everything. The worker still reads the system's own paths, /dev,
-   /proc and the projection besides, keyed only through the host's
-   identity. A test that starts this program declares `tool = true`:
-   sandboxed, one that does not is refused it, and `--audit` names it.
+   module declares the network has no key: it runs every time, and the
+   summary counts it so. A worker, and every process it starts, is
+   given at o/cosmic.db the store of its module's import closure alone,
+   keyed by its address; declare `store = true` only where a test needs
+   the whole projection -- it reads rows of modules outside its closure
+   (another module's docs, catalog or source, through `Store.databases()`
+   and the like, or o/cosmic.db opened itself) -- since that test runs
+   again on every edit to the tree. `--all` (`COSMIC_TEST_ALL=1`) runs
+   everything. The worker still reads the system's own paths, /dev
+   and /proc besides, keyed only through the host's identity. A test
+   that starts this program declares `tool = true`: sandboxed, one
+   that does not is refused it, and `--audit` names it.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a
    test is keyed instead by what it was seen to read, and shares no
    verdict: environment variables it reads are part of its key, and one

@@ -12,7 +12,7 @@ local observations = require("build.filesystem_observations")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 local function is_core_c(path: string): boolean
   return path:match("^core/[%w_]+%.[ch]$") ~= nil

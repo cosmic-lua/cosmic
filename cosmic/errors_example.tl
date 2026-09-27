@@ -5,8 +5,9 @@
 local Errors = require("cosmic.errors")
 local Test = require("cosmic.test")
 
---- The projection its tests query through the store, which every
---- worker attaches.
+--- The whole projection: the guidance shown is a catalog row of
+--- cosmic.coverage, outside this module's closure, which only the
+--- whole projection holds by a key.
 Test.needs{ store = true }
 
 local Example = {}

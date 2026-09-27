@@ -28,7 +28,6 @@ Test.needs{
   env = { "*" },
   processes = true,
   tool = true,
-  store = true,
 }
 
 local type Searcher = function(string): any, any

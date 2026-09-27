@@ -7,8 +7,9 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
---- The projection its tests query through the store, which every
---- worker attaches.
+--- The whole projection: guidance searches the catalog of every
+--- database the store holds, the tree's modules' outside this closure
+--- among them, and what it does not find there is part of each verdict.
 Test.needs{ store = true }
 
 --- A catalog row: its message, its own guidance (nil to take the doc

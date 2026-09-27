@@ -9,7 +9,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true, store = true }
+Test.needs{ tool = true }
 
 --- `standalone.compile` with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
