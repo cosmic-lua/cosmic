@@ -83,8 +83,8 @@ that does not establish release publication or immutability.
 rather than from positional arguments: `GITHUB_WORKSPACE` (the candidate
 checkout root), `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `RUNNER_TEMP`,
 `COSMIC_WORKER` (the workflow sets this from `matrix.name`, or to
-`provenance` for the join, in ci.yml's `ci` job), and, for `platform` only, `TARGET`. All
-driver state lives under `$RUNNER_TEMP/cosmic-ci/`: the operations database
+`provenance` for the join, in ci.yml's `ci` job), and, for `platform` only,
+`TARGET`. All driver state lives under `$RUNNER_TEMP/cosmic-ci/`: the operations database
 at `$RUNNER_TEMP/cosmic-ci/operations.db`, the platform work directory at
 `$RUNNER_TEMP/cosmic-ci/platform`, and the provenance products directory at
 `$RUNNER_TEMP/cosmic-ci/products`. `driver.tl summarize` needs only
@@ -133,8 +133,8 @@ write the summary where `summarize` does.
 
 `image-build` is ci-images.yml's and `image-publish` ci-images-publish.yml's:
 they run `docker`, found on `PATH`, from `GITHUB_WORKSPACE`, record no
-operations and need no `RUNNER_TEMP` state. `image-build` builds `ci/images/$IMAGE` for `ARCH` as
-`ghcr.io/<GITHUB_REPOSITORY>-ci-<IMAGE>:<GITHUB_SHA>-<ARCH>`, lowercase,
+operations and need no `RUNNER_TEMP` state. `image-build` builds
+`ci/images/$IMAGE` for `ARCH` as `ghcr.io/<GITHUB_REPOSITORY>-ci-<IMAGE>:<GITHUB_SHA>-<ARCH>`, lowercase,
 with `UBUNTU_SNAPSHOT` as a build argument, and pushes it when `PUBLISH` is
 `true`. `image-publish` logs in to GHCR as `GITHUB_ACTOR` with `TOKEN` on
 the login's stdin (and in no argument, message or docker environment),

@@ -64,7 +64,7 @@
             # a run installs nothing from a package mirror, and a runner image
             # update changes only the kernel under them. The ubuntu digest is
             # the multi-arch index's, which serves both x86_64 and aarch64;
-            # moving a digest is a deliberate edit, after ci-images.yml
+            # moving a digest is a deliberate edit, after ci-images-publish.yml
             # publishes a new one (its run summary gives it). The packages
             # are private, so the pull logs in with this job's token, which
             # needs packages: read (see the job's permissions). (macOS

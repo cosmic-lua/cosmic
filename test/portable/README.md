@@ -50,8 +50,9 @@ occurs exactly once, at its manifest range, in Cosmic and both applications.
 reuse, the selected manifest range's length, digest, and raw core bytes, and
 both applications; on the macOS host it also sends that extracted range to
 strict `codesign` verification. Normal CI runs these checks in independent x86
-Linux, ARM Linux, ARM macOS, and Alpine x86 Linux producers. The `provenance`
-job compares the exact `cosmic` bytes all four attest they ran.
+Linux, ARM Linux, ARM macOS, and Alpine x86 Linux producers. The provenance
+join, in ci.yml's `ci` job, compares the exact `cosmic` bytes all four attest
+they ran.
 
 The driver's `runtime_setup.tl` assembles the runtime fixture
 directory (`COSMIC_FIXTURE_RUNTIME`) from a booted checkout's prebuilt cores,

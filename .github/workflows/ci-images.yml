@@ -12,8 +12,9 @@
   # index's digest to its run's summary. ci.yml names an image by that
   # digest, so publishing a new one changes nothing until an edit to
   # ci.yml moves the digest. The jobs run on the CI driver
-  # (ci/cosmic_ci/images.tl), but only what goes into an image, and the
-  # driver's code that builds it, starts them.
+  # (ci/cosmic_ci/images.tl): what goes into an image, the driver's code
+  # that builds and publishes one, the driver's pin, and the publish
+  # workflow start them, but not every change to the rest of the driver.
   # TODO: rebuild on a schedule, so a security update in either base is a
   # published image waiting for its digest to move, not a build to start.
   # TODO: prune old tags from GHCR, keeping every digest ci.yml has ever
@@ -26,7 +27,9 @@
       paths: [
         "ci/images/**",
         ".github/workflows/ci-images.yml",
+        ".github/workflows/ci-images-publish.yml",
         "ci/cosmic_ci/images.tl",
+        "ci/cosmic-driver.pin",
       ],
     },
     workflow_dispatch: {},

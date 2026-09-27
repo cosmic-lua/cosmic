@@ -145,7 +145,7 @@ end
 --- Each input an action's expressions read is one it declares: a
 --- misspelt input reads as empty.
 -- TODO: hold the other expressions in the workflows and actions, as
--- the actionlint this file replaced did: that each context one names
+-- the pinned actionlint the tree used to run did: that each context one names
 -- is available where it stands, that `needs.<job>` names a job its job
 -- needs, that `steps.<id>` names a step before it, and that `with`
 -- passes a local action only inputs it declares. Only an action's
@@ -566,14 +566,17 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
   assert(cached == 2, "restore and save: " .. cached)
 end
 
---- A job a push to a branch starts and skips there still shows as a
+--- A job a push to a branch starts and skips still shows as a
 --- check on the branch's PR, a skipped one whose matrix, if it has one,
---- never expands in its name. So a job that runs only on main -- one
---- whose `if` names main's ref -- lives in a workflow a branch push does
---- not start: one on a workflow_run from main (prerelease.yml,
---- ci-images-publish.yml), or on a push to main alone. A step may still
---- run only on main.
-local function test_a_branch_push_starts_no_job_only_main_runs()
+--- never expands in its name. So a job that runs only on main or on
+--- other events -- one whose `if` names main's ref, or refuses a push --
+--- lives in a workflow a branch push does not start: one on a
+--- workflow_run from main (prerelease.yml, ci-images-publish.yml), or on
+--- a push to main alone; or it is steps of a job that always runs, as
+--- ci.yml's provenance join is. A step may still skip on a branch.
+local BRANCH_SKIPS <const> = { "refs/heads/main", "ref_name == 'main'", "event_name != 'push'" }
+
+local function test_a_branch_push_starts_no_job_it_skips()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do
     local on = workflow["on"]
@@ -584,8 +587,10 @@ local function test_a_branch_push_starts_no_job_only_main_runs()
       for name, job in pairs(workflow.jobs as {string: {string: any}}) do
         count = count + 1
         local condition = job["if"]
-        assert(not (condition is string and condition:find("refs/heads/main", 1, true)),
-          path .. ": job " .. name .. " runs only on main, and a branch push shows it skipped")
+        for _, skip in ipairs(BRANCH_SKIPS) do
+          assert(not (condition is string and condition:find(skip, 1, true)),
+            path .. ": job " .. name .. "'s if names " .. skip .. ", so a branch push shows it skipped")
+        end
       end
     end
   end
