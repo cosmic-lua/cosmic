@@ -249,6 +249,9 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", GITHUB_STEP_SUMMARY = summary,
         COSMIC_CI_REQUIRE_SANDBOX = case.require,
+        -- The switch this suite runs under (ci.yml's driver check sets
+        -- it to 0) is none of the leg's the driver is given.
+        COSMIC_TEST_SANDBOX = "",
       }))
     assert(outcome.result.ok == case.ok, "the sandbox phase answered " ..
       tostring(outcome.result.ok) .. " where the probe said " .. case.said)
