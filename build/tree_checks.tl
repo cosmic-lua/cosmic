@@ -115,9 +115,6 @@ allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path 
   "a tool was started as, which the running one cannot change"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
   "as an older binary would"
-allowed["cosmic.errors.guidance_in"] = "tested directly: the test hands it a " ..
-  "catalog of its own, where Errors.guidance, which asks each database the store " ..
-  "holds through it, would read the whole projection's"
 allowed["cosmic.http.open"] = "the public way to read a response as it arrives: " ..
   "the tree's own callers read theirs whole, through Http.get and Http.download"
 
