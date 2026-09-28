@@ -1677,23 +1677,29 @@ local key_own <const>: {string} = { "build.test" }
 --- catalog and examples in their order, while build.closure_store
 --- orders them across modules itself -- so an edit to it that writes
 --- the same rows moves no address, and one that writes others moves
---- only the addresses of the closures that carry them. An edit to
---- build/closure_store.tl or build/schema.tl runs every test that does
---- not declare `store` again.
+--- only the addresses of the closures that carry them. The salt holds
+--- the writer's whole closure (`store_code`), as the key's code is held
+--- (`key_code`): what build.closure_store writes passes through
+--- cosmic.sqlite, cosmic.fs and cosmic.hash, and an edit to one of them
+--- -- how a blob is bound, a pragma set -- can change a store's bytes
+--- while every row's digest, and so the address, stays. An edit to
+--- build/closure_store.tl or build/schema.tl, or to a module they
+--- require, runs every test that does not declare `store` again.
 local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 
---- The names `key_roots` and `key_own` hold: each root and every module
---- it requires, directly or not, by `imports` (the names each module
---- requires), and each of `key_own` alone.
-local function key_code(imports: {string:{string}}): {string}
+--- The names `roots` and `own` hold: each root and every module it
+--- requires, directly or not, by `imports` (the names each module
+--- requires), and each of `own` alone.
+local function closure_of(roots: {string}, own: {string},
+    imports: {string:{string}}): {string}
   local seen: {string:boolean} = {}
   local names: {string} = {}
   local stack: {string} = {}
-  for _, name in ipairs(key_own) do
+  for _, name in ipairs(own) do
     seen[name] = true
     names[#names + 1] = name
   end
-  for _, name in ipairs(key_roots) do stack[#stack + 1] = name end
+  for _, name in ipairs(roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
     if not seen[name] then
@@ -1705,15 +1711,26 @@ local function key_code(imports: {string:{string}}): {string}
   return names
 end
 
+--- The names `key_roots` and `key_own` hold (`closure_of`).
+local function key_code(imports: {string:{string}}): {string}
+  return closure_of(key_roots, key_own, imports)
+end
+
+--- The names `store_writer` holds, with what they require (`closure_of`).
+local function store_code(imports: {string:{string}}): {string}
+  return closure_of(store_writer, {}, imports)
+end
+
 --- The digest of the test harness and that of the code that writes a
 --- closure store (`Harness`), over what the binary carries
 --- (`binary_harness`, which fills in `carried`): `sources`, each
 --- module's source and bytecode hashes by name, and `imports`, the
 --- names each module requires. Each module of the harness -- what a
 --- worker loads, `harness_own` and `key_code` -- is held by its source
---- and bytecode. Nil and why where a module `key_code` names is none
---- the binary carries, which the harness would otherwise leave out
---- unnoticed.
+--- and bytecode, and so is each the salt holds (`store_code`). Nil and
+--- why where a module `key_code` or `store_code` names is none the
+--- binary carries, which the harness or the salt would otherwise leave
+--- out unnoticed.
 function test.harness(sources: {string:string},
                       imports: {string:{string}}): Harness | nil, string
   local names: {string} = {}
@@ -1726,8 +1743,14 @@ function test.harness(sources: {string:string},
     end
     names[#names + 1] = name
   end
+  local salted = store_code(imports)
+  for _, name in ipairs(salted) do
+    if sources[name] == nil then
+      return nil, name .. ", which writes a closure store, is no module the binary carries"
+    end
+  end
   return { digest = declared_key.harness(names, sources),
-    store_salt = declared_key.harness(store_writer, sources), carried = {} }, ""
+    store_salt = declared_key.harness(salted, sources), carried = {} }, ""
 end
 
 --- What of the running binary every sandboxed key holds of the code a

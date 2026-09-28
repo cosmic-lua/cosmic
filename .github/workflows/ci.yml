@@ -357,8 +357,8 @@
         # the boot's three targets alone, and assemble links more cores.
         # A save per core change is 9-16 GB a day from main at 17-30 of
         # them, past the repository's 10 GB, beside the verdicts' saves
-        # (41-43 MB a Linux leg, about 0.13 GB each main push at its
-        # head).
+        # (8.5-13 MB a Linux leg, trimmed, each main push a newer
+        # commit's save has not overtaken).
         # TODO: keep a core change's compiles for main's later runs at
         # the cost of the change rather than of an entry: save beside
         # the entry restored only what the build wrote under zig-build
@@ -475,7 +475,7 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
+            key: "${{ steps.host-id.outputs.verdicts }}${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
@@ -520,7 +520,7 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            key: "compiles-${{ matrix.name }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "compiles-${{ matrix.name }}-\n",
           },
         },
@@ -778,7 +778,7 @@
         # linux-x86_64, the one leg that runs the checked suite
         # (COSMIC_CI_CHECKED_SUITE), its rows too in verdicts.db, some
         # 5800 rows and about 13 MB. The cost, the choice compiles-trim
-        # made: main's saved file holds only main's head's keys, so a
+        # made: main's saved file holds only its newest commit's keys, so a
         # branch based on an older main, whose keys a change to build/ has
         # since moved, runs every test again, where a whole file's two to
         # four runs of rows might have served it. Only where every step
@@ -826,7 +826,7 @@
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "platform-diagnostics-${{ matrix.name }}",
-            path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
+            path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/checked-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
             "if-no-files-found": "ignore",
           },
         },
@@ -852,9 +852,11 @@
           run: "docker rm -f cosmic-leg || :",
         },
 
-        # The last step, whatever failed before it, so the checkout's post
-        # step meets the tree where it checked it out: its git refuses a
-        # repository at another path, and leaves its credentials behind
+        # Whatever failed before it, and before the saves, so the check
+        # before them, which fetches from origin, and the checkout's post
+        # step meet the tree where it was checked out: there its git finds
+        # the credentials actions/checkout left, and at another path the
+        # post step's refuses the repository and leaves them behind
         # (.github/scripts/place-tree.sh). It runs on the host, as the
         # host's user, who moved it on macOS and whose uid the Linux
         # legs' container's `runner`, who moved it there, shares; so it
@@ -871,11 +873,12 @@
         # What every suite of the leg reached, the portable suite's in a
         # file of its own, saved after the last of them, whatever failed
         # (a failing verdict takes a passing one out), under a key of this
-        # run's own, for the next run of this leg in the same container --
-        # on this ref, or, from main, on any -- to restore, trimmed to
-        # what this run reached where it passed ("keep only this run's
-        # test verdicts", above): from main after every run but a push no
-        # longer main's head (below), and elsewhere only where nothing was
+        # run's own, which names its commit, for the next run of this leg
+        # in the same container -- on this ref, or, from main, on any --
+        # to restore, trimmed to what this run reached where it passed
+        # ("keep only this run's test verdicts", above): from main after
+        # every run but a push whose commit a newer commit's save has
+        # overtaken (below), and elsewhere only where nothing was
         # restored, so a branch's pushes do not fill the repository's
         # cache; never from the merge queue, whose refs no later run
         # restores. After the tree is back where it was checked out, for
@@ -884,65 +887,122 @@
         # as it saves, or save main's runs one at a time: two main runs at
         # once each save from what they restored, and the later save can
         # bring back a pass the other's failure took out, or, where the
-        # one that failed is no longer main's head and saves nothing,
-        # never see it taken out. The merge queue stands on what main
-        # saved, so such a pass lets a change land without the test
-        # running on the Linux legs (the macOS leg still runs every
-        # test); the scheduled run, which stands on nothing, bounds how
-        # long one stands.
+        # one that failed finds a newer commit's save before its own and
+        # saves nothing, never see it taken out. The merge queue stands
+        # on what main saved, so such a pass lets a change land without
+        # the test running on the Linux legs (the macOS leg still runs
+        # every test); the scheduled run, which stands on nothing, bounds
+        # how long one stands. Saving one at a time would also close the
+        # window the lookup below leaves: an older commit's run A leaves
+        # its rows the newest where A's lookup comes before a descendant
+        # B's save and A's own save lands after it -- a window of A's
+        # lookup, check, tar and upload, not a moment -- until main's next
+        # run saves.
         #
-        # A push to main saves only while its commit is still main's
-        # head. A restore takes the newest cache saved under the prefix,
-        # not the newest commit's, and main's runs, a concurrency group
-        # per commit, overlap and finish out of order: 3c6df8333's
-        # alpine-x86_64 leg saved at 18:37:20, after b6508ab77's at
-        # 18:36:56, so the next two main runs (c0da68b11, e4cdd4292)
-        # restored 3c6df8333's verdicts, keyed before #2249 changed the
-        # key, and stood on none of 1892, where linux-x86_64, whose saves
-        # came in commit order, stood on 1184. Where main's head cannot
-        # be read the run saves, as every main run did before: a lost
-        # save costs the next run the verdicts this one reached, an
-        # older one those of every test a newer commit moved -- all of
-        # them, where it moved the key. The scheduled run and a manual
-        # one save whatever landed since: a scheduled run runs every
-        # test, and its save is what bounds how long a pass stands. Main
-        # can still move between the check and the save; the newer
-        # commit's run, just started, then saves after this one, where
-        # it saves at all.
+        # A push to main saves unless the newest entry a restore would
+        # take now was saved from a descendant of its commit. A restore
+        # takes the newest entry saved under the prefix, not the newest
+        # commit's, and main's runs, a concurrency group per commit,
+        # overlap and finish out of order: 3c6df8333's alpine-x86_64 leg
+        # saved at 18:37:20, after b6508ab77's at 18:36:56, so the next
+        # two main runs (c0da68b11, e4cdd4292) restored 3c6df8333's
+        # verdicts, keyed before #2249 changed the key, and stood on none
+        # of 1892, where linux-x86_64, whose saves came in commit order,
+        # stood on 1184. So a lookup just before the save (no download)
+        # reads which entry is the newest, and its key the commit that
+        # saved it (.github/scripts/save-unless-descendant.sh): where a
+        # later commit's run saved first, this one does not, so a push
+        # moves the newest entry's commit only forward along main, but
+        # for the window the TODO above names. Saving
+        # only while a commit was still main's head kept that order too,
+        # but threw away the work of every run a merge overtook: run
+        # 36358036690 (e34b5eb31) reached 1941 verdicts under keys a
+        # harness change had just moved, its four legs saved none of them
+        # as the next commit landed, and main's next run ran them all
+        # again. Where the newest entry's commit cannot be read (a key
+        # saved before keys named one, a fetch that failed) the run
+        # saves, as every main run once did: a lost save costs the next
+        # run the verdicts this one reached, an older one's those of
+        # every test a newer commit moved -- all of them, where it moved
+        # the key. The scheduled run and a manual one save whatever
+        # landed since, with no lookup: a scheduled run runs every test,
+        # and its save is what bounds how long a pass stands. So one that
+        # finishes after a descendant push saved leaves its older
+        # commit's entry the newest, as under the head-only rule, until
+        # main's next push saves.
         {
-          name: "find whether this commit is still main's head",
-          id: "main-head",
-          if: "always() && steps.driver.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push'",
+          name: "find the newest saved test verdicts",
+          id: "verdicts-newest",
+          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push'",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.host-id.outputs.verdicts }}${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
+            "lookup-only": true,
+          },
+        },
+
+        {
+          name: "find whether a newer commit saved test verdicts",
+          id: "verdicts-saves",
+          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push'",
           "working-directory": ".",
           shell: "sh",
-          run: "sh .github/scripts/main-head.sh",
+          env: {KEY: "${{ steps.verdicts-newest.outputs.cache-matched-key }}"},
+          run: "sh .github/scripts/save-unless-descendant.sh \"$KEY\"",
         },
 
         {
           name: "save test verdicts",
-          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' && steps.main-head.outputs.head != 'false' || github.ref != 'refs/heads/main' && steps.verdicts-restore.outputs.cache-matched-key == '')",
+          if: "always() && matrix.image && steps.driver.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' && steps.verdicts-saves.outputs.save != 'false' || github.ref != 'refs/heads/main' && steps.verdicts-restore.outputs.cache-matched-key == '')",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}${{ github.run_id }}-${{ github.run_attempt }}",
+            key: "${{ steps.host-id.outputs.verdicts }}${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
           },
         },
 
         # What the next run of the leg restores, trimmed above to this
-        # run's, saved when and where the verdicts are, for their reasons:
-        # from main while its commit is main's head, so an older run's
-        # rows never come to be the newest; elsewhere only where
-        # nothing was restored; never from the merge queue. Every leg's,
-        # the macOS leg's too. Only where the native build and suite
-        # passed: a run that stopped short would leave the next only what
-        # it reached (see "keep only this run's compiles and parses").
+        # run's, saved when and where the verdicts are, for their reasons,
+        # under a key that names its commit: from main unless a newer
+        # commit's run saved first, found by a lookup of its own just
+        # before, so an older run's rows never come to be the newest;
+        # elsewhere only where nothing was restored; never from the merge
+        # queue. Every leg's, the macOS leg's too. Only where the native
+        # build and suite passed: a run that stopped short would leave the
+        # next only what it reached (see "keep only this run's compiles
+        # and parses").
+        {
+          name: "find the newest saved compiles and parses",
+          id: "compiles-newest",
+          if: "always() && steps.driver.outcome == 'success' && steps.release-suite.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push'",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "compiles-${{ matrix.name }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "compiles-${{ matrix.name }}-\n",
+            "lookup-only": true,
+          },
+        },
+
+        {
+          name: "find whether a newer commit saved compiles and parses",
+          id: "compiles-saves",
+          if: "always() && steps.driver.outcome == 'success' && steps.release-suite.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'push'",
+          "working-directory": ".",
+          shell: "sh",
+          env: {KEY: "${{ steps.compiles-newest.outputs.cache-matched-key }}"},
+          run: "sh .github/scripts/save-unless-descendant.sh \"$KEY\"",
+        },
+
         {
           name: "save compiles and parses",
-          if: "always() && steps.driver.outcome == 'success' && steps.release-suite.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' && steps.main-head.outputs.head != 'false' || github.ref != 'refs/heads/main' && steps.compiles-restore.outputs.cache-matched-key == '')",
+          if: "always() && steps.driver.outcome == 'success' && steps.release-suite.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' && steps.compiles-saves.outputs.save != 'false' || github.ref != 'refs/heads/main' && steps.compiles-restore.outputs.cache-matched-key == '')",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            key: "compiles-${{ matrix.name }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
           },
         },
       ],

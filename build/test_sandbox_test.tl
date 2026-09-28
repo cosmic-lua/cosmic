@@ -8,18 +8,30 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
 local observations = require("build.filesystem_observations")
+local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
---- What a worker's plan gives it of the host, the program it runs, and
---- what holds a run to sandboxing (`unsandboxed`).
+--- What a worker's plan gives it of the host, the program it runs, whose
+--- core the stand-in its suites' tests start is built from, and what
+--- holds a run to sandboxing (`unsandboxed`).
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
-  system = true,
 }
+
+--- Makes `root`, a tree for a suite, with a stand-in program
+--- (build/stand_in.tl) at bin/probe for its tests to start, which
+--- declare it -- not this program, which would take `tool`, and with it
+--- the store's hold these tests look at: in the tree, since a sandboxed
+--- worker has a /tmp of its own over this test's.
+local function suite_tree(tmp: string, root: string)
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
+end
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -77,9 +89,8 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(sys.stat("/proc") == nil or holds(plan.held, "/proc"))
   assert(not holds(plan.held, "/tree/a/x.tl") and holds(plan.held, "/tree/o/cosmic.db"))
   assert(not holds(plan.held, "/usr") and not holds(unveil.reads, "/usr"))
-  inputs.system = true
-  local system = test_sandbox.plan(root, scratch, inputs, {})
-  assert(holds(system.held, "/usr") and holds(system.sandbox.unveil.reads, "/usr"))
+  -- Declaring `system` gives the system's own paths too: see
+  -- build/test_sandbox_system_test.tl, whose worker has them to give.
   -- Given the store of its closure, a worker has it at o/cosmic.db in
   -- the projection's place, which it has nowhere, and a process it
   -- starts is keyed by it; declaring `store` keeps the projection.
@@ -258,7 +269,7 @@ end
 --- fails. A switch that is neither "1", "0" nor unset is refused.
 local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
-  assert(Fs.mkdirs(root .. "/suite"))
+  suite_tree(tmp, root)
   assert(Fs.mkdirs(hidden))
   assert(Fs.write(root .. "/suite/data.txt", "declared"))
   assert(Fs.write(root .. "/suite/secret.txt", "undeclared"))
@@ -268,19 +279,19 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.txt" }, env = { "DECLARED_VAR" }, system = true }
+Test.needs { reads = { "suite/data.txt", "bin/probe" }, env = { "DECLARED_VAR" } }
 
 local function test_view(tmp: string)
   local here = assert(sys.getcwd())
   -- What a process it starts sees, with the worker's environment.
-  local child = assert(Child.run({ "/bin/sh", "-c",
-    "cat suite/data.txt suite/secret.txt 2>/dev/null; printf '/%%s/%%s' \"$DECLARED_VAR\" \"$UNDECLARED_VAR\"" },
+  local child = assert(Child.run({ "bin/probe",
+    "cat-quiet suite/data.txt; cat-quiet suite/secret.txt; print /$DECLARED_VAR/$UNDECLARED_VAR" },
     { stdout = "capture" }))
   error(table.concat({ "seen", here, tmp,
     tostring((Fs.read(here .. "/suite/data.txt"))),
     tostring((Fs.read(here .. "/suite/secret.txt"))),
     tostring(sys.stat(%q) ~= nil), tostring(sys.getenv("DECLARED_VAR")),
-    tostring(sys.getenv("UNDECLARED_VAR")), tostring(child.stdout), "end" }, "|"))
+    tostring(sys.getenv("UNDECLARED_VAR")), (tostring(child.stdout):gsub("\n", "")), "end" }, "|"))
 end
 ]], hidden)))
   local env = observations.environment()
@@ -471,18 +482,18 @@ end
 --- which its key holds.
 local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/suite"))
+  suite_tree(tmp, root)
   assert(Fs.write(root .. "/suite/data.txt", "one"))
   assert(Fs.write(root .. "/suite/unrelated.txt", "one"))
   assert(Fs.write(root .. "/suite/child_test.tl", [[
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/data.txt", "suite/later.txt" }, store = true, system = true }
+Test.needs { reads = { "suite/data.txt", "suite/later.txt", "bin/probe" }, store = true }
 
 local function test_child_reads()
-  local r = assert(Child.run({ "/bin/sh", "-c",
-    "cat suite/data.txt; cat suite/later.txt 2>/dev/null || printf '|absent'" },
+  local r = assert(Child.run({ "bin/probe",
+    "cat suite/data.txt; cat suite/later.txt || print |absent" },
     { stdout = "capture" }))
   local out = r.stdout or ""
   assert(r.ok and out:find("|absent", 1, true), out)
@@ -492,20 +503,20 @@ end
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 
-Test.needs { system = true }
+Test.needs { reads = { "bin/probe" } }
 
 local function test_child_reads_the_closure_store()
-  assert(assert(Child.run({ "/bin/sh", "-c", "exit 0" })).ok)
+  assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
 end
 ]]))
   assert(Fs.write(root .. "/suite/online_test.tl", [[
 local Child = require("cosmic.child")
 local Test = require("cosmic.test")
 
-Test.needs { network = { "example.com" }, store = true, system = true }
+Test.needs { network = { "example.com" }, store = true, reads = { "bin/probe" } }
 
 local function test_child_could_reach_the_network()
-  assert(assert(Child.run({ "/bin/sh", "-c", "exit 0" })).ok)
+  assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
 end
 ]]))
   local env = observations.environment()
