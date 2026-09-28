@@ -4,9 +4,11 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local stand_in = require("build.stand_in")
+local artifact = require("build.artifact")
 
 --- A stand-in built under `tmp`.
 local function built(tmp: string): string
@@ -367,4 +369,28 @@ local function test_a_file_naming_it_on_its_first_line_runs_its_body(tmp: string
   assert(Fs.write(empty, "#!" .. probe .. "\n", 0x1ed))
   local ran = run({ empty })
   assert(ran.ok and ran.stdout == "", tostring(ran.stdout))
+end
+
+--- The stand-in is a host program whose main module is named under
+--- neither `build.*` nor `cosmic.*`, so it loads untrusted, as one
+--- `cosmic build --host` makes: it carries no `build.*` row at all, and
+--- does carry the modules the core itself requires of a program
+--- (`cosmic.errors`, `cosmic.removed`).
+local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
+  local parts = assert(artifact.split((assert(Fs.read(built(tmp))))))
+  assert(parts.host)
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, parts.database))
+  local db = assert(Sqlite.open(path))
+  local function one(sql: string): string
+    local rows = assert(Sqlite.text_rows(db, sql))
+    return rows[1] and rows[1][1] or ""
+  end
+  assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")
+  assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")
+  assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")
+  assert(one("SELECT count(*) FROM modules WHERE path IN " ..
+    "('cosmic.errors', 'cosmic.removed', 'cosmic.child')") == "3")
+  assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
+  assert(db:close())
 end

@@ -53,7 +53,12 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
 end
 
 --- Whether the run holds this host to confining a process, as
---- core/syscalls_test.tl's `sandbox_required` says.
+--- core/syscalls_test.tl's `sandbox_required` says: without
+--- COSMIC_SANDBOX=must, a case here whose sandbox the kernel refuses
+--- returns early, passing unchecked, as that module's cases do.
+-- TODO: count each sandbox test that returns early here as skipped, as
+-- core/syscalls_test.tl's TODO on `sandbox_required` says, once
+-- build/test.tl's tally has a skipped verdict.
 local function sandbox_required(): boolean
   return sys.getenv("COSMIC_SANDBOX") == "must"
 end

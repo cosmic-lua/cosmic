@@ -112,18 +112,35 @@ local schema = require("build.schema")
 -- then holds the rows `database` copies; loading it defines its verbs
 -- and nothing more.
 local _ = require("build.stand_in_probe")
+-- What the core itself requires of the program it runs, beside its
+-- main module: `cosmic.errors`, for an uncaught error's guidance
+-- (core/main.c's `ask_guidance`), and `cosmic.removed`, for what to
+-- write instead of a name the runtime removes (core/surface.c's
+-- `removed_message`). Required so they are of the closure too.
+local type _ = require("cosmic.errors")
+local _ = require("cosmic.removed")
 
 local record stand_in
 end
 
 local text = bind.text
 
---- The stand-in's main module, which the program carries with the
---- modules it requires, the whole of what it runs.
+--- The stand-in's program, which it carries with the modules it
+--- requires, the whole of what it runs.
 local probe_module <const> = "build.stand_in_probe"
 
---- The modules `probe_module` loads, itself first, each ahead of what
---- requires it no more than once: the ones this program's own `imports`
+--- The name the stand-in carries `probe_module`'s bytecode under, as
+--- its main module: under neither `build.*` nor `cosmic.*`, so, as a
+--- program `cosmic build --host` makes, its main loads untrusted
+--- (core/store.c's `names_trusted_kind`).
+local main_module <const> = "stand_in.main"
+
+--- What the core requires of any program it runs, beside its main
+--- module (see the requires above).
+local core_requires <const>: {string} = { "cosmic.errors", "cosmic.removed" }
+
+--- The modules `probe_module` loads, itself first, then
+--- `core_requires`, each no more than once: the ones this program's own `imports`
 --- rows record it requiring, and theirs in turn. A raw
 --- `cosmic.internal.*` value is no row of any database, and the core
 --- hands each wrapper its own (core/store.c's `raw_modules`). Each
@@ -136,6 +153,7 @@ local function carried(): {Carried} | nil, string
   local order: {Carried} = {}
   local seen: {string:boolean} = {}
   local pending: {string} = { probe_module }
+  for _, name in ipairs(core_requires) do pending[#pending + 1] = name end
   while #pending > 0 do
     local name = table.remove(pending, 1)
     if not seen[name] and name:sub(1, #"cosmic.internal.") ~= "cosmic.internal." then
@@ -151,11 +169,14 @@ end
 
 --- The database the stand-in carries, as bytes, written through
 --- `path`: the rows of `carried`'s modules, as this program carries
---- them, with their import edges, `probe_module` named its main module,
---- and the runtime basis this program runs on -- no more of what a
---- program `cosmic build` makes carries (`build.embed`'s `database`),
---- the standard library whole, its declarations, catalog, time zones and
---- bill of materials, none of which the stand-in reads.
+--- them, with their import edges -- `probe_module`'s under
+--- `main_module`, named its main module -- and the runtime basis this
+--- program runs on. Of what a program `cosmic build` makes carries
+--- (`build.embed`'s `database`), it leaves out the rest of the standard
+--- library, its declarations, time zones, bill of materials and CA
+--- roots, which the probe never reads, and the error catalog, so an
+--- uncaught error of the stand-in's prints its message and trace with
+--- no guidance beneath.
 local function database(path: string): string | nil, string
   local modules, closure_trouble = carried()
   if modules == nil then return nil, closure_trouble end
@@ -172,16 +193,22 @@ local function database(path: string): string | nil, string
       return nil, failure
     end
   end
+  local basis = Store.meta("runtime_basis")
+  if basis == nil or basis == "" then
+    local _, _ = db:close()
+    return nil, "the running binary names no runtime basis"
+  end
   local made, trouble = Sqlite.transact(db, function(): boolean, string
     for _, module in ipairs(modules) do
-      local name = module.name
-      local bytecode, bytecode_trouble = Store.bytecode(name)
-      if bytecode == nil then return false, name .. ": " .. bytecode_trouble end
+      local bytecode, bytecode_trouble = Store.bytecode(module.name)
+      if bytecode == nil then return false, module.name .. ": " .. bytecode_trouble end
+      local name = module.name == probe_module and main_module or module.name
       -- A module's kind is all the runtime reads of a row but its
-      -- bytecode: it runs `cosmic.*` and `build.*` modules as its own.
+      -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
+      -- the binary's own, and the main, under no such name, does not.
       local ok, insert_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, " ..
         "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
-        { text(name), text(name == probe_module and "main" or "module"), bind.blob(bytecode) })
+        { text(name), text(name == main_module and "main" or "module"), bind.blob(bytecode) })
       if not ok then return false, name .. ": " .. insert_trouble end
       for _, required in ipairs(module.requires) do
         local edge, edge_trouble = Sqlite.run(db,
@@ -190,7 +217,7 @@ local function database(path: string): string | nil, string
       end
     end
     local meta: {{string}} = {
-      { "main", probe_module }, { "runtime_basis", Store.meta("runtime_basis") or "" },
+      { "main", main_module }, { "runtime_basis", basis },
     }
     for _, pair in ipairs(meta) do
       local ok, meta_trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
@@ -210,8 +237,9 @@ end
 --- Builds a stand-in under `dir`, made if it is not there, and answers
 --- the executable's path, `dir/probe`: this program's own core, as
 --- `cosmic build --host` lays one out (`artifact.host_program`), with a
---- database of `probe_module` and the modules it requires, taken from
---- the ones this program carries (`database`) -- nothing compiled, and
+--- database of `probe_module`, its main under `main_module`, and the
+--- modules it and the core require, taken from the ones this program
+--- carries (`database`) -- nothing compiled, and
 --- nothing of this program run, so a test that builds one needs no
 --- `tool`: what it carries is its test's import closure's, and the core
 --- is the runtime its verdict is keyed by.
