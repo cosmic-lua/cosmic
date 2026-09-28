@@ -9,6 +9,7 @@ local sys = require("cosmic.sys")
 local analyzer = require("build.analyzer")
 local artifact = require("build.artifact")
 local declared_key = require("build.declared_key")
+local fixture = require("build.core_image_fixture")
 local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
@@ -885,6 +886,34 @@ local function test_an_artifacts_launcher_moves_every_key(tmp: string)
   assert(first ~= native and second ~= first, "the launcher left a key without `tool`")
   assert(declared_key.launcher_identity(declared_key.digests(root), root .. "/nowhere") ==
     "missing")
+end
+
+--- A core that carries DWARF, as the checked core does, is keyed by its
+--- image wherever a key holds it -- the launcher an artifact runs, the
+--- program a test runs, the core that program extracts -- so a rebuild
+--- whose DWARF names another checkout's directory, as musl's does,
+--- moves none of them, and one whose code moved moves each.
+local function test_a_core_carrying_dwarf_is_keyed_by_its_image(tmp: string)
+  tree(tmp)
+  local root = assert(Fs.absolute(tmp))
+  local path = root .. "/cosmic-checked"
+  local core_path = root .. "/core-checked"
+  local meta: {string:string} = { writer = "w", compiler = "c" }
+  local function identities(core: string): {string}
+    program_at(path, core, meta, "bytecode")
+    assert(Fs.write(core_path, core))
+    local digests = declared_key.digests(root)
+    return { declared_key.launcher_identity(digests, path),
+      declared_key.program_identity(digests, { path }),
+      declared_key.program_identity(digests, { core_path }) }
+  end
+  local one = identities(fixture.elf("code", "DW_AT_comp_dir /home/runner/work/cosmic"))
+  local other = identities(fixture.elf("code", "DW_AT_comp_dir /__w/elsewhere/cosmic/cosmic"))
+  local moved = identities(fixture.elf("edoc", "DW_AT_comp_dir /home/runner/work/cosmic"))
+  for i, what in ipairs({ "launcher", "program", "extracted core" }) do
+    assert(one[i] == other[i], "the DWARF moved the " .. what)
+    assert(one[i] ~= moved[i], "the code left the " .. what)
+  end
 end
 
 --- The store a worker is given at o/cosmic.db: the whole projection by

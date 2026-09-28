@@ -141,6 +141,7 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
+local core_image = require("build.core_image")
 local test_inputs = require("build.test_inputs")
 
 local record declared_key
@@ -468,9 +469,12 @@ end
 --- What the regular file at `path`, which `st` describes, runs as, for
 --- a key: where it is an artifact (`artifact.split`), the digest of
 --- everything ahead of its database -- the launcher, the cores and
---- their manifest -- whether it is a host program, and the rows it
---- carries (`carried_digest`), which is all a run of it can turn on;
---- else the digest of its contents. Remembered in `digests` as a file's
+--- their manifest, each core that carries debug information by its
+--- image (`artifact.keyed_head`) -- whether it is a host program, and
+--- the rows it carries (`carried_digest`), which is all a run of it can
+--- turn on; else the digest of its contents, or of its image where it
+--- is a core that carries debug information (build.core_image), as
+--- the checked core a run extracts is. Remembered in `digests` as a file's
 --- hash is, under a name of its own.
 ---
 --- So a program rebuilt from a tree whose edit moved nothing it carries
@@ -504,19 +508,26 @@ end
 local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
   return remembered(digests, "program\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
-    if split == nil then return Hash.hex_sha256("file\n" .. data) end
+    if split == nil then
+      -- A core that carries debug information, as the checked core
+      -- does, by its image (build.core_image).
+      local image = core_image.image(data)
+      return Hash.hex_sha256(image ~= nil and ("image\n" .. image) or ("file\n" .. data))
+    end
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.
     return Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
-      Hash.hex_sha256(split.head) .. "\n" .. carried) or ("unread\n" .. data))
+      Hash.hex_sha256(artifact.keyed_head(split.head)) .. "\n" .. carried) or ("unread\n" .. data))
   end)
 end
 
 --- What of the artifact at `path` runs every test of a run it starts,
 --- whether the test runs the program or not: everything ahead of its
 --- database -- the launcher that selects and checks a core, the cores
---- and their manifest -- and whether it is a host program, as a digest;
+--- and their manifest, a core that carries debug information by its
+--- image (`artifact.keyed_head`) -- and whether it is a host program,
+--- as a digest;
 --- its contents' where it is no artifact, "missing" where it is not a
 --- regular file. Remembered in `digests` as `program` is. The runtime
 --- identity (`Spec.runtime`) holds the core a run selects, but not what
@@ -528,7 +539,8 @@ function declared_key.launcher_identity(digests: declared_key.Digests, path: str
   return remembered(digests, "launcher\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
     if split == nil then return Hash.hex_sha256("file\n" .. data) end
-    return Hash.hex_sha256("head\n" .. tostring(split.host) .. "\n" .. split.head)
+    return Hash.hex_sha256("head\n" .. tostring(split.host) .. "\n" ..
+      artifact.keyed_head(split.head))
   end)
 end
 

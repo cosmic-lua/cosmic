@@ -4,6 +4,7 @@
 
 local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
+local fixture = require("build.core_image_fixture")
 
 local records = table.concat({
   "1\t1\trelease\tx86\tLinux\tx86_64",
@@ -174,4 +175,42 @@ local function test_split_refuses_a_trailer_that_does_not_fit()
   local not_sqlite = assert(artifact.split(program))
   local joined, trouble = artifact.rejoin(not_sqlite, "not sqlite")
   assert(joined == nil and trouble:find("SQLite", 1, true), trouble)
+end
+
+--- A head is keyed whole where no core carries DWARF, as every release
+--- artifact's is; where one does, as the checked artifact's checked core
+--- does, by the core's image, so a rebuild whose DWARF named another
+--- directory -- another length of it, which moves the cores behind it,
+--- the manifest's offsets and the launcher's arm -- keys the same, and
+--- one whose code or launcher moved does not.
+local function test_a_head_is_keyed_by_its_cores_images()
+  local database = "SQLite format 3\0db"
+  local function head(checked: string, arm?: string): string
+    local with: {string:string} = { x86 = checked, arm = cores.arm, mac = cores.mac }
+    local prefix = assert(artifact.prefix(records, with))
+    if arm ~= nil then prefix = prefix:gsub("x86_64'%)", arm .. "')", 1) end
+    return assert(artifact.split((assert(artifact.program(prefix, database))))).head
+  end
+  local stripped = head(fixture.elf("code"))
+  assert(artifact.keyed_head(stripped) == stripped, "a head with no DWARF was not keyed whole")
+  local one = head(fixture.elf("code", "comp_dir /one"))
+  local other = head(fixture.elf("code", "comp_dir /a/longer/two" .. ("x"):rep(20000)))
+  assert(#one ~= #other and artifact.keyed_head(one) ~= one)
+  assert(artifact.keyed_head(one) == artifact.keyed_head(other), "the DWARF moved the head")
+  assert(artifact.keyed_head(head(fixture.elf("edoc", "comp_dir /one"))) ~=
+    artifact.keyed_head(one), "the code left the head")
+  assert(artifact.keyed_head(head(fixture.elf("code", "comp_dir /one"), "x86_65")) ~=
+    artifact.keyed_head(one), "the launcher left the head")
+  -- A core whose manifest digest is not its own is keyed whole.
+  local wrong = one:gsub("comp_dir /one", "comp_dir /eno", 1)
+  assert(artifact.keyed_head(wrong) == wrong)
+  -- A host program's head likewise.
+  local function host(core: string): string
+    return assert(artifact.split((assert(artifact.host_program({ bytes = core, target_id = 1,
+      configuration_id = 2, digest = Hash.sha256(core) }, database))))).head
+  end
+  assert(artifact.keyed_head(host(fixture.elf("code", "one"))) ==
+    artifact.keyed_head(host(fixture.elf("code", "another one"))))
+  assert(artifact.keyed_head(host(fixture.elf("code", "one"))) ~=
+    artifact.keyed_head(host(fixture.elf("edoc", "one"))))
 end

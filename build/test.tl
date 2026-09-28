@@ -115,7 +115,9 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local artifact = require("build.artifact")
 local clock = require("build.clock")
+local core_image = require("build.core_image")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
@@ -3005,6 +3007,15 @@ function test.run(argv: {integer:string}): integer
     local _, _ = work.close(handle)
     log:complain("the running binary names no runtime identity")
     return 1
+  end
+  -- A core that carries debug information, as the checked core does,
+  -- is keyed by its image (build.core_image): its DWARF names the
+  -- directory musl was first built in, which moves between CI runs, and
+  -- no test's verdict turns on it. A release core, stripped, keys as
+  -- the binary names it.
+  local running_core, _ = artifact.trusted_core()
+  if running_core ~= nil then
+    identity = core_image.runtime(running_core, Store.meta("runtime_basis") or "", identity)
   end
   -- Every verdict is keyed on the data tables the binary carries too
   -- (`schema.tables_digest`): `cosmic refresh` replaces its zones and
