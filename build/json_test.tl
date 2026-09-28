@@ -18,14 +18,22 @@ local record Ran
   err: string
 end
 
+local function argv_of(words: {string}): {integer:string}
+  local argv: {integer:string} = { [0] = "cosmic", [1] = "json" }
+  for index, word in ipairs(words) do argv[index + 1] = word end
+  return argv
+end
+
 --- One run: `words` after `cosmic json`, and `stdin` standing in for
 --- standard input.
 local function run(words: {string}, stdin?: string): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "json" }
-  for index, word in ipairs(words) do argv[index + 1] = word end
+  local argv = argv_of(words)
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = json.run(argv, {
-    out = function(text: string) ran.out = ran.out .. text end,
+    out = function(text: string): boolean, string
+      ran.out = ran.out .. text
+      return true, ""
+    end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
     stdin = function(): string | nil, string
       if stdin == nil then return nil, "no standard input in this test" end
@@ -192,4 +200,64 @@ local function test_a_command_line_it_cannot_read_exits_2(tmp: string)
     assert(ran.err:find("cosmic json ", 1, true), ran.err)
   end
   assert(run({ "--no-such-flag", path }).err:find("--no-such-flag", 1, true))
+end
+
+local function test_raw_prints_a_string_with_a_newline_as_it_is(tmp: string)
+  local ran = run({ "-r", ".a", file(tmp, '{"a": "one\\ntwo"}') })
+  assert(ran.code == 0 and ran.out == "one\ntwo\n", ran.out)
+end
+
+local function test_invalid_utf8_on_standard_input_exits_2()
+  local ran = run({ ".a" }, '{"a": "\xff"}')
+  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.err:find("standard input: ", 1, true), ran.err)
+end
+
+local function test_an_empty_word_is_named(tmp: string)
+  local file_name = run({ "" }, "{}")
+  assert(file_name.code == 2 and file_name.err:find("an empty file name", 1, true), file_name.err)
+  local both = run({ ".a", "" }, "{}")
+  assert(both.code == 2 and both.err:find("an empty file name", 1, true), both.err)
+  local path = run({ "", file(tmp) })
+  assert(path.code == 2 and path.err:find("path is empty", 1, true), path.err)
+end
+
+local function test_after_dashdash_the_words_are_path_and_file(tmp: string)
+  local dotted = tmp .. "/.data.json"
+  assert(Fs.write(dotted, '{"a": 1}'))
+  -- One word after `--` is the file, though it reads as a path.
+  local lone = run({ "--compact", "--", dotted })
+  assert(lone.code == 0 and lone.out == '{"a":1}\n', lone.err)
+  local bracket = tmp .. "/[x]"
+  assert(Fs.write(bracket, "[7]"))
+  local named = run({ "--", "[1]", bracket })
+  assert(named.code == 0 and named.out == "7\n", named.err)
+  local stdin = run({ "--", "-" }, "5")
+  assert(stdin.code == 0 and stdin.out == "5\n", stdin.err)
+  assert(run({ "--" }, "6").out == "6\n")
+  assert(run({ "--", "a", "b", "c" }).code == 2)
+end
+
+local function test_usage_names_the_escapes_for_a_file_that_reads_as_a_path()
+  local ran = run({ "--bogus" })
+  assert(ran.err:find("./name", 1, true) and ran.err:find("--", 1, true), ran.err)
+end
+
+local function test_a_failed_write_exits_2_and_says_so(tmp: string)
+  local complaints = ""
+  local code = json.run(argv_of({ file(tmp) }), {
+    out = function(_: string): boolean, string return false, "No space left on device" end,
+    err = function(line: string) complaints = complaints .. line .. "\n" end,
+    stdin = function(): string | nil, string return nil, "unused" end,
+  })
+  assert(code == 2, code)
+  assert(complaints == "cosmic: json: standard output: No space left on device\n", complaints)
+  for _, mode in ipairs({ "--keys", "--shape" }) do
+    local again = json.run(argv_of({ mode, file(tmp) }), {
+      out = function(_: string): boolean, string return false, "closed" end,
+      err = function(_: string) end,
+      stdin = function(): string | nil, string return nil, "unused" end,
+    })
+    assert(again == 2, mode)
+  end
 end

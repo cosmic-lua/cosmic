@@ -492,6 +492,7 @@ end
 --- `[`), `[3]` (an array index, counted from 1 as `get` counts) or
 --- `["a key"]` (a key in a JSON string, with JSON's escapes). Without
 --- a leading `$`, the first step may drop its dot: `a.b` is `$.a.b`.
+--- Whitespace is part of a key: `.a b` is the key `a b`.
 --- `parse_path(Json.child_path(...))` gives back the steps that built
 --- it, for any keys and integers. A path that is empty, or ends in a
 --- `.`, or has an unclosed `[`, or an index that does not fit an
@@ -522,12 +523,16 @@ function Json.parse_path(text: string): {string | integer} | nil, string
       local stop = text:find("[.%[]", from) or size + 1
       if stop == from then
         if c == "." and text:sub(from, from) == "." then
+          -- TODO: read `..` once the wildcard and flatten change (the
+          -- next) implements recursive descent; refused until then.
           return refuse(at, "`..` (recursive descent) is not supported yet")
         end
         return refuse(from, "expected a key" .. (c == "." and " after `.`" or ""))
       end
       local name = text:sub(from, stop - 1)
       if name == "*" then
+        -- TODO: read `*` once the wildcard and flatten change (the next)
+        -- implements wildcards; refused until then.
         return refuse(at, "`*` (a wildcard) is not supported yet; " ..
           'a key named * is `["*"]`')
       end
@@ -595,6 +600,8 @@ function Json.parse_path(text: string): {string | integer} | nil, string
       else
         local digits = text:match("^(%-?%d+)%]", at + 1)
         if text:sub(at + 1, at + 2) == "*]" then
+          -- TODO: read `[*]` once the wildcard and flatten change (the
+          -- next) implements wildcards; refused until then.
           return refuse(at, "`[*]` (a wildcard) is not supported yet; " ..
             'a key named * is `["*"]`')
         end

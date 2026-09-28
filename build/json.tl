@@ -29,7 +29,9 @@ local record verb
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
-    out: function(text: string)
+    --- False and why when the bytes did not all go, so the run can
+    --- say so: its exit status is its only verdict.
+    out: function(text: string): boolean, string
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- The whole of standard input, or nil and why.
@@ -54,10 +56,14 @@ end
 
 local spec = Cli.options.json
 
-local usage = "cosmic json [--exists | --keys | --shape | --compact | -r] [<path>] [<file>|-]"
+local usage = "cosmic json [--exists | --keys | --shape | --compact | -r] [--] [<path>] [<file>|-]" ..
+  "; a file whose name begins with . $ or [ is written ./name, or follows --"
 
 --- Whether a lone word is the path and not the file: it begins with `$`,
 --- `[` or `.`, and does not begin `./` or `../`, which name a file.
+--- Plain comment, not a TODO: a lone word has to be one or the other,
+--- and a path is far likelier than a file named for one. The other
+--- reading is always spelled: `./name`, or `--` before the words.
 local function is_path(word: string): boolean
   local head = word:sub(1, 1)
   if head == "$" or head == "[" then return true end
@@ -82,16 +88,28 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
       modes[1] .. " does not print"
   end
   local words = parsed.words
+  -- No option of this verb takes a value, so the first `--` is the one
+  -- that ended the options. After it the words are `[path] file`.
+  local ended = false
+  local slot = 2
+  while argv[slot] ~= nil do
+    if argv[slot] == "--" then
+      ended = true
+      break
+    end
+    slot = slot + 1
+  end
   local request: verb.Request = { path = {}, spelled = "$", mode = "value", compact = compact, raw = raw }
   if #modes == 1 then request.mode = modes[1]:sub(3) end
   local path: string | nil
   if #words == 2 then
     path, request.file = words[1], words[2]
   elseif #words == 1 then
-    if is_path(words[1]) then path = words[1] else request.file = words[1] end
+    if is_path(words[1]) and not ended then path = words[1] else request.file = words[1] end
   elseif #words > 2 then
     return nil, "give a path and a file at most, not " .. #words .. " words"
   end
+  if request.file == "" then return nil, "an empty file name" end
   if request.file == "-" then request.file = nil end
   if path ~= nil then
     local steps, why = Json.parse_path(path)
@@ -130,16 +148,16 @@ end
 --- would ever end them.
 local function read_stdin(): string | nil, string
   if Proc.is_tty(Fs.stdin) then
-    return nil, "no file given and standard input is a terminal; " ..
-      "give a file, or pipe JSON in"
+    return nil, "no file given and standard input is a terminal; give a file " ..
+      "(written ./name, or after --, when its name begins with . $ or [), or pipe JSON in"
   end
   -- `Stream.from_fd` borrows the descriptor, which stays open.
   return Stream.read_all(Stream.from_fd(Fs.stdin))
 end
 
 local standard: verb.Io = {
-  out = function(text: string)
-    local _, _ = Fs.put(Fs.stdout, text)
+  out = function(text: string): boolean, string
+    return Fs.put(Fs.stdout, text)
   end,
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
@@ -157,6 +175,13 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
   local function complain(line: string)
     to.err("cosmic: json: " .. line)
+  end
+  -- What a write to standard output answers: 0, or 2 and a complaint,
+  -- since a value lost to a full disk or a closed pipe is no success.
+  local function written(ok: boolean, why: string): integer
+    if ok then return 0 end
+    complain("standard output: " .. why)
+    return 2
   end
   local request, trouble = arguments(argv)
   if request == nil then
@@ -186,8 +211,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   if request.mode == "exists" then return 0 end
   if request.mode == "shape" then
-    to.out(Json.describe(value) .. "\n")
-    return 0
+    return written(to.out(Json.describe(value) .. "\n"))
   end
   if request.mode == "keys" then
     local listed, why = keys_of(value)
@@ -195,20 +219,17 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       complain(request.spelled .. ": " .. why)
       return 1
     end
-    to.out(listed)
-    return 0
+    return written(to.out(listed))
   end
   if request.raw and value is string then
-    to.out(value .. "\n")
-    return 0
+    return written(to.out(value .. "\n"))
   end
   local encoded, encode_trouble = Json.encode(value, { pretty = not request.compact })
   if encoded == nil then
     complain(request.spelled .. ": " .. encode_trouble)
     return 1
   end
-  to.out(encoded .. "\n")
-  return 0
+  return written(to.out(encoded .. "\n"))
 end
 
 return verb

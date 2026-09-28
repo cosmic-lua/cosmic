@@ -119,10 +119,17 @@ local record Cli
   --- `--compact`; a string prints as its text with `-r`. A path reads
   --- as the paths the JSON messages print: `$` is the document, then
   --- `.key` or `["a key"]` and `[1]`, counted from 1 as `Json.get`
-  --- counts (`$.users[1].name`); a first key needs no dot (`a.b`), and
+  --- counts (`$.users[1].name`); with a file after it, a first key
+  --- needs no dot (`a.b`), and whitespace in a path is part of a key.
   --- `*` and `..` are kept for wildcards and are refused. A key named
-  --- `*` is `["*"]`. A lone word is the path when it begins `$`, `.` or
-  --- `[` (and not `./` or `../`), else the file. `--exists` prints
+  --- `*` is `["*"]`. Quote a path in single quotes in a shell
+  --- (`'$.users[1]'`), which would expand `$` and `[1]`. With one word,
+  --- it is the path when it begins `$`, `.` or `[` (and not `./` or
+  --- `../`), else the file; a file named `.data.json` is `./.data.json`,
+  --- and after `--` the words are `[path] file` whatever they begin
+  --- with. The value is printed as `Json.encode` writes it, not echoed
+  --- byte for byte: `1e2` prints as `100.0` and a big integer loses
+  --- precision. `--exists` prints
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
   --- `--shape` prints `Json.describe` of the value. Only a lookup: no

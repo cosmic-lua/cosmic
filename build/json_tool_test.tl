@@ -53,6 +53,9 @@ local function test_a_file_and_the_exit_status_are_the_verdict(tmp: string)
   assert(not usage.err:find("json: FAIL", 1, true), usage.err)
 end
 
+--- Help reads the store's docs, which a test not declaring `store` is held
+--- from, and one that does runs again on every edit to the tree; so it
+--- is here, with the tests that start the program, not in-process.
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = cosmic(tmp, { "json", "--help" })
   assert(ran.code == 0, ran.err)

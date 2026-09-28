@@ -50,16 +50,18 @@ hello from notes.txt
 ## a quick question about a JSON file
 
 For a ten-second question about a JSON file, skip the script: `cosmic
-json` looks one value up. `cosmic json --exists .users[1].email
+json` looks one value up. `cosmic json --exists '.users[1].email'
 export.json` prints nothing and answers by its exit status (0 found, 1
 not there); `cosmic json --keys export.json` lists the top-level keys,
-sorted, or an array's length; `cosmic json --shape .users export.json`
-summarizes what is inside; `cosmic json -r .users[1].name export.json`
+sorted, or an array's length; `cosmic json --shape '.users' export.json`
+summarizes what is inside; `cosmic json -r '.users[1].name' export.json`
 prints a string without its quotes. The path is the `$.users[1].name`
-style the JSON messages print, with indices counted from 1, and the file
-is `-` or left out to read standard input, so `curl ... | cosmic json
-.items[1]` works. It is only a lookup, with no filters: for more, write
-the script with `cosmic.json`. `cosmic help json` has the rest.
+style the JSON messages print, with indices counted from 1; quote it in
+single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
+out to read standard input, so `curl ... | cosmic json '.items[1]'`
+works. Numbers print as `Json.encode` writes them, so `1e2` reads
+`100.0`. It is only a lookup, with no filters: for more, write the
+script with `cosmic.json`. `cosmic help json` has the rest.
 
 ## below cosmic.fs
 
