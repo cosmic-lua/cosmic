@@ -68,6 +68,9 @@
    So a test must not depend on where the tree is (its absolute path); CI
    moves the checkout to a path chosen by the commit and the leg to catch
    one that does: a re-run meets the same path, a new commit a new one.
+   A sandboxed worker sees the tree at /tree wherever it is, so only an
+   unsandboxed leg (macOS) meets the moved path, and there, under
+   `COSMIC_TEST_KEY=declared`, only a test whose key moved runs to meet it.
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
@@ -117,6 +120,11 @@
    kind, size and mode across checkouts: a test whose verdict turns on
    a file's times, inode, device or link count calls
    `observations.reads_stat_times()`, which keys them whole.
+   `COSMIC_TEST_KEY=declared` keys an unsandboxed run as a sandboxed
+   one instead, by what each test declares, and shares its verdicts
+   apart from sandboxed ones: its worker gets only the environment it
+   declares, but nothing else holds it to its declaration, which a
+   sandboxed run (a Linux leg of CI) must enforce.
    Only the sandbox's own tests nest one sandbox in another with
    `observations.confine`: where the kernel cannot confine a process,
    `confine` starts it unconfined; `observations.must_confine` fails
@@ -161,8 +169,8 @@
    of the system names them in `host`. `--audit` names a host program a
    test ran undeclared. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
-   and the run shares no verdict; `COSMIC_TEST_SANDBOX=1` makes that a
-   failure, as CI's Linux legs set it.
+   and the run shares no verdict, unless `COSMIC_TEST_KEY=declared`;
+   `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's Linux legs set it.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
