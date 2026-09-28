@@ -7,7 +7,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 
@@ -64,9 +64,9 @@ end
 --- everywhere.
 local function run(root: string, output: string): boolean, string
   local fd = assert(Fs.open_write(output))
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
-  local started = observations.program({ "test" }, {
+  local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })

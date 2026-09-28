@@ -64,7 +64,7 @@ end
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   if not checked then return end
-  -- This program again, past its launcher, as `Observations.program`
+  -- This program again, past its launcher, as build.this_program's `program`
   -- starts it, handed a chunk that exits 7: a real status to reap. A
   -- test's worker always runs from a portable artifact.
   local relaunch = assert(Proc.relaunch())

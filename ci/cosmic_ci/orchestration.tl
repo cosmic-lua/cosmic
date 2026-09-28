@@ -107,9 +107,9 @@ local function environment(extra?: {string:string}): {string:string}
   -- Where the leg is given what spawn's sandbox needs, every suite runs
   -- each worker sandboxed (build/test_sandbox.tl), as `cosmic test`
   -- does by default wherever it can, and fails where it cannot rather
-  -- than run them unsandboxed; and every `observations.confine` of a
+  -- than run them unsandboxed; and every build.confine `confine` of a
   -- test is a `must_confine` there (COSMIC_SANDBOX=must,
-  -- build/filesystem_observations.tl), so a process a test confines
+  -- build/confine.tl), so a process a test confines
   -- runs confined or fails the test, never unconfined, and the sandbox
   -- tests of core/syscalls_test.tl cannot pass unchecked. The mode
   -- also runs every test no key can hold, as --all does; a sandboxed

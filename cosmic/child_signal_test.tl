@@ -41,7 +41,7 @@ return function(argv: {string}): integer
 end
 ]]))
   -- TODO: start the fixture with SIGINT ignored in cosmic, through
-  -- `observations.program`, once cosmic.sys can set a signal's
+  -- build.this_program's `program`, once cosmic.sys can set a signal's
   -- disposition, and move this case back to cosmic/child_test.tl.
   local r = assert(Child.run({ "/bin/sh", "-c", "trap '' INT; exec \"$0\" \"$@\"",
     assert(Proc.executable()), fixture, report },

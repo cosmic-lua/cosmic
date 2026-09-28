@@ -4,7 +4,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
@@ -41,7 +41,7 @@ end
   assert(Fs.write(tmp .. "/tzdir/Test/Here", tokyo))
   assert(Fs.write(tmp .. "/tzdir/Europe/Berlin", tokyo))
   for tz, want in pairs({ [""] = "UTC 0 true nil\n", ["Europe/Berlin"] = "Europe/Berlin 3600 true nil\n" }) do
-    local started = observations.program({ "--standalone", script },
+    local started = this_program.program({ "--standalone", script },
       { env = { TZ = tz, TZDIR = tmp .. "/tzdir", XDG_CACHE_HOME = tmp .. "/cache" },
         stdout = "capture", stderr = "capture", timeout_ms = 30000 })
     local result = assert(Child.run(started.argv, started.options))

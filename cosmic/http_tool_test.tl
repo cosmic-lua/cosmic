@@ -8,7 +8,7 @@ local Child = require("cosmic.child")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -74,7 +74,7 @@ local Http = require("cosmic.http")
 local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ms = 2000 })
 Fs.put(Fs.stdout, trouble or "")
 ]]))
-  local started = observations.program({ "--standalone", script },
+  local started = this_program.program({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local result = assert(Child.run(started.argv, started.options))

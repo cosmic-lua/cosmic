@@ -12,7 +12,8 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- What a run of `cosmic test` needs of the host, and the program it
@@ -71,7 +72,7 @@ end
 --- a variable no test declares, and the run's own TMPDIR, which a
 --- worker's is not.
 local function environment(cache: string): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = cache
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_TEST_KEY = "declared"
@@ -85,7 +86,7 @@ end
 --- printed, which must say it started.
 local function run(root: string, output: string, env: {string:string}): integer, string
   local fd = assert(Fs.open_write(output))
-  local started = observations.program({ "test" }, {
+  local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -168,13 +169,13 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
   end
   -- macOS has no sandbox at all: nothing to check there.
   local names = assert(sys.uname())
-  if names.sysname == "Darwin" and not observations.held_to_sandbox() then return end
+  if names.sysname == "Darwin" and not confine.held_to_sandbox() then return end
   local sandboxed, unenforced = environments(tmp .. "/cache/verdicts.db")
   checkout(tmp .. "/first")
   local code, first = run(tmp .. "/first", tmp .. "/first.out", sandboxed)
   assert(code == 0, first)
   if not first:find("; sandboxed)", 1, true) then
-    assert(not observations.held_to_sandbox(),
+    assert(not confine.held_to_sandbox(),
       "the run is held to sandboxing, but the run it started was not:\n" .. first)
     return
   end

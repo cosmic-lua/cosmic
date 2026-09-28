@@ -28,7 +28,8 @@
 --- with what observation saw (`build.filesystem_observations`), test
 --- by test.
 
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 -- TODO: take the variables that locate a cache from build.cache_names,
 -- moving build.caches' `locating` and `variables` there: this is all
 -- this module reads of build.caches, whose lazy require of build.zig
@@ -64,7 +65,7 @@ local record test_inputs
     tool: boolean
     store: boolean
     --- Whether its worker is given the system's own paths
-    --- (`observations.worker_unveil`), and its key the host's packages
+    --- (`confine.worker_unveil`), and its key the host's packages
     --- and system (`declared_key.system_identity`).
     system: boolean
     --- The host caches declared, by name (`build.caches`), and where
@@ -99,12 +100,12 @@ end
 --- The variables every test may read undeclared, which a sandboxed
 --- worker is given pinned: what the checker and the fuzzer read, how a
 --- test of the sandbox itself confines what it starts (COSMIC_SANDBOX,
---- `observations.must_confine`), and what a process of the program
+--- `confine.must_confine`), and what a process of the program
 --- running the tests reads to run at all
---- (`observations.runtime_environment`).
+--- (`this_program.runtime_environment`).
 local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_ITERS", "FUZZ_CASE",
   "COSMIC_SANDBOX" }
-for _, name in ipairs(observations.runtime_environment) do pinned_env[#pinned_env + 1] = name end
+for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
 --- Where `build.fuzz` keeps the corpus of every property.
 local corpora <const> = "testdata/fuzz/"
@@ -291,7 +292,7 @@ function test_inputs.resolved(declared: string, environment: {string:string},
     end
     path = test_inputs.plain(value .. rest)
   end
-  local real = observations.resolution(path)
+  local real = confine.resolution(path)
   for _, root in ipairs(roots) do
     for _, where in ipairs({ path, real }) do
       if where ~= "" and root ~= "" and beneath(where, root) then

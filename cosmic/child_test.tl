@@ -5,7 +5,8 @@ local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 
 --- The processes Child starts, which inherit the environment unless given
 --- one, and what a sandboxed one is given of the host, and /proc, where
@@ -48,14 +49,14 @@ local function output(dir: string, name: string): integer, string
   return assert(Fs.open_write(path)), path
 end
 
---- This program again, past its launcher (`observations.program`),
+--- This program again, past its launcher (`this_program.program`),
 --- running the Lua chunk `chunk` with `args` as its `...`: the child
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for `Child.run` or `Child.start`.
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
   local words: {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
-  local started = observations.program(words, opts)
+  local started = this_program.program(words, opts)
   return started.argv, started.options
 end
 
@@ -79,9 +80,9 @@ local CAT <const> = FS .. 'while true do local s = assert(Fs.take(0, 65536)) ' .
 --- leaves it.
 local AGAIN <const> = [[
 local Child = require("cosmic.child")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local function again(chunk, opts)
-  local started = observations.program({ "-e", chunk }, opts)
+  local started = this_program.program({ "-e", chunk }, opts)
   return assert(Child.start(started.argv, started.options))
 end
 ]]
@@ -187,7 +188,7 @@ local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
   local r = assert(Child.run(lua(sleep(100000), nil,
     { timeout_ms = 200, process_group = false })))
   assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
-  local reads = observations.itself()
+  local reads = confine.itself()
   reads[#reads + 1] = "/proc"
   reads[#reads + 1] = "/dev/null"
   -- A directory it may start in: the worker's own, the tree's root, is
@@ -248,7 +249,7 @@ end
 ]]))
   local stdin = tmp .. "/stdin"
   assert(Fs.write(stdin, "stdin's own"))
-  local started = observations.program({ fixture, stdin })
+  local started = this_program.program({ fixture, stdin })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "descriptor fixture exited " .. tostring(result.code))
 end
@@ -278,7 +279,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local fd, diagnostic = output(tmp, "driver.log")
-  local started = observations.program({ fixture, descendant_path, ready },
+  local started = this_program.program({ fixture, descendant_path, ready },
     { stdout = fd, stderr = fd, process_group = false })
   local driver = assert(Child.start(started.argv, started.options))
   -- The driver is a nested cosmic that compiles its fixture before it
@@ -627,7 +628,7 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = observations.program({ script }, { cwd = tmp,
+  local started = this_program.program({ script }, { cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.signal == nil and r.ok, "ended by signal " .. tostring(r.signal) .. ": " ..
@@ -746,7 +747,7 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   assert(Fs.mkdirs(given))
   assert(Fs.mkdirs(hidden))
   assert(Fs.write(given .. "/f", "in"))
-  local reads = observations.itself()
+  local reads = confine.itself()
   reads[#reads + 1] = given
   reads[#reads + 1] = "/proc"
   reads[#reads + 1] = "/dev/null"
@@ -854,7 +855,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = observations.program({ fixture, report },
+  local started = this_program.program({ fixture, report },
     { stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   local cancelled = "true cancelled by signal " .. tostring(sys.SIGTERM)
@@ -899,7 +900,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = observations.program({ fixture, report },
+  local started = this_program.program({ fixture, report },
     { stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
@@ -934,7 +935,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = observations.program({ fixture, report },
+  local started = this_program.program({ fixture, report },
     { stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
@@ -969,7 +970,7 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = observations.program({ fixture, report },
+  local started = this_program.program({ fixture, report },
     { stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..

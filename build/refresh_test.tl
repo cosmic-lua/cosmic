@@ -17,7 +17,7 @@ local Vendor = require("build.vendor")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local refresh = require("build.refresh")
 
 --- The vendored bundle and zones a refresh replaces, and the tool it
@@ -208,7 +208,7 @@ local function test_reads_a_zone()
   assert(Time.zone("Europe/Paris"))
 end
 ]]))
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil

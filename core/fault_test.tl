@@ -14,7 +14,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which the fixtures run.
@@ -252,7 +252,7 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = observations.program({ fixture }, { stdout = "capture", stderr = "capture" })
+  local started = this_program.program({ fixture }, { stdout = "capture", stderr = "capture" })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, "the fixture exited " .. tostring(result.code) .. ": " ..
     tostring(result.stderr))

@@ -168,7 +168,7 @@ local casts: {string: string} = {
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
     "cosmic.internal.process declares that table, core/process.h defines it",
-  ["build/filesystem_observations.tl:plain_sandbox"] =
+  ["build/confine.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/filesystem_observations.tl:drain_syscalls"] =
     "a logged call's answers, which the syscall table's log keeps untyped, " ..

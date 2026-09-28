@@ -6,7 +6,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
@@ -25,7 +25,7 @@ Test.needs{ reads = { "build/patch.tl" }, tool = true }
 local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp: string)
   local script = assert(Fs.absolute("build/zig.tl"))
   local function run(): Child.Result
-    local started = observations.program({ "--standalone", script, "version" }, {
+    local started = this_program.program({ "--standalone", script, "version" }, {
       env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ms = 30000,
     })
@@ -83,7 +83,7 @@ end
 -- pid 0 (its binding refuses 0 as out of range): today a program has
 -- neither, and /proc/self/stat, which names both, is Linux's alone.
 local function build_with_stand_in(tmp: string, script: string, group: boolean): Child.Result
-  local started = observations.program({ "--standalone", script, "build" }, {
+  local started = this_program.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture",
   })

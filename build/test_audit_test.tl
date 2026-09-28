@@ -5,6 +5,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local test = require("build.test")
 local test_inputs = require("build.test_inputs")
 local type positions = require("build.positions")
@@ -19,9 +20,9 @@ local function audit(root: string, output: string): boolean, string
   local fd = assert(Fs.open_write(output))
   -- Unsandboxed: a sandboxed worker's undeclared read finds nothing,
   -- and fails its test before the audit could name it.
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
-  local started = observations.program({ "test", "--audit" }, {
+  local started = this_program.program({ "test", "--audit" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })

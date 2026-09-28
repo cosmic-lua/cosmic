@@ -1,6 +1,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
@@ -58,7 +58,7 @@ end
 local function fix(root: string, check: boolean): Child.Result
   local args: {string} = { "fix" }
   if check then args[#args + 1] = "--check" end
-  local started = observations.program(args, { cwd = root,
+  local started = this_program.program(args, { cwd = root,
     stdout = "capture", stderr = "stdout", timeout_ms = 60000 })
   return (assert(Child.run(started.argv, started.options)))
 end

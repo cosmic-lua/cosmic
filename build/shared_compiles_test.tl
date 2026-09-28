@@ -8,7 +8,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local shared_compiles = require("build.shared_compiles")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
@@ -75,7 +75,7 @@ end
 local function build(root: string, env: {string:string}, fails?: boolean): string
   local output = root .. ".out"
   local fd = assert(Fs.open_write(output))
-  local started = observations.program({ "test" }, {
+  local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
@@ -89,7 +89,7 @@ end
 --- The environment the builds of a case run in, sharing through a
 --- cache in `tmp`, and where that cache is.
 local function environment(tmp: string): {string:string}, string
-  local env = observations.environment()
+  local env = this_program.environment()
   local path = tmp .. "/cache/cache.db"
   env.COSMIC_BUILD_CACHE = path
   env.COSMIC_TEST_ALL = nil
@@ -299,7 +299,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   for index, name in ipairs({ "one", "two" }) do
     local fd = assert(Fs.open_write(tmp .. "/" .. name .. ".out"))
     outputs[index] = fd
-    local started = observations.program({ "test" }, {
+    local started = this_program.program({ "test" }, {
       cwd = tmp .. "/" .. name, env = env, stdout = fd, stderr = fd, process_group = true,
     })
     handles[index] = assert(Child.start(started.argv, started.options))
@@ -347,7 +347,7 @@ assert(db:exec("COMMIT"))
 assert(db:close())
 return 0
 ]], path, held)
-  local started = observations.program({ "-e", chunk }, { process_group = true })
+  local started = this_program.program({ "-e", chunk }, { process_group = true })
   local handle = assert(Child.start(started.argv, started.options))
   local waited = 0
   while Fs.exists(held) ~= true do

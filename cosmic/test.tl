@@ -30,13 +30,13 @@
 --- process, whichever module makes it: a test module never requires
 --- another test module that calls `needs`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
--- TODO: take `reads_stat_times`, `environment` and `program` from
--- build.filesystem_observations, which a test calls to say what it
--- reads of a stat, what a process of this program it starts needs and
--- how to start one past its launcher, once each can be read from the
--- source as `needs` is: another project's tests cannot reach build/.
--- (`confine` stays there: only the sandbox's own tests nest one sandbox
--- in another.)
+-- TODO: take `reads_stat_times` from build.filesystem_observations,
+-- and `environment` and `program` from build.this_program, which a test
+-- calls to say what it reads of a stat, what a process of this program
+-- it starts needs and how to start one past its launcher, once each can
+-- be read from the source as `needs` is: another project's tests cannot
+-- reach build/. (`confine` stays in build.confine: only the sandbox's
+-- own tests nest one sandbox in another.)
 
 local Errors = require("cosmic.errors")
 
@@ -121,7 +121,7 @@ local record Test
     --- host has installed or which system it says it is: a verdict that
     --- stood on one host stands on another of the same kernel and
     --- processor. A test that starts this program only past its launcher
-    --- -- its core, relaunched (build.filesystem_observations'
+    --- -- its core, relaunched (build.this_program's
     --- `program`) -- needs none; one that runs the launcher itself
     --- (o/bin/cosmic, `#!/bin/sh`) needs it. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by

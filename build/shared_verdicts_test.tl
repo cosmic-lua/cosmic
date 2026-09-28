@@ -10,7 +10,8 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
 
@@ -28,7 +29,7 @@ local function run(root: string, output: string, env: {string:string},
   local fd = assert(Fs.open_write(output))
   local args: {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
-  local started = observations.program(args, {
+  local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
@@ -51,7 +52,7 @@ end
 --- than skip it.
 local function shares(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return true end
-  assert(not observations.held_to_sandbox(),
+  assert(not confine.held_to_sandbox(),
     "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return false
 end
@@ -62,7 +63,7 @@ end
 --- are, and a run sandboxed and required to be may start runs that
 --- cannot be, which `shares` holds it to.
 local function environment(): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = nil
   return env
 end
