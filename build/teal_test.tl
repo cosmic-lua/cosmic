@@ -41,3 +41,25 @@ local function test_lazy_capsules_are_independent()
   assert(first.path == "first")
   assert(second.path == "second")
 end
+
+local integer_msg = "in assignment: got number, expected integer"
+
+--- An accumulator declared `local peak = 0` is told it was inferred an
+--- integer, from which line, and the two spellings that hold a number.
+local function test_an_integer_inferred_accumulator_names_the_fix()
+  local source = "local n = 1\nlocal peak = 0\nfor _ = 1, n do\n  peak = peak + 1.5\nend\n"
+  assert(teal.replacement(integer_msg, source, 4, 15) ==
+    "peak is an integer, inferred from 'local peak = 0' at line 2; " ..
+    "write 'local peak = 0.0' or 'local peak: number = 0' to hold a number")
+end
+
+--- A declaration that already says its type, or is not one plain
+--- integer literal, or a field, is given no hint; nor is another message.
+local function test_an_integer_hint_never_misleads()
+  assert(teal.replacement(integer_msg, "local x: integer = 0\nx = x / 2\n", 2, 7) == nil)
+  assert(teal.replacement(integer_msg, "local x = #arg\nx = x / 2\n", 2, 7) == nil)
+  assert(teal.replacement(integer_msg, "local x, y = 0, 1\nx = x / 2\n", 2, 7) == nil)
+  assert(teal.replacement(integer_msg, "local t = {n = 0}\nt.n = t.n + 0.5\n", 2, 9) == nil)
+  assert(teal.replacement("in assignment: got string, expected integer",
+    "local x = 0\nx = 'a'\n", 2, 5) == nil)
+end

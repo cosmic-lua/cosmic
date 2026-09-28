@@ -340,6 +340,37 @@ local function module_bound(source: string, name: string): string | nil
   return module
 end
 
+--- The hint for an assignment at line `y` of `source` refused for a
+--- number where an integer was expected: see `teal.replacement`.
+local function integer_hint(source: string, y: integer): string | nil
+  local line = line_at(source, y)
+  local name = line ~= nil and line:match("^%s*([%a_][%w_]*)%s*=[^=]") or nil
+  if name == nil then
+    return nil
+  end
+  for at = y - 1, 1, -1 do
+    local above = line_at(source, at) or ""
+    local names, init = above:match("^%s*local%s+([^=]-)%s*=%s*(.*)$")
+    if names == nil then
+      -- `local x` or `local x: T` with no initializer still shadows.
+      names = above:match("^%s*local%s+(.-)%s*$")
+    end
+    if names ~= nil and (" " .. names:gsub("[,:<>]", " ") .. " "):find(" " .. name .. " ", 1, true) then
+      if names ~= name or init == nil then
+        return nil
+      end
+      local literal, rest = init:match("^(%-?%d+)%s*(.*)$")
+      if literal == nil or (rest ~= "" and rest:sub(1, 2) ~= "--" and rest ~= ";") then
+        return nil
+      end
+      return name .. " is an integer, inferred from 'local " .. name .. " = " .. literal ..
+        "' at line " .. at .. "; write 'local " .. name .. " = " .. literal ..
+        ".0' or 'local " .. name .. ": number = " .. literal .. "' to hold a number"
+    end
+  end
+  return nil
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- `environment_for` stripped: `unknown variable: os` at line `y`,
 --- column `x` of `source`, read together with the field that follows
@@ -360,7 +391,19 @@ end
 --- its `local` (`do local Hash = ...`). Scope is not read: a `require`
 --- in a nested block counts as if it were the file's own. Nil for every
 --- other message.
+---
+--- `in assignment: got number, expected integer` at line `y` names the
+--- variable when that line is a plain `name = ...` and the nearest
+--- `local` above it declares `name` alone from an integer literal
+--- without an annotation (`local peak = 0`): the checker inferred
+--- `integer` there, and the answer is to spell the float or the type.
+--- Scope is not read, as above; a declaration with an annotation, a
+--- non-literal initializer or several names, and a field (`t.n = ...`),
+--- has no answer.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
+  if msg == "in assignment: got number, expected integer" then
+    return integer_hint(source, y)
+  end
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
   if key == nil then

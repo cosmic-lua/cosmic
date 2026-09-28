@@ -51,6 +51,17 @@ local function test_a_removed_field_names_its_replacement(tmp: string)
     "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
 end
 
+--- A float assigned to a variable inferred an integer from `= 0` is
+--- told to write `0.0` or annotate `number`.
+local function test_an_integer_accumulator_names_the_fix(tmp: string)
+  local chunk, trouble = compile(tmp, "acc.tl",
+    "local peak = 0\npeak = peak + 1.5\nreturn peak\n")
+  assert(chunk == nil)
+  assert(trouble:find("acc.tl:2:", 1, true) ~= nil, trouble)
+  assert(trouble:find("peak is an integer, inferred from 'local peak = 0' at line 1; " ..
+    "write 'local peak = 0.0' or 'local peak: number = 0' to hold a number", 1, true) ~= nil, trouble)
+end
+
 --- A member a `cosmic.*` module no longer has is told, under the alias
 --- the file gave the module, what to write instead.
 local function test_a_removed_member_names_its_replacement(tmp: string)
