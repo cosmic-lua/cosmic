@@ -17,7 +17,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local importer = require("build.importer")
+local type importer = require("build.importer")
 local bom = require("build.bom")
 local roots = require("build.roots")
 local schema = require("build.schema")

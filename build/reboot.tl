@@ -168,7 +168,8 @@ end
 --- Whether the running binary carries the tree's code: every module of
 --- the tree in `handle`, open and staged, that a tool carries (its
 --- modules and its main, not its tests, examples or declarations) is
---- one the binary carries, with the same source. A tool a stale tool
+--- one the binary carries, with the same source, and so is the Teal
+--- compiler the tree holds (`vendor.tl`, origin 'vendor'). A tool a stale tool
 --- rebuilt from this tree does, though it may be stale by its own code
 --- -- its fingerprint taken by the older definition the stale tool ran
 --- -- so what it computes of the tree (the fingerprint, the compiler's
@@ -177,8 +178,8 @@ end
 --- or differs, or the tree cannot be read.
 function reboot.carries_tree_code(handle: work.Handle): boolean
   local rows, _ = Sqlite.text_rows(handle.db,
-    "SELECT path, source_hash FROM inputs WHERE origin = 'tree' " ..
-    "AND kind IN ('module', 'main') ORDER BY path")
+    "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
+    "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
   if rows == nil or #rows == 0 then
     return false
   end

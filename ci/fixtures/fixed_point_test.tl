@@ -145,8 +145,12 @@ end
 -- refuse (exit 3).
 local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "fingerprint-identity", "build/work.tl", function(source: string): string
-    local covered = source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1)
-    return (covered:gsub('"build%.teal", "build%.tree",\n',
-      '"build.teal", "build.tree", "build.clock",\n', 1))
+    local covered, files = source:gsub('(%["build%.zig%.zon"%] = true,\n)',
+      '%1  ["README.md"] = true,\n', 1)
+    assert(files == 1, "fingerprint-identity: tool_files' build.zig.zon line was not found")
+    local redefined, roots = covered:gsub('"build%.teal", "build%.tree",\n',
+      '"build.teal", "build.tree", "build.clock",\n', 1)
+    assert(roots == 1, "fingerprint-identity: compiler_roots' last line was not found")
+    return redefined
   end, true)
 end

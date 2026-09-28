@@ -317,8 +317,11 @@ local self_rebuild_test_timeout_ms <const> = 180000
 -- past the runner's default 30 s per test on a loaded machine.
 local self_rebuild_per_test_timeout_s <const> = "120"
 -- Each fixed-point test rebuilds the product twice from a fresh tree, and
--- the compiler's case compiles the whole tree about twice over (80 s
--- alone on four cores), so each runs apart from the self-rebuild file's.
+-- the compiler's cases -- the compiler's own, its identity redefined, and
+-- that redefined with the fingerprint -- each compile the whole tree
+-- about twice over (80 s alone on four cores; the sixth case, the last of
+-- these, adds about 20 to 30 s to the fixture), so each runs apart from
+-- the self-rebuild file's.
 local fixed_point_test_timeout_ms <const> = 300000
 --- The whole suite on the checked core: see `checked_suite`'s comment
 --- for what it takes.
@@ -913,9 +916,9 @@ local function phase_fixtures(p: PlatformContext): integer
     COSMIC_FIXTURE_RUNTIME = runtime,
     COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
   }); if s ~= 0 then return s end
-  -- The fixed-point regression is the slowest fixture on every leg (70
-  -- to 150 s: each of its tests rebuilds the product twice from a fresh
-  -- tree), and what it checks -- that the compiler compiles itself to
+  -- The fixed-point regression is the slowest fixture on every leg
+  -- (about 90 to 180 s: each of its six tests rebuilds the product twice
+  -- from a fresh tree, and three compile the tree twice over), and what it checks -- that the compiler compiles itself to
   -- itself -- is the same on every platform, so a gating run runs it on
   -- one leg, and the others set COSMIC_CI_FIXED_POINT=skip; the
   -- scheduled run keeps it on every leg (ci.yml).

@@ -1270,7 +1270,8 @@ local writer_roots <const>: {string} = { "build.writer", "build.work" }
 --- root's own require is left out: a module that another module of the
 --- identity requires is in it, whichever of these it is.
 local writer_left_out <const>: {string:string} = {
-  ["build.importer"] = "build.writer names its `Result` type alone; what its " ..
+  ["build.importer"] = "build.writer requires it for its `Result` type alone " ..
+    "(`local type`), which `requires` still records; what its " ..
     "compiles and parses store reaches a projection as rows the compiler's " ..
     "identity keys",
   ["build.analysis_schema"] = "the schema of the rows a parse stores, which " ..

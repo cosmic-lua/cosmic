@@ -1351,10 +1351,12 @@ end
 --- theirs `work.writer_left_out` names with a reason. Each named is
 --- still one of theirs, and in no other way in the identity. What that
 --- leaves out of build.writer's whole import closure is the compiler's
---- -- whose identity a projection's signature holds -- or the standard
---- library, or named below with the reason no projection turns on it,
---- so a new require of the importer's that fills a row the writer
---- projects fails here until it is one or the other.
+--- -- whose identity a projection's signature holds -- or named below,
+--- a module of the standard library's as much as the build's, with the
+--- reason no projection turns on it, so a new require of the importer's
+--- that fills a row the writer projects, or runs on a module of the
+--- standard library the writer does not, fails here until it is one or
+--- the other.
 local function test_the_writer_modules_are_closed_under_require()
   local modules = assert(work.writer_modules(Store.requires))
   local covered: {string:boolean} = {}
@@ -1382,6 +1384,10 @@ local function test_the_writer_modules_are_closed_under_require()
   local neither: {string:string} = {
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
+    ["cosmic.test"] = "build.analyzer reads a test's `Test.needs` by its fields " ..
+      "in a parse, which reaches a projection only as the rows the parse stores",
+    ["cosmic.errors"] = "reached only through cosmic.test, which builds its " ..
+      "failures with it; no projection holds one",
   }
   local reached: {string:boolean} = {}
   local stack: {string} = { "build.writer" }
@@ -1401,7 +1407,7 @@ local function test_the_writer_modules_are_closed_under_require()
       used[name] = true
       assert(not covered[name] and not compiler[name],
         name .. " is named as in neither identity, but is in one")
-    elseif not covered[name] and not compiler[name] and name:match("^cosmic%.") == nil then
+    elseif not covered[name] and not compiler[name] then
       unclassified[#unclassified + 1] = name
     end
   end
