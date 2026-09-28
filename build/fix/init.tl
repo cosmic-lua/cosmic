@@ -649,7 +649,8 @@ function fix.run(argv: {integer:string}): integer
 
   -- A note is a heuristic's, and names what to look at; only one on the
   -- standard library, in a run over the whole tree, is a failure: the
-  -- library as it stands earns no note against itself.
+  -- library as it stands earns no note against itself. The notes compare
+  -- with every database the binary sees (`Store.databases()`).
   for _, line in ipairs(fix.notes(built, root, files, Store.databases())) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
