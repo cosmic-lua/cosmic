@@ -179,12 +179,6 @@ four-producer provenance join.
   pinned bootstrap cosmic, so the build driver is already self-hosted while the
   compiler is not; that is evidence, not the answer. Do not assume full
   self-hosting is the desired answer before comparing the maintained systems.
-- **DNS and HTTP in C.** design.md's C/Teal line still says DNS is a Teal
-  resolver and HTTP/1.1 framing starts in C once a fuzzed implementation
-  exists, while `cosmic.http` shipped as curl over c-ares and mbedtls. Either
-  amend that paragraph to record why curl and c-ares met the bar (fuzzed
-  upstream, TLS needed now), or plan the Teal resolver and decide what then
-  remains in C.
 - **sanitizer tier.** The Linux lane already runs the whole suite on a checked
   core (ReleaseSafe, full undefined-behavior checking, Lua's own assertions),
   the static analyzer, and a walk of every allocation-failure path. What is
