@@ -37,8 +37,10 @@
 --- When it covers every Teal source of cosmic's own tree (`cosmic fix
 --- --check .`, as CI runs it), it also builds the tree's projection and
 --- holds it to the checks only the whole tree can answer
---- (`build.tree_checks`), and a note on the standard library is a file
---- refused rather than a note. A run over some paths does neither.
+--- (`build.tree_checks`), and a note on the standard library fails the
+--- run rather than being a note; a tree that does not build fails it
+--- too, as the checks need its projection. A run over some paths does
+--- none of this.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -624,17 +626,20 @@ function fix.run(argv: {integer:string}): integer
   end
 
   -- Over the whole of cosmic's own tree, what only the whole tree can
-  -- answer (`build.tree_checks`), asked of its projection built afresh.
+  -- answer (`build.tree_checks`), asked of its projection built afresh:
+  -- a finding is the tree's, not a file's, so it is counted apart.
+  local findings: {string} = {}
   if picked.whole then
     local db, projection_trouble = tree_checks.projection(root, built)
     if db == nil then
-      failures[#failures + 1] = "tree checks: " .. projection_trouble
+      findings[#findings + 1] = "tree checks: " .. projection_trouble
     else
-      for _, line in ipairs(tree_checks.run(db)) do
-        failures[#failures + 1] = line
+      local found = tree_checks.run(db)
+      for _, line in ipairs(found) do
+        findings[#findings + 1] = line
       end
       local closed, close_trouble = db:close()
-      if not closed then failures[#failures + 1] = "tree checks: " .. close_trouble end
+      if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
     end
   end
 
@@ -642,22 +647,40 @@ function fix.run(argv: {integer:string}): integer
   -- standard library, in a run over the whole tree, is a failure: the
   -- library as it stands earns no note against itself.
   for _, line in ipairs(fix.notes(built, root, files)) do
-    local file = line:match("^([^:]*):") or ""
-    if picked.whole and tree_checks.standard(file) then
-      failures[#failures + 1] = "near: " .. line
+    local named = line:match("^([^:]*):") or ""
+    local absolute, _ = Fs.absolute(named)
+    local relative: string | nil = nil
+    if absolute ~= nil then
+      local within, _ = Fs.relative(absolute, root)
+      relative = within
+    end
+    if picked.whole and relative ~= nil and tree_checks.standard(relative) then
+      findings[#findings + 1] = "near: " .. line
     else
       log:say("fix: note  " .. line)
     end
   end
+  if picked.whole then
+    log:say("fix: tree checks: ran over the whole tree, " .. #findings .. " found")
+  end
   for _, line in ipairs(failures) do
+    log:say("fix: FAIL  " .. line)
+  end
+  for _, line in ipairs(findings) do
     log:say("fix: FAIL  " .. line)
   end
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
-  if #failures > 0 then
-    log:verdict("fix", false, #failures .. " of " .. counted .. " files refused, " ..
-      clock.took(started))
+  if #failures > 0 or #findings > 0 then
+    local said: {string} = {}
+    if #failures > 0 then
+      said[#said + 1] = #failures .. " of " .. counted .. " files refused"
+    end
+    if #findings > 0 then
+      said[#said + 1] = #findings .. " found by the tree checks"
+    end
+    log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(started))
     return 1
   end
   if checking and #changed > 0 then

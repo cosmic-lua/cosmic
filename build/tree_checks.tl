@@ -10,8 +10,9 @@
 --- suite's `store` declaration is kept to), so these are not tests:
 --- `cosmic fix` runs them when it covers all of cosmic's own tree
 --- (`cosmic fix --check .`, which CI runs), after building the
---- projection afresh (`projection`), and each line a check answers is a
---- file refused. A `cosmic fix` of some paths does not run them.
+--- projection afresh (`projection`), and each line a check answers
+--- fails the run. A `cosmic fix` of some paths does not run them, and a
+--- tree that does not build fails them all.
 ---
 --- Each check takes the projection and what it holds the tree to, by
 --- default the tree's own (`allowed`, the anchors expected, ...), so its

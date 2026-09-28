@@ -48,7 +48,9 @@
    The checks only the whole tree can answer (`build/tree_checks.tl`:
    every export earned, every doc anchor its own, and the like) run in
    `o/bin/cosmic fix --check .`, as CI runs it, and not in a `fix` of
-   some paths: run it before pushing a change to what they read.
+   some paths: run it before pushing a change to what they read. Since
+   they read the tree's projection, that run also refuses a tree that
+   does not build.
 3. A tool older than the tree rebuilds itself and re-enters the command the
    moment it notices, so `o/bin/cosmic test` after an edit is enough. An
    edit to Teal rebuilds its database; a change to the core's C under
