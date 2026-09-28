@@ -409,9 +409,18 @@ local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
     elseif kind == "assignment" then
       local names, values = n.vars, n.exps
       local value = values ~= nil and values[1] or nil
+      local target = names ~= nil and names[1] or nil
+      -- The checker reports a binary expression at its operator, a
+      -- parenthesized one inside the parentheses, and any other
+      -- (a call, an index) at the target itself.
+      local at = target ~= nil and target.y == y and target.x == x
+      local inner = value
+      while not at and inner ~= nil do
+        at = inner.y == y and inner.x == x
+        inner = inner.kind == "paren" and inner.e1 or nil
+      end
       if names ~= nil and #names == 1 and values ~= nil and #values == 1
-          and value ~= nil and value.y == y and value.x == x then
-        local target = names[1]
+          and target ~= nil and at then
         if target.kind == "variable" and target.tk ~= nil then
           answer = lookup(target.tk)
         end
@@ -448,6 +457,9 @@ local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
         declare(n.name.tk, {})
       end
       scopes[#scopes + 1] = {}
+      if n.is_method == true then
+        declare("self", {})
+      end
       for _, argument in ipairs(n.args) do
         declare(argument.tk, {})
       end
@@ -465,6 +477,8 @@ end
 --- The hint for the assignment refused at `y`:`x` of `source` for a
 --- number where an integer was expected: see `teal.replacement`.
 local function integer_hint(source: string, y: integer, x: integer): string | nil
+  -- Each refused assignment reparses the file: only a file that already
+  -- fails pays for it.
   local built, _ = teal.load()
   if built == nil then
     return nil
@@ -517,16 +531,19 @@ end
 --- through the lexical scopes, to `local name = <integer literal>`
 --- with no annotation (`local peak = 0`): the checker inferred
 --- `integer` there, and the answer is to spell the float or the type.
---- Nothing is said for a parameter, a loop variable, a declaration
---- with an annotation, a non-literal (or negative, or hexadecimal)
---- initializer or several names, a global, a field (`t.n = ...`), a
---- multiple assignment (`a, b = ...`), or a source that does not parse.
+--- The position is the operator of a binary expression, the inside of
+--- parentheses, or the target itself for any other expression
+--- (`x = f()`, `x = t.n`). Nothing is said for a parameter, `self`, a
+--- loop variable, a declaration with an annotation, a non-literal (or
+--- negative, or hexadecimal) initializer or several names, a global, a
+--- field (`t.n = ...`), a multiple assignment (`a, b = ...`), or a
+--- source that does not parse.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
   if msg == "in assignment: got number, expected integer" then
     -- TODO: hint a table field too (`local t = {n = 0}; t.n = t.n + 0.5`,
--- `t.n` an "op" node here): it waits on the checker's inferred type of
--- a record field being readable from the AST, which the parser alone
--- does not give; resolving it takes the type checker's own result.
+    -- `t.n` an "op" node here): it waits on the checker's inferred type of
+    -- a record field being readable from the AST, which the parser alone
+    -- does not give; resolving it takes the type checker's own result.
     return integer_hint(source, y, x)
   end
   local key, alias, typename = msg:match(

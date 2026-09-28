@@ -117,3 +117,25 @@ local function test_an_integer_hint_never_misleads()
   assert(teal.replacement("in assignment: got string, expected integer",
     "local x = 0\nx = 'a'\n", 2, 5) == nil)
 end
+
+--- An expression the checker reports at the target itself (a call, an
+--- index) or inside parentheses is hinted like a binary one; a field
+--- read through a record is no different.
+local function test_an_integer_hint_reads_a_non_binary_right_hand_side()
+  assert(hint_for("local x = 0\nlocal function f(): number\n  return 1.5\nend\nx = f()\nprint(x)\n")
+    == said("x", 1, "0"))
+  assert(hint_for("local x = 0\nlocal t = {n = 1.5}\nx = t.n\nprint(x)\n") == said("x", 1, "0"))
+  assert(hint_for("local x = 0\nx = (1.5)\nprint(x)\n") == said("x", 1, "0"))
+end
+
+--- `repeat ... until` bodies resolve their own locals; a method's
+--- `self` is its own, whatever an outer local is called.
+local function test_an_integer_hint_reads_repeat_and_method_scopes()
+  assert(hint_for("local x = 0\nrepeat\n  x = x / 2\nuntil x < 1\nprint(x)\n") == said("x", 1, "0"))
+  assert(hint_for("repeat\n  local x: integer = 0\n  x = x / 2\nuntil x < 1\nlocal x = 0\nprint(x)\n")
+    == nil)
+  -- The checker refuses a method's `self` for another reason, so ask
+  -- `teal.replacement` for the integer message at the literal's position.
+  assert(teal.replacement(integer_msg,
+    "local self = 0\nfunction R:m()\n  self = 1.5\nend\n", 3, 10) == nil)
+end
