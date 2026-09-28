@@ -338,3 +338,42 @@ local function test_failures_lists_every_unknown_key_of_a_strict_record()
     nested = Shape.strict_record({ port = Shape.optional(Shape.integer) }),
   })), { "$.nested.a: unknown key", "$.nested.prot: unknown key" })
 end
+
+local function test_decode_into_answers_a_record_from_text()
+  local s: Server = must(Shape.decode_into('{"host": "h", "port": 80, "extra": 1}', SERVER))
+  assert(s.host == "h" and s.port == 80 and s.tls == nil)
+end
+
+local function test_decode_into_names_a_decode_error_as_json_does()
+  local text = '{"host": '
+  local _, want = Json.decode(text)
+  local s, err: Server | nil, string = Shape.decode_into(text, SERVER)
+  assert(s == nil and err ~= "" and err == want, err)
+end
+
+local function test_decode_into_names_the_path_of_a_shape_failure()
+  local s, err: Server | nil, string = Shape.decode_into('{"host": "h", "port": "x"}', SERVER)
+  assert(s == nil)
+  assert(err == "$.port: expected integer, got string", err)
+end
+
+local function test_decode_into_forwards_the_decode_options()
+  local text = "{host: 'h', /* why */ port: 1,}"
+  local plain, err: Server | nil, string = Shape.decode_into(text, SERVER)
+  assert(plain == nil and err ~= "")
+  local s: Server = must(Shape.decode_into(text, SERVER, { json5 = true }))
+  assert(s.host == "h" and s.port == 1)
+  -- null_value cannot tell: `into` treats the sentinel as missing too.
+  local list = Shape.list(Shape.list(Shape.integer))
+  local deep, derr: {{integer}} | nil, string = Shape.decode_into("[[1]]", list, { max_depth = 1 })
+  assert(deep == nil and derr ~= "" and derr:sub(1, 1) ~= "$", derr)
+  local ok: {{integer}} = must(Shape.decode_into("[[1]]", list, { max_depth = 2 }))
+  assert(ok[1][1] == 1)
+end
+
+local function test_decode_into_null_text_is_nothing_to_check()
+  local s, err: Server | nil, string = Shape.decode_into("null", SERVER)
+  assert(s == nil and err == "$: expected record, got nothing", err)
+  local o, oerr: Server | nil, string = Shape.decode_into("null", Shape.optional(SERVER))
+  assert(o == nil and oerr == "", oerr)
+end

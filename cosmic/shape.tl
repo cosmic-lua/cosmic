@@ -15,6 +15,11 @@
 ---     })
 ---     local server, err: Server | nil, string = Shape.into(decoded, SERVER)
 ---
+--- `decode_into` is `Json.decode` and `into` in one call, for text that
+--- is not used as anything but the record:
+---
+---     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
+---
 --- The result's type comes from the caller's annotation, not from the
 --- spec, and nothing checks that the two agree: a field the record has
 --- and the spec lacks is simply never set. Teal infers the type in a
@@ -588,6 +593,35 @@ function Shape.into<T>(value: any, spec: Spec): T | nil, string
   if failed ~= nil then return nil, failed.message end
   -- cast: the one from `any`, which walk has just built to `spec`
   return out as T, ""
+end
+
+--- The JSON `text` holds, checked against `spec` as `into` does, and
+--- "". nil and a message when it does not: `Json.decode`'s own, naming
+--- the line and column, when the text is not JSON, or `into`'s, naming
+--- the `$.path` of the first value that does not fit, when it is JSON of
+--- another shape. `opts` are `Json.decode`'s, forwarded as they are
+--- (`json5`, `null_value`, `max_depth`). The answer's type is the
+--- caller's annotation, as `into`'s is. Text that is `null` decodes to
+--- nothing (unless `opts.null_value` says otherwise), so a required
+--- spec answers `$: expected record, got nothing` and an optional one
+--- answers nil and "". Raises only when `spec` is not a Spec.
+---
+---     local text = '{"host": "localhost", "port": 8080}'
+---     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
+---     -- server.port == 8080; with "port": "x", err is
+---     -- "$.port: expected integer, got string"
+--- @param text string The JSON text
+--- @param spec Spec The shape it must have
+--- @param opts Json.DecodeOptions What `Json.decode` takes
+--- @return T The value, typed
+--- @return string "" or what was wrong with the text
+function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T | nil, string
+  need_spec(spec, "decode_into's shape")
+  local decoded, trouble = Json.decode(text, opts)
+  if decoded == nil and trouble ~= "" then return nil, trouble end
+  local out, failed: T | nil, string = Shape.into(decoded, spec)
+  if out == nil then return nil, failed end
+  return out, ""
 end
 
 --- Every value in `value` that does not fit `spec`, for a config file

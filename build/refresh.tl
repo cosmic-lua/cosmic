@@ -33,7 +33,6 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
-local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
@@ -154,13 +153,9 @@ local INDEX <const> = Shape.record({
 --- The newest sdist of `tzdata` PyPI's JSON description names: its
 --- version, URL and sha256.
 function refresh.tzdata_release(text: string): refresh.Source | nil, string
-  local decoded, trouble = Json.decode(text)
-  if decoded == nil then
-    return nil, "PyPI's description of tzdata: " .. trouble
-  end
-  local index, shape_trouble: Index | nil, string = Shape.into(decoded, INDEX)
+  local index, trouble: Index | nil, string = Shape.decode_into(text, INDEX)
   if index == nil then
-    return nil, "PyPI's description of tzdata: " .. shape_trouble
+    return nil, "PyPI's description of tzdata: " .. trouble
   end
   if not index.info.version:match("^[%w%.]+$") then
     return nil, "PyPI's description of tzdata names an odd version: " .. index.info.version
