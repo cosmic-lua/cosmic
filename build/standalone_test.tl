@@ -78,6 +78,7 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
     'local function f(r: Z.ZipReader): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("old.tl:2:21: unknown type Z.ZipReader " ..
     "-- Z.ZipReader was removed: use Zip.Reader", 1, true) ~= nil, trouble)
   chunk, trouble = compile(tmp, "new.tl",
@@ -85,6 +86,7 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
     'local function f(r: Zip.Nothing): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("unknown type Zip.Nothing", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
   -- `list` is a removed function, never a type: nothing is offered.
@@ -93,6 +95,7 @@ local function test_a_renamed_type_names_its_replacement(tmp: string)
     'local function f(r: Zip.list): integer\n  return r and 1 or 0\nend\n' ..
     'return f\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("unknown type Zip.list", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
 end
@@ -105,6 +108,7 @@ local function test_a_shadowing_record_is_not_told_a_replacement(tmp: string)
     'local function f(Zip: R): integer\n  return Zip.list\nend\n' ..
     'return { f = f, zip = Zip }\n')
   assert(chunk == nil)
+  assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("invalid key 'list' in record 'Zip' of type R", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
 end
