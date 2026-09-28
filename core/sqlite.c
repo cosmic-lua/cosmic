@@ -592,6 +592,14 @@ static int sqlite_open (lua_State *L) {
   h->borrowed = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 
+  /* The program's own file named through a descriptor of it
+   * (/proc/self/fd/<n>) opens here, past cosmic.sys's `open` refusal
+   * (core/syscalls_fs.c's `artifact_through_descriptor`): harmless, since
+   * SQLite finds no database at the launcher's "#!" and refuses it
+   * (SQLITE_NOTADB) without writing, and the database the program carries
+   * lies past that header, where only core/vfs.c's offset reaches it.
+   * TODO: refuse it here too, through the same check, if a portable
+   * artifact ever begins with its database. */
   int rc = sqlite3_open_v2(path, &h->db, flags, COSMIC_SQLITE_OBSERVED_VFS);
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */

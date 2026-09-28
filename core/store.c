@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "check.h"
 #include "fail.h"
 #include "lauxlib.h"
 #include "compress.h"
@@ -1115,6 +1116,20 @@ const struct cosmic_artifact *cosmic_store_artifact (lua_State *L) {
   lua_pop(L, 1);
   if (artifact == NULL || artifact->fd < 0) return NULL;
   return artifact;
+}
+
+void cosmic_argfd (lua_State *L, int arg, lua_Integer fd) {
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact != NULL && fd == (lua_Integer)artifact->fd)
+    luaL_argerror(L, arg, "is this program's retained artifact descriptor, "
+                          "through which every module it carries could be "
+                          "read");
+}
+
+int cosmic_checkfd (lua_State *L, int arg) {
+  int fd = cosmic_checkint(L, arg);
+  cosmic_argfd(L, arg, fd);
+  return fd;
 }
 
 sqlite3 *cosmic_store_database (lua_State *L, int index) {

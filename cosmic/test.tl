@@ -108,8 +108,10 @@ local record Test
     --- type-checks a snippet: a module the snippet requires goes in the
     --- test's closure (`local type _ = require(...)`) or the test
     --- declares `store`. `Store.meta` is not held (the TODO on
-    --- `hold_store`), nor is the descriptor a portable start keeps on
-    --- the program (the TODO above core/syscalls_fs.c's `read`).
+    --- `hold_store`). The descriptor a portable start keeps on the
+    --- program is refused to every binding (core/check.h's
+    --- `cosmic_checkfd`), and a sandboxed worker that does not declare
+    --- `tool` has no name to open the program by.
     store: boolean
     --- Whether the tests, or the processes they start, read the system's
     --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and

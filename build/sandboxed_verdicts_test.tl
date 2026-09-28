@@ -324,10 +324,16 @@ end
   assert(Fs.write(root .. "/suite/undeclared_test.tl", started .. [[
 
 local function test_is_refused_the_tool()
+  -- The program is not given it at all, and its core is refused it,
+  -- the artifact's descriptor with it.
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })
   assert(result == nil, "the program ran undeclared")
-  assert(trouble:find("ermission denied", 1, true), trouble)
-  local core, core_trouble = started({ "-e", "" })
+  assert(trouble:find("o such file", 1, true), trouble)
+  local ok, why = pcall(started, { "-e", "" })
+  assert(not ok, "the program's core ran undeclared")
+  assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
+  local relaunch = assert(Proc.relaunch())
+  local core, core_trouble = Child.run({ relaunch.argv[1], "-e", "" })
   assert(core == nil, "the program's core ran undeclared")
   assert(core_trouble:find("ermission denied", 1, true), core_trouble)
   local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" })
@@ -459,12 +465,17 @@ end
 --- kept under neither key: a pass is kept only when its inputs still
 --- digest to the key it started from, and a failure takes a pass under
 --- that key out, so the test runs again when they are back.
+---
+--- The test it runs holds its input still until told to stop -- a file
+--- in its own directory -- or until it moves, so a run that moves
+--- nothing costs no fixed wait: each run is started, and once the test
+--- says it started, is either stopped or has its input moved under it.
 local function test_a_verdict_whose_inputs_moved_as_it_ran_is_not_kept(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/moving.txt", "one\n"))
-  -- It says it started, and fails if what it reads moves within a
-  -- few seconds.
+  -- It says it started, and fails if what it reads moves before it is
+  -- stopped (or 20 s pass, a bound no run here reaches).
   assert(Fs.write(root .. "/suite/moving_test.tl", [[
 local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
@@ -475,10 +486,10 @@ Test.needs { reads = { "suite/moving.txt" } }
 local function test_moving(tmp: string)
   local was = Fs.read("suite/moving.txt")
   assert(Fs.write(tmp .. "/started", "yes"))
-  local deadline = Time.monotonic_ns() + 3000000000
-  while Time.monotonic_ns() < deadline do
+  local deadline = Time.monotonic_ns() + 20000000000
+  while not Fs.exists(tmp .. "/stop") and Time.monotonic_ns() < deadline do
     assert(Fs.read("suite/moving.txt") == was, "it moved")
-    assert(Time.sleep_ns(50000000))
+    assert(Time.sleep_ns(20000000))
   end
 end
 ]]))
@@ -486,34 +497,57 @@ end
   env.COSMIC_VERDICT_CACHE = "0"
   assert(Fs.mkdirs(tmp .. "/t"))
   env.TMPDIR = assert(Fs.absolute(tmp .. "/t"))
-  local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
-  assert(first:find("1 ran, 0 stood", 1, true), first)
-  -- Forced, and moved as it runs: it fails.
-  local fd = assert(Fs.open_write(tmp .. "/forced.out"))
-  local all = this_program.program({ "test", "--all" }, {
-    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
-  })
-  local handle = assert(Child.start(all.argv, all.options))
-  local deadline = Time.monotonic_ns() + 30000000000
-  local started = false
-  while not started and Time.monotonic_ns() < deadline do
-    for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
-      if Fs.exists(tmp .. "/t/" .. entry .. "/real/started") then started = true end
+  local step = 0
+  -- A run of `words` after `test`: once its test says it started --
+  -- its directory is one of TMPDIR's, sandboxed or not -- `then_do`
+  -- moves its input or stops it. What the run said, and whether it
+  -- passed.
+  local function run_then(words: {string}, then_do: function(string)): string, boolean
+    step = step + 1
+    local out = tmp .. "/" .. step .. ".out"
+    local fd = assert(Fs.open_write(out))
+    local args: {string} = { "test" }
+    for _, word in ipairs(words) do args[#args + 1] = word end
+    local started = this_program.program(args, {
+      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
+    })
+    local handle = assert(Child.start(started.argv, started.options))
+    local deadline = Time.monotonic_ns() + 30000000000
+    local found = ""
+    local ended = false
+    while found == "" and not ended and Time.monotonic_ns() < deadline do
+      local now, _ = handle:try_wait()
+      ended = now ~= nil and now.finished
+      for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
+        for _, sub in ipairs({ "/real", "/tmp", "" }) do
+          local dir = tmp .. "/t/" .. entry .. sub
+          if Fs.exists(dir .. "/started") and not Fs.exists(dir .. "/stop") then found = dir end
+        end
+      end
+      if found == "" then assert(Time.sleep_ns(20000000)) end
     end
-    if not started then assert(Time.sleep_ns(20000000)) end
+    assert(found ~= "" or ended, "the test never started")
+    if found ~= "" then then_do(found) end
+    local result = assert(handle:wait(60000))
+    assert(Fs.close(fd))
+    -- Its directory said it started: marked so the next run's is found.
+    if found ~= "" then local _ = Fs.write(found .. "/stop", "") end
+    return assert(Fs.read(out)), result.ok
   end
-  assert(started, "the test never started")
-  overwrite(root .. "/suite/moving.txt", "two\n")
-  local result = assert(handle:wait(60000))
-  assert(Fs.close(fd))
-  local forced = assert(Fs.read(tmp .. "/forced.out"))
-  assert(not result.ok and forced:find("it moved", 1, true), forced)
+  local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
+  local first, first_ok = run_then({}, stop)
+  if unsandboxed(first) then return end
+  assert(first_ok and first:find("1 ran, 0 stood", 1, true), first)
+  -- Forced, and moved as it runs: it fails.
+  local forced, forced_ok = run_then({ "--all" }, function(_: string)
+    overwrite(root .. "/suite/moving.txt", "two\n")
+  end)
+  assert(not forced_ok and forced:find("it moved", 1, true), forced)
   -- Back as it was: the pass its first run kept is gone with the
   -- failure, so it runs; then it stands.
   overwrite(root .. "/suite/moving.txt", "one\n")
-  local back = run(root, tmp .. "/back.out", env)
-  assert(back:find("1 ran, 0 stood", 1, true), back)
+  local back, back_ok = run_then({}, stop)
+  assert(back_ok and back:find("1 ran, 0 stood", 1, true), back)
   local stands = run(root, tmp .. "/stands.out", env)
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
 end

@@ -219,6 +219,12 @@ contract like any other, so a relaunch cannot land on a different core: a
 checked build relaunches as a checked build, and `cosmic test` workers run
 under the runtime identity their verdicts are recorded for.
 
+Lua never reads through the retained artifact descriptor: every binding that
+takes a descriptor refuses it (`core/check.h`'s `cosmic_checkfd`), as does an
+open that reaches it through `/proc/<pid>/fd` or `/dev/fd`, and `spawn` hands
+it on only as its child's artifact descriptor, as `Proc.relaunch` does, and
+only from a process that may still run its own core.
+
 ## expose one immutable database
 
 [`core/vfs.c`](../../core/vfs.c) registers a small SQLite virtual file system.
