@@ -1,0 +1,334 @@
+--- Data files as SQLite tables: the loader behind `cosmic sql --from`.
+---
+--- A format is a reader that turns a file's text into rows, and `load`
+--- builds one table from any rows, so a question about a data file -- sum
+--- the balances by type -- is a SQL statement over a table rather than a
+--- script:
+---
+---     local rows = assert(Dataset.read("json", '[{"id": 1, "type": "a"}, {"id": 2}]'))
+---     local db = assert(Sqlite.memory())
+---     local table = assert(Dataset.load(db, "accounts", rows))
+---     -- columns id, type, _json; the second row's type is NULL
+---
+--- A row is an object: a table from column name to value, the shape
+--- `Json.decode(text, { null_value = Json.null })` gives an object. The
+--- table `load` makes has:
+---
+--- - one column per key any row has, in byte order, with no declared
+---   type, so SQLite keeps each value as it was stored. A row without a
+---   key holds NULL there.
+--- - a `_json` column last: the whole row as compact JSON text, keys
+---   sorted, so `json_extract(_json, '$.a.b')` reaches anything.
+--- - scalars stored as SQLite values: a JSON integer as INTEGER, a
+---   number with a fraction or exponent as REAL, a string as TEXT,
+---   `Json.null` as NULL, and a boolean as the integer 0 or 1 (SQLite has
+---   no boolean; `WHERE flag` and `WHERE flag = 1` both read a `true`).
+---   A number outside 64 bits is REAL.
+--- - a nested object or array stored as its JSON text, which
+---   `json_extract` and `json_each` read. It is TEXT, so
+---   `typeof(col) = 'text'` cannot tell it from a string: `json_valid`
+---   and `json_type` can.
+---
+--- A key that cannot be a column name as it is gets another, and
+--- `Table.renamed` says which: SQLite folds ASCII case in names, so a key
+--- whose lower case an earlier column has (`A` after `a`) gets `_2` after
+--- it (`A_2`), or `_3` and on; the empty key is `_`; a NUL byte in a key,
+--- which SQL text cannot hold, is `_`; and a key `_json` is renamed the
+--- same way, as the column of that name is the row's own.
+--- Names are quoted (`"` doubled), so a space, a dot or a keyword in a key
+--- is no trouble in the statement either, written in double quotes.
+---
+--- The formats are a table kept here, one entry each -- a name, the
+--- file extensions it goes by, and a reader from text to rows -- so a
+--- format is added as one entry and `cosmic sql --from` takes it by name
+--- and by extension with no other change.
+
+local Json = require("cosmic.json")
+local Sqlite = require("cosmic.sqlite")
+
+local record Dataset
+  --- One row: a column name's key to its value. A value is a string, a
+  --- number, a boolean, `Json.null`, or a table (a nested object or
+  --- array, stored as JSON text).
+  type Row = {string:any}
+
+  --- What a reader may be told.
+  record ReadOptions
+    --- Where in the document the rows are, as `Json.parse_path` gives
+    --- it: the whole document when nil. Only a format that reads a
+    --- document takes one (`json`); the others refuse it.
+    at: {string | integer}
+  end
+
+  --- What `load` may be told.
+  record LoadOptions
+    --- Add the `_json` column (default true).
+    json_column: boolean
+  end
+
+  --- A table `load` made.
+  record Table
+    --- The table's name, as `load` was given it.
+    name: string
+    --- The rows loaded.
+    count: integer
+    --- The columns, in order: each key's column, then `_json` unless
+    --- `json_column` was false.
+    columns: {string}
+    --- A column that is not its key as written, to that key: see the
+    --- module comment. Absent for a column named as its key.
+    renamed: {string:string}
+  end
+
+  --- One format: what `read` looks up by name.
+  record Format
+    --- What it is, for a message.
+    about: string
+    --- The file extensions it goes by, lower case, without the dot.
+    extensions: {string}
+    --- The rows text holds, and ""; nil and why when it is not the
+    --- format or an option does not apply.
+    read: function(text: string, opts: Dataset.ReadOptions): {Dataset.Row} | nil, string
+  end
+end
+
+--- A row for one JSON value: an object is the row; anything else (a
+--- number, a string, a nested array) is a row of one column, `value`.
+local function row_of(element: any): Dataset.Row
+  local object, _ = Json.entries(element)
+  if object ~= nil then
+    return object
+  end
+  return { value = element }
+end
+
+--- The rows of a JSON value: each element of an array is a row as
+--- `row_of` makes it; a value that is not an array is one row.
+local function rows_of(value: any): {Dataset.Row}
+  local rows: {Dataset.Row} = {}
+  local items, _ = Json.items(value)
+  if items == nil then
+    rows[1] = row_of(value)
+    return rows
+  end
+  for index, element in ipairs(items) do
+    rows[index] = row_of(element)
+  end
+  return rows
+end
+
+local formats: {string:Dataset.Format} = {
+  json = {
+    about = "one JSON document: an array of objects is a table of them, an array " ..
+      "of anything else a `value` column, and any other value one row",
+    extensions = { "json" },
+    read = function(text: string, opts: Dataset.ReadOptions): {Dataset.Row} | nil, string
+      local document, trouble = Json.decode(text, { null_value = Json.null })
+      if trouble ~= "" then
+        return nil, trouble
+      end
+      local value, missing = Json.get(document, opts.at or {})
+      if missing ~= "" then
+        return nil, missing
+      end
+      return rows_of(value), ""
+    end,
+  },
+  ndjson = {
+    about = "JSON Lines: one JSON value to a line, an object a row and anything else a `value`",
+    extensions = { "ndjson", "jsonl" },
+    read = function(text: string, opts: Dataset.ReadOptions): {Dataset.Row} | nil, string
+      if opts.at ~= nil then
+        return nil, "the ndjson format takes no path: each line is a row"
+      end
+      local values, trouble = Json.decode_lines(text, { null_value = Json.null })
+      if values == nil then
+        return nil, trouble
+      end
+      return rows_of(values), ""
+    end,
+  },
+}
+
+--- The names of the formats there are, sorted: `json`, `ndjson`.
+function Dataset.names(): {string}
+  local names: {string} = {}
+  for name in pairs(formats) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  return names
+end
+
+--- What the format `name` is, for a message: nil when there is none.
+function Dataset.about(name: string): string | nil
+  local format = formats[name]
+  return format and format.about
+end
+
+--- The format a file name's extension names, case aside -- `json` for
+--- `a.json`, `ndjson` for `a.jsonl` and `a.ndjson` -- or nil and why
+--- (the extensions there are) when it has none or an unknown one.
+function Dataset.format_of(path: string): string | nil, string
+  local extension = path:match("%.([^./]+)$")
+  local known: {string} = {}
+  for _, name in ipairs(Dataset.names()) do
+    for _, each in ipairs(formats[name].extensions) do
+      if extension ~= nil and extension:lower() == each then
+        return name, ""
+      end
+      known[#known + 1] = "." .. each
+    end
+  end
+  table.sort(known)
+  return nil, (extension and "unknown extension ." .. extension or "no extension") ..
+    " (known: " .. table.concat(known, ", ") .. ")"
+end
+
+--- The rows `text` holds in the format `name`, and ""; nil and why when
+--- there is no such format (the ones there are), the text is not that
+--- format, or `opts.at` is given to a format that takes none.
+function Dataset.read(name: string, text: string, opts?: Dataset.ReadOptions): {Dataset.Row} | nil, string
+  local format = formats[name]
+  if format == nil then
+    return nil, "no format " .. name .. " (known: " .. table.concat(Dataset.names(), ", ") .. ")"
+  end
+  return format.read(text, opts or {})
+end
+
+--- `name` as an SQL identifier, quoted.
+local function quoted(name: string): string
+  return '"' .. name:gsub('"', '""') .. '"'
+end
+
+--- One value as a bound parameter, or nil and why.
+local function bound(value: any): Sqlite.Value | nil, string
+  if value == Json.null or value == nil then
+    return {}
+  elseif value is string then
+    return { text = value }
+  elseif value is boolean then
+    return { integer = value and 1 or 0 }
+  elseif value is integer then
+    return { integer = value }
+  elseif value is number then
+    return { number = value }
+  elseif value is table then
+    local text, trouble = Json.encode(value)
+    if text == nil then
+      return nil, trouble
+    end
+    return { text = text }
+  end
+  return nil, "a " .. type(value) .. " has no SQLite value"
+end
+
+--- The columns for `rows`' keys, in byte order, each named as the module
+--- comment says; the key each column holds; and the key each renamed
+--- column was.
+local function columns_of(rows: {Dataset.Row}, json_column: boolean): {string}, {string:string}, {string:string}
+  local seen: {string:boolean} = {}
+  local keys: {string} = {}
+  for _, row in ipairs(rows) do
+    for key in pairs(row) do
+      if not seen[key] then
+        seen[key] = true
+        keys[#keys + 1] = key
+      end
+    end
+  end
+  table.sort(keys)
+  local taken: {string:boolean} = { _json = json_column or nil }
+  local names: {string} = {}
+  local key_of: {string:string} = {}
+  local renamed: {string:string} = {}
+  for _, key in ipairs(keys) do
+    local name = key == "" and "_" or (key:gsub("\0", "_"))
+    local candidate = name
+    local number = 1
+    while taken[candidate:lower()] do
+      number = number + 1
+      candidate = name .. "_" .. number
+    end
+    taken[candidate:lower()] = true
+    names[#names + 1] = candidate
+    key_of[candidate] = key
+    if candidate ~= key then
+      renamed[candidate] = key
+    end
+  end
+  return names, key_of, renamed
+end
+
+--- Makes the table `name` on `handle` from `rows` and inserts them, in
+--- one transaction, so a failure leaves no table. The columns and how a
+--- value is stored are the module comment's. Answers the table it made;
+--- nil and why when `name` is empty, SQLite refuses the table (it
+--- exists, or `name` is reserved) or a row, a row holds a value with
+--- no SQLite one, or a nested value cannot be encoded.
+--- `name` and the keys are text SQL is written in, so `name` holds no NUL byte.
+function Dataset.load(handle: Sqlite.Handle, name: string, rows: {Dataset.Row},
+                      opts?: Dataset.LoadOptions): Dataset.Table | nil, string
+  if name == "" then
+    return nil, "a table needs a name"
+  end
+  if name:find("\0", 1, true) then
+    return nil, "a table name cannot hold a NUL byte"
+  end
+  local json_column = not (opts and opts.json_column == false)
+  local names, key_of, renamed = columns_of(rows, json_column)
+  local declared: {string} = {}
+  local marks: {string} = {}
+  for index, column in ipairs(names) do
+    declared[index] = quoted(column)
+    marks[index] = "?" .. index
+  end
+  local width = #names
+  if json_column then
+    declared[width + 1] = quoted("_json")
+    marks[width + 1] = "?" .. (width + 1)
+  end
+  local insert = "INSERT INTO " .. quoted(name) .. " VALUES (" .. table.concat(marks, ", ") .. ")"
+  local ok, trouble = Sqlite.transact(handle, function(): boolean, string
+    local created, why = handle:exec("CREATE TABLE " .. quoted(name) ..
+      " (" .. table.concat(declared, ", ") .. ")")
+    if not created then
+      return false, why
+    end
+    for number, row in ipairs(rows) do
+      local values: {Sqlite.Value} = {}
+      for index, column in ipairs(names) do
+        local value, bad = bound(row[key_of[column]])
+        if value == nil then
+          return false, "row " .. number .. ", " .. column .. ": " .. bad
+        end
+        values[index] = value
+      end
+      if json_column then
+        local text, bad = Json.encode(row)
+        if text == nil then
+          return false, "row " .. number .. ": " .. bad
+        end
+        values[width + 1] = { text = text }
+      end
+      local inserted, bad = Sqlite.run(handle, insert, values)
+      if not inserted then
+        return false, "row " .. number .. ": " .. bad
+      end
+    end
+    return true, ""
+  end)
+  if not ok then
+    return nil, trouble
+  end
+  local columns: {string} = {}
+  for index, column in ipairs(names) do
+    columns[index] = column
+  end
+  if json_column then
+    columns[width + 1] = "_json"
+  end
+  return { name = name, count = #rows, columns = columns, renamed = renamed }, ""
+end
+
+return Dataset

@@ -100,7 +100,24 @@ local record Cli
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against o/cosmic.db, or the binary's own database when there is
   --- none, or the one database an option names. o/ is looked for in
-  --- the working directory only, never above it. The
+  --- the working directory only, never above it. `cosmic sql --from
+  --- <file> ['<statement>']` asks it of a data file instead, to count,
+  --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
+  --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
+  --- BY type'`): each `--from` is loaded as a table of an in-memory
+  --- database, named for the file's stem (`--from name=file` names it,
+  --- and `-` reads standard input), read as JSON, or as JSON Lines for
+  --- `.jsonl` and `.ndjson`; `--as json|ndjson` overrides the
+  --- extension, and standard input needs it. `--as` and `--at '<path>'`
+  --- apply to the `--from` before them, and `--at` reads the rows from
+  --- the array at a path, as `cosmic json` reads one. An array of
+  --- objects is a table of them, with a column per key, an array of
+  --- scalars a `value` column, and any other value one row; a nested
+  --- object or array is JSON text for `json_extract`, a boolean is 0 or
+  --- 1, and `_json` is the whole row. With no statement it prints each
+  --- table's row count, columns with the types stored, and a sample row.
+  --- A missing column or table is answered with the ones there are.
+  --- Exit codes as below, 1 for a file it cannot read or load. The
   --- first line names the columns (a statement without any prints
   --- none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
@@ -133,7 +150,7 @@ local record Cli
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
   --- `--shape` prints `Json.describe` of the value. Only a lookup: no
-  --- filter, no transform. Exits 0 when the path is found, 1 when it is
+  --- filter, no transform; to count or sum, use `cosmic sql --from`. Exits 0 when the path is found, 1 when it is
   --- not, with the message `Json.get` gives on standard error (a
   --- `null` value is found), 2 for a command line it cannot read or a
   --- file that is missing or not JSON. It prints no verdict line, which
@@ -231,6 +248,12 @@ local module: Module = {
       ["--db"] = { value = "path", about = "run against this file" },
       ["--build"] = { about = "run against o/build.db" },
       ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
+      ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
+        "named for its stem, or `name=file`; repeat for a join" },
+      ["--as"] = { value = "format", about = "read the --from before it as json or ndjson, " ..
+        "rather than by its extension" },
+      ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
+        "path ($.rows), not the document" },
     },
     json = {
       ["--compact"] = { about = "print the value on one line" },
