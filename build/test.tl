@@ -2409,8 +2409,10 @@ end
 --- starts: /usr/bin/timeout for `timeout 30 cosmic test`). Kept, each
 --- would enter the key of every test that reads the whole environment,
 --- and such a test would run again after a rebuild, a `cd`, or a run
---- started another way.
-local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, _ = true }
+--- started another way. So too the shell's depth (`SHLVL`): a module
+--- that declared `env = {"*"}` was keyed by it, and a run from a
+--- script, rather than a terminal, ran 177 tests again.
+local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, SHLVL = true, _ = true }
 
 --- The environment a worker starts with: this process's, less the
 --- private startup hooks (`COSMIC_PORTABLE_STARTUP_TEST_*`), which pause
