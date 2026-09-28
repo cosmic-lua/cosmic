@@ -286,6 +286,8 @@ end
 --- key (`build.importer`) -- which would otherwise leave standing a
 --- verdict kept under a key computed wrong. A change to this code moves
 --- every key by itself: it is held by its source and bytecode (above).
+--- build/declared_key_pins_test.tl pins that graph key over a fixed
+--- tree, and fails, naming this, when an edit moves it.
 local version <const> = "declared-3"
 
 --- A file modified this recently may be modified again within the same
@@ -670,7 +672,8 @@ local function of_tree(digests: declared_key.Digests, relative: string): string,
   return plain, digests.root .. "/" .. plain
 end
 
---- The digest of what a test of `spec` is given, but for its name.
+--- The digest of what a test of `spec` is given, but for its name, or
+--- "refused " and why there is none.
 local inputs_of: function(declared_key.Digests, declared_key.Spec): string
 
 --- The key of the test `spec` describes, over what `digests` finds now,
@@ -711,8 +714,15 @@ local function held_value(value: string, root: string,
   return table.concat(parts, ":")
 end
 
---- The digest of what `spec`'s test is given, but for its name.
-inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): string
+--- What `spec`'s test is given, but for its name, as the lines whose
+--- digest its key holds (`compute`) -- each a `key_part`, which frames
+--- what it names so that no two specs spell one -- or nil and why there
+--- is none: a declared directory holds a link out of the tree
+--- (`leads_out`). build/declared_key_fuzz_test.tl holds distinct specs
+--- to distinct preimages, and build/declared_key_test.tl holds every
+--- field of a `Spec` to moving the key `compute` makes of it.
+function declared_key.preimage(digests: declared_key.Digests,
+                               spec: declared_key.Spec): string | nil, string
   local part = declared_key.key_part
   local effective = spec.effective
   local lines: {string} = {
@@ -743,7 +753,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     -- only what the whole tree's edits move leaves it.
     local _, bin = of_tree(digests, "o/bin")
     local answer = tree(digests, bin, true)
-    if answer:sub(1, 8) == "refused " then return answer end
+    if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
     lines[#lines + 1] = part("tool", "o/bin", answer)
     -- And what actually runs, which need not be o/bin/cosmic.
     lines[#lines + 1] = part("program", spec.program or "", "")
@@ -768,7 +778,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     if not seen[plain] then
       seen[plain] = true
       local answer = path ~= "" and tree(digests, path) or "outside"
-      if answer:sub(1, 8) == "refused " then return answer end
+      if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
       lines[#lines + 1] = part("r", plain, answer)
     end
   end
@@ -798,7 +808,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
         -- elsewhere.
         local real, _ = sys.realpath(path)
         local answer = tree(digests, path, false, { path, real or path })
-        if answer:sub(1, 8) == "refused " then return answer end
+        if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
         lines[#lines + 1] = part("v", declared, answer)
       else
         local answer = host(digests, path)
@@ -815,7 +825,13 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
     lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root,
       effective))
   end
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  return table.concat(lines, "\n"), ""
+end
+
+inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): string
+  local preimage, why = declared_key.preimage(digests, spec)
+  if preimage == nil then return "refused " .. why end
+  return Hash.hex_sha256(preimage)
 end
 
 --- The processor's features a core running on `machine` chooses code

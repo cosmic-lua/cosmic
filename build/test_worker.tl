@@ -191,6 +191,9 @@ end
 -- is fixed). So does a test of distinct reads alone: 20000 stats of
 -- distinct paths outside the tree, each noted with its resolution,
 -- report about 30 MB and fail so, which dropping repeats cannot help.
+-- Under FUZZ_ITERS=8000 build/declared_key_fuzz_test.tl and
+-- build/locator_fuzz_test.tl fail so too ("exited with status 0 before
+-- it reported (not a test report)"), their properties having held.
 -- Stream the report, read as it arrives, rather than capture it
 -- whole; dropping repeated observations here, as `observations.join`
 -- does on the runner's side, shrinks the rest.
