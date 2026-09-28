@@ -133,3 +133,24 @@ local function test_the_command_removes_what_the_builds_set_aside(tmp: string)
   assert(Fs.stat(tmp .. "/other.db.corrupt-123") ~= nil, "removed another file's")
   assert(#keys(path) == 1)
 end
+
+--- The command names what it keeps by a digest of its rows, the tail
+--- of the key ci.yml saves it under: the same compiles, used again
+--- later, name the same digest, so a run that compiled nothing new
+--- saves nothing new; another compile names another.
+local function test_the_command_names_the_rows_it_keeps_by_a_digest(tmp: string)
+  local digests: {string} = {}
+  for i, used in ipairs({ { 999, 1001 }, { 1500, 1600 }, { 1500, 1600, 1700 } }) do
+    local dir = tmp .. "/" .. i
+    assert(Fs.mkdirs(dir))
+    cache(dir .. "/cache.db", used)
+    local code, out, _ = Compiles.command({ i == 1 and "1000" or "1550" },
+      { COSMIC_BUILD_CACHE = dir .. "/cache.db", GITHUB_OUTPUT = dir .. "/output" })
+    digests[i] = (assert(Fs.read(dir .. "/output"))):match("^digest=(%x+)\n$")
+    assert(code == 0 and digests[i] ~= nil and #digests[i] == 64, out)
+    assert(out:find("digest " .. digests[i], 1, true) ~= nil, out)
+  end
+  -- The first keeps k2 of two; the second k2 of two, used later.
+  assert(digests[1] == digests[2], "the same compiles named two digests")
+  assert(digests[1] ~= digests[3], "another compile named the same digest")
+end

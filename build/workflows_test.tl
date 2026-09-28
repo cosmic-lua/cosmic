@@ -565,7 +565,7 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
     end
   end
   assert(named, "the host-id step names no verdict cache by the host's features")
-  assert(cached == 3, "restore, the lookup before the save, and save: " .. cached)
+  assert(cached == 2, "restore and save: " .. cached)
 end
 
 --- The steps that name, restore, trim and save a leg's test verdicts,
@@ -576,12 +576,8 @@ local function verdict_steps(steps: {{string: any}}): {string: integer}
     local id = step.id as string
     local run = step.run as string or ""
     local with = step.with as {string: any}
-    local env = step.env as {string: string}
-    if id == "host-id" or id == "verdicts-restore" or id == "verdicts-newest" or
-        id == "verdicts-saves" then
+    if id == "host-id" or id == "verdicts-restore" then
       at[id] = i
-    elseif env ~= nil and (env.KEY or ""):find("steps.verdicts-restore.", 1, true) ~= nil then
-      at.named = i
     elseif run:find("driver.tl verdicts-trim", 1, true) ~= nil then
       at.trim = i
     elseif with ~= nil and with.path == "${{ runner.temp }}/verdicts" and
@@ -599,8 +595,8 @@ end
 --- COSMIC_TEST_KEY=declared), on exactly the leg that is not required
 --- sandboxed (COSMIC_CI_REQUIRE_SANDBOX). So no step of the cache turns
 --- on the leg's image, and each comes in the order that serves it: the
---- host named, the cache restored and said, the suites, the trim, the
---- tree moved back, and the lookup, the check and the save.
+--- host named, the cache restored, the suites, the trim, the tree moved
+--- back, and the save.
 local function test_every_leg_keeps_its_verdicts()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
@@ -617,8 +613,8 @@ local function test_every_leg_keeps_its_verdicts()
     if step.name == "move the tree back to where it was checked out" then back = i end
     if step.id == "release-suite" or step.id == "portable-suite" then at[step.id as string] = i end
   end
-  local order = { "host-id", "verdicts-restore", "named", "release-suite", "portable-suite",
-    "trim", "back", "verdicts-newest", "verdicts-saves", "save" }
+  local order = { "host-id", "verdicts-restore", "release-suite", "portable-suite",
+    "trim", "back", "save" }
   at.back = back
   for n, name in ipairs(order) do
     assert(at[name] ~= nil, "no step " .. name)
@@ -630,91 +626,95 @@ local function test_every_leg_keeps_its_verdicts()
       name .. " runs only on a leg with an image: " .. condition)
   end
   local restore = steps[at["verdicts-restore"]].with as {string: string}
-  assert(restore.key == "${{ steps.host-id.outputs.verdicts }}${{ github.sha }}-" ..
-    "${{ github.run_id }}-${{ github.run_attempt }}", restore.key)
+  assert(restore.key == "${{ steps.host-id.outputs.verdicts }}", restore.key)
   assert(restore["restore-keys"] == "${{ steps.host-id.outputs.verdicts }}\n",
     restore["restore-keys"])
 end
 
---- A push to main saves its legs' verdicts, and their compiles, unless
---- the newest entry a restore would take was saved from a descendant of
---- its commit: a restore takes the newest save, not the newest
---- commit's, and main's runs finish out of order (3c6df8333's
+--- The condition on which a push to main and the scheduled run, and
+--- no other, save a cache.
+local MAIN_SAVES <const> = "github.ref == 'refs/heads/main' && " ..
+  "(github.event_name == 'push' || github.event_name == 'schedule')"
+
+--- Every cache the platform job saves, it saves from main alone -- a
+--- push or the scheduled run, never a branch's push nor the merge
+--- queue's run -- and restores on every run, whatever its event or ref,
+--- so a branch stands on what main saved and saves nothing of its own.
+--- Main's pushes share one concurrency group that cancels nothing in
+--- progress, so their saves land in commit order and a restore's newest
+--- entry is never an older commit's saved late (3c6df8333's
 --- alpine-x86_64 leg saved after b6508ab77's, and the two main runs
---- after stood on none of 1892 verdicts). So each save's key ends in the
---- commit, the run and the attempt that save-unless-descendant.sh reads
---- back, a lookup of the same key and prefix finds the newest entry
---- just before the save, and a step of the script's between them says
---- whether to save, which each save turns on. Saving only at main's
---- head, as before, threw away the work of every run a merge overtook
---- (run 36358036690's 1941 verdicts under keys just moved).
-local function test_a_main_push_saves_unless_a_newer_commit_saved_first()
+--- after stood on none of 1892 verdicts), with no lookup of the newest
+--- entry before a save. A save's key is the restore's own, or, for the
+--- caches a trim cuts to one run's rows, the restore's prefix and the
+--- digest of those rows that the trim names: a run that kept only what
+--- was saved already saves nothing new.
+local function test_only_main_saves_a_cache_every_run_restores()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local concurrency = ci.concurrency as {string: string}
+  assert(not concurrency.group:find("github.sha", 1, true),
+    "main's pushes run in a group of each commit's own: " .. concurrency.group)
+  assert(concurrency["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}",
+    "a run of main cancels another: " .. concurrency["cancel-in-progress"])
   local jobs = ci.jobs as {string: {string: any}}
   local steps = jobs.platform.steps as {{string: any}}
-  local ending = "${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-  for _, path in ipairs({ "${{ runner.temp }}/verdicts", "${{ runner.temp }}/build-cache" }) do
-    local lookup, check, save, back: integer, integer, integer, integer
-    local lookup_prefix, save_key: string, string
-    local lookup_id, check_id: string, string
-    for i, step in ipairs(steps) do
-      local uses = step.uses as string or ""
-      local with = step.with as {string: any}
-      if step.name == "move the tree back to where it was checked out" then back = i end
-      if with ~= nil and with.path == path and uses:find("actions/cache/restore@", 1, true) ~= nil and
-          with["lookup-only"] == true then
-        lookup, lookup_id = i, step.id as string
-        assert(lookup_id ~= nil, "the lookup of " .. path .. " has no id")
-        assert((with.key as string):sub(-#ending) == ending,
-          "the lookup of " .. path .. " is not keyed as the save is: " .. (with.key as string))
-        lookup_prefix = with["restore-keys"] as string
-      end
-      local run = step.run
-      local env = step.env as {string: string}
-      if lookup_id ~= nil and run is string and
-          run:find(".github/scripts/save-unless-descendant.sh", 1, true) ~= nil and env ~= nil and
-          (env.KEY or ""):find("steps." .. lookup_id .. ".outputs.cache-matched-key", 1, true) ~= nil then
-        check, check_id = i, step.id as string
-        assert(check_id ~= nil, "the check of " .. path .. " has no id")
-      end
-      if with ~= nil and with.path == path and uses:find("actions/cache/save@", 1, true) ~= nil then
-        save, save_key = i, with.key as string
-        local condition = step["if"] as string
-        assert((with.key as string):sub(-#ending) == ending,
-          "the save of " .. path .. " names no commit where the check reads one: " ..
-          (with.key as string))
-        assert(check_id ~= nil and
-          condition:find("steps." .. check_id .. ".outputs.save != 'false'", 1, true) ~= nil,
-          "the save of " .. path .. " does not turn on its check: " .. condition)
-        assert(condition:find("github.event_name != 'merge_group'", 1, true) ~= nil,
-          "the save of " .. path .. " saves from the merge queue: " .. condition)
-        -- A red run saves no compiles it stopped short of.
-        assert(path ~= "${{ runner.temp }}/build-cache" or
-          condition:find("steps.release-suite.outcome == 'success'", 1, true) ~= nil,
-          "the save of compiles does not turn on the native build: " .. condition)
+  local restores: {string: {string: any}} = {}
+  local trims: {string: string} = {}
+  local saves = 0
+  for _, step in ipairs(steps) do
+    local uses = step.uses as string or ""
+    local with = step.with as {string: any}
+    local run = step.run
+    if run is string then
+      local verb = run:match("driver%.tl (%a+)%-trim")
+      if verb ~= nil then
+        assert(step.id ~= nil, verb .. "'s trim has no id")
+        trims[verb] = step.id as string
       end
     end
-    -- The check fetches from origin, with the credentials actions/checkout
-    -- left at the path it checked the tree out at.
-    assert(back ~= nil and lookup ~= nil and back < lookup,
-      "the newest entry of " .. path .. " is looked up before the tree is back: " ..
-      tostring(back) .. ", " .. tostring(lookup))
-    assert(save_key ~= nil and lookup_prefix == save_key:sub(1, -#ending - 1) .. "\n",
-      "the lookup of " .. path .. " finds the newest entry of another prefix than the save's: " ..
-      tostring(lookup_prefix) .. " for " .. tostring(save_key))
-    assert(lookup ~= nil and check ~= nil and save ~= nil and lookup < check and check < save,
-      "the newest entry of " .. path .. " is not looked up, then checked, before the save: " ..
-      tostring(lookup) .. ", " .. tostring(check) .. ", " .. tostring(save))
-    for _, at in ipairs({ lookup, check }) do
-      local condition = steps[at]["if"] as string
-      assert(condition:find("github.ref == 'refs/heads/main' && github.event_name == 'push'",
-        1, true) ~= nil, "a step of the save rule runs off a push to main: " .. condition)
-      -- No lookup, nor fetch, for compiles a red run cannot save.
-      assert(path ~= "${{ runner.temp }}/build-cache" or
-        condition:find("steps.release-suite.outcome == 'success'", 1, true) ~= nil,
-        "a step of the compiles' save rule runs where the save cannot: " .. condition)
+    if uses:find("actions/cache/restore@", 1, true) ~= nil and step.id ~= nil then
+      local path = with.path as string
+      -- The one restore that turns on the ref: another vendor part's zig
+      -- outputs, which main never takes.
+      if step["if"] ~= nil then
+        assert(path == "${{ runner.temp }}/zig-build" and
+          (step["if"] as string):find("github.ref != 'refs/heads/main'", 1, true) == 1,
+          path .. " is restored only on some runs: " .. (step["if"] as string))
+      else
+        restores[path] = step
+      end
+    end
+    if uses:find("actions/cache/save@", 1, true) ~= nil then
+      saves = saves + 1
+      local path = with.path as string
+      local condition = step["if"] as string
+      local key = with.key as string
+      local restore = restores[path]
+      assert(restore ~= nil, path .. " is saved but restored on no run before")
+      assert(condition:find(MAIN_SAVES, 1, true) ~= nil or
+        (condition:find("github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || " ..
+          "github.event_name == 'push' && ", 1, true) ~= nil),
+        path .. " is saved off main, or by another of main's events: " .. condition)
+      assert(not condition:find("merge_group", 1, true) and not key:find("event_name", 1, true),
+        path .. "'s save turns on the merge queue: " .. condition .. " " .. key)
+      local rkey = (restore.with as {string: any}).key as string
+      if key == "${{ steps." .. (restore.id as string) .. ".outputs.cache-primary-key }}" then
+        assert(not rkey:find("github.sha", 1, true), path .. " is keyed by the commit: " .. rkey)
+      else
+        -- The trim of this cache, and the prefix the restore takes.
+        local trim = path == "${{ runner.temp }}/verdicts" and trims.verdicts or
+          path == "${{ runner.temp }}/build-cache" and trims.compiles or nil
+        assert(trim ~= nil, path .. " is saved under a key of its own, cut by no trim: " .. key)
+        local digest = "${{ steps." .. trim .. ".outputs.digest }}"
+        assert(key == rkey .. digest, path .. " is not saved under its prefix and digest: " .. key)
+        assert(((restore.with as {string: any})["restore-keys"] as string) == rkey .. "\n",
+          path .. " is restored by another prefix than it is saved under")
+        assert(condition:find("steps." .. trim .. ".outputs.digest != ''", 1, true) ~= nil,
+          path .. " is saved where its trim named no digest: " .. condition)
+      end
     end
   end
+  assert(saves == 4, "the verdicts, compiles, zig outputs and driver marker: " .. saves)
 end
 
 --- A leg saves only the verdicts its run relied on or reached,
@@ -744,19 +744,21 @@ local function test_a_leg_trims_its_verdicts_before_it_saves_them()
   end
   assert(trim ~= nil, "no step trims the verdicts")
   local condition = trim["if"] as string
-  assert(condition == "success()",
-    "the trim does not turn on every leg's passing run: " .. condition)
-  assert((trim.run as string):find("steps.compiles-restored.outputs.since", 1, true) ~= nil,
-    "the trim counts from no time taken before the suites: " .. (trim.run as string))
+  assert(condition == "always() && steps.driver.outcome == 'success'",
+    "the trim does not run on every leg's run: " .. condition)
+  -- A run that failed keeps what it restored with what it reached.
+  assert((trim.run as string):find(
+    "${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}", 1, true) ~= nil,
+    "the trim counts from no time taken before the suites, or trims a failed run: " ..
+    (trim.run as string))
   -- `assemble` runs the checked suite, on the leg that runs it.
   for _, suite in ipairs({ "release-suite", "assemble", "portable-suite" }) do
     assert(at[suite] ~= nil and at[suite] < at.trim, "the trim runs before " .. suite)
   end
-  assert(at["compiles-restored"] < at["release-suite"], "the trim's time is taken after a suite")
+  assert(at.names < at["release-suite"], "the trim's time is taken after a suite")
   local steps = jobs.platform.steps as {{string: any}}
-  assert(steps[at["compiles-restored"]]["if"] == nil,
-    "the trim's time is taken only on some legs: " ..
-    tostring(steps[at["compiles-restored"]]["if"]))
+  assert(steps[at.names]["if"] == nil,
+    "the trim's time is taken only on some legs: " .. tostring(steps[at.names]["if"]))
   assert(at.trim < at.removed and at.trim < at.save,
     "the verdicts are trimmed after the container goes, or after they are saved")
 end

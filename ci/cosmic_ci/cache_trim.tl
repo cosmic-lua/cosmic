@@ -1,14 +1,19 @@
 --- What the compile and verdict trims share: a cache the tree's tool
 --- keeps in SQLite, rows stamped with the wall clock of the last run
 --- that used or made them (`used_ns`), cut to what one run reached
---- before ci.yml saves it (cosmic_ci/compiles.tl, cosmic_ci/verdicts.tl).
+--- before ci.yml saves it (cosmic_ci/compiles.tl, cosmic_ci/verdicts.tl),
+--- and named by a digest of the rows it keeps (`digest`), which the key
+--- ci.yml saves it under ends in: a run that kept the rows of a save
+--- already made names that save's key, and saves nothing new.
 ---
 --- Like the builds and the suites, which never fail over these caches,
 --- a trim that cannot read one never fails the leg: it says why and
 --- leaves the file, or removes one that is no database, and the next
 --- run compiles or runs what it must.
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 
@@ -216,6 +221,110 @@ function CacheTrim.file(verb: string, path: string, since: integer,
   end
   return out .. verb .. ": " .. what .. "; " .. path .. " " .. trimmed.before_bytes ..
     " -> " .. trimmed.after_bytes .. " bytes\n", err
+end
+
+--- Feeds `hasher` the rows of the cache at `path`: every table of it
+--- but SQLite's own, by name, each row of it in order, every column but
+--- `used_ns`, which each run that stands on a row stamps again and
+--- which decides only what a trim keeps. So two files that hold the
+--- same rows feed the same bytes, whatever SQLite made of their pages
+--- or when a run last used them. Answers why, where it could not read
+--- the file.
+local function feed_rows(hasher: Hash.Hasher, path: string): boolean, string
+  -- Writable, as the trim opens it: a reader of a file in write-ahead
+  -- mode leaves its log and index behind, which the save would carry.
+  local opened, open_trouble = Sqlite.open(path, true)
+  if opened == nil then return false, open_trouble end
+  local db: Sqlite.Handle = opened
+  local function fail(why: string): boolean, string
+    local _, _ = db:close()
+    return false, why
+  end
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
+  if not timed then return fail(time_trouble) end
+  local names, trouble = Sqlite.text_rows(db, "SELECT name FROM sqlite_schema " ..
+    "WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")
+  if names == nil then return fail(trouble) end
+  for _, row in ipairs(names) do
+    local name = row[1]
+    local columns, column_trouble = Sqlite.text_rows(db,
+      "SELECT name FROM pragma_table_info(?1) WHERE name <> 'used_ns' ORDER BY cid",
+      { { text = name } })
+    if columns == nil then return fail(column_trouble) end
+    local quoted: {string} = {}
+    local order: {string} = {}
+    for i, column in ipairs(columns) do
+      quoted[i] = '"' .. column[1]:gsub('"', '""') .. '"'
+      order[i] = tostring(i)
+      hasher:update("column\0" .. #column[1] .. ":" .. column[1])
+    end
+    hasher:update("table\0" .. #name .. ":" .. name .. "\0" .. #columns .. "\0")
+    if #quoted > 0 then
+      local query, query_trouble = Sqlite.query(db, "SELECT " .. table.concat(quoted, ", ") ..
+        ' FROM "' .. name:gsub('"', '""') .. '" ORDER BY ' .. table.concat(order, ", "))
+      if query == nil then return fail(query_trouble) end
+      do
+        local q <close> = query
+        for cells in q:each() do
+          for _, cell in ipairs(cells) do
+            local value = cell.text or cell.blob or
+              (cell.integer ~= nil and tostring(cell.integer)) or
+              (cell.number ~= nil and string.format("%.17g", cell.number)) or ""
+            hasher:update(cell.kind .. "\0" .. #value .. ":" .. value)
+          end
+          hasher:update("\n")
+        end
+        if q:failure() ~= "" then return fail(q:failure()) end
+      end
+    end
+  end
+  local closed, close_trouble = db:close()
+  if not closed then return false, close_trouble end
+  return true, ""
+end
+
+--- The digest of what `paths` hold, as ci.yml's save of them names it,
+--- in hexadecimal: each file by its name and its rows (`feed_rows`), so
+--- a run whose trimmed cache holds the rows of one saved already names
+--- that save's key again, and saves nothing new. A file not there is
+--- fed as absent; one whose rows cannot be read, by its bytes, which
+--- differ from run to run, so its cache is saved again rather than
+--- mistaken for another; and the second answer says why, for the log.
+function CacheTrim.digest(paths: {string}): string, string
+  local hasher = assert(Hash.hasher("sha256"))
+  local troubles: {string} = {}
+  for _, path in ipairs(paths) do
+    local name = Fs.basename(path)
+    hasher:update("file\0" .. #name .. ":" .. name .. "\0")
+    if not Predicate.exists(path) then
+      hasher:update("absent\0")
+    else
+      local fed, trouble = feed_rows(hasher, path)
+      if not fed then
+        troubles[#troubles + 1] = path .. ": " .. trouble .. "; digested by its bytes"
+        hasher:update("bytes\0" .. (Fs.read(path) or ""))
+      end
+    end
+  end
+  return Codec.hex((assert(hasher:digest()))), table.concat(troubles, "\n")
+end
+
+--- Appends `name=value` to the file `env.GITHUB_OUTPUT` names, a
+--- workflow step's outputs, where it names one, as
+--- cosmic_ci/context.tl's `summarize` appends to the step's summary;
+--- answers why where it could not.
+function CacheTrim.output(env: {string:string}, name: string, value: string): string
+  local file = env.GITHUB_OUTPUT or ""
+  if file == "" then return "" end
+  local existing = ""
+  if Predicate.exists(file) then
+    local read, read_trouble = Fs.read(file)
+    if read == nil then return file .. ": " .. read_trouble end
+    existing = read
+  end
+  local wrote, trouble = Fs.write(file, existing .. name .. "=" .. value .. "\n")
+  if not wrote then return file .. ": " .. trouble end
+  return ""
 end
 
 --- SINCE, the first of `argv`, in Unix seconds, or nil where it is none.

@@ -17,6 +17,7 @@
 local CacheTrim = require("cosmic_ci.cache_trim")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 
 local record Compiles
 end
@@ -41,7 +42,10 @@ end
 --- it says on standard output and on standard error. It trims the cache
 --- `env.COSMIC_BUILD_CACHE` names to what was used since SINCE, in Unix
 --- seconds, and removes the caches set aside beside it
---- (`CacheTrim.file`); nothing to do where the variable names no file.
+--- (`CacheTrim.file`), then writes `digest=<hex>` of the rows left
+--- (`CacheTrim.digest`) to the step's outputs (`CacheTrim.output`), the
+--- tail of the key ci.yml saves the cache under. Nothing to do, and no
+--- digest, where the variable names no file or the file is not there.
 --- Only a SINCE that is no count of seconds fails it (2): a cache it
 --- cannot trim is said so, on standard error, and left, or removed where
 --- it is no database.
@@ -56,6 +60,13 @@ function Compiles.command(argv: {string}, env: {string:string}): integer, string
       "'); nothing to trim\n", ""
   end
   local out, err = CacheTrim.file("compiles-trim", path, since, tables)
+  if Predicate.exists(path) then
+    local digest, trouble = CacheTrim.digest({ path })
+    if trouble ~= "" then err = err .. "compiles-trim: " .. trouble .. "\n" end
+    out = out .. "compiles-trim: digest " .. digest .. "\n"
+    local unsaid = CacheTrim.output(env, "digest", digest)
+    if unsaid ~= "" then err = err .. "compiles-trim: " .. unsaid .. "\n" end
+  end
   return 0, out, err
 end
 

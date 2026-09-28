@@ -4,7 +4,9 @@
   name: "publish next prerelease",
 
   # Publishes from each ci run on main -- a push or a manual run, not
-  # the scheduled one -- that completed green, so no branch's run shows
+  # the scheduled one -- that completed green (ci.yml runs main's pushes
+  # one at a time, and a push whose run a newer one cancelled while it
+  # waited has none: a pin moves to a later commit), so no branch's run shows
   # this job as a skipped check. A workflow_run always runs main's copy
   # of this file, in main's context: the commit and run it publishes are
   # the triggering run's (github.event.workflow_run), not github.sha or
