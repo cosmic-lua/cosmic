@@ -247,14 +247,26 @@ left to that backstop.
 
 ### 3.1 Holes, in order
 
-1. **Stat times (S).** The declared key ignores `reads_stat_times`
-   entirely: under the sandbox, even a test that declares it stands on
-   a sibling checkout's verdict (`build/test.tl:608`).
-   - Change: a `stat_times` declaration in `Test.needs`, which gives a
-     key part for the checkout, not shared. This settles
-     `cosmic/test.tl:33` too.
-   - Must land before 4.2 PR 4, which deletes the observed route.
-   - Shows: a test reading `ino` does not stand across two checkouts.
+1. **No test depends on stat times (S).** A key holds a file's
+   contents, kind, size and mode, never its times, inode, device, link
+   count or owner, which differ in every checkout. The rule: a test
+   must not depend on those fields of a file it did not make. A test
+   that needs them makes its own files in its temporary directory and
+   sets them (`utimensat`, and a fresh file for a new inode).
+   - Change:
+     - Remove the `reads_stat_times` declaration
+       (`build/filesystem_observations.tl`), the observed path's
+       stat-time keying ("z"), and `cosmic/test.tl:33`'s part.
+     - Rewrite its one user (`build/filesystem_observations_test.tl:1018`)
+       to set the times it asserts on.
+     - Replace `build/test.tl:608`'s TODO (infer the declaration) with
+       the rule, stated in AGENTS.md beside `Test.needs`.
+   - Enforcement, if cheap: under a worker's hold, `stat`, `lstat` and
+     `fstat` of a path under the tree answer fixed times and inode. A
+     test that leans on them then sees the same value in every checkout,
+     rather than a value only some checkouts give.
+   - Waits on: 2.2, which edits `build/test.tl`.
+   - Shows: no module declares stat times, and the rule is in AGENTS.md.
 2. **eval/ and test/portable not tool trees (S)** (`build/work.tl:540`).
    - Shows: an edit to `eval/summarize.tl` moves `boot_hash`.
 3. **A module's file not in the local compile key (S)**
@@ -408,7 +420,6 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
     `build/test_worker.tl:155` and `:186`; `core/sqlite.c:721`.
   - `build/test_worker.tl:186` is the report capture limit. Closing it
     also unblocks `fuzz.yml:70`'s 10,000 iterations.
-  - Waits on: 3.1 item 1.
 - PR 5: delete `core/observed.c` and its hooks, the observed SQLite
   VFS, and `core/store.c`'s observe knobs. About 1,900 lines of C.
   - Closes `core/observed.c:81` and `:325`, `build/confine_test.tl:193`,
