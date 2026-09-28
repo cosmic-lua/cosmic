@@ -9,7 +9,9 @@ local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local Prerelease = require("cosmic_ci.prerelease")
 local Runner = require("cosmic_ci.runner")
+local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
+local SuiteOutput = require("cosmic_ci.suite_output")
 local Verdicts = require("cosmic_ci.verdicts")
 
 local function open_database(path: string): Sqlite.Handle
@@ -58,6 +60,7 @@ local function summarize(_argv: {string}): integer
        WHERE s.event = 'start'
        ORDER BY s.id
     ]]))
+    local suites = State.suite_rows(db)
     assert(db:close())
     lines[#lines + 1] = "| Worker | Run | Attempt | Phase | Status | ms | Exit | Signal | Detail |\n"
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
@@ -66,6 +69,13 @@ local function summarize(_argv: {string}): integer
       for i = 1, 9 do cells[i] = clean(row[i]) end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
+    -- Each suite's row (orchestration's `record_suite`), for a reader
+    -- and for `report`, which reads the same rows from the uploaded
+    -- database.
+    if #suites > 0 then
+      lines[#lines + 1] = "\n## Cosmic CI suites\n\n"
+      lines[#lines + 1] = SuiteOutput.markdown(suites)
+    end
   end
   Context.summarize(table.concat(lines))
   return 0
@@ -73,12 +83,16 @@ end
 
 --- Each command: what it does and takes, for `driver.tl --help`, and
 --- its handler, which gets the words after the command with the
---- driver's own path at slot 0. None takes options, so a word that
---- begins with "-" goes after a "--": `run`'s command line does.
+--- driver's own path at slot 0. A command that takes options names
+--- them in `spec` and is run by `options`, given what its line held;
+--- the rest take none, so a word that begins with "-" goes after a
+--- "--": `run`'s command line does.
 local record Command
   about: string
   usage: string
   handler: function({string}): integer
+  spec: {string:boolean | Flags.Option}
+  options: function(Flags.Parsed): integer
 end
 
 local commands: {string:Command} = {
@@ -106,16 +120,21 @@ local commands: {string:Command} = {
     usage = "", handler = Images.build_command },
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
+  report = { about = "print CI's recent runs' times and suites, from GitHub through gh",
+    usage = "[options]", spec = Report.spec, options = Report.command },
 }
 
 return function(argv: {integer:string}): integer
   local dispatched: {string:Flags.Command} = {}
   for name, entry in pairs(commands) do
     local handler = entry.handler
+    local options = entry.options
     dispatched[name] = {
       about = entry.about,
       usage = entry.usage,
+      spec = entry.spec,
       run = function(got: Flags.Parsed): integer
+        if options then return options(got) end
         local rest: {integer:string} = { [0] = argv[0] }
         for i, word in ipairs(got.words) do rest[i] = word end
         return handler(rest)
