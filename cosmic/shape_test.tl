@@ -363,7 +363,17 @@ local function test_decode_into_forwards_the_decode_options()
   assert(plain == nil and err ~= "")
   local s: Server = must(Shape.decode_into(text, SERVER, { json5 = true }))
   assert(s.host == "h" and s.port == 1)
-  local keep: Json.DecodeOptions = { null_value = Json.null }
-  local none, why: Server | nil, string = Shape.decode_into('{"host": null, "port": 1}', SERVER, keep)
-  assert(none == nil and why == "$.host: expected string, got nothing", why)
+  -- null_value cannot tell: `into` treats the sentinel as missing too.
+  local list = Shape.list(Shape.list(Shape.integer))
+  local deep, derr: {{integer}} | nil, string = Shape.decode_into("[[1]]", list, { max_depth = 1 })
+  assert(deep == nil and derr ~= "" and derr:sub(1, 1) ~= "$", derr)
+  local ok: {{integer}} = must(Shape.decode_into("[[1]]", list, { max_depth = 2 }))
+  assert(ok[1][1] == 1)
+end
+
+local function test_decode_into_null_text_is_nothing_to_check()
+  local s, err: Server | nil, string = Shape.decode_into("null", SERVER)
+  assert(s == nil and err == "$: expected record, got nothing", err)
+  local o, oerr: Server | nil, string = Shape.decode_into("null", Shape.optional(SERVER))
+  assert(o == nil and oerr == "", oerr)
 end

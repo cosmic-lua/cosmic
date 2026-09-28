@@ -601,8 +601,10 @@ end
 --- the `$.path` of the first value that does not fit, when it is JSON of
 --- another shape. `opts` are `Json.decode`'s, forwarded as they are
 --- (`json5`, `null_value`, `max_depth`). The answer's type is the
---- caller's annotation, as `into`'s is. Raises only when `spec` is not
---- a Spec.
+--- caller's annotation, as `into`'s is. Text that is `null` decodes to
+--- nothing (unless `opts.null_value` says otherwise), so a required
+--- spec answers `$: expected record, got nothing` and an optional one
+--- answers nil and "". Raises only when `spec` is not a Spec.
 ---
 ---     local text = '{"host": "localhost", "port": 8080}'
 ---     local server, err: Server | nil, string = Shape.decode_into(text, SERVER)
@@ -616,7 +618,7 @@ end
 function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T | nil, string
   need_spec(spec, "decode_into's shape")
   local decoded, trouble = Json.decode(text, opts)
-  if decoded == nil then return nil, trouble end
+  if decoded == nil and trouble ~= "" then return nil, trouble end
   local out, failed: T | nil, string = Shape.into(decoded, spec)
   if out == nil then return nil, failed end
   return out, ""

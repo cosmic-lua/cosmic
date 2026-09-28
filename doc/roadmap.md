@@ -86,7 +86,6 @@ promises lean on come first:
   sites that read fields off a decoded value through `as` casts, starting
   with those under `build/` and `ci/`; their call shapes decide whether the
   inference limit in shape.tl's module comment needs a helper.
-
 - a spec that agrees with its record. Nothing checks that a `Shape.record`
   or `Shape.strict_record` names the fields of the Teal record its answer is
   annotated as, so a field added to the record and not to the spec is never
