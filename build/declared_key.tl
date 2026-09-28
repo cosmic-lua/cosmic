@@ -142,6 +142,7 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
+local core_image = require("build.core_image")
 local test_inputs = require("build.test_inputs")
 
 local record declared_key
@@ -469,9 +470,12 @@ end
 --- What the regular file at `path`, which `st` describes, runs as, for
 --- a key: where it is an artifact (`artifact.split`), the digest of
 --- everything ahead of its database -- the launcher, the cores and
---- their manifest -- whether it is a host program, and the rows it
---- carries (`carried_digest`), which is all a run of it can turn on;
---- else the digest of its contents. Remembered in `digests` as a file's
+--- their manifest, each core that carries debug information by its
+--- image (`artifact.keyed_head`) -- whether it is a host program, and
+--- the rows it carries (`carried_digest`), which is all a run of it can
+--- turn on; else the digest of its contents, or of its image where it
+--- is a core that carries debug information (build.core_image), as
+--- the checked core a run extracts is. Remembered in `digests` as a file's
 --- hash is, under a name of its own.
 ---
 --- So a program rebuilt from a tree whose edit moved nothing it carries
@@ -502,22 +506,65 @@ end
 --- And every sandboxed worker runs this same binary, with these same
 --- rows in reach of `Store.meta`, whether its test declares `tool` or
 --- not, and no key of one that does not has ever held them.
+-- Remembered under "program-v2", as `launcher_identity` under
+-- "launcher-v2", since a core carrying DWARF came to be keyed by its
+-- image: what either remembered by the earlier formula is not read.
 local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
-  return remembered(digests, "program\0" .. path, st, function(data: string): string
+  return remembered(digests, "program-v2\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
-    if split == nil then return Hash.hex_sha256("file\n" .. data) end
+    if split == nil then
+      -- A core that carries debug information, as the checked core
+      -- does, by its image (build.core_image).
+      local image = core_image.digest(data)
+      return Hash.hex_sha256(image ~= nil and ("image\n" .. image) or ("file\n" .. data))
+    end
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.
     return Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
-      Hash.hex_sha256(split.head) .. "\n" .. carried) or ("unread\n" .. data))
+      Hash.hex_sha256(artifact.keyed_head(split.head)) .. "\n" .. carried) or ("unread\n" .. data))
   end)
+end
+
+--- The runtime identity a key holds (`Spec.runtime`) of the running
+--- core, whose bytes' digest in hex is `host_image` (`Store.meta`'s),
+--- given `raw`, the identity the binary names (`Store.meta("runtime")`),
+--- and its runtime basis `basis`: `raw` where the core is keyed by its
+--- bytes whole, as every release core is; else one of its image
+--- (`core_image.runtime`), as the checked core, which carries DWARF,
+--- is. Remembered in `digests` by `host_image`, so a run on a core an
+--- earlier one keyed reads none of its bytes again.
+function declared_key.runtime_identity(digests: declared_key.Digests, raw: string,
+                                       host_image: string, basis: string): string
+  local name = "runtime-image\0" .. host_image
+  digests.used[name] = true
+  local said, image: string, string = nil, nil
+  local was = digests.hashed[name]
+  if was ~= nil then said, image = was:match("^([^\0]*)\0(%x+)$") end
+  if said == nil then
+    local core, _ = artifact.trusted_core()
+    if core == nil or Codec.hex(core.digest) ~= host_image then return raw end
+    local digest = core_image.digest(core.bytes)
+    if digest == nil then
+      said, image = "whole", host_image
+    else
+      said, image = string.format("image %d %d", core.target_id, core.configuration_id),
+        Codec.hex(digest)
+    end
+    digests.hashed[name] = said .. "\0" .. image
+  end
+  local target, configuration = said:match("^image (%d+) (%d+)$")
+  if target == nil or configuration == nil then return raw end
+  return core_image.runtime(image, math.tointeger(tonumber(target)) or 0,
+    math.tointeger(tonumber(configuration)) or 0, basis)
 end
 
 --- What of the artifact at `path` runs every test of a run it starts,
 --- whether the test runs the program or not: everything ahead of its
 --- database -- the launcher that selects and checks a core, the cores
---- and their manifest -- and whether it is a host program, as a digest;
+--- and their manifest, a core that carries debug information by its
+--- image (`artifact.keyed_head`) -- and whether it is a host program,
+--- as a digest;
 --- its contents' where it is no artifact, "missing" where it is not a
 --- regular file. Remembered in `digests` as `program` is. The runtime
 --- identity (`Spec.runtime`) holds the core a run selects, but not what
@@ -526,10 +573,11 @@ end
 function declared_key.launcher_identity(digests: declared_key.Digests, path: string): string
   local st, _ = sys.stat(path)
   if st == nil or st.kind ~= "file" then return "missing" end
-  return remembered(digests, "launcher\0" .. path, st, function(data: string): string
+  return remembered(digests, "launcher-v2\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
     if split == nil then return Hash.hex_sha256("file\n" .. data) end
-    return Hash.hex_sha256("head\n" .. tostring(split.host) .. "\n" .. split.head)
+    return Hash.hex_sha256("head\n" .. tostring(split.host) .. "\n" ..
+      artifact.keyed_head(split.head))
   end)
 end
 

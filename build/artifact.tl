@@ -11,6 +11,7 @@
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
+local core_image = require("build.core_image")
 local launcher_template = require("build.launcher")
 local type raw_store = require("cosmic.internal.store")
 
@@ -333,6 +334,83 @@ function artifact.split(bytes: string): artifact.Split | nil, string
     database = database,
     host = magic == host_trailer_magic,
   }, ""
+end
+
+--- What of `head`, an artifact's bytes ahead of its database (`split`),
+--- a verdict's key holds: `head` itself, unless a core its manifest
+--- names carries debug information (build.core_image), which is keyed
+--- by its image instead. Then it is `head` with each core stood for by
+--- its image's digest (`core_image.digest`), and with the fields that
+--- say where the cores lie and what their bytes hash to -- the
+--- manifest's offsets, lengths, digests and prefix length, and a
+--- launcher arm's `cosmic_offset`, `cosmic_block`, `cosmic_length` and
+--- `cosmic_sha256` -- left out where they name exactly what is there:
+--- which bytes a launcher extracts, and whether they are the ones its
+--- manifest names, is then the image it runs, whatever its debug
+--- information weighs. The padding between the cores is held to zeros,
+--- and the comment that pads the launcher is left out.
+--- A head that is not so, in any part, is keyed whole.
+function artifact.keyed_head(head: string): string
+  if #head < manifest_length then return head end
+  local manifest_offset = #head - manifest_length
+  local manifest_at = manifest_offset + 1
+  if head:sub(manifest_at, manifest_at + 7) ~= manifest_magic then return head end
+  local manifest_version, encoded_length, prefix_length, count, size, at =
+    string.unpack(">I4I4I8I4I4", head, manifest_at + 8)
+  if manifest_version ~= version or encoded_length ~= manifest_length or
+     prefix_length ~= #head or count < 1 or count > max_entries or size ~= entry_length then
+    return head
+  end
+  local shell_end = -1
+  local was_end = 0
+  local imaged = false
+  local entries: {string} = {}
+  local gaps: {string} = {}
+  local arms: {{string}} = {}
+  local cores: {{string}} = {}
+  for _ = 1, count do
+    local target, configuration, offset, length: integer, integer, integer, integer
+    target, configuration, offset, length, at = string.unpack(">I4I4I8I8", head, at)
+    local digest = head:sub(at, at + 31)
+    at = at + 32
+    -- An unsigned 64-bit field past math.maxinteger reads as negative.
+    if offset < was_end or length <= 0 or offset > manifest_offset - length then
+      return head
+    end
+    if shell_end < 0 then shell_end = offset else gaps[#gaps + 1] = head:sub(was_end + 1, offset) end
+    local core = head:sub(offset + 1, offset + length)
+    local image = core_image.digest(core)
+    if image ~= nil then imaged = true end
+    cores[#cores + 1] = { core, digest }
+    local keyed = image ~= nil and ("i" .. image) or ("b" .. digest)
+    entries[#entries + 1] = string.pack(">I4I4", target, configuration) .. keyed
+    arms[#arms + 1] = { string.format("cosmic_offset=%d; cosmic_block=%d; cosmic_length=%d; " ..
+      "cosmic_sha256=%s ", offset, offset // core_alignment, length, Codec.hex(digest)),
+      "cosmic_core=" .. Codec.hex(keyed) .. " " }
+    was_end = offset + length
+  end
+  if not imaged then return head end
+  for _, core in ipairs(cores) do
+    if Hash.sha256(core[1]) ~= core[2] then return head end
+  end
+  gaps[#gaps + 1] = head:sub(was_end + 1, manifest_offset)
+  for _, gap in ipairs(gaps) do
+    if gap:find("[^\0]") ~= nil then return head end
+  end
+  local shell = head:sub(1, shell_end)
+  for _, arm in ipairs(arms) do
+    local found = shell:find(arm[1], 1, true)
+    if found ~= nil then
+      if shell:find(arm[1], found + 1, true) ~= nil then return head end
+      shell = shell:sub(1, found - 1) .. arm[2] .. shell:sub(found + #arm[1])
+    end
+  end
+  -- The comment that pads the launcher to its fixed length (`launcher`)
+  -- is as long as those fields' digits leave it.
+  shell = shell:gsub("\n# *\n$", "\n#\n")
+  return table.concat({ "cosmic-head-image-v1\0", shell, "\0",
+    head:sub(manifest_at, manifest_at + 15), string.pack(">I4I4", count, size),
+    table.concat(entries), head:sub(at, #head) })
 end
 
 --- The artifact `split` read `parts` from, with `database` in place of

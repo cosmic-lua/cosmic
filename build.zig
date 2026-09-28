@@ -152,12 +152,13 @@ const own_warnings = [_][]const u8{
 // or strip it alone, once zig's libc build takes our flags (zig 0.16
 // builds it in the global cache with none of ours, keyed without the
 // cwd): each musl unit names the tree root of whichever checkout first
-// built libc into zig-global, so the checked core moves, and its suite
-// stands on nothing, on the run that builds musl cold -- a zig pin
-// change, or a leg whose saved caches were all evicted -- and names that
-// run's tree from then on. Building from a fixed cwd (bin/zig starting
-// zig elsewhere than the tree) would do it now, at the cost of every
-// relative path bin/zig and build.zig take.
+// built libc into zig-global, so the checked core's bytes are not the
+// same from every checkout, and ci/cosmic_ci/orchestration.tl cannot
+// hold every unit's DW_AT_comp_dir to `.`. No verdict's key moves with
+// it: a core carrying DWARF is keyed by its image, which leaves the
+// debug sections out (build/core_image.tl). Building from a fixed cwd
+// (bin/zig starting zig elsewhere than the tree) would do it now, at
+// the cost of every relative path bin/zig and build.zig take.
 const debug_dir = "-fdebug-compilation-dir=.";
 const own_c = [_][]const u8{ "-std=c11", debug_dir } ++ own_warnings;
 
