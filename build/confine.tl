@@ -435,6 +435,15 @@ end
 --- on the way that leads above one of them is left out too. For good:
 --- nothing lets it off, and it may not confine a process of its own in a
 --- root of its own after. False and why where there is no Landlock.
+-- TODO: let a test that confines a process in a root of its own
+-- declare that on its own rather than through `tool`, which it declares
+-- today only to leave its worker unheld -- the kernel refuses every
+-- mount under a Landlock domain, and a root of its own is made of
+-- mounts -- once a worker can be held to running anything but this
+-- program by other means than Landlock, or can confine what it starts
+-- before it is held: build/filesystem_observations_tool_test.tl,
+-- build/test_sandbox_system_test.tl and core/syscalls_tool_test.tl
+-- declare `tool` so.
 -- TODO: hold a copy of the program as the program -- one a test copies
 -- or links elsewhere and runs, or a core it loads some other way than
 -- by exec -- once a ruleset can name a file by its contents: today a

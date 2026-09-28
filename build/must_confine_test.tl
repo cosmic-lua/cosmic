@@ -14,9 +14,8 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's, and whose core the
---- stand-in the runs it starts start is built from; and what holds a
---- run to sandboxing (`unsandboxed`).
+--- tool's own modules besides the closure's; and what holds a run to
+--- sandboxing (`unsandboxed`).
 Test.needs{
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,

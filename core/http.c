@@ -12,8 +12,8 @@
  *
  * Lua never runs inside a curl callback: the callbacks only copy bytes
  * into plain C buffers and return plain integers, exactly like
- * core/sqlite.c's callbacks touch no Lua state either. Every call back
- * into curl happens from a binding (`open`, `start`, `read`, `write`,
+ * core/sqlite.c's callbacks touch no Lua state either. Every call that
+ * drives curl happens from a binding (`open`, `start`, `read`, `write`,
  * `finish`, `close`), between bytecode instructions, so a `luaL_error`
  * there unwinds ordinary Lua frames only.
  *

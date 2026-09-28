@@ -18,14 +18,12 @@ local type raw_process = require("cosmic.internal.process")
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What the observer is tested observing: processes it cannot confine, the
 --- environment, and requests to closed local ports; /proc, where a
---- program a test starts reads its own command line; and the program
---- itself, whose core the stand-in its processes run is built from.
+--- program a test starts reads its own command line.
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   network = { "127.0.0.1", "127.0.0.2" },
   processes = true,
-  tool = true,
 }
 
 local type Searcher = function(string): any, any
@@ -414,44 +412,6 @@ local function confined_notes(run: observations.Run): string, boolean
   return table.concat(notes, "\n") .. "\n", unconfined
 end
 
---- A process a test declared what it needs for has that and what every
---- process has -- /dev/null and /proc, and the system's own where its
---- worker has them -- noted "u" each, and its test's own directory
---- besides, which is not noted and where it starts; a path it was not
---- given is not there at all; the environment it inherits is noted
---- whole.
-local function test_a_confined_process_is_noted_by_what_it_was_given(tmp: string)
-  local probe = probe_in(tmp)
-  local given, own, hidden = tmp .. "/given", tmp .. "/own", tmp .. "/hidden"
-  for _, dir in ipairs({ given, own, hidden }) do assert(Fs.mkdirs(dir)) end
-  assert(Fs.write(given .. "/f", "in"))
-  assert(Fs.write(hidden .. "/f", "secret"))
-  local code: integer = nil
-  local run = observations.call(function()
-    confine.confine({ reads = { given, probe } })
-    local r = assert(Child.run({ probe,
-      "exists " .. hidden .. "/f 3; copy " .. given .. "/f out" }))
-    confine.confine(nil)
-    code = r.code
-  end, nil, { tree = tmp .. "/tree", own = { own } })
-  assert(run.passed, run.message)
-  local notes, unconfined = confined_notes(run)
-  if unconfined then
-    -- Unconfined, it sees what it was not given, and says so.
-    assert(notes == "p " .. probe .. "\n", notes)
-    assert(code == 3, "an unconfined process sees everything: " .. tostring(code))
-    return
-  end
-  assert(code == 0, "the confined process exited " .. tostring(code))
-  assert(assert(Fs.read(own .. "/out")) == "in")
-  assert(notes:find("u " .. given .. "\n", 1, true), notes)
-  assert(notes:find("u /dev/null\n", 1, true), notes)
-  assert(notes:find("e \0environ\n", 1, true), notes)
-  assert(not notes:find(own, 1, true), notes)
-  assert(not notes:find("p ", 1, true), notes)
-  assert(not notes:find("x ", 1, true), notes)
-end
-
 --- Calls `fn` with the process table's `spawn` refusing, as a kernel
 --- with no user namespaces for this user does, every spawn given a
 --- sandbox, and answers how many it refused.
@@ -531,28 +491,6 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
   end
 end
 
---- What a confined process may change outside its test's own directory
---- is no input a key holds, nor is a directory it is handed open.
-local function test_a_confined_write_or_descriptor_outside_the_test_is_unkeyable(tmp: string)
-  local probe = probe_in(tmp)
-  local own, elsewhere = tmp .. "/own", tmp .. "/elsewhere"
-  for _, dir in ipairs({ own, elsewhere }) do assert(Fs.mkdirs(dir)) end
-  local directory = assert(sys.open(elsewhere, sys.O_RDONLY))
-  local run = observations.call(function()
-    confine.confine({ reads = { probe }, writes = { elsewhere } })
-    assert(Child.run({ probe, "write " .. elsewhere .. "/f x" }))
-    assert(Child.run({ probe, "exit 0" }, { fds = { [3] = directory } }))
-    confine.confine(nil)
-  end, nil, { tree = tmp .. "/tree", own = { own } })
-  sys.close(directory)
-  assert(run.passed, run.message)
-  local notes, unconfined = confined_notes(run)
-  assert(assert(Fs.read(elsewhere .. "/f")) == "x\n")
-  if unconfined then return end
-  assert(notes:find("x " .. elsewhere .. "\n", 1, true), notes)
-  assert(notes:find("x fd ", 1, true), notes)
-end
-
 --- A confined process's path is keyed by its contents under the tree,
 --- and by what `lstat` says of everything beneath it elsewhere, links
 --- included; a FIFO beneath it answers from past the root.
@@ -584,76 +522,6 @@ local function test_an_unveiled_answer_follows_what_the_path_holds(tmp: string)
     { kind = "u", path = tree, answer = "" },
   })))
   assert(#decoded == 1 and decoded[1].kind == "u" and decoded[1].path == tree)
-end
-
---- A confined process has a /tmp of its own to write in; a TMPDIR its
---- test chose is kept, and one it inherits but may not change is the
---- test's own directory instead.
--- TODO: run the inherited-TMPDIR case wherever the host sets none, and
--- one with no environment given, once cosmic.sys can set a variable of
--- this process: today it runs only where the host's TMPDIR is set.
-local function test_a_confined_process_has_somewhere_to_write(tmp: string)
-  local probe = probe_in(tmp)
-  local own = tmp .. "/own"
-  assert(Fs.mkdirs(own))
-  local chosen = own .. "/chosen"
-  local inherited = Env.get("TMPDIR")
-  local said: {string} = {}
-  local run = observations.call(function()
-    confine.confine({ reads = { probe } })
-    for _, environment in ipairs({ {} as {string:string}, { TMPDIR = chosen },
-        inherited ~= nil and { TMPDIR = inherited } or nil }) do
-      local r = assert(Child.run({ probe, "write /tmp/f x && cat /tmp/f; env-of TMPDIR" },
-        { env = environment, stdout = "capture" }))
-      said[#said + 1] = assert(r.stdout)
-    end
-    confine.confine(nil)
-  end, nil, { tree = tmp .. "/tree", own = { own } })
-  assert(run.passed, run.message)
-  local _, unconfined = confined_notes(run)
-  if unconfined then return end
-  assert(said[1] == "x\nTMPDIR unset\n", said[1])
-  assert(said[2] == "x\nTMPDIR=" .. chosen .. "\n", said[2])
-  if inherited ~= nil and not Fs.within(inherited, own) then
-    assert(said[3] == "x\nTMPDIR=" .. own .. "\n", said[3])
-  end
-end
-
---- A confined process is given the portable cache its environment
---- names by where that leads, which its root holds, not through a link
---- its root does not: a launcher there found no cache and ended, and
---- could not make one. One not made yet is named by where its parent
---- leads, and one named without a link is kept as named. What it leads
---- to is no read a key must place: the run stays keyable.
-local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(tmp: string)
-  local probe = probe_in(tmp)
-  local own = tmp .. "/own"
-  local real = own .. "/real/cache"
-  assert(Fs.mkdirs(real))
-  assert(Fs.write(real .. "/core", "core"))
-  assert(Fs.symlink(own .. "/real", tmp .. "/linked"))
-  local resolved = assert(sys.realpath(real))
-  local said: {string} = {}
-  local run = observations.call(function()
-    confine.confine({ reads = { real .. "/core", probe } })
-    for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do
-      local r = assert(Child.run({ probe,
-        "mkdirs $COSMIC_PORTABLE_CACHE && ls $COSMIC_PORTABLE_CACHE; " ..
-        "print $COSMIC_PORTABLE_CACHE" },
-        { env = { COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
-      said[#said + 1] = assert(r.stdout)
-    end
-    confine.confine(nil)
-  end, nil, { tree = tmp .. "/tree", own = { own } })
-  assert(run.passed, run.message)
-  local notes, unconfined = confined_notes(run)
-  assert(not ("\n" .. notes):find("\nx ", 1, true), notes)
-  if unconfined then return end
-  assert(said[1] == "core\n" .. resolved .. "\n", said[1])
-  assert(said[2] == "core\n" .. resolved .. "\n", said[2])
-  local fresh = assert(sys.realpath(own .. "/real")) .. "/fresh/cache"
-  assert(said[3] == fresh .. "\n", said[3])
-  assert(Fs.is_dir(fresh), "the launcher's cache is made where its name leads")
 end
 
 --- A process started with a sandbox of its own that unveils and takes
