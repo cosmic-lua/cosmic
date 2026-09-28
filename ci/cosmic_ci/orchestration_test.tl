@@ -251,8 +251,9 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
         TARGET = "x86_64-linux-musl", GITHUB_STEP_SUMMARY = summary,
         COSMIC_CI_REQUIRE_SANDBOX = case.require,
         -- Unset for the driver, whatever this test's own run was given
-        -- (a developer's COSMIC_TEST_SANDBOX=0; build/test_inputs.tl
-        -- pins COSMIC_SANDBOX): the leg sets each, or leaves it.
+        -- (a developer's COSMIC_TEST_SANDBOX=0, or ci.yml's driver
+        -- check's; build/test_inputs.tl pins COSMIC_SANDBOX): the leg
+        -- sets each, or leaves it.
         COSMIC_TEST_SANDBOX = "", COSMIC_SANDBOX = "",
       }))
     assert(outcome.result.ok == case.ok, "the sandbox phase answered " ..
