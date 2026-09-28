@@ -604,6 +604,50 @@ local function test_a_main_push_saves_verdicts_and_compiles_only_at_main_head()
   end
 end
 
+--- A Linux leg saves only the verdicts its run relied on or reached,
+--- where it passed: a file saved whole carried some four runs' rows,
+--- most under keys no later run reaches, 41-43 MB a leg each main
+--- push. The trim runs in the leg's container, after every suite that
+--- shares the file and before the save, and counts from a time taken
+--- before the first suite.
+local function test_a_leg_trims_its_verdicts_before_it_saves_them()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local at: {string: integer} = {}
+  local trim: {string: any}
+  for i, step in ipairs(jobs.platform.steps as {{string: any}}) do
+    local run = step.run
+    if step.id ~= nil then at[step.id as string] = i end
+    if step.name == "remove the leg's container" then at.removed = i end
+    if run is string and run:find("driver.tl verdicts-trim", 1, true) ~= nil then
+      at.trim, trim = i, step
+    end
+    local path = step.with ~= nil and (step.with as {string: string}).path or nil
+    if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil and
+        path == "${{ runner.temp }}/verdicts" then
+      at.save = i
+    end
+  end
+  assert(trim ~= nil, "no step trims the verdicts")
+  local condition = trim["if"] as string
+  assert(condition:find("success()", 1, true) ~= nil and
+    condition:find("matrix.image", 1, true) ~= nil,
+    "the trim does not turn on a Linux leg's passing run: " .. condition)
+  assert((trim.run as string):find("steps.compiles-restored.outputs.since", 1, true) ~= nil,
+    "the trim counts from no time taken before the suites: " .. (trim.run as string))
+  -- `assemble` runs the checked suite, on the leg that runs it.
+  for _, suite in ipairs({ "release-suite", "assemble", "portable-suite" }) do
+    assert(at[suite] ~= nil and at[suite] < at.trim, "the trim runs before " .. suite)
+  end
+  assert(at["compiles-restored"] < at["release-suite"], "the trim's time is taken after a suite")
+  local steps = jobs.platform.steps as {{string: any}}
+  assert(steps[at["compiles-restored"]]["if"] == nil,
+    "the trim's time is taken only on some legs: " ..
+    tostring(steps[at["compiles-restored"]]["if"]))
+  assert(at.trim < at.removed and at.trim < at.save,
+    "the verdicts are trimmed after the container goes, or after they are saved")
+end
+
 --- A job a push to a branch starts and skips still shows as a
 --- check on the branch's PR, a skipped one whose matrix, if it has one,
 --- never expands in its name. So a job that runs only on main or on

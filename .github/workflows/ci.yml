@@ -526,8 +526,9 @@
         },
 
         # Which run's compiles and parses were restored, and from when on
-        # a row counts as this run's: the builds stamp what they use by the
-        # same clock, the container's being the host's.
+        # a row, or a test verdict, counts as this run's: the builds and
+        # the suites stamp what they use by the same clock, the
+        # container's being the host's.
         {
           name: "name the restored compiles and parses",
           id: "compiles-restored",
@@ -762,6 +763,35 @@
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.compiles-restored.outputs.since }}\"",
         },
 
+        # The verdicts the next run of the leg restores are the ones this
+        # run relied on or reached, since "name the restored compiles"
+        # (cosmic_ci/verdicts.tl): the suites stamp each row they stood on
+        # or wrote. A file holds up to 8192 rows, some 3 KB each, most of
+        # them under keys no later run reaches, since every change to
+        # build/ moves every key: saved whole, a leg's verdicts.db and
+        # portable.db came to 41-43 MB compressed each main push, 0.13 GB
+        # for the three Linux legs, into the 10 GB the repository's cache
+        # holds for the zig caches too. Trimmed, a leg saves what its
+        # run's suites reached: the native suite's in verdicts.db and the
+        # portable suite's in portable.db, some 3900 rows and about 8.5 MB
+        # compressed on linux-aarch64 and alpine-x86_64, and on
+        # linux-x86_64, the one leg that runs the checked suite
+        # (COSMIC_CI_CHECKED_SUITE), its rows too in verdicts.db, some
+        # 5800 rows and about 13 MB. The cost, the choice compiles-trim
+        # made: main's saved file holds only main's head's keys, so a
+        # branch based on an older main, whose keys a change to build/ has
+        # since moved, runs every test again, where a whole file's two to
+        # four runs of rows might have served it. Only where every step
+        # before it passed: a run that stopped short, or failed, saves
+        # what it restored with what it reached, as before, which the
+        # rows' own bound holds. Here, before the container goes, after
+        # the last suite that shares them (the fixtures share none).
+        {
+          name: "keep only this run's test verdicts",
+          if: "success() && matrix.image",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim \"${{ steps.compiles-restored.outputs.since }}\"",
+        },
+
         {
           name: "summarize worker operations",
           if: "always() && steps.driver.outcome == 'success'",
@@ -842,12 +872,14 @@
         # file of its own, saved after the last of them, whatever failed
         # (a failing verdict takes a passing one out), under a key of this
         # run's own, for the next run of this leg in the same container --
-        # on this ref, or, from main, on any -- to restore: from main
-        # after every run but a push no longer main's head (below), and
-        # elsewhere only where nothing was restored, so a branch's pushes
-        # do not fill the repository's cache; never from the merge queue,
-        # whose refs no later run restores. After the tree is back where
-        # it was checked out, for the reason the zig cache save above is.
+        # on this ref, or, from main, on any -- to restore, trimmed to
+        # what this run reached where it passed ("keep only this run's
+        # test verdicts", above): from main after every run but a push no
+        # longer main's head (below), and elsewhere only where nothing was
+        # restored, so a branch's pushes do not fill the repository's
+        # cache; never from the merge queue, whose refs no later run
+        # restores. After the tree is back where it was checked out, for
+        # the reason the zig cache save above is.
         # TODO: merge what a run owes the cache into the newest saved one
         # as it saves, or save main's runs one at a time: two main runs at
         # once each save from what they restored, and the later save can
