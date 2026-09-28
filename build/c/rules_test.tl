@@ -389,15 +389,18 @@ COSMIC_SYSCALL(dup2, 2) {
 
 static int helper (lua_State *L) {
   int dir_fd = cosmic_optint(L, 1, -1);
-  lua_pushinteger(L, dir_fd);
+  int dirfd;
+  dirfd = cosmic_checkint(L, 2);
+  lua_pushinteger(L, dir_fd + dirfd);
   return 1;
 }
 ]]), "descriptor-argument")
   local said: {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
-  assert(#found == 4 and found[1].line == 9 and found[1].within == "cosmic_sys_read"
+  assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read"
     and found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2"
-    and found[4].line == 22 and found[4].within == "helper",
+    and found[4].line == 22 and found[4].within == "helper"
+    and found[5].line == 24 and found[5].within == "helper",
     "found: " .. table.concat(said, ", "))
 end
 

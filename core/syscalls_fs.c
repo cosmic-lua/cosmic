@@ -101,27 +101,42 @@ static void push_stat (lua_State *L, const struct stat *st) {
   lua_setfield(L, -2, "kind");
 }
 
-/* Whether `fd`, just opened at `path`, is the file `artifact` retains a
- * descriptor on, reached through a descriptor rather than by a name it
+/* Whether `path` names the file `artifact` retains a descriptor on --
+ * following a last link where `follow` says, as the call it is asked
+ * for will -- reached through a descriptor rather than by a name it
  * has: /proc/<pid>/fd/<n>, /dev/fd/<n> or a link to either, which hand
  * a caller the artifact whatever the sandbox gives it by name, as the
  * retained descriptor itself would (core/check.h's `cosmic_checkfd`).
+ * Asked before the call, which may write (O_TRUNC, chmod), so a refusal
+ * leaves the file as it was.
+ *
  * The kernel says which, where it can: the path walked again refusing
  * every such link (openat2's RESOLVE_NO_MAGICLINKS) reaches the artifact
- * only by a name, where it could be opened as well. Elsewhere -- macOS,
- * whose /dev/fd/<n> copies the descriptor, a kernel older than 5.6, a
- * filter refusing openat2 -- by the name: under /dev or /proc, as given
- * or resolved, or a name that no longer resolves. */
-static bool artifact_through_descriptor (int fd, const char *path,
+ * only by a name, where it could be reached as well. That refuses the
+ * program named through /proc/self/cwd/... or /proc/self/root/... too,
+ * which are such links: this program's own file is the one file refused
+ * that way, and it has a name of its own to be reached by. Elsewhere --
+ * macOS, whose /dev/fd/<n> copies the descriptor, a kernel older than
+ * 5.6, a filter refusing openat2 -- by the name: under /dev or /proc,
+ * as given or resolved. That fallback does not see a link to one of
+ * them on Linux: realpath resolves it to the artifact's own name. A
+ * sandboxed worker, held by Landlock, runs on a kernel with openat2.
+ * TODO: decide on the file the call then acts on, not its name again --
+ * open the O_PATH probe's file by its own descriptor (/proc/self/fd/<the
+ * probe>, which this check itself would then have to let through), and
+ * chmod or set the times through it (fchmod, futimens) -- so a process
+ * the test starts cannot swap a link on the path between this check and
+ * the call. */
+static bool artifact_through_descriptor (const char *path, bool follow,
                                          const struct cosmic_artifact *artifact) {
   struct stat st;
-  if (artifact == NULL || fstat(fd, &st) != 0 ||
+  if (artifact == NULL || (follow ? stat(path, &st) : lstat(path, &st)) != 0 ||
       (uint64_t)st.st_dev != artifact->device || (uint64_t)st.st_ino != artifact->inode)
     return false;
 #if defined(__linux__) && defined(SYS_openat2)
   struct open_how how;
   memset(&how, 0, sizeof how);
-  how.flags = O_PATH | O_CLOEXEC;
+  how.flags = O_PATH | O_CLOEXEC | (follow ? 0 : O_NOFOLLOW);
   how.resolve = RESOLVE_NO_MAGICLINKS;
   long named = syscall(SYS_openat2, AT_FDCWD, path, &how, sizeof how);
   if (named >= 0) {
@@ -144,13 +159,14 @@ COSMIC_SYSCALL(open, 3) {
   if (path == NULL) return cosmic_fail(L, EINVAL);
   int flags = cosmic_checkint(L, 2);
   int mode = cosmic_optint(L, 3, 0644);
-  /* Asked before the open, so nothing that can raise comes after it. */
-  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
   /* Noted before it opens: an open may make the file it names. */
   if (cosmic_observing &&
       !cosmic_observed_note(COSMIC_OBSERVED_OPEN, path, strlen(path))) {
     return cosmic_fail(L, ENOMEM);
   }
+  if (artifact_through_descriptor(path, (flags & O_NOFOLLOW) == 0,
+                                  cosmic_store_artifact(L)))
+    return cosmic_fail(L, EACCES);
   int fd;
   do {
     /* Every descriptor this table opens is close-on-exec: a child
@@ -159,10 +175,6 @@ COSMIC_SYSCALL(open, 3) {
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
     return cosmic_fail(L, errno);
-  }
-  if (artifact_through_descriptor(fd, path, artifact)) {
-    close(fd);
-    return cosmic_fail(L, EACCES);
   }
   lua_pushinteger(L, fd);
   return 1;
@@ -420,6 +432,8 @@ COSMIC_SYSCALL(chmod, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   int mode = cosmic_checkint(L, 2);
+  if (artifact_through_descriptor(path, true, cosmic_store_artifact(L)))
+    return cosmic_fail_effect(L, EACCES);
   if (chmod(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -642,6 +656,8 @@ COSMIC_SYSCALL(utimensat, 5) {
   times[0] = time_or_omit(L, 2);
   times[1] = time_or_omit(L, 4);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  if (artifact_through_descriptor(path, false, cosmic_store_artifact(L)))
+    return cosmic_fail_effect(L, EACCES);
   if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0) {
     return cosmic_fail_effect(L, errno);
   }

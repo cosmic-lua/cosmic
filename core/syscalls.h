@@ -19,6 +19,14 @@
  * error in slot two, the errno in slot three, nothing else sharing a
  * slot. This table is the one place a third slot is allowed; a Teal
  * function over it answers in two.
+ *
+ * One descriptor is no argument's: the one a portable start retains on
+ * its artifact, through which the database the program carries is read.
+ * Every call here and in core/process.h that takes a descriptor raises
+ * on it (core/check.h's `cosmic_checkfd`), `close` included, so a loop
+ * closing every descriptor from 3 up raises at it (none in the tree
+ * does; `spawn` closes a child's for it); and `open`, `chmod` and
+ * `utimensat` refuse it named through /proc/<pid>/fd or /dev/fd, EACCES.
  */
 
 #ifndef COSMIC_SYSCALLS_H
@@ -94,7 +102,9 @@ int cosmic_open_syscalls (lua_State *L);
  */
 
 /*
- * --- Opens a path and returns a descriptor.
+ * --- Opens a path and returns a descriptor. The program's own file named
+ * --- through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>, a link to
+ * --- one) is refused, EACCES, before anything is opened.
  * ---@param path string the path to open
  * ---@param flags integer the O_* flags, from `syscalls.O`
  * ---@param mode? integer the mode for a newly created file, default 0o644
@@ -243,7 +253,8 @@ COSMIC_SYSCALL(unlink, 1);
 COSMIC_SYSCALL(rename, 2);
 
 /*
- * --- Sets a path's permission bits.
+ * --- Sets a path's permission bits. The program's own file named through a
+ * --- descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>) is refused, EACCES.
  * ---@param path string the path to change
  * ---@param mode integer the permission bits to set
  * ---@return boolean ok false on failure
@@ -517,7 +528,8 @@ COSMIC_SYSCALL(readlink, 1);
  * --- shape a Stat reports (`mtime`, `mtime_ns`). Nil seconds leave that
  * --- time as it is; nil nanoseconds are 0, and nanoseconds outside
  * --- [0, 1e9), or given without seconds, raise, as naming neither time
- * --- does. The link itself is changed, not its target.
+ * --- does. The link itself is changed, not its target. The program's own
+ * --- file named through a descriptor of it is refused, EACCES.
  * ---@param path string the path to change
  * ---@param atime_s? integer the access time's seconds, or nil to keep it
  * ---@param atime_ns? integer the nanoseconds after atime_s, default 0

@@ -195,6 +195,46 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
   assert(sys.close(other))
 end
 
+--- A call that would change the program through a descriptor link is
+--- refused before it changes anything: an open to write, to truncate
+--- or to create, a chmod, a change of its times. Each is tried so that,
+--- were it let through, it would change nothing -- an open to write
+--- with nothing written, the mode and times it has already -- until
+--- the truncation, tried only once an open to write was refused.
+local function test_a_change_through_the_artifact_descriptor_changes_nothing()
+  local fd = artifact_fd()
+  if fd == nil then return end
+  local link = "/proc/self/fd/" .. fd
+  if sys.stat(link) == nil then link = "/dev/fd/" .. fd end
+  local seen = sys.stat(link)
+  if seen == nil then return end
+  local before: sys.Stat = seen
+  local function unchanged(what: string)
+    local now = assert(sys.stat(link))
+    assert(now.size == before.size and now.mode == before.mode and
+      now.mtime == before.mtime and now.mtime_ns == before.mtime_ns and
+      now.ino == before.ino, what .. " changed the program")
+  end
+  local function refused_open(what: string, flags: integer)
+    local opened, trouble, errno = sys.open(link, flags, 420)
+    if opened ~= nil then sys.close(opened) end
+    assert(opened == nil and errno == sys.EACCES, what .. " opened the artifact: " ..
+      tostring(opened) .. " " .. tostring(trouble))
+    unchanged(what)
+  end
+  refused_open("an open to write", sys.O_WRONLY)
+  refused_open("an open to read and write", sys.O_RDWR)
+  refused_open("an open to create", sys.O_CREAT | sys.O_WRONLY)
+  refused_open("an open to truncate", sys.O_WRONLY | sys.O_TRUNC)
+  local chmodded, _, chmod_errno = sys.chmod(link, before.mode & 4095)
+  assert(not chmodded and chmod_errno == sys.EACCES, "chmod reached the artifact")
+  unchanged("chmod")
+  -- A link's own times, not followed: its target's are not reached.
+  local _, _ = sys.utimensat(link, before.mtime, before.mtime_ns, before.mtime,
+    before.mtime_ns)
+  unchanged("utimensat")
+end
+
 --- Every other descriptor is used as before.
 local function test_other_descriptors_still_work(tmp: string)
   local path = tmp .. "/file"

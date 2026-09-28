@@ -380,7 +380,10 @@ local function contained(fd: integer): boolean
   -- took only as a relaunch hands it on (core/check.h's
   -- `cosmic_checkfd`): a regular file, the program's own.
   local asked, st = pcall(sys.fstat, fd)
-  if not asked then return true end
+  if not asked then
+    if tostring(st):find("retained artifact descriptor", 1, true) ~= nil then return true end
+    error(st, 0)
+  end
   if st == nil then return true end -- nothing there to reach
   local format = st.mode & S_IFMT
   return format == S_IFREG or format == S_IFIFO or

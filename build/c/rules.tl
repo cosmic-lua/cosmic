@@ -46,8 +46,8 @@
 ---   through `cosmic_checkfd` or `cosmic_argfd`
 ---   (core/check.h), directly or through a helper of the file it hands
 ---   the argument's position to; or any function takes a descriptor --
----   a local named `fd`, `*_fd` or `fd_*` -- straight from
----   `cosmic_checkint` or the like. Either would pass the descriptor a
+---   a local named `fd`, `dirfd`, `sock`, `*_fd` or `fd_*`, declared
+---   with or assigned -- straight from `cosmic_checkint` or the like. Either would pass the descriptor a
 ---   portable start retains on the artifact, through which every module
 ---   the program carries could be read.
 --- - "single-file": a function a header declares is referred to by no
@@ -1222,18 +1222,35 @@ end
 local function descriptor_arguments(ctx: Context, fn: Function, byname: {string: Function},
                                     declared: {string: rules.Declared})
   -- Any function but the checks themselves: a descriptor taken as a
-  -- bare integer.
-  after(fn.body, function(n: Node)
-    if n.kind ~= "VarDecl" or descriptor_checks[fn.name] then return end
-    local name = name_of(n) or ""
-    if not (name == "fd" or name:match("_fd$") or name:match("^fd_")) then return end
-    local init = n.children[#n.children]
-    local bare = init ~= nil and tree.bare(init) or nil
+  -- bare integer, declared with it or assigned it.
+  local function descriptor_name(name: string): boolean
+    return name == "fd" or name == "dirfd" or name == "sock" or name:match("_fd$") ~= nil
+      or name:match("^fd_") ~= nil
+  end
+  local function bare_taker(node: Node): string
+    local bare = node ~= nil and tree.bare(node) or nil
     local taker = bare ~= nil and bare.kind == "CallExpr" and tree.callee(bare) or nil
-    if taker ~= nil and integer_takers[taker] then
-      report(ctx, n, "descriptor-argument", "takes descriptor " .. name .. " through " ..
-        taker .. ", which passes the artifact's retained descriptor: take it through " ..
-        "cosmic_checkfd (core/check.h)")
+    if taker ~= nil and integer_takers[taker] then return taker end
+    return nil
+  end
+  local function flag(at: Node, name: string, taker: string)
+    report(ctx, at, "descriptor-argument", "takes descriptor " .. name .. " through " ..
+      taker .. ", which passes the artifact's retained descriptor: take it through " ..
+      "cosmic_checkfd (core/check.h)")
+  end
+  after(fn.body, function(n: Node)
+    if descriptor_checks[fn.name] then return end
+    if n.kind == "VarDecl" then
+      local name = name_of(n) or ""
+      local taker = bare_taker(n.children[#n.children])
+      if descriptor_name(name) and taker ~= nil then flag(n, name, taker) end
+    elseif n.kind == "BinaryOperator" and n.text:match("'='$") and #n.children == 2 then
+      local target = tree.bare(n.children[1])
+      local r = target ~= nil and tree.referent(target) or nil
+      local taker = bare_taker(n.children[2])
+      if r ~= nil and r.name ~= nil and descriptor_name(r.name) and taker ~= nil then
+        flag(n, r.name, taker)
+      end
     end
   end)
   local call = fn.name:match("^cosmic_sys_(.+)$")
