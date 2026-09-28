@@ -33,6 +33,12 @@
 --- `.c` file is then compiled to its syntax tree and held to the rules
 --- `build.c` holds, where a finding is a file refused and is fixed by
 --- hand. A header is held to them through the files that include it.
+---
+--- When it covers every Teal source of cosmic's own tree (`cosmic fix
+--- --check .`, as CI runs it), it also builds the tree's projection and
+--- holds it to the checks only the whole tree can answer
+--- (`build.tree_checks`), and a note on the standard library is a file
+--- refused rather than a note. A run over some paths does neither.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -53,6 +59,7 @@ local rule = require("build.fix.rule")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
 local tree = require("build.tree")
+local tree_checks = require("build.tree_checks")
 local type compiler = require("build.compiler")
 
 local log = require("build.verdict").log
@@ -80,6 +87,10 @@ local record fix
     --- The YAML files in flow style, laid out by `build.flow`.
     flow_files: {string}
     refused: {string}
+    --- Whether `files` are every Teal source of cosmic's own tree, as
+    --- `cosmic fix --check .` covers it: only then does the run hold
+    --- the tree to `build.tree_checks`.
+    whole: boolean
   end
 end
 
@@ -121,6 +132,23 @@ local function sources(root: string): {string} | nil, string
     end
   end
   return out
+end
+
+--- Whether `files`, however each was named, hold every Teal source
+--- under `root`.
+local function covers(root: string, files: {string}): boolean
+  local all, _ = sources(root)
+  if all == nil then return false end
+  local named: {string: boolean} = {}
+  for _, file in ipairs(files) do
+    local absolute, _ = Fs.absolute(file)
+    if absolute ~= nil then named[absolute] = true end
+  end
+  for _, file in ipairs(all) do
+    local absolute, _ = Fs.absolute(root .. "/" .. file)
+    if absolute == nil or not named[absolute] then return false end
+  end
+  return true
 end
 
 --- Whether `file` is named as YAML.
@@ -283,7 +311,8 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       end
       flow_files = workflows
     end
-    return { files = all, c_files = c_files, flow_files = flow_files, refused = {} }
+    return { files = all, c_files = c_files, flow_files = flow_files, refused = {},
+             whole = own }
   end
   local out: {string} = {}
   local c_out: {string} = {}
@@ -332,7 +361,8 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       out[#out + 1] = path
     end
   end
-  return { files = out, c_files = c_out, flow_files = flow_out, refused = refused }
+  return { files = out, c_files = c_out, flow_files = flow_out, refused = refused,
+           whole = own and covers(root, out) }
 end
 
 --- Lays out each YAML file of `files` (`build.flow`), writing it back
@@ -593,9 +623,31 @@ function fix.run(argv: {integer:string}): integer
     end
   end
 
-  -- A note is a heuristic's, never a failure: it names what to look at.
+  -- Over the whole of cosmic's own tree, what only the whole tree can
+  -- answer (`build.tree_checks`), asked of its projection built afresh.
+  if picked.whole then
+    local db, projection_trouble = tree_checks.projection(root, built)
+    if db == nil then
+      failures[#failures + 1] = "tree checks: " .. projection_trouble
+    else
+      for _, line in ipairs(tree_checks.run(db)) do
+        failures[#failures + 1] = line
+      end
+      local closed, close_trouble = db:close()
+      if not closed then failures[#failures + 1] = "tree checks: " .. close_trouble end
+    end
+  end
+
+  -- A note is a heuristic's, and names what to look at; only one on the
+  -- standard library, in a run over the whole tree, is a failure: the
+  -- library as it stands earns no note against itself.
   for _, line in ipairs(fix.notes(built, root, files)) do
-    log:say("fix: note  " .. line)
+    local file = line:match("^([^:]*):") or ""
+    if picked.whole and tree_checks.standard(file) then
+      failures[#failures + 1] = "near: " .. line
+    else
+      log:say("fix: note  " .. line)
+    end
   end
   for _, line in ipairs(failures) do
     log:say("fix: FAIL  " .. line)

@@ -1242,12 +1242,12 @@ end
 --- (`Store.meta`'s `compiler` or `compiled_by`), which a closure store
 --- does not carry: a worker's reads of it are answered from the running
 --- tool's own `meta`, so a test whose closure holds one of them is keyed
---- by the tool's (`Spec.compiler`). build/compiler_readers_test.tl fails
---- when a module of the tree reads it and is not named here.
+--- by the tool's (`Spec.compiler`). `build.tree_checks` refuses the
+--- tree when a module of it reads it and is not named here.
 declared_key.compiler_readers = {
   "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.store_meta_readers_test", "build.test", "core.allocation_test", "cosmic.store_test",
-  "doc.guides.portable-runtime",
+  "build.store_meta_readers_test", "build.test", "build.tree_checks", "core.allocation_test",
+  "cosmic.store_test", "doc.guides.portable-runtime",
 }
 
 --- Whether an import closure, the names of its modules, holds a module
