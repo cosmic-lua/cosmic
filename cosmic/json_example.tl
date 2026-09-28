@@ -56,6 +56,21 @@ function Example.array()
   assert(Json.encode(Json.array()) == "[]")
 end
 
+--- Explore a document whose shape is not known: `describe` shows it
+--- at a glance, `get` reaches one value, and `entries` and `items`
+--- narrow an object or an array so `pairs` and `ipairs` need no cast.
+function Example.explore()
+  local doc = assert(Json.decode('{"rows": [{"id": "a", "n": 1}, {"id": "b"}], "ok": true}'))
+  print(Json.describe(doc))
+  assert(Json.describe(doc) == "{ok: boolean, rows: [2 x {id: string, n?: number}]}")
+  assert(Json.get(doc, { "rows", 2, "id" }) == "b")
+  local _, why = Json.get(doc, { "rows", 3 })
+  print(why)
+  for _, row in ipairs((assert(Json.items(doc, { "rows" })))) do
+    for key in pairs((assert(Json.entries(row)))) do print(key) end
+  end
+end
+
 --- JSON Lines (NDJSON): one value to a line, as logs and CLI tools
 --- write it.
 function Example.decode_lines()
