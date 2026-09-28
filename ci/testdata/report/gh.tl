@@ -1,13 +1,11 @@
 -- A stand-in for the gh CLI, for report_test.tl: it answers `gh api
--- <endpoint>` and `gh run download` from a state directory,
--- FAKE_GH_STATE, and appends each invocation to its `calls` file. Run
--- with `cosmic --standalone`. The state directory holds:
+-- <endpoint>` from a state directory, FAKE_GH_STATE, and appends each
+-- invocation to its `calls` file. Run with `cosmic --standalone`. The
+-- state directory holds:
 --
---   api/<endpoint>                    the answer to `gh api <endpoint>`,
---                                     every character of the endpoint
---                                     but a letter or digit made "_"
---   artifacts/<run>/<name>/<file>     what `gh run download <run> --name
---                                     <name> --dir <dir>` writes to <dir>
+--   api/<endpoint>    the answer to `gh api <endpoint>` (an artifact's
+--                     zip, too), every character of the endpoint but a
+--                     letter or digit made "_"
 --
 -- Anything else answers as gh does a missing resource: HTTP 404, status 1.
 local Env = require("cosmic.env")
@@ -35,26 +33,6 @@ local function api(endpoint: string): integer
   return 0
 end
 
-local function download(argv: {integer:string}): integer
-  local run = argv[3]
-  local options: {string:string} = {}
-  local i = 4
-  while argv[i] do
-    options[argv[i]] = argv[i + 1]
-    i = i + 2
-  end
-  local name, directory = options["--name"], options["--dir"]
-  if not (run and name and directory and options["--repo"]) then
-    return missing("run download " .. tostring(run))
-  end
-  local source = state .. "/artifacts/" .. run .. "/" .. name
-  if not exists(source) then return missing("artifact " .. name) end
-  for _, file in ipairs((assert(Fs.list(source)))) do
-    write(directory .. "/" .. file, read(source .. "/" .. file))
-  end
-  return 0
-end
-
 return function(argv: {integer:string}): integer
   local words: {string} = {}
   local i = 1
@@ -63,6 +41,5 @@ return function(argv: {integer:string}): integer
   local logged = exists(calls) and read(calls) or ""
   write(calls, logged .. table.concat(words, " ") .. "\n")
   if argv[1] == "api" and argv[2] then return api(argv[2]) end
-  if argv[1] == "run" and argv[2] == "download" then return download(argv) end
   return missing(table.concat(words, " "))
 end

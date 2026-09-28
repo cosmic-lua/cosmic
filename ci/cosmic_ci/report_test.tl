@@ -5,6 +5,8 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
+local Stream = require("cosmic.stream")
+local Zip = require("cosmic.zip")
 
 local repository <const> = "owner/repo"
 
@@ -69,26 +71,52 @@ local function jobs(f: Fake, id: string, slow: integer)
   } })
 end
 
---- A run's `ci-driver-linux-x86_64` artifact, whose database holds a
---- native and a checked suite row keyed by `runtime` and `harness`.
-local function artifact(f: Fake, id: string, runtime: string, harness: string,
-    stood: integer)
-  local directory = f.state .. "/artifacts/" .. id .. "/ci-driver-linux-x86_64"
-  assert(Fs.mkdirs(directory))
-  local database = directory .. "/operations.db"
+--- A `ci-driver-linux-x86_64` artifact `id`, as the API serves it: a
+--- zip of an operations database holding run `run`'s native, checked
+--- and one fixture's suite rows, those two keyed by `runtime` and
+--- `harness`, `stood` of 100 tests standing.
+local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
+    harness: string, stood: integer)
+  local database = f.state .. "/db-" .. id
   for _, suite in ipairs({ "local", "checked", "fixture runtime-regression" }) do
     local keyed = not suite:match("^fixture")
-    State.suite(database, { worker = "linux-x86_64", run = id, attempt = "1",
+    State.suite(database, { worker = "linux-x86_64", run = run, attempt = "1",
       phase = suite == "local" and "build" or "assemble", suite = suite, status = "pass",
       exit_code = 0, tests = 100, ran = 100 - stood, stood = stood, elapsed_ms = 1000 * stood,
       parts = keyed and { runtime = runtime, harness = harness } or {} })
   end
-  answer(f, "repos/" .. repository .. "/actions/runs/" .. id .. "/artifacts?per_page=100",
-    { artifacts = {
-      { name = "ci-driver-linux-x86_64", expired = false },
-      { name = "portable-product-linux-x86_64", expired = false },
-      { name = "ci-driver-macos-aarch64", expired = true },
-    } })
+  local path = f.state .. "/api/" ..
+    (("repos/" .. repository .. "/actions/artifacts/" .. id .. "/zip"):gsub("[^%w]", "_"))
+  local stream = assert(Stream.create(path))
+  local zip = Zip.writer(stream, { deterministic = true })
+  assert(zip:add_file("operations.db", (assert(Fs.read(database)))))
+  assert(zip:close())
+end
+
+--- Run `run`'s artifacts list: `listed`, each {name, id, created, expired}.
+local function artifacts(f: Fake, run: string, listed: {{string:any}})
+  answer(f, "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100",
+    { artifacts = #listed > 0 and listed or Json.array() })
+end
+
+--- Run `run`'s one ci-driver artifact, and two it does not read.
+local function artifact(f: Fake, run: string, runtime: string, harness: string,
+    stood: integer)
+  local id = run .. "1"
+  artifact_zip(f, id, run, runtime, harness, stood)
+  artifacts(f, run, {
+    { name = "ci-driver-linux-x86_64", id = math.tointeger(tonumber(id)), expired = false,
+      created_at = at(1) },
+    { name = "portable-product-linux-x86_64", id = 7, expired = false, created_at = at(1) },
+    { name = "ci-driver-macos-aarch64", id = 8, expired = true, created_at = at(1) },
+  })
+end
+
+local function run_entry(id: integer, conclusion: string, attempt: integer): {string:any}
+  return { id = id, event = "merge_group",
+    head_branch = "gh-readonly-queue/main/pr-" .. id,
+    head_sha = string.rep(tostring(id % 10), 40), conclusion = conclusion,
+    run_attempt = attempt }
 end
 
 local record Answer
@@ -108,28 +136,33 @@ local function report(f: Fake, args: {string}): Answer, string
   return { code = code, ok = code == 0, stdout = out }, out .. err
 end
 
---- Four merge-queue runs, newest first: 40 moved the harness from 30's;
---- 30 held 20's; 20 is compared to 10, which predates suite rows (no
---- artifact) and is reported from its step times alone.
+--- Six merge-queue runs, newest first, four shown (--runs 4):
+--- - 40 moved the harness from 30's;
+--- - 30 held 20's: the runs between were cancelled (25) or kept no
+---   artifact (22), and tell nothing;
+--- - 25, cancelled, moved it from 20's;
+--- - 22 has no suite rows, and is reported from step times alone;
+--- - 20, past those shown, is fetched to compare with: its re-run's
+---   artifact (the newer of two of one name) holds h1;
+--- - 10 is listed but never fetched, 20 having rows.
 local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/" .. repository .. "/actions/workflows/ci.yml/runs?status=completed" ..
-    "&per_page=4&event=merge_group", { workflow_runs = {
-      { id = 40, event = "merge_group", head_branch = "gh-readonly-queue/main/pr-4",
-        head_sha = string.rep("4", 40), conclusion = "success", run_attempt = 1 },
-      { id = 30, event = "merge_group", head_branch = "gh-readonly-queue/main/pr-3",
-        head_sha = string.rep("3", 40), conclusion = "success", run_attempt = 1 },
-      { id = 20, event = "merge_group", head_branch = "gh-readonly-queue/main/pr-2",
-        head_sha = string.rep("2", 40), conclusion = "success", run_attempt = 2 },
-      { id = 10, event = "merge_group", head_branch = "gh-readonly-queue/main/pr-1",
-        head_sha = string.rep("1", 40), conclusion = "failure", run_attempt = 1 },
-    } })
-  jobs(f, "40", 13); jobs(f, "30", 11); jobs(f, "20", 12); jobs(f, "10", 14)
+    "&per_page=14&event=merge_group", { workflow_runs = {
+      run_entry(40, "success", 1), run_entry(30, "success", 1),
+      run_entry(25, "cancelled", 1), run_entry(22, "failure", 1),
+      run_entry(20, "success", 2), run_entry(10, "success", 1) } })
+  jobs(f, "40", 13); jobs(f, "30", 11); jobs(f, "25", 12); jobs(f, "22", 14)
   artifact(f, "40", "rrrr", "h2", 90)
   artifact(f, "30", "rrrr", "h1", 100)
-  artifact(f, "20", "rrrr", "h1", 50)
-  answer(f, "repos/" .. repository .. "/actions/runs/10/artifacts?per_page=100",
-    { artifacts = Json.array() })
+  artifact(f, "25", "rrrr", "h9", 50)
+  artifacts(f, "22", {})
+  artifact_zip(f, "201", "20", "rrrr", "stale", 10)
+  artifact_zip(f, "202", "20", "rrrr", "h1", 60)
+  artifacts(f, "20", {
+    { name = "ci-driver-linux-x86_64", id = 201, expired = false, created_at = at(1) },
+    { name = "ci-driver-linux-x86_64", id = 202, expired = false, created_at = at(30) },
+  })
   local result, said = report(f, { "--runs", "4", "--repo", repository })
   assert(result.ok, said)
   local text = result.stdout or ""
@@ -137,20 +170,24 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
     assert(text:find(needle, 1, true), "the report lacks " .. needle .. ":\n" .. text)
   end
   has("# CI runs: ci.yml, merge_group event, last 4")
-  has("## Run 40 (success, gh-readonly-queue/main/pr-4, attempt 1, 444444444444)")
+  has("## Run 40 (success, gh-readonly-queue/main/pr-40, attempt 1, 000000000000)")
   has("- Wall: 13m 00s (linux-x86_64, the slowest platform job)")
   has("- Qualifies: no (linux-x86_64 checked: harness moved; linux-x86_64 local: harness moved)")
   has("- Qualifies: yes (runtime and harness held since run 20)")
-  has("- Qualifies: no (linux-x86_64 checked: not in run 10; linux-x86_64 local: not in run 10)")
   has("- Qualifies: no (no checked or native suite rows)")
   has("| linux-x86_64 | 13m 00s | assemble 11m 00s; build 55s; set up 5s |")
   has("| macos-aarch64 | 8m 00s |  |")
   has("| linux-x86_64 | checked | pass | 100 | 0 | 100 | 100.0 | 100000 |")
   has("| linux-x86_64 | local | pass | 100 | 50 | 50 | 50.0 | 50000 |")
   has("No suite rows: the run predates them")
-  -- The join job is no leg, and an expired artifact is not fetched.
+  -- 25 is compared with 20's newer artifact, not its stale one.
+  local run25 = text:match("## Run 25 .-\n## Run 22")
+  assert(run25 and run25:find("harness moved", 1, true), tostring(run25))
+  -- Only the runs shown are.
+  assert(not text:find("## Run 20", 1, true) and not text:find("## Run 10", 1, true), text)
+  -- The join job is no leg.
   assert(not text:find("| ci |", 1, true), text)
-  -- Medians over 30 alone: the one run that qualified.
+  -- Medians over 30 alone: the one successful run that qualified.
   has("## Medians over 1 qualifying successful runs of 4")
   has("- Wall: 11m 00s")
   -- 11 + 8 + 59 minutes: the join's time is runner time too.
@@ -158,10 +195,12 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   has("| linux-x86_64 | local | 0 | 100.0 | 100000 |")
   has("| linux-x86_64 | fixture runtime-regression | 0 | 100.0 | 100000 |")
   local calls = assert(Fs.read(f.state .. "/calls"))
-  assert(calls:find("run download 30 --repo owner/repo --name ci-driver-linux-x86_64 --dir ",
-    1, true), calls)
-  assert(not calls:find("ci-driver-macos-aarch64", 1, true), calls)
-  assert(not calls:find("portable-product", 1, true), calls)
+  assert(calls:find("api repos/owner/repo/actions/artifacts/301/zip", 1, true), calls)
+  assert(calls:find("api repos/owner/repo/actions/artifacts/202/zip", 1, true), calls)
+  for _, absent in ipairs({ "artifacts/201/", "artifacts/7/", "artifacts/8/",
+      "runs/10/", "runs/20/jobs" }) do
+    assert(not calls:find(absent, 1, true), absent .. " was fetched:\n" .. calls)
+  end
 end
 
 --- A push's runs are main's unless a branch is named; a run whose
@@ -169,16 +208,17 @@ end
 local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/cosmic-lua/cosmic/actions/workflows/ci.yml/runs?status=completed" ..
-    "&per_page=1&event=push&branch=main", { workflow_runs = {
+    "&per_page=11&event=push&branch=main", { workflow_runs = {
       { id = 5, event = "push", head_branch = "main", head_sha = string.rep("5", 40),
         conclusion = "success", run_attempt = 1 } } })
   answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/jobs?per_page=100", { jobs = Json.array() })
   answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/artifacts?per_page=100",
-    { artifacts = { { name = "ci-driver-linux-x86_64", expired = false } } })
+    { artifacts = { { name = "ci-driver-linux-x86_64", id = 9, expired = false } } })
   local result, said = report(f, { "--runs=1", "--event", "push" })
   assert(result.ok, said)
   local text = result.stdout or ""
-  assert(text:find("- Not read: ci-driver-linux-x86_64: gh run download 5", 1, true), text)
+  assert(text:find("- Not read: ci-driver-linux-x86_64: gh api " ..
+    "repos/cosmic-lua/cosmic/actions/artifacts/9/zip failed", 1, true), text)
   assert(text:find("- Wall: -", 1, true), text)
   assert(text:find("None qualifies.", 1, true), text)
 end
@@ -186,13 +226,18 @@ end
 local function test_report_refuses_a_bad_line_and_a_missing_gh(tmp: string)
   local f = fake(tmp)
   for _, args in ipairs({ { "--runs", "0" }, { "--runs", "101" }, { "--runs", "x" },
-      { "--repo", "nobody" }, { "--event", "a&b=c" }, { "extra" }, { "--nope" } }) do
+      { "--repo", "nobody" }, { "--event", "a&b=c" }, { "--event", "a/b" },
+      { "--branch", "../x" }, { "--branch", "/x" }, { "--branch", "x&y=z" },
+      { "extra" }, { "--nope" } }) do
     local result, said = report(f, args)
     assert(result.code == 2, table.concat(args, " ") .. ": " .. said)
   end
   -- GitHub's refusal is gh's failure, and the report's.
   local failed, why = report(f, { "--runs", "3" })
   assert(failed.code == 1 and why:find("HTTP 404", 1, true), why)
+  -- A branch may hold "/", as a merge queue's and feature/x do.
+  local branched, asked = report(f, { "--branch", "gh-readonly-queue/main/pr-1" })
+  assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true), asked)
   f.env.PATH = tmp .. "/nowhere"
   local lost, told = report(f, {})
   assert(lost.code == 1 and told:find("no gh on PATH", 1, true), told)

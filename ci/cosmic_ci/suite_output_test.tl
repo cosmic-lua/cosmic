@@ -70,14 +70,40 @@ local function test_a_run_without_its_summary()
   local timed = SuiteOutput.parse("test: sandbox: each worker is held to its inputs\n")
   assert(timed.verdict == nil and timed.tests == nil and timed.parts == nil)
   assert(SuiteOutput.status(timed, 124) == "timeout")
-  assert(SuiteOutput.status(timed, 1) == "unreported")
+  assert(SuiteOutput.status(timed, 1) == "fail")
   assert(SuiteOutput.status(SuiteOutput.parse(""), 0) == "unreported")
   -- A summary cut short is no summary.
   local cut = SuiteOutput.parse("test: PASS (1994 tests, 193 mod")
   assert(cut.verdict == nil)
-  -- A timeout's status stands over a summary a nested run printed.
-  assert(SuiteOutput.status(SuiteOutput.parse("test: PASS (1 tests, 1 modules; 1 ran, " ..
-    "0 stood, 3 ms)\n"), 124) == "timeout")
+end
+
+--- A suite the driver ended keeps its key parts and nothing its output
+--- said after: a summary there is a test's own nested run's.
+local function test_a_timed_out_suite_keeps_only_its_key_parts()
+  local figures, status = SuiteOutput.read(key_parts .. "\n" ..
+    "test: PASS (1 tests, 1 modules; 1 ran, 0 stood, 3 ms)\n", 124)
+  assert(status == "timeout")
+  assert(figures.verdict == nil and figures.tests == nil and figures.ran == nil)
+  assert(figures.stood == nil and figures.elapsed_ms == nil)
+  assert(figures.parts and figures.parts.runtime == "bbbbbbbbbbbb")
+  local bare, bare_status = SuiteOutput.read("", 124)
+  assert(bare_status == "timeout" and bare.parts == nil)
+end
+
+--- A suite that exited otherwise than 0 failed, though it said PASS:
+--- `--audit` does, and exits 1, for a test that read what it did not
+--- declare. Its counts are still the suite's.
+local function test_a_pass_that_exits_nonzero_is_a_failure()
+  local figures, status = SuiteOutput.read(
+    "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\n", 1)
+  assert(status == "fail" and figures.ran == 4 and figures.stood == 6)
+  local _, passed = SuiteOutput.read(
+    "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\n", 0)
+  assert(passed == "pass")
+  local _, unreported = SuiteOutput.read("", 0)
+  assert(unreported == "unreported")
+  local _, failed = SuiteOutput.read("", 2)
+  assert(failed == "fail")
 end
 
 --- The last summary is the suite's: a test's own output may hold one.

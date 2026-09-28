@@ -285,11 +285,11 @@ end
 local function record_suite(c: Context, name: string, code: integer, out: string)
   local called, trouble = pcall(function(): boolean
     local said = exists(out) and read(out) or ""
-    local figures = SuiteOutput.parse(said)
+    local figures, status = SuiteOutput.read(said, code)
     State.suite(State.external_path(c.db, c.root), {
       worker = c.worker, run = c.run, attempt = c.attempt,
       phase = c.phase or "", suite = name,
-      status = SuiteOutput.status(figures, code), exit_code = code,
+      status = status, exit_code = code,
       tests = figures.tests, modules = figures.modules, ran = figures.ran,
       stood = figures.stood, every = figures.every, assumed = figures.assumed,
       shared = figures.shared, failed = figures.failed,

@@ -24,8 +24,10 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Stream = require("cosmic.stream")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
+local Zip = require("cosmic.zip")
 
 local record Report
   record Step
@@ -51,6 +53,11 @@ local record Report
     qualifies: boolean
     why: string
   end
+  record Artifact
+    name: string
+    id: string
+    created: integer
+  end
   record Options
     runs: integer
     event: string
@@ -72,6 +79,9 @@ local join_job <const> = "ci"
 --- `record_suite` names them).
 local deciding: {string:boolean} = { checked = true, ["local"] = true }
 local capture_limit <const> = 1 << 30
+--- How many runs older than the N shown `report` lists, to find one to
+--- compare the oldest shown with.
+local lookback <const> = 10
 --- How many of a leg's slowest steps a run's table names.
 local slowest_steps <const> = 3
 
@@ -175,26 +185,33 @@ function Report.jobs(text: string): {Report.Job}
   return out
 end
 
---- The names of the `ci-driver-<leg>` artifacts a `gh api
---- .../runs/<id>/artifacts` answer lists that have not expired, sorted.
-function Report.driver_artifacts(text: string): {string}
+--- The `ci-driver-<leg>` artifacts a `gh api .../runs/<id>/artifacts`
+--- answer lists that have not expired, sorted by name: of each name,
+--- the newest (by `created_at`), which a run's latest attempt uploaded.
+function Report.driver_artifacts(text: string): {Report.Artifact}
   local answer = assert(Json.decode_object(text))
   local listed = answer.artifacts
   assert(listed is {any} and Json.is_array(listed), "the artifacts list is no array")
+  local newest: {string:Report.Artifact} = {}
   local names: {string} = {}
-  local seen: {string:boolean} = {}
   for _, item in ipairs(listed as {any}) do
     if item is {string:any} then
       local artifact = item as {string:any}
-      local name = text_of(artifact.name)
-      if name:match("^ci%-driver%-") and artifact.expired ~= true and not seen[name] then
-        seen[name] = true
-        names[#names + 1] = name
+      local name, id = text_of(artifact.name), text_of(artifact.id)
+      local created = Report.seconds_of(artifact.created_at) or 0
+      if name:match("^ci%-driver%-") and artifact.expired ~= true and id:match("^%d+$") then
+        local held = newest[name]
+        if held == nil then names[#names + 1] = name end
+        if held == nil or created > held.created then
+          newest[name] = { name = name, id = id, created = created }
+        end
       end
     end
   end
   table.sort(names)
-  return names
+  local out: {Report.Artifact} = {}
+  for _, name in ipairs(names) do out[#out + 1] = newest[name] end
+  return out
 end
 
 local function platform_jobs(run: Report.Run): {Report.Job}
@@ -230,28 +247,37 @@ local function deciding_rows(run: Report.Run): {string:State.SuiteRun}
   return rows
 end
 
---- Sets each run's `qualifies` and `why`, `runs` newest first: a run
---- qualifies when each of its checked and native suites keyed its tests
---- by the runtime and harness the same leg's same suite did in the run
---- after it in the list (the next older).
+--- Sets `qualifies` and `why` of each of the first `shown` of `runs`,
+--- newest first: a run qualifies when each of its checked and native
+--- suites keyed its tests by the runtime and harness the same leg's
+--- same suite did in the next older run of `runs` that has such rows
+--- and was not cancelled: one that stopped short, or kept no artifact,
+--- tells nothing of what the cache held. Runs past `shown` are only
+--- compared against.
 -- TODO: qualify a run by whether its key parts matched those of the
 -- verdicts its restored cache held, as doc/plan-fast-correct-builds.md's
 -- milestones define it, once `cosmic test --census` says the parts the
 -- cache's rows were keyed by (build/shared_verdicts.tl's `census` counts
--- them and keeps no parts): the run listed next is only the likeliest to
--- have saved the cache this one restored, not surely the one.
-function Report.qualify(runs: {Report.Run})
-  for i, run in ipairs(runs) do
+-- them and keeps no parts): the next older run with rows is only the
+-- likeliest to have saved the cache this one restored, not surely it.
+function Report.qualify(runs: {Report.Run}, shown?: integer)
+  for i = 1, math.min(shown or #runs, #runs) do
+    local run = runs[i]
     run.qualifies, run.why = false, ""
     local rows = deciding_rows(run)
-    local earlier = runs[i + 1]
+    local earlier: Report.Run | nil = nil
+    for j = i + 1, #runs do
+      if runs[j].conclusion ~= "cancelled" and next(deciding_rows(runs[j])) ~= nil then
+        earlier = runs[j]; break
+      end
+    end
     local keys: {string} = {}
     for key in pairs(rows) do keys[#keys + 1] = key end
     table.sort(keys)
     if #keys == 0 then
       run.why = "no checked or native suite rows"
     elseif earlier == nil then
-      run.why = "no earlier run listed to compare"
+      run.why = "no earlier run with suite rows listed to compare"
     else
       local before = deciding_rows(earlier)
       local moved: {string} = {}
@@ -415,33 +441,62 @@ local function api(o: Report.Options, endpoint: string): string
   return text
 end
 
---- A run's suite rows, read from each of its `ci-driver-` artifacts,
---- downloaded under `scratch`; each one that cannot be had is named in
---- its `missing` instead.
+--- The suite rows of `bytes`, an operations database, or nil and why
+--- they cannot be read.
+local function rows_of(bytes: string, path: string): {State.SuiteRun} | nil, string
+  local written, why = Fs.write(path, bytes)
+  if not written then return nil, why end
+  local db, trouble = Sqlite.open(path)
+  if db == nil then return nil, trouble end
+  local called, rows = pcall(State.suite_rows, db)
+  db:close()
+  if not called then return nil, tostring(rows) end
+  return rows as {State.SuiteRun}, ""
+end
+
+--- The operations database a `ci-driver-` artifact's zip, `zip`, holds,
+--- or nil and why it holds none.
+local function database_of(zip: string): string | nil, string
+  local reader, why = Zip.open_string(zip)
+  if reader == nil then return nil, why end
+  local found: string | nil = nil
+  local trouble = "no operations.db"
+  for _, entry in ipairs(reader:entries()) do
+    if entry.path == "operations.db" and entry.kind == "file" then
+      local stream, opened = entry.open(entry)
+      if stream == nil then trouble = opened
+      else
+        local bytes, read_trouble = Stream.read_all(stream)
+        if bytes == nil then trouble = read_trouble else found = bytes end
+      end
+    end
+  end
+  reader:close()
+  if found == nil then return nil, trouble end
+  return found, ""
+end
+
+--- A run's suite rows, read from each of its `ci-driver-` artifacts --
+--- its latest attempt's (`driver_artifacts`), fetched by id through the
+--- API and written under `scratch`; each one that cannot be had is
+--- named in its `missing` instead.
 local function read_suites(o: Report.Options, run: Report.Run, scratch: string)
   local listed = api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id .. "/artifacts?per_page=100")
-  for _, name in ipairs(Report.driver_artifacts(listed)) do
-    local directory = scratch .. "/" .. run.id .. "/" .. name
-    assert(Fs.mkdirs(directory))
-    local _, why = gh(o, { "run", "download", run.id, "--repo", o.repo,
-      "--name", name, "--dir", directory })
-    local database = directory .. "/operations.db"
-    local there = Fs.exists(database)
-    if not there then
-      run.missing[#run.missing + 1] = name .. ": " .. (why ~= "" and why or "no operations.db")
-    else
-      local db, trouble = Sqlite.open(database)
-      if db == nil then
-        run.missing[#run.missing + 1] = name .. ": " .. trouble
-      else
-        local called, rows = pcall(State.suite_rows, db)
-        db:close()
-        if called then
-          for _, row in ipairs(rows as {State.SuiteRun}) do run.suites[#run.suites + 1] = row end
-        else
-          run.missing[#run.missing + 1] = name .. ": " .. tostring(rows)
-        end
+  for _, artifact in ipairs(Report.driver_artifacts(listed)) do
+    local zip, why = gh(o, { "api", "repos/" .. o.repo .. "/actions/artifacts/" ..
+      artifact.id .. "/zip" })
+    local rows: {State.SuiteRun} | nil = nil
+    if zip ~= nil then
+      local database: string | nil
+      database, why = database_of(zip)
+      if database ~= nil then
+        rows, why = rows_of(database, scratch .. "/" .. run.id .. "-" .. artifact.id .. ".db")
       end
+    end
+    if rows == nil then
+      run.missing[#run.missing + 1] = artifact.name .. ": " .. why
+    else
+      for _, row in ipairs(rows) do run.suites[#run.suites + 1] = row end
     end
   end
 end
@@ -449,28 +504,49 @@ end
 --- The report for `o`: each run fetched through gh, qualified and
 --- rendered.
 function Report.report(o: Report.Options): string
-  local query = "status=completed&per_page=" .. o.runs .. "&event=" .. o.event
+  -- Runs past the N shown are listed too, up to `lookback` of them, so
+  -- the oldest shown has an earlier run to be compared with
+  -- (`qualify`); each one's rows are fetched only while no earlier run
+  -- has any.
+  local listed = math.min(o.runs + lookback, 100)
+  local query = "status=completed&per_page=" .. listed .. "&event=" .. o.event
   if o.branch then query = query .. "&branch=" .. o.branch end
   local runs = Report.runs(api(o, "repos/" .. o.repo .. "/actions/workflows/" ..
     o.workflow .. "/runs?" .. query))
+  local shown: {Report.Run} = {}
+  for i = 1, math.min(o.runs, #runs) do shown[i] = runs[i] end
   local scratch = assert(Fs.mkdtemp("cosmic-ci-report-"))
   local called, trouble = pcall(function(): boolean
-    for _, run in ipairs(runs) do
+    for _, run in ipairs(shown) do
       run.jobs = Report.jobs(api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id ..
         "/jobs?per_page=100"))
       read_suites(o, run, scratch)
+    end
+    for i = #shown + 1, #runs do
+      read_suites(o, runs[i], scratch)
+      if runs[i].conclusion ~= "cancelled" and next(deciding_rows(runs[i])) ~= nil then
+        break
+      end
     end
     return true
   end)
   local removed, remove_trouble = Fs.remove_tree(scratch)
   if not called then error(trouble, 0) end
   assert(removed, remove_trouble)
-  Report.qualify(runs)
-  return Report.render(runs, o)
+  Report.qualify(runs, #shown)
+  return Report.render(shown, o)
 end
 
 local function word(value: string): boolean
   return value:match("^[%w_.-]+$") ~= nil
+end
+
+--- A branch's name as the runs list takes it: `word`'s, and "/" between
+--- them (feature/x, gh-readonly-queue/main/pr-1-...), with no ".."
+--- and no "/" at either end.
+local function branch_name(value: string): boolean
+  return value:match("^[%w_./-]+$") ~= nil and not value:find("..", 1, true) and
+    value:sub(1, 1) ~= "/" and value:sub(-1) ~= "/"
 end
 
 --- What `driver.tl report` answers for `got`, its line, in `env`, its
@@ -492,7 +568,10 @@ function Report.answer(got: Flags.Parsed, env: {string:string}): integer, string
   local repository = got.values["--repo"] or env.GITHUB_REPOSITORY or ""
   if repository == "" then repository = "cosmic-lua/cosmic" end
   local workflow = got.values["--workflow"] or "ci.yml"
-  for _, value in ipairs({ event, branch or "x", workflow }) do
+  if branch and not branch_name(branch) then
+    return refuse("not a branch name: " .. branch)
+  end
+  for _, value in ipairs({ event, workflow }) do
     if not word(value) then return refuse("not a plain name: " .. value) end
   end
   if not repository:match("^[%w_.-]+/[%w_.-]+$") then

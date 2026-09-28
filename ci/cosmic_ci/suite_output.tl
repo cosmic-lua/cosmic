@@ -102,12 +102,29 @@ function SuiteOutput.parse(text: string): SuiteOutput.Figures
   return figures
 end
 
---- How a suite ended, for its row: "timeout" where the driver ended it
---- (status 124), else its summary line's verdict, else "unreported":
---- it said none, having stopped before its tests' end.
+--- How a suite ended, for its row, given `figures`, what its output
+--- said, and `code`, its exit status: "timeout" where the driver ended
+--- it (status 124); "fail" where it exited otherwise than 0, whatever
+--- its summary said (`--audit` says PASS and exits 1 for a test that
+--- read what it does not declare); else its summary line's verdict, or
+--- "unreported" where it said none, having stopped before its tests'
+--- end.
 function SuiteOutput.status(figures: SuiteOutput.Figures, code: integer): string
   if code == 124 then return "timeout" end
+  if code ~= 0 then return "fail" end
   return figures.verdict or "unreported"
+end
+
+--- What a suite's row holds, from `text`, its stdout, and `code`, its
+--- exit status: its figures (`parse`) and its status (`status`). A
+--- suite the driver ended (status 124) keeps only its key parts, said
+--- before its tests ran: a summary line in its output is some test's
+--- own nested run's, never the suite's, which it did not reach.
+function SuiteOutput.read(text: string, code: integer): SuiteOutput.Figures, string
+  local figures = SuiteOutput.parse(text)
+  local status = SuiteOutput.status(figures, code)
+  if status == "timeout" then figures = { parts = figures.parts } end
+  return figures, status
 end
 
 --- The share of `row`'s tests that stood, as a percentage with one
