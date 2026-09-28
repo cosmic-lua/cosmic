@@ -2,7 +2,8 @@
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
 --- fix, db, sql, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
---- with what that verb does. This is not an argument parser for a
+--- with what that verb does, ahead of the module of the same name (and
+--- the other symbols) when there is one. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
 --- cosmic.flags reads its options, or `Flags.dispatch(argv, 1,
@@ -111,9 +112,10 @@ local record Cli
   --- command line it cannot read. Nothing is built or staged.
   sql: string
   --- `cosmic docs [q]`: what the database says about q -- a symbol
-  --- (Fs.read, read), a module (cosmic.fs), or words to search the
-  --- documentation for; with no q, every module there is, with what
-  --- it is for
+  --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
+  --- or words to search the documentation for; a module lists the
+  --- signature of each function it offers, ahead of the rest of its
+  --- prose; with no q, every module there is, with what it is for
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given
