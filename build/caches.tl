@@ -19,15 +19,10 @@
 
 local Fs = require("cosmic.fs")
 
+--- The names a declaration may give are `build.cache_names`', which the
+--- analyzer checks a declaration against.
 local record caches
-  --- Each name a declaration may give, to what it covers.
-  names: {string:string}
 end
-
-caches.names = {
-  zig = "the pinned zig, and zig's global and project caches",
-  bootstrap = "the bootstrap cosmic, and the cores a portable cosmic extracts",
-}
 
 --- The variables that say where each cache is, which a process that
 --- writes one reads to find it: a sandboxed worker is given them.
@@ -62,9 +57,8 @@ local function paths(name: string, root: string, environment: {string:string}): 
     out[#out + 1] = path
   end
   if name == "zig" then
-    -- Required here, not above: the analyzer reads `names` as boot
-    -- compiles the tree, which build/zig.tl's modules are not all there
-    -- for.
+    -- Required here, not above: only the zig cache's paths need
+    -- build/zig.tl, and what it reaches of the standard library.
     local Zig = require("build.zig")
     local installs, _ = Fs.cache_path("zig", environment)
     add(installs)

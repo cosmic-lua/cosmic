@@ -29,6 +29,13 @@
 --- by test.
 
 local observations = require("build.filesystem_observations")
+-- TODO: take the variables that locate a cache from build.cache_names,
+-- moving build.caches' `locating` and `variables` there: this is all
+-- this module reads of build.caches, whose lazy require of build.zig
+-- puts build/zig.tl in build.declared_key's closure, which every
+-- sandboxed verdict's key holds by source (build.test's `key_code`), so
+-- an edit to build/zig.tl runs every sandboxed test again though it
+-- decides no key.
 local caches = require("build.caches")
 local type analyzer = require("build.analyzer")
 local type inputs = require("build.inputs")
@@ -44,7 +51,9 @@ local record test_inputs
     --- Paths of the tree, each a file or a directory and all beneath
     --- it: the fuzz corpora, and what the module declares.
     reads: {string}
-    --- Absolute paths outside the tree, the same way.
+    --- Absolute paths outside the tree, the same way: as the module
+    --- declares them until `resolve` puts each it declares by a variable
+    --- (`$NAME/path`) where that variable's value says.
     host: {string}
     --- Environment variables, pinned or declared, by name; `"*"` for
     --- the whole environment.
@@ -63,6 +72,18 @@ local record test_inputs
     --- then.
     caches: {string}
     cache_paths: {string}
+    --- The variables the module declares by name, in `env` or as the
+    --- first name of a `host` path (`$NAME/path`, which declares NAME
+    --- too), sorted; and the second alone, by name.
+    variables: {string}
+    named: {string:boolean}
+    --- Once `resolve` has run: each `host` path a variable named, as
+    --- the module spells it (`$NAME/path`), by where it resolved; each
+    --- of `variables` whose value is an absolute path, by name; and why
+    --- a `host` path cannot be given, "" when every one can.
+    spelled: {string:string}
+    located: {string:string}
+    unresolved: string
   end
 
   --- One input a test read that its effective inputs do not hold,
@@ -151,6 +172,15 @@ function test_inputs.modules(m: Module, by_path: {string:Module},
   return names
 end
 
+--- The name of the variable a `host` path is declared by, `$NAME` or
+--- `$NAME/path` (see `cosmic.test`), whose rest follows it at `#name +
+--- 2`; "" for a path written out.
+local function variable_of(path: string): string
+  local name, rest = path:match("^%$([%a_][%w_]*)(.*)$")
+  if name == nil or (rest ~= "" and rest:sub(1, 1) ~= "/") then return "" end
+  return name
+end
+
 --- `m`'s default inputs and its declared ones together: `by_path` is
 --- every module the build compiled, by path, and `declarations` every
 --- declaration file of the tree (`<path>.d.tl`), by import path.
@@ -159,7 +189,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
     processes = false, tool = false, store = false, system = false, caches = {},
-    cache_paths = {},
+    cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations)
   for _, file in ipairs(files) do out.files[file] = true end
@@ -170,8 +200,24 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
   local declared: analyzer.Declared = m.inputs
   if declared ~= nil then
     for _, path in ipairs(declared.reads) do out.reads[#out.reads + 1] = path end
-    for _, path in ipairs(declared.host) do out.host[#out.host + 1] = path end
-    for _, name in ipairs(declared.env) do out.env[name] = true end
+    local variables: {string:boolean} = {}
+    for _, path in ipairs(declared.host) do
+      out.host[#out.host + 1] = path
+      -- A path a variable names declares the variable: the test finds
+      -- the path by its value, which its worker is given.
+      local name = variable_of(path)
+      if name ~= "" then
+        out.env[name] = true
+        out.named[name] = true
+        variables[name] = true
+      end
+    end
+    for _, name in ipairs(declared.env) do
+      out.env[name] = true
+      if name ~= "*" then variables[name] = true end
+    end
+    for name in pairs(variables) do out.variables[#out.variables + 1] = name end
+    table.sort(out.variables)
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.processes, out.tool, out.store = declared.processes, declared.tool, declared.store
     out.system = declared.system == true
@@ -211,6 +257,102 @@ local function beneath(path: string, prefix: string): boolean
   path = path:gsub("/+$", "")
   if prefix == "" then return path:sub(1, 1) == "/" end
   return path == prefix or path:sub(1, #prefix + 1) == prefix .. "/"
+end
+
+--- Why `declared`, a `host` path as a module declares it, cannot be
+--- given, resolved from `environment` -- the worker's, as the runner
+--- sees it -- to `path`: a variable it names that is unset, empty,
+--- relative or not spelled plainly (a ".", ".." or empty name), or a path that is the tree, beneath it or above it, where
+--- the tree is at each of `roots` (its path and where that resolves).
+--- The path, or nil and why.
+function test_inputs.resolved(declared: string, environment: {string:string},
+                              roots: {string}): string | nil, string
+  local path = declared
+  local name = variable_of(declared)
+  local said = string.format("Test.needs host %q", declared)
+  if name ~= "" then
+    local rest = declared:sub(#name + 2)
+    local value = environment[name]
+    if value == nil or value == "" then
+      return nil, string.format("%s: %s is %s; a path a variable names needs the variable " ..
+        "set to where it is", said, name, value == nil and "unset" or "empty")
+    end
+    if value:sub(1, 1) ~= "/" then
+      return nil, string.format("%s: %s is %q, a relative path; a variable a host path " ..
+        "names holds an absolute one", said, name, value)
+    end
+    -- Spelled plainly, as a declared path is: the test opens the value
+    -- as it is spelled, which through a link before a ".." is not where
+    -- a key made from the text alone would look.
+    if value ~= "/" and test_inputs.plain(value) ~= value:gsub("/$", "") then
+      return nil, string.format("%s: %s is %q, which names \".\", \"..\" or an empty " ..
+        "name; a variable a host path names holds an absolute path spelled plainly",
+        said, name, value)
+    end
+    path = test_inputs.plain(value .. rest)
+  end
+  local real = observations.resolution(path)
+  for _, root in ipairs(roots) do
+    for _, where in ipairs({ path, real }) do
+      if where ~= "" and root ~= "" and beneath(where, root) then
+        return nil, string.format("%s: %s is the tree's; a path of the tree goes in reads",
+          said, path)
+      elseif where ~= "" and root ~= "" and beneath(root, where) then
+        return nil, string.format("%s: %s holds the tree; declare the paths beneath it " ..
+          "the tests read", said, path)
+      end
+    end
+  end
+  return path, ""
+end
+
+--- Puts each `host` path of `effective` a variable names where the
+--- variable's value in `environment` says (`resolved`), spelling it as
+--- declared in `spelled`, notes where each variable it declares is
+--- (`located`), and says why one cannot be given in `unresolved`: see
+--- `resolved`, whose `roots` this takes.
+function test_inputs.resolve(effective: test_inputs.Effective, environment: {string:string},
+                             roots: {string})
+  local host: {string} = {}
+  effective.spelled, effective.located, effective.unresolved = {}, {}, ""
+  for _, declared in ipairs(effective.host) do
+    local path, trouble = test_inputs.resolved(declared, environment, roots)
+    if path == nil then
+      if effective.unresolved == "" then effective.unresolved = trouble end
+    else
+      host[#host + 1] = path
+      if variable_of(declared) ~= "" then
+        effective.spelled[test_inputs.plain(path)] = declared
+      end
+    end
+  end
+  effective.host = host
+  for _, name in ipairs(effective.variables or {}) do
+    local value = environment[name]
+    if value ~= nil and value:sub(1, 1) == "/" then
+      effective.located[name] = test_inputs.plain(value)
+    end
+  end
+end
+
+--- `path`, absolute, as a variable of `effective` (`located`) spells it
+--- where it is that variable's value or beneath it -- `$NAME` or
+--- `$NAME/rest`, the longest value that holds it -- and `path` itself
+--- where none does; only a variable a `host` path names (`named`) where
+--- `named_only`.
+function test_inputs.spelling(effective: test_inputs.Effective, path: string,
+                              named_only?: boolean): string
+  local best, best_value: string, string = nil, ""
+  for name, value in pairs(effective.located or {}) do
+    if (not named_only or (effective.named or {})[name]) and value ~= "/" and
+        beneath(path, value) and (#value > #best_value or
+        (#value == #best_value and (best == nil or name < best))) then
+      best, best_value = name, value
+    end
+  end
+  if best == nil then return path end
+  local rest = path:gsub("/+$", ""):sub(#best_value + 1)
+  return "$" .. best .. rest
 end
 
 --- Whether `path` is a directory some input of `effective` sits

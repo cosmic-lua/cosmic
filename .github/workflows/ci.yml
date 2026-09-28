@@ -596,16 +596,18 @@
         # and $GITHUB_WORKSPACE links to it.
         # TODO: move it on the macOS leg alone (and drop the put-back and
         # re-move around the zig cache save on the Linux legs) once
-        # ci/cosmic-driver.pin names a release whose `cosmic test`
-        # sandboxes its workers by default: the tree's own suites here
-        # already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
-        # but "check the pinned CI driver" runs cosmic_ci's tests on that
-        # release, unsandboxed, and the macOS leg has no sandbox at all.
-        # Then too, the cosmic_ci tests that start the system's own
-        # programs (bootstrap_test, fixture_test and runner_test start
-        # /bin/sh) declare `system = true` in their `Test.needs`: a
-        # sandboxed worker is given none of /usr, /bin, /lib or /etc
-        # otherwise, which the pinned release does not know to refuse.
+        # "check the pinned CI driver" runs cosmic_ci's tests sandboxed:
+        # the tree's own suites here already see it at /tree wherever it
+        # is (COSMIC_TEST_SANDBOX=1), and the pinned release sandboxes
+        # its workers by default and knows `system`, but cosmic_ci's
+        # tests read the checkout around ci/ (bin/cosmic-bootstrap,
+        # build/, .github/), which a worker held to ci/ is not given and
+        # `Test.needs` names only as a host path written out in the
+        # source; the macOS leg has no sandbox at all. Then too, the
+        # cosmic_ci tests that start the system's own programs
+        # (bootstrap_test, fixture_test and runner_test start /bin/sh,
+        # fuzz_test /bin/cp) declare `system = true` in their
+        # `Test.needs`.
         {
           name: "move the tree to a path of this commit's own",
           "working-directory": ".",
@@ -617,8 +619,11 @@
           id: "driver-check",
           if: "steps.driver-check-restore.outputs.cache-hit != 'true'",
           # Without --all, a run would assume a test no key holds from the
-          # shared verdicts: this one reads none, and writes none.
-          env: {COSMIC_VERDICT_CACHE: "0"},
+          # shared verdicts: this one reads none, and writes none. Its
+          # workers run unsandboxed, where the pinned release would
+          # sandbox them: cosmic_ci's tests read the checkout around ci/
+          # (the TODO above).
+          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci",
         },
 

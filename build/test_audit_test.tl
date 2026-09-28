@@ -226,6 +226,39 @@ local function test_a_link_in_the_tests_own_directory_that_leads_out_is_named(tm
   assert(#found == 1 and found[1].field == "host" and found[1].value == base)
 end
 
+--- A read of the host's beneath where a variable the module declares
+--- says is named by that variable, so the declaration it suggests holds
+--- wherever the host has it; one elsewhere, by its path. A path a
+--- variable names is held where the variable says.
+local function test_a_read_where_a_declared_variable_says_is_named_by_it(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local root, scratch, product = base .. "/root", base .. "/scratch", base .. "/product"
+  for _, dir in ipairs({ root, scratch, product .. "/bin" }) do assert(Fs.mkdirs(dir)) end
+  for _, file in ipairs({ product .. "/bin/tool", product .. "/bin/other", base .. "/f" }) do
+    assert(Fs.write(file, "x"))
+  end
+  local m: positions.Module = { path = "a.thing_test", file = "a/thing_test.tl", kind = "test",
+    requires = {}, tests = { "test_x" }, inputs = { line = 1, reads = {},
+    host = { "$PRODUCT/bin/tool" }, env = {}, network = {}, processes = false, tool = false,
+    store = false } }
+  local effective = test_inputs.effective(m, { [m.path] = m }, {})
+  test_inputs.resolve(effective, { PRODUCT = product }, { root })
+  assert(effective.unresolved == "", effective.unresolved)
+  local found = test.audited(root, scratch, effective, {
+    { kind = "o", path = product .. "/bin/tool", answer = "" },
+    { kind = "o", path = product .. "/bin/other", answer = "" },
+    { kind = "o", path = base .. "/f", answer = "" },
+    { kind = "e", path = "PRODUCT", answer = "ok " .. product },
+  }, {})
+  local said: {string} = {}
+  for _, finding in ipairs(found) do said[#said + 1] = finding.field .. " " .. finding.value end
+  assert(table.concat(said, "\n") == "host $PRODUCT/bin/other\nhost " .. base .. "/f",
+    table.concat(said, "\n"))
+  local lines = test_inputs.report(m, { test_x = found })
+  assert(lines[#lines] == '  declare: Test.needs { host = { "$PRODUCT/bin/other", ' ..
+    '"$PRODUCT/bin/tool", "' .. base .. '/f" } }', table.concat(lines, "\n"))
+end
+
 --- A `needs` call the build did not read from the source -- reached
 --- another way than a top-level call on a local bound to
 --- `require("cosmic.test")` -- fails its module's load when it runs,

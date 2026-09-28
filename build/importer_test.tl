@@ -319,9 +319,13 @@ local function test_image_hash_covers_the_artifact_layout()
 end
 
 --- The compiler identity is what turns source into bytecode: the Teal
---- compiler's and Lua's pins and patches, and the build's own modules
---- in the importer's closure. The standard library the importer runs on
---- is not in it, so an edit there does not recompile the world.
+--- compiler's and Lua's pins and patches, and the build's own modules a
+--- compile or a parse runs (`work.compiler_modules`). The standard
+--- library the importer runs on
+--- is not in it, so an edit there does not recompile the world -- but
+--- for `cosmic.removed`, the names `build.teal` strips from the checker,
+--- which decide what a compile accepts: an edit to it moves the
+--- compiler's identity, though not the runtime basis.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -332,21 +336,38 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/patch/tl/01.txt", "a record"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n"))
+  assert(Fs.write(root .. "/cosmic/removed.tl",
+    "local record Removed\nend\nreturn Removed\n"))
+  assert(Fs.write(root .. "/build/teal.tl",
+    "local Fs = require(\"cosmic.fs\")\nlocal Removed = require(\"cosmic.removed\")\n" ..
+    "local record teal\nend\nteal.fs = Fs\nteal.removed = Removed\nreturn teal\n"))
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local teal = require(\"build.teal\")\nlocal record importer\nend\n" ..
+    "importer.teal = teal\nreturn importer\n"))
   local function identities(): {string}
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
+    assert(importer.derive(handle, true, built))
     local found = assert(work.record_identities(handle))
     work.close(handle)
     return { found.compiler, found.runtime_basis }
   end
   local original = identities()
+  assert(identities()[1] == original[1], "a second open of the same tree moved the identity")
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n-- edited\n"))
   local after_stdlib = identities()
   assert(after_stdlib[1] == original[1], "a stdlib edit moved the compiler identity")
   assert(after_stdlib[2] == original[2], "a stdlib edit moved the runtime basis")
+  assert(Fs.write(root .. "/cosmic/removed.tl",
+    "local record Removed\nend\nreturn Removed\n-- edited\n"))
+  local after_removed = identities()
+  assert(after_removed[1] ~= original[1],
+    "an edit to the names the checker strips did not move the compiler identity")
+  assert(after_removed[2] == original[2], "an edit to cosmic.removed moved the runtime basis")
   assert(Fs.write(root .. "/patch/tl/01.txt", "another record"))
   local after_patch = identities()
-  assert(after_patch[1] ~= original[1], "a compiler patch did not move the compiler identity")
+  assert(after_patch[1] ~= after_removed[1],
+    "a compiler patch did not move the compiler identity")
   assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime basis")
 end
 
@@ -631,10 +652,12 @@ local function test_uses_of_an_inherited_field_name_its_interface()
   work.close(handle)
 end
 
---- The compiler identity closes over what `build.importer` requires, so
---- it is the same whether the working database is fresh or has parsed
---- the tree before -- a boot on an empty `o/` must key its modules
---- exactly as a warm one does, or the two ship different databases.
+--- The compiler identity closes over what its roots require
+--- (`work.compiler_modules`), so it is the same whether the working
+--- database is fresh or has parsed the tree before -- a boot on an empty
+--- `o/` must key its modules exactly as a warm one does, or the two
+--- ship different databases. A helper only build.importer requires is
+--- not in it: the importer's own requires are not followed.
 local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-fresh-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -645,9 +668,15 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/build/helper.tl",
     "local record helper\nend\nreturn helper\n"))
+  assert(Fs.write(root .. "/build/other.tl",
+    "local record other\nend\nreturn other\n"))
+  assert(Fs.write(root .. "/build/teal.tl",
+    "local helper = require(\"build.helper\")\nlocal record teal\nend\n" ..
+    "teal.helper = helper\nreturn teal\n"))
   assert(Fs.write(root .. "/build/importer.tl",
-    "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
-    "importer.helper = helper\nreturn importer\n"))
+    "local teal = require(\"build.teal\")\nlocal other = require(\"build.other\")\n" ..
+    "local record importer\nend\nimporter.teal = teal\nimporter.other = other\n" ..
+    "return importer\n"))
   local function identity(): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
@@ -659,6 +688,10 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local fresh = identity()
   local warm = identity()
   assert(warm == fresh, "a second open of the same tree moved the compiler identity")
+  assert(Fs.write(root .. "/build/other.tl",
+    "local record other\nend\nreturn other\n-- edited\n"))
+  assert(identity() == fresh,
+    "an edit to a module only build.importer requires moved the compiler identity")
   assert(Fs.write(root .. "/build/helper.tl",
     "local record helper\nend\nreturn helper\n-- edited\n"))
   assert(identity() ~= fresh,
@@ -1303,6 +1336,206 @@ local function test_generated_syscall_docs_carry_header_lines()
   assert(rows[2][4]:find("Reads bytes.", 1, true) == 1, rows[2][4])
 end
 
+--- The file of the tree's module `name`, as the build finds it: nil
+--- where the tree has none.
+local function tree_file_of(name: string): string | nil
+  local base = name:gsub("%.", "/")
+  for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
+    if Fs.exists(candidate) then return candidate end
+  end
+  return nil
+end
+
+--- A module requiring each of `uses`, by name.
+local function module_requiring(uses: {string}): string
+  local lines: {string} = {}
+  for index, used in ipairs(uses) do
+    lines[#lines + 1] = "local m" .. index .. " = require(\"" .. used .. "\")"
+  end
+  lines[#lines + 1] = "local record M\n  uses: {any}\nend"
+  local names: {string} = {}
+  for index = 1, #uses do names[#names + 1] = "m" .. index end
+  lines[#lines + 1] = "M.uses = { " .. table.concat(names, ", ") .. " }"
+  lines[#lines + 1] = "return M"
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- A tree laid out as cosmic's own is, as far as the compiler's identity
+--- reaches: build.importer requiring each root and the modules it runs
+--- for the rest of the build, which reach build/zig.tl as the real
+--- ones do, beside the pins and patches.
+local function identity_fixture(case: string): string
+  local files: {string:string} = {
+    ["vendor/tl/PIN"] = "version 1",
+    ["vendor/lua/PIN"] = "version 1",
+    ["patch/tl/01.txt"] = "a record",
+    ["patch/lua/01.txt"] = "a record",
+    ["cosmic/fs.tl"] = module_requiring({}),
+    ["cosmic/removed.tl"] = module_requiring({}),
+    ["build/importer.tl"] = module_requiring({ "build.analysis_schema", "build.analyzer",
+      "build.teal", "build.contracts", "build.receivers", "build.tree", "build.work",
+      "build.positions", "build.symbols", "build.caches" }),
+    ["build/analysis_schema.tl"] = module_requiring({}),
+    ["build/analyzer.tl"] = module_requiring({ "build.ast", "build.cache_names" }),
+    ["build/ast.tl"] = module_requiring({}),
+    ["build/cache_names.tl"] = module_requiring({}),
+    ["build/teal.tl"] = module_requiring({ "cosmic.fs", "cosmic.removed", "build.teal_helper" }),
+    ["build/teal_helper.tl"] = module_requiring({}),
+    ["build/contracts.tl"] = module_requiring({ "build.ast", "build.receivers" }),
+    ["build/receivers.tl"] = module_requiring({ "build.ast" }),
+    ["build/tree.tl"] = module_requiring({ "cosmic.fs" }),
+    ["build/work.tl"] = module_requiring({ "build.analysis_schema", "build.todo_scan" }),
+    ["build/todo_scan.tl"] = module_requiring({}),
+    ["build/positions.tl"] = module_requiring({}),
+    ["build/symbols.tl"] = module_requiring({}),
+    ["build/caches.tl"] = module_requiring({ "cosmic.fs", "build.cache_names", "build.zig" }),
+    ["build/zig.tl"] = module_requiring({ "cosmic.fs" }),
+  }
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-" .. case .. "-"))
+  for _, dir in ipairs({ "core", "cmd/cosmic", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  for name, source in pairs(files) do
+    assert(Fs.mkdirs(root .. "/" .. (name:match("^(.+)/[^/]+$") or ".")))
+    assert(Fs.write(root .. "/" .. name, source))
+  end
+  return root
+end
+
+--- The compiler's identity and the analyzer's, as a boot names them
+--- over the tree at `root` once it has parsed it.
+local function identities_of(root: string): {string}
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  assert(importer.derive(handle, true, built))
+  local found = assert(work.record_identities(handle))
+  local analyzer = importer.analyzer_identity((assert(importer.tree_code(handle))))
+  work.close(handle)
+  return { found.compiler, analyzer }
+end
+
+--- Appends a comment to the file `path` under `root`.
+local function edit(root: string, path: string)
+  local source = assert(Fs.read(root .. "/" .. path))
+  assert(Fs.write(root .. "/" .. path, source .. "-- edited\n"))
+end
+
+--- An edit to a module a compile and a parse do not run to decide what
+--- they store -- the working database's staging and records, the build's
+--- reports, the check that fails a whole build before any key is looked
+--- up, the host's caches and build/zig.tl, which the caches reach --
+--- compiles and parses nothing again: it moves neither the compiler's
+--- identity nor the analyzer's, though build.importer requires each.
+local function test_compiler_identity_leaves_out_what_shapes_no_compile()
+  local root = identity_fixture("identity-leaves-out")
+  local original = identities_of(root)
+  assert(identities_of(root)[1] == original[1], "a second open moved the identity")
+  for _, path in ipairs({ "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
+                          "build/symbols.tl", "build/caches.tl", "build/zig.tl",
+                          "cosmic/fs.tl" }) do
+    edit(root, path)
+    local after = identities_of(root)
+    assert(after[1] == original[1], "an edit to " .. path .. " moved the compiler identity")
+    assert(after[2] == original[2], "an edit to " .. path .. " moved the analyzer identity")
+  end
+end
+
+--- An edit to a module a compile or a parse runs to decide what it
+--- stores, to a module one requires, to the names the checker is
+--- stripped of, or to a pin or a patch of Teal or Lua, moves both
+--- identities: every compile and parse is made again.
+local function test_compiler_identity_follows_what_shapes_a_compile()
+  local root = identity_fixture("identity-follows")
+  local seen: {string:string} = {}
+  local original = identities_of(root)
+  seen[original[1]] = "the original tree"
+  for _, path in ipairs({ "build/importer.tl", "build/teal.tl", "build/teal_helper.tl",
+                          "build/contracts.tl", "build/receivers.tl", "build/tree.tl",
+                          "build/analysis_schema.tl", "build/analyzer.tl",
+                          "build/cache_names.tl", "build/ast.tl", "cosmic/removed.tl",
+                          "vendor/tl/PIN", "patch/tl/01.txt", "vendor/lua/PIN",
+                          "patch/lua/01.txt" }) do
+    local before = identities_of(root)
+    edit(root, path)
+    local after = identities_of(root)
+    assert(seen[after[1]] == nil, "an edit to " .. path ..
+      " did not move the compiler identity from that of " .. tostring(seen[after[1]]))
+    assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
+    seen[after[1]] = path
+  end
+end
+
+--- The compiler's identity holds what a compile or a parse runs to decide
+--- what it stores (`build.work`'s `compiler_identity`), and that holds
+--- only while the set is closed: every module of the tree's that one of
+--- them requires is in it too, or is the standard library the compile
+--- runs on. build.importer's own requires are not followed, so each is
+--- in the set or named below with the reason it is not, and a new
+--- require of it fails here until it is one or the other. Every module
+--- of the analyzer's but the standard library's is the compiler's too,
+--- whose identity the analyzer's starts from. A `cosmic.*` require is
+--- let through whole: it is the standard library the compile runs on,
+--- which the identity leaves out. One that is data deciding what a
+--- compile accepts, as `cosmic.removed` is, this cannot tell apart: it
+--- goes into the identity by hand (`work.compiler_modules`). The walk
+--- here reads the running binary's `imports` (`Store.requires`), where
+--- `work.compiler_identity` reads the working database's `requires`,
+--- which a declaration's source (`.d.tl`) has rows in too; the two
+--- reach the same modules while no module of the identity has a
+--- declaration of its own but build.compiler, which requires nothing.
+local function test_the_compiler_modules_are_closed_under_require()
+  local ast = require("build.ast")
+  local modules = assert(work.compiler_modules(Store.requires))
+  local covered: {string:boolean} = {}
+  for _, name in ipairs(modules) do covered[name] = true end
+  for _, name in ipairs((assert(importer.analyzer_modules()))) do
+    assert(covered[name] or name:match("^cosmic%.") ~= nil,
+      name .. " is the analyzer's but not in the compiler's identity")
+  end
+  for _, name in ipairs({ "build.importer", "build.teal", "build.contracts",
+                          "build.receivers", "build.tree", "build.analysis_schema",
+                          "build.cache_names", "build.ast.match", "cosmic.removed" }) do
+    assert(covered[name], name .. " is not in the compiler's identity: " ..
+      table.concat(modules, ", "))
+  end
+  --- What build.importer requires that the compiler's identity leaves
+  --- out, and why no compile or parse stores anything it decides.
+  local left_out: {string:string} = {
+    ["build.work"] = "stages the tree, fingerprints the tool and keeps the records; " ..
+      "the schema a parse's rows are shaped by is build.analysis_schema's",
+    ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.symbols"] = "names what the projection documents in a refusal's hint, " ..
+      "which no compile keeps",
+  }
+  local used: {string:boolean} = {}
+  local missing: {string} = {}
+  for _, name in ipairs(modules) do
+    local file = tree_file_of(name)
+    assert(file ~= nil, name .. " is in the compiler's identity but is no module of the tree's")
+    local source = assert(Fs.read(file))
+    local parsed = assert(ast.parse(assert(built), source, file))
+    for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
+      local ours = (required:match("^build%.") or required:match("^cosmic%."))
+        and not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
+      if ours and not covered[required] then
+        if name == "build.importer" and left_out[required] ~= nil then
+          used[required] = true
+        elseif not required:match("^cosmic%.") then
+          missing[#missing + 1] = name .. " requires " .. required
+        end
+      end
+    end
+  end
+  assert(#missing == 0, "neither in the compiler's identity (build.work's " ..
+    "compiler_roots) nor left out of it with a reason: " .. table.concat(missing, ", "))
+  for name in pairs(left_out) do
+    assert(not covered[name], name .. " is named as left out of the compiler's identity, " ..
+      "but is in it")
+    assert(used[name], name .. " is left out of the compiler's identity, " ..
+      "but build.importer no longer requires it")
+  end
+end
+
 --- What a source parses to is decided by `importer.analyzer_modules` and
 --- nothing else in the tool, so an edit anywhere else reparses only what
 --- it edited. That holds only while the set is closed: every module of
@@ -1326,13 +1559,14 @@ local function test_the_analyzer_modules_are_closed_under_require()
   -- which only the importer calls, is not.
   assert(listed["build.analyzer"] and not listed["build.positions"],
     table.concat(modules, ", "))
-  local function file_of(name: string): string
-    local base = name:gsub("%.", "/")
-    for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
-      if Fs.exists(candidate) then return candidate end
-    end
-    return nil
-  end
+  -- The analysis schema and the names of the caches a test may declare
+  -- are; the rest of the working database and the caches themselves,
+  -- which reach build/zig.tl, are not.
+  assert(listed["build.analysis_schema"] and listed["build.cache_names"],
+    table.concat(modules, ", "))
+  assert(not listed["build.work"] and not listed["build.caches"] and
+    not listed["build.zig"], table.concat(modules, ", "))
+  local file_of = tree_file_of
   local missing: {string} = {}
   for _, name in ipairs(modules) do
     local file = file_of(name)
