@@ -41,29 +41,36 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- key (build/declared_key.tl), this leg's earlier runs' among them
 --- (COSMIC_VERDICT_CACHE, which ci.yml restores per leg), in `env`: on a
 --- leg whose workers are sandboxed, and required to be
---- (COSMIC_CI_REQUIRE_SANDBOX=1) -- the Linux legs -- in a run of an
---- event of `standing_events` (COSMIC_CI_EVENT): a push, main's as
---- much as another branch's, or the merge queue's; each restores the
---- newest cache of its leg, container and host features (ci.yml's
---- "name the leg's container"). A manual run and main's scheduled
---- one run every test (`--all`) and stand on nothing another run
---- reached (COSMIC_TEST_NO_SHARED=1), and so does the macOS leg's,
---- whose workers run unsandboxed, whatever the event. So the macOS
---- leg's is the merge queue's one run of every test, and on the Linux
---- legs a pass a key does not answer for -- a test that turns on the
---- clock, or a flaky one -- is caught only by main's scheduled run,
---- the next day, whose failure GitHub tells only whoever last edited
---- its cron line (the TODO on ci.yml's `schedule`).
--- TODO: share verdicts across runners of a leg only once the key holds
--- what a host's package database does not say (the TODO on
--- build/declared_key.tl's `system_identity`): today a leg's verdicts are
--- keyed by its container as ci.yml names it (COSMIC_HOST_ID: the image
+--- (COSMIC_CI_REQUIRE_SANDBOX=1) -- the Linux legs -- or keyed by what
+--- they declare without a sandbox (COSMIC_CI_DECLARED_KEYS=1, which
+--- `environment` makes COSMIC_TEST_KEY=declared) -- the macOS leg --
+--- in a run of an event of `standing_events` (COSMIC_CI_EVENT): a push,
+--- main's as much as another branch's, or the merge queue's; each
+--- restores the newest cache of its leg, host and host features
+--- (ci.yml's "name the leg's host"). Nothing holds a macOS worker to
+--- its declaration, but a Linux leg's sandbox holds the same test,
+--- under the same declaration and closure, which its key holds, so a
+--- declaration that lies fails there before it merges; what reads
+--- something only on macOS is the gap (build/test.tl's `launch`). A
+--- manual run and main's scheduled one run every test (`--all`) and
+--- stand on nothing another run reached (COSMIC_TEST_NO_SHARED=1). So
+--- no gating run runs every test: a pass a key does not answer for --
+--- a test that turns on the clock, or a flaky one -- is caught only by
+--- main's scheduled run, the next day, whose failure GitHub tells only
+--- whoever last edited its cron line (the TODO on ci.yml's
+--- `schedule`).
+-- TODO: share a Linux leg's verdicts across its runners only once the
+-- key holds what a host's package database does not say (the TODO on
+-- build/declared_key.tl's `system_identity`): today they are keyed by
+-- the leg's container as ci.yml names it (COSMIC_HOST_ID: the image
 -- reference, a hash of .github/scripts/leg-container.sh and the seccomp
 -- profile, which hold every option and host setting it starts with, and
 -- the engine's version), but a change inside an image under the same
--- reference, or on the runner beneath it, is not.
+-- reference, or on the runner beneath it, is not. The macOS leg's
+-- image names itself (COSMIC_SYSTEM_ID, .github/scripts/leg-host-id.sh),
+-- which every module given the system's paths is keyed by.
 function Orchestration.stands(env: {string:string}): boolean
-  return env.COSMIC_CI_REQUIRE_SANDBOX == "1" and
+  return (env.COSMIC_CI_REQUIRE_SANDBOX == "1" or env.COSMIC_CI_DECLARED_KEYS == "1") and
     standing_events[env.COSMIC_CI_EVENT or ""] == true
 end
 
@@ -91,6 +98,9 @@ end
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
+  if extra then for k, v in pairs(extra) do all[k] = v end end
+  -- What follows is decided on the leg's environment, `extra`
+  -- included, which may name the leg itself (`suite_run`, a test's).
   -- Where it does not stand on verdicts (`stands`), a suite stands on
   -- none another run reached, only on what it runs itself.
   Orchestration.shares(all)
@@ -108,7 +118,15 @@ local function environment(extra?: {string:string}): {string:string}
     all.COSMIC_TEST_SANDBOX = "1"
     all.COSMIC_SANDBOX = "must"
   end
-  if extra then for k, v in pairs(extra) do all[k] = v end end
+  -- Where the leg has no sandbox but stands on verdicts all the same
+  -- (COSMIC_CI_DECLARED_KEYS, the macOS leg), every operation is given
+  -- COSMIC_TEST_KEY=declared, which only `cosmic test` reads: each
+  -- suite keys each test by what it declares (build/test.tl's
+  -- `key_mode`), which a Linux leg's sandbox enforces, rather than by
+  -- what it was seen to read, which no other checkout shares. A
+  -- fixture's run takes it back out (`Orchestration.fixture`), and a
+  -- test's own `cosmic test` is not given it (`test.worker_environment`).
+  if all.COSMIC_CI_DECLARED_KEYS == "1" then all.COSMIC_TEST_KEY = "declared" end
   return all
 end
 
@@ -154,7 +172,6 @@ end
 --- environment, which then forgets the run (`forget_run`).
 function Orchestration.suite_run(extra?: {string:string}): {string}, {string:string}
   local values = environment(extra)
-  Orchestration.shares(values)
   local words = Orchestration.test_words(values)
   Orchestration.forget_run(values)
   return words, values
@@ -368,6 +385,10 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:st
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_BUILD_CACHE = "0"
   env.COSMIC_TEST_NO_SHARED = "1"
+  -- Nor is it keyed by what it declares, on a leg whose suites are
+  -- (COSMIC_CI_DECLARED_KEYS): it shares no verdict for a key to name,
+  -- and what it declares is not yet what it reads (the TODO above).
+  env.COSMIC_TEST_KEY = nil
   return env
 end
 

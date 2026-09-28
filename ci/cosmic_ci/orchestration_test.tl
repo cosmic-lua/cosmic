@@ -264,24 +264,34 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
   end
 end
 
---- A suite stands on declared-key verdicts on a Linux leg -- its
---- workers sandboxed, and required to be -- in a branch push's run and
---- the merge queue's, and nowhere else: a manual run's, main's scheduled
---- one's and the macOS leg's each run every test.
-local function test_a_suite_stands_on_verdicts_in_a_linux_push_or_merge_queue()
+--- A suite stands on declared-key verdicts in a push's run and the
+--- merge queue's, and nowhere else: on a Linux leg, its workers
+--- sandboxed, and required to be, and on the macOS leg, keyed by what
+--- they declare with no sandbox (COSMIC_CI_DECLARED_KEYS); a leg that
+--- is neither, a manual run and main's scheduled one each run every
+--- test.
+local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   local Orchestration = require("cosmic_ci.orchestration")
   local function words(env: {string:string}): string
     return table.concat(Orchestration.test_words(env), " ")
   end
   for _, event in ipairs({ "push", "merge_group" }) do
-    local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = event }
+    local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_DECLARED_KEYS = "0",
+      COSMIC_CI_EVENT = event }
     assert(Orchestration.stands(linux) and words(linux) == "test", event)
-    local mac = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_EVENT = event }
-    assert(not Orchestration.stands(mac) and words(mac) == "test --all", "macOS " .. event)
+    local mac = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1",
+      COSMIC_CI_EVENT = event }
+    assert(Orchestration.stands(mac) and words(mac) == "test", "macOS " .. event)
+    local neither = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "0",
+      COSMIC_CI_EVENT = event }
+    assert(not Orchestration.stands(neither) and words(neither) == "test --all",
+      "a leg that neither sandboxes nor keys by declarations, " .. event)
   end
   for _, event in ipairs({ "workflow_dispatch", "schedule", "pull_request", "" }) do
-    local env = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = event }
-    assert(not Orchestration.stands(env) and words(env) == "test --all", event)
+    for _, leg in ipairs({ "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_CI_DECLARED_KEYS" }) do
+      local env = { [leg] = "1", COSMIC_CI_EVENT = event }
+      assert(not Orchestration.stands(env) and words(env) == "test --all", leg .. " " .. event)
+    end
   end
   assert(not Orchestration.stands({}), "run-local, and any run that names no event")
   -- Standing, it may stand on what another run reached; else not.
@@ -626,11 +636,53 @@ local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
     all_env.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
 end
 
---- The files that name a variable a suite forgets, and why each may:
---- it sets the variable itself, in its own child's environment.
-local sets_what_it_reads: {string:boolean} = {
-  ["build/place_tree_test.tl"] = true,
-  ["build/save_unless_descendant_test.tl"] = true,
+--- The macOS leg's suites (COSMIC_CI_DECLARED_KEYS=1, no sandbox) stand
+--- on shared verdicts in a push's run and the merge queue's, keyed by
+--- what each test declares (COSMIC_TEST_KEY=declared): an unsandboxed
+--- run keyed by what it read shares none, so without the switch the
+--- leg would run every test there. Its scheduled run runs every test
+--- and stands on none, and a fixture, which shares no verdict, is keyed
+--- as it always was. A Linux leg is given no switch: sandboxed, it keys
+--- by declarations already.
+local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  for _, event in ipairs({ "push", "merge_group" }) do
+    local words, env = Orchestration.suite_run({
+      COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "0",
+      COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "", COSMIC_TEST_KEY = "" })
+    assert(table.concat(words, " ") == "test", event .. ": the macOS leg ran --all")
+    assert(env.COSMIC_TEST_NO_SHARED == nil, event .. ": the macOS leg stands on no shared verdict")
+    assert(env.COSMIC_TEST_KEY == "declared", event .. ": COSMIC_TEST_KEY=" ..
+      tostring(env.COSMIC_TEST_KEY))
+    assert(env.COSMIC_CI_DECLARED_KEYS == nil, event .. ": the suite was given the driver's switch")
+    assert((env.COSMIC_TEST_SANDBOX or "") == "" and env.COSMIC_SANDBOX ~= "must",
+      event .. ": the macOS leg's suite was held to a sandbox")
+    local _, linux = Orchestration.suite_run({
+      COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "1",
+      COSMIC_CI_DECLARED_KEYS = "0", COSMIC_TEST_KEY = "" })
+    assert((linux.COSMIC_TEST_KEY or "") == "", event .. ": a Linux leg was given COSMIC_TEST_KEY")
+  end
+  local all, scheduled = Orchestration.suite_run({ COSMIC_CI_EVENT = "schedule",
+    COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
+  assert(table.concat(all, " ") == "test --all" and scheduled.COSMIC_TEST_NO_SHARED == "1",
+    "the macOS leg's scheduled run")
+  local _, pushed = Orchestration.suite_run({ COSMIC_CI_EVENT = "push",
+    COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
+  local fixture = Orchestration.fixture(pushed, tmp .. "/tmp")
+  assert(fixture.COSMIC_TEST_KEY == nil, "a fixture was keyed by declarations")
+  assert(fixture.COSMIC_TEST_NO_SHARED == "1" and fixture.COSMIC_VERDICT_CACHE == "0")
+end
+
+--- The files that name a variable a suite forgets, each with the ones
+--- it may name, and why: it sets the variable itself, in its own
+--- child's environment, or names it only as ci.yml's text, which it
+--- reads. Any other such name in them is found as in any other file.
+local sets_what_it_reads: {string:{string:boolean}} = {
+  ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
+  ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true },
+  ["build/save_unless_descendant_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_SHA = true },
+  -- As the platform job's env sets it.
+  ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true },
 }
 
 --- No tree source names a variable a gating suite's workers are not
@@ -644,8 +696,9 @@ local function test_no_tree_source_reads_what_a_suite_forgets()
   for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
     for _, path in ipairs((assert(Fs.walk(root .. "/" .. dir)))) do
       local relative = dir .. "/" .. path
-      if (relative:match("%.tl$") or relative:match("%.lua$") or
-          relative:match("%.[ch]$")) and not sets_what_it_reads[relative] then
+      local allowed = sets_what_it_reads[relative] or {}
+      if relative:match("%.tl$") or relative:match("%.lua$") or
+          relative:match("%.[ch]$") then
         local names: {string:string} = {}
         for name in (assert(Fs.read(root .. "/" .. relative))):gmatch("[%u%d_]+") do
           -- CI is a word of prose too often to tell a read of it.
@@ -655,7 +708,9 @@ local function test_no_tree_source_reads_what_a_suite_forgets()
         for name, value in pairs(names) do kept[name] = value end
         Orchestration.forget_run(kept)
         for name in pairs(names) do
-          if kept[name] == nil then found[#found + 1] = relative .. ": " .. name end
+          if kept[name] == nil and not allowed[name] then
+            found[#found + 1] = relative .. ": " .. name
+          end
         end
       end
     end
