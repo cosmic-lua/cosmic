@@ -11,6 +11,10 @@ listed in the order to do them. Each item says:
 - what it waits on
 - what shows it worked
 
+Before an item gets a target, a census of the code sets it: stage 2's
+estimates were off whenever they came from reading alone (the
+isolation test's time, the floor, the count of `store` modules).
+
 Landed work is listed at the end for the record, and leaves this file
 once the plan closes. Work with no plan yet goes in
 [roadmap.md](roadmap.md).
@@ -115,7 +119,16 @@ runs, which this container cannot run (no `gh`). Its targets:
 ## Stage 2: an edit reruns what it implicates (two weeks)
 
 2.1 (#2285), 2.2 (#2295), 2.3 (#2296) and 2.5 (#2294) have
-landed; 2.4 is under way.
+landed; 2.4 is under way, and 2.6 is next.
+
+What stage 2 showed, beyond its numbers:
+
+- A root run hides a nested-sandbox failure (3.0a).
+- `tool` grants three things under one name (3.0b).
+- The harness's bytecode matched across every leg, so the guard's
+  digest holds it without a false failure.
+- Each harness edit rewrites one `acknowledged` line, a merge conflict
+  between concurrent PRs (3.0a).
 
 ### 2.2 Key tests by a harness epoch: landed (#2295)
 
@@ -190,11 +203,22 @@ old target of about 355 was already met. The new target is at most
   compile (`build/work.tl`); a test that starts a process keeps no
   verdict until its second run (`build/test.tl`). Both stay `TODO:`s.
 
+### 2.6 Measure M1
+
+- Change: `ci/cosmic_ci/report.tl:257` (S). `cosmic test --census`
+  names the key parts of the rows it restored, so `report` qualifies a
+  run by the restored cache's parts, not the previous run's.
+- Then take M1 over the next ten ordinary merges. Without `gh` in this
+  container, the run data comes through the GitHub API tools.
+- Shows: M1's four numbers, recorded above.
+
 ### Milestone M2
 
 These use the local probes (see Measuring):
 
-- The tool/store floor is at most 275.
+- The tool/store floor is at most 275. Once met, it leaves the
+  milestones: the tests left on `tool` start the program, and what an
+  edit reruns is measured by the probes below.
 - A comment in `cosmic/shape.tl` reruns at most 400 tests (582 before).
 - A comment in `build/zig.tl`, `cosmic/http.tl` or `build/test.tl`
   reruns at most 400. Each reran every test before.
@@ -215,7 +239,50 @@ Holes shaped by the host (3.1 items 8 and 9, and the kernel at
 runs only CI's images. Each is fixed, or accepted in writing here, not
 left to that backstop.
 
-### 3.0 Rules instead of keys
+**Batching:** each epoch bump reruns every test once in the queue
+(about 15 min and 80 runner-minutes). The items that tighten what a
+test may do (3.0c's R1 to R3 and R5, 3.1 item 1, and 3.0b) land under
+one bump: in one PR, or in PRs merged together with the bump in the
+last.
+
+### 3.0a Before the rules
+
+- **A test that returns early is counted as skipped (S–M).** A test
+  that nests a sandbox returns before asserting where the host cannot
+  nest (as root). A root run then reports it passed, which is how
+  2.3's failure reached CI unseen by every local and agent run.
+  - Change: a skipped verdict in `build/test.tl`'s tally, and the
+    sandbox tests report it (`core/syscalls_test.tl:56`,
+    `core/syscalls_tool_test.tl`'s copy).
+  - Shows: a root run says how many it skipped; a run held to the
+    sandbox fails on any.
+- **Unprivileged runs before a push (process).** A change that drops
+  or narrows a declaration runs its changed modules as an unprivileged
+  user (`COSMIC_SANDBOX=must`), with the tree copied to a directory
+  that user owns. This goes in the ship skill
+  (`.claude/skills/ship/SKILL.md`).
+- **`acknowledged` per module (S).** `build/harness_epoch.tl` holds one
+  digest over every harness module, so two PRs that each touch one
+  conflict on the same line (it happened twice in stage 2). Holding a
+  digest per module lets them merge. The guard's message and the
+  epoch rule stay as they are.
+
+### 3.0b `tool` means one thing
+
+`tool` grants three things: starting this program, lifting the store
+hold, and leaving the worker outside the Landlock execute ruleset so
+it can nest a sandbox (2.3). A declaration that grants what a test does
+not need is a hole the key does not show.
+
+- Change: `nests = true` for a test that confines a process in a root
+  of its own (`build/confine.tl:438`'s `TODO:`). `tool` no longer
+  lifts the store hold: a test that reads the store beyond its closure
+  declares `store`. This takes in 3.1 item 5.
+- Lands under the batched bump above.
+- Shows: `--audit` names a `tool` test that reads the store, or a
+  test that nests without `nests`.
+
+### 3.0c Rules instead of keys
 
 Where a rule removes a hole at little cost, the plan takes the rule
 over a key that tracks the hole. Each rule is stated in AGENTS.md
@@ -278,7 +345,7 @@ that is cheap.
    - Shows: moving `x.tl` to `x/init.tl` recompiles.
 4. **zig started while `declaring` runs, keyed by nothing (S–M)**
    (`build/confine.tl:833`, `build/filesystem_observations.tl:512`).
-5. **A `tool` worker not held (M)** (`build/test.tl:2057`,
+5. **A `tool` worker not held (M; with 3.0b)** (`build/test.tl:2057`,
    `can_forbid`). #2290 narrowed it to workers whose module declares
    the `bootstrap` cache.
    - Change: a cores directory the worker owns, bound by the sandbox.
@@ -488,9 +555,10 @@ Each milestone is decided from 0.3's `report`, as follows.
     (`build/declared_key.tl:1042`, `:1047`, `:382`).
   - `build/reboot.tl:84`, `build/confine.tl:557` and `:563`,
     `core/syscalls.c:921`, `build/dispatch.tl:314`,
-    `build/refresh.tl:592`, `build/doctest/generate.tl:262`,
-    `core/syscalls_test.tl:57` and
+    `build/refresh.tl:592`, `build/doctest/generate.tl:262` and
     `build/sandboxed_verdicts_test.tl:295`.
+  - `cosmic/child_test`'s 45 `-e` children run on a Lua-chunk
+    stand-in rather than this program, taking them off `tool`.
 - **The checked suite in its own job** (was 2.3): dropped. With the
   checked suite standing, linux-x86_64 is no longer the long pole
   (about 5.5 min).
