@@ -615,10 +615,12 @@ end
 
 --- Where one of zig's caches is: `variable` from `environment` (the
 --- process's own when nil) when set, else `tool` in this user's cosmic
---- cache directory -- made, with `make`, as `Fs.cache_dir` makes it, or
---- only named, without, as `Fs.cache_path` names it -- else `fallback`.
+--- cache directory, made as `Fs.cache_dir` makes it, else `fallback`.
+--- build/zig_caches.tl spells the same rule, with nothing made, for
+--- the test harness, which cannot load this file
+--- (build/zig_caches_test.tl holds the two together).
 local function located(variable: string, tool: string, fallback: string,
-                       environment: {string:string} | nil, make: boolean): string
+                       environment: {string:string} | nil): string
   local given: string
   if environment ~= nil then
     given = environment[variable]
@@ -628,13 +630,8 @@ local function located(variable: string, tool: string, fallback: string,
   if given ~= nil and given ~= "" then
     return given
   end
-  if make then
-    local made, _ = Fs.cache_dir(tool, environment)
-    if made ~= nil then return made end
-  else
-    local named, _ = Fs.cache_path(tool, environment)
-    if named ~= nil then return named end
-  end
+  local made, _ = Fs.cache_dir(tool, environment)
+  if made ~= nil then return made end
   return fallback
 end
 
@@ -642,25 +639,14 @@ end
 --- set, else `zig-global` in this user's cosmic cache directory, made
 --- if need be, else `root/o/zig-global`.
 function Zig.global_cache(root: string, environment?: {string:string}): string
-  return located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", root .. "/o/zig-global",
-    environment, true)
+  return located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", root .. "/o/zig-global", environment)
 end
 
 --- Where zig keeps this build's own cache: `COSMIC_ZIG_CACHE` when set,
 --- else `zig-project` in this user's cosmic cache directory, shared by
 --- every checkout and made if need be, else `root/o/zig-cache`.
 function Zig.project_cache(root: string, environment?: {string:string}): string
-  return located("COSMIC_ZIG_CACHE", "zig-project", root .. "/o/zig-cache", environment, true)
-end
-
---- `Zig.global_cache` and `Zig.project_cache` as the environment names
---- them, with nothing made or checked: where each would be, for a
---- caller that only needs the paths (`build.caches`), the global first.
-function Zig.cache_paths(root: string, environment?: {string:string}): {string}
-  return {
-    located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", root .. "/o/zig-global", environment, false),
-    located("COSMIC_ZIG_CACHE", "zig-project", root .. "/o/zig-cache", environment, false),
-  }
+  return located("COSMIC_ZIG_CACHE", "zig-project", root .. "/o/zig-cache", environment)
 end
 
 --- The environment a zig command other than `build` runs in --

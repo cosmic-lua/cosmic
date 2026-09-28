@@ -22,6 +22,7 @@ local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
+local harness_epoch = require("build.harness_epoch")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, and the
@@ -552,11 +553,11 @@ end
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
 end
 
---- The harness every worker runs is in every sandboxed key: a change to
---- it -- stood in for by COSMIC_TEST_HARNESS_SALT, as a binary with
---- another harness would bring -- runs a test that shares nothing else
---- with it again.
-local function test_a_change_to_the_harness_runs_every_test_again(tmp: string)
+--- The harness's epoch is in every sandboxed key: a bump -- stood in
+--- for by COSMIC_TEST_HARNESS_EPOCH, as a binary with another
+--- build/harness_epoch.tl would bring -- runs a test that shares nothing
+--- else with it again, as does another timeout.
+local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
@@ -564,9 +565,15 @@ local function test_a_change_to_the_harness_runs_every_test_again(tmp: string)
   if unsandboxed(first) then return end
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("1 ran, 3 stood", 1, true), again)
-  env.COSMIC_TEST_HARNESS_SALT = "another harness"
+  env.COSMIC_TEST_HARNESS_EPOCH = tostring(harness_epoch.epoch + 1)
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("4 ran, 0 stood", 1, true), moved)
+  -- So is the timeout a worker runs under: a pass reached under one
+  -- does not stand under another.
+  env.COSMIC_TEST_HARNESS_EPOCH = nil
+  env.COSMIC_TEST_TIMEOUT = "31"
+  local longer = run(root, tmp .. "/longer.out", env)
+  assert(longer:find("4 ran, 0 stood", 1, true), longer)
 end
 
 --- A compiler of another identity that makes the same bytecode --

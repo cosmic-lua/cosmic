@@ -30,14 +30,7 @@
 
 local confine = require("build.confine")
 local this_program = require("build.this_program")
--- TODO: take the variables that locate a cache from build.cache_names,
--- moving build.caches' `locating` and `variables` there: this is all
--- this module reads of build.caches, whose lazy require of build.zig
--- puts build/zig.tl in build.declared_key's closure, which every
--- sandboxed verdict's key holds by source (build.test's `key_code`), so
--- an edit to build/zig.tl runs every sandboxed test again though it
--- decides no key.
-local caches = require("build.caches")
+local cache_names = require("build.cache_names")
 local type analyzer = require("build.analyzer")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -225,7 +218,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
       out.caches[#out.caches + 1] = name
-      for _, variable in ipairs(caches.variables(name)) do out.env[variable] = true end
+      for _, variable in ipairs(cache_names.variables(name)) do out.env[variable] = true end
     end
   end
   return out

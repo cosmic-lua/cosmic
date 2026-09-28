@@ -183,10 +183,19 @@
         # manual one and the scheduled one run every test. See
         # orchestration.tl's `stands`.
         COSMIC_CI_EVENT: "${{ github.event_name }}",
+        # The merge queue's base commit, which its run compares
+        # build/harness_epoch.tl against: a change that moves it runs
+        # every test (--all), since no key holds the harness's code, only
+        # the epoch that file records. Empty for any other event. See
+        # orchestration.tl's `stands`.
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
       },
       steps: [
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          # The merge queue's merge and its base, its parent, which
+          # COSMIC_CI_BASE_SHA names; one commit for any other event.
+          with: {"fetch-depth": "${{ github.event_name == 'merge_group' && 2 || 1 }}"},
         },
 
         # spawn's sandbox (core/process.h's `Sandbox`) confines a test's

@@ -279,10 +279,10 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   end
   for _, event in ipairs({ "push", "merge_group" }) do
     local linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_DECLARED_KEYS = "0",
-      COSMIC_CI_EVENT = event }
+      COSMIC_CI_EVENT = event, COSMIC_CI_HARNESS_MOVED = "0" }
     assert(Orchestration.stands(linux) and words(linux) == "test", event)
     local mac = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1",
-      COSMIC_CI_EVENT = event }
+      COSMIC_CI_EVENT = event, COSMIC_CI_HARNESS_MOVED = "0" }
     assert(Orchestration.stands(mac) and words(mac) == "test", "macOS " .. event)
     local neither = { COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "0",
       COSMIC_CI_EVENT = event }
@@ -297,12 +297,80 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   end
   assert(not Orchestration.stands({}), "run-local, and any run that names no event")
   -- Standing, it may stand on what another run reached; else not.
-  local queued: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group" }
+  local queued: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group",
+    COSMIC_CI_HARNESS_MOVED = "0" }
   Orchestration.shares(queued)
   assert(queued.COSMIC_TEST_NO_SHARED == nil, "the merge queue")
   local scheduled: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "schedule" }
   Orchestration.shares(scheduled)
   assert(scheduled.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
+  -- A merge queue run whose change moves the harness's epoch file, or
+  -- that cannot tell, stands on nothing; a push's is not asked.
+  for _, moved in ipairs({ "1", "" }) do
+    local harness: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1",
+      COSMIC_CI_EVENT = "merge_group", COSMIC_CI_HARNESS_MOVED = moved ~= "" and moved or nil }
+    assert(not Orchestration.stands(harness) and words(harness) == "test --all",
+      "the merge queue, the harness moved: " .. moved)
+  end
+  assert(Orchestration.stands({ COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push",
+    COSMIC_CI_HARNESS_MOVED = "1" }), "a push's run")
+end
+
+--- Runs git in `root`, which must succeed, answering what it printed.
+local function git(root: string, words: {string}): string
+  local argv = { "/usr/bin/env", "git", "-C", root, "-c", "user.name=t",
+    "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local result = assert(Child.run(argv, { stdout = "capture", stderr = "capture" }))
+  assert(result.ok, table.concat(words, " ") .. ": " .. tostring(result.stderr))
+  return result.stdout or ""
+end
+
+--- A merge queue run compares build/harness_epoch.tl at its base with
+--- what it checks (`harness_moved`): a change that leaves it runs what
+--- its keys moved, one that moves it every test (`suite_run`), and one
+--- whose base it cannot read or that names none every test too.
+local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local root = tmp .. "/checkout"
+  assert(Fs.mkdirs(root .. "/build"))
+  git(root, { "init", "--quiet" })
+  assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 1\n"))
+  assert(Fs.write(root .. "/README", "one\n"))
+  git(root, { "add", "." })
+  git(root, { "commit", "--quiet", "-m", "base" })
+  local base = git(root, { "rev-parse", "HEAD" }):match("^(%x+)")
+  assert(Fs.write(root .. "/README", "two\n"))
+  git(root, { "commit", "--quiet", "-am", "elsewhere" })
+  assert(not Orchestration.harness_moved(root, base), "a change that leaves the file")
+  local function queued(sha: string): string
+    local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "merge_group",
+      COSMIC_CI_REQUIRE_SANDBOX = "1", GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = sha })
+    return table.concat(words, " ")
+  end
+  assert(queued(base) == "test", "a merge queue run that leaves the epoch ran --all")
+  assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 2\n"))
+  git(root, { "commit", "--quiet", "-am", "bump" })
+  assert(Orchestration.harness_moved(root, base), "a change that moves the file")
+  -- Asked of another checkout, as the answer is kept by checkout and base.
+  local moved = tmp .. "/moved"
+  git(tmp, { "clone", "--quiet", root, moved })
+  assert(queued(base) == "test", "the first answer was not kept")
+  local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "merge_group",
+    COSMIC_CI_REQUIRE_SANDBOX = "1", GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base })
+  assert(table.concat(words, " ") == "test --all", "a merge queue run that moves the epoch")
+  -- A base it cannot read, or none, is taken as a move.
+  local unread, why = Orchestration.harness_moved(root, string.rep("0", 40))
+  assert(unread and why:find("git ", 1, true), "a base that is no commit: " .. why)
+  assert(Orchestration.harness_moved(root, ""), "no base")
+  assert(Orchestration.harness_moved(tmp .. "/none", base), "no checkout")
+  -- ci.yml names the base, and checks out the merge's parent with it.
+  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
+  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local env = platform.env as {string: string}
+  assert(env.COSMIC_CI_BASE_SHA == "${{ github.event.merge_group.base_sha }}",
+    "ci.yml's platform job names no merge queue base: " .. tostring(env.COSMIC_CI_BASE_SHA))
 end
 
 --- The portable suite keeps its verdicts in a file of its own beside
@@ -676,6 +744,7 @@ exit 0
       context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", SEEN = seen,
         COSMIC_CI_EVENT = case.event, COSMIC_CI_REQUIRE_SANDBOX = "1",
+        COSMIC_CI_HARNESS_MOVED = "0",
         COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
         XDG_CACHE_HOME = tmp .. "/cache",
       }))
@@ -731,7 +800,7 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
   local Orchestration = require("cosmic_ci.orchestration")
   for _, event in ipairs({ "push", "merge_group" }) do
     local words, env = Orchestration.suite_run({
-      COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "0",
+      COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_HARNESS_MOVED = "0",
       COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "", COSMIC_TEST_KEY = "" })
     assert(table.concat(words, " ") == "test", event .. ": the macOS leg ran --all")
     assert(env.COSMIC_TEST_NO_SHARED == nil, event .. ": the macOS leg stands on no shared verdict")
