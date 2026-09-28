@@ -28,7 +28,10 @@
 ---   program, its core and the stamp that says the core was verified
 ---   (`observations.worker_unveil`), the system's own paths (/usr, /bin,
 ---   /lib, /etc and the like) only where the module declares `system`,
----   and the `host` paths the module declares, each at its own name;
+---   and the `host` paths the module declares, each at its own name --
+---   one a variable names (`$NAME/path`) where the variable says, as
+---   `test_inputs.resolve` put it, refused where that is the tree's,
+---   the scratch directory's, or above either;
 --- - no network but a loopback, unless the module declares `network`
 ---   beyond loopback hosts (`test_inputs.offline`);
 --- - the pinned environment and the variables it declares, `"*"` for
@@ -71,7 +74,8 @@ local record test_sandbox
     --- The paths it was given beyond the most a sandbox holds, or 0.
     over: integer
     --- Why it cannot start as planned -- a cache it declares that could
-    --- not be made -- or "".
+    --- not be made, a `host` path it declares that cannot be given -- or
+    --- "".
     trouble: string
     --- The paths given at their own names beneath /tree or /tmp, where
     --- the tree and the scratch directory are bound: each is the host's
@@ -213,8 +217,33 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- program itself is given at its own name already (`itself`), which a
   -- test that starts `Proc.executable()` needs.
   if effective.tool then of_tree("o/bin", true) end
+  -- Why a `host` path cannot be given: where a variable names it, one
+  -- `test_inputs.resolve` could not put anywhere, or one that is where
+  -- the sandbox has its own -- its scratch directory, which it gives
+  -- at /tmp, or /tree or /tmp themselves, over which a bind at its
+  -- own name would go -- or above it: a variable's value, such as the
+  -- host's temporary directory, above every test's scratch directory.
+  local refused = effective.unresolved or ""
   for _, path in ipairs(effective.host) do
-    if path:sub(1, 1) == "/" then give(trimmed(path), nil, true) end
+    if path:sub(1, 1) == "/" then
+      local plain = test_inputs.plain(path)
+      local declared = (effective.spelled or {})[plain]
+      -- By its name and by where it resolves: a link to the host's
+      -- temporary directory would bind all of it.
+      local real = observations.resolution(plain)
+      local own_real = observations.resolution(scratch)
+      for _, where in ipairs({ plain, real }) do
+        for _, own in ipairs({ scratch, own_real, test_sandbox.tree, test_sandbox.scratch }) do
+          local mine = own == scratch or own == own_real
+          if refused == "" and where ~= "" and own ~= "" and
+              ((mine and Fs.within(where, own)) or Fs.within(own, where)) then
+            refused = string.format("Test.needs host %q: %s is where its sandbox has %s",
+              declared or path, plain, mine and "its scratch directory" or own)
+          end
+        end
+      end
+      give(trimmed(path), nil, true)
+    end
   end
   local writes: {string} = { scratch }
   at[scratch] = test_sandbox.scratch
@@ -263,7 +292,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
     env = test_sandbox.environment(environment, effective),
     over = over,
-    trouble = made and "" or "a cache it declares: " .. trouble,
+    trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
     kept = kept,
     held = held,
     made = made_dirs,
@@ -296,6 +325,12 @@ end
 --- /tree or /tmp, where the sandbox bound them, beneath `root` or
 --- `scratch` -- but one beneath a path of `kept`, bound at its own name
 --- over them -- and any other where the host has it already.
+-- TODO: put a read beside a host path given beneath /tmp back where
+-- the host has it, once the scratch directory is given at a name no
+-- host path can be beneath (a mount point of the sandbox's own, not
+-- /tmp): today it is put back in the scratch directory, whose own it
+-- could as well be, and a sandboxed failure does not name it;
+-- `COSMIC_TEST_SANDBOX=0 cosmic test --audit` names it as it is.
 local function host_path(path: string, root: string, scratch: string, kept: {string}): string
   for _, own in ipairs(kept) do
     if Fs.within(path, own) then return path end

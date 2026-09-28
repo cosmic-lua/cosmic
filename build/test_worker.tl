@@ -103,6 +103,9 @@ local record worker
     --- Why there is no result; with one, what the worker left running
     --- past its end, or "" for nothing.
     trouble: string
+    --- Whether `trouble` is why its worker was never started -- its
+    --- module declares what cannot be given it -- said as it is.
+    refused: boolean
     timeout_ms: integer
     sandboxed: boolean
     --- Where the loaded set is held (`unkeyed`): the modules of the
@@ -535,7 +538,9 @@ end
 --- standing.
 function worker.judge(judging: worker.Judging): worker.Judgement
   local result = judging.result
-  if result == nil then
+  if result == nil and judging.refused then
+    return { passed = false, message = judging.trouble }
+  elseif result == nil then
     return { passed = false,
       message = "the test process could not be supervised: " .. judging.trouble }
   end

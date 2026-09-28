@@ -60,9 +60,13 @@
 ---   but for those every edit of the tree moves (`program`); the
 ---   projection, o/cosmic.db, when it declares `store`, and else the
 ---   address of the store of its closure it is given there in the
----   projection's place; and each `host` path;
+---   projection's place; and each `host` path -- one a variable names
+---   (`$NAME/path`) by that spelling and by all it holds, as a path of
+---   the tree is, not by where the variable says it is;
 --- - the environment its worker is given (`test_sandbox.environment`):
----   the pinned variables and the declared ones, all of them for `"*"`.
+---   the pinned variables and the declared ones, all of them for `"*"`
+---   -- a value where a variable a `host` path names says, or beneath
+---   it, by that variable's name.
 ---
 --- The compiler is held by what it made, not by its identity. Its
 --- identity digests every module a compile or a parse runs to decide
@@ -522,29 +526,42 @@ end
 --- nil: one that leads within the tree is keyed by where it leads, as
 --- what is there is keyed where it is given, and is nothing where it is
 --- not. Judged by where it resolves, and by its target as written where
---- it resolves nowhere.
+--- it resolves nowhere. `bounds`, where given, stand for the tree: the
+--- host path a variable names and where it resolves, all of which a
+--- sandbox gives and a key holds.
 local function leads_out(digests: declared_key.Digests, path: string,
-                         directory: string): string | nil
+                         directory: string, bounds?: {string}): string | nil
+  local within = bounds or { digests.root, digests.real_root }
+  local what = bounds ~= nil and within[1] or "the tree"
+  local function inside(candidate: string): boolean
+    for _, bound in ipairs(within) do
+      if Fs.within(candidate, bound) then return true end
+    end
+    return false
+  end
   local real, _ = sys.realpath(path)
   if real ~= nil then
-    if Fs.within(real, digests.real_root) then return nil end
-    return path .. " leads out of the tree, to " .. real
+    if inside(real) then return nil end
+    return path .. " leads out of " .. what .. ", to " .. real
   end
   local target, _ = sys.readlink(path)
   if target == nil then return nil end
   local lexical = test_inputs.plain(target:sub(1, 1) == "/" and target or
     (directory .. "/" .. target))
-  if Fs.within(lexical, digests.root) or Fs.within(lexical, digests.real_root) then return nil end
-  return path .. " leads out of the tree, to " .. target
+  if inside(lexical) then return nil end
+  return path .. " leads out of " .. what .. ", to " .. target
 end
 
 --- What `path` holds, followed where it is a link, as a sandbox binds
 --- it: an entry's answer, or for a directory "dir" and the digest of
 --- every entry beneath it, links unfollowed, in name order -- each by
 --- its name beneath `path`, what it is and what it holds; each file as
---- a `program` where `programs` says to.
-local function tree(digests: declared_key.Digests, path: string, programs?: boolean): string
-  return once(digests, (programs and "p\0" or "t\0") .. path, function(): string
+--- a `program` where `programs` says to. A link is judged against
+--- `bounds` (`leads_out`), the tree where nil.
+local function tree(digests: declared_key.Digests, path: string, programs?: boolean,
+                    bounds?: {string}): string
+  local tag = (programs and "p\0" or bounds ~= nil and "v\0" or "t\0") .. path
+  return once(digests, tag, function(): string
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
     local lines: {string} = {}
@@ -563,7 +580,9 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
         local named = prefix == "" and name or (prefix .. "/" .. name)
         local what, said = entry(digests, here, false, programs)
         lines[#lines + 1] = named .. "\0" .. said
-        if what == "link" and refused == nil then refused = leads_out(digests, here, directory) end
+        if what == "link" and refused == nil then
+          refused = leads_out(digests, here, directory, bounds)
+        end
         if said == "dir" then
           -- Deeper than a walk goes is keyed as what could not be seen.
           if depth >= 128 then
@@ -628,11 +647,21 @@ end
 
 --- A variable's value as a key holds it: each of its `:`-separated
 --- parts that is a path of the tree by its name there
---- (`observations.tree_name`), as PATH's are.
-local function held_value(value: string, root: string): string
+--- (`observations.tree_name`), as PATH's are, and each that is where a
+--- variable a `host` path of `effective` names says, or beneath it, by
+--- that variable's name (`test_inputs.spelling`): what is there is
+--- keyed by its contents, and its place is no more an input than the
+--- tree's.
+local function held_value(value: string, root: string,
+                          effective: test_inputs.Effective): string
   local parts: {string} = {}
   for part in (value .. ":"):gmatch("([^:]*):") do
-    parts[#parts + 1] = observations.tree_name(part, root)
+    local held = observations.tree_name(part, root)
+    if held == part and part:sub(1, 1) == "/" then
+      held = test_inputs.spelling(effective, test_inputs.plain(part), true)
+      if held == test_inputs.plain(part) then held = part end
+    end
+    parts[#parts + 1] = held
   end
   return table.concat(parts, ":")
 end
@@ -700,18 +729,37 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   end
   local hosts: {string} = {}
   for _, path in ipairs(effective.host) do hosts[#hosts + 1] = test_inputs.plain(path) end
-  table.sort(hosts)
+  -- Each in order of its line's name: one a variable names by its
+  -- spelling, so where the variables say moves no line.
+  local function named(path: string): string
+    local declared = (effective.spelled or {})[path]
+    return declared ~= nil and ("v\0" .. declared) or ("h\0" .. path)
+  end
+  table.sort(hosts, function(a: string, b: string): boolean return named(a) < named(b) end)
   -- What the host has installed, for a module given the system's paths,
   -- and for one given a directory of the host's, which `host` keys by
   -- its name alone: the package database stands for what either holds.
   -- /proc and /dev are no package's: every worker is given them.
   local installed = effective.system
+  local spelled = effective.spelled or {}
   for _, path in ipairs(hosts) do
     if not seen[path] then
       seen[path] = true
-      local answer = host(digests, path)
-      if answer == "dir" and not observations.in_runtime(path) then installed = true end
-      lines[#lines + 1] = part("h", path, answer)
+      local declared = spelled[path]
+      if declared ~= nil then
+        -- One a variable names, by the name the module declares it by
+        -- and by what it holds, all of it, as a path of the tree is: not
+        -- by where the variable says it is, which another run may say
+        -- elsewhere.
+        local real, _ = sys.realpath(path)
+        local answer = tree(digests, path, false, { path, real or path })
+        if answer:sub(1, 8) == "refused " then return answer end
+        lines[#lines + 1] = part("v", declared, answer)
+      else
+        local answer = host(digests, path)
+        if answer == "dir" and not observations.in_runtime(path) then installed = true end
+        lines[#lines + 1] = part("h", path, answer)
+      end
     end
   end
   if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
@@ -719,7 +767,8 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root))
+    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests.root,
+      effective))
   end
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end

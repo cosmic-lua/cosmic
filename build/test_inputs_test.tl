@@ -150,6 +150,70 @@ local function test_a_fuzz_tests_corpora_are_default_inputs(tmp: string)
     corpus .. "/0123.input", "o"))
 end
 
+--- A `host` path whose first name is `$NAME` is where NAME says, in the
+--- environment a worker is given, and declares NAME; a worker is given
+--- it there, and it is spelled as declared. The audit names a path at
+--- or beneath where a variable the module declares says by that
+--- variable, the longest such value first; a key, only by one a `host`
+--- path names.
+local function test_a_host_path_a_variable_names_is_where_it_says()
+  local m, by_path = tree(declaring({ host = { "$PRODUCT/o/bin/cosmic", "/fixture/written" },
+    env = { "OTHER" } }))
+  local effective = test_inputs.effective(m, by_path, staged)
+  assert(effective.env.PRODUCT and effective.named.PRODUCT and not effective.named.OTHER)
+  assert(table.concat(effective.variables, " ") == "OTHER PRODUCT")
+  test_inputs.resolve(effective, { PRODUCT = "/fixture/product/", OTHER = "/fixture/other",
+    UNDECLARED = "/fixture" }, { "/fixture/tree" })
+  assert(effective.unresolved == "", effective.unresolved)
+  assert(#effective.host == 2 and effective.host[1] == "/fixture/product/o/bin/cosmic" and
+    effective.host[2] == "/fixture/written", table.concat(effective.host, " "))
+  assert(effective.spelled["/fixture/product/o/bin/cosmic"] == "$PRODUCT/o/bin/cosmic")
+  assert(effective.spelled["/fixture/written"] == nil)
+  assert(test_inputs.covers_host(effective, "/fixture/product/o/bin/cosmic", "o"))
+  assert(test_inputs.covers_host(effective, "/fixture/product/o", "s"))
+  assert(not test_inputs.covers_host(effective, "/fixture/product/o/bin/other", "o"))
+  assert(test_inputs.spelling(effective, "/fixture/product/o/bin/other") ==
+    "$PRODUCT/o/bin/other")
+  assert(test_inputs.spelling(effective, "/fixture/product") == "$PRODUCT")
+  assert(test_inputs.spelling(effective, "/fixture/other/x") == "$OTHER/x")
+  assert(test_inputs.spelling(effective, "/fixture/other/x", true) == "/fixture/other/x")
+  assert(test_inputs.spelling(effective, "/fixture/productx") == "/fixture/productx")
+  assert(test_inputs.spelling(effective, "/fixture/elsewhere") == "/fixture/elsewhere")
+end
+
+--- A `host` path a worker cannot be given fails its module's tests,
+--- naming the declaration and why: its variable unset, empty or
+--- relative, or a path that is the tree's, or holds it, whether a
+--- variable names it or it is written out.
+local function test_a_host_path_that_cannot_be_given_is_named()
+  local function trouble(host: {string}, environment: {string:string}): string
+    local m, by_path = tree(declaring({ host = host }))
+    local effective = test_inputs.effective(m, by_path, staged)
+    test_inputs.resolve(effective, environment, { "/fixture/tree", "/real/tree" })
+    return effective.unresolved
+  end
+  local wants: {{string}} = {
+    { "$PRODUCT/f", "", 'Test.needs host "$PRODUCT/f": PRODUCT is unset' },
+    { "$PRODUCT/f", "=", 'Test.needs host "$PRODUCT/f": PRODUCT is empty' },
+    { "$PRODUCT/f", "=product", 'PRODUCT is "product", a relative path' },
+    { "$PRODUCT/f", "=/fixture/aa/../product", "which names \".\", \"..\" or an empty name" },
+    { "$PRODUCT/f", "=/fixture/./product", "which names \".\", \"..\" or an empty name" },
+    { "$PRODUCT/f", "=/fixture//product", "which names \".\", \"..\" or an empty name" },
+    { "$PRODUCT/f", "=/fixture/tree/sub", "/fixture/tree/sub/f is the tree's" },
+    { "$PRODUCT", "=/real/tree", "/real/tree is the tree's" },
+    { "$PRODUCT", "=/fixture", "/fixture holds the tree" },
+    { "/fixture/tree/x", "", 'Test.needs host "/fixture/tree/x": /fixture/tree/x is the tree\'s' },
+  }
+  for _, want in ipairs(wants) do
+    local environment: {string:string} = {}
+    if want[2] ~= "" then environment.PRODUCT = want[2]:sub(2) end
+    local said = trouble({ "/fixture/written", want[1] }, environment)
+    assert(said:find(want[3], 1, true), want[1] .. " " .. want[2] .. ": " .. said)
+  end
+  assert(trouble({ "$PRODUCT/f" }, { PRODUCT = "/fixture/product" }) == "")
+  assert(trouble({ "$PRODUCT/f" }, { PRODUCT = "/fixture/product/" }) == "")
+end
+
 --- A path as a declaration spells it.
 local function test_a_path_is_spelled_plainly()
   assert(test_inputs.plain("./not/there/") == "not/there")

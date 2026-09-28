@@ -126,6 +126,24 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
     cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
   assert(Fs.exists(tmp .. "/caches/zig-global"))
   inputs.cache_paths = {}
+  -- A host path where the sandbox has its own -- its scratch directory,
+  -- or above it, or /tmp or /tree themselves -- cannot be given, and
+  -- one a variable names is named as declared.
+  for _, own in ipairs({ scratch .. "/x", tmp, "/tmp", "/tree", "/" }) do
+    inputs.host = { own }
+    inputs.spelled = { [test_inputs.plain(own)] = "$OWN" }
+    local refused = test_sandbox.plan(root, scratch, inputs, {})
+    assert(refused.trouble:find('Test.needs host "$OWN": ', 1, true) and
+      refused.trouble:find("is where its sandbox has", 1, true), own .. ": " .. refused.trouble)
+  end
+  -- And by where it resolves: a link to the scratch directory.
+  assert(Fs.symlink(scratch, tmp .. "/to-scratch"))
+  inputs.host, inputs.spelled = { tmp .. "/to-scratch" }, {}
+  local linked = test_sandbox.plan(root, scratch, inputs, {})
+  assert(linked.trouble:find("is where its sandbox has its scratch directory", 1, true),
+    linked.trouble)
+  inputs.host, inputs.spelled = { host .. "/" }, {}
+  assert(test_sandbox.plan(root, scratch, inputs, {}).trouble == "")
   -- Only loopback hosts: offline, its own loopback answering for them.
   -- Keyed exactly when offline: a worker keyed but online would stand
   -- on what the host's network answered.
@@ -372,6 +390,58 @@ end
   assert(text:find("wrote|true|false|end", 1, true), text)
   assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
   assert(not Fs.exists(xdg .. "/cosmic/bootstrap"))
+end
+
+--- End to end: a module that declares a `host` path by the variable
+--- that says where it is (`$PRODUCT_DIR/given.txt`) has its worker
+--- given that path there, and nothing beside it. With the variable
+--- unset, or naming the tree, each of its tests fails before it
+--- starts, naming the variable, sandboxed or not.
+local function test_a_host_path_a_variable_names_is_given_where_it_says(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local root, product = base .. "/root", base .. "/product"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(product))
+  assert(Fs.write(product .. "/given.txt", "given"))
+  assert(Fs.write(product .. "/sibling.txt", "sibling"))
+  assert(Fs.write(root .. "/suite/variable_test.tl", [[
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local Test = require("cosmic.test")
+
+Test.needs { host = { "$PRODUCT_DIR/given.txt" } }
+
+local function test_read()
+  local dir = assert(sys.getenv("PRODUCT_DIR"))
+  error("read|" .. tostring((Fs.read(dir .. "/given.txt"))) .. "|" ..
+    tostring((Fs.read(dir .. "/sibling.txt"))) .. "|end")
+end
+]]))
+  local env = observations.environment()
+  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_ALL = nil
+  env.COSMIC_SANDBOX = nil
+  env.COSMIC_TEST_SANDBOX = nil
+  -- Unset, or the tree's: refused before the test starts, in either mode.
+  for _, mode in ipairs({ "0", "" }) do
+    env.COSMIC_TEST_SANDBOX = mode ~= "" and mode or nil
+    env.PRODUCT_DIR = nil
+    local unset, unset_ok = run(root, tmp .. "/unset" .. mode, env)
+    assert(not unset_ok and unset:find('Test.needs host "$PRODUCT_DIR/given.txt": ' ..
+      "PRODUCT_DIR is unset", 1, true) and not unset:find("read|", 1, true), unset)
+    assert(not unset:find("could not be supervised", 1, true), unset)
+    env.PRODUCT_DIR = root .. "/suite"
+    local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)
+    assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true),
+      inside)
+  end
+  env.PRODUCT_DIR = product
+  env.COSMIC_TEST_SANDBOX = nil
+  local text, ok = run(root, tmp .. "/given", env)
+  assert(not ok, text)
+  if unsandboxed(text) then return end
+  assert(text:find("; sandboxed)", 1, true), text)
+  assert(text:find("read|given|nil|end", 1, true), text)
 end
 
 --- A failure to start a sandbox where the kernel refuses a user

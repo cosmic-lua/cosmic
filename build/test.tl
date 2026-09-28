@@ -1178,7 +1178,10 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
         if observations.in_system(plain) and plain:match("/s?bin/[^/]+$") ~= nil then
           add("system", plain)
         else
-          add("host", plain)
+          -- By the variable the module declares that says where it is,
+          -- where one does: the same declaration holds it wherever the
+          -- host has it.
+          add("host", test_inputs.spelling(effective, plain))
         end
       end
     end
@@ -1936,6 +1939,27 @@ local function view_of(rec: Recording, m: importer.Module): {string:string} | ni
   return view
 end
 
+--- Where the tree is, for a `host` path that must not be it, beneath
+--- it or above it (`test_inputs.resolved`): its path and where that
+--- resolves.
+local function tree_roots(rec: Recording): {string}
+  return { rec.root, observations.resolution(rec.root) }
+end
+
+--- Why `m`'s `host` paths cannot all be given to its workers, from
+--- where a variable one names says, as a worker's environment has it
+--- (`test_inputs.resolved`): "" where they can. Every test of such a
+--- module fails before its worker starts, sandboxed or not.
+local function unresolved(rec: Recording, m: importer.Module): string
+  local effective = rec.effective ~= nil and rec.effective[m.path] or nil
+  if effective ~= nil then return effective.unresolved or "" end
+  for _, declared in ipairs(m.inputs ~= nil and m.inputs.host or {}) do
+    local path, trouble = test_inputs.resolved(declared, worker_view(), tree_roots(rec))
+    if path == nil then return trouble end
+  end
+  return ""
+end
+
 --- Where the host caches `m` declares are (`build.caches`), as every
 --- worker's environment locates them: what its test may read and write
 --- that no key holds.
@@ -2214,13 +2238,13 @@ end
 --- that ran a module of the tree the tool carries beyond both fails
 --- its test.
 local function finish(rec: Recording, job: Job, result: Child.Result,
-                      trouble: string, limits: test.Limits)
+                      trouble: string, limits: test.Limits, refused?: boolean)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Time.monotonic_ns() - job.started_ns
   local judged = worker.judge({
     result = result, trouble = trouble, timeout_ms = limits.timeout_ms,
-    sandboxed = rec.sandbox,
+    sandboxed = rec.sandbox, refused = refused == true,
     carried = rec.sandbox and rec.carried or nil,
     closure = rec.sandbox and closure_set(rec, job.m) or nil,
   })
@@ -2543,6 +2567,11 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local env: {string:string} = worker_view()
   local root, inside, cwd: string, string, string = rec.root, scratch, nil
   local sandbox: Child.Sandbox = nil
+  local declares_trouble = unresolved(rec, job.m)
+  if declares_trouble ~= "" then
+    finish(rec, job, nil, declares_trouble, limits, true)
+    return false
+  end
   -- What a process the worker starts is keyed by, where its sandbox
   -- holds one: "" for none.
   local held = ""
@@ -2560,7 +2589,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     if plan.trouble ~= "" then
-      finish(rec, job, nil, plan.trouble, limits)
+      finish(rec, job, nil, plan.trouble, limits, true)
       return false
     end
     job.plan = plan
@@ -3162,6 +3191,7 @@ function test.run(argv: {integer:string}): integer
     for _, m in ipairs(selected_modules) do
       local effective = test_inputs.effective(m, by_path, declarations)
       effective.cache_paths = caches_of(rec, m)
+      test_inputs.resolve(effective, worker_view(), tree_roots(rec))
       rec.effective[m.path] = effective
     end
   end

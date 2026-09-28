@@ -961,6 +961,13 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.env == 1 and got.env[1] == "PATH")
   assert(#got.network == 1 and got.network[1] == "*")
   assert(got.processes and not got.tool and got.store)
+  -- A host path a variable names, whole or beneath it.
+  local named = assert(declared(lines({
+    'local Test = require("cosmic.test")',
+    'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$PRODUCT", "$_P1/" } }',
+  })))
+  assert(#named.host == 3 and named.host[1] == "$FIXTURE_ROOT/o/bin/cosmic" and
+    named.host[2] == "$PRODUCT" and named.host[3] == "$_P1/")
   local hosts = assert(declared(lines({
     'local t = require("cosmic.test")',
     't.needs({ network = { "127.0.0.1" } })',
@@ -1015,6 +1022,12 @@ local function test_a_malformed_needs_call_is_refused()
       "fixture_test.tl:3: test.needs: a module that declares its inputs jumps nowhere" },
     { 'Test.needs { reads = { "/etc" } }', "is absolute" },
     { 'Test.needs { host = { "etc" } }', "is relative" },
+    { 'Test.needs { host = { "$1ROOT/a" } }', "names no variable" },
+    { 'Test.needs { host = { "$ROOT-X" } }', "names no variable" },
+    { 'Test.needs { host = { "/a/$ROOT" } }', "names a variable past its first name" },
+    { 'Test.needs { host = { "$ROOT/a/../b" } }', "names \"..\"" },
+    { 'Test.needs { reads = { "$ROOT/a" } }', "a path a variable names goes in host" },
+    { 'Test.needs { reads = { "a/$ROOT" } }', "names a variable; a path of the tree is written out" },
     { 'Test.needs { reads = { "a/../b" } }', "names \"..\"" },
     { 'Test.needs { reads = { "./a" } }', "names \".\"" },
     { 'Test.needs { reads = { name } }', "reads lists string literals only" },
