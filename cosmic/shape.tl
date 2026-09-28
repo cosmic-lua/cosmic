@@ -227,7 +227,7 @@ function Shape.either(...: Spec): Spec
 end
 
 local quoted = Json.quote
-local field_path = Json.step_path
+local field_path = Json.child_path
 
 --- What a value is, for a message: the Lua type, with integer and float
 --- told apart, and JSON's null and arrays by their JSON names.

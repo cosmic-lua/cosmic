@@ -62,6 +62,9 @@
 --- `Json.entries` and `Json.items` narrow an object or an array so a
 --- caller can `pairs` or `ipairs` it without a cast.
 ---
+--- `Json.quote` and `Json.child_path` spell a key or a path (`$.rows[2]`)
+--- in a message of your own.
+---
 --- Duplicate keys are allowed, and the last one stands. Encoded
 --- objects list their keys in byte order unless `sorted = false`, so
 --- the same value always encodes to the same text.
@@ -402,7 +405,8 @@ end
 --- Whether the unmarked table `t` is an object, an array, or neither,
 --- by the rules `encode` applies: an empty one is an object, one whose
 --- keys are all strings an object, one whose keys are all integers from
---- 1 up an array, anything else "mixed".
+--- 1 up an array, "hole" for integer keys from 1 up with a gap, and
+--- anything else "mixed". A marked array is one without a scan.
 local function table_kind(t: {any:any}): string
   if raw.is_array(t) then
     return "array"
@@ -426,7 +430,7 @@ local function table_kind(t: {any:any}): string
     return "array"
   end
   if integers > 0 then
-    return "mixed"
+    return "hole"
   end
   return "object"
 end
@@ -438,6 +442,8 @@ local function shape_kind(v: any): string
     local k = table_kind(v)
     if k == "mixed" then
       return "table with mixed keys"
+    elseif k == "hole" then
+      return "array with a hole"
     end
     return k
   end
@@ -446,8 +452,9 @@ end
 
 --- `s` as a JSON string literal, for a message: `"` and `\\` escaped and
 --- every control character a `\u` escape, so a key or a value reads in
---- a message as it did in the text. Unlike `encode`, it answers for any
---- bytes, UTF-8 or not.
+--- a message as it did in the text. It is for messages and is not a
+--- JSON encoder: it answers for any bytes, UTF-8 or not, where `encode`
+--- refuses what is not UTF-8. Use `Json.encode` to write JSON.
 function Json.quote(s: string): string
   return '"' .. s:gsub('[%c"\\]', function(c: string): string
     if c == '"' or c == "\\" then return "\\" .. c end
@@ -455,11 +462,12 @@ function Json.quote(s: string): string
   end) .. '"'
 end
 
---- `path` extended by one step, in the style of `encode`'s and
---- `cosmic.shape`'s messages: `.name` for a key that is a word,
---- `["a key"]` (quoted as `Json.quote` does) for one that is not, and
---- `[3]` for an array index, counted from 1. Start from `"$"`.
-function Json.step_path(path: string, step: string | integer): string
+--- The path of `step` under `path`, as `encode` writes where it failed:
+--- `.name` for a key that is a word, `["a key"]` (quoted as `Json.quote`
+--- does) for one that is not, and `[3]` for an array index, counted from
+--- 1. `path` is `"$"` for the document itself, so
+--- `Json.child_path(Json.child_path("$", "rows"), 2)` is `$.rows[2]`.
+function Json.child_path(path: string, step: string | integer): string
   if step is string then
     if step:match("^[%a_][%w_]*$") then
       return path .. "." .. step
@@ -477,42 +485,63 @@ local record Reached
   at: string
 end
 
---- `get`'s walk, shared with `entries` and `items`.
+--- `get`'s walk, shared with `entries` and `items`. A failure names the
+--- value at fault, and `at` is the path of the value reached. A string
+--- step on an unmarked table with no array part is indexed directly, so
+--- a lookup in a large decoded object is not a scan of it; the scan
+--- that names what is wrong runs only for a failure.
 local function descend(value: any, path: {string | integer}): Reached
+  local steps = 0
+  local loose: any = path
+  if loose is {any:any} then
+    for _ in pairs(loose) do steps = steps + 1 end
+  end
+  if steps ~= rawlen(path) then
+    error("json: a path must be a sequence, with no nil hole in it", 3)
+  end
   local at = "$"
   local here = value
   for _, step in ipairs(path) do
     local step_value: any = step
     if step_value is integer then
-      at = Json.step_path(at, step_value)
       if not (here is {any:any}) or table_kind(here) ~= "array" then
-        return { err = at .. ": expected an array, got " .. shape_kind(here), at = at }
+        return { err = at .. ": expected an array to look up " .. Json.child_path("", step_value)
+          .. ", got " .. shape_kind(here), at = at }
       end
       if step_value < 1 or step_value > rawlen(here) then
-        return { err = at .. ": index out of range, the array has " .. rawlen(here), at = at }
+        return { err = at .. ": index " .. step_value .. " out of range, the array has " .. rawlen(here), at = at }
       end
       here = here[step_value]
     elseif step_value is string then
-      at = Json.step_path(at, step_value)
-      if not (here is {any:any}) or table_kind(here) ~= "object" then
-        return { err = at .. ": expected an object, got " .. shape_kind(here), at = at }
+      local found: any
+      if here is {any:any} and rawlen(here) == 0 and not raw.is_array(here) then
+        found = here[step_value]
+      elseif not (here is {any:any}) or table_kind(here) ~= "object" then
+        return { err = at .. ": expected an object to look up " .. Json.quote(step_value)
+          .. ", got " .. shape_kind(here), at = at }
+      else
+        found = here[step_value]
       end
-      local found = here[step_value]
       if found == nil then
-        return { err = at .. ": no such key", at = at }
+        if here is {any:any} and table_kind(here) ~= "object" then
+          return { err = at .. ": expected an object to look up " .. Json.quote(step_value)
+            .. ", got " .. shape_kind(here), at = at }
+        end
+        return { err = at .. ": no key " .. Json.quote(step_value), at = at }
       end
       here = found
     else
       local what = math.type(step_value) or type(step_value)
       error("json: a path step must be a string or an integer, got " .. what, 3)
     end
+    at = Json.child_path(at, step)
   end
   return { value = here, err = "", at = at }
 end
 
 --- The value at `path` under `value`, and "". A string step is an
 --- object's key and an integer step an array's index, counted from 1
---- as Lua counts and as `encode`'s and cosmic.shape's messages do:
+--- as Lua counts and as `encode`'s messages do:
 --- `{ "users", 3, "name" }` is `$.users[3].name`. An empty path is
 --- `value` itself. nil and a message naming the path reached, in that
 --- style, when a key is missing, a step meets a value that is not an
@@ -523,7 +552,8 @@ end
 --- it is an error: `$.a: expected an object, got null`. A key whose
 --- value decoded to nil (a `null` without `null_value`) is missing, as
 --- an array's hole is nil with an empty message; decode with
---- `null_value = Json.null` to tell them from an absent key. Test the
+--- `null_value = Json.null` to tell them from an absent key. A path with
+--- a nil hole in it raises. Test the
 --- message, not the value: a leaf of `false` or `nil` answers
 --- `false, ""` or `nil, ""`. A step that is neither a string nor an
 --- integer (a float such as `1.0` too) raises.

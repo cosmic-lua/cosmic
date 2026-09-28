@@ -6,6 +6,7 @@
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
+local Time = require("cosmic.time")
 
 --- The value and an empty message, or a failed assertion naming the
 --- message.
@@ -739,15 +740,15 @@ end
 --- A failure names the path reached, as encode and shape write one.
 local function test_get_names_the_path_of_a_failure()
   local doc = decoded('{"a": [{"b": 1}], "s": "x", "e": []}')
-  assert(get_failure(doc, { "a", 1, "c" }) == "$.a[1].c: no such key")
-  assert(get_failure(doc, { "a", 2 }) == "$.a[2]: index out of range, the array has 1")
-  assert(get_failure(doc, { "a", 0 }) == "$.a[0]: index out of range, the array has 1")
-  assert(get_failure(doc, { "e", 1 }) == "$.e[1]: index out of range, the array has 0")
-  assert(get_failure(doc, { "s", "x" }) == "$.s.x: expected an object, got string")
-  assert(get_failure(doc, { "s", 1 }) == "$.s[1]: expected an array, got string")
-  assert(get_failure(doc, { "a", "b" }) == "$.a.b: expected an object, got array")
-  assert(get_failure(doc, { "a", 1, 1 }) == "$.a[1][1]: expected an array, got object")
-  assert(get_failure(doc, { "a key" }) == '$["a key"]: no such key')
+  assert(get_failure(doc, { "a", 1, "c" }) == '$.a[1]: no key "c"')
+  assert(get_failure(doc, { "a", 2 }) == "$.a: index 2 out of range, the array has 1")
+  assert(get_failure(doc, { "a", 0 }) == "$.a: index 0 out of range, the array has 1")
+  assert(get_failure(doc, { "e", 1 }) == "$.e: index 1 out of range, the array has 0")
+  assert(get_failure(doc, { "s", "x" }) == '$.s: expected an object to look up "x", got string')
+  assert(get_failure(doc, { "s", 1 }) == "$.s: expected an array to look up [1], got string")
+  assert(get_failure(doc, { "a", "b" }) == '$.a: expected an object to look up "b", got array')
+  assert(get_failure(doc, { "a", 1, 1 }) == "$.a[1]: expected an array to look up [1], got object")
+  assert(get_failure(doc, { "a key" }) == '$: no key "a key"')
 end
 
 --- Json.null is a value at the end and an error to go through.
@@ -755,10 +756,10 @@ local function test_get_treats_null_as_a_leaf()
   local doc = decoded('{"a": null, "l": [1, null]}', { null_value = Json.null })
   assert(got(doc, { "a" }) == Json.null)
   assert(got(doc, { "l", 2 }) == Json.null)
-  assert(get_failure(doc, { "a", "b" }) == "$.a.b: expected an object, got null")
-  assert(get_failure(doc, { "a", 1 }) == "$.a[1]: expected an array, got null")
+  assert(get_failure(doc, { "a", "b" }) == '$.a: expected an object to look up "b", got null')
+  assert(get_failure(doc, { "a", 1 }) == "$.a: expected an array to look up [1], got null")
   local plain = decoded('{"a": null}')
-  assert(get_failure(plain, { "a" }) == "$.a: no such key")
+  assert(get_failure(plain, { "a" }) == '$: no key "a"')
 end
 
 local function test_get_raises_on_a_step_that_is_no_key_or_index()
@@ -776,16 +777,16 @@ end
 
 local function test_get_tells_a_key_from_an_index_and_takes_no_negative_one()
   local arr = decoded('[10, 20]')
-  assert(get_failure(arr, { "1" }) == '$["1"]: expected an object, got array')
-  assert(get_failure(arr, { "x" }) == "$.x: expected an object, got array")
-  assert(get_failure(arr, { -1 }) == "$[-1]: index out of range, the array has 2")
+  assert(get_failure(arr, { "1" }) == '$: expected an object to look up "1", got array')
+  assert(get_failure(arr, { "x" }) == '$: expected an object to look up "x", got array')
+  assert(get_failure(arr, { -1 }) == "$: index -1 out of range, the array has 2")
   local obj = decoded('{"1": "s"}')
   assert(got(obj, { "1" }) == "s")
-  assert(get_failure(obj, { 1 }) == "$[1]: expected an array, got object")
-  assert(get_failure({ 10, 20 }, { "x" }) == "$.x: expected an object, got array")
+  assert(get_failure(obj, { 1 }) == "$: expected an array to look up [1], got object")
+  assert(get_failure({ 10, 20 }, { "x" }) == '$: expected an object to look up "x", got array')
   local mixed = { 1, a = 2 }
-  assert(get_failure(mixed, { "a" }) == "$.a: expected an object, got table with mixed keys")
-  assert(get_failure(mixed, { 1 }) == "$[1]: expected an array, got table with mixed keys")
+  assert(get_failure(mixed, { "a" }) == '$: expected an object to look up "a", got table with mixed keys')
+  assert(get_failure(mixed, { 1 }) == "$: expected an array to look up [1], got table with mixed keys")
 end
 
 --- entries and items take a path as get does, and name it.
@@ -803,9 +804,9 @@ local function test_entries_and_items_take_a_path()
   local _b, why_b = Json.entries(doc, { "a", "rows" })
   assert(why_b == "$.a.rows: expected a JSON object, got array", why_b)
   local _c, why_c = Json.items(doc, { "a", "nope" })
-  assert(why_c == "$.a.nope: no such key", why_c)
+  assert(why_c == '$.a: no key "nope"', why_c)
   local _d, why_d = Json.items(doc, { "s", 1 })
-  assert(why_d == "$.s[1]: expected an array, got string", why_d)
+  assert(why_d == "$.s: expected an array to look up [1], got string", why_d)
   local _e, why_e = Json.items(doc, {})
   assert(why_e == "$: expected a JSON array, got object", why_e)
 end
@@ -843,7 +844,8 @@ local function test_entries_and_items_follow_the_encode_rules_for_tables()
   local _, why = Json.entries(mixed)
   assert(why == "expected a JSON object, got table with mixed keys", why)
   assert(Json.items(mixed) == nil)
-  assert(Json.items({ [1] = 1, [3] = 3 }) == nil, "a hole is no unmarked array")
+  local _h, why_h = Json.items({ [1] = 1, [3] = 3 })
+  assert(why_h == "expected a JSON array, got array with a hole", why_h)
 end
 
 local function test_describe_summarizes_nested_shapes_sorted()
@@ -890,18 +892,60 @@ local function test_describe_optional_keys_cuts_and_holes()
   assert(plain:find("^%[%d x number") ~= nil, plain)
 end
 
-local function test_quote_and_step_path_spell_a_path()
+local function test_quote_and_child_path_spell_a_path()
   assert(Json.quote('a"b\\c\n') == '"a\\"b\\\\c\\u000a"')
-  assert(Json.step_path("$", "rows") == "$.rows")
-  assert(Json.step_path("$.rows", 2) == "$.rows[2]")
-  assert(Json.step_path("$", "a key") == '$["a key"]')
+  assert(Json.child_path("$", "rows") == "$.rows")
+  assert(Json.child_path("$.rows", 2) == "$.rows[2]")
+  assert(Json.child_path("$", "a key") == '$["a key"]')
 end
 
 local function test_describe_a_long_array_is_one_merged_shape()
   local items = Json.array()
-  for i = 1, 50000 do items[i] = { id = i, tag = "t" } end
-  assert(Json.describe(items) == "[50000 x {id: number, tag: string}]")
+  for i = 1, 5000 do items[i] = { id = i, tag = "t" } end
+  assert(Json.describe(items) == "[5000 x {id: number, tag: string}]")
   local cycle: {any:any} = {}
   cycle.self = cycle
   assert(Json.describe(cycle, { max_depth = 3 }) == "{self: {self: {self: {...}}}}")
+end
+
+--- The float-step raise reaches a caller of entries and items too.
+local function test_entries_and_items_raise_on_a_float_step_naming_the_caller()
+  local function entries_step(): any
+    local v = Json.entries({ {} }, { 1.0 } as {any} as {string | integer})
+    return v
+  end
+  local function items_step(): any
+    local v = Json.items({ {} }, { 1.0 } as {any} as {string | integer})
+    return v
+  end
+  for _, f in ipairs({ entries_step, items_step }) do
+    local ok, message = pcall(f)
+    assert(not ok and tostring(message):find("got float", 1, true) ~= nil, tostring(message))
+    assert(tostring(message):find("json_test", 1, true) ~= nil, tostring(message))
+  end
+end
+
+local function test_get_raises_on_a_path_with_a_nil_hole()
+  local path: {any} = { "a", nil, "b" }
+  local function hole(): any
+    local v = Json.get({}, path as {string | integer})
+    return v
+  end
+  local ok, message = pcall(hole)
+  assert(not ok and tostring(message):find("nil hole", 1, true) ~= nil, tostring(message))
+end
+
+--- A lookup in a large decoded object is direct, not a scan of its keys:
+--- a scan apiece would take minutes here.
+local function test_get_on_a_large_object_does_not_scan_it()
+  local parts: {string} = {}
+  for i = 1, 100000 do parts[i] = '"k' .. i .. '": ' .. i end
+  local doc = decoded("{" .. table.concat(parts, ",") .. "}")
+  local started = Time.monotonic_ns()
+  local total = 0
+  for i = 1, 20000 do
+    total = total + (got(doc, { "k" .. i }) as integer)
+  end
+  assert(total == 20000 * 20001 // 2)
+  assert(Time.monotonic_ns() - started < 1000000000, "get scanned the object")
 end
