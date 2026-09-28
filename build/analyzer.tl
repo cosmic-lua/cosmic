@@ -920,24 +920,46 @@ for name in pairs(input_fields) do input_field_order[#input_field_order + 1] = n
 table.sort(input_field_order)
 
 --- A path of `reads` or `host` that names something a prefix can hold:
---- relative to the tree for `reads`, absolute for `host`, and never
---- climbing with "..", nor spelled with "." or an empty name, which a
---- match by prefix would read as another path. "" when it is one, else
---- why not.
+--- relative to the tree for `reads`, absolute for `host` -- or, for
+--- `host`, starting with `$NAME`, the path the variable NAME holds
+--- (`build.test_inputs`' `variable_of`) -- and never climbing with "..",
+--- nor spelled with "." or an empty name, which a match by prefix would
+--- read as another path. "" when it is one, else why not.
 local function input_path_trouble(field: string, path: string): string
   if path == "" then return "an empty path" end
+  local quoted = "\"" .. path .. "\""
   local absolute = path:sub(1, 1) == "/"
+  if field == "reads" and path:sub(1, 1) == "$" then
+    return quoted .. " starts with a variable; a path a variable names goes in host"
+  elseif field == "host" and path:sub(1, 1) == "$" then
+    local name, rest = path:match("^%$([%a_][%w_]*)(.*)$")
+    if name == nil or (rest ~= "" and rest:sub(1, 1) ~= "/") then
+      return quoted .. " names no variable: write $NAME or $NAME/path, NAME of letters, " ..
+        "digits and _, not starting with a digit"
+    end
+    -- The variable's whole path.
+    if rest == "" or rest == "/" then return "" end
+    path, absolute = rest, true
+  end
+  if path:find("/$", 1, true) ~= nil then
+    if field == "reads" then
+      return quoted .. " names a variable; a path of the tree is written out, and one a " ..
+        "variable names goes in host"
+    end
+    return quoted .. " names a variable past its first name; only a host path's first " ..
+      "name may be one"
+  end
   if field == "reads" and absolute then
-    return "\"" .. path .. "\" is absolute; a path of the tree is relative to its root " ..
+    return quoted .. " is absolute; a path of the tree is relative to its root " ..
       "(one outside it goes in host)"
   elseif field == "host" and not absolute then
-    return "\"" .. path .. "\" is relative; host names absolute paths " ..
+    return quoted .. " is relative; host names absolute paths, or $NAME/path " ..
       "(one of the tree goes in reads)"
   end
   local inner = path:gsub("^/", ""):gsub("/$", "")
   for name in (inner .. "/"):gmatch("([^/]*)/") do
     if name == "" or name == "." or name == ".." then
-      return "\"" .. path .. "\" names \"" .. name .. "\"; spell the path plainly"
+      return quoted .. " names \"" .. name .. "\"; spell the path plainly"
     end
   end
   return ""

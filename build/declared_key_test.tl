@@ -240,6 +240,72 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(key_of(root) ~= nil)
 end
 
+--- A `host` path a variable names is keyed by what it holds and by the
+--- name it is declared by, not by where the variable says it is: the
+--- same contents at another place key the same, and the variable's
+--- value in the worker's environment is held by that name too; a
+--- change to what it holds moves the key, a file beneath a directory
+--- as a file; and a link beneath it that leads out of it has no key.
+local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: string)
+  local root = tmp .. "/root"
+  tree(root)
+  local base = assert(Fs.absolute(tmp))
+  local function product(where: string, contents: string): string
+    local dir = base .. "/" .. where
+    assert(Fs.mkdirs(dir .. "/o/bin"))
+    assert(Fs.write(dir .. "/o/bin/cosmic", contents))
+    return dir
+  end
+  local function key_at(where: string, declared: string): string
+    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = where })
+    s.effective.host = { declared }
+    s.effective.env.PRODUCT = true
+    s.effective.named = { PRODUCT = true }
+    s.effective.variables = { "DECLARED", "PRODUCT" }
+    s.declaration = s.declaration .. "\nhost " .. string.format("%q", declared)
+    test_inputs.resolve(s.effective, s.environment, { root })
+    assert(s.effective.unresolved == "", s.effective.unresolved)
+    return key_of(root, s)
+  end
+  local one, two = product("one", "cosmic\n"), product("two", "cosmic\n")
+  local file = "$PRODUCT/o/bin/cosmic"
+  assert(key_at(one, file) == key_at(two, file), "the same contents elsewhere")
+  assert(key_at(one, "$PRODUCT") == key_at(two, "$PRODUCT"), "the same directory elsewhere")
+  assert(key_at(one, file) ~= key_at(one, "$PRODUCT"), "another declaration")
+  assert(Fs.write(two .. "/o/bin/cosmic", "another cosmic\n"))
+  assert(key_at(one, file) ~= key_at(two, file), "another file's contents")
+  assert(key_at(one, "$PRODUCT") ~= key_at(two, "$PRODUCT"), "another directory's contents")
+  local before = key_at(one, "$PRODUCT")
+  assert(Fs.write(one .. "/o/new", ""))
+  assert(key_at(one, "$PRODUCT") ~= before, "a file added beneath it")
+  -- Two variables' places swapped, what each holds the same: the same key.
+  local function key_of_two(a: string, b: string): string
+    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", A = a, B = b })
+    s.effective.host = { "$A/o/bin/cosmic", "$B/o/bin/cosmic" }
+    s.effective.named = { A = true, B = true }
+    s.effective.variables = { "A", "B" }
+    test_inputs.resolve(s.effective, s.environment, { root })
+    return key_of(root, s)
+  end
+  local early, late = product("early", "a\n"), product("zlate", "b\n")
+  local swapped_early, swapped_late = product("early2", "b\n"), product("zlate2", "a\n")
+  assert(key_of_two(early, late) == key_of_two(swapped_late, swapped_early),
+    "the variables' places in another order")
+  assert(key_of_two(early, late) ~= key_of_two(swapped_early, swapped_late),
+    "what each holds, swapped")
+  -- A link within it is held by where it leads; one out of it has no key.
+  assert(Fs.symlink("bin/cosmic", one .. "/o/within"))
+  assert(key_at(one, "$PRODUCT") ~= nil)
+  assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/out"))
+  local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = one })
+  s.effective.host = { "$PRODUCT" }
+  s.effective.named = { PRODUCT = true }
+  s.effective.variables = { "PRODUCT" }
+  test_inputs.resolve(s.effective, s.environment, { root })
+  local key, why = declared_key.compute(declared_key.digests(root), s)
+  assert(key == nil and why:find("leads out of " .. one, 1, true), why)
+end
+
 --- The host's identity is the same from one look to the next, and says
 --- something: at least the user and the kernel.
 local function test_the_host_identity_is_stable(tmp: string)
