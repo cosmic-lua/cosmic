@@ -1,11 +1,11 @@
+--- `build.invoke`: a command line run in this process as the binary
+--- would run it. A run that reads the store beyond this closure -- a
+--- verb over every module's docs, the databases it searches -- is
+--- build/invoke_store_test.tl's.
+
 local Store = require("cosmic.store")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
---- The verbs it runs in this process read the running program's own
---- database -- `help`, every module's docs -- through `Store.databases()`.
-Test.needs{ store = true }
 
 --- What a verb writes -- `print`'s C included -- and what it exits with
 --- come back as a started binary's would.
@@ -14,30 +14,6 @@ local function test_a_run_captures_what_it_writes_and_exits_with(tmp: string)
   assert(result.code == 3, result.stderr)
   assert(result.stdout == "out\n", result.stdout)
   assert(result.stderr == "", result.stderr)
-  local verb = invoke.run({ "help", "sql" }, { cwd = tmp })
-  assert(verb.code == 0, verb.stderr)
-  assert(verb.stdout:match("help: PASS [^\n]*\n$"), verb.stdout)
-end
-
---- The working directory and environment asked for are the run's, only
---- the binary's own database is searched, and this process's own are
---- back after it.
-local function test_a_run_has_its_own_directory_environment_and_store(tmp: string)
-  local here = assert(sys.getcwd())
-  local real = assert(sys.realpath(tmp))
-  local databases = #Store.databases()
-  local result = invoke.run({ "-e", [[
-    local Env = require("cosmic.env")
-    local Store = require("cosmic.store")
-    local sys = require("cosmic.sys")
-    print(assert(sys.getcwd()))
-    print(Env.get("INVOKE_GIVEN"), Env.all().INVOKE_GIVEN, Env.get("HOME"))
-    print(#Store.databases())
-  ]] }, { cwd = tmp, env = { INVOKE_GIVEN = "yes" } })
-  assert(result.code == 0, result.stderr)
-  assert(result.stdout == real .. "\nyes\tyes\tnil\n1\n", result.stdout)
-  assert(sys.getcwd() == here)
-  assert(#Store.databases() == databases)
 end
 
 --- A command line only a process of its own can run raises to the
