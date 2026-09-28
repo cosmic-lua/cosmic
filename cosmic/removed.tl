@@ -38,7 +38,7 @@ local record Module
   --- environment, so each one fails to resolve at compile time instead
   --- of at the moment a running program reaches for it -- see
   --- `build.teal`'s `environment_for`. Order does not matter to the
-  --- stripping; this is the one list so it is written only once.
+  --- stripping; `fields` names the same five for the docs.
   order: {string}
   --- What to write instead of one removed field, by its dotted name
   --- (`os.getenv`), including the `require` that brings it in.
