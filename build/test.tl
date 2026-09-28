@@ -3319,6 +3319,17 @@ function test.run(argv: {integer:string}): integer
     -- and those a sandboxed run wrote stay for the next.
     if sandboxed then sweep_stores(rec) end
     rec.digests = declared_key.digests(root, remembered)
+    -- A core that carries debug information, as the checked core does,
+    -- is keyed by its image (build.core_image): its DWARF names the
+    -- directory musl was first built in, which moves between CI runs,
+    -- and no test's verdict turns on it. A release core, stripped, keys
+    -- as the binary names it. Only a keyed run: an unkeyed one's
+    -- verdicts are this checkout's alone, and hold the core's bytes.
+    local host_image = Store.meta("host_image")
+    if host_image ~= nil and rec.runtime:sub(1, #identity) == identity then
+      rec.runtime = declared_key.runtime_identity(rec.digests, identity, host_image,
+        Store.meta("runtime_basis") or "") .. rec.runtime:sub(#identity + 1)
+    end
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
     rec.system = declared_key.system_identity(rec.digests)

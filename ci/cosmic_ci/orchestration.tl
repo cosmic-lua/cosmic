@@ -492,9 +492,11 @@ local function checked_suite(c: Context, target: string, work: string,
   -- The checked core keeps its debug information, so its bytes name no
   -- path of the run that built it (build.zig's `debug_dir` and the
   -- generated map's `-g0`): the checked suite's verdicts are keyed by
-  -- the core's digest, and a core naming the tree root -- per commit in
-  -- CI (place-tree.sh) -- or the map's zig-cache directory, new on every
-  -- relink, would move every key each run and stand on none. Plain finds
+  -- the core's image, its debug sections left out (build/core_image.tl),
+  -- but a core naming the tree root -- per commit in CI (place-tree.sh)
+  -- -- or the map's zig-cache directory, new on every relink, in what it
+  -- loads (an assert's __FILE__) would move every key each run and
+  -- stand on none. Plain finds
   -- over the core already read above, some 35 ms for 38 MB. The tree
   -- root may be named under the checkout's own zig cache (run-local's
   -- `o/zig-cache`, whose vendored trees' paths the core's assert strings
@@ -503,7 +505,9 @@ local function checked_suite(c: Context, target: string, work: string,
   -- the core's DWARF, once musl's is (the TODO beside build.zig's
   -- `debug_dir`): a unit naming the bare tree root is today told from
   -- musl's, which names whichever checkout first built libc, by nothing
-  -- a find can see, so only a root followed by a path is refused.
+  -- a find can see, so only a root followed by a path is refused. No
+  -- key moves with a unit's comp_dir (the image leaves it out), so what
+  -- this would add is only a checked core the same from every checkout.
   local cache = c.root .. "/o/zig-cache/"
   local at = 1
   while true do
@@ -568,10 +572,12 @@ local function checked_suite(c: Context, target: string, work: string,
   -- 320 s, set at twice 157 s for 1869 tests, at 1948 (36358276275) and
   -- at 1967. Where its key holds, it stands on the last run's verdicts
   -- as the local suite does: a commit that moves neither the core nor
-  -- the runner keys the checked core by the same digest, since its bytes
-  -- name no path of the run (asserted above; before, each object's
+  -- the runner keys the checked core by the same digest, since its image
+  -- names no path of the run (asserted above; before, each object's
   -- DW_AT_comp_dir named the checkout that first compiled it, and the
-  -- map its zig-cache directory, so it stood on none). It keeps its
+  -- map its zig-cache directory, so it stood on none), and its debug
+  -- sections, where musl's units still name one, are no part of the key
+  -- (build/core_image.tl). It keeps its
   -- verdicts in checked.db (`suite_verdicts`), and says which key parts
   -- a run that stands on none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for

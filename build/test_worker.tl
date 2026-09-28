@@ -152,13 +152,13 @@ local HEADER <const> = "cosmic-test-report-2"
 --- rather than trusted to a walk of the `imports` table, which follows
 --- `local type` requires Teal erases and requires inside functions no
 --- worker calls.
--- TODO: drop build.declared_key, and build.artifact and build.launcher,
--- which it requires, once no worker reaches its `key_part` and
--- `tree_name`: `encode_reads` goes with the worker's report of its reads
+-- TODO: drop build.declared_key, and build.artifact, build.core_image
+-- and build.launcher, which it requires, once no worker reaches its
+-- `key_part` and `tree_name`: `encode_reads` goes with the worker's report of its reads
 -- (removing the observation log, step 4), build.filesystem_observations
 -- with the log (step 5).
 worker.loads = {
-  "build.artifact", "build.caches", "build.confine", "build.declared_key",
+  "build.artifact", "build.caches", "build.confine", "build.core_image", "build.declared_key",
   "build.filesystem_observations", "build.launcher", "build.test_inputs", "build.test_worker",
   "build.this_program", "build.verdict", "cmd.cosmic.main", "cosmic.codec", "cosmic.coverage", "cosmic.env",
   "cosmic.errors", "cosmic.fs", "cosmic.hash", "cosmic.log", "cosmic.proc", "cosmic.removed",
