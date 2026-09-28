@@ -63,6 +63,7 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local tree_checks = require("build.tree_checks")
 local type compiler = require("build.compiler")
+local type Sqlite = require("cosmic.sqlite")
 
 local log = require("build.verdict").log
 
@@ -406,13 +407,16 @@ end
 --- @param built compiler The loaded compiler
 --- @param root string The tree the files are in
 --- @param files {string} The files a fix covered
+--- @param databases {Sqlite.Handle} Where the standard library's docs are
+--- read, in search order: `fix.run` hands it `Store.databases()`
 --- @return {string} One line per note, `file:line: message`
-function fix.notes(built: compiler, root: string, files: {string}): {string}
+function fix.notes(built: compiler, root: string, files: {string},
+                   databases: {Sqlite.Handle}): {string}
   -- Each file's path is resolved, so the root must be too: on macOS a
   -- temporary directory is under /var, a link to /private/var.
   local resolved_root, _ = Fs.absolute(root)
   local base = resolved_root or root
-  local known, known_trouble = near.known(Store.databases())
+  local known, known_trouble = near.known(databases)
   if known == nil then
     return { "comparing with the standard library: " .. known_trouble }
   end
@@ -646,7 +650,7 @@ function fix.run(argv: {integer:string}): integer
   -- A note is a heuristic's, and names what to look at; only one on the
   -- standard library, in a run over the whole tree, is a failure: the
   -- library as it stands earns no note against itself.
-  for _, line in ipairs(fix.notes(built, root, files)) do
+  for _, line in ipairs(fix.notes(built, root, files, Store.databases())) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
     local relative: string | nil = nil
