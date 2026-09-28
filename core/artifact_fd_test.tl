@@ -178,15 +178,28 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
   local other = assert(sys.open(plain, sys.O_RDONLY))
   for _, dir in ipairs({ "/proc/self/fd/", "/dev/fd/" }) do
     if sys.stat(dir .. other) ~= nil then
-      local opened, trouble, errno = sys.open(dir .. fd, sys.O_RDONLY)
-      assert(opened == nil and errno == sys.EACCES, dir .. " opened the artifact: " ..
-        tostring(opened) .. " " .. tostring(trouble))
-      local link = tmp .. "/link"
+      -- As given, spelled otherwise, through a link to it or to its
+      -- directory: each refused, EACCES.
+      local link, directory = tmp .. "/link", tmp .. "/directory"
       sys.unlink(link)
+      sys.unlink(directory)
       assert(sys.symlink(dir .. fd, link))
-      local linked, _, linked_errno = sys.open(link, sys.O_RDONLY)
-      assert(linked == nil and linked_errno == sys.EACCES, "a link to " .. dir ..
-        " opened the artifact")
+      assert(sys.symlink(dir:sub(1, -2), directory))
+      for _, name in ipairs({ dir .. fd, "/" .. dir .. fd, "/." .. dir .. fd, link,
+          directory .. "/" .. fd }) do
+        local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
+        if opened ~= nil then sys.close(opened) end
+        assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
+          tostring(opened) .. " " .. tostring(trouble))
+      end
+      local moved, _ = sys.getcwd()
+      if sys.chdir(dir) then
+        local relative, _, relative_errno = sys.open(tostring(fd), sys.O_RDONLY)
+        if relative ~= nil then sys.close(relative) end
+        assert(sys.chdir(assert(moved)))
+        assert(relative == nil and relative_errno == sys.EACCES,
+          "a name relative to " .. dir .. " opened the artifact")
+      end
       local again = assert(sys.open(dir .. other, sys.O_RDONLY))
       assert(sys.read(again, 16) == "text")
       assert(sys.close(again))

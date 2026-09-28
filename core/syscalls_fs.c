@@ -116,28 +116,89 @@ static void push_stat (lua_State *L, const struct stat *st) {
  * only by a name, where it could be reached as well. That refuses the
  * program named through /proc/self/cwd/... or /proc/self/root/... too,
  * which are such links: this program's own file is the one file refused
- * that way, and it has a name of its own to be reached by. Elsewhere --
- * macOS, whose /dev/fd/<n> copies the descriptor, a kernel older than
- * 5.6, a filter refusing openat2 -- by the name: under /dev or /proc,
- * as given or resolved. A walk that fails otherwise answers its own
- * errno, which the call would have met.
- * TODO: make the fallback see what it misses on Linux without openat2:
- * a link to /proc/<pid>/fd/<n> (realpath resolves it to the artifact's
- * own name), a relative "<n>" from a working directory in /proc/self/fd,
- * and a spelling that is no prefix ("//proc/...", "/./proc/..."). The
- * fix is to compare the realpath of the path's directory, not of the
- * path, against /dev and /proc, walking each link on the way. A
- * sandboxed worker, held by Landlock, runs on a kernel with openat2.
+ * that way, and it has a name of its own to be reached by. Everywhere
+ * first -- and alone on macOS, a kernel older than 5.6, a filter
+ * refusing openat2 -- by the name (`reaches_descriptor_name`), each link
+ * on the way followed by hand; and where it resolves under /dev or
+ * /proc. A walk that fails otherwise answers its own errno, which the
+ * call would have met.
  * TODO: decide on the file the call then acts on, not its name again --
  * open the O_PATH probe's file by its own descriptor (/proc/self/fd/<the
  * probe>, which this check itself would then have to let through), and
  * chmod or set the times through it (fchmod, futimens) -- so a process
  * the test starts cannot swap a link on the path between this check and
  * the call. */
+/* Whether `path`, spelled plainly, is a descriptor's own name that
+ * reaches `artifact`: /dev/fd/<its descriptor> -- on macOS no link but
+ * a node of its own (fdesc), whose stat need not be the artifact's, and
+ * which an open copies the descriptor from and a chmod reaches it
+ * through -- or /dev/fd/<n>, /proc/<self, thread-self or a pid>/fd/<n>
+ * whose target is the artifact. */
+static bool descriptor_name (const char *path, const struct cosmic_artifact *artifact) {
+  /* A leading "//" is one "/" here, but realpath may keep it. */
+  while (path[0] == '/' && path[1] == '/') path++;
+  const char *number = NULL;
+  bool dev = strncmp(path, "/dev/fd/", 8) == 0;
+  if (dev) {
+    number = path + 8;
+  } else if (strncmp(path, "/proc/", 6) == 0) {
+    const char *slash = strchr(path + 6, '/');
+    if (slash == NULL || strncmp(slash, "/fd/", 4) != 0) return false;
+    number = slash + 4;
+  } else {
+    return false;
+  }
+  if (*number == '\0') return false;
+  long value = 0;
+  for (const char *at = number; *at != '\0'; at++) {
+    if (*at < '0' || *at > '9' || value > INT_MAX / 10) return false;
+    value = value * 10 + (*at - '0');
+  }
+  if (dev && value == artifact->fd) return true;
+  struct stat st;
+  return stat(path, &st) == 0 && (uint64_t)st.st_dev == artifact->device &&
+         (uint64_t)st.st_ino == artifact->inode;
+}
+
+/* Whether `path` reaches a descriptor's own name (`descriptor_name`):
+ * as given, with its directory resolved -- "//dev/fd/<n>", "/./proc/...",
+ * a name relative to /proc/self/fd, a directory that is a link to one --
+ * or through a link at its last part, each followed in turn. */
+static bool reaches_descriptor_name (const char *path,
+                                     const struct cosmic_artifact *artifact) {
+  char at[PATH_MAX], directory[PATH_MAX], real[PATH_MAX], joined[PATH_MAX],
+      target[PATH_MAX];
+  if (snprintf(at, sizeof at, "%s", path) >= (int)sizeof at) return false;
+  for (int hops = 0; hops < 40; hops++) {
+    if (descriptor_name(at, artifact)) return true;
+    const char *slash = strrchr(at, '/');
+    const char *base = slash == NULL ? at : slash + 1;
+    if (slash == NULL) snprintf(directory, sizeof directory, ".");
+    else if (slash == at) snprintf(directory, sizeof directory, "/");
+    else snprintf(directory, sizeof directory, "%.*s", (int)(slash - at), at);
+    if (*base != '\0' && realpath(directory, real) != NULL &&
+        snprintf(joined, sizeof joined, "%s/%s", strcmp(real, "/") == 0 ? "" : real,
+                 base) < (int)sizeof joined &&
+        descriptor_name(joined, artifact))
+      return true;
+    ssize_t length = readlink(at, target, sizeof target - 1);
+    if (length < 0) return false;
+    target[length] = '\0';
+    int made = target[0] == '/'
+                   ? snprintf(joined, sizeof joined, "%s", target)
+                   : snprintf(joined, sizeof joined, "%s/%s", directory, target);
+    if (made < 0 || made >= (int)sizeof joined) return false;
+    memcpy(at, joined, (size_t)made + 1);
+  }
+  return false;
+}
+
 static int artifact_through_descriptor (const char *path, bool follow,
                                         const struct cosmic_artifact *artifact) {
+  if (artifact == NULL) return 0;
+  if (reaches_descriptor_name(path, artifact)) return EACCES;
   struct stat st;
-  if (artifact == NULL || (follow ? stat(path, &st) : lstat(path, &st)) != 0 ||
+  if ((follow ? stat(path, &st) : lstat(path, &st)) != 0 ||
       (uint64_t)st.st_dev != artifact->device || (uint64_t)st.st_ino != artifact->inode)
     return 0;
 #if defined(__linux__) && defined(SYS_openat2)
