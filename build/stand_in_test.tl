@@ -240,3 +240,137 @@ local function test_a_failed_build_says_why(tmp: string)
   assert(trouble:find("building the stand-in failed: ", 1, true), trouble)
   assert(trouble:find("cmd/broken/main.tl", 1, true), trouble)
 end
+
+--- Commands chain as a shell's do: `&&` goes on to the next only past a
+--- command that went on, and `||` only past one that would have ended
+--- the script, saying nothing of the failure it takes up; a chain that
+--- ends the script ends it with its last command's status, saying why.
+local function test_commands_chain_as_a_shell_s_do(tmp: string)
+  local probe = built(tmp)
+  local missing = tmp .. "/missing"
+  local r = run({ probe, table.concat({
+    "print a && print b || print never",
+    "cat " .. missing .. " && print never || print caught",
+    "exit 3 || print past-exit",
+    "print |one&&two || print never",
+    "cat " .. missing .. " || cat " .. missing .. " && print never",
+    "print never",
+  }, "\n") })
+  assert(r.code == 1, tostring(r.code))
+  assert(r.stdout == "a\nb\ncaught\npast-exit\n|one&&two\n", r.stdout)
+  -- Only the failure that ended it is said.
+  local said = assert(r.stderr)
+  local _, count = said:gsub("probe: ", "")
+  assert(count == 1 and said:find(missing, 1, true), said)
+end
+
+--- The verbs that ask of a path: whether it is there, whether it opens
+--- to write -- never making it -- its permission bits, and, walking a
+--- directory, the regular files beneath it that open to write, passing
+--- over a link, whatever it leads to, and a named pipe, which it never
+--- opens.
+local function test_the_verbs_that_ask_of_a_path(tmp: string)
+  local probe = built(tmp)
+  local d = tmp .. "/d"
+  assert(Fs.mkdirs(d .. "/sub/deeper"))
+  assert(Fs.write(d .. "/sub/deeper/f", "x"))
+  assert(sys.mkfifo(d .. "/sub/fifo"))
+  assert(Fs.symlink(d .. "/sub/deeper/f", d .. "/file-link"))
+  assert(Fs.symlink(d .. "/sub", d .. "/dir-link"))
+  assert(sys.chmod(d .. "/sub", 0x1e8)) -- 0o750
+  local r = run({ probe, table.concat({
+    "present " .. d .. "/sub && print there",
+    "present " .. d .. "/missing || print absent",
+    "writable " .. d .. "/sub/deeper/f && print opens",
+    "writable " .. d .. "/sub || print a-directory-does-not",
+    "writable " .. d .. "/missing || print nor-a-missing-file",
+    "mode " .. d .. "/sub",
+    "find-writable " .. d,
+  }, "\n") })
+  assert(r.ok, tostring(r.stderr))
+  assert(r.stdout == "there\nabsent\nopens\na-directory-does-not\nnor-a-missing-file\n750\n" ..
+    d .. "/sub/deeper/f\n", r.stdout)
+  assert(not Fs.exists(d .. "/missing"), "writable made the file")
+  assert(Fs.read(d .. "/sub/deeper/f") == "x", "writable wrote to the file")
+  local absent = run({ probe, "present " .. d .. "/missing" })
+  assert(absent.code == 1 and assert(absent.stderr):find(d .. "/missing", 1, true),
+    tostring(absent.stderr))
+end
+
+--- `start` goes on without waiting, and what it started outlives the
+--- script; `run`, as a shell runs a program, leaves what that program
+--- started running once it ends.
+local function test_what_start_and_run_leave_running_runs_on(tmp: string)
+  local probe = built(tmp)
+  assert(Fs.mkdirs(tmp .. "/bin"))
+  local late = tmp .. "/bin/late"
+  assert(stand_in.place(probe, late, "wait-for $DIR/go-$@\nwrite $DIR/done-$@ done"))
+  for _, how in ipairs({ "start " .. late .. " started", "run " .. probe .. " start " .. late ..
+      " ran" }) do
+    local word = how:match("(%S+)$")
+    -- In no group of its own, which a wait would end with it.
+    local r = assert(Child.run({ probe, how .. "; print gone on" },
+      { env = {}, process_group = false, stdout = "capture", timeout_ms = 30000 }))
+    assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
+    assert(not Fs.exists(tmp .. "/bin/done-" .. word), "it did not wait")
+    assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
+    await(tmp .. "/bin/done-" .. word)
+  end
+end
+
+--- A signal it sends itself that does not end it -- held by `trap -`,
+--- which goes on -- ends it in two seconds all the same, with status 4
+--- and a line saying so, rather than leave it waiting.
+local function test_a_signal_to_itself_that_does_not_land_ends_it_soon(tmp: string)
+  local probe = built(tmp)
+  local started = Time.monotonic_ns()
+  local r = run({ probe, "trap -; signal TERM; print never" })
+  local took = Time.monotonic_ns() - started
+  assert(r.code == 4 and r.stdout == "", tostring(r.code) .. " " .. tostring(r.stdout))
+  assert(assert(r.stderr):find("SIGTERM sent to itself did not end it", 1, true), r.stderr)
+  assert(took >= 2 * 1000 * 1000 * 1000 and took < 20 * 1000 * 1000 * 1000, tostring(took))
+  -- A trap that ends it still does.
+  local trapped = run({ probe, "trap -; trap 6; signal INT" })
+  assert(trapped.code == 6, tostring(trapped.code))
+end
+
+--- `write-fd` writes to a descriptor it was handed, and `env-of` tells a
+--- variable set, set empty and unset apart.
+local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
+  local probe = built(tmp)
+  local fd = assert(sys.open(tmp .. "/handed", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+  local r = run({ probe, "env-of SET; env-of EMPTY; env-of UNSET" }, { SET = "x", EMPTY = "" })
+  assert(r.ok, tostring(r.stderr))
+  assert(r.stdout == "SET=x\nEMPTY=\nUNSET unset\n", r.stdout)
+  -- Handed one at 3, it writes there.
+  local handed = assert(Child.run({ probe, "write-fd 3 to three" },
+    { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ms = 30000 }))
+  assert(handed.ok, tostring(handed.stderr))
+  assert(assert(sys.pread(fd, 64, 0)) == "to three\n")
+  assert(sys.close(fd))
+  local unnamed = run({ probe, "write-fd x y" })
+  assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),
+    tostring(unnamed.stderr))
+end
+
+--- A file whose first line is `#!<stand-in>`, and nothing more, runs its
+--- body, as a shell script does, with its arguments -- started by its
+--- path, or with the stand-in handed its path -- whatever a system does
+--- with words after `#!`, which this line has none of; an empty body is
+--- status 0.
+local function test_a_file_naming_it_on_its_first_line_runs_its_body(tmp: string)
+  local probe = built(tmp)
+  local script = tmp .. "/script"
+  assert(Fs.write(script, "#!" .. probe .. "\nprint body $@\nexit 5\n", 0x1ed))
+  local direct = run({ script, "a", "b" })
+  assert(direct.code == 5 and direct.stdout == "body a b\n", tostring(direct.stdout))
+  local handed = run({ probe, script, "c" })
+  assert(handed.code == 5 and handed.stdout == "body c\n", tostring(handed.stdout))
+  -- A line naming it and nothing after: the line ends in a newline, as
+  -- macOS's exec refuses a `#!` line no newline ends (ENOEXEC), where
+  -- Linux takes the file's end for one.
+  local empty = tmp .. "/empty"
+  assert(Fs.write(empty, "#!" .. probe .. "\n", 0x1ed))
+  local ran = run({ empty })
+  assert(ran.ok and ran.stdout == "", tostring(ran.stdout))
+end
