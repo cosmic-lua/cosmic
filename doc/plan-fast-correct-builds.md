@@ -506,6 +506,77 @@ content digest, so that half of the item is done.
 - The CI driver check runs sandboxed (`ci.yml:642`; pin-gated, with
   4.0).
 
+### 4.5 CI flow
+
+A measurement of 28 runs (2026-09-28, main at 5900ce68) found most of
+CI's cost outside the suite's verdicts. It waits on nothing, so it runs
+alongside stage 3; the items touch `ci.yml` and
+`ci/cosmic_ci/orchestration.tl`, so they land one at a time.
+
+- A landed change costs about 65 runner-minutes. The queue run takes
+  33 to 39 (11 to 13 min wall), and the main push repeats the full
+  scope on the SHA the queue just passed: 26 to 30 more, in 41 of 42
+  pushes. Pending main runs get cancelled, and those commits save no
+  caches.
+- The queue restores main's newest save, usually several commits
+  behind. For the same SHAs, its suites ran 823 to 884 tests against
+  main's 395 to 658, its boot missed the compiles cache every time, and
+  its checked suite took 205 to 250 s against main's 104 to 137.
+- linux-x86_64 is the long pole at 690 s against 470. The whole gap is
+  the checked suite.
+- Fixtures take 135 to 210 s a leg and never stand; self-rebuild alone
+  is 50 to 123 s on every leg.
+- A branch whose base is behind main's newest save reruns everything.
+
+Items, in order:
+
+1. **ci.yml cleanup (S; no time saved).** One expression for "this run
+   saves" and one for the scope, in place of the three copies
+   (`ci.yml:750`, `:763`, `:943`, `:959`, and `:142`, `:987`). History
+   and measurement comments move out, leaving one or two lines a step:
+   under 450 lines, from 1038. `retention-days: 7` on the product and
+   driver uploads.
+   - Shows: `build/workflows_test.tl` passes, and a main run saves as
+     before.
+2. **Main reuses the queue's result (M).** The queue uploads each leg's
+   trimmed verdicts and compiles, with the keys it computed, as
+   `seed-<leg>`. A main push first looks for a successful `merge_group`
+   run of `ci.yml` with the same `head_sha`. Finding one, it skips
+   `platform`: a `seed` job per leg, on that leg's runner, saves the
+   seed under its keys, and `ci` re-uploads the queue's products, so
+   `prerelease.yml` is unchanged. Any other push, dispatch or schedule
+   runs the full scope as today.
+   - Risks: a flake the second run might have caught; the nightly full
+     run stays. A wrong seed costs stands, never correctness: each row
+     is keyed by its own inputs.
+   - Shows: main runs under 2 min with none cancelled; runner-minutes
+     per landed change from about 65 to about 38; the queue's suites
+     stand more (its restores one commit behind).
+3. **The checked suite in its own gating job (M), if still needed.**
+   Re-measure after item 2. If linux-x86_64 still runs more than a
+   minute over the other legs, the checked suite moves to a job of its
+   own (a native-suite skip on the build, then `platform checked`).
+   - Shows: the median queue run at 8 min or less.
+4. **Fixtures compile their project once per leg (S),** through one
+   `COSMIC_BUILD_CACHE` in the work directory (`orchestration.tl:489`).
+   This is 4.1's bullet, done without sandboxing. About 20 s a leg.
+5. **Self-rebuild on two legs in gating runs (S–M):** linux-x86_64 and
+   macOS, every leg in the scheduled run, as the fixed-point
+   regression does (`COSMIC_CI_SELF_REBUILD`). About 3 runner-minutes a
+   full run.
+6. **No tree put-back around the cache saves (S–M).** Keep
+   `$GITHUB_WORKSPACE` a directory and link only the working directory
+   into the moved tree, so `ci.yml:738` and `:773` go.
+7. **A branch restores from its merge base (M).** Main's saves also
+   take a key by SHA, kept a day or two; a branch run looks up
+   `git merge-base HEAD origin/main`'s key first, then the newest.
+   - Shows: a branch five commits behind main stands on verdicts.
+8. **The portable suite narrowed:** re-decided after item 2, with its
+   numbers.
+
+Expected after items 2 to 5: the queue about 8 min wall and 34
+runner-minutes, main about 1.5 min and 4, about 38 per landed change.
+
 ### Milestone M4
 
 - `COSMIC_TEST_KEY`, the observed path and `core/observed.c` are gone,
@@ -559,16 +630,16 @@ Each milestone is decided from 0.3's `report`, as follows.
     `build/sandboxed_verdicts_test.tl:295`.
   - `cosmic/child_test`'s 45 `-e` children run on a Lua-chunk
     stand-in rather than this program, taking them off `tool`.
-- **The checked suite in its own job** (was 2.3): dropped. With the
-  checked suite standing, linux-x86_64 is no longer the long pole
-  (about 5.5 min).
+- **The checked suite in its own job** (was 2.3): dropped, then
+  brought back conditionally as 4.5's item 3. The queue's checked suite
+  does not stand while its restores lag main.
 - **Narrowing the key code's closure** (was 2.2 (a) to (d)):
   superseded by the harness epoch (2.2).
 - **Report a red scheduled run, and pull its verdict:** dropped. The
   `TODO:` on ci.yml's `schedule` stays.
 - **Portable suite narrowed** to the tests that depend on the artifact:
-  deferred. It stands when its key holds (17 s a leg). Revisit if,
-  after 2.2, its key still moves on more than 20% of commits.
+  deferred to 4.5's item 8. Measured, it repeats the native suite's
+  set every run (50 to 108 s a leg).
 - **Fixtures run concurrently** within a leg: deferred until after
   M4. Once the fixtures stand, what remains contends for 4 cores.
 - **To roadmap.md:**
