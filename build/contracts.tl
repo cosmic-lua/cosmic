@@ -242,18 +242,31 @@ local own_exemptions: contracts.Exemptions = {
 --- Each method is named, so one a record gains later is held to rule 1
 --- until it is listed here. Only a call standing alone as a statement
 --- is let through; a result used any other way is held to rule 1 too.
--- TODO: refuse a stale entry here too, as `stale` does the other
--- tables': one whose record no module declares, or whose method the
--- record lacks. quiet_records resolves them against whatever
--- environment compiles the module at hand, which need not have loaded
--- the record's module, so a miss there is no proof; it waits on a check
--- run once the whole tree is compiled.
+--- A stale entry, one whose record no module declares or whose method
+--- the record lacks, is refused by `build.tree_checks` over the whole
+--- tree's projection, not here: `quiet_records` resolves them against
+--- whatever environment compiles the module at hand, which need not
+--- have loaded the record's module, so a miss here is no proof.
 local quieted: {string: contracts.Quiet} = {
   ["cosmic.log Logger"] = {
     reason = "a line written for a person; its failure has nowhere to go",
     methods = { say = true, complain = true, verdict = true },
   },
 }
+
+--- What `quieted` names, each as `<module> <symbol>`, sorted: every
+--- record, and every method as `<record>.<method>`.
+function contracts.quieted_names(): {string}
+  local out: {string} = {}
+  for key, entry in pairs(quieted) do
+    out[#out + 1] = key
+    for method in pairs(entry.methods) do
+      out[#out + 1] = key .. "." .. method
+    end
+  end
+  table.sort(out)
+  return out
+end
 
 --- `quieted`'s methods by the type id of their record, as the
 --- checker in `env` holds it: what `check` takes as `quiet`.

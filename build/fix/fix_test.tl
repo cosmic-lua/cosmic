@@ -208,6 +208,27 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(#named.c_files == 1 and #named.refused == 0, "a header named is checked")
 end
 
+--- The tree-wide checks run only over every Teal source of cosmic's own
+--- tree, however it is named: not over a part of it, nor over a tree
+--- of another's.
+local function test_only_the_whole_own_tree_is_whole(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/cosmic"))
+  assert(Fs.mkdirs(own .. "/vendor/lua"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/cosmic/thing.tl", "return {}\n"))
+  assert(assert(fix.chosen(own, {})).whole, "no path named covers the whole tree")
+  assert(assert(fix.chosen(own, { own })).whole, "the root named covers the whole tree")
+  assert(not assert(fix.chosen(own, { own .. "/build" })).whole, "build/ is a part of it")
+  local other = tmp .. "/other"
+  assert(Fs.mkdirs(other))
+  assert(Fs.write(other .. "/thing.tl", "return {}\n"))
+  assert(not assert(fix.chosen(other, {})).whole, "a tree of another's is never whole")
+  assert(not assert(fix.chosen(other, { other })).whole, "a tree of another's is never whole")
+end
+
 --- Changed output still has to parse and preserve both syntax and comments.
 local function test_changed_rendering_is_checked_before_it_is_accepted()
   local original = render_mod.rendered
