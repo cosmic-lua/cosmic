@@ -763,7 +763,6 @@ end
 local sets_what_it_reads: {string:{string:boolean}} = {
   ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
   ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true },
-  ["build/save_unless_descendant_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_SHA = true },
   -- As the platform job's env sets it.
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true },
 }

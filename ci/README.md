@@ -111,6 +111,18 @@ fixture's run is keyed by nothing and says none. `summarize` appends
 these rows as a second table. The driver's self-check (`cosmic-driver
 test cosmic_ci`) is a step of its own and writes none.
 
+`compiles-trim SINCE` and `verdicts-trim SINCE|whole` are ci.yml's, run
+on every leg before its caches are saved. Each cuts the cache
+`COSMIC_BUILD_CACHE` names, or every `.db` beside the file
+`COSMIC_VERDICT_CACHE` names, to the rows the run used since SINCE, in
+Unix seconds (`whole`, for a run that failed, cuts none), and writes
+`digest=<hex>` to `$GITHUB_OUTPUT`: a SHA-256 of the rows it kept, every
+column but `used_ns`, which each run stamps again
+(`cosmic_ci/cache_trim.tl`). The save's key is the cache's prefix and
+that digest, so a run that kept only rows already saved names that
+entry's key again and saves nothing new. Only a push to main and the
+scheduled run save a cache; every run restores the newest main saved.
+
 `report [--runs N] [--event E] [--branch B] [--repo OWNER/NAME]
 [--workflow FILE]` is for a person, not a workflow: it reads the last N
 (1 to 100, default 10) completed runs of ci.yml of event E (default

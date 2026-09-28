@@ -51,37 +51,63 @@ local function caches(dir: string): {string}
   return out
 end
 
---- `driver.tl verdicts-trim SINCE` in `env`: its exit status, and what
---- it says on standard output and on standard error. It trims every
---- cache in the directory of the file `env.COSMIC_VERDICT_CACHE` names
---- -- the directory ci.yml saves -- to the verdicts used since SINCE, in
---- Unix seconds (`CacheTrim.file`); nothing to do where the variable
---- names no file. Only a SINCE that is no count of seconds fails it
---- (2): a cache it cannot trim is said so, on standard error, and left,
---- or removed where it is no database.
+--- `driver.tl verdicts-trim SINCE|whole` in `env`: its exit status,
+--- and what it says on standard output and on standard error. It trims
+--- every cache in the directory of the file `env.COSMIC_VERDICT_CACHE`
+--- names -- the directory ci.yml saves -- to the verdicts used since
+--- SINCE, in Unix seconds (`CacheTrim.file`), or, given `whole`, trims
+--- none of them, as a run that failed saves what it restored with what
+--- it reached; either way it removes what was set aside beside them.
+--- Then it writes `digest=<hex>` of the caches' rows
+--- (`CacheTrim.digest`) to the step's outputs (`CacheTrim.output`), the
+--- tail of the key ci.yml saves them under. Nothing to do, and no
+--- digest, where the variable names no file or its directory holds no
+--- cache. Only a SINCE that is no count of seconds fails it (2): a
+--- cache it cannot trim is said so, on standard error, and left, or
+--- removed where it is no database.
 function Verdicts.command(argv: {string}, env: {string:string}): integer, string, string
+  local whole = argv[1] == "whole"
   local since = CacheTrim.since(argv)
-  if since == nil then
-    return 2, "", "verdicts-trim: SINCE must be Unix seconds\n"
+  if since == nil and not whole then
+    return 2, "", "verdicts-trim: SINCE must be Unix seconds, or whole\n"
   end
   local path = env.COSMIC_VERDICT_CACHE or ""
   if path:sub(1, 1) ~= "/" then
     return 0, "verdicts-trim: COSMIC_VERDICT_CACHE names no file ('" .. path ..
       "'); nothing to trim\n", ""
   end
-  local found = caches(Fs.dirname(path))
+  local dir = Fs.dirname(path)
+  local found = caches(dir)
   if #found == 0 then
-    return 0, "verdicts-trim: " .. Fs.dirname(path) .. " holds no cache; nothing to trim\n", ""
+    return 0, "verdicts-trim: " .. dir .. " holds no cache; nothing to trim\n", ""
   end
   local outs, errs: {string}, {string} = {}, {}
   for _, cache in ipairs(found) do
-    local out, err = CacheTrim.file("verdicts-trim", cache, since, tables)
-    outs[#outs + 1], errs[#errs + 1] = out, err
+    if whole then
+      local aside = CacheTrim.remove_set_aside(cache)
+      if #aside > 0 then
+        outs[#outs + 1] = "verdicts-trim: removed what was set aside: " ..
+          table.concat(aside, ", ") .. "\n"
+      end
+      outs[#outs + 1] = "verdicts-trim: kept every row of " .. cache .. ", as asked\n"
+    else
+      local out, err = CacheTrim.file("verdicts-trim", cache, since, tables)
+      outs[#outs + 1], errs[#errs + 1] = out, err
+    end
+  end
+  -- Again: a trim removes a cache that is no database.
+  local kept = caches(dir)
+  if #kept > 0 then
+    local digest, trouble = CacheTrim.digest(kept)
+    if trouble ~= "" then errs[#errs + 1] = "verdicts-trim: " .. trouble .. "\n" end
+    outs[#outs + 1] = "verdicts-trim: digest " .. digest .. " of " .. #kept .. " caches\n"
+    local unsaid = CacheTrim.output(env, "digest", digest)
+    if unsaid ~= "" then errs[#errs + 1] = "verdicts-trim: " .. unsaid .. "\n" end
   end
   return 0, table.concat(outs), table.concat(errs)
 end
 
---- `driver.tl verdicts-trim SINCE`, in the driver's environment
+--- `driver.tl verdicts-trim SINCE|whole`, in the driver's environment
 --- (`command`).
 function Verdicts.trim_command(argv: {string}): integer
   local code, out, err = Verdicts.command(argv, Env.all())

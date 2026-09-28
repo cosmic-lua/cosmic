@@ -155,3 +155,83 @@ local function test_a_table_without_its_use_is_kept_whole_and_said_so(tmp: strin
   assert(code == 0 and err == "", err)
   assert(out:find("kept 1 used since 1000, removed 0", 1, true) ~= nil, out)
 end
+
+--- The step output the command wrote to `file`, by name.
+local function outputs(file: string): {string:string}
+  local out: {string:string} = {}
+  for name, value in (Fs.read(file) or ""):gmatch("([%w_]+)=([^\n]*)\n") do out[name] = value end
+  return out
+end
+
+--- The command names what it leaves by a digest of its rows, the tail
+--- of the key ci.yml saves them under: a run that reached the same rows
+--- as the one before, stamping them again, names the same digest, and
+--- so saves nothing new, whatever SQLite made of the file's pages; a
+--- run that reached another row names another.
+local function test_the_command_names_the_rows_it_keeps_by_a_digest(tmp: string)
+  local first, again, other = tmp .. "/a", tmp .. "/b", tmp .. "/c"
+  for _, dir in ipairs({ first, again, other }) do assert(Fs.mkdirs(dir)) end
+  cache(first .. "/verdicts.db", { 100, 1001, 1002 })
+  -- The same rows, used later, in a file that held and lost more.
+  cache(again .. "/verdicts.db", { 100, 1600, 1700, 1800 })
+  local db = assert(Sqlite.open(again .. "/verdicts.db", true))
+  assert(Sqlite.run(db, "DELETE FROM declared_v1 WHERE key = 'k4'"))
+  assert(db:close())
+  cache(other .. "/verdicts.db", { 100, 1001, 1002, 1003 })
+  local digests: {string} = {}
+  for i, dir in ipairs({ first, again, other }) do
+    local file = dir .. "/output"
+    local code, out, _ = Verdicts.command({ i == 1 and "1000" or "1001" },
+      { COSMIC_VERDICT_CACHE = dir .. "/verdicts.db", GITHUB_OUTPUT = file })
+    digests[i] = outputs(file).digest
+    assert(code == 0 and digests[i] ~= nil and #digests[i] == 64, out)
+    assert(out:find("digest " .. digests[i] .. " of 1 caches", 1, true) ~= nil, out)
+  end
+  -- Each keeps k2 and k3, and the table it cannot trim.
+  assert(digests[1] == digests[2], "the same rows named two digests")
+  assert(digests[1] ~= digests[3], "another row named the same digest")
+end
+
+--- Given `whole`, as ci.yml's step is where the run failed, the command
+--- trims nothing -- a run that stopped short saves what it restored
+--- with what it reached -- but still removes what was set aside, and
+--- still names the rows by their digest.
+local function test_whole_trims_nothing_but_names_a_digest(tmp: string)
+  local path = tmp .. "/verdicts.db"
+  cache(path, { 100, 1001 })
+  assert(Fs.write(path .. ".corrupt-123", "broken"))
+  local code, out, err = Verdicts.command({ "whole" },
+    { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
+  assert(code == 0 and err == "", err)
+  assert(out:find("kept every row of " .. path, 1, true) ~= nil, out)
+  assert(Fs.stat(path .. ".corrupt-123") == nil, "what was set aside is still there")
+  assert(#keys(path) == 3, "a row was trimmed")
+  assert(#(outputs(tmp .. "/output").digest or "") == 64, "no digest")
+end
+
+--- Where there is no cache there is nothing to save, and no digest to
+--- name it by.
+local function test_no_cache_names_no_digest(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/empty"))
+  local code, out, _ = Verdicts.command({ "5" },
+    { COSMIC_VERDICT_CACHE = tmp .. "/empty/verdicts.db", GITHUB_OUTPUT = tmp .. "/output" })
+  assert(code == 0 and out:find("nothing to trim", 1, true) ~= nil, out)
+  assert(Fs.stat(tmp .. "/output") == nil, "a digest named nothing")
+end
+
+--- A cache whose rows cannot be read, which `whole` leaves, is named
+--- by its bytes, and said so: it is saved again rather than taken for
+--- a cache of rows saved already.
+local function test_a_cache_it_cannot_read_is_digested_by_its_bytes(tmp: string)
+  local path = tmp .. "/verdicts.db"
+  local digests: {string} = {}
+  for i, bytes in ipairs({ "not a database at all ", "nor is this one at all " }) do
+    assert(Fs.write(path, string.rep(bytes, 512)))
+    local file = tmp .. "/output" .. i
+    local code, _, err = Verdicts.command({ "whole" },
+      { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = file })
+    assert(code == 0 and err:find("digested by its bytes", 1, true) ~= nil, err)
+    digests[i] = outputs(file).digest
+  end
+  assert(digests[1] ~= nil and digests[1] ~= digests[2], "two files named one digest")
+end

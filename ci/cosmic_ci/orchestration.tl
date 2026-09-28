@@ -39,16 +39,16 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 local standing_events: {string:boolean} = { push = true, merge_group = true }
 
 --- Whether a suite stands on the verdicts its tests' declared inputs
---- key (build/declared_key.tl), this leg's earlier runs' among them
---- (COSMIC_VERDICT_CACHE, which ci.yml restores per leg), in `env`: on a
+--- key (build/declared_key.tl), main's earlier runs' of this leg among
+--- them (COSMIC_VERDICT_CACHE, which ci.yml restores per leg), in `env`: on a
 --- leg whose workers are sandboxed, and required to be
 --- (COSMIC_CI_REQUIRE_SANDBOX=1) -- the Linux legs -- or keyed by what
 --- they declare without a sandbox (COSMIC_CI_DECLARED_KEYS=1, which
 --- `environment` makes COSMIC_TEST_KEY=declared) -- the macOS leg --
 --- in a run of an event of `standing_events` (COSMIC_CI_EVENT): a push,
 --- main's as much as another branch's, or the merge queue's; each
---- restores the newest cache of its leg, host and host features
---- (ci.yml's "name the leg's host"). Nothing holds a macOS worker to
+--- restores the newest cache main saved of its leg, host and host
+--- features (ci.yml's "name the leg's host"). Nothing holds a macOS worker to
 --- its declaration, but a Linux leg's sandbox holds the same test,
 --- under the same declaration and closure, which its key holds, so a
 --- declaration that lies fails there before it merges; what reads
