@@ -200,7 +200,8 @@ end
 
 --- Concrete checker families point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
---- the output and every advertised query is present in the binary's docs.
+--- the output beside the hint. That every query advertised is answered by
+--- the tree's docs is held by `cosmic fix --check .` (`build.tree_checks`).
 local function test_language_errors_name_relevant_checked_docs()
   local cases: {string:{string}} = {
     wrong_arguments = {
@@ -229,26 +230,20 @@ local function test_language_errors_name_relevant_checked_docs()
     assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
     assert(trouble:find(case[2], 1, true) ~= nil, trouble)
     assert(trouble:find("cosmic docs " .. case[3], 1, true) ~= nil, trouble)
-    local sources = docs.databases()
-    local found = assert(docs.lookup(assert(docs.view(sources.handles, sources.public)), case[3]))
-    assert(#found > 0, "hint query has no docs: " .. case[3])
   end
 end
 
 --- Syntax rejected while constructing the checker environment still keeps its
 --- original diagnostic. Its corresponding language guide is independently
---- available rather than being promised by a code path compilation never reaches.
-local function test_malformed_type_keeps_error_and_has_searchable_guide()
+--- available rather than being promised by a code path compilation never
+--- reaches, which `cosmic fix --check .` holds (`build.tree_checks`).
+local function test_malformed_type_keeps_its_error()
   local root = assert(write_fixture("language-guide-malformed-type", {
     ["thing.tl"] = "local x: {string = integer} = {}\nreturn x\n",
   }))
   local result, trouble = compile_fixture(root)
   assert(result == nil)
   assert(trouble:find("expected a type list", 1, true) ~= nil, trouble)
-  local sources = docs.databases()
-  local found = assert(docs.lookup(assert(docs.view(sources.handles, sources.public)),
-    "enums_arrays_maps_tuples"))
-  assert(#found > 0, "the type-shape guide must remain searchable")
 end
 
 --- An incidental API name elsewhere on the line cannot make an argument
