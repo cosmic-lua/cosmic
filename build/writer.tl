@@ -17,7 +17,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local importer = require("build.importer")
+local type importer = require("build.importer")
 local bom = require("build.bom")
 local roots = require("build.roots")
 local schema = require("build.schema")
@@ -313,14 +313,16 @@ end
 --- writes (`signature_sql`) and is recorded beside it as `written_by`.
 --- A boot, which carries no database, and a tool fresh against the tree
 --- in `handle` both run the tree's own code, so it is the tree's
---- (`identities.writer`). Any other binary names the `writer` it
---- carries, or, from before binaries carried one, its whole boot hash,
---- so a tool it rebuilt is never taken for one the tree's writer wrote
---- (`build.reboot`).
-local function running(handle: work.Handle,
-                       identities: work.Identities): string | nil, string
+--- (`identities.writer`), as is one its caller has found carries the
+--- tree's code though it is stale by its own (`tree_code`, from
+--- `build.reboot`'s `carries_tree_code`). Any other binary names the
+--- `writer` it carries, or, from before binaries carried one, its whole
+--- boot hash, so a tool it rebuilt is never taken for one the tree's
+--- writer wrote (`build.reboot`).
+local function running(handle: work.Handle, identities: work.Identities,
+                       tree_code: boolean): string | nil, string
   local boot_hash = Store.meta("boot_hash")
-  if boot_hash == nil then
+  if boot_hash == nil or tree_code then
     return identities.writer
   end
   local tree_hash, trouble = work.recorded_boot_hash(handle)
@@ -336,9 +338,10 @@ end
 --- Writes an already-compiled result into a fresh host-independent database
 --- and leaves it at `out`, unless the file there already is that projection.
 --- This ends the run's transaction first: SQLite attaches and vacuums outside
---- one only.
+--- one only. `tree_code` says this process runs the tree's own code
+--- though its fingerprint is not the tree's (`running`).
 function writer.write_result(handle: work.Handle, out: string,
-                             result: importer.Result): boolean, string
+                             result: importer.Result, tree_code?: boolean): boolean, string
   local db = handle.db
   local committed, commit_trouble = work.commit(handle)
   if not committed then
@@ -348,7 +351,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if identities == nil then
     return false, identity_trouble
   end
-  local by, by_trouble = running(handle, identities)
+  local by, by_trouble = running(handle, identities, tree_code == true)
   if by == nil then
     return false, by_trouble
   end

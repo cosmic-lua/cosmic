@@ -648,12 +648,13 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "an edit to a module the compiler requires did not move its identity")
 end
 
---- The writer identity is every module in `build.writer`'s closure,
---- the standard library's included, and nothing else: an edit to one
---- moves it, and an edit to the importer, which the writer does not
---- require here, does not. It is what
---- a projection is signed with (`build.writer`), so a tool whose writer
---- stands writes what the tree's own would.
+--- The writer identity is every module `build.writer` reaches, the
+--- standard library's included, but what a root requires that
+--- `work.writer_modules` leaves out: an edit to a module it requires
+--- moves it, and an edit to build.importer, which build.writer requires
+--- for a type alone, or to a module only the importer requires, does
+--- not. It is what a projection is signed with (`build.writer`), so a
+--- tool whose writer stands writes what the tree's own would.
 local function test_writer_identity_follows_the_writer_closure()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-writer-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -664,14 +665,19 @@ local function test_writer_identity_follows_the_writer_closure()
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/build/schema.tl",
     "local record schema\nend\nreturn schema\n"))
+  assert(Fs.write(root .. "/build/helper.tl",
+    "local record helper\nend\nreturn helper\n"))
   assert(Fs.write(root .. "/cosmic/codec.tl",
     "local record codec\nend\nreturn codec\n"))
   assert(Fs.write(root .. "/build/writer.tl",
     "local schema = require(\"build.schema\")\n" ..
+    "local importer = require(\"build.importer\")\n" ..
     "local codec = require(\"cosmic.codec\")\nlocal record writer\nend\n" ..
-    "writer.schema = schema\nwriter.codec = codec\nreturn writer\n"))
+    "writer.schema = schema\nwriter.importer = importer\nwriter.codec = codec\n" ..
+    "return writer\n"))
   assert(Fs.write(root .. "/build/importer.tl",
-    "local record importer\nend\nreturn importer\n"))
+    "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
+    "importer.helper = helper\nreturn importer\n"))
   local function identity(): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
@@ -683,8 +689,13 @@ local function test_writer_identity_follows_the_writer_closure()
   local fresh = identity()
   assert(identity() == fresh, "a second open of the same tree moved the writer identity")
   assert(Fs.write(root .. "/build/importer.tl",
-    "local record importer\nend\nreturn importer\n-- edited\n"))
-  assert(identity() == fresh, "an edit outside the writer's closure moved its identity")
+    "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
+    "importer.helper = helper\nreturn importer\n-- edited\n"))
+  assert(identity() == fresh, "an edit to build.importer moved the writer identity")
+  assert(Fs.write(root .. "/build/helper.tl",
+    "local record helper\nend\nreturn helper\n-- edited\n"))
+  assert(identity() == fresh,
+    "an edit to a module only build.importer requires moved the writer identity")
   assert(Fs.write(root .. "/build/schema.tl",
     "local record schema\nend\nreturn schema\n-- edited\n"))
   local after_build = identity()
@@ -1331,6 +1342,82 @@ local function test_the_compiler_modules_are_closed_under_require()
       "but is in it")
     assert(used[name], name .. " is left out of the compiler's identity, " ..
       "but build.importer no longer requires it")
+  end
+end
+
+--- The writer's identity holds what decides a projection's bytes beside
+--- the rows it is filled from (`build.work`'s `writer_identity`): all
+--- that build.writer and build.work reach, but the few requires of
+--- theirs `work.writer_left_out` names with a reason. Each named is
+--- still one of theirs, and in no other way in the identity. What that
+--- leaves out of build.writer's whole import closure is the compiler's
+--- -- whose identity a projection's signature holds -- or named below,
+--- a module of the standard library's as much as the build's, with the
+--- reason no projection turns on it, so a new require of the importer's
+--- that fills a row the writer projects, or runs on a module of the
+--- standard library the writer does not, fails here until it is one or
+--- the other.
+local function test_the_writer_modules_are_closed_under_require()
+  local modules = assert(work.writer_modules(Store.requires))
+  local covered: {string:boolean} = {}
+  for _, name in ipairs(modules) do covered[name] = true end
+  for _, name in ipairs({ "build.writer", "build.work", "build.schema", "build.bom",
+                          "build.roots", "build.tree", "build.bind", "build.symbols",
+                          "cosmic.sqlite", "cosmic.codec", "cosmic.store" }) do
+    assert(covered[name], name .. " is not in the writer's identity: " ..
+      table.concat(modules, ", "))
+  end
+  local roots_require: {string:boolean} = {}
+  for _, root in ipairs({ "build.writer", "build.work" }) do
+    for _, name in ipairs((assert(Store.requires(root)))) do roots_require[name] = true end
+  end
+  for name, why in pairs(work.writer_left_out()) do
+    assert(why ~= "", name .. " is left out of the writer's identity with no reason")
+    assert(roots_require[name], name .. " is left out of the writer's identity, " ..
+      "but neither build.writer nor build.work requires it")
+    assert(not covered[name], name .. " is left out of the writer's identity, but is in it")
+  end
+  local compiler: {string:boolean} = {}
+  for _, name in ipairs((assert(work.compiler_modules(Store.requires)))) do compiler[name] = true end
+  --- What build.writer's closure reaches that neither identity holds,
+  --- and why no projection's bytes turn on it.
+  local neither: {string:string} = {
+    ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
+    ["cosmic.test"] = "build.analyzer reads a test's `Test.needs` by its fields " ..
+      "in a parse, which reaches a projection only as the rows the parse stores",
+    ["cosmic.errors"] = "reached only through cosmic.test, which builds its " ..
+      "failures with it; no projection holds one",
+  }
+  local reached: {string:boolean} = {}
+  local stack: {string} = { "build.writer" }
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not reached[name] then
+      reached[name] = true
+      for _, required in ipairs((assert(Store.requires(name)))) do
+        stack[#stack + 1] = required
+      end
+    end
+  end
+  local unclassified: {string} = {}
+  local used: {string:boolean} = {}
+  for name in pairs(reached) do
+    if neither[name] ~= nil then
+      used[name] = true
+      assert(not covered[name] and not compiler[name],
+        name .. " is named as in neither identity, but is in one")
+    elseif not covered[name] and not compiler[name] then
+      unclassified[#unclassified + 1] = name
+    end
+  end
+  table.sort(unclassified)
+  assert(#unclassified == 0, "build.writer reaches, in neither the writer's identity " ..
+    "(build.work's writer_roots) nor the compiler's, with no reason: " ..
+    table.concat(unclassified, ", "))
+  for name in pairs(neither) do
+    assert(used[name], name .. " is named as in neither identity, " ..
+      "but build.writer no longer reaches it")
   end
 end
 

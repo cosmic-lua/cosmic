@@ -43,6 +43,13 @@ allowed["build.declared_key.compiler_readers"] = "what build/compiler_readers_te
 allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
   "in the compiler's identity or left out of it with a reason"
+allowed["build.work.writer_modules"] = "what build/importer_test.tl holds the tree to, " ..
+  "walked over the running binary's modules: what build.writer reaches is in the " ..
+  "writer's identity, the compiler's, or neither with a reason"
+allowed["build.work.writer_left_out"] = "what build/importer_test.tl holds to the " ..
+  "requires of the writer's roots"
+allowed["build.reboot.carries_tree_code"] = "what build/reboot_test.tl holds to " ..
+  "the modules a tree holds and the binary carries"
 allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl " ..
   "holds to distinct specs spelling apart, before a key hashes it"
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
@@ -85,6 +92,9 @@ allowed["build.importer.analyzer_identity"] = "tested directly: the test names "
 allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
   "boot names its analyzer by to what the tool it writes names it by, around a " ..
   "derive run as a boot runs it, which no binary under the suite otherwise does"
+allowed["build.harness_epoch.acknowledged"] = "the digest of the harness a " ..
+  "person last acknowledged, which only its test reads: a record of a choice, " ..
+  "which the key leaves to `epoch`"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
   "than probe it per row, and no behaviour tells the two apart"

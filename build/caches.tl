@@ -9,7 +9,7 @@
 ---
 --- - `zig`: the pinned zig `bin/zig` runs and the caches it builds in --
 ---   its installs (`Fs.cache_path("zig")`, build/zig.tl's `locate`), its
----   global cache and the project cache (`Zig.cache_paths`, where
+---   global cache and the project cache (`build.zig_caches`, where
 ---   `Zig.global_cache` and `Zig.project_cache` put them), overrides
 ---   (COSMIC_ZIG_GLOBAL_CACHE, COSMIC_ZIG_CACHE, and ZIG_GLOBAL_CACHE_DIR
 ---   and ZIG_LOCAL_CACHE_DIR for a command other than `build`) included.
@@ -18,24 +18,12 @@
 ---   extracts (build/launcher.tl), COSMIC_PORTABLE_CACHE included.
 
 local Fs = require("cosmic.fs")
+local zig_caches = require("build.zig_caches")
 
 --- The names a declaration may give are `build.cache_names`', which the
---- analyzer checks a declaration against.
+--- analyzer checks a declaration against, and so are the variables that
+--- locate each (`cache_names.variables`).
 local record caches
-end
-
---- The variables that say where each cache is, which a process that
---- writes one reads to find it: a sandboxed worker is given them.
-local locating: {string:{string}} = {
-  zig = { "HOME", "XDG_CACHE_HOME", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE",
-    "ZIG_GLOBAL_CACHE_DIR", "ZIG_LOCAL_CACHE_DIR" },
-  bootstrap = { "HOME", "XDG_CACHE_HOME", "COSMIC_PORTABLE_CACHE" },
-}
-
---- The variables `name` is located by (`locating`), none for a name
---- that is no cache.
-function caches.variables(name: string): {string}
-  return locating[name] or {}
 end
 
 --- Where the cache `name` is for a tree at `root`, with `environment`
@@ -57,12 +45,9 @@ local function paths(name: string, root: string, environment: {string:string}): 
     out[#out + 1] = path
   end
   if name == "zig" then
-    -- Required here, not above: only the zig cache's paths need
-    -- build/zig.tl, and what it reaches of the standard library.
-    local Zig = require("build.zig")
     local installs, _ = Fs.cache_path("zig", environment)
     add(installs)
-    for _, path in ipairs(Zig.cache_paths(root, environment)) do add(path) end
+    for _, path in ipairs(zig_caches.paths(root, environment)) do add(path) end
     -- Where a zig command other than `build` keeps them, when the
     -- caller names its own (`Zig.passthrough_environment`).
     add(environment.ZIG_GLOBAL_CACHE_DIR)

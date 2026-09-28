@@ -32,8 +32,8 @@ end
 -- byte for byte -- prefix, database and all. The second rebuild is done
 -- by a tool the first built, so this holds only when a tool built by a
 -- rebuild compiles and writes what a boot does. `settles` is whether
--- `file` is in `build.writer`'s import closure or the compiler's
--- identity (`build.work`'s `compiler_modules`), so that each rebuilt
+-- `file` is in the writer's identity (`build.work`'s `writer_modules`)
+-- or the compiler's (`compiler_modules`), so that each rebuilt
 -- tool finds its database built by other code than its own and builds
 -- it again once (`build.reboot`); outside both, neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
@@ -88,25 +88,24 @@ local function commented(source: string): string
   return source .. "-- a fixed-point fixture\n"
 end
 
--- `cosmic.rand` is in neither closure: the stale tool's compiler and
--- writer are the tree's, and each rebuild is final.
+-- `build.positions` is in neither identity, though build.writer
+-- reaches it (through build.importer, which the writer's identity
+-- leaves out): the stale tool's compiler and writer are the tree's, and
+-- each rebuild is final.
 local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "outside", "cosmic/rand.tl", commented, false)
+  run_fixed_point_case(tmp, "outside", "build/positions.tl", commented, false)
 end
 
--- `build.clock` is in the writer's closure and not the compiler's.
+-- `build.clock` is in the writer's identity and not the compiler's.
 local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true)
 end
 
--- `build.tree` is in the compiler's identity (`build.work`'s
--- `compiler_roots`): each rebuilt tool compiles the whole tree again
--- with its own compiler. It is in the writer's closure too, so this
--- case cannot tell a settle over the compiler from one over the writer
--- apart; nor can any other: no module of the compiler's identity is
--- outside the writer's closure.
+-- `build.contracts` is in the compiler's identity (`build.work`'s
+-- `compiler_roots`) and not the writer's: each rebuilt tool compiles
+-- the whole tree again with its own compiler.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/tree.tl", commented, true)
+  run_fixed_point_case(tmp, "compiler", "build/contracts.tl", commented, true)
 end
 
 -- An edit to how the compiler's identity is defined (`build.work`'s
@@ -132,5 +131,26 @@ end
 local function test_a_rebuilt_fingerprint_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "fingerprint", "build/work.tl", function(source: string): string
     return (source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1))
+  end, true)
+end
+
+-- One commit that moves both what the fingerprint covers and how the
+-- compiler's identity is defined: the tool the stale tool writes is
+-- stale by its own code and carries the identity the older definition
+-- takes. Settling on the "teal" path, it carries the tree's code
+-- (`build.reboot`'s `carries_tree_code`), so it keys its compiles, and
+-- signs what it writes, by the identities its own code takes, and the
+-- tool it writes is settled: each stage rebuilds once and settles once,
+-- where keyed by the carried names it would be unsettled still, and
+-- refuse (exit 3).
+local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "fingerprint-identity", "build/work.tl", function(source: string): string
+    local covered, files = source:gsub('(%["build%.zig%.zon"%] = true,\n)',
+      '%1  ["README.md"] = true,\n', 1)
+    assert(files == 1, "fingerprint-identity: tool_files' build.zig.zon line was not found")
+    local redefined, roots = covered:gsub('"build%.teal", "build%.tree",\n',
+      '"build.teal", "build.tree", "build.clock",\n', 1)
+    assert(roots == 1, "fingerprint-identity: compiler_roots' last line was not found")
+    return redefined
   end, true)
 end

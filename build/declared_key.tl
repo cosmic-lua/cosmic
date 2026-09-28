@@ -23,15 +23,15 @@
 ---
 --- - the test: its module's path and its name (`id`);
 --- - `version`, which names how the rest are computed;
---- - the test harness every worker runs, as the running binary carries
----   it (`harness`): each module a worker loads besides its test's
----   closure (`build.test_worker`'s `worker.loads`), the plan of its
----   sandbox's maker (`build.test`'s `harness_own`), and the code that
----   makes a key and looks a verdict up under one (`build.test`'s
+--- - the test harness's epoch (build/harness_epoch.tl), in place of
+---   the harness's own code: each module a worker loads besides its
+---   test's closure (`build.test_worker`'s `worker.loads`), the plan of
+---   its sandbox's maker (`build.test`'s `harness_own`), and the code
+---   that makes a key and looks a verdict up under one (`build.test`'s
 ---   `key_code`: build.test, and this module's closure and
----   build.shared_verdicts'), each by its source and its bytecode --
----   COSMIC_TEST_HARNESS_SALT, for a test alone, stands in for a change
----   to it;
+---   build.shared_verdicts'), none of which a key holds by what it is
+---   -- COSMIC_TEST_HARNESS_EPOCH, for a test alone, stands in for a
+---   bump -- and the timeout its worker runs under (`timeout_ms`);
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
 ---   digest of the binary's data tables and the `sandboxed` mark
@@ -78,39 +78,44 @@
 --- compiler's making is the bytecode of its closure's modules, which
 --- its store holds by address (`build.closure_store`'s `address`,
 --- over each module's bytecode and the rows a store carries of it) or
---- the projection by its contents, and the harness's -- cosmic's own
---- main, which every worker runs first, among it -- which `harness`
---- holds by bytecode; the compiler Teal itself compiles to
---- (`vendor.tl`) is carried beside build.teal, the one module that
+--- the projection by its contents; the compiler Teal itself compiles
+--- to (`vendor.tl`) is carried beside build.teal, the one module that
 --- loads it, by its bytecode too. Whether a module compiles at all is
 --- no verdict of a test: a build that refuses one runs none. So what a
---- worker runs of the tree is keyed exactly when it is of its closure
---- or of the harness, and `build.test_worker`'s `judge` fails a test
---- whose worker loaded a module the tool carries that is of neither --
---- a top-level require added to build.test_worker, a lazy one a worker
---- reaches -- naming it. The harness is what a worker loads, not
---- every module its modules require: a `local type` require is erased
---- by Teal and loads nothing, and what an imported type does at run
---- time (an `is` against a record's `where`, an enum's membership) is
---- compiled into the importer's bytecode, which `harness` holds.
+--- worker runs of the tree is keyed exactly when it is of its closure,
+--- and else stands under the epoch as the rest of the harness does;
+--- `build.test_worker`'s `judge` fails a test whose worker loaded a
+--- module the tool carries that is of neither its closure nor the
+--- harness -- a top-level require added to build.test_worker, a lazy
+--- one a worker reaches -- naming it, so the harness's digest
+--- (`build.test`'s `harness`) is over all a worker runs. The harness
+--- is what a worker loads, not every module its modules require: a
+--- `local type` require is erased by Teal and loads nothing, and what
+--- an imported type does at run time (an `is` against a record's
+--- `where`, an enum's membership) is compiled into the importer's
+--- bytecode.
 ---
---- The code that computes a key is held too, by its source and
---- bytecode as the rest of the harness is: a version of it that maps a
+--- The harness -- what a worker loads, the sandbox's maker, and the
+--- code that computes a key -- is held by the epoch rather than by its
+--- source, so an edit to it, a comment's or a doc's, runs no test
+--- again that does not import it. The epoch is bumped by hand for one
+--- that can alter a pass or a fail: a version of this code that maps a
 --- test's inputs to the key another version computes for other inputs
---- -- a digest that misses a rewrite of the same size and times -- keeps
---- its verdict under that key, in o/build.db and in the verdicts every
---- checkout shares, where it would stand after the fix. So each version
---- of build.test, of this module and what it requires, and of
---- build.shared_verdicts keys apart, and any edit to one of them, a
---- comment's or a doc's too, runs every sandboxed test again: holding
---- it by what Lua runs of it instead would take a walk of Lua's dump
---- format by hand, more code to trust where a mistake leaves wrong
---- verdicts standing. That holds what build.test decides of a
---- worker's holds as well -- the names of the tree's modules and
---- declarations a `require` or a lookup in the store refuses -- which
---- it hands a worker and no other part of a key names. It would be
---- unsound to read the compiler's identity by any means but
---- `Store.meta`'s `compiler` and `compiled_by`, held as above.
+--- -- a digest that misses a rewrite of the same size and times --
+--- keeps its verdict under that key, in o/build.db and in the verdicts
+--- every checkout shares, where it would stand after the fix unless
+--- the epoch moves with it; so, too, does a pass a test earned through
+--- a hole in its sandbox, where a fix that tightens a hold or a bind
+--- moves no other part of its key. build/harness_epoch_test.tl holds the
+--- harness's digest, over each of its modules' source and bytecode, to the one
+--- build/harness_epoch.tl acknowledges, so no edit to it lands without
+--- that choice made, and CI's merge queue runs every test for a change
+--- that makes it. That holds what build.test decides of a worker's
+--- holds as well -- the names of the tree's modules and declarations a
+--- `require` or a lookup in the store refuses -- which it hands a
+--- worker and no other part of a key names. It would be unsound to
+--- read the compiler's identity by any means but `Store.meta`'s
+--- `compiler` and `compiled_by`.
 ---
 --- The host caches it declares are not: they are content-addressed,
 --- and never change a result (`build.caches`). Nor are the variables
@@ -184,9 +189,12 @@ local record declared_key
     --- its `compiler` and `compiled_by` -- where the module's closure
     --- reads it (`reads_compiler`), and "" elsewhere.
     compiler: string
-    --- The test harness a worker runs, as the running binary carries it
-    --- (`harness`): every worker runs it, the tree's or not.
-    harness: string
+    --- The harness's epoch (build/harness_epoch.tl), which stands for
+    --- the code every worker runs, the tree's or not, and for the code
+    --- that computes this key.
+    epoch: integer
+    --- The timeout its worker runs under, in milliseconds.
+    timeout_ms: integer
     --- The program a test that runs this program runs
     --- (`program_identity`): o/bin/cosmic, or o/sanitized's, or a
     --- portable cosmic, whichever is running.
@@ -287,10 +295,11 @@ end
 --- holds by its code -- the build's, which computes a module's graph
 --- key (`build.importer`) -- which would otherwise leave standing a
 --- verdict kept under a key computed wrong. A change to this code moves
---- every key by itself: it is held by its source and bytecode (above).
+--- no key by itself: one that can alter a verdict bumps the harness's
+--- epoch (build/harness_epoch.tl), which every key holds (above).
 --- build/declared_key_pins_test.tl pins that graph key over a fixed
 --- tree, and fails, naming this, when an edit moves it.
-local version <const> = "declared-3"
+local version <const> = "declared-4"
 
 --- A file modified this recently may be modified again within the same
 --- timestamp tick, which `lstat` would not tell: hashed again rather
@@ -781,7 +790,8 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("m", spec.module_key, ""),
     part("runtime", spec.runtime, ""),
     part("compiler", spec.compiler, ""),
-    part("harness", spec.harness or "", ""),
+    part("epoch", tostring(spec.epoch), ""),
+    part("timeout", tostring(spec.timeout_ms), ""),
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),
   }
@@ -1190,14 +1200,12 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
   return Hash.hex_sha256(table.concat(parts)):sub(1, 16)
 end
 
---- The test harness every worker runs, as a digest: each module of
---- `names` by name and what it is, from `sources` (what each module
---- is, by name: `build.test` gives its source's hash and its
---- bytecode's, so what the compiler made of it moves it as its source
---- does), as the running binary's own database holds them. Nothing
---- they require is walked: `names` is what a worker runs, which
---- `build.test_worker`'s `judge` holds it to. A module no source
---- names is left out.
+--- A digest of the modules `names` names, each by its name and what
+--- `sources` says it is (`build.test`'s `harness`: its source's hash
+--- for the harness's digest, and its bytecode's hash beside it for the
+--- closure store's salt), sorted, so their order is no part of it.
+--- Nothing they require is walked. A module no source names is left
+--- out.
 function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: {string:boolean} = {}
   local lines: {string} = {}

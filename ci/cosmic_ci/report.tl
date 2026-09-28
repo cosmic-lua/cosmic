@@ -12,7 +12,9 @@
 -- - each suite's row: ran, stood, the share that stood, elapsed;
 -- - whether it qualifies: its checked and native suites' runtime and
 --   harness key parts are those of the run listed before it (the next
---   older), so it moved neither the core nor the test harness.
+--   older), so it moved neither the core nor what every key holds of the
+--   harness: its epoch and the workers' timeout, which `cosmic test`
+--   says as `harness e<epoch>t<timeout ms>` (build/test.tl).
 --
 -- then the medians over the qualifying runs that succeeded. A run
 -- older than `suite_runs`, or whose artifacts have expired, is reported
@@ -249,7 +251,8 @@ end
 
 --- Sets `qualifies` and `why` of each of the first `shown` of `runs`,
 --- newest first: a run qualifies when each of its checked and native
---- suites keyed its tests by the runtime and harness the same leg's
+--- suites keyed its tests by the runtime and harness part (the
+--- harness's epoch and the workers' timeout) the same leg's
 --- same suite did in the next older run of `runs` that has such rows
 --- and was not cancelled: one that stopped short, or kept no artifact,
 --- tells nothing of what the cache held. Runs past `shown` are only
@@ -295,7 +298,7 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
       end
       if #moved == 0 then
         run.qualifies = true
-        run.why = "runtime and harness held since run " .. earlier.id
+        run.why = "runtime and harness epoch and timeout held since run " .. earlier.id
       else
         run.why = table.concat(moved, "; ")
       end
