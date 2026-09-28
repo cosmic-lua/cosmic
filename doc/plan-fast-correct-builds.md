@@ -66,313 +66,113 @@ A comment appended to one file reruns:
 - `build/test.tl`, `build/zig.tl` and `cosmic/http.tl`: every test. No
   worker runs these; the key holds them anyway (item 2.2).
 
-## Stage 0: the key's guards and the numbers (days)
+## Stages 0 and 1: done (2026-09-28)
 
-These items are cheap and mostly independent. Every later stage
-leans on them.
+Every item merged; see "Landed" for the PRs.
 
-### 0.1 Guard what shapes a key
+- 0.1 key guards (#2287)
+- 0.2 one rebuild at a time (#2288)
+- 0.3 suite rows and `report` (#2289)
+- 0.4 the artifact descriptor refused (#2290)
+- 1.1 checked suite stands (#2286, #2292)
+- 1.2 `Store.meta` held (#2293)
+- 1.3 plain caches (#2291)
 
-`build.declared_key` and `build.shared_verdicts` are held by their
-source, so an edit to them moves every key. The hand-bumped
-`version = "declared-3"` covers what no key holds by its code:
-`build.importer`'s graph key, and the closure store's address. Two
-failures are not caught today:
+What the runs since show:
 
-- A new field of a spec that the key leaves out.
-- An encoding that maps two specs to one preimage.
+- On a commit that moves neither the core nor the harness, the
+  checked suite stood on 1,975 of 1,994 tests. `assemble` fell from
+  5.5 min to 60 s, and linux-x86_64 from 13.5 min to 5.5.
+- #2291's merge-queue run took 6.3 min and its main push 6.5, against
+  11 to 16 min before.
+- A commit that moves the core or the harness still reruns every test
+  once: 15 to 16 min in the queue.
 
-2.2 moves more key-shaping code out of the source-held set, which makes
-this guard a prerequisite for it.
+### Milestone M1 (to measure)
 
-- Change, `declared_key_test.tl`:
-  - Build a fully populated spec, then change every field in turn,
-    enumerated from the record's catalog entry. The key must move
-    each time, so a field added and left out of the key fails.
-  - Add a fuzz property: distinct specs give distinct preimages
-    (compare the strings, not the hashes).
-- Change, fixed tree: pin the graph key and the closure-store address
-  over a fixed tree, with a failure message that says to bump
-  `version`.
-- `version` stays.
-- Waits on: nothing.
-- Shows:
-  - A trial edit that leaves one field out of the key fails the test.
-  - A trial edit to the graph key's encoding fails the pin.
+M1 is decided with `driver.tl report` over ten qualifying gating
+runs, which this container cannot run (no `gh`). Its targets:
 
-### 0.2 Two `cosmic test` runs in one checkout
-
-A review run saw two concurrent `cosmic test` invocations in one
-checkout end in `the tool's database was built by other code than its
-own` and then `disk I/O error`. One run was rebuilding the tool while
-the other read `o/build.db`. An editor, a watcher and a terminal can
-all hit this.
-
-- Change: add a note to AGENTS.md now, to run one at a time.
-- Change: a test that starts two runs against a stale tool. Each must
-  pass, wait, or refuse with a message naming the other run. Then fix
-  it, likely with a lock around the self-rebuild.
-- Waits on: nothing.
-- Shows: the test.
-
-### 0.3 Emit the numbers every milestone reads
-
-`driver.tl summarize` records each operation's phase and time. It
-records no suite tallies and no digests, so today a milestone rests on
-scraping logs.
-
-- Change: every suite, fixtures included, writes one row to the
-  operations database and the step summary: `suite`, `ran`, `stood`,
-  `elapsed_ms`, the core digest, the harness digest, and whether each
-  matched the restored cache's. The operations database is already
-  uploaded as `ci-driver-<leg>`.
-- Change: a `cosmic_ci` verb, `report --runs N`, fetches those
-  artifacts and each job's step times (`gh api
-  repos/cosmic-lua/cosmic/actions/runs/<id>/jobs`). It prints each
-  milestone's figures, and whether each run qualifies.
-- Change: record a step-time baseline for light (branch) runs, on all
-  four legs.
-- Waits on: nothing.
-- Shows: `report --runs 10` prints this file's "Where it stands" CI
-  numbers.
-
-### 0.4 Refuse the retained artifact descriptor
-
-A portable start keeps a descriptor on the artifact
-(`COSMIC_PORTABLE_ARTIFACT_FD`). Through it, a test can read every
-module the program carries, past the worker's hold on the store and
-past every key (the `TODO:` in `core/syscalls_fs.c`). Stages 1 and 2
-lean on keys this hole defeats, and batch 2 of the tool/store floor
-(2.4) moves hundreds of tests onto that path. `cosmic_store_artifact`
-already exists (`core/store.h`), so the fix is not blocked.
-
-- Change: one choke point, `cosmic_checkfd`, refuses that descriptor.
-  A rule in `build/c/rules.tl` requires every binding that takes a
-  descriptor to call it. That covers `read`, `pread`, `lseek`, `fstat`,
-  `dup`, `dup2`, `fcntl`, `fchdir`, `openat`'s dirfd, `fd_flags`, and
-  `spawn`'s descriptor map and standard streams (including inheritance
-  by default). It also covers an open of `/proc/self/fd/<it>` or
-  `/dev/fd/<it>`.
-- Check the program's own path and `/proc/self/exe`. A worker that is
-  not `tool` must not reach the embedded database through them either.
-- Waits on: nothing.
-- Shows: a test for each binding, generated from `core/syscalls.h`,
-  tries the descriptor and is refused, on the checked core too.
-
-### Milestone M0
-
-- `declared_key_test` fails on an omitted field.
-- The concurrent-run case is a test.
-- `report` prints the baseline.
-- The artifact descriptor is refused.
-
-## Stage 1: the gating run's critical path (about a week)
-
-### 1.1 Checked suite stands (branch `checked-core-stable`)
-
-The checked suite stands on nothing, because the checked core's bytes
-name the run. Each object's `DW_AT_comp_dir` is the tree root of
-whichever build first compiled it, since zig's object cache keeps old
-paths. The generated `coverage_map.c` is named by its zig-cache output
-directory, which is new on every relink.
-
-- Change, `build.zig`: add `-fdebug-compilation-dir=.` to every C flag
-  set (own C, the coverage map, each vendored library), and `-g0` to
-  the generated map.
-- Change, musl: zig 0.16 builds its bundled musl itself, and
-  `build.zig` has no hook for its flags. CI compiles it after the tree
-  moves to a per-commit path, so its comp_dir is whichever run saved
-  the restored zig entry, which moves at least daily. In order of
-  preference:
-  - (a) Key the checked runtime by the core with its debug sections
-    left out: the hash of a `--strip-debug` copy. This is one key
-    change.
-  - (b) Rewrite the comp_dir strings after linking.
-  - (c) Accept a daily cold run, with a `TODO:` that says so.
-- Change, `ci/cosmic_ci/orchestration.tl`:
-  - Assert that the digest the key uses names no run: search for the
-    bare root path, leaving out the project cache's prefix under
-    `ci/run-local`.
-  - The suite writes `checked.db` beside the leg's `verdicts.db`.
-  - The suite runs `cosmic test --census`.
-- Waits on: 0.3, to show it.
-- Shows: the next gating run after a main push, on a commit whose core
-  and harness digests match the restored ones, has a `checked` row
-  standing on at least 90% of its tests. The suite's share of
-  `assemble` falls from about 5 min to under 40 s. The rest of
-  `assemble`, building and linking the checked core, is measured, not
-  targeted.
-
-### 1.2 Store.meta held
-
-A worker's `Store.meta` reads are not held (`build/test_worker.tl`'s
-`TODO:`). Outside the `compiler_readers` allowlist, a meta key that a
-module reads is neither refused nor keyed. This is here, before stage
-2, because 2.2 ends the frequent full reruns that hide such a gap
-today, and 2.4 moves tests off `store` onto `hold_store`.
-
-- Change: `hold_store` holds `Store.meta` to the keys a test's closure
-  may read, and the key holds each meta row it allows.
-- Waits on: nothing.
-- Shows: a test module that reads an unlisted meta key fails, and
-  names the declaration that would allow it.
-
-### 1.3 Plain caches: save from main, key by content
-
-Today each leg saves its caches from every push and every run, under a
-key unique to the run (`…-${{ github.run_id }}-${{ github.run_attempt
-}}`). Three consequences follow:
-
-- Every run writes a new snapshot. The per-run trims and the pressure
-  on the 10 GB limit come from that.
-- Main runs finish out of order, so an older commit can save last and
-  become the newest entry. `save-unless-descendant.sh` and its
-  lookup-only restores exist to prevent that.
-- The long key expressions are spelled out twice, once on the restore
-  and once on the save.
-
-The patterns in actions/cache's `caching-strategies.md` need none of
-this:
-
-- key an entry by the content that decides it
-- save from one place
-- restore everywhere else
-- reuse the restore step's key on the save
-
-This item adopts them for the verdict and compiles caches, and adds no
-new transport.
-
-- Change, restore: every leg and every event restores each cache by its
-  prefix (per leg, container and host features, as now), taking the
-  newest entry.
-- Change, save: only a push to main and the scheduled run save, for
-  every cache: verdicts, compiles, the zig build cache and the
-  driver-check marker. Branch and merge-queue runs restore only.
-  - The merge queue's saves are unreadable from main anyway.
-  - The ref-dependent save conditions go.
-  - A PR's later pushes stand on main's entries, not on its own earlier
-    push. They rerun what the PR changed, and a PR that moves a vendor
-    part or `ci/` rebuilds the zig outputs or reruns the driver check
-    on each push until it lands.
-- Change, save key: the prefix plus a digest of the trimmed content,
-  computed by a driver verb over the rows, since SQLite's file bytes
-  vary. A run that stood on everything saves nothing new, because its
-  key already exists.
-  - Which entry a restore picks decides only how many tests stand,
-    never whether a verdict is right: every row is keyed by its own
-    inputs.
-- Change, ordering: main gets one concurrency group with
-  `cancel-in-progress: false`. GitHub runs main pushes one at a time
-  and keeps only the newest one pending, so saves land in commit order.
-  - `save-unless-descendant.sh`, the lookup-only restores and their
-    `if:` chains are deleted.
-  - An intermediate commit may get no main run, and so no prerelease.
-    `prerelease.tl` already accepts a commit without one, and a pin
-    moves to a later one.
-- Change, save steps: use the restore step's `cache-primary-key`
-  output instead of repeating the key.
-- Main's push still runs its gating scope, and stands on main's own
-  entries. After 1.1 and stage 2, that means it runs only what the
-  change implicated. It stays a second execution of the changed tests
-  on another runner, and still builds the products `prerelease.yml`
-  publishes.
-- The zig build cache keeps its own keys (vendor part, nightly), and
-  its fallback restore of another vendor part's outputs, which a branch
-  that moves a vendor part now leans on for every push. The
-  driver-check marker is already keyed by content; drop the event from
-  its key.
-- Waits on: nothing. The nightly `--all` run is now the only run of a
-  test that main stood on.
-- Shows:
-  - ci.yml loses `save-unless-descendant.sh` and at least 8 steps per
-    Linux leg (47 today).
-  - A docs-only main push saves no new entry.
-  - The repository's cache usage (`gh api
-    repos/cosmic-lua/cosmic/actions/cache/usage`) stays well under 10
-    GB.
-  - The next gating run after a main push stands as often as before.
-
-### Milestone M1
-
-- The median gating run is under 9 min, over the ten gating runs whose
-  core and harness digests match the restored ones (see Milestones).
-- On those runs, the checked suite stands on at least 90% of its tests.
-- A main push that moves neither the core nor the harness takes under
-  6 min, on the same median.
-- Runner-minutes per landed change (queue run plus main push) fall from
-  about 70 to under 45.
+- the median gating run under 9 min;
+- the checked suite standing on at least 90%;
+- a main push that moves neither the core nor the harness under 6 min;
+- runner-minutes per landed change under 45.
 
 ## Stage 2: an edit reruns what it implicates (two weeks)
 
-### 2.1 Observation removal, PR 1 (#2285)
+2.1, #2285, has landed.
 
-The sandbox and process helpers leave the observation log's module:
+### 2.2 Key tests by a harness epoch
 
-- `build.confine` takes the spawn stand-in as `enter`, plus
-  `confine`/`must_confine`, `forbid_running`, `worker_unveil`,
-  `itself`, `held_to_sandbox` and a Teal `resolution`.
-- `build.this_program` takes `program` and `environment`.
-- `key_part` and `tree_name` move into `build.declared_key`.
+Every sandboxed key holds three things beyond the test's own inputs:
 
-Behavior is identical. It comes first because it moves
-`declared_key`'s own requires, which 2.2 then cuts.
+- the harness digest: what a worker loads, plus `harness_own`;
+- `build.test` by its source;
+- the 38-module closure of the key's own code (`key_code`).
 
-### 2.2 Narrow what the key's own code holds
+27 of 50 commits moved one of these, and each reran every test in every
+checkout and leg. The epoch replaces all three with a number that moves
+only when someone decides a change to the harness can change a verdict.
 
-Every sandboxed key holds three things:
+- Change, the key:
+  - A test's key holds its import closure, its declarations, the core,
+    the host, and a new `timeout` part (closing `build/test.tl`'s
+    `TODO:` on the unkeyed timeout).
+  - It also holds `epoch` from `build/harness_epoch.tl`.
+  - The harness digest, `build.test`'s source and `key_code` leave it.
+  - A module the worker loads that the test's own closure also
+    requires stays keyed through that closure, as today.
+- Change, the guard: `build/harness_epoch.tl` also holds an
+  acknowledged digest of the harness files: `worker.loads`,
+  `harness_own`, `build.test`, and `key_code`'s closure.
+  `build/harness_epoch_test.tl` fails when that digest moves. Its
+  message names the choice:
+  - bump `epoch` if the change can alter a pass or a fail (what a
+    worker is given, how it is judged, how a key is computed);
+  - otherwise update the digest.
 
-- the harness: what a worker loads, plus `harness_own`
-- `build.test` by its source
-- the import closure of `build.declared_key` and
-  `build.shared_verdicts` (`key_code`, `build/test.tl`)
+  The choice is then one reviewable line in the diff.
+- Change, the backstop: a merge-queue run whose change moves
+  `build/harness_epoch.tl` runs every suite with `--all`, so a harness
+  change is gated on a full run of every test before it lands. The base
+  comes from `github.event.merge_group.base_sha`, and orchestration.tl's
+  `stands` takes it. Branch pushes and local runs do not pay this.
+- Kept:
+  - The harness's own tests import `build.test` and rerun on every edit
+    to it, as today.
+  - 0.1's field and preimage guards still hold `build.declared_key`.
+  - The nightly `--all` run.
+- Accepted:
+  - A harness change recorded as "keep" that does alter a verdict
+    stands until the merge queue's `--all` (before landing) or the
+    nightly run catches it.
+  - The tree's module names, which a worker's hold refuses, are not
+    keyed: a new module can only change a test that requires it, and
+    then its closure moves.
+- Waits on: nothing.
+- Shows:
+  - a comment in `build/test.tl`, `build/zig.tl` or `cosmic/http.tl`
+    reruns only the tests that import it, plus the `harness_epoch` test;
+  - a merge-queue run of such a change runs `--all`.
 
-That closure is 38 modules. It reaches through
-`build.filesystem_observations`, `build.test_inputs` and
-`build.caches` to `build.zig`, `cosmic.http`, the archive modules and,
-through `local type` requires, `build.ast.*`. So an edit to any of
-these reruns every test, even though no worker runs them. Edits to
-`build/test.tl`'s scheduling and reporting code rerun every test too.
+### 2.3 Stand-in built once per run
 
-- Change, in PRs, each moving the probes below:
-  - (a) Cut `declared_key`'s requires of the observation log and
-    `test_inputs`. Move the cache-locating variables into
-    `build.cache_names`, as `build/test_inputs.tl`'s `TODO:` asks.
-  - (b) Leave `local type` edges out of the `key_code` walk. Teal
-    erases them, and `declared_key.tl` already argues the point for
-    the harness.
-  - (c) Build what a worker is given (`tree_names`, `declared_names`,
-    its timeout, its sandbox plan) as one serialized record in a small
-    held module, and key that record as data. This closes the unkeyed
-    timeout (`build/test.tl`'s `TODO:`). The sandbox plan's part waits
-    on `held` and the cache binds naming no host location (the same
-    file's `TODO:`).
-  - (d) Only then take `build.test` itself out of the source-held set.
-    Its spec assembly moves into the held module.
-- A test pins the held set's closure, as
-  `build/compiler_readers_test.tl` does for the compiler's.
-- Waits on: 0.1, which guards what leaves the source-held set, and
-  1.2.
-- Shows: a comment in `build/zig.tl`, `cosmic/http.tl` or
-  `build/test.tl`'s reporting code reruns only the tool/store floor and
-  the importers, not every test. A comment in `cosmic/codec.tl` still
-  reruns every test, by design.
+`build/stand_in.tl` builds a whole tree with `embed.tree`, in a child,
+for every test that needs one. That costs about 1 s on the release
+core and 3 s on the checked core, for about 40 tests: 31 s of release
+test time and 100 s of checked. It is also most of why
+`build/test_isolation_test.tl`'s hung-test case takes about 6 of its
+10 s, and timed out once under load (#2293).
 
-### 2.3 The checked job split, if still needed
-
-- Decision: with 0.3's `report`, count the last 20 gating runs in which
-  linux-x86_64 exceeds the next-slowest leg by more than 2 min. Split
-  only if that is more than a quarter of them.
-- Change, if split: a `checked-linux-x86_64` job runs a new `platform
-  checked-suite` phase:
-  - a boot without the local suite, `bin/zig build sanitized`, and the
-    suite
-  - it restores the leg's caches without saving them, and keeps
-    `checked.db` under its own prefix
-  - `COSMIC_CI_CHECKED_SUITE=skip` on every leg; `assemble` still
-    verifies the core
-  - the `ci` job needs `[platform, checked]`; the new job is not a
-    matrix entry, since `job-total` feeds attestation
-- Waits on: 2.2, which changes how many commits are cold.
+- Change, first PR: `build.embed` takes a prebuilt store (the `TODO:`
+  in `stand_in.build`).
+- Change, second PR: `stand_in.build` compiles only `cmd/probe/main.tl`
+  against the carried modules. This frees 62 tests from `tool`.
+- Failing that, the runner builds the stand-in once under `o/`, and
+  tests declare it as `tool` tests declare the program.
+- Shows:
+  - the checked suite, cold, runs about 100 s shorter;
+  - the isolation test takes under 4 s alone.
 
 ### 2.4 Tool and store floor, batch 2
 
@@ -386,29 +186,13 @@ modules with 3 or more tests to move, each split into
 - the sandbox tests
 - about 15 smaller modules
 
-- Waits on: 0.4 and 1.2. A test moved off `tool` is still exposed to
-  the artifact descriptor, and one moved off `store` to `Store.meta`.
+Its prerequisites, 0.4 and 1.2, have landed.
+
 - Shows: the floor, counted by a named `o/bin/cosmic sql` query over
   the catalog's `tool` and `store` declarations, is about 355 (about
-  542 today).
+  542 before). 2.3's 62 freed tests lower it further.
 
-### 2.5 Stand-in built once per run
-
-`build/stand_in.tl` builds a whole tree with `embed.tree`, in a child,
-for every test that needs one. That costs about 1 s on the release
-core and 3 s on the checked core, for about 40 tests: 31 s of release
-test time and 100 s of checked. Workers are one process per test, so
-no in-process memo helps.
-
-- Change: `stand_in.build` compiles only `cmd/probe/main.tl` against
-  the carried modules. This frees 62 tests from `tool`.
-- Failing that, the runner builds the stand-in once under `o/`, and
-  tests declare it as `tool` tests declare the program.
-- Waits on: `build.embed` taking a prebuilt store (the `TODO:` in
-  `stand_in.build`, a PR of its own), and 0.4.
-- Shows: the checked suite, cold, runs about 100 s shorter.
-
-### 2.6 Key precision, smaller
+### 2.5 Key precision, smaller
 
 - Writer identity, which is over-wide today (`build/work.tl`'s
   `TODO:`):
@@ -424,9 +208,9 @@ no in-process memo helps.
 These use the local probes (see Measuring):
 
 - The tool/store floor is at most 355.
-- A comment in `cosmic/shape.tl` reruns at most 400 tests (582 today).
-- A comment in `build/zig.tl` or `cosmic/http.tl` reruns at most 400.
-  Each reruns every test today.
+- A comment in `cosmic/shape.tl` reruns at most 400 tests (582 before).
+- A comment in `build/zig.tl`, `cosmic/http.tl` or `build/test.tl`
+  reruns at most 400. Each reran every test before.
 - Over the ten gating runs after M2, whatever their digests, the median
   run's checked suite stands on at least 70% of its tests.
 
@@ -604,6 +388,11 @@ Each milestone is decided from 0.3's `report`, as follows.
 
 ## Dropped or deferred
 
+- **The checked suite in its own job** (was 2.3): dropped. With the
+  checked suite standing, linux-x86_64 is no longer the long pole
+  (about 5.5 min).
+- **Narrowing the key code's closure** (was 2.2 (a) to (d)):
+  superseded by the harness epoch (2.2).
 - **Report a red scheduled run, and pull its verdict:** dropped. The
   `TODO:` on ci.yml's `schedule` stays.
 - **Portable suite narrowed** to the tests that depend on the artifact:
@@ -624,6 +413,17 @@ Each milestone is decided from 0.3's `report`, as follows.
 
 ## Landed (this effort)
 
+- **Stages 0 and 1** (2026-09-28):
+  - 0.1 key guards (#2287)
+  - 0.2 one rebuild at a time (#2288)
+  - 0.3 suite rows and `report` (#2289)
+  - 0.4 the artifact descriptor refused (#2290)
+  - 1.1 checked core keyed stably (#2286, #2292)
+  - 1.2 `Store.meta` held (#2293)
+  - 1.3 plain caches (#2291)
+  - #2293 also fixed a sandbox mount race on the cores directory's
+    stamp.
+- **Observation removal, PR 1** (#2285).
 - **Shared compiles and parses** across checkouts (#2259, #2268). CI
   restores and saves them per leg (#2261). A fresh boot fell from 31 s
   of CPU to 7 s.
