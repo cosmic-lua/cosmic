@@ -569,7 +569,7 @@ end
 end
 
 --- A test whose module does not declare `store` is given the store of
---- its import closure at o/cosmic.db (build/writer.tl's `closure`), in
+--- its import closure at o/cosmic.db (build/closure_store.tl's `write`), in
 --- the projection's place: it holds none of the tree's modules outside
 --- the closure, which a `require` is refused anyway, and its verdict
 --- stands across an edit to one of them -- which rewrites the projection

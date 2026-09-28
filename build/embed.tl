@@ -243,7 +243,7 @@ function embed.database(project: string, main: string): string | nil, string
     -- and the program fails to load it at run time; teach
     -- `all_requires` the `pcall(require, ...)` form, and refuse a
     -- computed require of a project module at build time.
-    for _, statement in ipairs({
+    local project_rows: {string} = {
       "WITH RECURSIVE carried(path) AS (" ..
         "SELECT path FROM project.modules " ..
         "WHERE kind NOT IN ('test', 'example') " ..
@@ -260,10 +260,9 @@ function embed.database(project: string, main: string): string | nil, string
         guidance_text:gsub("FROM docs", "FROM project.docs") .. ", file, line " ..
         "FROM project.catalog " ..
         "WHERE module IN (SELECT path FROM main.modules) ORDER BY id",
-      "INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')",
-      "INSERT INTO catalog_fts(catalog_fts) VALUES ('rebuild')",
-      "INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')",
-    }) do
+    }
+    for _, rebuild in ipairs(schema.rebuild("")) do project_rows[#project_rows + 1] = rebuild end
+    for _, statement in ipairs(project_rows) do
       local ok, failure = out:exec(statement)
       if not ok then
         return false, failure
