@@ -4,9 +4,12 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local analyzer = require("build.analyzer")
 local artifact = require("build.artifact")
 local declared_key = require("build.declared_key")
+local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 
@@ -155,6 +158,230 @@ local function test_each_input_moves_it(tmp: string)
   differs("a host file's contents", s)
   assert(Fs.remove(tmp .. "/suite/lib.tl"))
   differs("a module of the closure gone")
+end
+
+--- The fields of `record`, a record `module` declares (`Spec`,
+--- `Effective`), as the build's catalog of its docs lists them
+--- (`build.analyzer`, which fills o/cosmic.db's `docs`), in the order
+--- the source declares them: read off the module's source, so a field
+--- added to the record is listed here with no edit to this test. A
+--- field whose type is a record (or a map of them) the walk does not
+--- enter gets one coarse change, not one per field of its own: walk
+--- such a record here as `Effective` is.
+local function fields_of(module: string, record: string): {string}
+  local built = assert(teal.load())
+  local source = assert(Store.source(module))
+  local analysis = assert(analyzer.analyze(built, source, module))
+  local out: {string} = {}
+  for _, entry in ipairs(analysis.docs) do
+    local name = entry.symbol:match("^" .. record:gsub("%.", "%%.") .. "%.([%w_]+)$")
+    if name ~= nil and entry.kind == "field" then out[#out + 1] = name end
+  end
+  assert(#out > 0, module .. " declares no fields of " .. record)
+  return out
+end
+
+--- A change to one field of a populated value, and what it holds
+--- apart from the populated value (`from`), where one field is keyed
+--- only as another says (`program` only for a test that runs the
+--- tool): the key of `from`'s value and of `change`'s after it differ.
+local record Change<T>
+  from: function(T)
+  change: function(T)
+end
+
+--- Whether `value` holds something: not nil, false, "" or empty.
+local function populated(value: any): boolean
+  if value == nil or value == false or value == "" then return false end
+  if value is table then return next(value) ~= nil end
+  return true
+end
+
+--- Every field `fields` lists, of the record `holder` finds in a value,
+--- is held by `changes`, each of which must move `key` from the value
+--- `make` builds, or named in `unkeyed`, with why no key needs it;
+--- `make`'s value populates every field, and
+--- neither table names a field the record no longer declares. `what`
+--- names the record in what fails.
+local function each_field_moves<T>(what: string, fields: {string}, make: function(): T,
+                                   holder: function(T): any, key: function(T): string,
+                                   changes: {string:Change<T>}, unkeyed: {string:string})
+  local declared: {string:boolean} = {}
+  for _, name in ipairs(fields) do
+    declared[name] = true
+    local full = holder(make()) as {string:any}
+    assert(populated(full[name]), what .. "." .. name .. " is not populated: set it in " ..
+      "the populated value, to a value other than its default")
+    local change = changes[name]
+    if change == nil then
+      assert(unkeyed[name] ~= nil, what .. "." .. name .. " is neither changed nor named " ..
+        "unkeyed: add a change of it that must move the key, or, where a key need not " ..
+        "hold it, say why in `unkeyed`")
+    else
+      assert(unkeyed[name] == nil, what .. "." .. name .. " is both changed and unkeyed")
+      local value = make()
+      if change.from ~= nil then change.from(value) end
+      local before = key(value)
+      assert(key(value) == before, what .. "'s key is not the same twice")
+      change.change(value)
+      assert(key(value) ~= before, "a change to " .. what .. "." .. name ..
+        " left the key: a field of the record that the key leaves out")
+    end
+  end
+  for name in pairs(changes) do
+    assert(declared[name], what .. " declares no field " .. name .. " that a change names")
+  end
+  for name in pairs(unkeyed) do
+    assert(declared[name], what .. " declares no field " .. name .. " that unkeyed names")
+  end
+end
+
+--- A spec each field of which, and of its `effective`, holds something,
+--- of a test in a tree as `tree` writes it: its module runs the tool,
+--- declares `store` and the system, and names a host file in `hostdir`,
+--- outside the tree, by a variable (`$H/host.txt`).
+local function full_spec(hostdir: string): declared_key.Spec
+  assert(Fs.mkdirs(hostdir))
+  assert(Fs.write(hostdir .. "/host.txt", "h\n"))
+  local effective: test_inputs.Effective = {
+    files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
+    reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
+    env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
+    processes = true, tool = true, store = true, system = true,
+    caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
+    variables = { "DECLARED", "H" }, named = { H = true },
+    spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
+    unresolved = "no reason",
+  }
+  return {
+    id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
+    runtime = "runtime sandboxed", compiler = "compiler", harness = "harness",
+    program = "program", host = "host", system = "system", launcher = "launcher",
+    declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
+    environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
+    runs_tool = true, closure_store = "address",
+  }
+end
+
+--- Every field of a spec (`declared_key.Spec`), and of its effective
+--- inputs (`test_inputs.Effective`), moves the key, but those named
+--- with why no key needs them: the fields are the records' own, as the
+--- catalog lists them, so a field added to either and left out of the
+--- key fails here.
+local function test_every_field_of_a_spec_moves_it(tmp: string)
+  local root, hostdir = tmp .. "/tree", tmp .. "/hostdir"
+  tree(root)
+  local function key(s: declared_key.Spec): string return key_of(root, s) end
+  local function append(field: string): Change<declared_key.Spec>
+    return { change = function(s: declared_key.Spec)
+      local t = s as {string:any}
+      t[field] = (t[field] as string) .. "x"
+    end }
+  end
+  local spec_changes: {string:Change<declared_key.Spec>} = {
+    id = append("id"), module_key = append("module_key"), runtime = append("runtime"),
+    compiler = append("compiler"), harness = append("harness"), host = append("host"),
+    launcher = append("launcher"), declaration = append("declaration"),
+    -- Keyed only for a module given the system's paths.
+    system = append("system"),
+    -- Keyed only for a test that runs the tool.
+    program = append("program"),
+    -- Keyed only where the module does not declare `store`.
+    closure_store = { from = function(s: declared_key.Spec) s.effective.store = false end,
+      change = function(s: declared_key.Spec) s.closure_store = "another" end },
+    -- Either it or the module's `tool` keys the tool.
+    runs_tool = { from = function(s: declared_key.Spec) s.effective.tool = false end,
+      change = function(s: declared_key.Spec) s.runs_tool = false end },
+    environment = { change = function(s: declared_key.Spec) s.environment.DECLARED = "e" end },
+    -- Each of its own fields is held below.
+    effective = { change = function(s: declared_key.Spec) s.effective.files["suite/data/a.txt"] = true end },
+  }
+  each_field_moves("Spec", fields_of("build.declared_key", "Spec"),
+    function(): declared_key.Spec return full_spec(hostdir) end,
+    function(s: declared_key.Spec): any return s end, key, spec_changes, {
+      group = "names the tests whose specs are the same but for `id`, which `compute` " ..
+        "digests the rest of once for: no input",
+    })
+  local effective_changes: {string:Change<declared_key.Spec>} = {
+    files = { change = function(s: declared_key.Spec) s.effective.files["suite/data/a.txt"] = true end },
+    reads = { change = function(s: declared_key.Spec)
+      table.insert(s.effective.reads, "suite/unrelated.txt")
+    end },
+    host = { change = function(s: declared_key.Spec)
+      table.insert(s.effective.host, hostdir .. "/elsewhere")
+    end },
+    tool = { from = function(s: declared_key.Spec) s.runs_tool = false end,
+      change = function(s: declared_key.Spec) s.effective.tool = false end },
+    store = { change = function(s: declared_key.Spec) s.effective.store = false end },
+    system = { change = function(s: declared_key.Spec) s.effective.system = false end },
+    named = { change = function(s: declared_key.Spec) s.effective.named = {} end },
+    spelled = { change = function(s: declared_key.Spec)
+      s.effective.spelled[hostdir .. "/host.txt"] = "$G/host.txt"
+    end },
+    located = { change = function(s: declared_key.Spec) s.effective.located.H = tmp end },
+  }
+  local declaration = "what the module declares, which `declaration` keys as " ..
+    "`test_inputs.canonical` spells it"
+  each_field_moves("Effective", fields_of("build.test_inputs", "Effective"),
+    function(): declared_key.Spec return full_spec(hostdir) end,
+    function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
+      env = declaration .. ", and `environment` by what the worker is given",
+      network = declaration .. ": a test that reaches beyond loopback has no key " ..
+        "(`declared_key.keyable`)",
+      processes = declaration, variables = declaration,
+      caches = "content-addressed, which never changes a result (build.caches)",
+      cache_paths = "where the host keeps its caches: content-addressed, which never " ..
+        "changes a result (build.caches)",
+      unresolved = "a module with a host path that cannot be given runs no test to key " ..
+        "(`build.test`'s `unresolved`)",
+    })
+end
+
+--- Every field of where the host's identity looks (`HostSources`)
+--- moves what a key holds of the host, `host_identity` and
+--- `system_identity`: the fields are the record's own, as the catalog
+--- lists them.
+local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
+  local function write(name: string, text: string): string
+    assert(Fs.write(tmp .. "/" .. name, text))
+    return tmp .. "/" .. name
+  end
+  write("packages2", "p2")
+  write("os2", "o2")
+  write("status2", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
+  write("cpuinfo2", "flags : aes\n")
+  local function make(): declared_key.HostSources
+    return {
+      packages = { write("packages", "p1") },
+      system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
+      sysname = "Linux", system_id = "s1",
+      cpuinfo = write("cpuinfo", "flags : aes pclmulqdq asimd\n"), machine = "x86_64",
+      status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
+      own_proc = true, host_id = "h1", uid = 1,
+    }
+  end
+  local function key(sources: declared_key.HostSources): string
+    local digests = declared_key.digests(tmp)
+    return declared_key.host_identity(digests, sources) .. " " ..
+      declared_key.system_identity(digests, sources)
+  end
+  local function set(field: string, value: any): Change<declared_key.HostSources>
+    return { change = function(s: declared_key.HostSources)
+      (s as {string:any})[field] = value
+    end }
+  end
+  local changes: {string:Change<declared_key.HostSources>} = {
+    packages = set("packages", { tmp .. "/packages2" }),
+    system = { change = function(s: declared_key.HostSources) s.system[1] = tmp .. "/os2" end },
+    -- Read only where `system` names none, to choose where to look.
+    sysname = { from = function(s: declared_key.HostSources) s.system = nil end,
+      change = function(s: declared_key.HostSources) s.sysname = "Darwin" end },
+    system_id = set("system_id", "s2"), cpuinfo = set("cpuinfo", tmp .. "/cpuinfo2"),
+    machine = set("machine", "aarch64"), status = set("status", tmp .. "/status2"),
+    own_proc = set("own_proc", false), host_id = set("host_id", "h2"), uid = set("uid", 2),
+  }
+  each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
+    function(s: declared_key.HostSources): any return s end, key, changes, {})
 end
 
 --- A test that declares the network has no key; one that declares none
