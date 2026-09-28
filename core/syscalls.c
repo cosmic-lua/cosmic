@@ -197,7 +197,7 @@ COSMIC_SYSCALL(errno_message, 1) {
 }
 
 COSMIC_SYSCALL(isatty, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_pushboolean(L, isatty(fd) == 1);
   return 1;
 }
@@ -465,6 +465,43 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
  * ABI did, so a kernel without the second is refused. Every entry is
  * checked to be a plain string before the ruleset is made, so nothing
  * after it can raise. */
+/* Whether this process can no longer run its own core -- held by
+ * `landlock_restrict_execute` to files none of which is beneath it --
+ * and so hands its artifact's descriptor on to no child (`handed_on`):
+ * none could be a relaunch of it. A worker of `cosmic test` whose
+ * module does not declare `tool` is held so (build/confine.tl's
+ * `forbid_running`) before its test loads.
+ * TODO: keep a process such a worker starts from the descriptor too, as
+ * /proc/<the worker's pid>/fd/<it>: a host program (a module declaring
+ * `system`, `sh -c 'cat /proc/$PPID/fd/254'`) opens it there, past
+ * `open`'s refusal, which only this core's Lua goes through. Making a
+ * process held so undumpable (PR_SET_DUMPABLE 0) keeps any process
+ * without CAP_SYS_PTRACE over it out of its /proc/<pid>/fd -- but not
+ * root in a sandbox, who holds it in the worker's user namespace, and
+ * it moves the owner of all of the worker's /proc/<pid>, which what the
+ * worker's own children read of it would have to be checked against. */
+static bool artifact_kept;
+
+#if defined(__linux__)
+/* Whether `path` is one of the `count` paths of the list at `index`, or
+ * beneath one. */
+static bool listed_beneath (lua_State *L, int index, lua_Integer count, const char *path) {
+  size_t length = strlen(path);
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_rawgeti(L, index, i);
+    size_t size = 0;
+    const char *listed = lua_tolstring(L, -1, &size);
+    bool within = listed != NULL && size <= length &&
+                  strncmp(path, listed, size) == 0 &&
+                  (path[size] == '\0' || path[size] == '/' ||
+                   (size > 0 && listed[size - 1] == '/'));
+    lua_pop(L, 1);
+    if (within) return true;
+  }
+  return false;
+}
+#endif
+
 COSMIC_SYSCALL(landlock_restrict_execute, 1) {
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_Integer count = (lua_Integer)lua_rawlen(L, 1);
@@ -512,6 +549,9 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1) {
   if (number == 0 && syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) number = errno;
   close(ruleset);
   if (number != 0) return cosmic_fail_effect(L, number);
+  char self[PATH_MAX];
+  if (!cosmic_executable_path(self, sizeof self) || !listed_beneath(L, 1, count, self))
+    artifact_kept = true;
   return cosmic_ok(L);
 #else
   (void)count;
@@ -1738,6 +1778,43 @@ COSMIC_SYSCALL(sandbox_inits, 0) {
   return 1;
 }
 
+/* `spawn`'s standard stream argument `arg`: the descriptor the child
+ * has in that stream's place, or -1 to inherit it. */
+static int stream_source (lua_State *L, int arg) {
+  if (lua_isnoneornil(L, arg)) return -1;
+  if (!lua_isinteger(L, arg))
+    return luaL_argerror(L, arg, "descriptor must be an integer");
+  lua_Integer value = lua_tointeger(L, arg);
+  if (value < 0 || value > INT_MAX)
+    return luaL_argerror(L, arg, "descriptor is out of range");
+  cosmic_argfd(L, arg, value);
+  return (int)value;
+}
+
+/* Whether `spawn`'s descriptor map hands the artifact descriptor on as
+ * `Proc.relaunch` does: the retained descriptor, as the descriptor the
+ * child's environment (argument 3) names its artifact's, from a process
+ * that can still run its own core. A child that is this core -- started
+ * directly, through a `#!` line naming it, or through a program that
+ * runs it (`setsid`) -- adopts it as its own artifact and refuses it to
+ * its Lua in turn (core/check.h's `cosmic_checkfd`). Any other program
+ * could read the database through it; the hand-on cannot tell which
+ * runs, so it holds only where running this program is allowed at all,
+ * and so what it carries is a declared input (a `tool`'s): a process
+ * held from running its core (`artifact_kept`) is refused it, and so is
+ * a map that hands it on as anything but the child's artifact. */
+static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact_kept || artifact == NULL || fd != (lua_Integer)artifact->fd ||
+      artifact->host || !lua_istable(L, 3))
+    return false;
+  lua_getfield(L, 3, COSMIC_PORTABLE_ENV_ARTIFACT_FD);
+  int exact = 0;
+  lua_Integer named = lua_type(L, -1) == LUA_TSTRING ? lua_tointegerx(L, -1, &exact) : 0;
+  lua_pop(L, 1);
+  return exact && named == target;
+}
+
 int cosmic_spawn_unobserved (lua_State *L) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -1747,15 +1824,9 @@ int cosmic_spawn_unobserved (lua_State *L) {
    * 0..2 that means inherit, above that it means closed. */
   int source[CHILD_FD_MAX + 1];
   for (int i = 0; i <= CHILD_FD_MAX; i++) source[i] = -1;
-  for (int i = 0; i < 3; i++) {
-    if (lua_isnoneornil(L, 5 + i)) continue;
-    if (!lua_isinteger(L, 5 + i))
-      return luaL_argerror(L, 5 + i, "descriptor must be an integer");
-    lua_Integer value = lua_tointeger(L, 5 + i);
-    if (value < 0 || value > INT_MAX)
-      return luaL_argerror(L, 5 + i, "descriptor is out of range");
-    source[i] = (int)value;
-  }
+  source[0] = stream_source(L, 5);
+  source[1] = stream_source(L, 6);
+  source[2] = stream_source(L, 7);
   int process_group = lua_toboolean(L, 8);
   int top = 2;
   if (!lua_isnoneornil(L, 9)) {
@@ -1770,6 +1841,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
         return luaL_argerror(L, 9, "a child descriptor must be 3 to 255");
       if (value < 0 || value > INT_MAX)
         return luaL_argerror(L, 9, "descriptor is out of range");
+      if (!handed_on(L, target, value)) cosmic_argfd(L, 9, value);
       source[target] = (int)value;
       if (target > top) top = (int)target;
       lua_pop(L, 1);
@@ -1795,6 +1867,7 @@ int cosmic_spawn_unobserved (lua_State *L) {
       lua_Integer value = lua_tointeger(L, -1);
       if (value < 0 || value > INT_MAX)
         return luaL_argerror(L, 10, "the ruleset's descriptor is out of range");
+      cosmic_argfd(L, 10, value);
       confine = (int)value;
     }
     lua_pop(L, 1);
@@ -2285,7 +2358,7 @@ COSMIC_SYSCALL(pipe, 0) {
 }
 
 COSMIC_SYSCALL(dup, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   int copy = fcntl(fd, F_DUPFD_CLOEXEC, 0);
   if (copy < 0) return cosmic_fail(L, errno);
   /* Nothing between the copy and its push can raise: pushing an integer
@@ -2295,7 +2368,7 @@ COSMIC_SYSCALL(dup, 1) {
 }
 
 COSMIC_SYSCALL(fd_flags, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   int flags = fcntl(fd, F_GETFD);
   if (flags < 0) return cosmic_fail(L, errno);
   lua_pushinteger(L, flags);
@@ -2303,8 +2376,8 @@ COSMIC_SYSCALL(fd_flags, 1) {
 }
 
 COSMIC_SYSCALL(dup2, 2) {
-  int fd = cosmic_checkint(L, 1);
-  int to = cosmic_checkint(L, 2);
+  int fd = cosmic_checkfd(L, 1);
+  int to = cosmic_checkfd(L, 2);
   int made;
   do { made = dup2(fd, to); } while (made < 0 && errno == EINTR);
   if (made < 0) return cosmic_fail_effect(L, errno);
@@ -2312,7 +2385,7 @@ COSMIC_SYSCALL(dup2, 2) {
 }
 
 COSMIC_SYSCALL(set_nonblocking, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   int on = lua_toboolean(L, 2);
   int flags = fcntl(fd, F_GETFL);
   if (flags < 0) return cosmic_fail_effect(L, errno);
@@ -2343,6 +2416,7 @@ COSMIC_SYSCALL(poll, 3) {
     lua_Integer events = lua_tointeger(L, -1);
     if (fd < -1 || fd > INT_MAX || events < 0 || events > SHRT_MAX)
       return luaL_argerror(L, 1, "descriptor or mask is out of range");
+    cosmic_argfd(L, 1, fd);
     fds[i].fd = (int)fd;
     fds[i].events = (short)events;
     fds[i].revents = 0;

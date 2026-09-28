@@ -25,7 +25,8 @@
 ---   each at its own name, made first where missing, and the variables
 ---   that locate them;
 --- - /proc and the devices every program takes for granted, the
----   program, its core and the stamp that says the core was verified
+---   program's core and the stamp that says the core was verified, and
+---   the program itself only for a module that declares `tool`
 ---   (`confine.worker_unveil`), the system's own paths (/usr, /bin,
 ---   /lib, /etc and the like) only where the module declares `system`,
 ---   and the `host` paths the module declares, each at its own name --
@@ -153,7 +154,7 @@ end
 --- store of its closure, keyed by its address.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string): test_sandbox.Plan
-  local base = confine.worker_unveil(root, nil, scratch, effective.system)
+  local base = confine.worker_unveil(root, nil, scratch, effective.system, effective.tool)
   local reads: {string} = {}
   local at: {string:string} = {}
   local seen: {string:boolean} = {}
@@ -215,8 +216,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   for _, file in ipairs(files) do of_tree(file, false) end
   for _, relative in ipairs(effective.reads) do of_tree(relative, true) end
   -- The tool is o/bin/cosmic, given as the directory it is in: the
-  -- program itself is given at its own name already (`itself`), which a
-  -- test that starts `Proc.executable()` needs.
+  -- program itself is given at its own name already (`worker_unveil`'s
+  -- `with_program`), which a test that starts `Proc.executable()` needs.
   if effective.tool then of_tree("o/bin", true) end
   -- Why a `host` path cannot be given: where a variable names it, one
   -- `test_inputs.resolve` could not put anywhere, or one that is where

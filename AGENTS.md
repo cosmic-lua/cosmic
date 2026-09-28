@@ -110,9 +110,10 @@
    host's identity, and the program, its core and its database, keyed
    through the runtime's identity but for the database's modules, which
    the hold above keeps a test from reading through the store unless it
-   declares `store` or `tool` -- but not through the descriptor a
-   portable start keeps on the program, which a test can read directly
-   (the TODO above core/syscalls_fs.c's `read`). A test that starts this
+   declares `store` or `tool`, nor through the descriptor a portable
+   start keeps on the program, which every binding refuses
+   (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
+   own name, which only a `tool`'s worker is given. A test that starts this
    program declares `tool = true`: sandboxed, one that does not is
    refused it, and `--audit` names it.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a

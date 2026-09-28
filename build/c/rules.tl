@@ -40,6 +40,16 @@
 --- - "true-alone": a `lua_CFunction` returns `true` and nothing else on
 ---   every path (`lua_pushboolean(L, 1); return 1;` or `cosmic_ok`), so
 ---   it returns no values.
+--- - "descriptor-argument": a binding of the syscall table whose
+---   declaration takes a descriptor (build.gen_syscalls's `descriptor`) does not
+---   take it
+---   through `cosmic_checkfd` or `cosmic_argfd`
+---   (core/check.h), directly or through a helper of the file it hands
+---   the argument's position to; or any function takes a descriptor --
+---   a local named `fd`, `*_fd` or `fd_*` -- straight from
+---   `cosmic_checkint` or the like. Either would pass the descriptor a
+---   portable start retains on the artifact, through which every module
+---   the program carries could be read.
 --- - "single-file": a function a header declares is referred to by no
 ---   translation unit but the one defining it, so it belongs to that file,
 ---   static, out of the header. It is decided over a whole tree at once
@@ -74,7 +84,7 @@ local record rules
     --- Which rule: "narrowed-integer", "above-buffer",
     --- "held-across-raise", "string-after-pop", "returned-shape",
     --- "failure-shape", "pass-fail-int", "constant-return", "true-alone",
-    --- "single-file".
+    --- "descriptor-argument", "single-file".
     rule: string
     --- The function it is in.
     within: string
@@ -102,6 +112,9 @@ local record rules
     --- Whether what it returns on success is `boolean`: an effect, whose
     --- failure is `false`, rather than a value, whose failure is `nil`.
     effect: boolean
+    --- The positions of the arguments that are descriptors of this
+    --- process (build.gen_syscalls's `descriptor`), or nil for none.
+    descriptors: {integer}
   end
 end
 
@@ -113,6 +126,9 @@ local checked_only <const> = "every file refers to it through a macro of its hea
 --- The findings a rule cannot see past, and why each is not one, by
 --- `"<file> <function> <rule>"`.
 local exempt: {string: string} = {
+  ["core/syscalls.c cosmic_sys_relaunch descriptor-argument"] =
+    "its artifact_fd and core_fd are the numbers the child is to see its " ..
+    "descriptors as, 3 to 255, not descriptors of this process",
   ["core/boot.c slurp held-across-raise"] =
     "boot runs outside any protected call: a raise there ends the process, " ..
     "which releases everything",
@@ -1144,6 +1160,97 @@ local function returned_shape(ctx: Context, name: string, body: Node,
   end)
 end
 
+-- descriptor-argument ---------------------------------------------------
+
+--- The calls that take a descriptor argument, refusing the artifact's.
+local descriptor_checks: {string: boolean} = {
+  cosmic_checkfd = true, cosmic_argfd = true,
+}
+
+--- The calls that take an integer argument as it is. One read out of a
+--- table (`lua_tointeger`) is not an argument's position, and is left
+--- to the binding's own check below.
+local integer_takers: {string: boolean} = {
+  cosmic_checkint = true, cosmic_optint = true, luaL_checkinteger = true,
+  luaL_optinteger = true,
+}
+
+--- Into `out`, the argument positions `fn` takes through a descriptor
+--- check, where `bound` says which of its parameters hold which constant
+--- position: directly, or through a function of the file it hands the
+--- state and a position to (`byname`), followed once per binding.
+local function checked_positions(fn: Function, bound: {integer: integer},
+                                 byname: {string: Function}, out: {integer: boolean},
+                                 seen: {string: boolean})
+  local index: {string: integer} = {}
+  for i, param in ipairs(fn.params) do index[param.id] = i end
+  local function value(node: Node): integer
+    local c = constant(node)
+    if c ~= nil then return c end
+    local id = referenced(node)
+    local at = id ~= nil and index[id] or nil
+    return at ~= nil and bound[at] or nil
+  end
+  after(fn.body, function(n: Node)
+    if n.kind ~= "CallExpr" then return end
+    local name = tree.callee(n)
+    if name == nil then return end
+    local args = arguments(n)
+    if descriptor_checks[name] then
+      local at = args[2] ~= nil and value(args[2]) or nil
+      if at ~= nil then out[at] = true end
+      return
+    end
+    local callee = byname[name]
+    if callee == nil or not takes_state(n) then return end
+    local passed: {integer: integer} = {}
+    local key: {string} = { name }
+    for i, argument in ipairs(args) do
+      local v = value(argument)
+      if v ~= nil then
+        passed[i] = v
+        key[#key + 1] = i .. "=" .. v
+      end
+    end
+    local visit = table.concat(key, " ")
+    if seen[visit] then return end
+    seen[visit] = true
+    checked_positions(callee, passed, byname, out, seen)
+  end)
+end
+
+local function descriptor_arguments(ctx: Context, fn: Function, byname: {string: Function},
+                                    declared: {string: rules.Declared})
+  -- Any function but the checks themselves: a descriptor taken as a
+  -- bare integer.
+  after(fn.body, function(n: Node)
+    if n.kind ~= "VarDecl" or descriptor_checks[fn.name] then return end
+    local name = name_of(n) or ""
+    if not (name == "fd" or name:match("_fd$") or name:match("^fd_")) then return end
+    local init = n.children[#n.children]
+    local bare = init ~= nil and tree.bare(init) or nil
+    local taker = bare ~= nil and bare.kind == "CallExpr" and tree.callee(bare) or nil
+    if taker ~= nil and integer_takers[taker] then
+      report(ctx, n, "descriptor-argument", "takes descriptor " .. name .. " through " ..
+        taker .. ", which passes the artifact's retained descriptor: take it through " ..
+        "cosmic_checkfd (core/check.h)")
+    end
+  end)
+  local call = fn.name:match("^cosmic_sys_(.+)$")
+  local d = call ~= nil and declared[call] or nil
+  if d == nil or d.descriptors == nil or #d.descriptors == 0 then return end
+  local out: {integer: boolean} = {}
+  checked_positions(fn, {}, byname, out, {})
+  for _, at in ipairs(d.descriptors) do
+    if not out[at] then
+      report(ctx, fn.body, "descriptor-argument", "cosmic.sys." .. call .. "'s argument " ..
+        at .. " is a descriptor (core/syscalls.h or core/process.h) it takes through " ..
+        "neither cosmic_checkfd nor cosmic_argfd (core/check.h), which " ..
+        "refuse the artifact's retained descriptor")
+    end
+  end
+end
+
 -- single-file ----------------------------------------------------------
 
 --- What the translation unit `file`, whose own declarations are `decls`,
@@ -1213,9 +1320,12 @@ function rules.check(decls: {Node}, file: string,
   local ctx: Context = { file = file, within = "", findings = findings,
                          releasing = releasing(fns), truthful = truthful(fns),
                          shapes = failure_shapes(fns) }
+  local byname: {string: Function} = {}
+  for _, fn in ipairs(fns) do byname[fn.name] = fn end
   for _, fn in ipairs(fns) do
     ctx.within = fn.name
     narrowed(ctx, fn.body)
+    descriptor_arguments(ctx, fn, byname, declared)
     above_buffer(ctx, fn.body, fn.params)
     returned_shape(ctx, fn.name, fn.body, declared)
     returned_constant(ctx, fn)

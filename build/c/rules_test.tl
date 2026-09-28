@@ -366,6 +366,68 @@ COSMIC_SYSCALL(entropy, 1) {
 ]]))
 end
 
+--- A binding declared to take a descriptor takes it through core/check.h's
+--- refusal of the artifact's retained descriptor: read takes one bare,
+--- dup2 checks its first and not its second, and a local named for a
+--- descriptor is found wherever it is taken bare.
+local function test_a_descriptor_taken_bare_is_found(tmp: string)
+  local found = only(findings(tmp, header .. [[
+#include "syscalls.h"
+#include "check.h"
+#include "fail.h"
+COSMIC_SYSCALL(read, 2) {
+  int fd = cosmic_checkint(L, 1);
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(dup2, 2) {
+  int from = cosmic_checkfd(L, 1);
+  int to = cosmic_checkint(L, 2);
+  return from == to ? cosmic_ok(L) : cosmic_fail_effect(L, EBADF);
+}
+
+static int helper (lua_State *L) {
+  int dir_fd = cosmic_optint(L, 1, -1);
+  lua_pushinteger(L, dir_fd);
+  return 1;
+}
+]]), "descriptor-argument")
+  local said: {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
+  assert(#found == 4 and found[1].line == 9 and found[1].within == "cosmic_sys_read"
+    and found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2"
+    and found[4].line == 22 and found[4].within == "helper",
+    "found: " .. table.concat(said, ", "))
+end
+
+--- A descriptor taken through a check, directly or through a helper of
+--- the file handed its position, or out of a table through
+--- `cosmic_argfd`, is not found.
+local function test_a_descriptor_taken_through_a_check_is_not(tmp: string)
+  none(only(findings(tmp, header .. [[
+#include "syscalls.h"
+#include "check.h"
+#include "fail.h"
+static int stream (lua_State *L, int arg) {
+  lua_Integer value = luaL_checkinteger(L, arg);
+  cosmic_argfd(L, arg, value);
+  return value > INT_MAX ? -1 : (int)value;
+}
+
+COSMIC_SYSCALL(dup2, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  int to = stream(L, 2);
+  return fd == to ? cosmic_ok(L) : cosmic_fail_effect(L, EBADF);
+}
+
+COSMIC_SYSCALL(fstat, 1) {
+  lua_pushinteger(L, cosmic_checkfd(L, 1));
+  return 1;
+}
+]]), "descriptor-argument"))
+end
+
 --- `case.c`'s functions, declared in `case.h`.
 local function declared_in_header(tmp: string, declarations: string, source: string):
     {rules.Finding}

@@ -363,8 +363,13 @@ end
 --- and run a test of the tree at `tree`, beside what the test itself
 --- reads: to read, `runtime_paths` (/proc and /dev/null among them),
 --- and with `with_system`, for a module that declares `system`,
---- `system_paths` too, each where this host has it; the program, its
---- core and the stamp that spares hashing it again (`itself`), the
+--- `system_paths` too, each where this host has it; the core and the
+--- stamp that spares hashing it again (`itself`), and with
+--- `with_program`, for a module that declares `tool`, the program
+--- itself -- the artifact, which carries every module of the tool, so a
+--- worker whose test does not declare `tool` has no name to read it by
+--- (its relaunch hands it the artifact as a descriptor, which the core
+--- refuses to its Lua: core/check.h's `cosmic_checkfd`); the
 --- tree's store (o/cosmic.db, which a worker attaches), and `cwd`,
 --- where given; to change, `scratch`, its temporary directory. Each is
 --- there as it is given, so each may be handed to `process.spawn`'s
@@ -374,7 +379,7 @@ end
 --- (build/test_sandbox.tl) gives a worker these, and what its test's
 --- module reads.
 function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
-                               with_system?: boolean): raw_process.Unveil
+                               with_system?: boolean, with_program?: boolean): raw_process.Unveil
   local reads: {string} = {}
   local seen: {string:boolean} = {}
   local stat = calls().stat
@@ -389,7 +394,10 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
     for _, path in ipairs(system_paths) do add(path) end
   end
   for _, path in ipairs(runtime_paths) do add(path) end
-  for _, path in ipairs(confine.itself()) do add(path) end
+  local program, _ = Proc.executable()
+  for _, path in ipairs(confine.itself()) do
+    if with_program or path ~= program then add(path) end
+  end
   add((tree == "/" and "" or tree) .. "/o/cosmic.db")
   if cwd ~= nil then add(cwd) end
   return { reads = reads, writes = { scratch } }

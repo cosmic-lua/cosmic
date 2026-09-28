@@ -376,7 +376,11 @@ end
 --- pipe, or an inert device -- not a directory, whose files it could
 --- read, nor a socket, onto the network.
 local function contained(fd: integer): boolean
-  local st, _ = sys.fstat(fd)
+  -- The one descriptor fstat refuses is the artifact's, which the spawn
+  -- took only as a relaunch hands it on (core/check.h's
+  -- `cosmic_checkfd`): a regular file, the program's own.
+  local asked, st = pcall(sys.fstat, fd)
+  if not asked then return true end
   if st == nil then return true end -- nothing there to reach
   local format = st.mode & S_IFMT
   return format == S_IFREG or format == S_IFIFO or

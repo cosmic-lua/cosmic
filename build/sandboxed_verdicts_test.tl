@@ -324,10 +324,16 @@ end
   assert(Fs.write(root .. "/suite/undeclared_test.tl", started .. [[
 
 local function test_is_refused_the_tool()
+  -- The program is not given it at all, and its core is refused it,
+  -- the artifact's descriptor with it.
   local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })
   assert(result == nil, "the program ran undeclared")
-  assert(trouble:find("ermission denied", 1, true), trouble)
-  local core, core_trouble = started({ "-e", "" })
+  assert(trouble:find("o such file", 1, true), trouble)
+  local ok, why = pcall(started, { "-e", "" })
+  assert(not ok, "the program's core ran undeclared")
+  assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
+  local relaunch = assert(Proc.relaunch())
+  local core, core_trouble = Child.run({ relaunch.argv[1], "-e", "" })
   assert(core == nil, "the program's core ran undeclared")
   assert(core_trouble:find("ermission denied", 1, true), core_trouble)
   local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" })

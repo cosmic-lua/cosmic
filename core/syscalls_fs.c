@@ -21,6 +21,15 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <linux/openat2.h>
+#include <sys/syscall.h>
+/* glibc shows O_PATH only to _GNU_SOURCE, which this file does not ask
+ * for; its value is the kernel's, the same on every target here. */
+#ifndef O_PATH
+#define O_PATH 010000000
+#endif
+#endif
 
 #include "check.h"
 #include "crypto.h"
@@ -29,7 +38,9 @@
 #include "guard.h"
 #include "lauxlib.h"
 #include "observed.h"
+#include "portable.h"
 #include "psa/crypto.h"
+#include "store.h"
 #include "syscalls.h"
 
 /* The one place the two systems name the same field differently. macOS
@@ -90,11 +101,51 @@ static void push_stat (lua_State *L, const struct stat *st) {
   lua_setfield(L, -2, "kind");
 }
 
+/* Whether `fd`, just opened at `path`, is the file `artifact` retains a
+ * descriptor on, reached through a descriptor rather than by a name it
+ * has: /proc/<pid>/fd/<n>, /dev/fd/<n> or a link to either, which hand
+ * a caller the artifact whatever the sandbox gives it by name, as the
+ * retained descriptor itself would (core/check.h's `cosmic_checkfd`).
+ * The kernel says which, where it can: the path walked again refusing
+ * every such link (openat2's RESOLVE_NO_MAGICLINKS) reaches the artifact
+ * only by a name, where it could be opened as well. Elsewhere -- macOS,
+ * whose /dev/fd/<n> copies the descriptor, a kernel older than 5.6, a
+ * filter refusing openat2 -- by the name: under /dev or /proc, as given
+ * or resolved, or a name that no longer resolves. */
+static bool artifact_through_descriptor (int fd, const char *path,
+                                         const struct cosmic_artifact *artifact) {
+  struct stat st;
+  if (artifact == NULL || fstat(fd, &st) != 0 ||
+      (uint64_t)st.st_dev != artifact->device || (uint64_t)st.st_ino != artifact->inode)
+    return false;
+#if defined(__linux__) && defined(SYS_openat2)
+  struct open_how how;
+  memset(&how, 0, sizeof how);
+  how.flags = O_PATH | O_CLOEXEC;
+  how.resolve = RESOLVE_NO_MAGICLINKS;
+  long named = syscall(SYS_openat2, AT_FDCWD, path, &how, sizeof how);
+  if (named >= 0) {
+    struct stat again;
+    bool same = fstat((int)named, &again) == 0 && again.st_dev == st.st_dev &&
+                again.st_ino == st.st_ino;
+    close((int)named);
+    return !same;
+  }
+  if (errno != ENOSYS && errno != EPERM) return true;
+#endif
+  char resolved[PATH_MAX];
+  if (realpath(path, resolved) == NULL) return true;
+  return strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/proc/", 6) == 0 ||
+         strncmp(resolved, "/dev/", 5) == 0 || strncmp(resolved, "/proc/", 6) == 0;
+}
+
 COSMIC_SYSCALL(open, 3) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   int flags = cosmic_checkint(L, 2);
   int mode = cosmic_optint(L, 3, 0644);
+  /* Asked before the open, so nothing that can raise comes after it. */
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
   /* Noted before it opens: an open may make the file it names. */
   if (cosmic_observing &&
       !cosmic_observed_note(COSMIC_OBSERVED_OPEN, path, strlen(path))) {
@@ -108,6 +159,10 @@ COSMIC_SYSCALL(open, 3) {
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
     return cosmic_fail(L, errno);
+  }
+  if (artifact_through_descriptor(fd, path, artifact)) {
+    close(fd);
+    return cosmic_fail(L, EACCES);
   }
   lua_pushinteger(L, fd);
   return 1;
@@ -151,7 +206,7 @@ COSMIC_SYSCALL(open_temporary, 2) {
 }
 
 COSMIC_SYSCALL(close, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   if (close(fd) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -187,18 +242,8 @@ static size_t read_room (int fd, lua_Integer count, off_t offset) {
   return (size_t)(count < room ? count : room);
 }
 
-/* TODO: refuse, from Lua, the descriptor a portable start retains on the
- * artifact (COSMIC_PORTABLE_ARTIFACT_FD; core/vfs.c reads the embedded
- * database through it) -- in `read`, `pread`, `lseek`, `fstat`, `dup`,
- * `dup2`, `fd_flags` and every other binding that takes one, in
- * `spawn`'s descriptor map and standard streams, and in an open of
- * /proc/self/fd/<it> or /dev/fd/<it> -- once each can ask the store for
- * it (core/store.h's `cosmic_store_artifact`). Today a test reads the
- * program's every carried module through it, with no path opened for a
- * capture to see and nothing a key of a test that does not declare
- * `tool` holds, past build/test_worker.tl's hold on the store. */
 COSMIC_SYSCALL(read, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   if (count < 0) {
     return luaL_argerror(L, 2, "count is negative");
@@ -221,7 +266,7 @@ COSMIC_SYSCALL(read, 2) {
 }
 
 COSMIC_SYSCALL(pread, 3) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   lua_Integer offset = luaL_checkinteger(L, 3);
   if (count < 0) {
@@ -248,7 +293,7 @@ COSMIC_SYSCALL(pread, 3) {
 }
 
 COSMIC_SYSCALL(write, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   size_t len;
   const char *data = luaL_checklstring(L, 2, &len);
   ssize_t put;
@@ -263,7 +308,7 @@ COSMIC_SYSCALL(write, 2) {
 }
 
 COSMIC_SYSCALL(lseek, 3) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer offset = luaL_checkinteger(L, 2);
   int whence = cosmic_checkint(L, 3);
   off_t at = lseek(fd, (off_t)offset, whence);
@@ -275,7 +320,7 @@ COSMIC_SYSCALL(lseek, 3) {
 }
 
 COSMIC_SYSCALL(fstat, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   struct stat st;
   if (fstat(fd, &st) != 0) {
     return cosmic_fail(L, errno);
@@ -604,7 +649,7 @@ COSMIC_SYSCALL(utimensat, 5) {
 }
 
 COSMIC_SYSCALL(ftruncate, 2) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   lua_Integer length = luaL_checkinteger(L, 2);
   luaL_argcheck(L, length >= 0, 2, "the length is negative");
   if (ftruncate(fd, (off_t)length) != 0) {
@@ -650,7 +695,7 @@ COSMIC_SYSCALL(mkfifo, 2) {
 }
 
 COSMIC_SYSCALL(fsync, 1) {
-  int fd = cosmic_checkint(L, 1);
+  int fd = cosmic_checkfd(L, 1);
   if (fsync(fd) != 0) {
     return cosmic_fail_effect(L, errno);
   }
