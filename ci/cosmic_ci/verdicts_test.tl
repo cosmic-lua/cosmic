@@ -37,6 +37,12 @@ local function keys(path: string): {string}
   return out
 end
 
+--- What the command says, on standard error, of the fixture's table
+--- of another shape, which it keeps whole.
+local function unstamped(path: string): string
+  return "verdicts-trim: " .. path .. ": kept whole, with no used_ns column to trim by: declared_v9\n"
+end
+
 local function freelist(path: string): integer
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "PRAGMA freelist_count"))
@@ -58,7 +64,7 @@ local function test_a_trim_keeps_only_what_the_run_reached(tmp: string)
   assert(freelist(path) > 0, "the fixture freed no page")
   local before = assert(Fs.stat(path)).size
   local code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
-  assert(code == 0 and err == "", err)
+  assert(code == 0 and err == unstamped(path), err)
   -- k5 and k6, and the table the trim cannot read by its use.
   assert(out:find("kept 3 used since 1000, removed 3", 1, true) ~= nil, out)
   assert(Fs.stat(path .. "-wal") == nil and Fs.stat(path .. "-shm") == nil,
@@ -79,7 +85,8 @@ local function test_a_cache_the_run_never_reached_is_kept_whole(tmp: string)
   assert(Fs.write(tmp .. "/notes.txt", "not a cache"))
   local code, out, err = Verdicts.command({ "1000" },
     { COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db" })
-  assert(code == 0 and err == "", err)
+  assert(code == 0 and err == unstamped(tmp .. "/portable.db") .. unstamped(tmp .. "/verdicts.db"),
+    err)
   assert(out:find("kept 2 used since 1000, removed 2; " .. tmp .. "/verdicts.db", 1, true) ~= nil,
     out)
   assert(out:find("kept all 4, none used since 1000 (no run reached it); " ..
@@ -126,4 +133,25 @@ local function test_the_command_removes_what_is_broken(tmp: string)
   assert(Fs.stat(tmp .. "/portable.db.corrupt-123") == nil and
     Fs.stat(tmp .. "/portable.db.corrupt-123-wal") == nil)
   assert(#keys(tmp .. "/portable.db") == 1, out)
+end
+
+--- A table the trim matches but cannot trim, with no `used_ns` column
+--- to trim it by (a format of the tool's it does not know), is kept
+--- whole and said so, on standard error, rather than saved from run to
+--- run unseen; a cache whose every table it can trim says nothing
+--- there.
+local function test_a_table_without_its_use_is_kept_whole_and_said_so(tmp: string)
+  local path = tmp .. "/verdicts.db"
+  cache(path, { 100, 1001 })
+  local code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
+  assert(code == 0 and err == unstamped(path), err)
+  assert(out:find("kept 2 used since 1000, removed 2", 1, true) ~= nil, out)
+  local db = assert(Sqlite.open(path, true))
+  local rows = assert(Sqlite.text_rows(db, "SELECT key FROM declared_v9"))
+  assert(#rows == 1 and rows[1][1] == "other", "the table was not kept whole")
+  assert(db:exec("DROP TABLE declared_v9"))
+  assert(db:close())
+  code, out, err = Verdicts.command({ "1000" }, { COSMIC_VERDICT_CACHE = path })
+  assert(code == 0 and err == "", err)
+  assert(out:find("kept 1 used since 1000, removed 0", 1, true) ~= nil, out)
 end

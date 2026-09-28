@@ -22,6 +22,10 @@ local record CacheTrim
     --- Whether any row was used since: false where the run reached
     --- none of the file, whose rows `trim` then keeps where asked to.
     reached: boolean
+    --- The tables matched that have no `used_ns` column to trim by,
+    --- which `trim` keeps whole: a format of the tool's this trim does
+    --- not know.
+    unstamped: {string}
   end
 
   --- What `file` trims: the tables, by GLOB patterns, and whether a
@@ -92,7 +96,8 @@ end
 --- they took, and without the pages the tool's own bounds freed, which
 --- SQLite keeps. Where `tables.whole_unless_reached`, a file none of
 --- whose rows was used since -- one whose run never started -- keeps
---- them all. A table without a `used_ns` column is left whole. Nil and
+--- them all. A table without a `used_ns` column is left whole, and
+--- named in the answer's `unstamped`. Nil and
 --- "" for a file that is not there, and nil and why where the file
 --- could not be trimmed.
 -- TODO: ask the tool to trim its caches to what one run used, once
@@ -126,6 +131,7 @@ function CacheTrim.trim(path: string, since_ns: integer,
   local all_rows, used_rows = 0, 0
   local quoted: {string} = {}
   local stamped: {string} = {}
+  local unstamped: {string} = {}
   for _, row in ipairs(names) do
     local name = row[1]
     local q = '"' .. name:gsub('"', '""') .. '"'
@@ -142,6 +148,8 @@ function CacheTrim.trim(path: string, since_ns: integer,
         "SELECT count(*) FROM " .. q .. " WHERE used_ns >= ?1", { { integer = since_ns } })
       if used == nil then return fail(used_trouble) end
       used_rows = used_rows + used
+    else
+      unstamped[#unstamped + 1] = name
     end
   end
   local reached = used_rows > 0
@@ -164,7 +172,7 @@ function CacheTrim.trim(path: string, since_ns: integer,
   local closed, close_trouble = db:close()
   if not closed then return nil, close_trouble end
   return { kept = left, removed = all_rows - left, before_bytes = before_bytes,
-    after_bytes = size(path), reached = reached }, ""
+    after_bytes = size(path), reached = reached, unstamped = unstamped }, ""
 end
 
 --- Trims the cache at `path` (`trim`) to what was used since `since`,
@@ -172,7 +180,9 @@ end
 --- (`remove_set_aside`), for the driver command `verb`: what it says on
 --- standard output and on standard error. A cache it cannot trim is
 --- said so, on standard error, and left, or removed where it is no
---- database.
+--- database; so is a table it keeps whole for want of a `used_ns`
+--- column to trim it by, which would otherwise be saved from run to
+--- run unseen.
 function CacheTrim.file(verb: string, path: string, since: integer,
                         tables: CacheTrim.Tables): string, string
   local out = ""
@@ -199,8 +209,13 @@ function CacheTrim.file(verb: string, path: string, since: integer,
   else
     what = "kept " .. trimmed.kept .. " used since " .. since .. ", removed " .. trimmed.removed
   end
+  local err = ""
+  if #trimmed.unstamped > 0 then
+    err = verb .. ": " .. path .. ": kept whole, with no used_ns column to trim by: " ..
+      table.concat(trimmed.unstamped, ", ") .. "\n"
+  end
   return out .. verb .. ": " .. what .. "; " .. path .. " " .. trimmed.before_bytes ..
-    " -> " .. trimmed.after_bytes .. " bytes\n", ""
+    " -> " .. trimmed.after_bytes .. " bytes\n", err
 end
 
 --- SINCE, the first of `argv`, in Unix seconds, or nil where it is none.

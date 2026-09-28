@@ -28,6 +28,12 @@ local function keys(path: string): {string}
   return out
 end
 
+--- What the command says, on standard error, of the fixture's table
+--- of another shape, which it keeps whole.
+local function unstamped(path: string): string
+  return "compiles-trim: " .. path .. ": kept whole, with no used_ns column to trim by: compiled_v9\n"
+end
+
 --- What a leg saves is what its own run used, and the file shrinks to
 --- it: an older run's compiles go, and so does the space they took.
 local function test_a_trim_keeps_only_what_the_run_used(tmp: string)
@@ -37,6 +43,8 @@ local function test_a_trim_keeps_only_what_the_run_used(tmp: string)
   assert(trimmed.removed == 3, "removed " .. trimmed.removed)
   -- The row used since, and the table the trim cannot read by its use.
   assert(trimmed.kept == 2, "kept " .. trimmed.kept)
+  assert(#trimmed.unstamped == 1 and trimmed.unstamped[1] == "compiled_v9",
+    table.concat(trimmed.unstamped, ","))
   assert(trimmed.after_bytes <= trimmed.before_bytes - 3 * 65536,
     trimmed.before_bytes .. " -> " .. trimmed.after_bytes)
   local left = keys(path)
@@ -74,7 +82,7 @@ local function test_the_command_trims_by_seconds(tmp: string)
   cache(path, { 999, 1001 })
   local before = assert(Fs.stat(path)).size
   local code, out, err = Compiles.command({ "1000" }, { COSMIC_BUILD_CACHE = path })
-  assert(code == 0 and err == "", err)
+  assert(code == 0 and err == unstamped(path), err)
   assert(out:find("kept 2 used since 1000, removed 1", 1, true) ~= nil, out)
   -- Before `keys` reads it: a reader alone leaves the log where it is.
   assert(Fs.stat(path .. "-wal") == nil and Fs.stat(path .. "-shm") == nil,
@@ -119,7 +127,7 @@ local function test_the_command_removes_what_the_builds_set_aside(tmp: string)
   assert(Fs.write(path .. ".corrupt-123-wal", "broken"))
   assert(Fs.write(tmp .. "/other.db.corrupt-123", "another's"))
   local code, out, err = Compiles.command({ "1000" }, { COSMIC_BUILD_CACHE = path })
-  assert(code == 0 and err == "", err)
+  assert(code == 0 and err == unstamped(path), err)
   assert(out:find("set aside", 1, true) ~= nil, out)
   assert(Fs.stat(path .. ".corrupt-123") == nil and Fs.stat(path .. ".corrupt-123-wal") == nil)
   assert(Fs.stat(tmp .. "/other.db.corrupt-123") ~= nil, "removed another file's")
