@@ -546,7 +546,7 @@ local function test_second(tmp: string) hold(tmp) end
   end
   local text = assert(Fs.read(output))
   if unsandboxed(text) then
-    -- Unsandboxed here: build/test_isolation_test.tl's case.
+    -- Unsandboxed here: build/test_isolation_tool_test.tl's case.
     assert(handle:stop(sys.SIGKILL))
     local _, _ = handle:wait(30000)
     return
