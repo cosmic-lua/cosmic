@@ -1,7 +1,9 @@
 local Fs = require("cosmic.fs")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local reboot = require("build.reboot")
 local stand_in = require("build.stand_in")
+local work = require("build.work")
 
 --- The program's core, which building the stand-in bin/zig reads
 --- (`build.stand_in`): a program of its own, which the boot starts with
@@ -85,4 +87,32 @@ local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
   end
   local none, missing = reboot.own_tool(tmp .. "/elsewhere", tmp .. "/elsewhere/cosmic")
   assert(none == nil and missing:find("/elsewhere/o", 1, true), missing)
+end
+
+--- A tool carries a tree's code when every module and main of the tree
+--- is one it carries with the same source (`reboot.carries_tree_code`),
+--- whatever its fingerprint says: a tree of this binary's own
+--- build.bind does, and not once that source is edited, nor once the
+--- tree holds a module the binary does not carry. A tree with no module
+--- proves nothing.
+local function test_carries_tree_code_compares_every_module(tmp: string)
+  local function carries(): boolean
+    local handle = assert(work.open(tmp))
+    assert(work.stage(handle, true))
+    local answer = reboot.carries_tree_code(handle)
+    assert(work.close(handle))
+    return answer
+  end
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(not carries(), "a tree with no module carried the tree's code")
+  local source = assert(Store.source("build.bind"))
+  assert(Fs.write(tmp .. "/build/bind.tl", source))
+  assert(carries(), "the binary's own build.bind did not carry the tree's code")
+  assert(Fs.write(tmp .. "/build/bind_test.tl", "local function test_nothing() end\n"))
+  assert(carries(), "a test module, which no tool carries, was held against it")
+  assert(Fs.write(tmp .. "/build/bind.tl", source .. "-- edited\n"))
+  assert(not carries(), "an edited module carried the tree's code")
+  assert(Fs.write(tmp .. "/build/bind.tl", source))
+  assert(Fs.write(tmp .. "/build/nowhere.tl", "return {}\n"))
+  assert(not carries(), "a module the binary does not carry carried the tree's code")
 end

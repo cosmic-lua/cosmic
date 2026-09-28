@@ -19,6 +19,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -164,6 +165,32 @@ local function refusal(settle: boolean): string | nil
   return "the tool is still stale after a reboot"
 end
 
+--- Whether the running binary carries the tree's code: every module of
+--- the tree in `handle`, open and staged, that a tool carries (its
+--- modules and its main, not its tests, examples or declarations) is
+--- one the binary carries, with the same source. A tool a stale tool
+--- rebuilt from this tree does, though it may be stale by its own code
+--- -- its fingerprint taken by the older definition the stale tool ran
+--- -- so what it computes of the tree (the fingerprint, the compiler's
+--- and the writer's identities) is what the tree's own code computes,
+--- which is what a tool it writes carries. False when any is missing
+--- or differs, or the tree cannot be read.
+function reboot.carries_tree_code(handle: work.Handle): boolean
+  local rows, _ = Sqlite.text_rows(handle.db,
+    "SELECT path, source_hash FROM inputs WHERE origin = 'tree' " ..
+    "AND kind IN ('module', 'main') ORDER BY path")
+  if rows == nil or #rows == 0 then
+    return false
+  end
+  for _, row in ipairs(rows) do
+    local source, _ = Store.source(row[1])
+    if source == nil or Hash.hex_sha256(source) ~= row[2] then
+      return false
+    end
+  end
+  return true
+end
+
 --- Rebuilds the tool from the tree and replaces this process with it,
 --- running `argv` again. Returns only when it cannot, saying why. It
 --- takes `handle`, open and staged, and closes it on every path: before
@@ -223,27 +250,23 @@ local function into(handle: work.Handle, built: compiler,
     if shared ~= nil then shared.finish() end
     return closing(handle, identity_trouble)
   end
-  -- A fresh tool settling runs the tree's own code, so its compiler is
-  -- the tree's, named as its own `work.compiler_identity` names it,
+  -- A tool settling that carries the tree's code (`carries_tree_code`)
+  -- names its compiler as its own `work.compiler_identity` names it,
   -- which is what the tool it writes carries. The identity it carries
   -- itself was taken by the tool that wrote it, by that tool's code:
   -- where the two define the identity apart, keying by it would leave
-  -- the tool written here as unsettled as this one. Only a tool whose
-  -- recorded fingerprint is the tree's, by its own code, is known to run
-  -- the tree's code.
-  -- TODO: settle a commit that moves both the fingerprint's definition
-  -- (build.work's `is_tool`, `tool_files`) and the identity's: the tool
-  -- a stale tool rebuilds is then stale by its own code, so it settles on
-  -- the "teal" path with no fingerprint of its own to prove it runs the
-  -- tree's code, keys by the carried identity, and the tool it writes
-  -- refuses as still unsettled (exit 3). A fix would prove it another
-  -- way -- every module the tool carries against the staged tree's
-  -- source hashes -- or have the stale tool record the fingerprint by
-  -- the tree's own build.work, run from source.
+  -- the tool written here as unsettled as this one. A tool whose
+  -- recorded fingerprint is the tree's, by its own code, carries it; so
+  -- does one a stale tool rebuilt across a change to the fingerprint's
+  -- definition, which is stale by its own code, and settles on the
+  -- "teal" path.
   local tool = Store.meta("compiler") or ""
+  local tree_code = false
   if settle then
     local recorded, _ = work.recorded_boot_hash(handle)
-    if recorded ~= nil and recorded == Store.meta("boot_hash") then
+    tree_code = (recorded ~= nil and recorded == Store.meta("boot_hash")) or
+      reboot.carries_tree_code(handle)
+    if tree_code then
       tool = identities.compiler
     end
   end
@@ -258,7 +281,7 @@ local function into(handle: work.Handle, built: compiler,
   end
   local database_path = handle.root .. "/o/cosmic.db"
   local written, write_trouble =
-    writer.write_result(handle, database_path, result)
+    writer.write_result(handle, database_path, result, tree_code)
   if not written then
     return closing(handle, write_trouble)
   end
@@ -649,10 +672,12 @@ function reboot.guard(handle: work.Handle, root: string,
   -- A rebuild records the tree's fingerprint by the rebuilding tool's
   -- own build.work, so when the tree moved what that fingerprint covers
   -- (`is_tool`, `record_fingerprint`) the tool it wrote is stale by its
-  -- own code. build.work is in the writer's closure, so that tool is
-  -- `unsettled` too: it builds itself again, once, as a fresh unsettled
-  -- tool does, rather than refusing; `into` sets the marker to "2", so
-  -- a tool stale after that refuses.
+  -- own code. build.work is in the writer's identity (`writer_roots`),
+  -- so that tool is `unsettled` too: it builds itself again, once, as a
+  -- fresh unsettled tool does, keyed and signed by what its own code,
+  -- which is the tree's (`carries_tree_code`), takes of the tree, rather
+  -- than refusing; `into` sets the marker to "2", so a tool stale after
+  -- that refuses.
   local settle = sys.getenv(marker) == "1" and unsettled()
   local refused = refusal(settle)
   if refused ~= nil then

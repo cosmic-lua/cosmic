@@ -133,3 +133,20 @@ local function test_a_rebuilt_fingerprint_lands_on_the_booted_tool(tmp: string)
     return (source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1))
   end, true)
 end
+
+-- One commit that moves both what the fingerprint covers and how the
+-- compiler's identity is defined: the tool the stale tool writes is
+-- stale by its own code and carries the identity the older definition
+-- takes. Settling on the "teal" path, it carries the tree's code
+-- (`build.reboot`'s `carries_tree_code`), so it keys its compiles, and
+-- signs what it writes, by the identities its own code takes, and the
+-- tool it writes is settled: each stage rebuilds once and settles once,
+-- where keyed by the carried names it would be unsettled still, and
+-- refuse (exit 3).
+local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "fingerprint-identity", "build/work.tl", function(source: string): string
+    local covered = source:gsub('(%["build%.zig%.zon"%] = true,\n)', '%1  ["README.md"] = true,\n', 1)
+    return (covered:gsub('"build%.teal", "build%.tree",\n',
+      '"build.teal", "build.tree", "build.clock",\n', 1))
+  end, true)
+end

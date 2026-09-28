@@ -48,6 +48,8 @@ allowed["build.work.writer_modules"] = "what build/importer_test.tl holds the tr
   "writer's identity, the compiler's, or neither with a reason"
 allowed["build.work.writer_left_out"] = "what build/importer_test.tl holds to the " ..
   "requires of the writer's roots"
+allowed["build.reboot.carries_tree_code"] = "what build/reboot_test.tl holds to " ..
+  "the modules a tree holds and the binary carries"
 allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl " ..
   "holds to distinct specs spelling apart, before a key hashes it"
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
