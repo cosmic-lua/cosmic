@@ -363,8 +363,13 @@ end
 --- and run a test of the tree at `tree`, beside what the test itself
 --- reads: to read, `runtime_paths` (/proc and /dev/null among them),
 --- and with `with_system`, for a module that declares `system`,
---- `system_paths` too, each where this host has it; the program, its
---- core and the stamp that spares hashing it again (`itself`), the
+--- `system_paths` too, each where this host has it; the core and the
+--- stamp that spares hashing it again (`itself`), and with
+--- `with_program`, for a module that declares `tool`, the program
+--- itself -- the artifact, which carries every module of the tool, so a
+--- worker whose test does not declare `tool` has no name to read it by
+--- (its relaunch hands it the artifact as a descriptor, which the core
+--- refuses to its Lua: core/check.h's `cosmic_checkfd`); the
 --- tree's store (o/cosmic.db, which a worker attaches), and `cwd`,
 --- where given; to change, `scratch`, its temporary directory. Each is
 --- there as it is given, so each may be handed to `process.spawn`'s
@@ -374,7 +379,7 @@ end
 --- (build/test_sandbox.tl) gives a worker these, and what its test's
 --- module reads.
 function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
-                               with_system?: boolean): raw_process.Unveil
+                               with_system?: boolean, with_program?: boolean): raw_process.Unveil
   local reads: {string} = {}
   local seen: {string:boolean} = {}
   local stat = calls().stat
@@ -389,7 +394,30 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
     for _, path in ipairs(system_paths) do add(path) end
   end
   for _, path in ipairs(runtime_paths) do add(path) end
-  for _, path in ipairs(confine.itself()) do add(path) end
+  -- The program is withheld only where it is not also what runs: a
+  -- host program (its core with the database appended, which the
+  -- kernel runs itself) is its own core, which every worker needs.
+  -- TODO: keep a worker whose test does not declare `tool` from reading
+  -- a host program's carried database by its name too. Its core is
+  -- that same file, which the worker must run, and Landlock checks an
+  -- exec when it opens the file, execveat's AT_EMPTY_PATH included; so
+  -- the fix takes the worker exec'd before its ruleset holds it, and
+  -- host startup taking an inherited descriptor on itself rather than
+  -- opening /proc/self/exe again (core/executable.c's
+  -- `cosmic_executable_fd`). Today such a worker, as in
+  -- build/sandboxed_verdicts_test.tl's tool project, reads the program.
+  local program, _ = Proc.executable()
+  local withheld = ""
+  if not with_program and program ~= nil then
+    local launched, _ = Proc.relaunch()
+    local core = launched ~= nil and launched.argv[1] or program
+    local a, _ = calls().stat(program)
+    local b, _ = calls().stat(core)
+    if a == nil or b == nil or a.dev ~= b.dev or a.ino ~= b.ino then withheld = program end
+  end
+  for _, path in ipairs(confine.itself()) do
+    if path ~= withheld then add(path) end
+  end
   add((tree == "/" and "" or tree) .. "/o/cosmic.db")
   if cwd ~= nil then add(cwd) end
   return { reads = reads, writes = { scratch } }

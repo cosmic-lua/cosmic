@@ -692,13 +692,11 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   every other lookup in the store -- `Store.bytecode`, `Store.source`,
   `Store.requires`, a searcher called by hand, `Store.databases()` -- to
   that closure for the tree's modules (`build/test_worker.tl`'s
-  `hold_store`). That leaves three ways past it. A module the program
+  `hold_store`). That leaves two ways past it. A module the program
   carries that is no module of the tree -- in a project's tree, the
   standard library's -- is held by neither, and the runtime's identity names
   the core and the pins, not those modules (`build/test_worker.tl`, the TODO
-  on `refusal`). The descriptor a portable start keeps on the program
-  reads its embedded database directly, unobserved (core/syscalls_fs.c, the
-  TODO above `read`). And `Store.meta` answers the projection's own
+  on `refusal`). And `Store.meta` answers the projection's own
   digests, which move with every edit (`build/test_worker.tl`, the TODO on
   `hold_store`).
 

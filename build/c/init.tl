@@ -264,8 +264,15 @@ local function declared_in(root: string): {string: rules.Declared}
       found = read
     end
     for _, call in ipairs(found ~= nil and found.calls or {}) do
+      local descriptors: {integer} = {}
+      for i, parameter in ipairs(call.parameters) do
+        if gen_syscalls.descriptor(parameter) then
+          descriptors[#descriptors + 1] = i
+        end
+      end
       out[call.name] = { count = #call.results, fallible = #call.results == 3,
-                         effect = #call.results > 0 and call.results[1].kind == "boolean" }
+                         effect = #call.results > 0 and call.results[1].kind == "boolean",
+                         descriptors = descriptors }
     end
   end
   return out

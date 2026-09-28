@@ -83,6 +83,22 @@ local record generator
   Declarations: Declarations
 end
 
+--- Whether a binding's parameter, by its name and its declaration's
+--- words, is a descriptor of this process: `fd`, `fds`, `dirfd`,
+--- `sock`, `*_fd`, `*_fds`, a standard stream (`stdin`, `stdout`,
+--- `stderr`), or one described as "the descriptor", "the descriptors"
+--- or "the open descriptor". build/c/rules.tl holds each such argument
+--- to core/check.h's refusal of the artifact's retained descriptor.
+function generator.descriptor(parameter: Parameter): boolean
+  local name = parameter.name
+  local said = parameter.description:lower()
+  return name == "fd" or name == "fds" or name == "dirfd" or name == "sock"
+    or name:match("_fds?$") ~= nil
+    or name == "stdin" or name == "stdout" or name == "stderr"
+    or said:match("^the descriptors?[%s,;:]") ~= nil or said:match("^the descriptors?$") ~= nil
+    or said:match("^the open descriptor") ~= nil
+end
+
 --- Turns a LuaCATS type into a Teal one. The two agree on everything
 --- this header uses except the spelling of a union.
 local function teal_type(text: string): string
