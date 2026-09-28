@@ -63,7 +63,7 @@
 --- caller can `pairs` or `ipairs` it without a cast.
 ---
 --- `Json.quote` and `Json.child_path` spell a key or a path (`$.rows[2]`)
---- in a message of your own.
+--- in a message of your own, and `Json.parse_path` reads one back.
 ---
 --- Duplicate keys are allowed, and the last one stands. Encoded
 --- objects list their keys in byte order unless `sorted = false`, so
@@ -475,6 +475,152 @@ function Json.child_path(path: string, step: string | integer): string
     return path .. "[" .. Json.quote(step) .. "]"
   end
   return path .. "[" .. step .. "]"
+end
+
+--- Four hex digits' value; the caller has matched them.
+local function hex_value(digits: string): integer
+  local value = tonumber(digits, 16)
+  if value is integer then return value end
+  error("json: not hex digits: " .. digits)
+end
+
+--- The steps of a path written as `child_path` spells one, for a
+--- caller that takes a path as text (`cosmic json`): the steps for
+--- `Json.get`, and "", or nil and a message naming the column where
+--- the text stopped being a path. `$` is the document and may start
+--- the text; then each step is `.name` (a key, up to the next `.` or
+--- `[`), `[3]` (an array index, counted from 1 as `get` counts) or
+--- `["a key"]` (a key in a JSON string, with JSON's escapes). Without
+--- a leading `$`, the first step may drop its dot: `a.b` is `$.a.b`.
+--- Whitespace is part of a key: `.a b` is the key `a b`.
+--- `parse_path(Json.child_path(...))` gives back the steps that built
+--- it, for any keys and integers. A path that is empty, or ends in a
+--- `.`, or has an unclosed `[`, or an index that does not fit an
+--- integer, or a lone surrogate escape, is refused; it never raises.
+--- `*` (as `.*` or `[*]`) and `..` are refused too, by name, and not
+--- read as keys: they are kept for wildcards and recursive descent, so
+--- a key named `*` is `["*"]`.
+---
+---     local steps = assert(Json.parse_path('$.rows[2]["a key"]'))
+---     assert(steps[1] == "rows" and steps[2] == 2 and steps[3] == "a key")
+function Json.parse_path(text: string): {string | integer} | nil, string
+  local steps: {string | integer} = {}
+  local size = #text
+  local function refuse(at: integer, what: string): nil, string
+    return nil, "path column " .. at .. ": " .. what
+  end
+  if size == 0 then
+    return nil, "path is empty; `$` is the whole document"
+  end
+  local at = 1
+  local rooted = text:sub(1, 1) == "$"
+  if rooted then at = 2 end
+  local first = true
+  while at <= size do
+    local c = text:sub(at, at)
+    if c == "." or (first and not rooted and c ~= "[") then
+      local from = c == "." and at + 1 or at
+      local stop = text:find("[.%[]", from) or size + 1
+      if stop == from then
+        if c == "." and text:sub(from, from) == "." then
+          -- TODO: read `..` once the wildcard and flatten change (the
+          -- next) implements recursive descent; refused until then.
+          return refuse(at, "`..` (recursive descent) is not supported yet")
+        end
+        return refuse(from, "expected a key" .. (c == "." and " after `.`" or ""))
+      end
+      local name = text:sub(from, stop - 1)
+      if name == "*" then
+        -- TODO: read `*` once the wildcard and flatten change (the next)
+        -- implements wildcards; refused until then.
+        return refuse(at, "`*` (a wildcard) is not supported yet; " ..
+          'a key named * is `["*"]`')
+      end
+      steps[#steps + 1] = name
+      at = stop
+    elseif c == "[" then
+      if text:sub(at + 1, at + 1) == '"' then
+        local parts: {string} = {}
+        local here = at + 2
+        while true do
+          local stop = text:find('["\\]', here)
+          if stop == nil then
+            return refuse(at, "unclosed [")
+          end
+          parts[#parts + 1] = text:sub(here, stop - 1)
+          if text:sub(stop, stop) == '"' then
+            here = stop + 1
+            break
+          end
+          local esc = text:sub(stop + 1, stop + 1)
+          local plain: string | nil
+          if esc == '"' or esc == "\\" or esc == "/" then
+            plain = esc
+          elseif esc == "b" then
+            plain = "\b"
+          elseif esc == "f" then
+            plain = "\f"
+          elseif esc == "n" then
+            plain = "\n"
+          elseif esc == "r" then
+            plain = "\r"
+          elseif esc == "t" then
+            plain = "\t"
+          end
+          if plain ~= nil then
+            parts[#parts + 1] = plain
+            here = stop + 2
+          elseif esc == "u" then
+            local hex = text:match("^%x%x%x%x", stop + 2)
+            if hex == nil then
+              return refuse(stop, "expected four hex digits after \\u")
+            end
+            local code = hex_value(hex)
+            here = stop + 6
+            if code >= 0xD800 and code <= 0xDBFF then
+              local low = text:match("^\\u([dD][c-fC-F]%x%x)", here)
+              if low == nil then
+                return refuse(stop, "a lone surrogate escape")
+              end
+              code = 0x10000 + ((code - 0xD800) << 10) + (hex_value(low) - 0xDC00)
+              here = here + 6
+            elseif code >= 0xDC00 and code <= 0xDFFF then
+              return refuse(stop, "a lone surrogate escape")
+            end
+            parts[#parts + 1] = utf8.char(code)
+          else
+            return refuse(stop, "no such escape: \\" .. esc)
+          end
+        end
+        if text:sub(here, here) ~= "]" then
+          return refuse(here, "expected `]` after the key")
+        end
+        steps[#steps + 1] = table.concat(parts)
+        at = here + 1
+      else
+        local digits = text:match("^(%-?%d+)%]", at + 1)
+        if text:sub(at + 1, at + 2) == "*]" then
+          -- TODO: read `[*]` once the wildcard and flatten change (the
+          -- next) implements wildcards; refused until then.
+          return refuse(at, "`[*]` (a wildcard) is not supported yet; " ..
+            'a key named * is `["*"]`')
+        end
+        if digits == nil then
+          return refuse(at, "expected an integer or a quoted key inside [ ]")
+        end
+        local number = tonumber(digits)
+        if not (number is integer) then
+          return refuse(at, "index " .. digits .. " does not fit an integer")
+        end
+        steps[#steps + 1] = number
+        at = at + #digits + 2
+      end
+    else
+      return refuse(at, "expected `.` or `[`, got " .. Json.quote(c))
+    end
+    first = false
+  end
+  return steps, ""
 end
 
 --- Where `descend` got to: the value, the message ("" on success) and

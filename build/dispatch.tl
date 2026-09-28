@@ -94,7 +94,7 @@ A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
 sources whose rows to count. `docs` takes words to search for instead,
-`sql` one statement, `help` a verb, `refresh` the datasets to fetch,
+`sql` one statement, `json` a path and a file, `help` a verb, `refresh` the datasets to fetch,
 and `bom` nothing.
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
@@ -116,14 +116,16 @@ copied out as the bytes it was read from. Lining those up is a
 judgement about a whole line, which is the author's here, not the
 tool's.
 
-Every verb ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
+Every verb but `json` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
 (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
 its command line was refused -- an option, an argument or a verb it
 does not know; 3 when the tool is older than the tree and did not
 rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file
 run, `--standalone` and `-e` are not verbs of that kind: each prints
 only what its program prints and exits with what it returns.
-`--version` is not one either: it prints its one line.
+`--version` is not one either: it prints its one line. `json` prints its
+value and nothing after, for a pipe, and exits 0 when it found the path, 1
+when the path is not there, 2 for a command line or a text it refused.
 ]]
 
 --- The directory a path sits in, absolute.
@@ -486,7 +488,17 @@ local verbs: {string: function({integer:string}): integer} = {
   sql = function(argv: {integer:string}): integer
     return require("build.sql").run(argv)
   end,
+  -- Reads a document it is given, never the tree, so never stale-checked
+  -- either, and prints no verdict (`bare`).
+  json = function(argv: {integer:string}): integer
+    return require("build.json").run(argv)
+  end,
 }
+
+--- The verbs that end in no verdict line, their output being data for a
+--- pipe: their exit status is the verdict, and a usage error is
+--- complained about and nothing more. build/json.tl says why.
+local bare: {string:boolean} = { json = true }
 
 --- What a verdict line a verb did not give itself says of its exit code.
 local function detail_of(code: integer): string
@@ -555,7 +567,7 @@ function dispatch.main(argv: {integer:string}): integer
     -- it left without one -- its command line refused, a setup failure,
     -- a stale tool -- still ends in one here.
     local code = chosen(argv)
-    if code == 2 and not verdict.given then
+    if code == 2 and not verdict.given and not bare[verb] then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
       -- tool refuses: it rebuilds and runs the line again here instead.
@@ -570,7 +582,7 @@ function dispatch.main(argv: {integer:string}): integer
         code = stale
       end
     end
-    if not verdict.given then
+    if not verdict.given and not bare[verb] then
       log:verdict(verb, code == 0, detail_of(code))
     end
     return code
