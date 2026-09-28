@@ -1,3 +1,4 @@
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
@@ -156,9 +157,93 @@ local function test_looks_up_a_module_and_lists_its_symbols(dir: string)
   local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[1] == "cosmic.fs (cosmic/fs.tl)", lines[1])
   assert(lines[2] == "  Files and directories.", lines[2])
-  assert(lines[3] == "  record Fs", lines[3])
-  assert(lines[4] == "  function Fs.read (2 uses)", lines[4])
-  assert(lines[5] == "  function Fs.write", lines[5])
+  assert(lines[3] == "", lines[3])
+  assert(lines[4] == "  record Fs", lines[4])
+  assert(lines[5] == "  function Fs.read(path: string): string | nil, string  (2 uses)", lines[5])
+  assert(lines[6] == "  function Fs.write(path: string, data: string): boolean, string",
+    lines[6])
+end
+
+--- A module's listing shows each function's signature, so a reader need
+--- not infer its arguments from examples; a record stays kind and name,
+--- and the listing comes before the rest of the module's prose.
+local function test_a_module_listing_shows_signatures(dir: string)
+  local db = built(dir, fs_tree({ ["cosmic/fs.tl"] = source(
+    "--- Files and directories.",
+    "---",
+    "--- Long prose after the first paragraph.",
+    "",
+    "local record Fs",
+    "  record Opts",
+    "    mode: integer",
+    "  end",
+    "end",
+    "",
+    "function Fs.read(path: string, opts?: Fs.Opts): string | nil, string",
+    "  return nil, path",
+    "end",
+    "",
+    "return Fs") }))
+  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  assert(text:find("  function Fs.read(path: string, opts?: Fs.Opts): string | nil, string",
+    1, true), text)
+  assert(not text:find("function Fs.read (", 1, true), text)
+  assert(text:find("  record Fs\n", 1, true), text)
+  assert(not text:find("record Fs {", 1, true) and not text:find("mode: integer", 1, true), text)
+  local listing = text:find("  function Fs.read(", 1, true)
+  local prose = text:find("Long prose after", 1, true)
+  assert(listing ~= nil and prose ~= nil and listing < prose, text)
+end
+
+--- A bare lowercase name that ends a public module's name is that
+--- module, not an internal record or symbol of the same name; a name
+--- that is no module's still finds its symbols.
+local function test_a_short_module_name_finds_the_public_module(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/internal/fs.d.tl"] = source(
+      "local record fs",
+      "end",
+      "",
+      "return fs"),
+  }))
+  local plain = assert(docs.lookup(view({ db }), "fs"))
+  assert(plain.exact and #plain == 1, tostring(#plain))
+  assert(plain[1].kind == "module" and plain[1].module == "cosmic.fs", plain[1].module)
+  local full = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  assert(#full == 1 and full[1].module == "cosmic.fs", tostring(#full))
+  local read = assert(docs.lookup(view({ db }), "read"))
+  assert(#read == 1 and read[1].source_symbol == "Fs.read", tostring(#read))
+end
+
+--- A verb the bare name names answers first, then the module: `docs
+--- test` shows `Cli.test`, then `cosmic.test`.
+local function test_a_short_module_name_keeps_its_verb(dir: string)
+  local db = built(dir, {
+    ["cosmic/test.tl"] = source(
+      "--- Test support.",
+      "",
+      "local record Test",
+      "end",
+      "",
+      "return Test"),
+    ["cosmic/cli.tl"] = source(
+      "--- Verbs.",
+      "",
+      "local record Cli",
+      "  --- Runs tests.",
+      "  test: string",
+      "end",
+      "",
+      "local module: Cli = { test = \"tests\" }",
+      "",
+      "return module"),
+  })
+  local found = assert(docs.lookup(view({ db }), "test"))
+  assert(found.exact and #found == 2, tostring(#found))
+  assert(found[1].source_symbol == "Cli.test", found[1].source_symbol)
+  assert(found[2].module == "cosmic.test" and found[2].kind == "module", found[2].module)
 end
 
 --- Asked nothing, docs lists every module with the first sentence of
@@ -251,12 +336,157 @@ local function test_a_module_listing_leaves_out_private_functions(dir: string)
     "return Fs") })
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local lines = assert(docs.render(view({ db }), found[1]))
-  assert(lines[3] == "  record Stat", lines[3])
-  assert(lines[4] == "  record Fs", lines[4])
-  assert(lines[5] == "  function Fs.read", lines[5])
-  assert(lines[6] == nil, lines[6])
+  assert(lines[4] == "  record Stat", lines[4])
+  assert(lines[5] == "  record Fs", lines[5])
+  assert(lines[6] == "  function Fs.read(path: string): string", lines[6])
+  assert(lines[7] == nil, lines[7])
   local helper = assert(docs.lookup(view({ db }), "write_all"))
   assert(#helper == 1 and helper[1].symbol == "write_all", tostring(#helper))
+end
+
+--- A module and a symbol that both answer: the module first, then the
+--- symbol, and an internal record only sharing the module's name left out.
+local function test_a_short_module_name_keeps_its_symbols(dir: string)
+  local db = built(dir, {
+    ["cosmic/string.tl"] = source(
+      "--- Strings.",
+      "",
+      "local record String",
+      "end",
+      "",
+      "return String"),
+    ["cosmic/shape.tl"] = source(
+      "--- Shapes.",
+      "",
+      "local record Shape",
+      "  --- A string shape.",
+      "  string: string",
+      "end",
+      "",
+      "local module: Shape = { string = \"s\" }",
+      "",
+      "return module"),
+    ["cosmic/internal/string.d.tl"] = source(
+      "local record string",
+      "end",
+      "",
+      "return string"),
+  })
+  local found = assert(docs.lookup(view({ db }), "string"))
+  assert(found.exact and #found == 2 and found.named == 2, tostring(#found))
+  assert(found[1].module == "cosmic.string" and found[1].kind == "module", found[1].module)
+  assert(found[2].source_symbol == "Shape.string", found[2].source_symbol)
+end
+
+--- Test, example and internal modules are no short name's module.
+local function test_a_short_module_name_skips_test_example_and_internal(dir: string)
+  local db = built(dir, {
+    ["cosmic/fs.tl"] = source("--- Files.", "", "local record Fs", "end", "", "return Fs"),
+    ["cosmic/internal/only.tl"] = source("--- Inside.", "", "local record Only", "end",
+      "", "return Only"),
+    ["cosmic/fs_test.tl"] = source("--- Tests.", "", "local record T", "end", "", "return T"),
+    ["cosmic/thing_example.tl"] = source("--- Shows.", "", "local record E", "end", "",
+      "return E"),
+  })
+  for _, name in ipairs({ "only", "fs_test", "thing_example", "example", "test" }) do
+    local found = assert(docs.lookup(view({ db }), name))
+    for _, entry in ipairs(found) do
+      assert(entry.kind ~= "module" or found.exact == false,
+        name .. " answered module " .. entry.module)
+    end
+  end
+  local fs = assert(docs.lookup(view({ db }), "fs"))
+  assert(#fs >= 1 and fs[1].module == "cosmic.fs", fs[1].module)
+end
+
+--- A project's own module answers a short name too, ahead of the
+--- standard library's, and its own symbols follow.
+local function test_a_short_module_name_finds_a_projects_module(dir: string)
+  local db = built(dir, {
+    ["myproj/util.tl"] = source("--- Helpers.", "", "local record Util", "end", "",
+      "return Util"),
+    ["cosmic/util.tl"] = source("--- Library helpers.", "", "local record Lib", "end",
+      "", "return Lib"),
+  })
+  local found = assert(docs.lookup(view({ db }), "util"))
+  assert(#found == 2 and found[1].module == "myproj.util" and
+    found[2].module == "cosmic.util", tostring(#found))
+end
+
+--- A query that is not lowercase-and-bare takes the old route: exact
+--- symbols only, and a qualified name answers as it did.
+local function test_a_capitalized_name_takes_the_symbol_route(dir: string)
+  local db = built(dir, fs_tree())
+  local found = assert(docs.lookup(view({ db }), "Fs"))
+  assert(#found == 1 and found[1].kind == "record", tostring(#found))
+  local qualified = assert(docs.lookup(view({ db }), "Fs.read"))
+  assert(#qualified == 1 and qualified[1].source_symbol == "Fs.read")
+end
+
+--- The listing is placed after the first paragraph, and after the block
+--- a colon-ended paragraph introduces; a text with no blank line gets it last.
+local function test_the_listing_keeps_a_colon_and_its_example_together(dir: string)
+  local function listing_at(text: {string}): {string}
+    local sub = dir .. "/" .. #text
+    assert(Fs.mkdirs(sub))
+    local db = built(sub, { ["cosmic/fs.tl"] = table.concat(text, "\n") .. "\n" .. source(
+      "",
+      "local record Fs",
+      "end",
+      "",
+      "function Fs.read(path: string): string",
+      "  return path",
+      "end",
+      "",
+      "return Fs") })
+    local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
+    return (assert(docs.render(view({ db }), found[1])))
+  end
+  local function at(lines: {string}, needle: string): integer
+    for i, line in ipairs(lines) do
+      if line:find(needle, 1, true) then return i end
+    end
+    return 0
+  end
+  local colon = listing_at({ "--- Files, for example:", "---", "--- `Fs.read(p)`", "---",
+    "--- More prose." })
+  assert(at(colon, "Fs.read(p)") < at(colon, "function Fs.read("), table.concat(colon, "\n"))
+  assert(at(colon, "function Fs.read(") < at(colon, "More prose"), table.concat(colon, "\n"))
+  local plain = listing_at({ "--- Files.", "---", "--- More prose." })
+  assert(at(plain, "Files.") < at(plain, "function Fs.read(") and
+    at(plain, "function Fs.read(") < at(plain, "More prose"), table.concat(plain, "\n"))
+  local one = listing_at({ "--- Just one paragraph." })
+  assert(at(one, "Just one") < at(one, "function Fs.read("), table.concat(one, "\n"))
+end
+
+--- A colon-ended paragraph keeps a multi-block example together: the
+--- listing follows the whole run of indented blocks, not the first.
+local function test_the_listing_follows_a_multi_block_example(dir: string)
+  local db = built(dir, { ["cosmic/fs.tl"] = source(
+    "--- Files, for example:",
+    "---",
+    "---     l1",
+    "---",
+    "---     l2",
+    "---",
+    "--- More prose.",
+    "",
+    "local record Fs",
+    "end",
+    "",
+    "function Fs.read(path: string): string",
+    "  return path",
+    "end",
+    "",
+    "return Fs") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  local l2 = text:find("l2", 1, true)
+  local listing = text:find("function Fs.read(", 1, true)
+  local prose = text:find("More prose", 1, true)
+  assert(l2 ~= nil and listing ~= nil and prose ~= nil and l2 < listing and
+    listing < prose, text)
 end
 
 --- Words that name no symbol search the documentation, every word
@@ -438,8 +668,10 @@ local function test_renders_a_symbols_example(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[4] == "  function Fs.read (3 uses, 1 example)", module_lines[4])
-  assert(module_lines[5] == "  function Fs.write", module_lines[5])
+  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string  (3 uses, 1 example)",
+    module_lines[5])
+  assert(module_lines[6] == "  function Fs.write(path: string, data: string): boolean, string",
+    module_lines[6])
 end
 
 --- Many examples can be for one symbol: each is matched independently
@@ -477,7 +709,8 @@ local function test_many_examples_for_one_symbol(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[4] == "  function Fs.read (4 uses, 2 examples)", module_lines[4])
+  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string  (4 uses, 2 examples)",
+    module_lines[5])
 end
 
 --- A module's examples can be split by topic: `cosmic/fs_config_example.tl`

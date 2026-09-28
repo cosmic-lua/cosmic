@@ -197,6 +197,26 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   return out
 end
 
+--- The modules that document themselves whose last dotted name is
+--- `query` (`json` for `cosmic.json`, `util` for a project's
+--- `myproj.util`), as their own rows, a project's own ahead of the standard library's. A module
+--- under `cosmic.internal`, a test module and an example module are
+--- never one, whatever database is read, as in `docs.index`, so a bare
+--- name means what a user of a library means by it.
+local function modules_ending(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.symbol = '' AND " ..
+    "substr(d.module, -length(?1) - 1) = '.' || ?1 AND " ..
+    "d.module NOT LIKE 'cosmic.internal.%' AND substr(d.module, -5) <> '_test' AND " ..
+    "substr(d.module, -8) <> '_example' " ..
+    "ORDER BY d.module LIKE 'cosmic.%', d.module, d.id",
+    { text(query) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
 --- The rows named `query` exactly: a symbol as declared (`Fs.read`), a
 --- symbol's last name alone (`read`, matching every `X.read` and
 --- `X:read`), or a module's own row (`cosmic.fs`).
@@ -240,6 +260,13 @@ end
 --- in. A private helper function is left out -- a reader scanning the
 --- module wants what they can call -- but `cosmic docs <name>` still
 --- finds it.
+-- TODO: `cosmic.sys`'s calls are missing here: each is a row of kind
+-- `field` (`lstat`, signature `lstat: function(...)`) declared in the
+-- `syscalls` record, and the `d.kind NOT IN ('field', 'value')` test
+-- drops it, so `cosmic docs cosmic.sys` lists none though `cosmic.fs`
+-- says it lists every one. Keep a `field` row whose signature is a
+-- function type when the module's own record declares it, and show it
+-- as a function row in `listed`.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
@@ -698,18 +725,64 @@ local function by_options(view: docs.View, query: string,
   return out, ""
 end
 
---- What `query` names, across `databases`: its exact matches when it
+--- What `query` names, across `databases`: the public module a bare
+--- lowercase name ends (`json`, `fs`; with its verb, if it is one:
+--- `test`); else its exact matches when it
 --- names a symbol or a module; for a qualified name that names nothing,
 --- what its qualifier offers (see `scoped`); otherwise the
 --- documentation that carries all its words, and the verbs whose
 --- options do (see `by_options`).
 function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
+  -- A bare lowercase name that ends a public module's name is that
+  -- module (`json` is `cosmic.json`, not the internal record `json`);
+  -- the symbols it names exactly follow the module (`string` is
+  -- `cosmic.string`, then `Shape.string`).
+  local modules: {docs.Entry} = {}
+  if query:match("^%l[%w_]*$") ~= nil then
+    local found_modules, modules_trouble = across(view,
+      function(db: Sqlite.Handle, _: boolean): {docs.Entry} | nil, string
+        return modules_ending(db, query)
+      end, entry_module)
+    if found_modules == nil then
+      return nil, modules_trouble
+    end
+    modules = found_modules
+  end
   local exact, exact_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
       return named(db, public, query)
     end, entry_module)
   if exact == nil then
     return nil, exact_trouble
+  end
+  if #modules > 0 then
+    -- What only shares the module's name, an internal record (`json`),
+    -- is not another answer.
+    local seen: {string: boolean} = {}
+    for _, entry in ipairs(modules) do
+      seen[entry.module .. "\n" .. entry.symbol] = true
+    end
+    -- The verb `cosmic <query>` names answers first, as `cosmic docs
+    -- test` says it does, then the modules, then the other symbols.
+    local answers: {docs.Entry} = {}
+    local rest: {docs.Entry} = {}
+    for _, entry in ipairs(exact) do
+      local internal = entry.module:sub(1, 16) == "cosmic.internal." and
+        entry.symbol == query
+      if entry.module == "cosmic.cli" and entry.symbol == "Cli." .. query then
+        answers[#answers + 1] = entry
+        seen[entry.module .. "\n" .. entry.symbol] = true
+      elseif not internal and not seen[entry.module .. "\n" .. entry.symbol] then
+        rest[#rest + 1] = entry
+      end
+    end
+    for _, entry in ipairs(modules) do answers[#answers + 1] = entry end
+    for _, entry in ipairs(rest) do answers[#answers + 1] = entry end
+    local counted, count_trouble = effective_counts(view, answers)
+    if not counted then
+      return nil, count_trouble
+    end
+    return lookup(answers, true, #answers), ""
   end
   if #exact > 0 then
     local named_count = #exact
@@ -879,6 +952,26 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   return out
 end
 
+--- One declared symbol as a module's listing shows it: a function or
+--- method by its signature, anything else (a record's signature spans
+--- lines) by kind and name, then its uses and examples.
+local function listed(item: docs.Entry): string
+  local marks: {string} = {}
+  if item.uses > 0 then
+    marks[#marks + 1] = item.uses .. " uses"
+  end
+  if item.examples > 0 then
+    marks[#marks + 1] = item.examples .. " example" ..
+      (item.examples == 1 and "" or "s")
+  end
+  local shown = item.kind .. " " .. item.source_symbol
+  if (item.kind == "function" or item.kind == "method") and
+     item.signature ~= "" and not item.signature:find("\n", 1, true) then
+    shown = item.signature
+  end
+  return shown .. (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
+end
+
 --- One entry, as `cosmic docs` prints it: where it is, its signature,
 --- its documentation indented under that, and how many places use it.
 --- A module's row lists the symbols it declares instead of a signature.
@@ -918,19 +1011,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       end
     end
   end
-  for line in String.lines(entry.text) do
-    lines[#lines + 1] = #line > 0 and "  " .. line or ""
-  end
-  -- A verb's options are data, `Cli.options`, not prose: shown under
-  -- its field as `cosmic help` shows them, and searched by
-  -- `by_options`.
-  local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
-  if verb ~= nil and Cli.options[verb] ~= nil then
-    lines[#lines + 1] = "  options:"
-    for line in String.lines(Flags.options(Cli.options[verb])) do
-      lines[#lines + 1] = "  " .. line
-    end
-  end
+  -- A module's signatures come right after its opening paragraph, ahead
+  -- of the long prose: a reader scanning for a call wants the shapes
+  -- first, and the prose that follows explains their shared contract.
+  local index: {string} = {}
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -944,18 +1028,55 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       return nil, count_trouble
     end
     for _, item in ipairs(declared) do
-      local marks: {string} = {}
-      if item.uses > 0 then
-        marks[#marks + 1] = item.uses .. " uses"
-      end
-      if item.examples > 0 then
-        marks[#marks + 1] = item.examples .. " example" ..
-          (item.examples == 1 and "" or "s")
-      end
-      lines[#lines + 1] = "  " .. item.kind .. " " .. item.source_symbol ..
-        (#marks > 0 and " (" .. table.concat(marks, ", ") .. ")" or "")
+      index[#index + 1] = "  " .. listed(item)
     end
-  else
+  end
+  -- The listing goes after the first paragraph, or, when that ends in
+  -- a colon, after the run of indented or fenced blocks it introduces
+  -- (an example), or else the next block, so the two stay together.
+  local text_lines: {string} = {}
+  for line in String.lines(entry.text) do text_lines[#text_lines + 1] = line end
+  local function code_at(from: integer): boolean
+    for j = from, #text_lines do
+      if text_lines[j] ~= "" then
+        return text_lines[j]:match("^%s") ~= nil or text_lines[j]:sub(1, 3) == "```"
+      end
+    end
+    return false
+  end
+  local placed = #index == 0
+  local last = ""
+  local hold = false
+  local fence = false
+  for at, line in ipairs(text_lines) do
+    if line:sub(1, 3) == "```" then fence = not fence end
+    if not placed and not fence and line == "" and last ~= "" then
+      if last:sub(-1) == ":" then
+        hold = true
+      elseif not (hold and code_at(at + 1)) then
+        lines[#lines + 1] = ""
+        for _, row in ipairs(index) do lines[#lines + 1] = row end
+        placed = true
+      end
+    end
+    if line ~= "" then last = line end
+    lines[#lines + 1] = #line > 0 and "  " .. line or ""
+  end
+  if not placed then
+    if entry.text ~= "" then lines[#lines + 1] = "" end
+    for _, row in ipairs(index) do lines[#lines + 1] = row end
+  end
+  -- A verb's options are data, `Cli.options`, not prose: shown under
+  -- its field as `cosmic help` shows them, and searched by
+  -- `by_options`.
+  local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
+  if verb ~= nil and Cli.options[verb] ~= nil then
+    lines[#lines + 1] = "  options:"
+    for line in String.lines(Flags.options(Cli.options[verb])) do
+      lines[#lines + 1] = "  " .. line
+    end
+  end
+  if entry.symbol ~= "" then
     if entry.uses > 0 then
       lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
         (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.source_symbol
