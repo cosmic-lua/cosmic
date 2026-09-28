@@ -313,10 +313,20 @@ local function test_the_portable_suite_keeps_verdicts_of_its_own()
     ["/verdicts.db"] = "/portable.db",
     ["0"] = "0", [""] = "0", ["verdicts.db"] = "0",
   }) do
-    local said = Orchestration.portable_verdicts({ COSMIC_VERDICT_CACHE = shared })
+    local said = Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = shared }, "portable")
     assert(said == portable, shared .. ": " .. said)
   end
-  assert(Orchestration.portable_verdicts({}) == "0", "unset")
+  assert(Orchestration.suite_verdicts({}, "portable") == "0", "unset")
+end
+
+--- So does the checked suite, apart from both the local suite's and the
+--- portable suite's.
+local function test_the_checked_suite_keeps_verdicts_of_its_own()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local shared = { COSMIC_VERDICT_CACHE = "/runner/_temp/verdicts/verdicts.db" }
+  assert(Orchestration.suite_verdicts(shared, "checked") ==
+    "/runner/_temp/verdicts/checked.db")
+  assert(Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = "0" }, "checked") == "0")
 end
 
 --- A fixture reads inputs its environment names (COSMIC_FIXTURE_*),
@@ -561,7 +571,7 @@ end
 
 --- The portable suite stands on verdicts where the other suites do --
 --- a Linux leg's push or merge queue run -- on those of its own file
---- (`Orchestration.portable_verdicts`), never the local suite's; where
+--- (`Orchestration.suite_verdicts`), never the local suite's; where
 --- they do not (main's scheduled run), it runs every test.
 local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
   local base, project = command(tmp)

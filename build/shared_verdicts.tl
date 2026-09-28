@@ -270,6 +270,15 @@ function shared_verdicts.census(cache: shared_verdicts.Cache,
   return out, ""
 end
 
+--- The line a run asked for its key parts (`cosmic test --census`)
+--- says where it says no `unmatched` line: the digests (a name and a
+--- digest each, as given, in order) that every key of the run holds.
+function shared_verdicts.key_parts(parts: {{string}}): string
+  local named: {string} = {}
+  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
+  return "test: key parts: " .. table.concat(named, ", ")
+end
+
 --- The line a run says where it looked `looked` tests up in the cache
 --- at `path` and none stood though it holds rows (`census`), with the
 --- digests (a name and a digest each, as given, in order) that every key of

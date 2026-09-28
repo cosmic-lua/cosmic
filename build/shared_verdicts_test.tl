@@ -191,6 +191,19 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   assert(Fs.write(tmp .. "/first/suite/data.txt", "three\n"))
   local edited = said("edited", tmp .. "/first", "4 ran, 1 stood")
   assert(not edited:find("shared verdicts: none of", 1, true), edited)
+  -- Asked (--census), the same edit says it, though its tests ran in
+  -- this checkout before -- CI's checked suite's case, in a checkout
+  -- the local suite ran in -- with the launcher among the parts where
+  -- an artifact runs it.
+  assert(Fs.write(tmp .. "/first/suite/data.txt", "five\n"))
+  local asked = said("asked", tmp .. "/first", "4 ran, 1 stood", { "--census" })
+  assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and
+    asked:find("runtime %x+, compiler %x+, harness %x+") and
+    asked:find("launcher %x+") ~= nil, asked)
+  -- With nothing looked up, it says the parts alone.
+  local parts = said("parts", tmp .. "/first", "0 ran, 5 stood", { "--census" })
+  assert(parts:find("test: key parts: host features %x+, host %x+, system %x+, runtime %x+") and
+    not parts:find("shared verdicts: none of", 1, true), parts)
 end
 
 --- A run that chooses only an edited module runs its tests and says

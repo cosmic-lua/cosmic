@@ -135,7 +135,31 @@ const own_warnings = [_][]const u8{
     "-Wvla",
     "-Wmissing-noreturn",
 };
-const own_c = [_][]const u8{"-std=c11"} ++ own_warnings;
+/// Every C compile's debug information names its directory `.` rather
+/// than the tree root of whichever build first compiled it: zig's object
+/// cache does not key an object by the cwd, so a cached object would
+/// carry an old checkout's path into the checked core, which keeps its
+/// debug information, and move its bytes (and every checked verdict's
+/// key) from one build to the next.
+///
+/// Two paths of the build are left in the checked core. The vendored
+/// trees' own paths, under the project cache's `cosmic-vendor/` (in their
+/// `assert` strings and type names): each directory is named by its
+/// contents, so those are the same from every checkout at one cache
+/// path, which CI's is (COSMIC_ZIG_CACHE_SEED); a checkout's own
+/// `o/zig-cache` names that checkout, as run-local's does.
+// TODO: compile musl's debug information with `.` for its directory,
+// or strip it alone, once zig's libc build takes our flags (zig 0.16
+// builds it in the global cache with none of ours, keyed without the
+// cwd): each musl unit names the tree root of whichever checkout first
+// built libc into zig-global, so the checked core moves, and its suite
+// stands on nothing, on the run that builds musl cold -- a zig pin
+// change, or a leg whose saved caches were all evicted -- and names that
+// run's tree from then on. Building from a fixed cwd (bin/zig starting
+// zig elsewhere than the tree) would do it now, at the cost of every
+// relative path bin/zig and build.zig take.
+const debug_dir = "-fdebug-compilation-dir=.";
+const own_c = [_][]const u8{ "-std=c11", debug_dir } ++ own_warnings;
 
 /// mbedtls's compile-time configuration, which is
 /// `core/mbedtls_cosmic_config.h` and nothing else: that header is named
@@ -943,8 +967,7 @@ fn launcherHelper(
 /// them: a name, a tab and a directory per line. Each directory is named
 /// by its contents, so its path is the same from every checkout.
 fn patchedTrees(b: *std.Build) []const u8 {
-    const manifest = b.option([]const u8, "patched",
-        "the patched vendor trees' manifest bin/zig writes") orelse {
+    const manifest = b.option([]const u8, "patched", "the patched vendor trees' manifest bin/zig writes") orelse {
         std.debug.print("build.zig: no -Dpatched=; run bin/zig build, which patches vendor/ first\n", .{});
         std.process.exit(1);
     };
@@ -1137,6 +1160,7 @@ fn vendorLibrary(
     // raw core (three raw cores per portable artifact).
     const sqlite_flags: []const []const u8 = &.{
         "-std=c11",
+        debug_dir,
         "-DSQLITE_THREADSAFE=0",
         "-DSQLITE_OMIT_LOAD_EXTENSION=1",
         "-DSQLITE_OMIT_SHARED_CACHE=1",
@@ -1170,6 +1194,7 @@ fn vendorLibrary(
         .files = &.{"yyjson.c"},
         .flags = &.{
             "-std=c11",
+            debug_dir,
             "-DYYJSON_DISABLE_INCR_READER=1",
             "-DYYJSON_DISABLE_FILE=1",
             "-DYYJSON_DISABLE_UTILS=1",
@@ -1196,7 +1221,7 @@ fn vendorLibrary(
     // compiler and every Teal-generated chunk run unchanged under it --
     // neither ever assigns an undeclared global -- so there is nothing
     // to trade for the safety.
-    const lua_base = [_][]const u8{ "-std=c11", "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
+    const lua_base = [_][]const u8{ "-std=c11", debug_dir, "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
     const lua_checked = lua_base ++ lua_checks;
     const lua_flags: []const []const u8 =
         if (configuration.sanitize) &lua_checked else &lua_base;
@@ -1214,6 +1239,7 @@ fn vendorLibrary(
         .files = &.{"miniz.c"},
         .flags = &.{
             "-std=c11",
+            debug_dir,
             "-D_XOPEN_SOURCE=700",
             "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
         },
@@ -1236,7 +1262,7 @@ fn vendorLibrary(
             "bzlib.c",   "blocksort.c", "compress.c",  "decompress.c",
             "huffman.c", "crctable.c",  "randtable.c",
         },
-        .flags = &.{ "-std=c11", "-DBZ_NO_STDIO" },
+        .flags = &.{ "-std=c11", debug_dir, "-DBZ_NO_STDIO" },
     });
 
     // xz's liblzma, a decoder-only subset (LZMA1/LZMA2, the delta and
@@ -1278,8 +1304,9 @@ fn vendorLibrary(
             "liblzma/simple/x86.c",
         },
         .flags = &.{
-            "-std=c11",          "-D_XOPEN_SOURCE=700",
-            "-D_DEFAULT_SOURCE", "-DHAVE_CONFIG_H",
+            "-std=c11",            debug_dir,
+            "-D_XOPEN_SOURCE=700", "-D_DEFAULT_SOURCE",
+            "-DHAVE_CONFIG_H",
         },
     });
 
@@ -1287,7 +1314,7 @@ fn vendorLibrary(
     // X.509 layer above it, all under the one configuration header (see
     // `mbedtls_config`). The crypto files below are the ones that hold
     // code under that configuration; every other one compiles to nothing.
-    const mbedtls_flags = [_][]const u8{"-std=c11"} ++ mbedtls_config;
+    const mbedtls_flags = [_][]const u8{ "-std=c11", debug_dir } ++ mbedtls_config;
     const crypto = mbedtls.path(b, "tf-psa-crypto");
     mod.addCSourceFiles(.{
         .root = crypto,
@@ -1369,8 +1396,9 @@ fn vendorLibrary(
     // on macOS. c-ares's own thread support (CARES_THREADS) is off: the
     // core drives one poll loop itself, matching `cosmic.child`.
     const cares_flags = [_][]const u8{
-        "-std=c11",      "-DHAVE_CONFIG_H",
-        "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE",
+        "-std=c11",          debug_dir,
+        "-DHAVE_CONFIG_H",   "-D_GNU_SOURCE",
+        "-D_DEFAULT_SOURCE",
     };
     mod.addCSourceFiles(.{
         .root = cares.path(b, "src/lib"),
@@ -1388,8 +1416,9 @@ fn vendorLibrary(
     // mbedtls's headers, so curl is compiled against the same mbedtls
     // configuration as the library itself.
     const curl_flags = [_][]const u8{
-        "-std=c11",      "-DHAVE_CONFIG_H",   "-DBUILDING_LIBCURL",
-        "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE",
+        "-std=c11",        debug_dir,
+        "-DHAVE_CONFIG_H", "-DBUILDING_LIBCURL",
+        "-D_GNU_SOURCE",   "-D_DEFAULT_SOURCE",
     } ++ mbedtls_config;
     mod.addCSourceFiles(.{
         .root = curl.path(b, "lib"),
@@ -1484,8 +1513,9 @@ fn core(
         .target = target,
         .optimize = coreOptimize(configuration),
         .link_libc = true,
-        // Stripping is what makes two builds at different paths produce
-        // the same bytes: debug info carries the absolute path.
+        // The release cores are stripped. The checked core keeps its debug
+        // information; `debug_dir` and the map's `-g0` keep it naming no
+        // path of the build, so it too is the same bytes at any path.
         // A first link keeps its debug information for the block map to
         // read; it is never installed.
         .strip = !configuration.sanitize and native_coverage != .first_link,
@@ -1534,8 +1564,11 @@ fn core(
     // same order: the table is data and adds none.
     switch (native_coverage) {
         .off => {},
-        .first_link => sources.own.add(mod, &.{"core/coverage_map_empty.c"}, &.{"-std=c11"}),
-        .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{"-std=c11"} }),
+        .first_link => sources.own.add(mod, &.{"core/coverage_map_empty.c"}, &.{ "-std=c11", debug_dir }),
+        // No debug information for the generated map: it is data, and its
+        // file's name is its zig-cache output directory, new on every
+        // relink, which would move the checked core's bytes with it.
+        .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{ "-std=c11", debug_dir, "-g0" } }),
     }
 
     const exe = b.addExecutable(.{
