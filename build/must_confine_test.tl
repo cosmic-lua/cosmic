@@ -9,20 +9,30 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local observations = require("build.filesystem_observations")
+local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's, and the system's `sh`,
---- which the runs it starts start; and what holds a run to sandboxing
---- (`unsandboxed`).
+--- tool's own modules besides the closure's, and whose core the
+--- stand-in the runs it starts start is built from; and what holds a
+--- run to sandboxing (`unsandboxed`).
 Test.needs{
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
-  system = true,
 }
 
 -- What these tests start is this very program.
 observations.confine({ reads = observations.itself() })
+
+--- Makes `root`, a tree for a suite, with a stand-in program
+--- (build/stand_in.tl) at bin/probe for its tests to start, which
+--- declare it: in the tree, since a sandboxed worker has a /tmp of its
+--- own over this test's.
+local function suite_tree(tmp: string, root: string)
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), root .. "/bin/probe"))
+end
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
 --- it printed and whether it passed.
@@ -81,7 +91,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { system = true }
+Test.needs { reads = { "bin/probe" } }
 
 local record Run
   passed: boolean
@@ -139,7 +149,7 @@ end
 --- has since ended.
 local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/suite"))
+  suite_tree(tmp, root)
   assert(Fs.write(root .. "/suite/refused_test.tl", preamble .. [[
 
 --- Refusals are made in a capture of the test's own, whose stand-in
@@ -149,10 +159,10 @@ local function test_passed_over(tmp: string)
   local inner: Run = nil
   refusing(function()
     inner = observations.call(function()
-      observations.must_confine({})
-      local ran, _ = Child.run({ "/bin/sh", "-c", "echo ran > " .. tmp .. "/ran" })
+      observations.must_confine({ reads = { "bin/probe" } })
+      local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
       observations.confine(nil)
-      assert(ran == nil, "an unconfined shell ran in its place")
+      assert(ran == nil, "an unconfined process ran in its place")
     end, nil, { tree = tmp, own = { tmp } })
   end)
   assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
@@ -162,8 +172,8 @@ end
 local function test_raised_too(tmp: string)
   refusing(function()
     observations.call(function()
-      observations.must_confine({})
-      local _, _ = Child.run({ "/bin/sh", "-c", "true" })
+      observations.must_confine({ reads = { "bin/probe" } })
+      local _, _ = Child.run({ "bin/probe", "exit 0" })
       observations.confine(nil)
     end, nil, { tree = tmp, own = { tmp } })
   end)
@@ -174,13 +184,13 @@ local function test_too_many(tmp: string)
   local many: {string} = {}
   for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
   observations.must_confine({ reads = many })
-  local _, _ = Child.run({ "/bin/sh", "-c", "true" })
+  local _, _ = Child.run({ "bin/probe", "exit 0" })
   observations.confine(nil)
 end
 
 local function test_pledged_alone()
-  observations.must_confine({})
-  local _, _ = raw().spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil, false,
+  observations.must_confine({ reads = { "bin/probe" } })
+  local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
     nil, { pledge = {} })
   observations.confine(nil)
 end
@@ -188,27 +198,27 @@ end
 local function test_stale(tmp: string)
   local taken: any = nil
   observations.call(function() taken = raw().spawn end, nil, { tree = tmp, own = { tmp } })
-  observations.must_confine({})
+  observations.must_confine({ reads = { "bin/probe" } })
   local spawn = taken as function(string, {string}, any, any, any, any, any, boolean): any
-  local _ = spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil, false)
+  local _ = spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false)
   observations.confine(nil)
 end
 ]]))
   local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
   assert(not ok, text)
-  local refused = "must_confine: /bin/sh could not start confined: unveil and offline " ..
+  local refused = "must_confine: bin/probe could not start confined: unveil and offline " ..
     "could not be applied: Operation not permitted (EPERM)"
   assert(failure(text, "test_passed_over") == refused, text)
   local raised = assert(failure(text, "test_raised_too"))
   assert(raised:sub(1, #refused + 12) == refused .. "; and then: " and
     raised:find("its own failure$"), text)
-  assert(assert(failure(text, "test_too_many")):find("^must_confine: /bin/sh could not start " ..
+  assert(assert(failure(text, "test_too_many")):find("^must_confine: bin/probe could not start " ..
     "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
     "%(EINVAL%)$"), text)
-  assert(assert(failure(text, "test_pledged_alone")):find("^must_confine: /bin/sh could not " ..
+  assert(assert(failure(text, "test_pledged_alone")):find("^must_confine: bin/probe could not " ..
     "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
     "not unveil and take the network, which must_confine does not add to %(EINVAL%)$"), text)
-  assert(assert(failure(text, "test_stale")):find("^must_confine: /bin/sh could not start " ..
+  assert(assert(failure(text, "test_stale")):find("^must_confine: bin/probe could not start " ..
     "confined: unveil and offline could not be applied: started through a spawn taken " ..
     "while an earlier capture ran %(EINVAL%)$"), text)
 end
@@ -221,7 +231,7 @@ end
 --- with it. It never runs unconfined.
 local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
-  assert(Fs.mkdirs(root .. "/suite"))
+  suite_tree(tmp, root)
   assert(Fs.mkdirs(hidden))
   assert(Fs.write(hidden .. "/f", "secret"))
   assert(Fs.write(root .. "/suite/data.txt", "in"))
@@ -231,7 +241,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { system = true }
+Test.needs { reads = { "bin/probe" } }
 
 local record Run
   passed: boolean
@@ -245,16 +255,17 @@ end
 local observations = package.loaded["build.filesystem_observations"] as Observations
 
 local function test_confined(tmp: string)
-  observations.must_confine({ reads = { %q } })
-  local r, _ = Child.run({ "/bin/sh", "-c",
-    "test -e %s/f && exit 3; cat %s > out; " ..
-    "if test -r /proc/self/net/dev; then grep -c : /proc/self/net/dev >> out; fi" },
-    { cwd = tmp })
+  local probe = assert(Fs.absolute("bin/probe"))
+  observations.must_confine({ reads = { %q, probe } })
+  local r, _ = Child.run({ probe,
+    "exists %s/f 3; copy %s out; " ..
+    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
+    { cwd = tmp, stdout = "capture" })
   observations.confine(nil)
   if r == nil then return end -- refused: the run says why
-  assert(r.code == 0, "the confined shell exited " .. tostring(r.code))
+  assert(r.code == 0, "the confined process exited " .. tostring(r.code))
   local out = assert(Fs.read(tmp .. "/out"))
-  assert(out == "in" or out == "in1\n", out)
+  assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
 end
 ]], real, hidden, real)))
   local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
@@ -263,7 +274,7 @@ end
     return
   end
   local why = text:match("FAIL  suite%.real_test test_confined: ([^\n]*)")
-  assert(why ~= nil and why:find("^must_confine: /bin/sh could not start confined: .+ could " ..
+  assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
     "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
   if unsandboxed(text) then return end
   assert(Env.get("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. why)
@@ -277,9 +288,14 @@ end
 --- test that confines.
 local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/suite"))
+  suite_tree(tmp, root)
   assert(Fs.write(root .. "/suite/fallback_test.tl", [[
 local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.needs { reads = { "bin/probe" } }
+
 local record Run
   passed: boolean
 end
@@ -292,11 +308,13 @@ end
 local observations = package.loaded["build.filesystem_observations"] as Observations
 
 local function test_falls_back(tmp: string)
-  local many: {string} = {}
-  for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
+  local probe = assert(Fs.absolute("bin/probe"))
+  local many: {string} = { probe }
+  for i = 1, 300 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
   observations.confine({ reads = many })
-  local _, _ = Child.run({ "/bin/sh", "-c", "true" })
+  local r = assert(Child.run({ probe, "exit 0" }))
   observations.confine(nil)
+  assert(r.ok, "the process it fell back to did not run")
 end
 ]]))
   local text, ok = run(root, tmp .. "/first", environment(nil))
@@ -308,8 +326,8 @@ end
     1, true), text)
   text, ok = run(root, tmp .. "/must", environment("must"))
   assert(not ok, text)
-  assert(text:find("FAIL  suite.fallback_test test_falls_back: confine (COSMIC_SANDBOX=must): " ..
-    "/bin/sh could not start confined: unveil could not be applied: ", 1, true), text)
+  assert(text:find("FAIL  suite%.fallback_test test_falls_back: confine %(COSMIC_SANDBOX=must%): " ..
+    "%S*bin/probe could not start confined: unveil could not be applied: "), text)
   text, ok = run(root, tmp .. "/misspelt", environment("Must"))
   assert(not ok and text:find('COSMIC_SANDBOX is "Must"', 1, true), text)
 end

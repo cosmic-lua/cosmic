@@ -21,8 +21,9 @@ local observations = require("build.filesystem_observations")
 local refresh = require("build.refresh")
 
 --- The vendored bundle and zones a refresh replaces, and the tool it
---- refreshes, whose launcher the system's `sh` runs.
-Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true, system = true }
+--- refreshes, run as a host program of this program's core: the kernel
+--- runs it, with no launcher of the system's `sh` to run.
+Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true }
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 local zones <const> = "vendor/tzdata/zoneinfo"
@@ -39,12 +40,15 @@ for _, dataset in ipairs(refresh.datasets) do
   datasets[dataset.name] = dataset
 end
 
---- A program `cosmic build` wrote under `tmp`, which prints "ok".
-local function program(tmp: string): string
+--- A program `cosmic build` wrote under `tmp`, which prints "ok": a
+--- portable one, or with `host` one of this host's alone
+--- (`cosmic build --host`), which a test runs with nothing of the
+--- system's.
+local function program(tmp: string, host?: boolean): string
   local tree = tmp .. "/tree"
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
-  assert(embed.tree(tree))
+  assert(embed.tree(tree, host))
   return tree .. "/o/bin/ok"
 end
 
@@ -99,7 +103,7 @@ end
 --- A different bundle replaces the roots, records the release it came
 --- from, and leaves a program that still runs.
 local function test_a_new_bundle_replaces_the_roots(tmp: string)
-  local path = program(tmp)
+  local path = program(tmp, true)
   local pem = assert(Fs.read(bundle))
   -- The bundle less its last certificate.
   local last = pem:match(".*()\n[^\n]+\n=+\n%-%-%-%-%-BEGIN CERTIFICATE")
@@ -225,7 +229,12 @@ end
     assert(result ~= nil, tostring(trouble) .. text)
     return result.ok, text
   end
-  local itself = assert(Proc.executable())
+  -- This program, as a host program of its own core, which the kernel
+  -- runs past any launcher.
+  local parts = assert(artifact.split((assert(Fs.read((assert(Proc.executable())))))))
+  local itself = tmp .. "/cosmic"
+  assert(Fs.write(itself, assert(artifact.host_program(assert(artifact.trusted_core()),
+    parts.database)), 0x1ed))
   local ok, text = run(itself, "first")
   assert(ok and text:find("1 ran, 0 stood", 1, true), text)
   ok, text = run(itself, "again")

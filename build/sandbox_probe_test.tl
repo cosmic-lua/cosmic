@@ -2,14 +2,9 @@ local SandboxProbe = require("build.sandbox_probe")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- What the probe reads of the host, and the shell it starts under each
---- sandbox, which inherits the environment: it asks what the host holds.
-Test.needs{
-  host = { "/proc" },
-  env = { "*" },
-  processes = true,
-  system = true,
-}
+--- Nothing beyond the closure: the probe's own run, whose shell needs
+--- the system's paths, is build/sandbox_probe_run_test.tl's.
+Test.needs{}
 
 --- A report of a host where every part held but the unveiling.
 local function without_unveil(): SandboxProbe.Report
@@ -51,19 +46,4 @@ local function test_an_errno_is_named()
   assert(SandboxProbe.errno_name(sys.EPERM) == "EPERM")
   assert(SandboxProbe.errno_name(sys.ENOSYS) == "ENOSYS")
   assert(SandboxProbe.errno_name(-7) == "errno -7")
-end
-
---- Every part is tried, and each either held or says why not.
-local function test_every_part_is_tried(tmp: string)
-  local report = SandboxProbe.run(tmp)
-  local names: {string} = {}
-  for _, part in ipairs(report.parts) do
-    names[#names + 1] = part.name
-    assert(part.held == (part.said == "held") and part.said ~= "", part.name .. ": " .. part.said)
-  end
-  assert(table.concat(names, ",") ==
-    "landlock,pledge,offline,unveil,unveil + offline (a confined test)," ..
-    "unveiled: a pid namespace of its own,unveiled: a /proc of its own,all four",
-    table.concat(names, ","))
-  assert(#report.host > 0)
 end

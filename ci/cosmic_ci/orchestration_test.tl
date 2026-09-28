@@ -229,8 +229,9 @@ end
 --- hold, and passes where they did; without it (a local run) it passes
 --- either way. It writes the report to the summary in every case. Like
 --- every operation on such a leg, the probe runs with each `cosmic test`
---- worker required sandboxed (COSMIC_TEST_SANDBOX=1), and without it
---- where the leg does not require it.
+--- worker required sandboxed (COSMIC_TEST_SANDBOX=1) and each confine
+--- of a test held to confining (COSMIC_SANDBOX=must), and without
+--- either where the leg does not require it.
 local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
@@ -243,20 +244,22 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '| Part |\\n\\n" ..
-      case.said .. "\\nswitch=%s.\\n' \"$COSMIC_TEST_SANDBOX\"\n", 493)
+      case.said .. "\\nswitch=%s mode=%s.\\n' \"$COSMIC_TEST_SANDBOX\" \"$COSMIC_SANDBOX\"\n", 493)
     local summary = runner_temp .. "/summary.md"
     local outcome = Fixture.call("sandbox-" .. case.name, append(base, { "platform", "sandbox" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", GITHUB_STEP_SUMMARY = summary,
         COSMIC_CI_REQUIRE_SANDBOX = case.require,
-        -- The switch this suite runs under (ci.yml's driver check sets
-        -- it to 0) is none of the leg's the driver is given.
-        COSMIC_TEST_SANDBOX = "",
+        -- Unset for the driver, whatever this test's own run was given
+        -- (a developer's COSMIC_TEST_SANDBOX=0, or ci.yml's driver
+        -- check's; build/test_inputs.tl pins COSMIC_SANDBOX): the leg
+        -- sets each, or leaves it.
+        COSMIC_TEST_SANDBOX = "", COSMIC_SANDBOX = "",
       }))
     assert(outcome.result.ok == case.ok, "the sandbox phase answered " ..
       tostring(outcome.result.ok) .. " where the probe said " .. case.said)
     Fixture.contains(summary, case.said)
-    Fixture.contains(summary, case.require == "1" and "switch=1." or "switch=.")
+    Fixture.contains(summary, case.require == "1" and "switch=1 mode=must." or "switch= mode=.")
     if not case.ok then Fixture.contains(outcome.err, "cannot confine a test") end
   end
 end
@@ -605,6 +608,7 @@ end
 --- it sets the variable itself, in its own child's environment.
 local sets_what_it_reads: {string:boolean} = {
   ["build/place_tree_test.tl"] = true,
+  ["build/save_unless_descendant_test.tl"] = true,
 }
 
 --- No tree source names a variable a gating suite's workers are not

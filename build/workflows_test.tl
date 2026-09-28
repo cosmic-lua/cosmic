@@ -563,44 +563,87 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
     end
   end
   assert(named, "the host-id step names no verdict cache by the host's features")
-  assert(cached == 2, "restore and save: " .. cached)
+  assert(cached == 3, "restore, the lookup before the save, and save: " .. cached)
 end
 
---- A push to main saves its legs' verdicts, and their compiles, only
---- while its commit is still main's head, read by a step before the
---- save: a restore takes the newest save, not the newest commit's, and
---- main's runs finish out of order (3c6df8333's alpine-x86_64 leg saved
---- after b6508ab77's, and the two main runs after stood on none of 1892
---- verdicts).
-local function test_a_main_push_saves_verdicts_and_compiles_only_at_main_head()
+--- A push to main saves its legs' verdicts, and their compiles, unless
+--- the newest entry a restore would take was saved from a descendant of
+--- its commit: a restore takes the newest save, not the newest
+--- commit's, and main's runs finish out of order (3c6df8333's
+--- alpine-x86_64 leg saved after b6508ab77's, and the two main runs
+--- after stood on none of 1892 verdicts). So each save's key ends in the
+--- commit, the run and the attempt that save-unless-descendant.sh reads
+--- back, a lookup of the same key and prefix finds the newest entry
+--- just before the save, and a step of the script's between them says
+--- whether to save, which each save turns on. Saving only at main's
+--- head, as before, threw away the work of every run a merge overtook
+--- (run 36358036690's 1941 verdicts under keys just moved).
+local function test_a_main_push_saves_unless_a_newer_commit_saved_first()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
-  local head: integer
-  local saves: {string: integer} = {}
-  for i, step in ipairs(jobs.platform.steps as {{string: any}}) do
-    if step.id == "main-head" then
-      head = i
-      assert((step.run as string):find(".github/scripts/main-head.sh", 1, true) ~= nil,
-        "the main-head step runs no .github/scripts/main-head.sh")
+  local steps = jobs.platform.steps as {{string: any}}
+  local ending = "${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+  for _, path in ipairs({ "${{ runner.temp }}/verdicts", "${{ runner.temp }}/build-cache" }) do
+    local lookup, check, save, back: integer, integer, integer, integer
+    local lookup_prefix, save_key: string, string
+    local lookup_id, check_id: string, string
+    for i, step in ipairs(steps) do
+      local uses = step.uses as string or ""
+      local with = step.with as {string: any}
+      if step.name == "move the tree back to where it was checked out" then back = i end
+      if with ~= nil and with.path == path and uses:find("actions/cache/restore@", 1, true) ~= nil and
+          with["lookup-only"] == true then
+        lookup, lookup_id = i, step.id as string
+        assert(lookup_id ~= nil, "the lookup of " .. path .. " has no id")
+        assert((with.key as string):sub(-#ending) == ending,
+          "the lookup of " .. path .. " is not keyed as the save is: " .. (with.key as string))
+        lookup_prefix = with["restore-keys"] as string
+      end
+      local run = step.run
+      local env = step.env as {string: string}
+      if lookup_id ~= nil and run is string and
+          run:find(".github/scripts/save-unless-descendant.sh", 1, true) ~= nil and env ~= nil and
+          (env.KEY or ""):find("steps." .. lookup_id .. ".outputs.cache-matched-key", 1, true) ~= nil then
+        check, check_id = i, step.id as string
+        assert(check_id ~= nil, "the check of " .. path .. " has no id")
+      end
+      if with ~= nil and with.path == path and uses:find("actions/cache/save@", 1, true) ~= nil then
+        save, save_key = i, with.key as string
+        local condition = step["if"] as string
+        assert((with.key as string):sub(-#ending) == ending,
+          "the save of " .. path .. " names no commit where the check reads one: " ..
+          (with.key as string))
+        assert(check_id ~= nil and
+          condition:find("steps." .. check_id .. ".outputs.save != 'false'", 1, true) ~= nil,
+          "the save of " .. path .. " does not turn on its check: " .. condition)
+        assert(condition:find("github.event_name != 'merge_group'", 1, true) ~= nil,
+          "the save of " .. path .. " saves from the merge queue: " .. condition)
+        -- A red run saves no compiles it stopped short of.
+        assert(path ~= "${{ runner.temp }}/build-cache" or
+          condition:find("steps.release-suite.outcome == 'success'", 1, true) ~= nil,
+          "the save of compiles does not turn on the native build: " .. condition)
+      end
     end
-    local uses = step.uses
-    local path = step.with ~= nil and (step.with as {string: string}).path or nil
-    if uses is string and uses:find("actions/cache/save@", 1, true) ~= nil and
-        (path == "${{ runner.temp }}/verdicts" or path == "${{ runner.temp }}/build-cache") then
-      saves[path] = i
-      local condition = step["if"] as string
-      assert(condition:find("steps.main-head.outputs.head != 'false'", 1, true) ~= nil,
-        "the save of " .. path .. " does not turn on main's head: " .. condition)
-      -- A red run at main's head saves no compiles it stopped short of.
+    -- The check fetches from origin, with the credentials actions/checkout
+    -- left at the path it checked the tree out at.
+    assert(back ~= nil and lookup ~= nil and back < lookup,
+      "the newest entry of " .. path .. " is looked up before the tree is back: " ..
+      tostring(back) .. ", " .. tostring(lookup))
+    assert(save_key ~= nil and lookup_prefix == save_key:sub(1, -#ending - 1) .. "\n",
+      "the lookup of " .. path .. " finds the newest entry of another prefix than the save's: " ..
+      tostring(lookup_prefix) .. " for " .. tostring(save_key))
+    assert(lookup ~= nil and check ~= nil and save ~= nil and lookup < check and check < save,
+      "the newest entry of " .. path .. " is not looked up, then checked, before the save: " ..
+      tostring(lookup) .. ", " .. tostring(check) .. ", " .. tostring(save))
+    for _, at in ipairs({ lookup, check }) do
+      local condition = steps[at]["if"] as string
+      assert(condition:find("github.ref == 'refs/heads/main' && github.event_name == 'push'",
+        1, true) ~= nil, "a step of the save rule runs off a push to main: " .. condition)
+      -- No lookup, nor fetch, for compiles a red run cannot save.
       assert(path ~= "${{ runner.temp }}/build-cache" or
         condition:find("steps.release-suite.outcome == 'success'", 1, true) ~= nil,
-        "the save of compiles does not turn on the native build: " .. condition)
+        "a step of the compiles' save rule runs where the save cannot: " .. condition)
     end
-  end
-  for _, path in ipairs({ "${{ runner.temp }}/verdicts", "${{ runner.temp }}/build-cache" }) do
-    assert(head ~= nil and saves[path] ~= nil and head < saves[path],
-      "main's head is read after the save of " .. path .. ", or not at all: " ..
-      tostring(head) .. ", " .. tostring(saves[path]))
   end
 end
 
