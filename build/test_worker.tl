@@ -146,7 +146,7 @@ local HEADER <const> = "cosmic-test-report-2"
 --- test's. No key holds them by what they are: every sandboxed key
 --- holds the harness's epoch in their place (build/harness_epoch.tl),
 --- and the harness's digest, which build/harness_epoch_test.tl holds to
---- the one acknowledged there, holds each by its source
+--- the one acknowledged there, holds each by its source and bytecode
 --- (`build.test`'s `harness`). `judge` fails a sandboxed test whose
 --- worker loaded a module of the tree the tool carries that is neither
 --- here nor in its closure, so what a worker runs is in its closure or

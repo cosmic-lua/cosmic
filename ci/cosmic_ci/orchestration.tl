@@ -17,7 +17,7 @@ local Time = require("cosmic.time")
 
 local record Orchestration
   stands: function(env: {string:string}): boolean
-  harness_moved: function(root: string, base: string): boolean
+  harness_moved: function(root: string, base: string): boolean, string
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string})
   fixture: function(env: {string:string}, tmpdir: string): {string:string}
@@ -94,32 +94,68 @@ end
 --- acknowledged of it (build/harness_epoch.tl).
 local epoch_file <const> = "build/harness_epoch.tl"
 
+--- How long a git command `harness_moved` runs may take: a local
+--- lookup, or a fetch of one commit.
+local git_timeout_ms <const> = 60 * 1000
+
+--- Runs git in the checkout at `root`, never asking for credentials
+--- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ms`: what it
+--- printed, or nil and why it failed, its own stderr among it.
+local function git(root: string, words: {string}): string | nil, string
+  local argv = { "/usr/bin/env", "git", "-C", root }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local env = Env.all()
+  env.GIT_TERMINAL_PROMPT = "0"
+  local result, trouble = Child.run(argv, { env = env, stdout = "capture",
+    stderr = "capture", timeout_ms = git_timeout_ms })
+  if result == nil then return nil, "git " .. words[1] .. ": " .. trouble end
+  if result.timed_out then
+    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ms // 1000) .. " s"
+  end
+  if not result.ok then
+    return nil, "git " .. words[1] .. ": exit " .. tostring(result.code) .. ": " ..
+      ((result.stderr or ""):gsub("%s+$", ""))
+  end
+  return result.stdout or "", ""
+end
+
 --- The git object `revision:path` names in the checkout at `root`, or
---- nil where there is none: no such commit here, or no such file in it.
-local function blob(root: string, revision: string, path: string): string | nil
-  local result = Child.run({ "/usr/bin/env", "git", "-C", root, "rev-parse", "--verify",
-    "--quiet", revision .. ":" .. path }, { stdout = "capture", stderr = "null" })
-  if result == nil or not result.ok then return nil end
-  return (result.stdout or ""):match("^(%x+)\n?$")
+--- nil and why where there is none: no such commit here, or no such
+--- file in it.
+local function blob(root: string, revision: string, path: string): string | nil, string
+  local out, trouble = git(root, { "rev-parse", "--verify", revision .. ":" .. path })
+  if out == nil then return nil, trouble end
+  local object = out:match("^(%x+)\n?$")
+  if object == nil then return nil, "git rev-parse: no object for " .. revision .. ":" .. path end
+  return object, ""
 end
 
 --- Whether build/harness_epoch.tl differs between the commit `base`
---- names and HEAD in the checkout at `root`: the merge queue's base
---- commit (ci.yml's COSMIC_CI_BASE_SHA) and the merge it checks. A
---- shallow checkout lacks the base: it is fetched, the one commit.
---- True where either cannot be read -- no base named, no git, a fetch
---- refused, a file added -- which runs every test: the safe side.
-function Orchestration.harness_moved(root: string, base: string): boolean
-  if root == "" or not base:match("^%x+$") then return true end
-  local now = blob(root, "HEAD", epoch_file)
-  if now == nil then return true end
-  local was = blob(root, base, epoch_file)
-  if was == nil then
-    local _, _ = Child.run({ "/usr/bin/env", "git", "-C", root, "fetch", "--quiet",
-      "--no-tags", "--depth=1", "origin", base }, { stdout = "null", stderr = "null" })
-    was = blob(root, base, epoch_file)
+--- names and HEAD in the checkout at `root`, and why: the merge queue's
+--- base commit (ci.yml's COSMIC_CI_BASE_SHA) and the merge it checks. A
+--- checkout that lacks the base -- a shallow one -- fetches that one
+--- commit. True where either cannot be read -- no base named, no git,
+--- a fetch refused or timed out, a file added -- which runs every
+--- test: the safe side; the why says what failed.
+function Orchestration.harness_moved(root: string, base: string): boolean, string
+  if root == "" then return true, "no checkout named (GITHUB_WORKSPACE)" end
+  if not base:match("^%x+$") then
+    return true, "no merge queue base named (COSMIC_CI_BASE_SHA=" .. base .. ")"
   end
-  return was ~= now
+  local now, now_trouble = blob(root, "HEAD", epoch_file)
+  if now == nil then return true, "cannot read HEAD's " .. epoch_file .. ": " .. now_trouble end
+  local was, was_trouble = blob(root, base, epoch_file)
+  if was == nil then
+    local _, fetch_trouble = git(root, { "fetch", "--quiet", "--no-tags", "--depth=1",
+      "origin", base })
+    was, was_trouble = blob(root, base, epoch_file)
+    if was == nil then
+      return true, "cannot read " .. base .. "'s " .. epoch_file .. ": " .. was_trouble ..
+        (fetch_trouble ~= "" and ("; " .. fetch_trouble) or "")
+    end
+  end
+  if was ~= now then return true, epoch_file .. " differs from " .. base .. "'s" end
+  return false, epoch_file .. " is " .. base .. "'s"
 end
 
 --- What `harness_moved` answered of each checkout and base, asked once
@@ -135,7 +171,10 @@ local function decide_harness(env: {string:string})
   local root, base = env.GITHUB_WORKSPACE or "", env.COSMIC_CI_BASE_SHA or ""
   local asked = root .. "\0" .. base
   if moved_by_base[asked] == nil then
-    moved_by_base[asked] = Orchestration.harness_moved(root, base)
+    local moved, why = Orchestration.harness_moved(root, base)
+    moved_by_base[asked] = moved
+    Fs.put(Fs.stderr, "merge queue: " .. (moved and "every suite runs every test (--all): "
+      or "suites stand on verdicts: ") .. why .. "\n")
   end
   env.COSMIC_CI_HARNESS_MOVED = moved_by_base[asked] and "1" or "0"
 end

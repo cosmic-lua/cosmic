@@ -360,7 +360,8 @@ local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: 
     COSMIC_CI_REQUIRE_SANDBOX = "1", GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base })
   assert(table.concat(words, " ") == "test --all", "a merge queue run that moves the epoch")
   -- A base it cannot read, or none, is taken as a move.
-  assert(Orchestration.harness_moved(root, string.rep("0", 40)), "a base that is no commit")
+  local unread, why = Orchestration.harness_moved(root, string.rep("0", 40))
+  assert(unread and why:find("git ", 1, true), "a base that is no commit: " .. why)
   assert(Orchestration.harness_moved(root, ""), "no base")
   assert(Orchestration.harness_moved(tmp .. "/none", base), "no checkout")
   -- ci.yml names the base, and checks out the merge's parent with it.

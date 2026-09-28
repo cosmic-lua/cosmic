@@ -107,7 +107,7 @@
 --- the epoch moves with it; so, too, does a pass a test earned through
 --- a hole in its sandbox, where a fix that tightens a hold or a bind
 --- moves no other part of its key. build/harness_epoch_test.tl holds the
---- harness's digest, over each of its modules' sources, to the one
+--- harness's digest, over each of its modules' source and bytecode, to the one
 --- build/harness_epoch.tl acknowledges, so no edit to it lands without
 --- that choice made, and CI's merge queue runs every test for a change
 --- that makes it. That holds what build.test decides of a worker's
@@ -299,7 +299,7 @@ end
 --- epoch (build/harness_epoch.tl), which every key holds (above).
 --- build/declared_key_pins_test.tl pins that graph key over a fixed
 --- tree, and fails, naming this, when an edit moves it.
-local version <const> = "declared-3"
+local version <const> = "declared-4"
 
 --- A file modified this recently may be modified again within the same
 --- timestamp tick, which `lstat` would not tell: hashed again rather

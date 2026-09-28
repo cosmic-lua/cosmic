@@ -9,7 +9,7 @@
 --- can alter a pass or a fail.
 ---
 --- `acknowledged` is the digest of that code as it was when the choice
---- was last made (`build.test`'s `harness`, over each module's source):
+--- was last made (`build.test`'s `harness`, over each module's source and bytecode):
 --- build/harness_epoch_test.tl fails when the tree's differs, printing
 --- the digest to set it to, and asks whether to bump `epoch` too: yes
 --- where the change can alter what a worker is given, how it is judged
@@ -27,6 +27,6 @@ local record harness_epoch
 end
 
 harness_epoch.epoch = 1
-harness_epoch.acknowledged = "577cdb82c984cb787cd3dabce0f7d35fcaeb6697ad84daae308dca6043d3ce14"
+harness_epoch.acknowledged = "c3f26c60f0044643efd04a3bd8a3201f6cec1a892924f783a9c2613f47d5dd47"
 
 return harness_epoch

@@ -557,7 +557,10 @@ importer runs on is in neither, so an edit there reaches what
 imports it and nothing more. a row compiled by another compiler is
 never mistaken for this one's. a sandboxed test's key holds what the
 compiler made rather than its identity -- the bytecode and rows of
-the store of the test's import closure, and the harness's epoch --
+the store of the test's import closure, and the harness's epoch,
+which a guard test holds to a digest of the harness's sources and
+bytecode, so a compiler that compiles the harness otherwise asks for a
+bump or an acknowledgment and runs every test in the merge queue --
 so an edit to the importer that compiles every module as before runs
 again only the tests whose closure holds or reads the compiler
 (`build/declared_key.tl`).

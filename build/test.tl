@@ -1640,11 +1640,17 @@ end
 --- What of the running binary a run holds of the code a worker runs,
 --- or that writes what it is given (`binary_harness`).
 local record Harness
-  --- The digest of the test harness over each module's source
-  --- (`test.harness`), which build/harness_epoch.tl's `acknowledged`
-  --- records: what a worker runs, and the code that makes and reads
-  --- its key. No key holds it; each holds the epoch in its place.
+  --- The digest of the test harness over each module's source and
+  --- bytecode (`test.harness`), which build/harness_epoch.tl's
+  --- `acknowledged` records: what a worker runs, and the code that
+  --- makes and reads its key. No key holds it; each holds the epoch in
+  --- its place.
   digest: string
+  --- The modules the digest holds, and those of them the harness runs
+  --- -- what every worker loads and `harness_own` -- whose requires
+  --- build/harness_epoch_test.tl holds to `names`.
+  names: {string}
+  runs: {string}
   --- The digest of the code that writes a closure store, which salts
   --- each store's address (`build.closure_store`'s `address`).
   store_salt: string
@@ -1665,11 +1671,24 @@ end
 --- its closure's names, which the store's address holds, whether it may
 --- run this program (`Spec.runs_tool`), and its timeout -- or what
 --- `key_code` holds: the names of the tree's modules and declarations,
---- which decide what a worker's holds refuse. None of it is keyed by
+--- which decide what a worker's holds refuse. The plan's maker is
+--- build.test_sandbox and the tree modules it requires: build.caches,
+--- which says where each declared host cache is bound from and makes
+--- it, and build.zig_caches, where zig's are. None of it is keyed by
 --- its code: the epoch stands for it (build/harness_epoch.tl), and an
 --- edit to it fails build/harness_epoch_test.tl until the epoch is
---- bumped or the edit acknowledged.
-local harness_own <const>: {string} = { "build.test_sandbox" }
+--- bumped or the edit acknowledged; that test also fails where a module
+--- here or in `worker.loads` requires one of the tree the harness does
+--- not name.
+-- TODO: key the sandbox's plan as data -- its unveils and binds, with
+-- the tree, the scratch directory and the host caches named relative to
+-- what they stand for, and its environment -- rather than leaving it to
+-- the epoch, once `held` and the caches' binds name no host location:
+-- then a change to a hold or a bind moves every key it touches by
+-- itself, where today it moves none unless someone bumps the epoch by
+-- hand.
+local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
+  "build.zig_caches" }
 
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of
@@ -1758,10 +1777,11 @@ end
 --- build/harness_epoch_test.tl reads -- by their `modules` and `imports`
 --- rows. Each module of the harness -- what a worker loads,
 --- `harness_own` and `key_code`, but build.harness_epoch, which records
---- the digest -- is held by its name and its source's hash alone, so
---- the digest is the same wherever the tree is and whatever compiled
---- it; each the salt holds (`store_code`) by its source's and its
---- bytecode's, as the store's bytes follow from both. Nil and why where
+--- the digest -- is held by its name, its source's hash and its
+--- bytecode's, so the digest is the same wherever the tree is, and a
+--- compiler that makes other bytecode of the same source moves it as
+--- an edit does; so is each the salt holds (`store_code`), as the
+--- store's bytes follow from both. Nil and why where
 --- a module either names is none `db` carries, which the digest or the
 --- salt would otherwise leave out unnoticed.
 function test.harness(db: Sqlite.Handle): Harness | nil, string
@@ -1786,6 +1806,10 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
     list[#list + 1] = row[2]
   end
   local names: {string} = {}
+  local runs: {string} = {}
+  for _, list in ipairs({ worker.loads, harness_own }) do
+    for _, name in ipairs(list) do runs[#runs + 1] = name end
+  end
   for _, list in ipairs({ worker.loads, harness_own, key_code(imports) }) do
     for _, name in ipairs(list) do
       if sources[name] == nil then
@@ -1801,7 +1825,7 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
       return nil, name .. ", which writes a closure store, is no module the binary carries"
     end
   end
-  return { digest = declared_key.harness(names, sources),
+  return { digest = declared_key.harness(names, compiled), names = names, runs = runs,
     store_salt = declared_key.harness(salted, compiled), carried = carried }, ""
 end
 

@@ -92,13 +92,17 @@
    `epoch` in `build/harness_epoch.tl`, not by its source, so an edit
    to it reruns only the tests that import it; but
    `build/harness_epoch_test.tl` fails, printing the harness's new
-   digest, until `acknowledged` there is set to it. Bump `epoch` in the
+   digest (its modules' sources and bytecode, so a compiler change that
+   compiles the harness otherwise moves it too), until `acknowledged`
+   there is set to it. Bump `epoch` in the
    same edit where the change can alter a pass or a fail: what a worker
    is given, how it is judged, how a key is computed, and a sandbox's
    hold or bind tightened (a soundness fix that moves no other part of a
    key, so a pass earned through the hole does not stand). A
    merge-queue run whose change moves that file runs every test
-   (`--all`). A test whose module declares the network has no
+   (`--all`). `COSMIC_TEST_HARNESS_EPOCH` stands in for a bump in the
+   tests of the runner alone (`build/sandboxed_verdicts_test.tl`);
+   never set it to run a suite. A test whose module declares the network has no
    key: it runs every time, and the summary counts it so -- unless it
    declares only loopback hosts (`localhost`, `::1`, `127.a.b.c`), whose
    worker runs offline, on a loopback of its own, and is keyed. A

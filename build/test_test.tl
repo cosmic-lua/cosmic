@@ -820,7 +820,7 @@ end
 
 --- The harness's digest, which build/harness_epoch.tl acknowledges,
 --- is what a worker runs and the code that makes and reads a key, each
---- by its source; a closure store's address is salted by what writes
+--- by its source and bytecode; a closure store's address is salted by what writes
 --- it and what that requires, by source and bytecode. So an edit to the
 --- runner, to how a key is computed or to how a verdict is looked up
 --- under one moves the digest, a comment's too, and fails
@@ -833,9 +833,7 @@ end
 --- starts a worker ahead of it (cmd/cosmic/main.tl), nor one to the
 --- projection's writer, whose edits reach a store only through the
 --- rows and orderings its address digests (build/closure_store_test.tl
---- holds that), nor what the compiler made of the harness, which the
---- digest leaves to the source, nor build.harness_epoch, which records
---- the digest.
+--- holds that), nor build.harness_epoch, which records the digest.
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
@@ -852,7 +850,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, row in ipairs(imports) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
   end
-  local others = { "build.test_sandbox", "build.closure_store", "build.writer",
+  local others = { "build.test_sandbox", "build.caches", "build.zig_caches",
+    "build.closure_store", "build.writer",
     "build.schema", "build.importer", "build.analyzer", "cosmic.sqlite", "cosmic.sys" }
   local function set(name: string, source: string, bytecode: string)
     assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))
@@ -876,7 +875,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
                           "build.artifact", "build.test_worker", "build.test_sandbox",
                           "cmd.cosmic.main", "build.filesystem_observations", "build.confine",
-                          "build.test_inputs", "cosmic.store", "cosmic.removed" }) do
+                          "build.test_inputs", "cosmic.store", "cosmic.removed",
+                          "build.caches", "build.zig_caches" }) do
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer",
@@ -897,10 +897,21 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   -- build.bind reads the shared verdicts' rows; a closure store's writer
   -- binds its own.
   assert(edited("build.bind") == "harness", "build.bind moved " .. edited("build.bind"))
-  -- What the compiler made of the same source moves the salt alone.
+  -- What the compiler made of the same source moves each that holds it:
+  -- a compiler whose codegen moved can change what a worker runs.
   local recompiled = moves("cosmic.sqlite", "return 'a key'\n", "other bytecode")
-  assert(recompiled == "store", "a recompile moved " .. recompiled)
-  assert(moves("build.test", "return 'a key'\n", "other bytecode") == "")
+  assert(recompiled == "harnessstore", "a recompile moved " .. recompiled)
+  recompiled = moves("build.test", "return 'a key'\n", "other bytecode")
+  assert(recompiled == "harness", "a recompile moved " .. recompiled)
+  assert(moves("build.writer", "return 'a key'\n", "other bytecode") == "")
+  -- The harness's modules are named, and those it runs apart.
+  local named: {string:boolean} = {}
+  for _, name in ipairs(before.names) do named[name] = true end
+  assert(named["build.caches"] and named["build.zig_caches"] and named["build.test"] and
+    not named["build.harness_epoch"])
+  local runs: {string:boolean} = {}
+  for _, name in ipairs(before.runs) do runs[name] = true end
+  assert(runs["build.test_sandbox"] and runs["build.test_worker"] and not runs["build.test"])
   -- A module that makes a key is none the binary carries fails, by name.
   assert(db:exec("DELETE FROM modules WHERE path = 'build.artifact'"))
   local none, why = test.harness(db)
