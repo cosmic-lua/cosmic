@@ -13,7 +13,7 @@ local artifact = require("build.artifact")
 
 --- The bridge a stand-in tree boots through, and the program itself,
 --- which its tests start.
-Test.needs{ reads = { "core/bridge.lua" }, tool = true }
+Test.needs{ reads = { "core/bridge.lua" } }
 
 --- A compiler with the three members the bridge reaches for; `gen`
 --- hands back its source, so each stand-in below is plain Lua -- the
