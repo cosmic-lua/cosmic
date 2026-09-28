@@ -677,7 +677,7 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   a change under /usr that no package manager made is not keyed.
 - *the program's own modules*: a worker whose module does not declare
   `store` is given at `o/cosmic.db` the store of its import closure alone
-  (`build/writer.tl`'s `closure`, kept under `o/stores/` by the address its
+  (`build/closure_store.tl`'s `write`, kept under `o/stores/` by the address its
   key holds), and unless it declares `tool` either, it holds `require` and
   every other lookup in the store -- `Store.bytecode`, `Store.source`,
   `Store.requires`, a searcher called by hand, `Store.databases()` -- to
