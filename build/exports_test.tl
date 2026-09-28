@@ -43,6 +43,11 @@ allowed["build.declared_key.compiler_readers"] = "what build/compiler_readers_te
 allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
   "in the compiler's identity or left out of it with a reason"
+allowed["build.work.writer_modules"] = "what build/importer_test.tl holds the tree to, " ..
+  "walked over the running binary's modules: what build.writer reaches is in the " ..
+  "writer's identity, the compiler's, or neither with a reason"
+allowed["build.work.writer_left_out"] = "what build/importer_test.tl holds to the " ..
+  "requires of the writer's roots"
 allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl " ..
   "holds to distinct specs spelling apart, before a key hashes it"
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..

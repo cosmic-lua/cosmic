@@ -68,8 +68,9 @@ local record work
   --- from recompiling everything. `runtime_basis` is the host-independent
   --- hash of the Teal and Lua pins and patches. Portable startup combines
   --- it with the validated target, configuration and exact raw-core digest.
-  --- `writer` is every module in `build.writer`'s import closure, the
-  --- standard library's included, and the core image: what turns
+  --- `writer` is build.writer, this module, what they require but the
+  --- build's own code they run for its rows (`writer_identity`),
+  --- the standard library's included, and the core image: what turns
   --- compiled rows into a projection, down to the SQLite that vacuums
   --- it and the codec that decodes the CA roots into it. A projection is
   --- signed with the identity of the writer that wrote it
@@ -1118,14 +1119,39 @@ local pins <const> =
   "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
   "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
 
---- The hash of the modules in `root`'s import closure, then `extra`.
-local function closure(root: string, extra: string): string
-  return "WITH RECURSIVE closure(path) AS (SELECT '" .. root .. "' UNION " ..
-    "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
-    "JOIN requires r ON r.source_hash = i.source_hash) " ..
+--- What a module of the tree in the working database requires, as
+--- `requires` holds of its source: the walk `work.compiler_modules` and
+--- `work.writer_modules` take over it.
+local function requires_in(db: Sqlite.Handle): function(string): {string} | nil, string
+  return function(name: string): {string} | nil, string
+    local rows, rows_trouble = Sqlite.text_rows(db,
+      "SELECT DISTINCT r.name FROM inputs i " ..
+      "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
+      "ORDER BY r.name", { text(name) })
+    if rows == nil then return nil, rows_trouble end
+    local required: {string} = {}
+    for _, row in ipairs(rows) do required[#required + 1] = row[1] end
+    return required, ""
+  end
+end
+
+--- The hash of the source hash of each of `names` the tree holds, by
+--- path, then `extra`, an SQL expression.
+local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string | nil, string
+  local slots: {string} = {}
+  local values: {Sqlite.Value} = {}
+  for index, name in ipairs(names) do
+    slots[#slots + 1] = "?" .. index
+    values[#values + 1] = text(name)
+  end
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
-    "(SELECT path FROM closure)), '') || char(10) || " .. extra .. ")))"
+    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
+    table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
+  if rows == nil then
+    return nil, trouble
+  end
+  return rows[1][1]
 end
 
 --- Where the compiler's identity starts (`work.compiler_modules`):
@@ -1215,34 +1241,101 @@ end
 --- importer_test's `test_the_compiler_modules_are_closed_under_require`
 --- holds each require of build.importer to one side or the other.
 function work.compiler_identity(handle: work.Handle): string | nil, string
-  local db = handle.db
-  local names, trouble = work.compiler_modules(function(name: string): {string} | nil, string
-    local rows, rows_trouble = Sqlite.text_rows(db,
-      "SELECT DISTINCT r.name FROM inputs i " ..
-      "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-      "ORDER BY r.name", { text(name) })
-    if rows == nil then return nil, rows_trouble end
-    local required: {string} = {}
-    for _, row in ipairs(rows) do required[#required + 1] = row[1] end
-    return required, ""
-  end)
+  local names, trouble = work.compiler_modules(requires_in(handle.db))
   if names == nil then
     return nil, trouble
   end
-  local slots: {string} = {}
-  local values: {Sqlite.Value} = {}
-  for index, name in ipairs(names) do
-    slots[#slots + 1] = "?" .. index
-    values[#values + 1] = text(name)
+  return hash_of(handle.db, names, pins)
+end
+
+--- Where the writer's identity starts (`work.writer_modules`): what
+--- decides a projection's bytes beside the rows it is filled from, each
+--- of which its signature holds by value or by a key
+--- (`build.writer`'s `signature_sql`). build.writer, which fills and
+--- vacuums it, and this module, which computes the fingerprint and the
+--- identities it carries in `meta`: a tool rebuilt by a stale tool
+--- carries them as that tool's code took them, and is told apart from
+--- one the tree's code wrote only by this module's being in the
+--- identity (`build.reboot`'s `unsettled`).
+-- TODO: hold only this module's fingerprint (`is_tool`, `tool_files`,
+-- `record_fingerprint`) and identities (`compiler_identity`,
+-- `writer_identity`) once they are split from the staging, the scans and
+-- the records into a module of their own: today every edit to
+-- build/work.tl moves the writer's identity and settles a rebuilt tool
+-- again.
+local writer_roots <const>: {string} = { "build.writer", "build.work" }
+
+--- What a writer root requires that the writer's identity leaves out,
+--- and why none decides a projection's bytes beside its rows. Only a
+--- root's own require is left out: a module that another module of the
+--- identity requires is in it, whichever of these it is.
+local writer_left_out <const>: {string:string} = {
+  ["build.importer"] = "build.writer names its `Result` type alone; what its " ..
+    "compiles and parses store reaches a projection as rows the compiler's " ..
+    "identity keys",
+  ["build.analysis_schema"] = "the schema of the rows a parse stores, which " ..
+    "the compiler's identity holds",
+  ["build.gen_syscalls"] = "generates cosmic.sys's declaration, whose source " ..
+    "a projection's signature holds, and is the compiler's",
+  ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
+}
+
+--- The modules the writer's identity holds, sorted, as `requires`
+--- answers what a module of the tree requires: every one `require`
+--- reaches from `writer_roots`, the standard library's included --
+--- down to the SQLite binding that vacuums a projection and the codec
+--- that decodes the CA roots into it -- but what a root itself requires
+--- that `writer_left_out` names. build/importer_test.tl's
+--- `test_the_writer_modules_are_closed_under_require` holds that list
+--- to the roots' requires.
+function work.writer_modules(requires: function(string): {string} | nil, string): {string} | nil, string
+  local roots: {string:boolean} = {}
+  for _, name in ipairs(writer_roots) do roots[name] = true end
+  local reached: {string:boolean} = {}
+  local stack: {string} = {}
+  for _, name in ipairs(writer_roots) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not reached[name] then
+      reached[name] = true
+      local required, trouble = requires(name)
+      if required == nil then return nil, trouble end
+      for _, next_name in ipairs(required) do
+        if not (roots[name] and writer_left_out[next_name] ~= nil) then
+          stack[#stack + 1] = next_name
+        end
+      end
+    end
   end
-  local rows, hash_trouble = Sqlite.text_rows(db,
-    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
-    table.concat(slots, ", ") .. ")), '') || char(10) || " .. pins .. ")))", values)
-  if rows == nil then
-    return nil, hash_trouble
+  local names: {string} = {}
+  for name in pairs(reached) do names[#names + 1] = name end
+  table.sort(names)
+  return names, ""
+end
+
+--- What `writer_left_out` names, for build/importer_test.tl to hold
+--- the roots' requires to.
+function work.writer_left_out(): {string:string}
+  local copy: {string:string} = {}
+  for name, why in pairs(writer_left_out) do copy[name] = why end
+  return copy
+end
+
+--- The writer's identity (`Identities.writer`) over what the working
+--- database holds now, recorded nowhere: the source hash of each of
+--- `work.writer_modules` the tree holds, and the core image's hash
+--- (`image_hash`), whose SQLite writes the bytes. What a module requires
+--- is what `requires` holds of its source, as for `compiler_identity`.
+--- An edit to a module outside it -- build.positions, build.todo_scan,
+--- the analyzer -- writes the same projection from the same rows, so
+--- it moves no signature and settles no rebuilt tool.
+local function writer_identity(handle: work.Handle): string | nil, string
+  local names, trouble = work.writer_modules(requires_in(handle.db))
+  if names == nil then
+    return nil, trouble
   end
-  return rows[1][1]
+  return hash_of(handle.db, names,
+    "coalesce((SELECT value FROM meta WHERE key = 'image_hash'), '')")
 end
 
 --- The identities, computed over the tree and written into `meta` for
@@ -1257,18 +1350,8 @@ function work.record_identities(handle: work.Handle): work.Identities | nil, str
   if compiler == nil then
     return nil, compiler_trouble
   end
-  -- TODO: hold only the writer's own code in its identity, as the
-  -- compiler's holds only what a compile runs (`compiler_modules`):
-  -- build.writer's closure reaches build.importer and everything it
-  -- requires, build.positions and the rest of this module among them,
-  -- and the standard library they run on, so an edit to any of them moves
-  -- every projection's signature and settles every rebuilt tool again
-  -- though it writes the same bytes. Wants roots for what a projection
-  -- is a function of beside its rows, and a guard like the compiler's.
-  local writers, writer_trouble = Sqlite.text_rows(db,
-    closure("build.writer",
-      "coalesce((SELECT value FROM meta WHERE key = 'image_hash'), '')"))
-  if writers == nil then
+  local writer, writer_trouble = writer_identity(handle)
+  if writer == nil then
     return nil, writer_trouble
   end
   local bases, basis_trouble = Sqlite.text_rows(db,
@@ -1279,7 +1362,7 @@ function work.record_identities(handle: work.Handle): work.Identities | nil, str
   local identities: work.Identities = {
     compiler = compiler,
     runtime_basis = bases[1][1],
-    writer = writers[1][1],
+    writer = writer,
   }
   for _, pair in ipairs({ { "compiler", identities.compiler },
                           { "runtime_basis", identities.runtime_basis },

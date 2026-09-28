@@ -60,8 +60,8 @@ end
 --- The `meta` rows of a projection a closure store keeps: none that
 --- moves with a module outside the closure. `boot_hash` hashes every
 --- file of the tree and `projected` signs every module; `writer` and
---- `written_by` name the import closure of the projection's writer
---- (`build.writer`), which holds much of the standard library
+--- `written_by` name the projection's writer (`build.work`'s
+--- `writer_modules`), which holds much of the standard library
 --- (cosmic.json among it); `compiler` and `compiled_by` name the
 --- importer's. Each left out is answered by the tool's own `meta`, the
 --- next database `Store.meta` searches; what writes a closure store is

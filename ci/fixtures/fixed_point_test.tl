@@ -32,8 +32,8 @@ end
 -- byte for byte -- prefix, database and all. The second rebuild is done
 -- by a tool the first built, so this holds only when a tool built by a
 -- rebuild compiles and writes what a boot does. `settles` is whether
--- `file` is in `build.writer`'s import closure or the compiler's
--- identity (`build.work`'s `compiler_modules`), so that each rebuilt
+-- `file` is in the writer's identity (`build.work`'s `writer_modules`)
+-- or the compiler's (`compiler_modules`), so that each rebuilt
 -- tool finds its database built by other code than its own and builds
 -- it again once (`build.reboot`); outside both, neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
@@ -88,25 +88,24 @@ local function commented(source: string): string
   return source .. "-- a fixed-point fixture\n"
 end
 
--- `cosmic.rand` is in neither closure: the stale tool's compiler and
--- writer are the tree's, and each rebuild is final.
+-- `build.positions` is in neither identity, though build.writer
+-- reaches it (through build.importer, which the writer's identity
+-- leaves out): the stale tool's compiler and writer are the tree's, and
+-- each rebuild is final.
 local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "outside", "cosmic/rand.tl", commented, false)
+  run_fixed_point_case(tmp, "outside", "build/positions.tl", commented, false)
 end
 
--- `build.clock` is in the writer's closure and not the compiler's.
+-- `build.clock` is in the writer's identity and not the compiler's.
 local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true)
 end
 
--- `build.tree` is in the compiler's identity (`build.work`'s
--- `compiler_roots`): each rebuilt tool compiles the whole tree again
--- with its own compiler. It is in the writer's closure too, so this
--- case cannot tell a settle over the compiler from one over the writer
--- apart; nor can any other: no module of the compiler's identity is
--- outside the writer's closure.
+-- `build.contracts` is in the compiler's identity (`build.work`'s
+-- `compiler_roots`) and not the writer's: each rebuilt tool compiles
+-- the whole tree again with its own compiler.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/tree.tl", commented, true)
+  run_fixed_point_case(tmp, "compiler", "build/contracts.tl", commented, true)
 end
 
 -- An edit to how the compiler's identity is defined (`build.work`'s
