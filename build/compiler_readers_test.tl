@@ -1,6 +1,6 @@
 --- Every module of the tree that reads the compiler's identity through
 --- `Store.meta` is one `build.declared_key`'s `compiler_readers` names:
---- a closure store carries no such row (`build.writer`), so a worker's
+--- a closure store carries no such row (`build.closure_store`), so a worker's
 --- read of it is answered by the running tool, and only a test whose
 --- closure holds a named reader is keyed by the tool's identity. A
 --- reader the list misses would leave a verdict standing that turned on

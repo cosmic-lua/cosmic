@@ -10,6 +10,7 @@ local Orchestration = require("cosmic_ci.orchestration")
 local Prerelease = require("cosmic_ci.prerelease")
 local Runner = require("cosmic_ci.runner")
 local State = require("cosmic_ci.state")
+local Verdicts = require("cosmic_ci.verdicts")
 
 local function open_database(path: string): Sqlite.Handle
   return State.open(path)
@@ -87,6 +88,8 @@ local commands: {string:Command} = {
     usage = "", handler = summarize },
   ["compiles-trim"] = { about = "trim the build cache to the compiles used since SINCE",
     usage = "SINCE", handler = Compiles.trim_command },
+  ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE",
+    usage = "SINCE", handler = Verdicts.trim_command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",

@@ -29,7 +29,6 @@ Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
-  system = true,
 }
 
 -- What these tests start is this very program.
@@ -116,7 +115,9 @@ end
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what it
 --- printed, which must say it passed -- unless `unchecked`, for a run that
---- may have sandboxed nothing.
+--- may have sandboxed nothing. Either way it must have started: a run
+--- that did not printed nothing, which reads as one that sandboxed
+--- nothing (`unsandboxed`).
 local function run(root: string, output: string, env: {string:string}, words?: {string},
                    unchecked?: boolean): string
   local fd = assert(Fs.open_write(output))
@@ -128,7 +129,9 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   local text = assert(Fs.read(output))
-  assert(unchecked or (result ~= nil and result.ok), tostring(trouble) .. text)
+  -- A run that never started sandboxed nothing, and says nothing of it.
+  assert(result ~= nil, tostring(trouble) .. text)
+  assert(unchecked or result.ok, tostring(trouble) .. text)
   return text
 end
 
@@ -353,7 +356,9 @@ end
 
 --- This program, rebuilt at `path` with `statements` run on the
 --- database it carries (`artifact.split`), as a rebuild of the tool
---- moves it.
+--- moves it: a host program of this program's core
+--- (`artifact.host_program`), which the kernel runs itself, with no
+--- launcher and no shell of the system's to find.
 local function rebuilt(tmp: string, path: string, statements: string)
   local executable = assert(Proc.executable())
   local parts = assert(artifact.split((assert(Fs.read(executable)))))
@@ -363,7 +368,8 @@ local function rebuilt(tmp: string, path: string, statements: string)
   local db = assert(Sqlite.open(db_path, true))
   assert(db:exec(statements))
   assert(db:close())
-  local program = assert(artifact.rejoin(parts, (assert(Fs.read(db_path)))))
+  local program = assert(artifact.host_program(assert(artifact.trusted_core()),
+    (assert(Fs.read(db_path)))))
   local _, _ = Fs.remove(path)
   assert(Fs.write(path, program))
   assert(sys.chmod(path, 493)) -- 0o755
@@ -375,8 +381,9 @@ end
 --- carries, and a check of a run of it after the last one; nil for both
 --- where no worker could be sandboxed.
 -- The tree's own tool rebuilds for such an edit only in cosmic's own
--- tree, too big to copy here: the program run instead is this one,
--- its carried rows rewritten as each rebuild would leave them.
+-- tree, too big to copy here: the program run instead is this one's
+-- core, as a host program, carrying this one's rows rewritten as each
+-- rebuild would leave them.
 local function tool_project(tmp: string): function(string), function(string): string
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -404,7 +411,8 @@ local function tool_project(tmp: string): function(string), function(string): st
     })
     assert(Fs.close(fd))
     local text = assert(Fs.read(tmp .. "/" .. step .. ".out"))
-    assert(unchecked or (result ~= nil and result.ok), tostring(trouble) .. text)
+    assert(result ~= nil, tostring(trouble) .. text)
+    assert(unchecked or result.ok, tostring(trouble) .. text)
     if wanted ~= "" then assert(text:find(wanted, 1, true), step .. ": " .. text) end
     return text
   end
@@ -569,7 +577,7 @@ end
 end
 
 --- A test whose module does not declare `store` is given the store of
---- its import closure at o/cosmic.db (build/writer.tl's `closure`), in
+--- its import closure at o/cosmic.db (build/closure_store.tl's `write`), in
 --- the projection's place: it holds none of the tree's modules outside
 --- the closure, which a `require` is refused anyway, and its verdict
 --- stands across an edit to one of them -- which rewrites the projection

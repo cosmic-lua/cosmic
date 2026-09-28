@@ -155,6 +155,21 @@ function schema.create(qualifier: string): {string}
   return out
 end
 
+--- The statements that rebuild each FTS5 index from its content table's
+--- current rows, under `qualifier` as `create` names them, run once
+--- that table is filled: the documented way to bulk-load an
+--- external-content FTS5 table (`content=`) without keeping the two in
+--- sync through triggers a read-only, write-once database has no use
+--- for.
+function schema.rebuild(qualifier: string): {string}
+  local out: {string} = {}
+  for _, pair in ipairs(virtual_tables) do
+    out[#out + 1] = "INSERT INTO " .. qualifier .. pair[1] .. "(" .. pair[1] ..
+      ") VALUES ('rebuild')"
+  end
+  return out
+end
+
 --- The pragmas that set a database up to be reproducible, for the
 --- schema `qualifier` names; they must run before its first table.
 function schema.settings(qualifier: string): {string}

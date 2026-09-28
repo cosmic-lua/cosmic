@@ -118,6 +118,7 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
+local closure_store = require("build.closure_store")
 local observations = require("build.filesystem_observations")
 local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
@@ -1612,7 +1613,7 @@ local record Harness
   --- worker runs, and the code that makes and reads its key.
   digest: string
   --- The digest of the code that writes a closure store, which salts
-  --- each store's address (`build.writer`'s `closure_address`).
+  --- each store's address (`build.closure_store`'s `address`).
   store_salt: string
   --- The set of the names of the modules the binary carries, which
   --- `worker.judge` holds what a worker loaded to.
@@ -1662,32 +1663,40 @@ local harness_own <const>: {string} = { "build.test_sandbox" }
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
 local key_own <const>: {string} = { "build.test" }
 
---- The code that writes a closure store: build.writer's, the schema it
---- writes it by (`build.schema`), and what binds its statements'
---- values (`build.bind`). The store's address holds
---- the rows it carries by their digests (`writer.closure_basis`), but
---- not which of them, nor which tables, the writer copies: a table
---- added to what it copies would move no address.
--- TODO: salt a store's address by the closure store's own writer
--- alone, once it is a module of its own (writer.tl's `closed`,
--- `closure_meta`, `closure_basis`, `closure_address` and `closure` out
--- into build/closure_store.tl), so an edit to the projection's writer
--- leaves every address alone; every edit to build/writer.tl, build/schema.tl
--- or build/bind.tl runs every test that does not declare `store` again.
-local store_writer <const>: {string} = { "build.writer", "build.schema", "build.bind" }
+--- The code that writes a closure store: build.closure_store's and the
+--- schema it writes it by (`build.schema`). The store's address holds
+--- the rows it carries by their digests (`closure_store.basis`), but
+--- not which of them, nor which tables, that code copies: a table added
+--- to what it copies would move no address. The projection's writer
+--- (`build.writer`) is none of it: what it writes reaches a store only
+--- through rows and orderings the basis digests -- each module's
+--- columns, its source's stored bytes among them, and its own docs,
+--- catalog and examples in their order, while build.closure_store
+--- orders them across modules itself -- so an edit to it that writes
+--- the same rows moves no address, and one that writes others moves
+--- only the addresses of the closures that carry them. The salt holds
+--- the writer's whole closure (`store_code`), as the key's code is held
+--- (`key_code`): what build.closure_store writes passes through
+--- cosmic.sqlite, cosmic.fs and cosmic.hash, and an edit to one of them
+--- -- how a blob is bound, a pragma set -- can change a store's bytes
+--- while every row's digest, and so the address, stays. An edit to
+--- build/closure_store.tl or build/schema.tl, or to a module they
+--- require, runs every test that does not declare `store` again.
+local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 
---- The names `key_roots` and `key_own` hold: each root and every module
---- it requires, directly or not, by `imports` (the names each module
---- requires), and each of `key_own` alone.
-local function key_code(imports: {string:{string}}): {string}
+--- The names `roots` and `own` hold: each root and every module it
+--- requires, directly or not, by `imports` (the names each module
+--- requires), and each of `own` alone.
+local function closure_of(roots: {string}, own: {string},
+    imports: {string:{string}}): {string}
   local seen: {string:boolean} = {}
   local names: {string} = {}
   local stack: {string} = {}
-  for _, name in ipairs(key_own) do
+  for _, name in ipairs(own) do
     seen[name] = true
     names[#names + 1] = name
   end
-  for _, name in ipairs(key_roots) do stack[#stack + 1] = name end
+  for _, name in ipairs(roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
     if not seen[name] then
@@ -1699,15 +1708,26 @@ local function key_code(imports: {string:{string}}): {string}
   return names
 end
 
+--- The names `key_roots` and `key_own` hold (`closure_of`).
+local function key_code(imports: {string:{string}}): {string}
+  return closure_of(key_roots, key_own, imports)
+end
+
+--- The names `store_writer` holds, with what they require (`closure_of`).
+local function store_code(imports: {string:{string}}): {string}
+  return closure_of(store_writer, {}, imports)
+end
+
 --- The digest of the test harness and that of the code that writes a
 --- closure store (`Harness`), over what the binary carries
 --- (`binary_harness`, which fills in `carried`): `sources`, each
 --- module's source and bytecode hashes by name, and `imports`, the
 --- names each module requires. Each module of the harness -- what a
 --- worker loads, `harness_own` and `key_code` -- is held by its source
---- and bytecode. Nil and why where a module `key_code` names is none
---- the binary carries, which the harness would otherwise leave out
---- unnoticed.
+--- and bytecode, and so is each the salt holds (`store_code`). Nil and
+--- why where a module `key_code` or `store_code` names is none the
+--- binary carries, which the harness or the salt would otherwise leave
+--- out unnoticed.
 function test.harness(sources: {string:string},
                       imports: {string:{string}}): Harness | nil, string
   local names: {string} = {}
@@ -1720,8 +1740,14 @@ function test.harness(sources: {string:string},
     end
     names[#names + 1] = name
   end
+  local salted = store_code(imports)
+  for _, name in ipairs(salted) do
+    if sources[name] == nil then
+      return nil, name .. ", which writes a closure store, is no module the binary carries"
+    end
+  end
   return { digest = declared_key.harness(names, sources),
-    store_salt = declared_key.harness(store_writer, sources), carried = {} }, ""
+    store_salt = declared_key.harness(salted, sources), carried = {} }, ""
 end
 
 --- What of the running binary every sandboxed key holds of the code a
@@ -1882,14 +1908,14 @@ local record Recording
   --- `tree_names` (`build.test_worker`).
   declared_names: {string}
   --- Sandboxed, the address of the store of each module's import
-  --- closure its workers are given at o/cosmic.db (`build.writer`'s
-  --- `closure`), by path, for every test and example module of the
-  --- tree that does not declare `store`; the projection that store is
-  --- derived from, its basis, and each store built or found this run,
-  --- by address (`closure_store`).
+  --- closure its workers are given at o/cosmic.db
+  --- (`build.closure_store`'s `write`), by path, for every test and
+  --- example module of the tree that does not declare `store`; the
+  --- projection that store is derived from, its basis, and each store
+  --- built or found this run, by address (`given_store`).
   stores: {string:string}
   projection: string
-  basis: writer.Basis
+  basis: closure_store.Basis
   built: {string:string}
   --- How many of them this run wrote, their bytes, and the time taken.
   written: integer
@@ -2418,21 +2444,21 @@ local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
 end
 
 --- Where the tree at `root` keeps the stores of its test modules'
---- import closures, each named by its address (`build.writer`'s
---- `closure_address`).
+--- import closures, each named by its address (`build.closure_store`'s
+--- `address`).
 local function stores_directory(root: string): string
   return root .. "/o/stores"
 end
 
 --- The address of the closure store of each test and example module of
 --- `modules` that does not declare `store`, by path, over the
---- projection `rec.projection` (`closure_basis`): every one the tree
+--- projection `rec.projection` (`closure_store.basis`): every one the tree
 --- has, selected or not, so a run that selects some leaves the others'
 --- stores, and `sweep_stores` takes out only what no module names.
 local function address_stores(rec: Recording, modules: {importer.Module},
                               by_path: {string:importer.Module},
                               declarations: {string:string}): boolean, string
-  local basis, trouble = writer.closure_basis(rec.projection)
+  local basis, trouble = closure_store.basis(rec.projection)
   if basis == nil then return false, trouble end
   rec.basis, rec.stores, rec.built = basis, {}, {}
   rec.written, rec.written_bytes, rec.writing_ns = 0, 0, 0
@@ -2442,7 +2468,7 @@ local function address_stores(rec: Recording, modules: {importer.Module},
         not (declared ~= nil and declared.store) then
       local names = rec.closures[m.path] or test_inputs.modules(m, by_path, declarations)
       rec.closures[m.path] = names
-      rec.stores[m.path] = writer.closure_address(basis, names, rec.store_salt)
+      rec.stores[m.path] = closure_store.address(basis, names, rec.store_salt)
     end
   end
   return true, ""
@@ -2474,7 +2500,7 @@ end
 --- moved into place, so a store there is whole -- or nil where `m`
 --- declares `store` and is given the whole projection; nil and why
 --- where it could not be made.
-local function closure_store(rec: Recording, m: importer.Module): string | nil, string
+local function given_store(rec: Recording, m: importer.Module): string | nil, string
   local address = rec.stores ~= nil and rec.stores[m.path] or nil
   if address == nil then return nil, "" end
   local path = rec.built[address]
@@ -2486,8 +2512,8 @@ local function closure_store(rec: Recording, m: importer.Module): string | nil, 
     local made, trouble = Fs.mkdirs(directory)
     if not made then return nil, directory .. ": " .. trouble end
     local started = Time.monotonic_ns()
-    local written, write_trouble = writer.closure(rec.projection, path, rec.closures[m.path],
-      rec.basis, address)
+    local written, write_trouble = closure_store.write(rec.projection, path,
+      rec.closures[m.path], rec.basis, address)
     if not written then return nil, "the store of its closure: " .. write_trouble end
     rec.writing_ns = rec.writing_ns + (Time.monotonic_ns() - started)
     local wrote, _ = sys.stat(path)
@@ -2521,7 +2547,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- holds one: "" for none.
   local held = ""
   if rec.sandbox then
-    local store, store_trouble = closure_store(rec, job.m)
+    local store, store_trouble = given_store(rec, job.m)
     if store == nil and store_trouble ~= "" then
       finish(rec, job, nil, store_trouble, limits)
       return false

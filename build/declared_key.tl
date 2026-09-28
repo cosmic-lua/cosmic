@@ -71,7 +71,7 @@
 --- path): holding it would run every test again for an edit to any of
 --- them. What a worker runs of the
 --- compiler's making is the bytecode of its closure's modules, which
---- its store holds by address (`build.writer`'s `closure_address`,
+--- its store holds by address (`build.closure_store`'s `address`,
 --- over each module's bytecode and the rows a store carries of it) or
 --- the projection by its contents, and the harness's -- cosmic's own
 --- main, which every worker runs first, among it -- which `harness`
@@ -207,7 +207,7 @@ local record declared_key
     runs_tool: boolean
     --- The address of the store of its module's import closure its
     --- worker is given at o/cosmic.db where its module does not declare
-    --- `store` (`build.writer`'s `closure_address`), or nil where it is
+    --- `store` (`build.closure_store`'s `address`), or nil where it is
     --- given the whole projection, keyed by its contents.
     closure_store: string
   end
@@ -678,8 +678,8 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
   -- by its contents, where the module declares `store`; else the store
   -- of its closure, by its address, which is a digest of all its bytes
   -- follow from -- so neither an edit to a module outside the closure
-  -- nor adding or removing one moves it (`build.writer`'s
-  -- `closure_address`). The names of the tree's modules a worker
+  -- nor adding or removing one moves it (`build.closure_store`'s
+  -- `address`). The names of the tree's modules a worker
   -- refuses a `require` of are no part of it: a name there only turns
   -- such a `require` into a refusal, never into a load.
   if effective.store then

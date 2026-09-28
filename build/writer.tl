@@ -8,10 +8,13 @@
 --- time zones the working database holds (cosmic's own tree's only) --
 --- and produced by `VACUUM INTO`, so a second build of the same tree
 --- is byte-identical.
+---
+--- The store of a test module's import closure a sandboxed worker is
+--- given in the projection's place is derived from the projection by
+--- `build.closure_store`, apart from this module, so an edit here that
+--- leaves every store's bytes alone moves no store's address.
 
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
-local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
@@ -24,27 +27,6 @@ local work = require("build.work")
 local bind = require("build.bind")
 
 local record writer
-  --- What every closure store a projection yields is a function of,
-  --- read once from the projection (`writer.closure_basis`): each module
-  --- as a line naming its path, kind, file, source hash and tests, and
-  --- the digests of its bytecode and of the rows a store carries of it --
-  --- its imports, docs, uses, catalog and examples -- and a digest of
-  --- what every store holds alike: the `meta` rows it keeps
-  --- (`closure_meta`), the declarations and their docs. What the
-  --- compiler made of a module is so held by what it made, not by the
-  --- compiler's identity (`build.work`'s `Identities`), which moves with
-  --- every edit to any module a compile or a parse runs, most of which
-  --- change nothing it makes: an edit to the compiler that leaves every
-  --- row of a closure as it was leaves its store and its address too.
-  record Basis
-    modules: {string:string}
-    shared: string
-    --- Each module's kind, by path.
-    kinds: {string:string}
-    --- The modules an example can be paired with -- neither tests nor
-    --- examples -- sorted (see `insert_examples`).
-    pairable: {string}
-  end
 end
 
 local text = bind.text
@@ -189,16 +171,6 @@ local insert_catalog_extracted =
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
 
---- Rebuilds each FTS5 index from its content table's current rows: the
---- documented way to bulk-load an external-content FTS5 table without
---- keeping the two in sync through triggers a read-only, write-once
---- database has no use for.
-local rebuild_fts: {string} = {
-  "INSERT INTO out.docs_fts(docs_fts) VALUES ('rebuild')",
-  "INSERT INTO out.catalog_fts(catalog_fts) VALUES ('rebuild')",
-  "INSERT INTO out.examples_fts(examples_fts) VALUES ('rebuild')",
-}
-
 --- What the shipped database is a function of: this run's plan with
 --- each module's file, the declarations, fingerprints, host-independent
 --- identities, the zones it carries, the main module, and the identity
@@ -292,7 +264,7 @@ local function project(handle: work.Handle, path: string,
         return false, failure
       end
     end
-    for _, statement in ipairs(rebuild_fts) do
+    for _, statement in ipairs(schema.rebuild("out.")) do
       local ok, failure = db:exec(statement)
       if not ok then
         return false, failure
@@ -496,8 +468,8 @@ function writer.carried(whole: string, out: string): boolean, string
           return false, failure
         end
       end
-      for _, statement in ipairs(rebuild_fts) do
-        local ok, failure = db:exec((statement:gsub("out%.", "main.")))
+      for _, statement in ipairs(schema.rebuild("main.")) do
+        local ok, failure = db:exec(statement)
         if not ok then
           return false, failure
         end
@@ -525,273 +497,6 @@ function writer.carried(whole: string, out: string): boolean, string
   if not ok then
     return false, trouble
   end
-  return true, ""
-end
-
---- The `meta` rows of a projection a closure store keeps: none that
---- moves with a module outside the closure. `boot_hash` hashes every
---- file of the tree and `projected` signs every module; `writer` and
---- `written_by` name the writer's import closure, which holds much of
---- the standard library (cosmic.json among it); `compiler` and
---- `compiled_by` name the importer's. Each left out is answered by the
---- tool's own `meta`, the next database `Store.meta` searches; what
---- writes a closure store is named in its address instead
---- (`closure_address`'s `salt`), and a test whose closure reads the
---- compiler's identity is keyed by the tool's (`build.declared_key`'s
---- `compiler_readers`).
-local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
-
---- The digest of the rows of `from`, the table of a projection `db`
---- holds, by each value of its column `of`: of each row's `columns`,
---- each quoted (`quote`) so no two rows spell one line, in `order`. A
---- text is quoted as a blob of its bytes, since quote() ends a text at
---- its first NUL, which a blob's hex does not (as `build.declared_key`'s
---- `carried_digest` quotes it).
-local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: string,
-                       order: string): {string:string} | nil, string
-  local quoted: {string} = {}
-  for i, column in ipairs(columns) do
-    quoted[i] = "typeof(" .. column .. ") || ':' || quote(CASE WHEN typeof(" .. column ..
-      ") = 'text' THEN CAST(" .. column .. " AS BLOB) ELSE " .. column .. " END)"
-  end
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT " .. of .. ", lower(hex(sha256(group_concat(" ..
-    table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
-    "FROM " .. from .. " GROUP BY " .. of)
-  if rows == nil then return nil, trouble end
-  local out: {string:string} = {}
-  for _, row in ipairs(rows) do out[row[1]] = row[2] end
-  return out, ""
-end
-
---- The basis of the closure stores of the projection at `whole`.
-function writer.closure_basis(whole: string): writer.Basis | nil, string
-  local opened, trouble = Sqlite.open(whole, false)
-  if opened == nil then return nil, whole .. ": " .. trouble end
-  local db: Sqlite.Handle = opened
-  local function read(): writer.Basis | nil, string
-    local rows, rows_trouble = Sqlite.text_rows(db,
-      "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
-      "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
-      "lower(hex(sha256(tests))), file FROM modules ORDER BY path")
-    if rows == nil then return nil, rows_trouble end
-    -- The rows `closed` carries of each module, as it carries them: by
-    -- its path, or, for its examples, by its file.
-    local carried: {{string:string}} = {}
-    local by_file: {boolean} = {}
-    for _, group in ipairs({
-      { "path", "requires", "imports", "requires" },
-      { "module", "symbol source_symbol exported kind signature text file line", "docs", "id" },
-      { "from_module", "module symbol from_file line", "uses", "module, symbol, line" },
-      { "module", "kind symbol message text file line", "catalog", "id" },
-      { "file", "module name text line source", "examples", "id" },
-    }) do
-      local columns: {string} = {}
-      for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
-      local digests, group_trouble = grouped(db, group[1], columns, group[3], group[4])
-      if digests == nil then return nil, group_trouble end
-      carried[#carried + 1] = digests
-      by_file[#carried] = group[1] == "file"
-    end
-    local shared, shared_trouble = Sqlite.text_rows(db,
-      "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
-      "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '') || char(10) || " ..
-      "coalesce((SELECT group_concat(path || ' ' || lower(hex(sha256(source))), char(10) " ..
-      "ORDER BY path) FROM decls), '')")
-    if shared == nil then return nil, shared_trouble end
-    local declared, declared_trouble = grouped(db, "module",
-      { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },
-      "docs WHERE module IN (SELECT path FROM decls)", "id")
-    if declared == nil then return nil, declared_trouble end
-    local decl_docs: {string} = {}
-    for module, digest in pairs(declared) do
-      decl_docs[#decl_docs + 1] = module .. " " .. digest
-    end
-    table.sort(decl_docs)
-    local names, names_trouble = Sqlite.text_rows(db,
-      "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
-    if names == nil then return nil, names_trouble end
-    local basis: writer.Basis = { modules = {}, kinds = {}, pairable = {} }
-    for _, row in ipairs(rows) do
-      local line: {string} = { row[2] }
-      for i, digests in ipairs(carried) do
-        line[#line + 1] = digests[by_file[i] and row[3] or row[1]] or ""
-      end
-      basis.modules[row[1]] = table.concat(line, "\t")
-      basis.kinds[row[1]] = row[2]:match("^[^\t]*\t([^\t]*)")
-    end
-    for i, row in ipairs(names) do basis.pairable[i] = row[1] end
-    basis.shared = Hash.hex_sha256("closure-store-3\n" .. shared[1][1] .. "\n" ..
-      table.concat(decl_docs, "\n"))
-    return basis, ""
-  end
-  local basis, read_trouble = read()
-  local _, _ = db:close()
-  if basis == nil then return nil, whole .. ": " .. read_trouble end
-  return basis, ""
-end
-
---- Modules a module loads by other means than `require`, which a
---- closure store carries beside it: build.teal loads the compiler as
---- bytecode (`Store.bytecode("vendor.tl")`), which no parse follows.
-local loaded_beside: {string:{string}} = { ["build.teal"] = { "vendor.tl" } }
-
---- The modules of `basis` a closure store for `names` -- an import
---- closure's module names (`test_inputs.modules`) -- holds, sorted: each
---- that the projection holds, and what each loads beside
---- (`loaded_beside`). A name only a declaration answers for is none:
---- every declaration is carried whole.
-local function stored(basis: writer.Basis, names: {string}): {string}
-  local seen: {string:boolean} = {}
-  local out: {string} = {}
-  local function add(name: string)
-    if seen[name] or basis.modules[name] == nil then return end
-    seen[name] = true
-    out[#out + 1] = name
-  end
-  for _, name in ipairs(names) do
-    add(name)
-    for _, beside in ipairs(loaded_beside[name] or {}) do add(beside) end
-  end
-  table.sort(out)
-  return out
-end
-
---- The modules of `basis` the example module `name` could be paired
---- with by its name (`insert_examples`): each that it is less
---- `_example`, or that it starts with, followed by `_`. Which of them
---- is longest names the module its examples are about.
-local function candidates(basis: writer.Basis, name: string): {string}
-  local stem = name:sub(1, #name - #"_example")
-  local out: {string} = {}
-  for _, path in ipairs(basis.pairable) do
-    if path == stem or stem:sub(1, #path + 1) == path .. "_" then out[#out + 1] = path end
-  end
-  return out
-end
-
---- The address of the closure store for `names` over `basis`: the
---- digest of everything its bytes follow from -- its modules' lines,
---- the modules each example module among them could be paired with
---- (`candidates`), the basis's shared digest, and `salt`, which names
---- the code that writes it (`build.test` passes a digest of
---- build.writer's, build.schema's and build.bind's sources and
---- bytecode). An edit to a
---- module outside the closure moves none of them, and neither does
---- adding or removing one, but for one an example of the closure could
---- be paired with: so neither the address nor the store moves.
-function writer.closure_address(basis: writer.Basis, names: {string}, salt: string): string
-  local lines: {string} = { basis.shared, salt }
-  for _, name in ipairs(stored(basis, names)) do
-    lines[#lines + 1] = basis.modules[name]
-    if basis.kinds[name] == "example" then
-      lines[#lines + 1] = "pairs " .. name .. " " .. table.concat(candidates(basis, name), " ")
-    end
-  end
-  return Hash.hex_sha256(table.concat(lines, "\n"))
-end
-
---- Fills a closure store's fresh schema from the projection attached
---- as `whole`, for the modules `temp.wanted` names: their rows, the
---- edges among them, their docs, uses (those they make), catalog, and
---- the examples of the example files among them; every declaration and
---- its docs; and the `meta` rows `closure_meta` keeps. The zones, CA
---- roots, components and notices are left out: the core, `cosmic.time`
---- and `build.bom` read those from the tool's own database alone.
-local closed: {string} = {
-  "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-    " ORDER BY key",
-  -- Every column but the key, which holds the compiler's identity: no
-  -- worker reads a store's keys, and its address holds what the
-  -- compiler made instead (`Basis`).
-  "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-    "SELECT path, file, kind, source_hash, X'', bytecode, tests, source FROM whole.modules " ..
-    "WHERE path IN temp.wanted ORDER BY path",
-  "INSERT INTO main.imports SELECT * FROM whole.imports " ..
-    "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
-  "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
-  "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
-    "text, file, line) SELECT module, symbol, source_symbol, exported, kind, signature, " ..
-    "text, file, line FROM whole.docs WHERE module IN temp.wanted " ..
-    "OR module IN (SELECT path FROM whole.decls) ORDER BY id",
-  "INSERT INTO main.uses SELECT * FROM whole.uses WHERE from_module IN temp.wanted " ..
-    "ORDER BY module, symbol, from_module, line",
-  "INSERT INTO main.examples (module, name, text, file, line, source) " ..
-    "SELECT module, name, text, file, line, source FROM whole.examples " ..
-    "WHERE file IN (SELECT file FROM whole.modules WHERE path IN temp.wanted) ORDER BY id",
-  "INSERT INTO main.catalog (kind, module, symbol, message, text, file, line) " ..
-    "SELECT kind, module, symbol, message, text, file, line FROM whole.catalog " ..
-    "WHERE module IN temp.wanted ORDER BY id",
-}
-
---- Flushes the file at `path` to the disk: `VACUUM INTO` leaves its
---- output unsynced, and a store cut short by a crash after its rename
---- would stand at its address for good.
-local function sync(path: string): boolean, string
-  local fd, trouble = sys.open(path, sys.O_RDONLY)
-  if fd == nil then return false, path .. ": " .. trouble end
-  local synced, sync_trouble = sys.fsync(fd)
-  local _, _ = sys.close(fd)
-  if not synced then return false, path .. ": " .. sync_trouble end
-  return true, ""
-end
-
---- Writes at `out` the closure store for `names` (see
---- `closure_address`) of the projection at `whole`, whose basis is
---- `basis`: what a sandboxed worker of a test whose module's import
---- closure `names` holds is given at o/cosmic.db in the projection's
---- place (`build.test_sandbox`), so an edit outside the closure leaves
---- it as it was. Its `meta` names `address` as `closure`. Like the
---- projection, a function of its inputs alone: a fresh schema, filled
---- in one order, vacuumed; and synced before it is moved into place,
---- since a store is written once and read as it is from then on.
-function writer.closure(whole: string, out: string, names: {string}, basis: writer.Basis,
-                        address: string): boolean, string
-  local function fill(db: Sqlite.Handle): boolean, string
-    local statements: {string} = {}
-    for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
-    for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
-    statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"
-    for _, statement in ipairs(statements) do
-      local ok, failure = db:exec(statement)
-      if not ok then return false, failure end
-    end
-    for _, name in ipairs(stored(basis, names)) do
-      local ok, failure = Sqlite.run(db, "INSERT INTO temp.wanted (path) VALUES (?1)",
-        { text(name) })
-      if not ok then return false, failure end
-    end
-    local attached, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS whole",
-      { text(whole) })
-    if not attached then return false, attach_trouble end
-    local made, refused = Sqlite.transact(db, function(): boolean, string
-      for _, statement in ipairs(closed) do
-        local ok, failure = db:exec(statement)
-        if not ok then return false, failure end
-      end
-      local noted, note_trouble = Sqlite.run(db,
-        "INSERT INTO main.meta (key, value) VALUES ('closure', ?1)", { text(address) })
-      if not noted then return false, note_trouble end
-      for _, statement in ipairs(rebuild_fts) do
-        local ok, failure = db:exec((statement:gsub("out%.", "main.")))
-        if not ok then return false, failure end
-      end
-      return true, ""
-    end)
-    local _, _ = db:exec("DETACH whole")
-    if not made then return false, refused end
-    local _, _ = Fs.remove(out .. ".building")
-    local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1", { text(out .. ".building") })
-    if not vacuumed then return false, vacuum_trouble end
-    local synced, sync_trouble = sync(out .. ".building")
-    if not synced then return false, sync_trouble end
-    return Fs.rename(out .. ".building", out)
-  end
-  local db, open_trouble = Sqlite.memory()
-  if db == nil then return false, open_trouble end
-  local ok, trouble = fill(db)
-  local _, _ = db:close()
-  if not ok then return false, trouble end
   return true, ""
 end
 

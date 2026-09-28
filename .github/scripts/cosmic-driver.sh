@@ -39,13 +39,14 @@ if [ "${1-}" = zig-cache ]; then
   # never found and that leg recompiled vendor/ and core/ each run.
   echo "COSMIC_ZIG_CACHE_SEED=$RUNNER_TEMP/zig-build" >> "$GITHUB_ENV"
   # The test verdicts every checkout shares (build/shared_verdicts.tl),
-  # keyed by what each test declares (build/declared_key.tl), kept in
-  # a cache of their own that ci.yml restores before the leg's suites
-  # and saves after them, each leg its own. Whether a suite stands on
+  # keyed by what each test declares (build/declared_key.tl), kept in a
+  # cache of their own that ci.yml restores before the leg's suites and
+  # saves after them, each leg its own, trimmed to what the run reached
+  # where it passed (cosmic_ci/verdicts.tl). Whether a suite stands on
   # them is cosmic_ci/orchestration.tl's (`stands`): the Linux legs do,
   # in a branch push's run and the merge queue's; the macOS leg runs
-  # every test and stands on none. The portable suite keeps its own
-  # file beside this one (`portable_verdicts`), in the same cache.
+  # every test and stands on none. The portable suite keeps its own file
+  # beside this one (`portable_verdicts`), in the same cache.
   echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"
   # The compiles and parses every build of the leg shares
   # (build/shared_compiles.tl), in a cache of their own that ci.yml

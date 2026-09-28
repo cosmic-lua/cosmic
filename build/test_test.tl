@@ -819,15 +819,20 @@ end
 
 --- The harness every sandboxed key holds is what a worker runs and
 --- the code that makes and reads a key, each by its source and
---- bytecode; a closure store's address is salted by what writes it. So
+--- bytecode; a closure store's address is salted by what writes it and
+--- what that requires. So
 --- an edit to the runner, to how a key is computed or to how a verdict
 --- is looked up under one moves the harness, a comment's too, and a
 --- verdict a wrong key kept does not stand after the fix; so does one
 --- to the worker, to the plan of its sandbox, to cosmic's main or to
---- the diagnostic the core loads, and one to the store's writer moves
---- the address. One to a module of none of them moves neither: not
---- one to build.dispatch, or to what only it requires, since cosmic's
---- main starts a worker ahead of it (cmd/cosmic/main.tl).
+--- the diagnostic the core loads, and one to the store's writer, its
+--- schema or a module they require moves the address. One to a module
+--- of none of them moves
+--- neither: not one to build.dispatch, or to what only it requires,
+--- since cosmic's main starts a worker ahead of it (cmd/cosmic/main.tl),
+--- nor one to the projection's writer, whose edits reach a store only
+--- through the rows and orderings its address digests
+--- (build/closure_store_test.tl holds that).
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local function compiled(text: string): string
     local bytecode = string.dump((assert(load(text, "=compiled", "t"))))
@@ -842,9 +847,11 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     ["build.declared_key"] = { "build.artifact", "cosmic.fs" },
     ["build.shared_verdicts"] = { "build.bind" },
     ["build.test"] = { "build.importer" },
+    ["build.closure_store"] = { "build.schema", "cosmic.sqlite" },
+    ["cosmic.sqlite"] = { "cosmic.sys" },
   }
-  local others = { "build.test_sandbox", "build.writer", "build.schema", "build.importer",
-    "build.analyzer" }
+  local others = { "build.test_sandbox", "build.closure_store", "build.writer",
+    "build.schema", "build.importer", "build.analyzer", "cosmic.sqlite", "cosmic.sys" }
   for _, list in ipairs({ worker.loads, key_code, others }) do
     for _, name in ipairs(list) do sources[name] = plain end
   end
@@ -862,22 +869,32 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
                           "build.test_inputs", "cosmic.store", "cosmic.removed" }) do
     assert(moves(name) == "harness", name .. " moved " .. moves(name))
   end
-  for _, name in ipairs({ "build.importer", "build.analyzer" }) do
+  for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer" }) do
     assert(moves(name) == "", name .. " moved " .. moves(name))
   end
   for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",
                           "cosmic.flags" }) do
     assert(moves(name) == "", name .. " moved " .. moves(name))
   end
-  for _, name in ipairs({ "build.writer", "build.schema" }) do
+  -- The writer's closure, what cosmic.sqlite requires among it: an
+  -- edit to how it binds a blob can change a store's bytes while every
+  -- row's digest stays. cosmic.sqlite itself a worker loads too.
+  for _, name in ipairs({ "build.closure_store", "build.schema", "cosmic.sys" }) do
     assert(moves(name) == "store", name .. " moved " .. moves(name))
   end
-  -- build.bind writes a closure store's rows, and reads the shared
-  -- verdicts'.
-  assert(moves("build.bind") == "harnessstore")
+  assert(moves("cosmic.sqlite") == "harnessstore",
+    "cosmic.sqlite moved " .. moves("cosmic.sqlite"))
+  -- build.bind reads the shared verdicts' rows; a closure store's writer
+  -- binds its own.
+  assert(moves("build.bind") == "harness", "build.bind moved " .. moves("build.bind"))
   -- A module that makes a key and is none the binary carries fails the
   -- run, by name.
   sources["build.artifact"] = nil
   local none, why = test.harness(sources, imports)
   assert(none == nil and why:find("build.artifact", 1, true), why)
+  sources["build.artifact"] = plain
+  -- So does one the store's writer requires.
+  sources["cosmic.sqlite"] = nil
+  none, why = test.harness(sources, imports)
+  assert(none == nil and why:find("cosmic.sqlite", 1, true), why)
 end
