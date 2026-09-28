@@ -29,6 +29,13 @@
 --- by test.
 
 local observations = require("build.filesystem_observations")
+-- TODO: take the variables that locate a cache from build.cache_names,
+-- moving build.caches' `locating` and `variables` there: this is all
+-- this module reads of build.caches, whose lazy require of build.zig
+-- puts build/zig.tl in build.declared_key's closure, which every
+-- sandboxed verdict's key holds by source (build.test's `key_code`), so
+-- an edit to build/zig.tl runs every sandboxed test again though it
+-- decides no key.
 local caches = require("build.caches")
 local type analyzer = require("build.analyzer")
 local type inputs = require("build.inputs")

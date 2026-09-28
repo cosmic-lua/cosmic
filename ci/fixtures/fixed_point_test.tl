@@ -32,10 +32,10 @@ end
 -- byte for byte -- prefix, database and all. The second rebuild is done
 -- by a tool the first built, so this holds only when a tool built by a
 -- rebuild compiles and writes what a boot does. `settles` is whether
--- `file` is in `build.writer`'s or `build.importer`'s import closure, so
--- that each rebuilt tool finds its database built by other code than
--- its own and builds it again once (`build.reboot`); outside both,
--- neither does.
+-- `file` is in `build.writer`'s import closure or the compiler's
+-- identity (`build.work`'s `compiler_modules`), so that each rebuilt
+-- tool finds its database built by other code than its own and builds
+-- it again once (`build.reboot`); outside both, neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
     edit: function(string): string, settles: boolean)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
@@ -99,10 +99,14 @@ local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true)
 end
 
--- `build.positions` is in the compiler's closure: each rebuilt tool
--- compiles the whole tree again with its own compiler.
+-- `build.tree` is in the compiler's identity (`build.work`'s
+-- `compiler_roots`): each rebuilt tool compiles the whole tree again
+-- with its own compiler. It is in the writer's closure too, so this
+-- case cannot tell a settle over the compiler from one over the writer
+-- apart; nor can any other: no module of the compiler's identity is
+-- outside the writer's closure.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/positions.tl", commented, true)
+  run_fixed_point_case(tmp, "compiler", "build/tree.tl", commented, true)
 end
 
 -- An edit to how the compiler's identity is defined (`build.work`'s
@@ -115,8 +119,8 @@ end
 -- and refuse (exit 3).
 local function test_a_redefined_compiler_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "identity", "build/work.tl", function(source: string): string
-    return (source:gsub("OR path = 'cosmic%.removed'\"",
-      "OR path = 'cosmic.removed' OR path = 'cosmic.fs'\"", 1))
+    return (source:gsub('"build%.teal", "build%.tree",\n',
+      '"build.teal", "build.tree", "build.clock",\n', 1))
   end, true)
 end
 

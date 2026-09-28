@@ -33,7 +33,7 @@ local record writer
   --- (`closure_meta`), the declarations and their docs. What the
   --- compiler made of a module is so held by what it made, not by the
   --- compiler's identity (`build.work`'s `Identities`), which moves with
-  --- every edit to any module of the importer's closure, most of which
+  --- every edit to any module a compile or a parse runs, most of which
   --- change nothing it makes: an edit to the compiler that leaves every
   --- row of a closure as it was leaves its store and its address too.
   record Basis

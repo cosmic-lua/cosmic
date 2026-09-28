@@ -65,10 +65,11 @@
 ---   the pinned variables and the declared ones, all of them for `"*"`.
 ---
 --- The compiler is held by what it made, not by its identity. Its
---- identity digests every module of the importer's closure, most of
---- which change nothing it makes (the working database's sweeps and
---- caches, staging, a verb's reporting): holding it would run every
---- test again for an edit to any of them. What a worker runs of the
+--- identity digests every module a compile or a parse runs to decide
+--- what it stores (`build.work`'s `compiler_identity`), most of whose
+--- edits change nothing it makes (a refactor, a comment, a faster
+--- path): holding it would run every test again for an edit to any of
+--- them. What a worker runs of the
 --- compiler's making is the bytecode of its closure's modules, which
 --- its store holds by address (`build.writer`'s `closure_address`,
 --- over each module's bytecode and the rows a store carries of it) or
