@@ -392,8 +392,16 @@ local function replaced(root: string, out: string): boolean
   for _, row in ipairs(rows) do
     carried[row[1]] = row[2]
   end
+  -- The running tool's own, not a database a verb attached before
+  -- `stale_exit` ran (o/cosmic.db, whose meta Store.meta finds first).
+  local own: {string:string} = {}
+  Store.alone(function()
+    for _, key in ipairs(identity_keys) do
+      own[key] = Store.meta(key)
+    end
+  end)
   for _, key in ipairs(identity_keys) do
-    if carried[key] ~= Store.meta(key) then
+    if carried[key] ~= own[key] then
       return true
     end
   end
