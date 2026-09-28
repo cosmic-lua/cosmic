@@ -1,21 +1,29 @@
---- A process a module that declares `system` confines (build.confine's
---- `confine`): the case of build/filesystem_observations_test.tl that
---- looks for the system's own paths, which only a worker given them has
---- to give, and so declares them itself. The plan's case, for a worker
---- of such a module (build/test_sandbox.tl), is
---- build/test_sandbox_system_tool_test.tl's.
+--- `cosmic test`'s sandboxed worker (build/test_sandbox.tl) for a module
+--- that declares `system`, and a process such a module's test confines
+--- (build.confine's `confine`): the cases of
+--- build/test_sandbox_test.tl and build/filesystem_observations_test.tl
+--- that look for the system's own paths, which only a worker given them
+--- has to give, and so the ones that declare them themselves.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
 local stand_in = require("build.stand_in")
+local test_inputs = require("build.test_inputs")
+local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
---- The system's own paths, which a confined process looks for where the
---- host has them, and /proc, where the stand-in it runs finds itself.
+--- The system's own paths, which the plan and a confined process look
+--- for where the host has them, beside what the plan gives every
+--- worker; and `tool`: the plan finds this program's core, and a worker
+--- that does not declare it is held to running anything but it through
+--- a Landlock domain (build.confine's `forbid_running`), under which the
+--- kernel refuses the mounts that confine a process in a root of its
+--- own.
 Test.needs{
-  host = { "/proc" },
+  host = { "/dev/urandom", "/proc" },
+  tool = true,
   system = true,
 }
 
@@ -25,6 +33,19 @@ local function holds(list: {string}, value: string): boolean
     if each == value then return true end
   end
   return false
+end
+
+--- A worker whose module declares `system` is given the system's own
+--- paths at their own names, and a process it starts is keyed by them.
+local function test_a_plan_for_a_module_that_declares_system_gives_the_system_s_paths(tmp: string)
+  local root, scratch = tmp .. "/root", tmp .. "/scratch"
+  for _, dir in ipairs({ root .. "/o", scratch }) do assert(Fs.mkdirs(dir)) end
+  assert(Fs.write(root .. "/o/cosmic.db", "x"))
+  local inputs: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {},
+    network = {}, processes = false, tool = false, store = false, system = true }
+  local plan = test_sandbox.plan(root, scratch, inputs, {})
+  assert(holds(plan.held, "/usr") and holds(plan.sandbox.unveil.reads, "/usr"))
+  assert(plan.sandbox.unveil.at["/usr"] == nil)
 end
 
 --- A process a test confines is given the system's own paths beside
