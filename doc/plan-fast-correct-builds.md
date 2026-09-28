@@ -90,6 +90,19 @@ What the runs since show:
 
 ### Milestone M1 (to measure)
 
+A first measurement (2026-09-28): only 1 of 5 gating runs after #2291
+qualified. It stood on 96.6% of the checked suite, gated in 6.0 min, and
+took 43.8 runner-minutes. The other three landed changes moved the core
+or the harness and reran everything: 14.4 min median gating, 81
+runner-minutes per change, no better than before. Stages 0 and 1
+themselves rewrote what every key holds. M1 is measured again over ten
+ordinary commits after 2.2 lands.
+
+Before that measurement, `ci/cosmic_ci/report.tl:257` (small): have
+`cosmic test --census` name the key parts of the rows it restored, so
+`report` qualifies a run by the restored cache's parts, not the
+previous run's.
+
 M1 is decided with `driver.tl report` over ten qualifying gating
 runs, which this container cannot run (no `gh`). Its targets:
 
@@ -202,6 +215,10 @@ Its prerequisites, 0.4 and 1.2, have landed.
 - The settle when one commit moves both the fingerprint's definition
   and the compiler identity's (`build/reboot.tl`'s `TODO:`):
   - Shows: a test commit that moves both boots once.
+- The compiler identity is still wider than what shapes a compile
+  (`build/work.tl:1136`).
+- A test that starts a process keeps no verdict until its second run
+  (`build/test.tl:795`).
 
 ### Milestone M2
 
@@ -216,137 +233,213 @@ These use the local probes (see Measuring):
 
 ## Stage 3: soundness, before declared keys widen (one to two weeks)
 
-Stage 4 turns declared keys on for every unsandboxed run and deletes
-the observed path. So each gap that lets a verdict stand when a rerun
-would fail is closed first, or owned by a named item.
+Each gap here can leave a verdict standing that a rerun would fail. An
+audit of main after stages 0 and 1 (2026-09-28) re-checked every item;
+line numbers are on main at 93a6bba.
 
-### 3.1 Holes with a `TODO:`
+**Rule:** a fix that tightens a hold or a bind without adding a key
+part bumps the harness epoch (2.2). Otherwise verdicts earned through
+the hole stand until the merge queue's `--all` or the nightly run.
+Holes shaped by the host (3.1 items 6, 9 and 11, and the kernel at
+`build/declared_key.tl:1047`) are never caught by CI's `--all`, which
+runs only CI's images. Each is fixed, or accepted in writing here, not
+left to that backstop.
 
-- `build/declared_key.tl`: a host directory is keyed by its name alone.
-  Key it by a walk, or by a recorded digest.
-- `build/test.tl`: a `tool` worker is not held, and may run a stale
-  program.
-- `build/test.tl`: a stat's time, inode or owner fields, read without
-  declaring them, stand on a sibling checkout's verdict. This holds
-  under the sandbox too.
-- `core/syscalls_fs.c`: `access()`'s answer depends on ids, mount flags
-  and ACLs that no key holds.
-- `build/test_sandbox.tl`: the program is bound at its host path, so
-  the checkout's location reaches the worker.
-- `build/test.tl`: paths given to a confined process are not held to
-  the effective inputs.
-- `core/store.c`: raw tables, and a handle on a database attached while
-  a hold is up. They close with 4.2's PR 5. Until then, 1.2's hold
-  covers what it can, and this item owns the rest.
-- IPv6 in a new network namespace is unkeyed (`build/declared_key.tl`).
-- A file under `/usr` changed outside a package goes uncaught by
-  `system_identity`.
+### 3.1 Holes, in order
+
+1. **Stat times (S).** The declared key ignores `reads_stat_times`
+   entirely: under the sandbox, even a test that declares it stands on
+   a sibling checkout's verdict (`build/test.tl:608`).
+   - Change: a `stat_times` declaration in `Test.needs`, which gives a
+     key part for the checkout, not shared. This settles
+     `cosmic/test.tl:33` too.
+   - Must land before 4.2 PR 4, which deletes the observed route.
+   - Shows: a test reading `ino` does not stand across two checkouts.
+2. **eval/ and test/portable not tool trees (S)** (`build/work.tl:540`).
+   - Shows: an edit to `eval/summarize.tl` moves `boot_hash`.
+3. **A module's file not in the local compile key (S)**
+   (`build/importer.tl:1354`). `cosmic.removed` was already fixed by
+   #2278.
+   - Moves every local key once.
+   - Shows: moving `x.tl` to `x/init.tl` recompiles.
+4. **IPv6 in a new network namespace (S)**
+   (`build/declared_key.tl:1053`).
+   - Change: key the two sysctls when a module declares `::1`.
+   - Shows: a declared-`::1` key moves with `disable_ipv6`.
+5. **zig started while `declaring` runs, keyed by nothing (S–M)**
+   (`build/confine.tl:833`, `build/filesystem_observations.tl:512`).
+6. **Concurrent runs in one checkout (M).** A closure store written
+   under another run's name can stand at its address for good
+   (`build/closure_store.tl:321`); `build/writer.tl:367` and
+   `build/reboot.tl:312` go with it.
+   - Change: unique `.building` names, a sweep that spares names a live
+     run holds, and a hand-run boot that takes the lock.
+   - Shows: two runs at once leave every store equal to its address.
+7. **A host directory keyed by its name (M)**
+   (`build/declared_key.tl:703`).
+   - Change: walk it once per run and remember its digest by lstat.
+   - Shows: a file added to a declared directory moves the key.
+8. **A `tool` worker not held (M)** (`build/test.tl:2057`,
+   `can_forbid`). #2290 narrowed it to workers whose module declares
+   the `bootstrap` cache.
+   - Change: a cores directory the worker owns, bound by the sandbox.
+   - Shows: a `bootstrap`-cache test that runs `o/bin/cosmic` is
+     refused.
+9. **The artifact's other ways in (M, C and a boot).**
+   - A host program reads the artifact at `/proc/<worker>/fd/<n>`
+     (`core/syscalls.c:474`; `PR_SET_DUMPABLE`).
+   - A link can be swapped between the check and the call
+     (`core/syscalls_fs.c:196`).
+   - Shows: `sh -c 'cat /proc/$PPID/fd/<n>'` in a `system` test fails.
+   - A host-program tree's database read by name (`build/confine.tl:400`)
+     is out of scope: projects only.
+10. **The program bound at its host path, for `tool` workers (M, C and a
+    boot)** (`build/test_sandbox.tl:180`), with the mount-point race
+    beside it (`build/test_sandbox.tl:265`, same `build_root` code).
+    - Shows: a `tool` test's `Proc.executable()` is `/tree/o/bin/cosmic`.
+11. **`/usr` changed outside a package (M, or accept)**
+    (`build/declared_key.tl:1126`).
+    - Change: a once-per-run walk, about 0.5 s, only when the run holds
+      a `system` module.
+    - Accepting it leaves developer hosts uncaught; say so here if
+      chosen.
+12. **The C check's verdicts don't hold the host's sh, sed, wc and tr
+    (S)** (`build/c/init.tl:131`).
+
+Accepted or out of scope:
+
+- `access()` (`core/syscalls_fs.c:769`): the host identity now holds
+  the uid, groups and capabilities, and the sandbox fixes the mount
+  flags. Only ACLs remain. Reword the TODO and accept.
 - `/proc/self/mountinfo` names each bind's host source
-  (`build/test_sandbox.tl`).
-- `cosmic.removed`, and a module's file, are not in the local compile
-  key (`build/work.tl`, `build/importer.tl`).
-- `eval/` and `test/portable` are carried but are not tool trees
-  (#2258).
-
-Out of scope here:
-
-- `build/test.tl`'s in-tree read through a link that leads out. It is
-  on the observed path only, and dies with 4.2's PR 4.
-- `build/test_worker.tl`'s standard library outside the closure in a
-  project tree. It matters only for releases.
+  (`build/test_sandbox.tl:190`). Only an adversarial test reads it.
+  Accept, with a plain comment.
+- The observed path's own gaps (`build/test.tl:531`, `:1116`) and
+  `core/store.c`'s observe knobs (`:79`): they die with 4.2's PR 4 and
+  PR 5.
+- `core/store.c:809`, a missing feature, not a hole: it raises.
+- `core/sqlite.c:721` (observed only) and `:601` (a future artifact
+  layout).
+- `build/test_worker.tl:343`: the standard library outside the closure
+  in a project tree, releases only.
+- `build/test_worker.tl:436`, `boot_hash` let through a hold: sound on
+  the `tree_wide_meta` argument (#2293's review). Roadmap.
 
 ### 3.2 Platform-only code on macOS
 
-The rule lets macOS key its runs without enforcing them, because the
-Linux legs hold the same tests sandboxed. That is not true of a darwin
-branch. Most darwin branches are C (`__APPLE__` in seven `core/*.c`
-files), which the catalog does not see.
-
 - Decision: the macOS leg's scheduled run stays `--all`, and is the
   backstop.
-- Change: add a hand-maintained list of test modules that exercise a
+- Change: a hand-maintained list of test modules that exercise a
   darwin branch, with a test that the list's modules exist. The macOS
-  leg's gating run stands on nothing for those.
+  leg's gating run stands on nothing for those. The evidence for the
+  list: darwin and aarch64 C is neither sanitized nor checked by `fix`
+  (`ci/cosmic_ci/orchestration.tl:540`, `build/c/init.tl:80`).
 - Before 4.2's PR 3, the unenforced worker gets:
   - the tree at a fixed path, or a key that holds the path
-    (`build/test.tl`'s `launch`, `TODO:`)
-  - its closure store rather than the whole projection (`TODO:` in
-    `launch`; waits on `cosmic test --worker` taking `--store`)
+    (`build/test.tl:2651`);
+  - its closure store rather than the whole projection
+    (`build/test.tl:2658`; waits on `cosmic test --worker` taking
+    `--store`).
+- macOS strays (`build/test.tl:2767`).
 - Shows: the list exists and is held by its test. A macOS gating run's
   row shows those modules ran.
 
 ### Milestone M3
 
 - Every item in 3.1 has either landed, with a test that tries the
-  hole, or has a named owner item and date.
-- 3.2's list is in place.
-- 3.2's two worker changes have landed.
+  hole, or is written up above as accepted.
+- Each fix that moved no key part bumped the epoch.
+- 3.2's list and its two worker changes have landed.
 
 ## Stage 4: fewer paths, less code (two to three weeks)
 
-### 4.1 Fixtures sandboxed, sharing verdicts (branch `fixtures-sandboxed`)
+### 4.0 Move the driver pin
 
-Each fixture declares what it reads with `Test.needs`, naming host
-paths by the variable that holds them (`$COSMIC_FIXTURE_PRODUCT`,
-#2279).
+A bump to any `next-` prerelease after 165d091 (#2279) unblocks
+`ci/cosmic_ci/orchestration.tl:409` now. 4.1 needs it. The rest of the
+pin-gated TODOs still wait on features not on main: `build/zig.tl:380`,
+`:413`, `:528` and `:892`, `ci/cosmic_ci/images.tl:136`,
+`ci/cosmic_ci/fuzz.tl:210` and `ci/run-local:2`.
+`o/bin/cosmic todos '"cosmic-driver.pin"'` lists them when the pin
+moves.
 
+### 4.1 Fixtures sandboxed, sharing verdicts
+
+The `fixtures-sandboxed` branch never reached origin, so this starts
+fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
+
+- Each fixture declares what it reads with `Test.needs`, naming host
+  paths by the variable that holds them (`$COSMIC_FIXTURE_PRODUCT`,
+  #2279).
 - The runtime directory gets copies of `tool.tl`'s closure and the
   focused-embed build, with cores made executable at setup.
 - The driver unpacks `work/portable-source.tar` as
   `COSMIC_FIXTURE_SOURCE`.
 - Inner `cosmic test` runs get `COSMIC_TEST_SANDBOX=0`.
-- `format` stays an unsandboxed setup step.
+- `format`, `self_rebuild_test` and `fixed_point` stay unsandboxed:
+  they write a checkout and compile cold.
 - The launcher's noexec case moves to an unsandboxed module of its own,
   with a `TODO:`.
 - `Orchestration.fixture` writes `fixtures.db` beside `verdicts.db`.
 - The fixtures' 33-module project is compiled once per leg, not once
   per fixture (2.2 s each).
-- The same PR moves `ci/cosmic-driver.pin`. Its design note goes in the
-  PR description, not session scratch.
-
-- Waits on: stage 3, and a prerelease carrying #2279.
+- Lower the fixtures' bounds (`ci/cosmic_ci/orchestration.tl:330`,
+  `:350`).
+- Waits on: 4.0, and stage 3.
 - Shows: runtime, launcher, identity and product stand on a commit that
   moves neither the product nor the fixtures, taking 25 to 40 s a leg
-  (about 2 min today).
+  (about 2 min before).
 
 ### 4.2 Observation removal, PRs 2 to 5
 
-- PR 2: `--audit` from the sandbox's refusals. A sandboxed failure
-  names the path the sandbox refused, and the runner suggests the
-  declaration.
+- PR 2: `--audit` from the sandbox's refusals
+  (`build/test.tl:3385`'s precondition).
 - PR 3: declared keys become the default for every unsandboxed run,
-  retiring `COSMIC_TEST_KEY`. Such a run shares only when
-  `COSMIC_VERDICT_CACHE` names a file, and never through the home
-  cache.
+  retiring `COSMIC_TEST_KEY` (8 files). Such a run shares only when
+  `COSMIC_VERDICT_CACHE` names a file.
   - Waits on: PR 2, 4.1, M3, and 3.2's two worker changes.
+  - Closes `build/test.tl:3385`.
 - PR 4: delete the observed key path, the `reads` column of `runs`,
-  `Test.needs.processes` and the worker's logging. That is about 2,500
-  lines of Teal.
-- PR 5: delete `core/observed.c`, its 29 syscall hooks, the observed
-  SQLite VFS, and `core/store.c`'s observe knobs. That is about 1,900
-  lines of C and 65 C functions.
-- Measure before PR 4 and after PR 5, with the local recipe:
-  - ran, stood and elapsed
-  - the checked suite's time
-  - the core's size
-  - the C function count
-  - the size of `o/build.db`
+  `Test.needs.processes`, and the worker's logging. About 2,500 lines
+  of Teal.
+  - Closes `build/test.tl:531`, `:837`, `:955`, `:1024` and `:1116`;
+    `build/confine.tl:66`, `:343` and `:697`;
+    `build/filesystem_observations.tl:35`, `:407`, `:701` and `:899`;
+    `build/test_worker.tl:155` and `:186`; `core/sqlite.c:721`.
+  - `build/test_worker.tl:186` is the report capture limit. Closing it
+    also unblocks `fuzz.yml:70`'s 10,000 iterations.
+  - Waits on: 3.1 item 1.
+- PR 5: delete `core/observed.c` and its hooks, the observed SQLite
+  VFS, and `core/store.c`'s observe knobs. About 1,900 lines of C.
+  - Closes `core/observed.c:81` and `:325`, `build/confine_test.tl:193`,
+    `build/filesystem_observations.tl:146` and `core/store.c:79`.
+- Measure before PR 4 and after PR 5, with the local recipe.
 
 ### 4.3 One SQLite module for the shared caches
 
-The SQLite code for opening a cache (WAL, busy timeout, corruption
-detection, setting a corrupt file aside) has three copies:
-`build/shared_compiles.tl`, `build/shared_verdicts.tl` and
-`ci/cosmic_ci/cache_trim.tl`. The last one also reaches into the
-tools' tables directly.
+Still three copies of the WAL, busy_timeout and corrupt/set-aside code:
+`build/shared_compiles.tl:335–406`, `build/shared_verdicts.tl:195–229`
+and `ci/cosmic_ci/cache_trim.tl:63–243`. #2291 already added the
+content digest, so that half of the item is done.
 
-- Change: one module holds the shared code. Each cache keeps its own
-  row shape and eviction policy.
-- Change: `cache_trim.tl` calls the tools' own trim verb, as its
-  `TODO:` asks, and prints the content digest 1.3's save key uses.
-- Waits on: 1.3. This item is maintainability, not speed.
-- Shows: the three copies are one, and `cache_trim.tl` reads no
-  table of the tools' directly.
+- Change: the build modules share one module.
+- Change: `cache_trim.tl` calls the tool's own trim verb by running
+  `o/bin/cosmic`, as its `TODO:` at `:108` says. ci/ runs on the pinned
+  release, so it cannot `require` a new build module until the pin
+  carries it.
+- Waits on: nothing. This is maintainability.
+
+### 4.4 CI and build speed, smaller
+
+- The zig build cache grows on runs whose inputs match what they
+  restored (`.github/workflows/ci.yml:396`, `:425`): save only what
+  changed, or bound it.
+- `fuzz.yml` restores the zig cache (`:130`, S), and its job is
+  sandboxed (`:46`, `:120`, S–M).
+- The boot recompiles its closure, about 3.6 s (`core/bridge.lua:154`,
+  `:186`).
+- The CI driver check runs sandboxed (`ci.yml:642`; pin-gated, with
+  4.0).
 
 ### Milestone M4
 
@@ -388,6 +481,18 @@ Each milestone is decided from 0.3's `report`, as follows.
 
 ## Dropped or deferred
 
+- **To roadmap.md, from the TODO sweep:**
+  - musl's `comp_dir` reproducibility (`build.zig:151`,
+    `ci/cosmic_ci/orchestration.tl:504`): no key moves.
+  - flock (`build/reboot.tl:309`, `build/patch.tl:398`,
+    `build/zig.tl:220`): waits on a `cosmic.sys` binding.
+  - Key precision for the image and the kernel
+    (`build/declared_key.tl:1042`, `:1047`, `:382`).
+  - `build/reboot.tl:84`, `build/confine.tl:557` and `:563`,
+    `core/syscalls.c:921`, `build/dispatch.tl:314`,
+    `build/refresh.tl:592`, `build/doctest/generate.tl:262`,
+    `core/syscalls_test.tl:57` and
+    `build/sandboxed_verdicts_test.tl:295`.
 - **The checked suite in its own job** (was 2.3): dropped. With the
   checked suite standing, linux-x86_64 is no longer the long pole
   (about 5.5 min).
