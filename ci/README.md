@@ -96,6 +96,45 @@ operations database does not exist yet it appends a note that it is
 unavailable and exits 0: no operation ran, which means the self-check
 failed first.
 
+Each suite a platform phase runs -- the native (`local`) suite, the
+checked and portable suites, and each fixture's `cosmic test` -- writes
+one row to the operations database's `suite_runs` table once it ends
+(`cosmic_ci/suite_output.tl` reads it from the suite's stdout): how it
+ended (`timeout` where the driver ended it, which keeps only the key
+parts; `fail` for any other nonzero exit, a PASS line notwithstanding;
+else `pass`, or `unreported` where it printed no summary), its exit
+status, its tests, `ran`, `stood`, `shared` and
+elapsed ms from `cosmic test`'s summary line, and the key parts
+(host features, host, system, runtime, compiler, harness, ...) its
+`--census` line says, which every suite of the tree is run with. A
+fixture's run is keyed by nothing and says none. `summarize` appends
+these rows as a second table. The driver's self-check (`cosmic-driver
+test cosmic_ci`) is a step of its own and writes none.
+
+`report [--runs N] [--event E] [--branch B] [--repo OWNER/NAME]
+[--workflow FILE]` is for a person, not a workflow: it reads the last N
+(1 to 100, default 10) completed runs of ci.yml of event E (default
+`merge_group`; a `push`'s default to branch `main`; a branch may hold
+`/`) of the repository
+(`$GITHUB_REPOSITORY`, else cosmic-lua/cosmic) through `gh`, found on
+`PATH` and authenticated as it is: each run's jobs and step times
+(`gh api .../runs/<id>/jobs`) and the `suite_runs` rows of its unexpired
+`ci-driver-<leg>` artifacts, the newest of each name -- a re-run's
+latest attempt's -- fetched by id (`gh api .../artifacts/<id>/zip`). It prints, per run
+newest first, the wall time of its slowest platform job
+(`started_at`..`completed_at`, which leaves out queueing), the sum of
+its jobs' times, each leg's time and slowest steps, each suite's row
+(ran, stood, the share stood, ms), and whether it qualifies: its
+checked and native suites keyed their tests by the runtime and harness
+the same leg's did in the next older run with such rows that was not
+cancelled, so the commit moved neither the core nor the harness. Up to
+ten runs older than the N shown are listed for that, and fetched only
+until one has rows, so each of the N can qualify. Then the medians over the qualifying
+runs that succeeded. A run from before `suite_runs`, or whose artifacts
+have expired, is reported from its step times alone and qualifies for
+nothing. `cosmic_ci/report_test.tl` drives it against a fake `gh`
+(`testdata/report/gh.tl`) and never reaches the network.
+
 `prerelease-stage` and `prerelease-publish` are prerelease.yml's publish
 job, which runs after each green ci run on main, checks out only `ci/`,
 `bin/cosmic-bootstrap`, `.github/scripts/cosmic-driver.sh` and the

@@ -5,6 +5,8 @@ local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
+local Sqlite = require("cosmic.sqlite")
+local State = require("cosmic_ci.state")
 
 --- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
 --- its parent is the checkout the self-check runs against.
@@ -424,7 +426,10 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       "*\"print(Store.meta('runtime_context'), Store.meta('host'), Store.meta('host_image'))\"*) ;; " ..
       "*) exit 9 ;; esac\n" ..
       "printf '%s\\t%s\\t%s\\n' portable-v1 " .. target .. " " .. host_image .. "; exit 0; fi\n" ..
-      "if [ \"$1\" = test ]; then exit 0; fi\n" .. entry(checked) .. "exit 0\n"
+      "if [ \"$1\" = test ]; then printf '%s\\n' " ..
+      "'test: key parts: host features 01, host 02, system , runtime 04, compiler 05, harness 06' " ..
+      "'test: PASS (7 tests, 2 modules; 3 ran, 4 stood, 55 ms; sandboxed)'; exit 0; fi\n" ..
+      entry(checked) .. "exit 0\n"
     Fixture.write(fake .. "/o/sanitized/bin/cosmic",
       script .. string.rep("#", 16384 - #script) .. core, 493)
     return fake, runner_temp
@@ -451,6 +456,74 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. tostring(ran))
     local released = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(released == nil, case.name .. ": the release cosmic ran: " .. tostring(released))
+    -- The suite that ran wrote its row, with what its output said.
+    local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
+    local rows = State.suite_rows(db)
+    assert(db:close())
+    if case.name == "run" then
+      assert(#rows == 1, case.name .. ": " .. #rows .. " suite rows")
+      local row = rows[1]
+      assert(row.worker == "worker" and row.phase == "checked" and row.suite == "checked")
+      assert(row.status == "pass" and row.exit_code == 0 and row.tests == 7)
+      assert(row.ran == 3 and row.stood == 4 and row.elapsed_ms == 55)
+      assert(row.parts.runtime == "04" and row.parts.harness == "06" and row.parts.system == "")
+    else
+      assert(#rows == 0, case.name .. ": a suite that did not run wrote a row")
+    end
+  end
+end
+
+--- The native suite (`build`) writes its row, with what its output
+--- said; where the row cannot be written -- here an operations database
+--- whose suite_runs table has another shape -- the suite's own status
+--- still decides the phase, which passes, and says so on stderr.
+local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing(tmp: string)
+  local base, project = command(tmp)
+  for _, case in ipairs({ { name = "rows", broken = false }, { name = "broken", broken = true } }) do
+    local fake = tmp .. "/native-" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
+    -- bin/zig's boot leaves a cosmic whose suite says its figures, and
+    -- which answers the integrity check.
+    Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
+      "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+      "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s\\n' " ..
+      "'test: key parts: host features 01, host 02, system 03, runtime 04, compiler 05, harness 06' " ..
+      "'test: PASS (9 tests, 2 modules; 5 ran, 4 stood, 77 ms; sandboxed)'; fi\nexit 0\nEOF\n" ..
+      "chmod 755 o/bin/cosmic\n", 493)
+    local database = runner_temp .. "/cosmic-ci/operations.db"
+    if case.broken then
+      local db = assert(Sqlite.open(database, true))
+      assert(db:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY)"))
+      assert(db:close())
+    end
+    local outcome = Fixture.call("native-" .. case.name, append(base, { "platform", "build" }),
+      project, tmp .. "/logs", context(fake, runner_temp, { TARGET = "x86_64-linux-musl",
+        TMPDIR = tmp }))
+    local err = Fixture.read(outcome.err)
+    assert(outcome.result.ok, case.name .. ": the build phase failed: " .. err)
+    local db = assert(Sqlite.open(database))
+    if case.broken then
+      local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
+      assert(count[1][1] == "0", case.name .. ": " .. count[1][1] .. " rows")
+      assert(err:find("local suite: row not recorded", 1, true), err)
+    else
+      local rows = State.suite_rows(db)
+      assert(#rows == 1, case.name .. ": " .. #rows .. " suite rows")
+      local row = rows[1]
+      assert(row.suite == "local" and row.phase == "build" and row.status == "pass")
+      assert(row.exit_code == 0 and row.tests == 9 and row.ran == 5 and row.stood == 4)
+      assert(row.elapsed_ms == 77 and row.sandbox == "sandboxed")
+      assert(row.parts.runtime == "04" and row.parts.harness == "06")
+    end
+    local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
+      "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
+    assert(#phases == 2 and phases[1][2] == "success" and phases[2][2] == "success",
+      case.name .. ": the phases did not succeed")
+    assert(db:close())
   end
 end
 
@@ -566,7 +639,7 @@ chmod 755 o/bin/cosmic
   end
   assert(env.PATH ~= nil and env.PATH ~= "", "PATH did not reach the suite")
   assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
-  assert(Fs.read(seen .. ".words") == "test\n", "a Linux push's suite ran --all")
+  assert(Fs.read(seen .. ".words") == "test --census\n", "a Linux push's suite ran --all")
 end
 
 --- The portable suite stands on verdicts where the other suites do --
@@ -576,9 +649,9 @@ end
 local function test_the_portable_suite_stands_on_its_own_verdicts(tmp: string)
   local base, project = command(tmp)
   for _, case in ipairs({
-    { event = "merge_group", words = "test\n", shared = false },
-    { event = "push", words = "test\n", shared = false },
-    { event = "schedule", words = "test --all\n", shared = true },
+    { event = "merge_group", words = "test --census\n", shared = false },
+    { event = "push", words = "test --census\n", shared = false },
+    { event = "schedule", words = "test --census --all\n", shared = true },
   }) do
     local fake = tmp .. "/portable-" .. case.event
     local runner_temp = fake .. "-runner-temp"
