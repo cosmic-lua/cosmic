@@ -459,6 +459,28 @@ local function test_the_checked_suite_and_the_format_check_run_on_different_legs
   assert(checked ~= format, "the checked suite and the format check both run on " .. checked)
 end
 
+--- The fixed-point regression, the slowest fixture on every leg, runs
+--- on one leg of a gating run (COSMIC_CI_FIXED_POINT), not the one the
+--- checked suite lengthens, and on every leg of the scheduled run.
+local function test_the_fixed_point_fixture_runs_on_one_leg_and_on_every_scheduled_one()
+  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
+  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local legs: {string: boolean} = {}
+  local strategy = platform.strategy as {string: {string: any}}
+  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
+    legs[leg.name] = true
+  end
+  local env = platform.env as {string: string}
+  local value = assert(env.COSMIC_CI_FIXED_POINT, "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
+  local one = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
+    "github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
+  assert(one and legs[one], "the fixed-point fixture runs on no one leg of the matrix, " ..
+    "or not on every leg of the scheduled run: " .. value)
+  local checked = assert(env.COSMIC_CI_CHECKED_SUITE):match("matrix%.name == '([%w_-]+)'")
+  assert(one ~= checked, "the fixed-point fixture and the checked suite both run on " .. one)
+end
+
 --- A gating suite's workers are given none of what names the run --
 --- GitHub's GITHUB_*, RUNNER_* and ACTIONS_*, CI, systemd's per-unit
 --- variables, the container's HOSTNAME, the driver's own COSMIC_CI_*

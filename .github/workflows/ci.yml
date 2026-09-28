@@ -134,6 +134,14 @@
         # linux-x86_64 alone; every leg still builds and verifies the
         # checked core. See orchestration.tl's checked_suite.
         COSMIC_CI_CHECKED_SUITE: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
+        # The fixed-point regression (each of its tests rebuilds the
+        # product twice from a fresh tree: 70 to 150 s, the slowest
+        # fixture on every leg) runs on linux-aarch64 alone, the leg
+        # with the most slack, on a gating run: the compiler's fixed
+        # point is Teal compiling Teal, the same on every platform; the
+        # scheduled run keeps it on every leg. See orchestration.tl's
+        # phase_fixtures.
+        COSMIC_CI_FIXED_POINT: "${{ (matrix.name == 'linux-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
         # So does the format check (`fix --check`, which type-checks the
         # tree too), on another leg: a tree formats the same on every
         # platform, its C checked for x86_64-linux-musl on every host

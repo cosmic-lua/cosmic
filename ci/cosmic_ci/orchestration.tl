@@ -817,12 +817,23 @@ local function phase_fixtures(p: PlatformContext): integer
     COSMIC_FIXTURE_RUNTIME = runtime,
     COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
   }); if s ~= 0 then return s end
-  s = fixture_test(c, work, "fixed-point-regression", "fixed_point",
-    fixed_point_test_timeout_ms, {
-    COSMIC_FIXTURE_ROOT = root,
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
-  }); if s ~= 0 then return s end
+  -- The fixed-point regression is the slowest fixture on every leg (70
+  -- to 150 s: each of its tests rebuilds the product twice from a fresh
+  -- tree), and what it checks -- that the compiler compiles itself to
+  -- itself -- is the same on every platform, so a gating run runs it on
+  -- one leg, and the others set COSMIC_CI_FIXED_POINT=skip; the
+  -- scheduled run keeps it on every leg (ci.yml).
+  if Env.get("COSMIC_CI_FIXED_POINT") == "skip" then
+    Fs.put(Fs.stderr, "fixture: fixed-point-regression: skipped on this leg " ..
+      "(COSMIC_CI_FIXED_POINT=skip)\n")
+  else
+    s = fixture_test(c, work, "fixed-point-regression", "fixed_point",
+      fixed_point_test_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
+    }); if s ~= 0 then return s end
+  end
   s = fixture_test(c, work, "self-driven-regression", "self_driven",
     self_driven_test_timeout_ms, {
     COSMIC_FIXTURE_ROOT = root,
