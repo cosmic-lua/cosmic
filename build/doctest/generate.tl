@@ -261,7 +261,7 @@ end
 --- reads as it does a test module's. A second is refused.
 -- TODO: confine what a doc's examples start (doc/guides start this
 -- program and /bin/sh, so their verdicts never stand), once a generated
--- module can declare it where build.filesystem_observations is out of
+-- module can declare it where build.confine is out of
 -- reach: another project's docs compile without cosmic's build/.
 function generate.from_blocks(blocks: {Block}, file: string): string | nil, string
   local items, trouble = to_items(blocks)

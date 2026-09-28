@@ -100,7 +100,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local type _ = require("build.embed")
 
 local record stand_in
@@ -536,8 +536,8 @@ return 0
 --- Builds a stand-in under `dir`, made if it is not there, and answers
 --- the executable's path: `dir/o/bin/probe`. The build runs in a
 --- process of this program of its own, started past its launcher
---- (`observations.program`) with the environment a process of this
---- program needs (`observations.environment`): a test worker's coverage
+--- (`this_program.program`) with the environment a process of this
+--- program needs (`this_program.environment`): a test worker's coverage
 --- hook, which a child is not given, would make it several times slower.
 function stand_in.build(dir: string): string | nil, string
   -- TODO: compile only cmd/probe/main.tl, against the modules this
@@ -550,8 +550,8 @@ function stand_in.build(dir: string): string | nil, string
   if not made then return nil, trouble end
   local written, write_trouble = Fs.write(dir .. "/cmd/probe/main.tl", main_source)
   if not written then return nil, write_trouble end
-  local started = observations.program({ "-e", build_chunk, dir },
-    { env = observations.environment(), stdout = "null", stderr = "capture" })
+  local started = this_program.program({ "-e", build_chunk, dir },
+    { env = this_program.environment(), stdout = "null", stderr = "capture" })
   local result, run_trouble = Child.run(started.argv, started.options)
   if result == nil then return nil, "building the stand-in: " .. run_trouble end
   if not result.ok then

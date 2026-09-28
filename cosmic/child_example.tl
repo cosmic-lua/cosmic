@@ -17,8 +17,8 @@ Test.needs{ processes = true, tool = true }
 
 -- TODO: confine the processes these examples start, once an example
 -- may declare what its processes need, as a test does through
--- `observations.confine`: examples are shown by `cosmic docs`, and may
--- not import build.filesystem_observations.
+-- build.confine's `confine`: examples are shown by `cosmic docs`, and may
+-- not import build.confine.
 
 local Example = {}
 

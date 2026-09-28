@@ -1,7 +1,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
@@ -10,7 +10,7 @@ Test.needs{ tool = true }
 local function run(tmp: string, body: string): string, string
   local script = tmp .. "/script.tl"
   assert(Fs.write(script, 'local Log = require("cosmic.log")\n' .. body))
-  local started = observations.program({ "--standalone", script },
+  local started = this_program.program({ "--standalone", script },
     { stdout = "capture", stderr = "capture",
       timeout_ms = 30000 })
   local result = assert(Child.run(started.argv, started.options))

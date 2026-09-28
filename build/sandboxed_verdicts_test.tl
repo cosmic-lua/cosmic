@@ -20,7 +20,8 @@ local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, and the
@@ -32,7 +33,7 @@ Test.needs{
 }
 
 -- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+confine.confine({ reads = confine.itself() })
 
 --- A checkout of the suite at `root`: a test that reads a declared
 --- directory, one that reads a declared variable, one that loads a
@@ -93,7 +94,7 @@ end
 --- already -- checks nothing here.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  assert(not observations.held_to_sandbox(),
+  assert(not confine.held_to_sandbox(),
     "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
@@ -101,7 +102,7 @@ end
 --- The environment a sandboxed run of the suite is started with, its
 --- shared cache at `cache`.
 local function environment(cache: string): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = cache
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_NO_SHARED = nil
@@ -123,7 +124,7 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   local fd = assert(Fs.open_write(output))
   local args: {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
-  local started = observations.program(args, {
+  local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -290,9 +291,9 @@ local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/o/bin"))
   assert(Fs.write(root .. "/o/bin/stand-in", "one\n"))
   -- Each starts this program past its launcher by hand, as
-  -- `observations.program` would: another project cannot reach build/.
-  -- TODO: start it through `observations.program` once that moves to
-  -- `cosmic.test` (the TODO above it in build/filesystem_observations.tl).
+  -- `this_program.program` would: another project cannot reach build/.
+  -- TODO: start it through `this_program.program` once that moves to
+  -- `cosmic.test` (the TODO above it in build/this_program.tl).
   local started = [[
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -490,7 +491,7 @@ end
   assert(first:find("1 ran, 0 stood", 1, true), first)
   -- Forced, and moved as it runs: it fails.
   local fd = assert(Fs.open_write(tmp .. "/forced.out"))
-  local all = observations.program({ "test", "--all" }, {
+  local all = this_program.program({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })
   local handle = assert(Child.start(all.argv, all.options))

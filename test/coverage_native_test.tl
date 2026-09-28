@@ -7,7 +7,7 @@ local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
@@ -67,8 +67,8 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = observations.program({ script },
-    { env = observations.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
+  local started = this_program.program({ script },
+    { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))

@@ -78,9 +78,6 @@ local record observations
                     sandbox?: process.Sandbox): integer | nil, string, integer
   end
 
-  --- The process table, whose `spawn` it stands in for to confine
-  --- each child a test starts, and note it.
-  process: process
   --- SQLite's table, whose record of the files SQLite opens it drains.
   sqlite: sqlite
   --- The syscall table's log of what its calls answered, which it

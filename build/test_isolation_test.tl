@@ -9,7 +9,8 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local test = require("build.test")
 local worker = require("build.test_worker")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
 
@@ -30,7 +31,7 @@ Test.needs{
 --- check is the runner's own handling of what a worker reads and leaves
 --- of the host, which a sandbox would not let it reach.
 local function environment(): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
   return env
 end
@@ -45,7 +46,7 @@ end
 --- unprivileged runners nest them, and there it fails.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return false end
-  assert(not observations.held_to_sandbox(),
+  assert(not confine.held_to_sandbox(),
     "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
@@ -55,7 +56,7 @@ local function invoke(root: string, output: string, args: {string},
   local words: {string} = { "test" }
   for _, value in ipairs(args) do words[#words + 1] = value end
   local fd = assert(Fs.open_write(output))
-  local started = observations.program(words, {
+  local started = this_program.program(words, {
     cwd = root, env = env or environment(), stdout = fd, stderr = fd, timeout_ms = 60000,
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -269,7 +270,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
-  local held = observations.program(
+  local held = this_program.program(
     { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
     { cwd = root, env = env, stdout = fd, stderr = fd })
   local runner, trouble = Child.start(held.argv, held.options)
@@ -324,7 +325,7 @@ end
   env.MARKS = marks
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
-  local failed = observations.program(
+  local failed = this_program.program(
     { "test", "--jobs", "1", "--timeout", "60", "suite/failed_test.tl" },
     { cwd = root, env = env, stdout = fd, stderr = fd })
   local runner, trouble = Child.start(failed.argv, failed.options)
@@ -501,7 +502,7 @@ end
   assert(result.ok, assert(Fs.read(output)))
   local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
-    _ = "/usr/bin/timeout", COSMIC_BUILD_CACHE = "/shared/cache.db",
+    _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1",
     COSMIC_TEST_KEY = "declared" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
@@ -512,8 +513,10 @@ end
   -- names one for what it starts.
   assert(kept.COSMIC_BUILD_CACHE == "0" and kept.COSMIC_VERDICT_CACHE == "0")
   -- How this run was started -- after a tool rebuilt itself, from a
-  -- shell that was elsewhere before -- is no worker's to see.
+  -- shell that was elsewhere before, or from a script rather than a
+  -- terminal (the shell's depth) -- is no worker's to see.
   assert(kept.COSMIC_REBOOTED == nil and kept.OLDPWD == nil and kept._ == nil)
+  assert(kept.SHLVL == nil)
   assert(kept.COSMIC_PORTABLE_CACHE == "c" and kept.PATH == "p")
 end
 

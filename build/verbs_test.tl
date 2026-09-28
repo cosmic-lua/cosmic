@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 
 --- The tool itself, the CA bundle a file run reads, and what bin/zig reads
 --- to find or fetch zig.
@@ -117,9 +118,9 @@ local function cosmic(dir: string, args: {string}): invoke.Result
   -- in this test's own directory; and a `cosmic test`'s workers
   -- unsandboxed, since its command line is what is held here and a
   -- sandbox nested in this test's own is one a host may refuse.
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
-  local started = observations.program(args, {
+  local started = this_program.program(args, {
     cwd = dir, env = env, stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })

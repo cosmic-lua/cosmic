@@ -714,7 +714,7 @@ processor anything else.
 
 what an observed key leaves out, each with a `TODO:` where its fix goes:
 
-- [x] *the tree's location* (`build/filesystem_observations.tl`, above
+- [x] *the tree's location* (`build/declared_key.tl`, above
   `tree_name`): no input to a test, by rule. a test may not turn on where the
   tree is, nor where the program is; the working directory, a realpath, a
   readlink and the program's own path it reads are keyed by `tree_name` in the

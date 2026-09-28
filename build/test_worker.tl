@@ -21,6 +21,8 @@ local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
+local confine = require("build.confine")
+local declared_key = require("build.declared_key")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local log = require("build.verdict").log
@@ -150,9 +152,15 @@ local HEADER <const> = "cosmic-test-report-2"
 --- rather than trusted to a walk of the `imports` table, which follows
 --- `local type` requires Teal erases and requires inside functions no
 --- worker calls.
+-- TODO: drop build.declared_key, and build.artifact and build.launcher,
+-- which it requires, once no worker reaches its `key_part` and
+-- `tree_name`: `encode_reads` goes with the worker's report of its reads
+-- (removing the observation log, step 4), build.filesystem_observations
+-- with the log (step 5).
 worker.loads = {
-  "build.caches", "build.filesystem_observations", "build.test_inputs", "build.test_worker",
-  "build.verdict", "cmd.cosmic.main", "cosmic.codec", "cosmic.coverage", "cosmic.env",
+  "build.artifact", "build.caches", "build.confine", "build.declared_key",
+  "build.filesystem_observations", "build.launcher", "build.test_inputs", "build.test_worker",
+  "build.this_program", "build.verdict", "cmd.cosmic.main", "cosmic.codec", "cosmic.coverage", "cosmic.env",
   "cosmic.errors", "cosmic.fs", "cosmic.hash", "cosmic.log", "cosmic.proc", "cosmic.removed",
   "cosmic.sqlite", "cosmic.store", "cosmic.string", "cosmic.test", "cosmic.time",
 }
@@ -189,7 +197,7 @@ end
 local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
   for _, observation in ipairs(found) do
     lines[#lines + 1] = tag .. " " ..
-      observations.key_part(observation.kind, observation.path, observation.answer)
+      declared_key.key_part(observation.kind, observation.path, observation.answer)
   end
 end
 
@@ -607,7 +615,7 @@ end
 --- its module declares `store` or `tool`. `--worker-no-tool` in
 --- place of `--worker` holds the worker, before anything of the test
 --- loads, to running anything but this very program
---- (`observations.forbid_running`): a sandboxed worker's whose module
+--- (`confine.forbid_running`): a sandboxed worker's whose module
 --- does not declare `tool`, so what the program would run -- the tool's
 --- own modules, which no key of the test holds -- is none of its test's.
 function worker.run(argv: {integer:string}): integer
@@ -621,7 +629,7 @@ function worker.run(argv: {integer:string}): integer
     return 2
   end
   if argv[2] == "--worker-no-tool" then
-    local forbidden, forbid_trouble = observations.forbid_running(observations.itself())
+    local forbidden, forbid_trouble = confine.forbid_running(confine.itself())
     if not forbidden then
       log:complain("test --worker-no-tool: this program cannot be kept from running itself: " ..
         forbid_trouble)

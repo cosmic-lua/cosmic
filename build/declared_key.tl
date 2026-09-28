@@ -4,7 +4,7 @@
 --- to read, and a verdict under it stands with no observation to replay.
 ---
 --- A sandboxed worker reads its declared inputs, and besides them what
---- every worker is given (`observations.worker_unveil`): /proc, the
+--- every worker is given (build.confine's `worker_unveil`): /proc, the
 --- devices every program takes for granted (/dev/null, /dev/zero,
 --- /dev/urandom), the program and its core, and a store at
 --- o/cosmic.db, held as below -- and the system's own paths (/usr,
@@ -14,7 +14,7 @@
 --- (`host_identity`), the system's where the module declares `system`
 --- (`system_identity`), and the runtime's, not by their contents: what
 --- is left out is in the TODOs on each. It may not run this program
---- unless it declares `tool` (`observations.forbid_running`), which
+--- unless it declares `tool` (build.confine's `forbid_running`), which
 --- runs the tool's own modules, which no key of the test holds but
 --- o/bin's.
 ---
@@ -124,7 +124,7 @@
 ---
 --- Nothing in a key names where the tree is -- a path of it is keyed by
 --- its name there, and a variable's value, each of its `:`-separated
---- parts, by `observations.tree_name` -- so another checkout of the same
+--- parts, by `tree_name` -- so another checkout of the same
 --- content reaches the same key, and a verdict is shared by it alone
 --- (`build.shared_verdicts`).
 ---
@@ -133,13 +133,14 @@
 --- each hash by what `lstat` said of the file, its change time included,
 --- and o/build.db keeps them from run to run.
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
 local test_inputs = require("build.test_inputs")
 
 local record declared_key
@@ -238,6 +239,45 @@ local record declared_key
     host_id: string
     uid: integer
   end
+end
+
+--- One framed contribution to a verdict key.
+function declared_key.key_part(kind: string, path: string, answer: string): string
+  return kind .. " " .. Codec.hex(path) .. " " .. Codec.hex(answer)
+end
+
+--- What names the tree's own root in `tree_name`: a NUL, which no
+--- path holds, so no path outside the tree is ever named as one inside.
+local tree_marker <const> = "\0tree"
+
+--- A path as a key names it, the same in every checkout of one tree:
+--- one under `tree` -- as written, not climbing with ".." -- by its name
+--- below it after a marker no path holds, and any other as it is. The
+--- tree's own location is no input to what a test does there, so two
+--- checkouts of the same content key the same read alike.
+---
+--- That is a rule, not an accident of keying: a test may not turn on
+--- where the tree is -- a path length limit, a name it prints and
+--- compares. The answers that name it which a capture observes (the
+--- working directory, a realpath, a readlink, a path under the tree
+--- read or given) are keyed by `tree_name` in the shared key and whole
+--- only in a checkout's own; one it does not (the artifact path
+--- `Proc.relaunch` and the process table's `relaunch` answer) is keyed
+--- nowhere. The same rule holds of where the running program is: what
+--- `Proc.executable` answered is keyed nowhere (`program_answer`), only
+--- that it answered. Nothing here can see a test break either rule;
+--- CI enforces both by moving its checkout, and the tool it runs,
+--- o/bin/cosmic, with it, to a path the commit and the leg choose, a
+--- new one each commit (.github/scripts/place-tree.sh). That catches a
+--- test that breaks one only on a run that runs the test: every run
+--- while CI stands only on what it runs itself, and once it stands on
+--- shared verdicts, only a run where the test's key changed.
+function declared_key.tree_name(path: string, tree: string): string
+  if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
+  local rest, _ = Fs.relative(path, tree)
+  if rest == nil then return path end
+  if rest == "." then return tree_marker end
+  return tree_marker .. "/" .. rest
 end
 
 --- What every key begins with, which names how its parts are computed:
@@ -646,13 +686,13 @@ function declared_key.compute(digests: declared_key.Digests,
   end)
   digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
   if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
-  return Hash.hex_sha256(version .. "\n" .. observations.key_part("i", spec.id, "") .. "\n" ..
+  return Hash.hex_sha256(version .. "\n" .. declared_key.key_part("i", spec.id, "") .. "\n" ..
     inputs), ""
 end
 
 --- A variable's value as a key holds it: each of its `:`-separated
 --- parts that is a path of the tree by its name there
---- (`observations.tree_name`), as PATH's are, and each that is where a
+--- (`tree_name`), as PATH's are, and each that is where a
 --- variable a `host` path of `effective` names says, or beneath it, by
 --- that variable's name (`test_inputs.spelling`): what is there is
 --- keyed by its contents, and its place is no more an input than the
@@ -661,7 +701,7 @@ local function held_value(value: string, root: string,
                           effective: test_inputs.Effective): string
   local parts: {string} = {}
   for part in (value .. ":"):gmatch("([^:]*):") do
-    local held = observations.tree_name(part, root)
+    local held = declared_key.tree_name(part, root)
     if held == part and part:sub(1, 1) == "/" then
       held = test_inputs.spelling(effective, test_inputs.plain(part), true)
       if held == test_inputs.plain(part) then held = part end
@@ -673,7 +713,7 @@ end
 
 --- The digest of what `spec`'s test is given, but for its name.
 inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): string
-  local part = observations.key_part
+  local part = declared_key.key_part
   local effective = spec.effective
   local lines: {string} = {
     part("m", spec.module_key, ""),
@@ -762,7 +802,7 @@ inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): st
         lines[#lines + 1] = part("v", declared, answer)
       else
         local answer = host(digests, path)
-        if answer == "dir" and not observations.in_runtime(path) then installed = true end
+        if answer == "dir" and not confine.in_runtime(path) then installed = true end
         lines[#lines + 1] = part("h", path, answer)
       end
     end
@@ -916,7 +956,7 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 ---   read, whether a sandbox may map ids or nest another, and which
 ---   calls a filter refuses are theirs;
 --- - whether a sandbox gets a /proc of its own
----   (`observations.own_proc_given`), which a test of the sandbox
+---   (`confine.own_proc_given`), which a test of the sandbox
 ---   expects different things of; and
 --- - what the host says of itself besides (`host_variable`): CI names
 ---   the container's seccomp profile and engine there, which decide
@@ -998,7 +1038,7 @@ function declared_key.host_identity(digests: declared_key.Digests,
     end
   end
   local own = from.own_proc
-  if own == nil then own = observations.own_proc_given() end
+  if own == nil then own = confine.own_proc_given() end
   lines[#lines + 1] = "own proc " .. tostring(own)
   local host_id = from.host_id
   if host_id == nil then host_id = sys.getenv(host_variable) or "" end
@@ -1104,7 +1144,7 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
 end
 
 --- What this very program is, for a test that runs it: each of `paths`
---- (`observations.itself()`: the program and its core) by what it runs
+--- (build.confine's `itself()`: the program and its core) by what it runs
 --- as (`program`) -- an artifact by its image and the rows it carries,
 --- anything else by contents -- worked out only when its `lstat` moves.
 --- The stamp that says a core was verified (`.verified-<core>`) is left

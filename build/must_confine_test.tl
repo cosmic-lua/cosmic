@@ -1,4 +1,4 @@
---- End to end: `observations.must_confine`, and COSMIC_SANDBOX=must,
+--- End to end: `confine.must_confine`, and COSMIC_SANDBOX=must,
 --- which makes every `confine` one, as `cosmic test` holds a suite to
 --- them. Each suite runs in a `cosmic test` of its own: a spawn
 --- `must_confine` refuses fails every capture running, the one that
@@ -8,8 +8,9 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
 local stand_in = require("build.stand_in")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
@@ -22,7 +23,7 @@ Test.needs{
 }
 
 -- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+confine.confine({ reads = confine.itself() })
 
 --- Makes `root`, a tree for a suite, with a stand-in program
 --- (build/stand_in.tl) at bin/probe for its tests to start, which
@@ -41,7 +42,7 @@ local function run(root: string, output: string, env: {string:string},
   local fd = assert(Fs.open_write(output))
   local args: {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
-  local started = observations.program(args, {
+  local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
@@ -63,7 +64,7 @@ end
 --- there it fails.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  assert(not observations.held_to_sandbox(),
+  assert(not confine.held_to_sandbox(),
     "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
@@ -74,7 +75,7 @@ end
 --- sandbox may refuse theirs, which a run that requires one would fail
 --- on.
 local function environment(mode: string | nil): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_TEST_SANDBOX = nil
@@ -96,21 +97,24 @@ Test.needs { reads = { "bin/probe" } }
 local record Run
   passed: boolean
 end
-local record Observations
+local record Confine
   confine: function(declared: {string:{string}} | nil)
   must_confine: function(declared: {string:{string}} | nil)
+end
+local record Observations
   call: function(fn: function(any...): (any...), argument: any, resolving?: {string:any}): Run
 end
 -- The worker's own, which a suite outside the tree cannot require.
+local confine = package.loaded["build.confine"] as Confine
 local observations = package.loaded["build.filesystem_observations"] as Observations
 local type raw_process = require("cosmic.internal.process")
 local type Searcher = function(string): any, any
 
 local function raw(): raw_process
   for _, searcher in ipairs(package.searchers as {Searcher}) do
-    local loader, extra = searcher("build.filesystem_observations")
+    local loader, extra = searcher("build.confine")
     if type(loader) == "function" and type(extra) == "table" then
-      return (extra as {string:any}).process as raw_process
+      return extra as raw_process
     end
   end
   error("no raw table")
@@ -159,9 +163,9 @@ local function test_passed_over(tmp: string)
   local inner: Run = nil
   refusing(function()
     inner = observations.call(function()
-      observations.must_confine({ reads = { "bin/probe" } })
+      confine.must_confine({ reads = { "bin/probe" } })
       local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
-      observations.confine(nil)
+      confine.confine(nil)
       assert(ran == nil, "an unconfined process ran in its place")
     end, nil, { tree = tmp, own = { tmp } })
   end)
@@ -172,9 +176,9 @@ end
 local function test_raised_too(tmp: string)
   refusing(function()
     observations.call(function()
-      observations.must_confine({ reads = { "bin/probe" } })
+      confine.must_confine({ reads = { "bin/probe" } })
       local _, _ = Child.run({ "bin/probe", "exit 0" })
-      observations.confine(nil)
+      confine.confine(nil)
     end, nil, { tree = tmp, own = { tmp } })
   end)
   error("its own failure")
@@ -183,25 +187,25 @@ end
 local function test_too_many(tmp: string)
   local many: {string} = {}
   for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
-  observations.must_confine({ reads = many })
+  confine.must_confine({ reads = many })
   local _, _ = Child.run({ "bin/probe", "exit 0" })
-  observations.confine(nil)
+  confine.confine(nil)
 end
 
 local function test_pledged_alone()
-  observations.must_confine({ reads = { "bin/probe" } })
+  confine.must_confine({ reads = { "bin/probe" } })
   local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
     nil, { pledge = {} })
-  observations.confine(nil)
+  confine.confine(nil)
 end
 
 local function test_stale(tmp: string)
   local taken: any = nil
   observations.call(function() taken = raw().spawn end, nil, { tree = tmp, own = { tmp } })
-  observations.must_confine({ reads = { "bin/probe" } })
+  confine.must_confine({ reads = { "bin/probe" } })
   local spawn = taken as function(string, {string}, any, any, any, any, any, boolean): any
   local _ = spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false)
-  observations.confine(nil)
+  confine.confine(nil)
 end
 ]]))
   local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
@@ -243,25 +247,21 @@ local Test = require("cosmic.test")
 
 Test.needs { reads = { "bin/probe" } }
 
-local record Run
-  passed: boolean
-end
-local record Observations
+local record Confine
   confine: function(declared: {string:{string}} | nil)
   must_confine: function(declared: {string:{string}} | nil)
-  call: function(fn: function(any...): (any...), argument: any, resolving?: {string:any}): Run
 end
 -- The worker's own, which a suite outside the tree cannot require.
-local observations = package.loaded["build.filesystem_observations"] as Observations
+local confine = package.loaded["build.confine"] as Confine
 
 local function test_confined(tmp: string)
   local probe = assert(Fs.absolute("bin/probe"))
-  observations.must_confine({ reads = { %q, probe } })
+  confine.must_confine({ reads = { %q, probe } })
   local r, _ = Child.run({ probe,
     "exists %s/f 3; copy %s out; " ..
     "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
     { cwd = tmp, stdout = "capture" })
-  observations.confine(nil)
+  confine.confine(nil)
   if r == nil then return end -- refused: the run says why
   assert(r.code == 0, "the confined process exited " .. tostring(r.code))
   local out = assert(Fs.read(tmp .. "/out"))
@@ -296,24 +296,20 @@ local Test = require("cosmic.test")
 
 Test.needs { reads = { "bin/probe" } }
 
-local record Run
-  passed: boolean
-end
-local record Observations
+local record Confine
   confine: function(declared: {string:{string}} | nil)
   must_confine: function(declared: {string:{string}} | nil)
-  call: function(fn: function(any...): (any...), argument: any, resolving?: {string:any}): Run
 end
 -- The worker's own, which a suite outside the tree cannot require.
-local observations = package.loaded["build.filesystem_observations"] as Observations
+local confine = package.loaded["build.confine"] as Confine
 
 local function test_falls_back(tmp: string)
   local probe = assert(Fs.absolute("bin/probe"))
   local many: {string} = { probe }
   for i = 1, 300 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
-  observations.confine({ reads = many })
+  confine.confine({ reads = many })
   local r = assert(Child.run({ probe, "exit 0" }))
-  observations.confine(nil)
+  confine.confine(nil)
   assert(r.ok, "the process it fell back to did not run")
 end
 ]]))

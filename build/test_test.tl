@@ -865,7 +865,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
                           "build.artifact", "build.test_worker", "build.test_sandbox",
-                          "cmd.cosmic.main", "build.filesystem_observations",
+                          "cmd.cosmic.main", "build.filesystem_observations", "build.confine",
                           "build.test_inputs", "cosmic.store", "cosmic.removed" }) do
     assert(moves(name) == "harness", name .. " moved " .. moves(name))
   end

@@ -16,36 +16,22 @@
 -- a declared value such as json.null.
 
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
 local ast = require("build.ast")
-local gen_syscalls = require("build.gen_syscalls")
 local teal = require("build.teal")
-local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
---- Every declaration of the core's raw modules, and the process table's
---- header; and the whole projection, since it walks every database's
---- modules and searches by hand for wrappers outside its closure, which
---- the store of its closure would leave to the program's own database.
-Test.needs{ reads = { "core/process.h", "cosmic/internal/" }, store = true }
+--- Every declaration of the core's raw modules. The tests that walk the
+--- whole projection, and search by hand for wrappers outside the
+--- closure, are core/declarations_store_test.tl's.
+Test.needs{ reads = { "cosmic/internal/" } }
 
 local built = assert(teal.load())
-
-local type Searcher = function(string): any, any
-local type Call = function(...: any): any...
 
 --- A value of the core's, read by name.
 local function members(value: any): {string: any}
   local t = type(value)
   assert(t == "table" or t == "userdata", "not a table: " .. t)
   return value as {string: any} -- cast: checked above to be indexable
-end
-
---- Calls a function of the core's, whatever its declared signature.
-local function call(f: any, ...: any): any...
-  assert(type(f) == "function", "not a function: " .. type(f))
-  return (f as Call)(...) -- cast: checked above to be callable
 end
 
 --- What one record declares: each value member by name, true for a
@@ -177,163 +163,9 @@ local function disagreements(module: string, source: string, raw: any,
   return problems
 end
 
---- The raw value the store's searcher hands `wrapper`'s loader, the
---- way `require` hands it, or nil when it hands none.
-local function raw_behind(wrapper: string): any
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher(wrapper)
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra
-    end
-  end
-  return nil
-end
-
-local function reply(): string
-  return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-end
-
---- One of each userdata a raw module makes, by record name, and what
---- releases them.
-local record Made
-  instances: {string: any}
-  release: function()
-end
-
 local function nothing() end
 
-local makers: {string: function(raw: {string: any}): Made} = {
-  compress = function(raw: {string: any}): Made
-    local stream = assert(call(raw.inflater, "raw"))
-    return { instances = { Stream = stream }, release = nothing }
-  end,
-  hash = function(raw: {string: any}): Made
-    local hasher = assert(call(raw.hasher, "sha256"))
-    return { instances = { Hasher = hasher }, release = nothing }
-  end,
-  http = function(raw: {string: any}): Made
-    local handle = assert(call(raw.open, "http://declarations.invalid/",
-      { script = { reply() } }))
-    return { instances = { Handle = handle },
-      release = function() call(members(handle).close, handle) end }
-  end,
-  sqlite = function(raw: {string: any}): Made
-    local handle = assert(call(raw.open, ":memory:", true))
-    local statement = assert(call(members(handle).prepare, handle, "SELECT 1"))
-    return { instances = { Handle = handle, Statement = statement },
-      release = function()
-        call(members(statement).finalize, statement)
-        call(members(handle).close, handle)
-      end }
-  end,
-}
-
---- Every wrapper the store hands a raw module to, and the name of the
---- raw module's declaration. The preloaded ones have no wrapper. Edit
---- it together with core/store.c's `raw_modules`, which it repeats:
---- `test_every_raw_module_has_a_declaration` fails when the two part.
-local wrappers <const>: {string: string} = {
-  ["build.artifact"] = "store",
-  ["build.test_worker"] = "store",
-  ["build.filesystem_observations"] = "observations",
-  ["build.fuzz"] = "budget",
-  ["cosmic.child"] = "process",
-  ["cosmic.compress"] = "compress",
-  ["cosmic.coverage"] = "debug",
-  ["cosmic.hash"] = "hash",
-  ["cosmic.http"] = "http",
-  ["cosmic.json"] = "json",
-  ["cosmic.proc"] = "process",
-  ["cosmic.sqlite"] = "sqlite",
-  ["cosmic.store"] = "store",
-}
-
 local preloaded <const>: {string: boolean} = { errors = true, testing = true }
-
---- The raw module a declaration names, as the running core registers it.
-local function raw_module(name: string): any
-  if preloaded[name] then
-    local open = package.preload["cosmic.internal." .. name]
-    assert(open ~= nil, "cosmic.internal." .. name .. " is not preloaded")
-    return open("cosmic.internal." .. name)
-  end
-  local wrapper: string = nil
-  for candidate, declaration in pairs(wrappers) do
-    if declaration == name and (wrapper == nil or candidate < wrapper) then
-      wrapper = candidate
-    end
-  end
-  assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
-    "this test does not know how to reach")
-  return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value"))
-end
-
---- The raw modules whose declaration the build derives from a header
---- (build/gen_syscalls.tl) rather than a cosmic/internal/*.d.tl, by
---- name, and the target that derives it.
-local derived <const>: {string: gen_syscalls.Target} = {}
-for _, derivation in ipairs(gen_syscalls.targets) do
-  local name = derivation.path:match("^cosmic%.internal%.(.+)$")
-  if name ~= nil then derived[name] = derivation.target end
-end
-
---- A raw module's declaration: its cosmic/internal/*.d.tl, or the one
---- the build derives from its header.
-local function declaration_of(name: string): string
-  local target = derived[name]
-  if target ~= nil then
-    return (assert(gen_syscalls.declaration(assert(Fs.read(target.header)), target)))
-  end
-  return (assert(Fs.read("cosmic/internal/" .. name .. ".d.tl")))
-end
-
-local function test_every_declaration_is_what_the_core_registers()
-  local problems: {string} = {}
-  local names: {string} = {}
-  for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
-    local name = entry:match("^(.+)%.d%.tl$")
-    if name ~= nil then names[#names + 1] = name end
-  end
-  assert(#names > 0, "no declarations under cosmic/internal")
-  for name in pairs(derived) do names[#names + 1] = name end
-  table.sort(names)
-  for _, name in ipairs(names) do
-    local raw = raw_module(name)
-    local maker = makers[name]
-    local made: Made = maker ~= nil and maker(members(raw))
-      or { instances = {}, release = nothing }
-    local source = declaration_of(name)
-    for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do
-      problems[#problems + 1] = problem
-    end
-    made.release()
-  end
-  assert(#problems == 0, "the core and its declarations disagree (" ..
-    testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
-end
-
---- Every wrapper the store hands a raw value to is one this test holds
---- to a declaration, so a raw module no declaration names fails here.
-local function test_every_raw_module_has_a_declaration()
-  local known: {string: boolean} = {}
-  for wrapper in pairs(wrappers) do known[wrapper] = true end
-  local seen: {string: boolean} = {}
-  for _, db in ipairs(Store.databases()) do
-    for _, row in ipairs((assert(Sqlite.text_rows(db,
-        "SELECT path FROM modules WHERE kind = 'module'")))) do
-      local name = row[1]
-      if not seen[name] then
-        seen[name] = true
-        if raw_behind(name) ~= nil then
-          assert(known[name], name .. " is handed a raw value no declaration here names")
-        end
-      end
-    end
-  end
-  for wrapper in pairs(known) do
-    assert(seen[wrapper], wrapper .. " is no module of the store's")
-  end
-end
 
 --- Every raw module the core preloads, but the syscall table, which
 --- core/syscalls.h declares (build/gen_syscalls.tl), has a declaration
