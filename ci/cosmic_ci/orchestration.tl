@@ -269,6 +269,9 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- the compiler's case compiles the whole tree about twice over (80 s
 -- alone on four cores), so each runs apart from the self-rebuild file's.
 local fixed_point_test_timeout_ms <const> = 300000
+--- The whole suite on the checked core: see `checked_suite`'s comment
+--- for what it takes.
+local checked_suite_timeout_ms <const> = 600000
 local fixed_point_per_test_timeout_s <const> = "240"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
@@ -467,15 +470,25 @@ local function checked_suite(c: Context, target: string, work: string,
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
-  -- Bounded at twice what it takes: 157 s whole for 1869 tests on a
-  -- 4-core host, each worker sandboxed -- 29 s of it the checked core's
-  -- first build of the tree, 128 s its tests, no one test past 12 s.
-  -- Unsandboxed they take 103 s: a sandboxed worker's namespaces and
-  -- mounts cost it about 20 ms on the checked core, and more when four
-  -- start at once. 180 s, set for 1400 tests unsandboxed, timed out on
-  -- linux-x86_64 once every worker was sandboxed.
+  -- Bounded at about twice what it takes: 271 s whole (248 to 285 over
+  -- six main runs of September 2026) for 1948 tests on a 4-core host,
+  -- each worker sandboxed, the checked core running each test about
+  -- 2.9 times slower than the release core does; and some 30 s more
+  -- once the sandbox's own tests built a stand-in program each (#2269).
+  -- Its earlier bounds each timed out as the suite grew past them: 180 s,
+  -- set for 1400 tests unsandboxed, once every worker was sandboxed;
+  -- 320 s, set at twice 157 s for 1869 tests, at 1948 (36358276275) and
+  -- at 1967. The suite stands on no verdict from an earlier run
+  -- (0 stood in every run seen), though its key is meant to let it:
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
+  -- TODO: find what part of the checked suite's key moves between runs
+  -- (the checked core's bytes across CI's per-commit tree paths, or a
+  -- run-dependent input to its program identity), so that a commit that
+  -- moves neither the core nor the runner stands on the last run's
+  -- verdicts here as the local suite does; the census line that would
+  -- say (build/test.tl, "none under the keys this run reached") is
+  -- suppressed where the local suite already ran in this checkout.
   local checked_argv: {string} = { cosmic }
   local checked_words, checked_environment = Orchestration.suite_run()
   for _, word in ipairs(checked_words) do
@@ -483,8 +496,15 @@ local function checked_suite(c: Context, target: string, work: string,
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    320000, c.root, checked_environment)
+    checked_suite_timeout_ms, c.root, checked_environment)
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
+  -- The suite's per-test times and verdicts (its `runs` rows), which
+  -- the workflow uploads with the diagnostics when the leg fails: what
+  -- a timeout here leaves to read, since the suite's output names no
+  -- times, and what says which tests the checked core runs slowest.
+  if exists(c.root .. "/o/build.db") then
+    write(diagnostics .. "/build.db", read(c.root .. "/o/build.db"))
+  end
   return s
 end
 
@@ -536,8 +556,6 @@ local function suite(c: Context, name: string, executable: string,
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
-  -- --all where it stands on no verdict (`stands`): CI answers for
-  -- every test then, whatever o/ holds.
   local words, values = Orchestration.suite_run(env)
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   local argv: {string} = { executable }
