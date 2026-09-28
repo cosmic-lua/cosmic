@@ -12,9 +12,9 @@ local stand_in = require("build.stand_in")
 -- rather than the host's setsid program, and fold this module back into
 -- core/syscalls_test.tl, which then needs no `system`.
 --- What the session is tested on: /proc, the whole environment, which
---- this program started again inherits, the program itself, whose core
---- the confined stand-in is built from, and the host's setsid program,
---- beneath the system's own paths.
+--- this program started again inherits, the program itself, which it
+--- starts again, and the host's setsid program, beneath the system's
+--- own paths.
 Test.needs{
   host = { "/proc" },
   env = { "*" },

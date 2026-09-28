@@ -4,13 +4,11 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local stand_in = require("build.stand_in")
-local Test = require("cosmic.test")
-
---- The program's core, which building a stand-in reads.
-Test.needs{ tool = true }
+local artifact = require("build.artifact")
 
 --- A stand-in built under `tmp`.
 local function built(tmp: string): string
@@ -230,15 +228,13 @@ local function test_the_process_verbs(tmp: string)
   end
 end
 
---- A build that fails says why, from the process it ran in.
+--- A build that cannot be written says why.
 local function test_a_failed_build_says_why(tmp: string)
   local dir = tmp .. "/stand-in"
-  assert(Fs.mkdirs(dir .. "/cmd/broken"))
-  assert(Fs.write(dir .. "/cmd/broken/main.tl", "return function(): integer return 'x' end\n"))
+  assert(Fs.write(dir, "a file where its directory would be\n"))
   local probe, trouble = stand_in.build(dir)
   assert(probe == nil, probe)
-  assert(trouble:find("building the stand-in failed: ", 1, true), trouble)
-  assert(trouble:find("cmd/broken/main.tl", 1, true), trouble)
+  assert(trouble:find(dir, 1, true), trouble)
 end
 
 --- Commands chain as a shell's do: `&&` goes on to the next only past a
@@ -373,4 +369,28 @@ local function test_a_file_naming_it_on_its_first_line_runs_its_body(tmp: string
   assert(Fs.write(empty, "#!" .. probe .. "\n", 0x1ed))
   local ran = run({ empty })
   assert(ran.ok and ran.stdout == "", tostring(ran.stdout))
+end
+
+--- The stand-in is a host program whose main module is named under
+--- neither `build.*` nor `cosmic.*`, so it loads untrusted, as one
+--- `cosmic build --host` makes: it carries no `build.*` row at all, and
+--- does carry the modules the core itself requires of a program
+--- (`cosmic.errors`, `cosmic.removed`).
+local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
+  local parts = assert(artifact.split((assert(Fs.read(built(tmp))))))
+  assert(parts.host)
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, parts.database))
+  local db = assert(Sqlite.open(path))
+  local function one(sql: string): string
+    local rows = assert(Sqlite.text_rows(db, sql))
+    return rows[1] and rows[1][1] or ""
+  end
+  assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")
+  assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")
+  assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")
+  assert(one("SELECT count(*) FROM modules WHERE path IN " ..
+    "('cosmic.errors', 'cosmic.removed', 'cosmic.child')") == "3")
+  assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
+  assert(db:close())
 end

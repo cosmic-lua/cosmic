@@ -7,8 +7,7 @@ local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, and whose core building
---- the stand-in a program they start runs reads (`build.stand_in`).
+--- The program itself, which its tests start.
 Test.needs{ tool = true }
 
 --- The public wrapper and annotated syscall name the same directly executable

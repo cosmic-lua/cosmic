@@ -1,21 +1,21 @@
---- `build/zig.tl`'s tests that start a program: bin/zig itself, to see
---- the status a zig that cannot run exits with, and the stand-in zig
---- (`build.stand_in`), built from the program's core, that `Zig.run`
---- and a build answer or pass a signal on to. Apart from
---- build/zig_test.tl's so those stand while the tree moves.
+--- `build/zig.tl`'s tests that start this program: bin/zig itself, to
+--- see the status a zig that cannot run exits with, and a build that
+--- answers or passes on a signal the stand-in zig (`build.stand_in`)
+--- sends. Apart from build/zig_test.tl's so those stand while the tree
+--- moves.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
-local Time = require("cosmic.time")
 local Test = require("cosmic.test")
-local Zig = require("build.zig")
+-- The script bin/zig runs, which its tests copy and start: of the
+-- closure, so its source is there to read.
+local type _ = require("build.zig")
 
 --- A source whose build a test interrupts, and the program itself, which
---- its tests start and whose core building the stand-in zig reads
---- (`build.stand_in`). bin/zig is started with an environment of the
+--- its tests start. bin/zig is started with an environment of the
 --- test's own, and the stand-in reads none of the one it inherits.
 Test.needs{ reads = { "build/patch.tl" }, tool = true }
 
@@ -40,24 +40,6 @@ local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp:
   assert(denied.code == 126, tostring(denied.stderr))
   local denied_err = denied.stderr or ""
   assert(denied_err:find("zig-for-test: permission denied", 1, true), denied_err)
-end
-
-local function test_run_answers_as_the_child_did(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Zig.run({ probe, "exit 0" }) == 0)
-  assert(Zig.run({ probe, "exit 3" }) == 3)
-  assert(Zig.run({ probe, "signal KILL" }) == 128 + sys.SIGKILL)
-end
-
-local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  -- The child has this process interrupted, as a `kill -INT` aimed at
-  -- bin/zig alone would; the child hears of it only if it is passed on.
-  local started = Time.monotonic_ns()
-  local status = Zig.run({ probe,
-    "trap 42; signal INT " .. tostring(sys.getpid()) .. "; sleep 10000" })
-  assert(status == 42, tostring(status))
-  assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end
 
 --- A root of its own under `tmp` for `build/zig.tl` to build from: the

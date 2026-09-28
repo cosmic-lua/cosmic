@@ -3,14 +3,8 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
 local Notes = require("eval.check.notes")
 local stand_in = require("build.stand_in")
-
---- The program's core, which building the stand-ins for bin/cosmic and
---- o/bin/notes reads (`build.stand_in`); the grader starts them with no
---- environment.
-Test.needs{ tool = true }
 
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.

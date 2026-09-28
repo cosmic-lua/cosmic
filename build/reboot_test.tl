@@ -1,14 +1,8 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
-local Test = require("cosmic.test")
 local reboot = require("build.reboot")
 local stand_in = require("build.stand_in")
 local work = require("build.work")
-
---- The program's core, which building the stand-in bin/zig reads
---- (`build.stand_in`): a program of its own, which the boot starts with
---- only the environment it is given, and no shell.
-Test.needs{ tool = true }
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 local function test_auto_boot_unless_told_not_to()
