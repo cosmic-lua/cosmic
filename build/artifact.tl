@@ -340,7 +340,7 @@ end
 --- a verdict's key holds: `head` itself, unless a core its manifest
 --- names carries debug information (build.core_image), which is keyed
 --- by its image instead. Then it is `head` with each core stood for by
---- its image's digest (`core_image.image`), and with the fields that
+--- its image's digest (`core_image.digest`), and with the fields that
 --- say where the cores lie and what their bytes hash to -- the
 --- manifest's offsets, lengths, digests and prefix length, and a
 --- launcher arm's `cosmic_offset`, `cosmic_block`, `cosmic_length` and
@@ -379,10 +379,10 @@ function artifact.keyed_head(head: string): string
     end
     if shell_end < 0 then shell_end = offset else gaps[#gaps + 1] = head:sub(was_end + 1, offset) end
     local core = head:sub(offset + 1, offset + length)
-    local image = core_image.image(core)
+    local image = core_image.digest(core)
     if image ~= nil then imaged = true end
     cores[#cores + 1] = { core, digest }
-    local keyed = image ~= nil and ("i" .. Hash.sha256(image)) or ("b" .. digest)
+    local keyed = image ~= nil and ("i" .. image) or ("b" .. digest)
     entries[#entries + 1] = string.pack(">I4I4", target, configuration) .. keyed
     arms[#arms + 1] = { string.format("cosmic_offset=%d; cosmic_block=%d; cosmic_length=%d; " ..
       "cosmic_sha256=%s ", offset, offset // core_alignment, length, Codec.hex(digest)),

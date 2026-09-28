@@ -8,6 +8,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local analyzer = require("build.analyzer")
 local artifact = require("build.artifact")
+local core_image = require("build.core_image")
 local declared_key = require("build.declared_key")
 local fixture = require("build.core_image_fixture")
 local teal = require("build.teal")
@@ -914,6 +915,24 @@ local function test_a_core_carrying_dwarf_is_keyed_by_its_image(tmp: string)
     assert(one[i] == other[i], "the DWARF moved the " .. what)
     assert(one[i] ~= moved[i], "the code left the " .. what)
   end
+end
+
+--- The running core's runtime identity is remembered by the digest of
+--- its bytes: a run on a core an earlier one keyed by its image keys it
+--- so again without reading it, one keyed whole keys as the binary
+--- names it, and one the running core is not keys as named too.
+local function test_the_runtime_identity_is_remembered_by_the_core(tmp: string)
+  local digests = declared_key.digests(tmp)
+  local image = ("ab"):rep(32)
+  local core = ("cd"):rep(32)
+  digests.hashed["runtime-image\0" .. core] = "image 1 2\0" .. image
+  assert(declared_key.runtime_identity(digests, "raw", core, "basis") ==
+    core_image.runtime(image, 1, 2, "basis"))
+  assert(digests.used["runtime-image\0" .. core])
+  digests.hashed["runtime-image\0" .. core] = "whole\0" .. core
+  assert(declared_key.runtime_identity(digests, "raw", core, "basis") == "raw")
+  -- Not the running core, whose bytes this cannot read: as named.
+  assert(declared_key.runtime_identity(digests, "raw", ("ef"):rep(32), "basis") == "raw")
 end
 
 --- The store a worker is given at o/cosmic.db: the whole projection by

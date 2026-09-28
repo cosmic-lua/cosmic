@@ -1,9 +1,11 @@
---- Fuzz properties for `core_image.image` and `artifact.keyed_head`: a
+--- Fuzz properties for `core_image.digest` and `artifact.keyed_head`: a
 --- key reads every program a test runs, and every artifact's head, so
 --- one whose headers or manifest lie must be keyed whole -- never a
 --- raise, nor a read past the file. Each input edits a small core's
 --- header, program header and section header fields, or an artifact's
---- manifest fields, cuts it or adds junk.
+--- manifest fields, cuts it or adds junk. And a core's image holds its
+--- code whatever its DWARF: a core drawn with other debug bytes keys the
+--- same, one with other code does not.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -70,16 +72,50 @@ local function test_image_is_total(tmp: string)
     gen = gen({ fixture.elf("code", "dwarf"), fixture.elf("code"),
       fixture.elf(("c"):rep(300), ("d"):rep(100)) }, elf_fields, "<"),
     check = function(input: string): boolean, string
-      local image = core_image.image(input)
+      local image = core_image.digest(input)
       if image == nil then
         Fuzz.label("whole")
         return true, ""
       end
       Fuzz.label("image")
-      if image:sub(1, 21) ~= "cosmic-core-image-v1\0" then return false, "an image has no domain" end
+      if #image ~= 32 then return false, "an image's digest is not 32 bytes" end
       return true, ""
     end,
     requires = { "image", "whole" },
+  })
+end
+
+--- Two cores that differ only in their DWARF -- its bytes and its
+--- length, which moves the section headers behind it -- key the same;
+--- two that differ in their code do not.
+local function test_an_image_holds_the_code_and_not_the_dwarf(tmp: string)
+  Fuzz.run({
+    name = "core image dwarf",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      local code = "c" .. Fuzz.bytes(src, 64)
+      local other_code = src:int(0, 1) == 0 and code or Fuzz.mutate(src, code, 3)
+      return Fuzz.pack({ code, other_code, "d" .. Fuzz.bytes(src, 64), "d" .. Fuzz.bytes(src, 64) })
+    end,
+    check = function(input: string): boolean, string
+      local f = Fuzz.unpack(input)
+      if #f ~= 4 or f[1] == "" or f[2] == "" then return true, "" end
+      local one = core_image.digest(fixture.elf(f[1], f[3]))
+      if one == nil then return false, "a well-formed core carrying DWARF has no image" end
+      if core_image.digest(fixture.elf(f[1], f[4])) ~= one then
+        return false, "its DWARF moved the image"
+      end
+      if f[3] ~= f[4] then Fuzz.label("dwarf moved") end
+      local other = core_image.digest(fixture.elf(f[2], f[3]))
+      if f[2] ~= f[1] then
+        Fuzz.label("code moved")
+        if other == one then return false, "its code left the image" end
+      elseif other ~= one then
+        return false, "the same core keyed apart"
+      end
+      return true, ""
+    end,
+    requires = { "dwarf moved", "code moved" },
   })
 end
 
