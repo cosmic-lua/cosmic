@@ -2,12 +2,15 @@
 --- triple, argument rewriting, root detection, `PATH` lookup, the exit
 --- statuses a failed exec means, the cache hit, the sweep of a dead
 --- install's scratch directory, and the snapshots that catch a source
---- edited while a build runs. The tests that start bin/zig, or a
---- stand-in zig, are build/zig_tool_test.tl's.
+--- edited while a build runs, and what `Zig.run` answers of a stand-in
+--- zig (`build.stand_in`). The tests that start bin/zig are
+--- build/zig_tool_test.tl's.
 
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
+local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
 
 local function test_read_pin_parses_version_and_hosts()
@@ -484,4 +487,22 @@ local function test_child_status_is_the_shells()
     truncated = false }) == 3)
   assert(Zig.child_status({ signal = sys.SIGKILL, ok = false, timed_out = false,
     captured = {}, truncated = false }) == 128 + sys.SIGKILL)
+end
+
+local function test_run_answers_as_the_child_did(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  assert(Zig.run({ probe, "exit 0" }) == 0)
+  assert(Zig.run({ probe, "exit 3" }) == 3)
+  assert(Zig.run({ probe, "signal KILL" }) == 128 + sys.SIGKILL)
+end
+
+local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  -- The child has this process interrupted, as a `kill -INT` aimed at
+  -- bin/zig alone would; the child hears of it only if it is passed on.
+  local started = Time.monotonic_ns()
+  local status = Zig.run({ probe,
+    "trap 42; signal INT " .. tostring(sys.getpid()) .. "; sleep 10000" })
+  assert(status == 42, tostring(status))
+  assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end

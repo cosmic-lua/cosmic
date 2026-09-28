@@ -16,8 +16,11 @@ local Test = require("cosmic.test")
 
 --- The system's own paths, which the plan and a confined process look
 --- for where the host has them, beside what the plan gives every
---- worker: the runtime's paths and this program, whose core the
---- confined stand-in is built from.
+--- worker; and `tool`: the plan finds this program's core, and a worker
+--- that does not declare it is held to running anything but it through
+--- a Landlock domain (build.confine's `forbid_running`), under which the
+--- kernel refuses the mounts that confine a process in a root of its
+--- own.
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   tool = true,
