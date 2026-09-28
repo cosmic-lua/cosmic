@@ -41,10 +41,13 @@
   # of every test; running beside main's pushes, its saves can land
   # after a newer commit's, which costs the next run only the verdicts
   # and compiles that commit moved, never a wrong one: each row is keyed
-  # by its own inputs. A manual run on main queues with the pushes, and
-  # saves nothing.
+  # by its own inputs. A manual run takes a group of its own too, one
+  # per ref: it saves nothing, so in main's group it could cancel a
+  # pending push, whose commit then saved nothing, or be cancelled by
+  # one; a second manual run of a branch cancels the first, as a push
+  # does.
   concurrency: {
-    group: "${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.ref }}",
+    group: "${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event_name || 'run' }}-${{ github.ref }}",
     "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
   },
 
@@ -371,7 +374,11 @@
         # incrementally, by every run after it until the nightly save
         # (15-29 s a leg on main's runs after one), where an eviction
         # costs a cold build of everything to whoever meets it next (the
-        # fuzz job's checked core took 4m45s).
+        # fuzz job's checked core took 4m45s). Where assemble fails on
+        # the first main run after a vendor change, nothing is saved (a
+        # `light` entry once was), so every main run builds vendor/ cold
+        # until one passes assemble or the nightly saves; a branch stays
+        # warm through the fallback restore of another vendor part.
         #
         # Nor does main save where only the core part moved, though
         # every run after such a change until the nightly compiles it
@@ -515,9 +522,12 @@
         # The caches follow actions/cache's caching strategies: an entry
         # is keyed by its content, saved from one place and restored
         # everywhere else. Only a push to main and the scheduled run save
-        # -- the verdicts, the compiles and parses, the zig build outputs
+        # the verdicts, the compiles and parses, the zig build outputs
         # (see "name the zig build cache") and the CI driver check's
-        # marker -- and main's pushes run one at a time (`concurrency`),
+        # marker -- the pinned zig ("cache the pinned zig") and the
+        # driver's bootstrap (.github/actions/cosmic-driver) are still
+        # saved by any run that misses their exact key, which names only
+        # the pin -- and main's pushes run one at a time (`concurrency`),
         # so what they save lands in commit order and the newest entry is
         # never an older commit's saved late. A branch's pushes and the
         # merge queue's runs restore main's and save nothing: a PR's later
@@ -529,7 +539,12 @@
         # entry's key again, and saves nothing new. Which entry a restore
         # takes decides only how many tests stand, never whether a
         # verdict is right: every row is keyed by its own inputs. The
-        # primary key is the prefix itself, which no save takes.
+        # primary key is the prefix itself, which no save takes. One
+        # exception to "main's newest": GitHub searches a run's own ref's
+        # entries before main's, so a branch's entry saved before only
+        # main saved (the verdicts', the compiles', the zig outputs')
+        # still wins over main's newer one under the same prefix, until
+        # that branch or its entry goes.
         {
           name: "restore test verdicts",
           id: "verdicts-restore",

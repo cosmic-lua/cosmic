@@ -121,7 +121,10 @@ column but `used_ns`, which each run stamps again
 (`cosmic_ci/cache_trim.tl`). The save's key is the cache's prefix and
 that digest, so a run that kept only rows already saved names that
 entry's key again and saves nothing new. Only a push to main and the
-scheduled run save a cache; every run restores the newest main saved.
+scheduled run save these caches; every run restores the newest main
+saved, except where its own ref holds an entry under the same prefix
+saved before only main saved, which GitHub searches first, until that
+branch or entry goes.
 
 `report [--runs N] [--event E] [--branch B] [--repo OWNER/NAME]
 [--workflow FILE]` is for a person, not a workflow: it reads the last N
