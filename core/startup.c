@@ -24,14 +24,8 @@ _Static_assert(COSMIC_PORTABLE_SHA256_LENGTH == COSMIC_SHA256_LENGTH,
 #ifndef COSMIC_TARGET_ID
 #error "build.zig must define COSMIC_TARGET_ID"
 #endif
-#ifndef COSMIC_TARGET_NAME
-#error "build.zig must define COSMIC_TARGET_NAME"
-#endif
 #ifndef COSMIC_CONFIGURATION_ID
 #error "build.zig must define COSMIC_CONFIGURATION_ID"
-#endif
-#ifndef COSMIC_CONFIGURATION_NAME
-#error "build.zig must define COSMIC_CONFIGURATION_NAME"
 #endif
 
 static const char *const portable_environment[] = {
@@ -82,12 +76,7 @@ static void compiled_startup (struct cosmic_startup *startup,
                               enum cosmic_startup_kind kind,
                               const char *artifact_path) {
   *startup = (struct cosmic_startup){
-    .version = COSMIC_STARTUP_VERSION,
     .kind = kind,
-    .target_id = COSMIC_TARGET_ID,
-    .configuration_id = COSMIC_CONFIGURATION_ID,
-    .target_name = COSMIC_TARGET_NAME,
-    .configuration_name = COSMIC_CONFIGURATION_NAME,
     .artifact_path = artifact_path,
     .artifact_fd = -1,
     .core_fd = -1,
@@ -170,23 +159,6 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
 }
 
 const char *cosmic_startup_validate (const struct cosmic_startup *startup) {
-  if (startup == NULL) return "startup record is missing";
-  if (startup->version != COSMIC_STARTUP_VERSION)
-    return "startup record has an unsupported version";
-  if (startup->kind != COSMIC_STARTUP_NATIVE &&
-      startup->kind != COSMIC_STARTUP_PORTABLE &&
-      startup->kind != COSMIC_STARTUP_HOST)
-    return "startup record has an unknown kind";
-  if (startup->target_id != COSMIC_TARGET_ID ||
-      startup->target_name == NULL ||
-      strcmp(startup->target_name, COSMIC_TARGET_NAME) != 0)
-    return "startup target differs from the compiled target";
-  if (startup->configuration_id != COSMIC_CONFIGURATION_ID ||
-      startup->configuration_name == NULL ||
-      strcmp(startup->configuration_name, COSMIC_CONFIGURATION_NAME) != 0)
-    return "startup configuration differs from the compiled configuration";
-  if (startup->kind == COSMIC_STARTUP_NATIVE && startup->artifact_path != NULL)
-    return "native startup unexpectedly names an artifact";
   if (startup->kind != COSMIC_STARTUP_NATIVE &&
       (startup->artifact_path == NULL || startup->artifact_path[0] == '\0'))
     return "portable startup names no artifact";
@@ -309,8 +281,8 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
     artifact->inode = (uint64_t)host_stat.st_ino;
     artifact->file_size = (uint64_t)host_stat.st_size;
     const char *host_error = NULL;
-    if (!cosmic_host_decode(artifact->fd, startup->target_id,
-                            startup->configuration_id, &artifact->portable,
+    if (!cosmic_host_decode(artifact->fd, COSMIC_TARGET_ID,
+                            COSMIC_CONFIGURATION_ID, &artifact->portable,
                             &host_error))
       return fail_adoption(artifact, -1, -1, error,
                            host_error == NULL ? "host program is invalid" :
@@ -349,18 +321,18 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
                          "artifact (a #! line cut short?)");
 
   const char *decode_error = NULL;
-  if (!cosmic_portable_decode(artifact->fd, startup->target_id,
-                              startup->configuration_id,
+  if (!cosmic_portable_decode(artifact->fd, COSMIC_TARGET_ID,
+                              COSMIC_CONFIGURATION_ID,
                               &artifact->portable, &decode_error))
     return fail_adoption(artifact, startup->core_fd, -1, error,
                          decode_error == NULL ? "portable artifact is invalid" :
                                                 decode_error);
 
   const struct cosmic_portable_entry *selected = &artifact->portable.selected;
-  if (startup->launcher_target_id != startup->target_id)
+  if (startup->launcher_target_id != COSMIC_TARGET_ID)
     return fail_adoption(artifact, startup->core_fd, -1, error,
                          "launcher target differs from compiled target");
-  if (startup->launcher_configuration_id != startup->configuration_id)
+  if (startup->launcher_configuration_id != COSMIC_CONFIGURATION_ID)
     return fail_adoption(artifact, startup->core_fd, -1, error,
                          "launcher configuration differs from compiled configuration");
   if (selected->target_id != startup->launcher_target_id ||
