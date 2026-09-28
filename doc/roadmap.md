@@ -80,12 +80,13 @@ Open the remaining `fopen` paths with `O_CLOEXEC` (`"e"` in the mode):
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- `shape` in use. `cosmic.shape` and `cosmic.json` both exist, and only
-  `build/refresh.tl`'s PyPI index read calls `Shape.into` so far. Convert the sites that read fields off a
-  decoded value through `as` casts, starting with those under `build/` and
-  `ci/`; their call shapes decide whether the inference limit in shape.tl's
-  module comment needs a helper, and whether `decode_into(text, spec,
-  opts)`, decoding JSON and checking it in one call, earns its place.
+- `shape` in use. `cosmic.shape` and `cosmic.json` both exist, and
+  `Shape.decode_into(text, spec, opts)` decodes and checks in one call;
+  only `build/refresh.tl`'s PyPI index read uses either so far. Convert the
+  sites that read fields off a decoded value through `as` casts, starting
+  with those under `build/` and `ci/`; their call shapes decide whether the
+  inference limit in shape.tl's module comment needs a helper.
+
 - a spec that agrees with its record. Nothing checks that a `Shape.record`
   or `Shape.strict_record` names the fields of the Teal record its answer is
   annotated as, so a field added to the record and not to the spec is never
