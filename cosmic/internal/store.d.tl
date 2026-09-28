@@ -59,8 +59,12 @@ local record store
   --- the set holds as keys, saying why of a module with the first text
   --- and why of `databases` with the second; raises when one is up
   --- already. While it is up, the searcher, `bytecode`, `source` and
-  --- `requires` answer none of those names, and `databases` raises.
-  hold: function(names: {string:boolean}, why: string, why_databases: string)
+  --- `requires` answer none of those names, and `databases` raises;
+  --- `meta` of a key the set `meta_keys` does not hold searches only the
+  --- databases attached since, raising with `why_meta` when none of
+  --- those answers.
+  hold: function(names: {string:boolean}, why: string, why_databases: string,
+                 meta_keys: {string:boolean}, why_meta: string)
 
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.

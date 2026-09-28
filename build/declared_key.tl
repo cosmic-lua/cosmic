@@ -1187,7 +1187,8 @@ end
 --- when a module of the tree reads it and is not named here.
 declared_key.compiler_readers = {
   "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.test", "core.allocation_test", "cosmic.store_test", "doc.guides.portable-runtime",
+  "build.store_meta_readers_test", "build.test", "core.allocation_test", "cosmic.store_test",
+  "doc.guides.portable-runtime",
 }
 
 --- Whether an import closure, the names of its modules, holds a module

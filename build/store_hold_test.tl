@@ -97,8 +97,9 @@ end
 local function test_the_raw_table_lifts_no_hold_and_hands_out_no_handle()
   local raw = raw_store()
   assert(raw.release == nil, "the raw table offers a way to lift the hold")
-  local hold = raw.hold as function({string:boolean}, string, string): any
-  local replaced, replace_why = pcall(hold, {}, "none", "none")
+  local hold = raw.hold as function({string:boolean}, string, string, {string:boolean},
+                                    string): any
+  local replaced, replace_why = pcall(hold, {}, "none", "none", {}, "none")
   assert(not replaced, "replaced the hold")
   assert(tostring(replace_why):find("held already", 1, true), tostring(replace_why))
   assert(raw.binary == nil, "the raw table hands out the binary's database")

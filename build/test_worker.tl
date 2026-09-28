@@ -409,6 +409,56 @@ local function hold_requires(module_path: string, closure: {string:boolean},
   end
 end
 
+--- The `meta` rows a held worker's `Store.meta` reads of the databases
+--- the store's hold covers (`hold_store`), whatever its closure: those
+--- a closure store keeps of the projection (`build.closure_store`'s
+--- `closure_meta`), which its address digests, and `boot_hash`. The
+--- rows the running program answers itself, from its core and the
+--- database it carries -- `runtime_context`, `host`, `host_image`,
+--- `runtime`, `runtime_basis` and `artifact` -- are answered ahead of
+--- any hold, since the runtime identity and the launcher's hold them
+--- (`build.declared_key`'s `runtime` and `launcher`), but for
+--- `artifact`, the program's own path, which `Proc.executable()` answers
+--- a test as well. Every other row -- `projected` and `written_by`
+--- among them -- is the running tool's or the whole projection's, which
+--- no key of a test without `store` holds, but for `compiler_meta` and
+--- `writer_meta`, each where the closure holds what it digests.
+-- TODO: hold `boot_hash` too, once build.importer and build.writer tell
+-- a built tool from a boot, and a tool fresh against a tree from one
+-- that is not, by other means than its `boot_hash`: no key of a test
+-- without `store` holds it, though it moves with every edit to the
+-- tree, and it is let through only on build.declared_key's
+-- `tree_wide_meta` account of why no read of it turns a verdict.
+local held_meta <const>: {string} = { "boot_hash", "image_hash", "main", "runtime_basis" }
+
+--- The `meta` rows that name the compiler's identity, which a closure
+--- store does not carry: a held worker reads them only where its closure
+--- holds a module that reads them, whose key holds the tool's
+--- (`build.declared_key`'s `compiler_readers`).
+local compiler_meta <const>: {string} = { "compiled_by", "compiler" }
+
+--- The `meta` row that names the writer's identity (`build.work`'s
+--- `Identities`), a digest of the sources of `build.writer`'s import
+--- closure and of the core image, as the running tool -- fresh against
+--- the tree it tests, or refusing -- carries it: a held worker reads it
+--- only where its closure holds `build.writer`, whose key holds those
+--- sources, and the image through its closure store's `image_hash`.
+local writer_meta <const> = "writer"
+
+--- The set of the `meta` rows a held worker whose import closure is
+--- the set `closure` reads (`held_meta`, `compiler_meta`, `writer_meta`).
+local function meta_keys(closure: {string:boolean}): {string:boolean}
+  local keys: {string:boolean} = {}
+  for _, key in ipairs(held_meta) do keys[key] = true end
+  if closure["build.writer"] then keys[writer_meta] = true end
+  local names: {string} = {}
+  for name in pairs(closure) do names[#names + 1] = name end
+  if declared_key.reads_compiler(names) then
+    for _, key in ipairs(compiler_meta) do keys[key] = true end
+  end
+  return keys
+end
+
 --- Puts up the store's hold (core/store.c's `store_hold`) for the tests
 --- of `module_path`, whose module declares neither `store`, whose key
 --- holds the whole projection, nor `tool`, whose key holds the program
@@ -434,13 +484,12 @@ end
 --- whenever the worker allocates, and as the process closes after its
 --- report -- runs past the test and can still exit or write the report
 --- itself.
--- TODO: hold `Store.meta` too, once a key holds the meta rows a test
--- reads -- the projection's `projected`, `boot_hash` and `image_hash`
--- move with every edit to the tree, which no key of a test without
--- `store` or `tool` holds -- or it answers only the keys a key holds
--- under a hold: `runtime_basis`, which the runtime identity names, and
--- `compiler` and `compiled_by` only for a closure that reads them
--- (`build.declared_key`'s `compiler_readers`).
+---
+--- `Store.meta` is held too: the databases the hold covers answer only
+--- the rows of `held_meta` and, where the closure holds what each
+--- digests, of `compiler_meta` and `writer_meta`; a lookup of any other
+--- row reaches only a database the test attached itself, keyed by what
+--- it declares it reads, and raises when none answers it.
 local function hold_store(module_path: string, closure: {string:boolean},
                           tree: {string:boolean}, declared: {string:boolean})
   local names: {string:boolean} = {}
@@ -456,6 +505,12 @@ local function hold_store(module_path: string, closure: {string:boolean},
     module_path, module_path), string.format("a handle reads every module's rows, and " ..
     "%s's verdict is keyed by what the store holds of its import closure alone. " ..
     "Declare store = true in its Test.needs to read them, at the cost of running its " ..
+    "tests again on every edit to the tree", module_path), meta_keys(closure),
+    string.format("%s's verdict is keyed by what the store holds of its import closure " ..
+    "alone and by the runtime, and neither holds that row -- nor the compiler's " ..
+    "identity, unless the closure holds a module build/declared_key.tl's " ..
+    "`compiler_readers` names, nor the writer's, unless it holds build.writer. " ..
+    "Declare store = true in its Test.needs to read it, at the cost of running its " ..
     "tests again on every edit to the tree", module_path))
 end
 
