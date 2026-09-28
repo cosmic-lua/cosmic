@@ -163,20 +163,31 @@ local function bind(
   return true, ""
 end
 
+--- `sql` prepared on `handle` with `values` bound, or nil and why; a
+--- statement that does not bind is finalized.
+local function prepared(handle: Sqlite.Handle, sql: string,
+                        values: {Sqlite.Value}): Sqlite.Statement | nil, string
+  local statement, trouble = handle:prepare(sql)
+  if statement == nil then
+    return nil, trouble
+  end
+  local bound, why = bind(statement, values or {})
+  if not bound then
+    statement:finalize()
+    return nil, why
+  end
+  return statement, ""
+end
+
 --- Parameters are a dense list indexed by SQLite's parameter index, through
 --- its highest index. Repeated named parameters share an index; ?NNN gaps
 --- still need entries (use {}). Missing entries and extra keys are errors.
 --- Runs a statement that yields no rows.
 function Sqlite.run(handle: Sqlite.Handle, sql: string,
                     values?: {Sqlite.Value}): boolean, string
-  local statement, trouble = handle:prepare(sql)
+  local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return false, trouble
-  end
-  local bound, why = bind(statement, values or {})
-  if not bound then
-    statement:finalize()
-    return false, why
   end
   local state, failure = statement:step()
   statement:finalize()
@@ -202,19 +213,25 @@ function Sqlite.cell(statement: Sqlite.Statement, index: integer): Sqlite.Cell
   return { kind = "null" }
 end
 
+--- The row `statement` was just stepped to, as typed cells in column
+--- order. Its columns are asked after each step: a schema change
+--- re-prepares the statement, and its columns with it.
+local function row_of(statement: Sqlite.Statement): Sqlite.Row
+  local row: Sqlite.Row = {}
+  for index = 0, statement:columns() - 1 do
+    row[index + 1] = Sqlite.cell(statement, index)
+  end
+  return row
+end
+
 --- Parameters follow the same complete-list contract as run.
 --- Every row a query yields, each row a dense list of typed cells in column
 --- order. SQL NULL is an explicit `kind = "null"` cell.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Rows | nil, string
-  local statement, trouble = handle:prepare(sql)
+  local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
-  end
-  local bound, why = bind(statement, values or {})
-  if not bound then
-    statement:finalize()
-    return nil, why
   end
   local out: Sqlite.Rows = {}
   while true do
@@ -226,13 +243,7 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
     if state == "done" then
       break
     end
-    local row: Sqlite.Row = {}
-    -- Asked after each step: a schema change re-prepares the
-    -- statement, and its columns with it.
-    for index = 0, statement:columns() - 1 do
-      row[index + 1] = Sqlite.cell(statement, index)
-    end
-    out[#out + 1] = row
+    out[#out + 1] = row_of(statement)
   end
   statement:finalize()
   return out, ""
@@ -265,16 +276,11 @@ local query_mt: metatable<Sqlite.Query> = {
 ---     assert(q:failure() == "", q:failure())
 function Sqlite.query(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Query | nil, string
-  local prepared, trouble = handle:prepare(sql)
-  if prepared == nil then
+  local opened, trouble = prepared(handle, sql, values)
+  if opened == nil then
     return nil, trouble
   end
-  local statement: Sqlite.Statement = prepared
-  local bound, why = bind(statement, values or {})
-  if not bound then
-    statement:finalize()
-    return nil, why
-  end
+  local statement: Sqlite.Statement = opened
   local open = true
   local ended = false
   local failed = ""
@@ -300,13 +306,7 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
       finish()
       return nil, ""
     end
-    local row: Sqlite.Row = {}
-    -- Asked after each step: a schema change re-prepares the
-    -- statement, and its columns with it.
-    for index = 0, statement:columns() - 1 do
-      row[index + 1] = Sqlite.cell(statement, index)
-    end
-    return row, ""
+    return row_of(statement), ""
   end
   q.each = function(self: Sqlite.Query): function(): Sqlite.Row
     return function(): Sqlite.Row
@@ -330,14 +330,9 @@ end
 --- SQLite's text formatting; text and blobs remain byte strings, including NUL.
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
                            values?: {Sqlite.Value}): {{string}} | nil, string
-  local statement, trouble = handle:prepare(sql)
+  local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
-  end
-  local bound, why = bind(statement, values or {})
-  if not bound then
-    statement:finalize()
-    return nil, why
   end
   local out: {{string}} = {}
   while true do

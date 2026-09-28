@@ -13,8 +13,6 @@
 
 #include "portable.h"
 
-#define COSMIC_STARTUP_VERSION 1u
-
 /*
  * Private portable launcher environment contract. The entire
  * COSMIC_PORTABLE_ prefix is reserved for the launcher and runtime; callers
@@ -53,12 +51,7 @@ enum cosmic_startup_test_phase {
 };
 
 struct cosmic_startup {
-  uint32_t version;
   enum cosmic_startup_kind kind;
-  uint32_t target_id;
-  uint32_t configuration_id;
-  const char *target_name;
-  const char *configuration_name;
   const char *artifact_path;
   /* Whether artifact_path must name the file artifact_fd holds: set for
    * the joined `--artifact=<path>`, which a `#!` line carries and the
@@ -86,6 +79,8 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
                               const char *artifact_path);
 /* Whether any launcher-private COSMIC_PORTABLE_ name is set. */
 bool cosmic_startup_has_private_environment (void);
+/* Why `startup` cannot go on -- a portable start that names no artifact,
+ * or the contract error its environment left -- or NULL when it can. */
 const char *cosmic_startup_validate (const struct cosmic_startup *startup);
 /* Adopts the artifact startup chose: false, with *error naming why, when
  * it cannot, and *artifact then holds nothing. */
