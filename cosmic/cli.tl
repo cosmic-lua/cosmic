@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -111,6 +111,27 @@ local record Cli
   --- database or the statement failed, a write among them; 2 for a
   --- command line it cannot read. Nothing is built or staged.
   sql: string
+  --- `cosmic json [options] [path] [file|-]`: the answer to a quick
+  --- question about a JSON file -- is there a key `x` in this export,
+  --- what is under `users[1]` -- with no script to write. It reads the
+  --- file, or standard input when the file is `-` or absent, and prints
+  --- the value at the path as JSON, indented, or on one line with
+  --- `--compact`; a string prints as its text with `-r`. A path reads
+  --- as the paths the JSON messages print: `$` is the document, then
+  --- `.key` or `["a key"]` and `[1]`, counted from 1 as `Json.get`
+  --- counts (`$.users[1].name`); a first key needs no dot (`a.b`), and
+  --- `*` and `..` are kept for wildcards and are refused. A key named
+  --- `*` is `["*"]`. A lone word is the path when it begins `$`, `.` or
+  --- `[` (and not `./` or `../`), else the file. `--exists` prints
+  --- nothing and only answers by its exit status; `--keys` lists an
+  --- object's keys, sorted, one per line, or an array's length;
+  --- `--shape` prints `Json.describe` of the value. Only a lookup: no
+  --- filter, no transform. Exits 0 when the path is found, 1 when it is
+  --- not, with the message `Json.get` gives on standard error (a
+  --- `null` value is found), 2 for a command line it cannot read or a
+  --- file that is missing or not JSON. It prints no verdict line, which
+  --- would be in the data a pipe reads
+  json: string
   --- `cosmic docs [q]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
   --- or words to search the documentation for; a module lists the
@@ -174,7 +195,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -204,6 +225,14 @@ local module: Module = {
       ["--build"] = { about = "run against o/build.db" },
       ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
     },
+    json = {
+      ["--compact"] = { about = "print the value on one line" },
+      ["-r"] = { about = "print a string as its text, without quotes" },
+      ["--raw"] = { about = "print a string as its text, without quotes" },
+      ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
+      ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
+      ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
+    },
     bom = {
       ["--licenses"] = { about = "print each component's license notices" },
       ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
@@ -218,7 +247,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 

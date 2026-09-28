@@ -1,0 +1,214 @@
+--- `cosmic json`: one lookup in a JSON document, for the ten-second
+--- question ("is there a key `x` in this export?") that a script costs
+--- more than. It reads a file, or standard input, walks the path
+--- `Json.parse_path` reads, and prints what is there -- and nothing else:
+--- no filter, no transform.
+---
+--- Unlike every other verb it ends in no verdict line. Its standard
+--- output is data for a pipe or a `$(...)`, and a line of its own after
+--- the value would be in that data; `cosmic sql` puts its verdict last,
+--- for a reader to drop, but a JSON value has no line to drop. Its exit
+--- status is the verdict: 0 found, 1 the path is not there, 2 a command
+--- line, a file or a text it cannot read. Complaints go to standard
+--- error, as every verb's do. build/dispatch.tl's `bare` names it, and
+--- build/verbs_test.tl says why the rest of the tree may not.
+---
+--- A JSON `null` is a value here, not an absence: `--exists` is true of a
+--- key whose value is `null`, and a path through one fails for what it
+--- is (`Json.get` reads with `null_value = Json.null`).
+
+local Cli = require("cosmic.cli")
+local Flags = require("cosmic.flags")
+local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
+local Proc = require("cosmic.proc")
+local Stream = require("cosmic.stream")
+
+--- The `cosmic json` verb: `run` is what `build/dispatch.tl` calls.
+local record verb
+  --- Where `run` reads and writes: what a test stands in for.
+  record Io
+    --- Writes to standard output, as given: the caller adds newlines.
+    out: function(text: string)
+    --- Writes one complaint line, without its newline.
+    err: function(line: string)
+    --- The whole of standard input, or nil and why.
+    stdin: function(): string | nil, string
+  end
+
+  --- What a command line asks for.
+  record Request
+    --- The steps to look up; empty for the document itself.
+    path: {string | integer}
+    --- The path as `Json.child_path` spells it, for a message; "$"
+    --- when none was given.
+    spelled: string
+    --- The file to read; nil for standard input.
+    file: string | nil
+    --- "value", "exists", "keys" or "shape".
+    mode: string
+    compact: boolean
+    raw: boolean
+  end
+end
+
+local spec = Cli.options.json
+
+local usage = "cosmic json [--exists | --keys | --shape | --compact | -r] [<path>] [<file>|-]"
+
+--- Whether a lone word is the path and not the file: it begins with `$`,
+--- `[` or `.`, and does not begin `./` or `../`, which name a file.
+local function is_path(word: string): boolean
+  local head = word:sub(1, 1)
+  if head == "$" or head == "[" then return true end
+  return head == "." and word:sub(1, 2) ~= "./" and word:sub(1, 3) ~= "../"
+end
+
+--- What `argv` asks for, or nil and why it is refused.
+local function arguments(argv: {integer:string}): verb.Request | nil, string
+  local parsed, trouble = Flags.parse(argv, 2, spec)
+  if parsed == nil then return nil, trouble end
+  local modes: {string} = {}
+  for _, name in ipairs({ "exists", "keys", "shape" }) do
+    if parsed.set["--" .. name] then modes[#modes + 1] = "--" .. name end
+  end
+  if #modes > 1 then
+    return nil, "name one of " .. table.concat(modes, " and ") .. ", not both"
+  end
+  local raw = parsed.set["-r"] or parsed.set["--raw"] or false
+  local compact = parsed.set["--compact"] or false
+  if #modes == 1 and (raw or compact) then
+    return nil, (raw and "--raw" or "--compact") .. " shapes a printed value, which " ..
+      modes[1] .. " does not print"
+  end
+  local words = parsed.words
+  local request: verb.Request = { path = {}, spelled = "$", mode = "value", compact = compact, raw = raw }
+  if #modes == 1 then request.mode = modes[1]:sub(3) end
+  local path: string | nil
+  if #words == 2 then
+    path, request.file = words[1], words[2]
+  elseif #words == 1 then
+    if is_path(words[1]) then path = words[1] else request.file = words[1] end
+  elseif #words > 2 then
+    return nil, "give a path and a file at most, not " .. #words .. " words"
+  end
+  if request.file == "-" then request.file = nil end
+  if path ~= nil then
+    local steps, why = Json.parse_path(path)
+    if steps == nil then return nil, why end
+    request.path, request.spelled = steps, "$"
+    for _, step in ipairs(steps) do
+      request.spelled = Json.child_path(request.spelled, step)
+    end
+  end
+  return request, ""
+end
+
+--- What kind of value `value` is, for a complaint: a scalar's type, or
+--- `{...}` and `[n x ...]` for a container.
+local function shown(value: any): string
+  return Json.describe(value, { max_depth = 0 })
+end
+
+--- What `--keys` prints for `value`: an object's keys, sorted, one per
+--- line, or an array's length; nil and why when it is neither.
+local function keys_of(value: any): string | nil, string
+  local object, _ = Json.entries(value)
+  if object ~= nil then
+    local names: {string} = {}
+    for key in pairs(object) do names[#names + 1] = key end
+    table.sort(names)
+    if #names == 0 then return "", "" end
+    return table.concat(names, "\n") .. "\n", ""
+  end
+  local items, _ = Json.items(value)
+  if items ~= nil then return #items .. "\n", "" end
+  return nil, "--keys needs an object or an array, got " .. shown(value)
+end
+
+--- The bytes of standard input, refusing a terminal, where nothing
+--- would ever end them.
+local function read_stdin(): string | nil, string
+  if Proc.is_tty(Fs.stdin) then
+    return nil, "no file given and standard input is a terminal; " ..
+      "give a file, or pipe JSON in"
+  end
+  -- `Stream.from_fd` borrows the descriptor, which stays open.
+  return Stream.read_all(Stream.from_fd(Fs.stdin))
+end
+
+local standard: verb.Io = {
+  out = function(text: string)
+    local _, _ = Fs.put(Fs.stdout, text)
+  end,
+  err = function(line: string)
+    local _, _ = Fs.put(Fs.stderr, line .. "\n")
+  end,
+  stdin = read_stdin,
+}
+
+--- `cosmic json [options] [<path>] [<file>|-]`: prints the value at the
+--- path, and returns the exit code: 0 found, 1 the path is not there
+--- (or `--keys` was asked of a scalar), 2 a command line, a file or a
+--- text it cannot read.
+--- @param argv the command line, `json` at slot 1
+--- @param io where the text is read and written; the process's own when nil
+function verb.run(argv: {integer:string}, io?: verb.Io): integer
+  local to = io or standard
+  local function complain(line: string)
+    to.err("cosmic: json: " .. line)
+  end
+  local request, trouble = arguments(argv)
+  if request == nil then
+    complain(trouble .. "; " .. usage)
+    return 2
+  end
+  local text: string | nil
+  local read_trouble: string
+  if request.file == nil then
+    text, read_trouble = to.stdin()
+  else
+    text, read_trouble = Fs.read(request.file)
+  end
+  if text == nil then
+    complain(read_trouble)
+    return 2
+  end
+  local document, decode_trouble = Json.decode(text, { null_value = Json.null })
+  if decode_trouble ~= "" then
+    complain((request.file or "standard input") .. ": " .. decode_trouble)
+    return 2
+  end
+  local value, missing = Json.get(document, request.path)
+  if missing ~= "" then
+    if request.mode ~= "exists" then complain(missing) end
+    return 1
+  end
+  if request.mode == "exists" then return 0 end
+  if request.mode == "shape" then
+    to.out(Json.describe(value) .. "\n")
+    return 0
+  end
+  if request.mode == "keys" then
+    local listed, why = keys_of(value)
+    if listed == nil then
+      complain(request.spelled .. ": " .. why)
+      return 1
+    end
+    to.out(listed)
+    return 0
+  end
+  if request.raw and value is string then
+    to.out(value .. "\n")
+    return 0
+  end
+  local encoded, encode_trouble = Json.encode(value, { pretty = not request.compact })
+  if encoded == nil then
+    complain(request.spelled .. ": " .. encode_trouble)
+    return 1
+  end
+  to.out(encoded .. "\n")
+  return 0
+end
+
+return verb
