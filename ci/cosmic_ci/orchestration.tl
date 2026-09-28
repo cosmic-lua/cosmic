@@ -7,6 +7,7 @@ local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local Archive = require("cosmic.archive")
+local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
@@ -16,6 +17,7 @@ local Time = require("cosmic.time")
 
 local record Orchestration
   stands: function(env: {string:string}): boolean
+  harness_moved: function(root: string, base: string): boolean
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string})
   fixture: function(env: {string:string}, tmpdir: string): {string:string}
@@ -70,9 +72,72 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 -- reference, or on the runner beneath it, is not. The macOS leg's
 -- image names itself (COSMIC_SYSTEM_ID, .github/scripts/leg-host-id.sh),
 -- which every module given the system's paths is keyed by.
+---
+--- Nor does a merge-queue run whose change moves build/harness_epoch.tl
+--- from the queue's base (COSMIC_CI_HARNESS_MOVED, which `environment`
+--- sets by `harness_moved` where the driver's environment does not):
+--- no key holds the harness's code, only the epoch that file records
+--- (build/declared_key.tl), and a harness change marked there as one
+--- that moves no verdict would otherwise land on verdicts it may have
+--- moved. It runs every test, as main's scheduled run does, so the
+--- change is gated on a run that stands on nothing; where the driver
+--- cannot tell whether the file moved, it takes it as moved.
 function Orchestration.stands(env: {string:string}): boolean
+  if env.COSMIC_CI_EVENT == "merge_group" and env.COSMIC_CI_HARNESS_MOVED ~= "0" then
+    return false
+  end
   return (env.COSMIC_CI_REQUIRE_SANDBOX == "1" or env.COSMIC_CI_DECLARED_KEYS == "1") and
     standing_events[env.COSMIC_CI_EVENT or ""] == true
+end
+
+--- The file that records the harness's epoch and the digest last
+--- acknowledged of it (build/harness_epoch.tl).
+local epoch_file <const> = "build/harness_epoch.tl"
+
+--- The git object `revision:path` names in the checkout at `root`, or
+--- nil where there is none: no such commit here, or no such file in it.
+local function blob(root: string, revision: string, path: string): string | nil
+  local result = Child.run({ "/usr/bin/env", "git", "-C", root, "rev-parse", "--verify",
+    "--quiet", revision .. ":" .. path }, { stdout = "capture", stderr = "null" })
+  if result == nil or not result.ok then return nil end
+  return (result.stdout or ""):match("^(%x+)\n?$")
+end
+
+--- Whether build/harness_epoch.tl differs between the commit `base`
+--- names and HEAD in the checkout at `root`: the merge queue's base
+--- commit (ci.yml's COSMIC_CI_BASE_SHA) and the merge it checks. A
+--- shallow checkout lacks the base: it is fetched, the one commit.
+--- True where either cannot be read -- no base named, no git, a fetch
+--- refused, a file added -- which runs every test: the safe side.
+function Orchestration.harness_moved(root: string, base: string): boolean
+  if root == "" or not base:match("^%x+$") then return true end
+  local now = blob(root, "HEAD", epoch_file)
+  if now == nil then return true end
+  local was = blob(root, base, epoch_file)
+  if was == nil then
+    local _, _ = Child.run({ "/usr/bin/env", "git", "-C", root, "fetch", "--quiet",
+      "--no-tags", "--depth=1", "origin", base }, { stdout = "null", stderr = "null" })
+    was = blob(root, base, epoch_file)
+  end
+  return was ~= now
+end
+
+--- What `harness_moved` answered of each checkout and base, asked once
+--- a driver run: every operation's environment asks it.
+local moved_by_base: {string:boolean} = {}
+
+--- COSMIC_CI_HARNESS_MOVED for `env`, a merge-queue run's, where it
+--- does not say already: "1" where its change moves
+--- build/harness_epoch.tl (`harness_moved`, of the checkout
+--- GITHUB_WORKSPACE names against COSMIC_CI_BASE_SHA), else "0".
+local function decide_harness(env: {string:string})
+  if env.COSMIC_CI_EVENT ~= "merge_group" or env.COSMIC_CI_HARNESS_MOVED ~= nil then return end
+  local root, base = env.GITHUB_WORKSPACE or "", env.COSMIC_CI_BASE_SHA or ""
+  local asked = root .. "\0" .. base
+  if moved_by_base[asked] == nil then
+    moved_by_base[asked] = Orchestration.harness_moved(root, base)
+  end
+  env.COSMIC_CI_HARNESS_MOVED = moved_by_base[asked] and "1" or "0"
 end
 
 --- Sets `env` for a suite that stands on nothing another run reached
@@ -102,6 +167,9 @@ local function environment(extra?: {string:string}): {string:string}
   if extra then for k, v in pairs(extra) do all[k] = v end end
   -- What follows is decided on the leg's environment, `extra`
   -- included, which may name the leg itself (`suite_run`, a test's).
+  -- A merge-queue run that moves the harness's epoch file stands on
+  -- nothing (`stands`).
+  decide_harness(all)
   -- Where it does not stand on verdicts (`stands`), a suite stands on
   -- none another run reached, only on what it runs itself.
   Orchestration.shares(all)

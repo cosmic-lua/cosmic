@@ -142,12 +142,15 @@ local HEADER <const> = "cosmic-test-report-2"
 --- what it requires, directly or not, at its top level or on the way
 --- its `run` takes; and `cosmic.removed`, which the core loads in any
 --- test that reaches for a removed global, to say what to write
---- instead (`diagnostics`); each by its source and its bytecode, the code a
---- worker runs of the tree but its test's. Every sandboxed key holds
---- them (`build.test`'s `binary_harness`), and `judge` fails a
---- sandboxed test whose worker loaded a module of the tree the tool
---- carries that is neither here nor in its closure, so what a worker
---- runs is keyed, and a module
+--- instead (`diagnostics`): the code a worker runs of the tree but its
+--- test's. No key holds them by what they are: every sandboxed key
+--- holds the harness's epoch in their place (build/harness_epoch.tl),
+--- and the harness's digest, which build/harness_epoch_test.tl holds to
+--- the one acknowledged there, holds each by its source
+--- (`build.test`'s `harness`). `judge` fails a sandboxed test whose
+--- worker loaded a module of the tree the tool carries that is neither
+--- here nor in its closure, so what a worker runs is in its closure or
+--- in that digest, and a module
 --- added to its way is named here by the first test that reaches it,
 --- rather than trusted to a walk of the `imports` table, which follows
 --- `local type` requires Teal erases and requires inside functions no
@@ -158,7 +161,7 @@ local HEADER <const> = "cosmic-test-report-2"
 -- (removing the observation log, step 4), build.filesystem_observations
 -- with the log (step 5).
 worker.loads = {
-  "build.artifact", "build.caches", "build.confine", "build.core_image", "build.declared_key",
+  "build.artifact", "build.cache_names", "build.confine", "build.core_image", "build.declared_key",
   "build.filesystem_observations", "build.launcher", "build.test_inputs", "build.test_worker",
   "build.this_program", "build.verdict", "cmd.cosmic.main", "cosmic.codec", "cosmic.coverage", "cosmic.env",
   "cosmic.errors", "cosmic.fs", "cosmic.hash", "cosmic.log", "cosmic.proc", "cosmic.removed",

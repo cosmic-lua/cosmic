@@ -557,7 +557,7 @@ importer runs on is in neither, so an edit there reaches what
 imports it and nothing more. a row compiled by another compiler is
 never mistaken for this one's. a sandboxed test's key holds what the
 compiler made rather than its identity -- the bytecode and rows of
-the store of the test's import closure, and the harness's bytecode --
+the store of the test's import closure, and the harness's epoch --
 so an edit to the importer that compiles every module as before runs
 again only the tests whose closure holds or reads the compiler
 (`build/declared_key.tl`).
@@ -593,7 +593,7 @@ moved, and a test whose verdict stands is not run again. where the kernel can,
 each worker runs sandboxed to its test's declared inputs, as it does by default
 on Linux, and its verdict is keyed by those inputs -- the closure's sources, the
 declared paths' contents, the declared variables' values, the declaration, the
-core, the test harness the binary carries, the host's kernel, processor and
+core, the test harness's epoch and the worker's timeout, the host's kernel, processor and
 user, and what it has installed only where the test declares the system's own
 paths, which no worker is given otherwise -- digested
 before the test runs, none of it naming where the tree is, and shared by that

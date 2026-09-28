@@ -64,8 +64,9 @@
    one while a run in the same checkout may be rebuilding the tool.
 4. Run `timeout 30 o/bin/cosmic test`. Its workers run sandboxed to each
    test's declared inputs where the kernel can -- the default on Linux --
-   and a test whose declared inputs, closure, core, harness and host are
-   what they were when it last passed is not run again (below), so a run
+   and a test whose declared inputs, closure, core, harness epoch, timeout
+   and host are what they were when it last passed is not run again
+   (below), so a run
    after a small edit takes seconds. Every sandboxed checkout also shares
    its passing verdicts through `~/.cache/cosmic/verdicts/verdicts.db`,
    keyed without the tree's location: a fresh
@@ -86,7 +87,18 @@
    capabilities; its packages and system only for a module that declares
    `system`, or a `host` directory), before it runs
    (`build/declared_key.tl`): it stands while none of that changes, and
-   nothing is assumed. A test whose module declares the network has no
+   nothing is assumed. The test harness -- what every worker loads, the
+   sandbox's plan, the code that computes a key -- is keyed by
+   `epoch` in `build/harness_epoch.tl`, not by its source, so an edit
+   to it reruns only the tests that import it; but
+   `build/harness_epoch_test.tl` fails, printing the harness's new
+   digest, until `acknowledged` there is set to it. Bump `epoch` in the
+   same edit where the change can alter a pass or a fail: what a worker
+   is given, how it is judged, how a key is computed, and a sandbox's
+   hold or bind tightened (a soundness fix that moves no other part of a
+   key, so a pass earned through the hole does not stand). A
+   merge-queue run whose change moves that file runs every test
+   (`--all`). A test whose module declares the network has no
    key: it runs every time, and the summary counts it so -- unless it
    declares only loopback hosts (`localhost`, `::1`, `127.a.b.c`), whose
    worker runs offline, on a loopback of its own, and is keyed. A

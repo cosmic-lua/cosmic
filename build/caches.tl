@@ -20,22 +20,9 @@
 local Fs = require("cosmic.fs")
 
 --- The names a declaration may give are `build.cache_names`', which the
---- analyzer checks a declaration against.
+--- analyzer checks a declaration against, and so are the variables that
+--- locate each (`cache_names.variables`).
 local record caches
-end
-
---- The variables that say where each cache is, which a process that
---- writes one reads to find it: a sandboxed worker is given them.
-local locating: {string:{string}} = {
-  zig = { "HOME", "XDG_CACHE_HOME", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE",
-    "ZIG_GLOBAL_CACHE_DIR", "ZIG_LOCAL_CACHE_DIR" },
-  bootstrap = { "HOME", "XDG_CACHE_HOME", "COSMIC_PORTABLE_CACHE" },
-}
-
---- The variables `name` is located by (`locating`), none for a name
---- that is no cache.
-function caches.variables(name: string): {string}
-  return locating[name] or {}
 end
 
 --- Where the cache `name` is for a tree at `root`, with `environment`

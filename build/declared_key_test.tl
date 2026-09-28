@@ -46,6 +46,7 @@ local function spec(env?: {string:string}): declared_key.Spec
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
     runtime = "runtime sandboxed", compiler = "compiler", host = "host",
+    epoch = 1, timeout_ms = 30000,
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
   }
@@ -129,8 +130,11 @@ local function test_each_input_moves_it(tmp: string)
   s.host = "another host"
   differs("the host", s)
   s = spec()
-  s.harness = "another harness"
-  differs("the harness every worker runs", s)
+  s.epoch = 2
+  differs("the harness's epoch", s)
+  s = spec()
+  s.timeout_ms = 60000
+  differs("the timeout its worker runs under", s)
   -- A worker that may run the program undeclared keys it as declared.
   s = spec()
   s.runs_tool = true
@@ -257,7 +261,7 @@ local function full_spec(hostdir: string): declared_key.Spec
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
-    runtime = "runtime sandboxed", compiler = "compiler", harness = "harness",
+    runtime = "runtime sandboxed", compiler = "compiler", epoch = 1, timeout_ms = 30000,
     program = "program", host = "host", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
@@ -282,7 +286,9 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   end
   local spec_changes: {string:Change<declared_key.Spec>} = {
     id = append("id"), module_key = append("module_key"), runtime = append("runtime"),
-    compiler = append("compiler"), harness = append("harness"), host = append("host"),
+    compiler = append("compiler"), host = append("host"),
+    epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch + 1 end },
+    timeout_ms = { change = function(s: declared_key.Spec) s.timeout_ms = s.timeout_ms + 1000 end },
     launcher = append("launcher"), declaration = append("declaration"),
     -- Keyed only for a module given the system's paths.
     system = append("system"),
@@ -557,11 +563,12 @@ local function test_a_frozen_run_looks_once_and_a_thawed_one_again(tmp: string)
   assert(declared_key.compute(digests, spec()) ~= before)
 end
 
---- The harness's digest holds each module it names by what it is --
---- its source's hash and its bytecode's -- and nothing else: a change
---- to either moves it, as a change to the worker would, and a module
---- it does not name does not, whatever requires it.
-local function test_a_harness_module_moves_the_harness(tmp: string)
+--- A digest of named modules (`declared_key.harness`: the harness's,
+--- over each module's source, and the closure store's salt, over its
+--- source and bytecode) holds each module it names by what `sources`
+--- says it is, and nothing else: a change to either word moves it, and
+--- a module it does not name does not, whatever requires it.
+local function test_a_named_module_moves_the_digest()
   local sources: {string:string} = {
     ["build.test_worker"] = "w wb", ["build.test_sandbox"] = "s sb", ["build.caches"] = "c cb",
     ["cosmic.fs"] = "f fb", ["build.docs"] = "d db",
@@ -575,8 +582,6 @@ local function test_a_harness_module_moves_the_harness(tmp: string)
     local source, bytecode = was:match("^(%S+) (%S+)$")
     sources[name] = source .. "2 " .. bytecode
     assert(declared_key.harness(names, sources) ~= before, name .. "'s source")
-    -- What the compiler made of the same source: an `is` against a
-    -- record's `where` an imported type brings is compiled into it.
     sources[name] = source .. " " .. bytecode .. "2"
     assert(declared_key.harness(names, sources) ~= before, name .. "'s bytecode")
     sources[name] = was
@@ -584,15 +589,6 @@ local function test_a_harness_module_moves_the_harness(tmp: string)
   -- Its order is no part of it.
   assert(declared_key.harness({ "cosmic.fs", "build.caches", "build.test_sandbox",
     "build.test_worker" }, sources) == before)
-  -- An unrelated test's key moves with it.
-  tree(tmp)
-  local s = spec()
-  s.harness = before
-  local key = key_of(tmp, s)
-  sources["build.test_sandbox"] = "s2 sb"
-  s = spec()
-  s.harness = declared_key.harness(names, sources)
-  assert(key_of(tmp, s) ~= key)
 end
 
 --- A key holds the compiler's identity only where the test's closure
