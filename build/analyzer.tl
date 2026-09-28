@@ -9,7 +9,7 @@ local type compiler = require("build.compiler")
 local ast = require("build.ast")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
-local caches = require("build.caches")
+local cache_names = require("build.cache_names")
 
 local record analyzer
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
@@ -1082,9 +1082,9 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         local path_trouble = (field == "reads" or field == "host") and
           input_path_trouble(field, text.conststr) or ""
         if field == "env" and text.conststr == "" then path_trouble = "an empty name" end
-        if field == "caches" and caches.names[text.conststr] == nil then
+        if field == "caches" and cache_names.names[text.conststr] == nil then
           local known: {string} = {}
-          for name in pairs(caches.names) do known[#known + 1] = name end
+          for name in pairs(cache_names.names) do known[#known + 1] = name end
           table.sort(known)
           path_trouble = "no cache " .. text.conststr .. "; the caches are " ..
             table.concat(known, ", ")

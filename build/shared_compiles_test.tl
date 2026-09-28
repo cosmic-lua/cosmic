@@ -375,15 +375,14 @@ local function test_the_shared_key_moves_with_each_salt()
     key("k", true, false, "a.tl"),
     key("k", false, true, "a.tl"),
     key("k", false, false, "a/init.tl"),
-    key("k", false, false, "a.tl", "another list of removed names"),
-    key("k", false, false, "a.tl", nil, "compiled_v3"),
+    key("k", false, false, "a.tl", "compiled_v3"),
   }
   local seen: {string:boolean} = { [base] = true }
   for index, other in ipairs(others) do
     assert(not seen[other], "salt " .. index .. " did not move the key")
     seen[other] = true
   end
-  assert(base == key("k", false, false, "a.tl", nil, "compiled_v2"), "the format is not this one's")
+  assert(base == key("k", false, false, "a.tl", "compiled_v2"), "the format is not this one's")
 end
 
 --- A compile kept comes back whole, bytes, uses and all, and a row no

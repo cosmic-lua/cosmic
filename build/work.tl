@@ -21,6 +21,7 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local analysis_schema = require("build.analysis_schema")
 local todo_scan = require("build.todo_scan")
 local gen_syscalls = require("build.gen_syscalls")
 local bind = require("build.bind")
@@ -56,12 +57,14 @@ local record work
   end
 
   --- What a compile and a verdict are functions of, beyond their own
-  --- inputs. `compiler` is the build's own modules in the importer's
-  --- import closure and the Teal compiler's and Lua's pins and
-  --- patches: what turns source into bytecode. The standard library
-  --- the importer runs on is plumbing, not transformation -- a bug
-  --- there breaks the build loudly rather than changing bytecode
-  --- quietly -- and is left out, which is what keeps an edit to it
+  --- inputs. `compiler` is the build's own modules a compile or a parse
+  --- runs to decide what it stores (`work.compiler_identity`),
+  --- `cosmic.removed` (the names the checker is stripped of), and the
+  --- Teal compiler's and Lua's pins and patches: what turns source into
+  --- bytecode. The rest of the standard library the importer runs on
+  --- is plumbing, not transformation -- a bug there breaks the build
+  --- loudly rather than changing bytecode quietly -- and is left out,
+  --- as is the rest of the build, which is what keeps an edit to either
   --- from recompiling everything. `runtime_basis` is the host-independent
   --- hash of the Teal and Lua pins and patches. Portable startup combines
   --- it with the validated target, configuration and exact raw-core digest.
@@ -257,6 +260,12 @@ local version <const> = "26"
 --- the test hit, as `build.test`'s `encode_hits` writes them: one row
 --- per line hit would be millions a run, and writing them, then
 --- deleting the last run's, cost a full run most of its time.
+---
+--- The statements of `derived`, `inputs` and the tables a parse fills
+--- are `build.analysis_schema`'s, which this places between the
+--- stage's and the records': what a parse's rows are shaped by is kept
+--- apart from the rest of this module, which the compiler's identity
+--- does not hold (`work.compiler_identity`).
 work.schema = {
   [[CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,
                                      value BLOB NOT NULL) WITHOUT ROWID]],
@@ -279,79 +288,13 @@ work.schema = {
                                         ino INTEGER NOT NULL,
                                         dev INTEGER NOT NULL,
                                         sha256 TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS derived (file TEXT PRIMARY KEY,
-                                        path TEXT NOT NULL,
-                                        kind TEXT NOT NULL,
-                                        origin TEXT NOT NULL,
-                                        from_hash TEXT NOT NULL,
-                                        source TEXT NOT NULL,
-                                        source_hash TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE VIEW IF NOT EXISTS inputs AS
-      SELECT path AS file,
-             replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
-                          WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
-                          ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
-             CASE WHEN path GLOB '*.d.tl' THEN 'decl'
-                  WHEN path GLOB '*_test.tl' THEN 'test'
-                  WHEN path GLOB '*_example.tl' THEN 'example'
-                  WHEN path GLOB 'cmd/*/main.tl' AND path NOT GLOB 'cmd/*/*/*' THEN 'main'
-                  ELSE 'module' END AS kind,
-             'tree' AS origin,
-             sha256 AS from_hash,
-             CAST(data AS TEXT) AS source,
-             sha256 AS source_hash
-        FROM files WHERE path GLOB '*.tl'
-          AND path NOT GLOB 'testdata/*'
-          AND path NOT GLOB '*/testdata/*'
-      UNION ALL
-      SELECT file, path, kind, origin, from_hash, source, source_hash FROM derived]],
-  [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,
-                                       has_return INTEGER NOT NULL,
-                                       export TEXT NOT NULL) WITHOUT ROWID]],
+}
+for _, statement in ipairs(analysis_schema.statements) do
+  work.schema[#work.schema + 1] = statement
+end
+for _, statement in ipairs({
   [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
                                            lines TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS requires (source_hash TEXT NOT NULL,
-                                         ordinal INTEGER NOT NULL,
-                                         name TEXT NOT NULL,
-                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS tests (source_hash TEXT NOT NULL,
-                                      ordinal INTEGER NOT NULL,
-                                      name TEXT NOT NULL,
-                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS catalog (source_hash TEXT NOT NULL,
-                                        ordinal INTEGER NOT NULL,
-                                        symbol TEXT NOT NULL,
-                                        message TEXT NOT NULL,
-                                        line INTEGER NOT NULL,
-                                        PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS docs (source_hash TEXT NOT NULL,
-                                     ordinal INTEGER NOT NULL,
-                                     symbol TEXT NOT NULL,
-                                     source_symbol TEXT NOT NULL,
-                                     exported INTEGER NOT NULL,
-                                     kind TEXT NOT NULL,
-                                     signature TEXT NOT NULL,
-                                     text TEXT NOT NULL,
-                                     line INTEGER NOT NULL,
-                                     PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS refs (source_hash TEXT NOT NULL,
-                                     ordinal INTEGER NOT NULL,
-                                     module TEXT NOT NULL,
-                                     member TEXT NOT NULL,
-                                     line INTEGER NOT NULL,
-                                     PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS examples (source_hash TEXT NOT NULL,
-                                         ordinal INTEGER NOT NULL,
-                                         name TEXT NOT NULL,
-                                         text TEXT NOT NULL,
-                                         source TEXT NOT NULL,
-                                         line INTEGER NOT NULL,
-                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS test_inputs (source_hash TEXT NOT NULL,
-                                            ordinal INTEGER NOT NULL,
-                                            field TEXT NOT NULL,
-                                            value TEXT NOT NULL,
-                                            PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
                                       sha256 TEXT NOT NULL,
                                       line INTEGER NOT NULL,
@@ -432,7 +375,9 @@ work.schema = {
                                                  test TEXT NOT NULL,
                                                  hits TEXT NOT NULL,
                                                  PRIMARY KEY (ran_at_ns, test))]],
-}
+}) do
+  work.schema[#work.schema + 1] = statement
+end
 
 local text = bind.text
 
@@ -1173,38 +1118,129 @@ local pins <const> =
   "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
   "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
 
---- The hash of the modules in `root`'s import closure whose path
---- matches `glob`, then `extra`.
-local function closure(root: string, glob: string, extra: string): string
+--- The hash of the modules in `root`'s import closure, then `extra`.
+local function closure(root: string, extra: string): string
   return "WITH RECURSIVE closure(path) AS (SELECT '" .. root .. "' UNION " ..
     "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
     "JOIN requires r ON r.source_hash = i.source_hash) " ..
     "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
     "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
-    "(SELECT path FROM closure) AND path GLOB '" .. glob .. "'), '') || " ..
-    "char(10) || " .. extra .. ")))"
+    "(SELECT path FROM closure)), '') || char(10) || " .. extra .. ")))"
+end
+
+--- Where the compiler's identity starts (`work.compiler_modules`):
+--- build.importer, for its own source alone, and each module whose code
+--- a compile or a parse runs to decide what it stores. See
+--- `work.compiler_identity`.
+local compiler_roots: {string} = {
+  -- TODO: hold only build.importer's compile and parse -- `generate`,
+  -- `with_test_tail`, `dependency_keys`, `parse_new` and the shared
+  -- parses' packing -- once they are split from what else it runs (a
+  -- refusal's hints, the caches' plumbing, the sweeps) into a module of
+  -- their own: today every edit to build/importer.tl moves the
+  -- identity, and about half of them change nothing a compile or a
+  -- parse stores.
+  "build.importer",
+  -- The analyzer (`build.importer`'s `analyzer_roots`): the extractors,
+  -- generators and parser a parse runs, whose `tests` rows a compile
+  -- appends a test module's tail from (`with_test_tail`).
+  "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
+  "build.compiler", "build.doctest", "build.gen_syscalls",
+  -- The compile's own: the checker's environment, the rules a module is
+  -- refused by and the tree they hold in, and the record-field uses
+  -- the checker finds.
+  "build.contracts", "build.receivers", "build.teal", "build.tree",
+}
+
+--- The modules the compiler's identity holds, sorted, as `requires`
+--- answers what a module of the tree requires: every one `require`
+--- reaches from `compiler_roots` that is the build's own
+--- (`build.*`), and `cosmic.removed`. build.importer's own requires are
+--- not followed: it is here for its compile and parse, not for the
+--- rest of the build it runs.
+function work.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
+  local reached: {string:boolean} = {}
+  local stack: {string} = {}
+  for _, name in ipairs(compiler_roots) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not reached[name] then
+      reached[name] = true
+      if name ~= "build.importer" then
+        local required, trouble = requires(name)
+        if required == nil then return nil, trouble end
+        for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
+      end
+    end
+  end
+  local names: {string} = {}
+  for name in pairs(reached) do
+    if name:sub(1, 6) == "build." or name == "cosmic.removed" then names[#names + 1] = name end
+  end
+  table.sort(names)
+  return names, ""
 end
 
 --- The compiler's identity (`Identities.compiler`) over what the
---- working database holds now, recorded nowhere. Its closure follows
---- `requires`, which only a parse fills, so before `build.importer.derive`
---- it reaches only what earlier parses found: the same modules, and so
---- the same identity, while none of them has changed, and another
---- whenever one it reaches has, since each one's source hash is in it.
---- What a boot names its analyzer by before it parses
---- (`build.importer.tree_code`).
--- TODO: take in `cosmic.removed`'s source hash too: `build.teal`'s
--- `environment_for` strips the names it lists from the checker, so a
--- binary stripping other names accepts what this one refuses, under the
--- same identity. Waits on a change that may move every compile and
--- verdict key at once, one of its own; build.shared_compiles' `key`
--- salts the shared key with those names meanwhile, and drops that salt
--- then.
+--- working database holds now, recorded nowhere: the source hash of
+--- each of `work.compiler_modules` the tree holds, and the Teal
+--- compiler's and Lua's pins and patches. What a module requires is
+--- what `requires` holds of its source, which only a parse fills, so
+--- before `build.importer.derive` the walk reaches only what earlier
+--- parses found: the same modules, and so the same identity, while none
+--- of them has changed, and another whenever one it reaches has, since
+--- each one's source hash is in it. What a boot names its analyzer by
+--- before it parses (`build.importer.tree_code`).
+---
+--- It holds what a compile or a parse stores is a function of beyond
+--- its own key -- a module's Lua, bytecode, record-field uses and
+--- refusal, and a source's rows in the analysis tables -- and nothing
+--- else: the pinned compiler and Lua; build.importer's own compile and
+--- parse; the checker's environment (`build.teal`) and the names it is
+--- stripped of (`cosmic.removed`, the one module of the standard
+--- library that is data deciding a compile rather than what one runs
+--- on); the rules a module is refused by and the tree they hold in
+--- (`build.contracts`, `build.tree`); the uses the checker finds
+--- (`build.receivers`); the analyzer, whose `tests` rows a test
+--- module's compile is appended from; and the schema of the rows a
+--- parse stores and of the `inputs` view a compile reads a source
+--- through (`build.analysis_schema`). The rule: a module build.importer
+--- calls that can change a row a compile or a parse stores is one of
+--- `compiler_roots`, or is reached from one. What it leaves out
+--- only stages (the rest of this module), fingerprints, reports
+--- (build.symbols' hints, in a refusal's message, which no compile
+--- keeps), fails a whole build before any key is looked up
+--- (build.positions), or finds the host's caches (build.caches,
+--- build/zig.tl): an edit to one compiles and parses nothing again.
+--- importer_test's `test_the_compiler_modules_are_closed_under_require`
+--- holds each require of build.importer to one side or the other.
 function work.compiler_identity(handle: work.Handle): string | nil, string
-  local rows, trouble = Sqlite.text_rows(handle.db,
-    closure("build.importer", "build.*", pins))
-  if rows == nil then
+  local db = handle.db
+  local names, trouble = work.compiler_modules(function(name: string): {string} | nil, string
+    local rows, rows_trouble = Sqlite.text_rows(db,
+      "SELECT DISTINCT r.name FROM inputs i " ..
+      "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
+      "ORDER BY r.name", { text(name) })
+    if rows == nil then return nil, rows_trouble end
+    local required: {string} = {}
+    for _, row in ipairs(rows) do required[#required + 1] = row[1] end
+    return required, ""
+  end)
+  if names == nil then
     return nil, trouble
+  end
+  local slots: {string} = {}
+  local values: {Sqlite.Value} = {}
+  for index, name in ipairs(names) do
+    slots[#slots + 1] = "?" .. index
+    values[#values + 1] = text(name)
+  end
+  local rows, hash_trouble = Sqlite.text_rows(db,
+    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
+    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
+    table.concat(slots, ", ") .. ")), '') || char(10) || " .. pins .. ")))", values)
+  if rows == nil then
+    return nil, hash_trouble
   end
   return rows[1][1]
 end
@@ -1221,8 +1257,16 @@ function work.record_identities(handle: work.Handle): work.Identities | nil, str
   if compiler == nil then
     return nil, compiler_trouble
   end
+  -- TODO: hold only the writer's own code in its identity, as the
+  -- compiler's holds only what a compile runs (`compiler_modules`):
+  -- build.writer's closure reaches build.importer and everything it
+  -- requires, build.positions and the rest of this module among them,
+  -- and the standard library they run on, so an edit to any of them moves
+  -- every projection's signature and settles every rebuilt tool again
+  -- though it writes the same bytes. Wants roots for what a projection
+  -- is a function of beside its rows, and a guard like the compiler's.
   local writers, writer_trouble = Sqlite.text_rows(db,
-    closure("build.writer", "*",
+    closure("build.writer",
       "coalesce((SELECT value FROM meta WHERE key = 'image_hash'), '')"))
   if writers == nil then
     return nil, writer_trouble

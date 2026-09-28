@@ -212,12 +212,36 @@ local function into(handle: work.Handle, built: compiler,
     if shared ~= nil then shared.finish() end
     return closing(handle, identity_trouble)
   end
+  -- A fresh tool settling runs the tree's own code, so its compiler is
+  -- the tree's, named as its own `work.compiler_identity` names it,
+  -- which is what the tool it writes carries. The identity it carries
+  -- itself was taken by the tool that wrote it, by that tool's code:
+  -- where the two define the identity apart, keying by it would leave
+  -- the tool written here as unsettled as this one. Only a tool whose
+  -- recorded fingerprint is the tree's, by its own code, is known to run
+  -- the tree's code.
+  -- TODO: settle a commit that moves both the fingerprint's definition
+  -- (build.work's `is_tool`, `tool_files`) and the identity's: the tool
+  -- a stale tool rebuilds is then stale by its own code, so it settles on
+  -- the "teal" path with no fingerprint of its own to prove it runs the
+  -- tree's code, keys by the carried identity, and the tool it writes
+  -- refuses as still unsettled (exit 3). A fix would prove it another
+  -- way -- every module the tool carries against the staged tree's
+  -- source hashes -- or have the stale tool record the fingerprint by
+  -- the tree's own build.work, run from source.
+  local tool = Store.meta("compiler") or ""
+  if settle then
+    local recorded, _ = work.recorded_boot_hash(handle)
+    if recorded ~= nil and recorded == Store.meta("boot_hash") then
+      tool = identities.compiler
+    end
+  end
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
   -- anyway, and the tool built here judges it again, by the tree's own,
   -- when it re-enters the command.
   local result, compile_trouble =
-    importer.compile(handle, built, Store.meta("compiler") or "", true, shared)
+    importer.compile(handle, built, tool, true, shared)
   if result == nil then
     return closing(handle, compile_trouble)
   end

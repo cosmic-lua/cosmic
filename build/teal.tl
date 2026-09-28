@@ -13,7 +13,6 @@ local Fs = require("cosmic.fs")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local work = require("build.work")
 local type compiler = require("build.compiler")
 
 local record teal
@@ -246,7 +245,8 @@ function teal.serve_standard(built: compiler)
   end
 end
 
---- Points the checker at a staged tree: every module it asks for by
+--- Points the checker at the tree staged at `root` in the working
+--- database `db`: every module it asks for by
 --- name is answered from the working database's `inputs`, a
 --- declaration ahead of a source of the same name, under the name the
 --- module would have on disk. A `cosmic.*` name the stage does not
@@ -256,9 +256,7 @@ end
 --- compiler's own search of the filesystem: a name neither the stage
 --- nor the binary holds is not found, however a file of that name
 --- may sit on disk, so a module reaches a build only by being staged.
-local function serve(built: compiler, handle: work.Handle)
-  local db = handle.db
-  local root = handle.root
+local function serve(built: compiler, db: Sqlite.Handle, root: string)
   built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local rows, _ = Sqlite.text_rows(db,
@@ -285,8 +283,13 @@ end
 --- `require("io")`: `env.modules` is where `new_env` puts every global
 --- that is itself a module, for `require` to resolve statically), each
 --- becomes tl's own "unknown variable" or "module not found" instead.
-function teal.environment_for(built: compiler, handle: work.Handle): compiler.Env | nil, string
-  serve(built, handle)
+--- Handed the working database and the tree's root, not `build.work`'s
+--- handle: a require of build.work would carry the rest of it into the
+--- compiler's identity (`build.work`'s `compiler_identity`), which this
+--- module is a root of.
+function teal.environment_for(built: compiler, db: Sqlite.Handle,
+                              root: string): compiler.Env | nil, string
+  serve(built, db, root)
   local env, trouble = built.new_env({
     defaults = {
       feat_lax = "off",

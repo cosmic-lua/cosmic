@@ -118,7 +118,8 @@ local record Test
     --- name: `"zig"` (the pinned zig, and zig's global and project
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
     --- portable cosmic extracts); the runner knows where each is on the
-    --- host (`build.caches`), and another name fails the build. Only for
+    --- host (`build.caches`), and another name (`build.cache_names`)
+    --- fails the build. Only for
     --- a cache whose contents never change a result -- content-addressed,
     --- there to save time: what a test reads or writes there enters no
     --- verdict's key, and the audit asks nothing more of it. A sandboxed

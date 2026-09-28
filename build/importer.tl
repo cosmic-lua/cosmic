@@ -23,6 +23,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local analysis_schema = require("build.analysis_schema")
 local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
@@ -150,9 +151,13 @@ importer.prune_references =
 --- parse call: with the importer itself, the roots of
 --- `importer.analyzer_modules`. "The analyzer" in these names is that
 --- whole set, of which the source analyzer `build.analyzer` is one.
+--- Each is a root of the compiler's identity too (`build.work`'s
+--- `compiler_roots`), which the analyzer's starts from. The schema of the
+--- rows a parse stores (`build.analysis_schema`) is among them: what a
+--- source parses to is recorded in its columns.
 local analyzer_roots: {string} = {
-  "build.analyzer", "build.ast", "build.bind", "build.compiler",
-  "build.doctest", "build.gen_syscalls",
+  "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
+  "build.compiler", "build.doctest", "build.gen_syscalls",
 }
 
 --- The modules whose code decides what the analysis tables record: the
@@ -466,12 +471,8 @@ local function parse_new(db: Sqlite.Handle, built: compiler, tally: importer.Par
   return true, ""
 end
 
---- The tables a parse or a generator fills, keyed by the source they
---- came from: rows in them are only ever as right as the code that
---- derived them.
-local analysis_tables: {string} = {
-  "parsed", "requires", "tests", "catalog", "docs", "refs", "examples", "test_inputs",
-}
+--- The tables a parse or a generator fills (`build.analysis_schema`).
+local analysis_tables = analysis_schema.tables
 
 --- The code that analyzes as the tree holds it, staged in the working
 --- database of `handle`: what `importer.analyzer_modules` and
@@ -534,6 +535,12 @@ end
 --- way, so the tool it writes finds the rows the boot derived its own.
 --- A binary that carries no source for one of them, or no record of
 --- what they import, can only be named whole.
+-- TODO: name the analyzer by what a parse runs alone -- the pins
+-- (`runtime_basis`), build.importer and these modules -- rather than
+-- the whole compiler's identity, which build.teal, build.contracts,
+-- build.receivers and build.tree move though no parse runs them, so an
+-- edit to one parses every source again. Waits on a change that moves
+-- every parse key at once, one of its own.
 function importer.analyzer_identity(code?: importer.Code): string
   local parts: {string} = { code ~= nil and code.compiler or Store.meta("compiler") or "" }
   local modules, _ = importer.analyzer_modules(code)
@@ -2113,7 +2120,7 @@ local function compile(handle: work.Handle, built: compiler, tool: string,
           end
         else
           if env == nil then
-            local made_env, env_trouble = teal.environment_for(built, handle)
+            local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root)
             if made_env == nil then
               failure = env_trouble
               break
