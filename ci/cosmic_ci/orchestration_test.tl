@@ -602,6 +602,7 @@ end
 --- it sets the variable itself, in its own child's environment.
 local sets_what_it_reads: {string:boolean} = {
   ["build/place_tree_test.tl"] = true,
+  ["build/save_unless_descendant_test.tl"] = true,
 }
 
 --- No tree source names a variable a gating suite's workers are not
