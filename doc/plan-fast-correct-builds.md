@@ -303,9 +303,10 @@ new transport.
   on another runner, and still builds the products `prerelease.yml`
   publishes.
 - The zig build cache keeps its own keys (vendor part, nightly), and
-  drops "restore zig build outputs of another vendor part", which only
-  a branch needs. The driver-check marker is already keyed by content;
-  drop the event from its key.
+  its fallback restore of another vendor part's outputs, which a branch
+  that moves a vendor part now leans on for every push. The
+  driver-check marker is already keyed by content; drop the event from
+  its key.
 - Waits on: 0.1, since only the nightly run and 0.1's report now run a
   test that main stood on.
 - Shows:
