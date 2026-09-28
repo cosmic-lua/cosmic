@@ -39,8 +39,8 @@ static const struct removed removed_names[] = {
   {"dofile", false},   {"loadfile", false}, {NULL, false},
 };
 
-/* `print` over the syscall table, so every byte the process writes goes
- * through one door. Each argument's text is pushed above the open
+/* `print`, writing its line to standard output with write(2) directly
+ * rather than through Lua's buffered stdio. Each argument's text is pushed above the open
  * buffer, so it goes in with luaL_addvalue: every other buffer call
  * needs the buffer's own slot on top, and once the line outgrows the
  * buffer's inline room that slot is a heap box a stray pop would free. */

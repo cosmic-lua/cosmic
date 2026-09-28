@@ -134,12 +134,10 @@ function Proc.is_tty(fd: integer): boolean
   return sys.isatty(fd)
 end
 
---- Replaces this process with another program. This is lower-level than
---- os.execute: it does not invoke a shell, wait for a child, or return command
---- status. There is no io.popen stream API. On success the process keeps the
---- same process id,
---- the given arguments with the program's own name first, and the
---- given environment. It returns only when it fails.
+--- Replaces this process with the program at `path`, run with `argv`
+--- (its first element the program's own name) and exactly `environment`;
+--- the process id stays the same. No shell is involved. It returns only
+--- when it fails.
 function Proc.exec(path: string, argv: {string},
                    environment: {string:string}): boolean, string
   local _, trouble = sys.execve(path, argv, environment)

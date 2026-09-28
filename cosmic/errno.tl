@@ -1,5 +1,5 @@
 --- Guidance for the handful of errno messages cosmic's own syscalls
---- can plausibly raise. `core/fail.h`'s `cosmic_fail` returns `nil,
+--- can plausibly return. `core/fail.h`'s `cosmic_fail` returns `nil,
 --- message, errno`, the message core/errnos.c's table gives -- musl's
 --- words, the same on every OS, which `sys.errno_message` answers --
 --- and a stdlib wrapper like `cosmic/fs.tl`'s `path .. ": " .. trouble`

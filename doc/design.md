@@ -110,10 +110,9 @@ kernel                               Linux; macOS
                                      libSystem (macOS)
     lua 5.5                          vendored pristine
     sqlite3                          vendored pristine
-    mbedtls, miniz, argon2,          vendored pristine
-    a regex engine
-    bzip2, xz, c-ares, curl,         vendored pristine
-    yyjson
+    mbedtls, miniz, bzip2, xz,       vendored pristine
+    c-ares, curl, yyjson
+    argon2, a regex engine           planned
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
@@ -189,8 +188,9 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing and HMAC; miniz for deflate; yyjson for JSON; argon2; a regex
-engine; the syscall table; the database VFS and the entry. measured stripped on
+hashing and HMAC; miniz for deflate; yyjson for JSON; argon2 and a
+regex engine, both planned; the syscall table; the database VFS and the
+entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
 another 222 KB, miniz 98 KB; Lua and SQLite together in one static
 binary 1.4 MB. three carried cores plus mbedtls is on the order of
@@ -224,11 +224,12 @@ binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
 table itself, which answers as the binding it replaces. a syscall
-log, when asked, is kept by the fourteen calls a test's key turns on
-(`getcwd`, `executable`, `lstat`, `readlink`, `realpath`, `open`,
-`stat`, `readdir`, `getenv`, `environ`, `mkdir`, `mkdtemp` and
-`chdir`, the process table's `spawn`, and cosmic.http's `open` of a
-request that is not scripted): each of those bindings checks the log's
+log, when asked, is kept by the calls a test's key turns on, which
+`core/observed.h` lists (`getcwd`, `executable`, `lstat`, `readlink`,
+`realpath`, `open`, `stat`, `readdir`, `getenv`, `environ`,
+`tree_digest`, `mkdir`, `mkdtemp`, `chdir`, the process table's
+`spawn`, and cosmic.http's `open` of a request that is not scripted):
+each of those bindings checks the log's
 flag itself (`core/observed.h`), so a reference taken before logging
 began is logged too, and every other binding is untouched.
 
@@ -243,7 +244,7 @@ over `open`, `poll` over `poll(2)`, stays where it is.
 never borrowed from the libc where semantics are observable: regex,
 DNS resolution, anything locale-shaped. musl and libSystem agree on
 `open`; they do not agree on `regcomp`'s corners or `getaddrinfo`'s
-ordering. the regex engine is a standalone extraction of musl's
+ordering. the planned regex engine is a standalone extraction of musl's
 TRE-derived one, about 4,300 lines, compiled the same on both OSes.
 DNS is a resolver in Teal over UDP and TCP, reading
 `/etc/resolv.conf` and `/etc/hosts`, which both OSes have; this also
@@ -836,7 +837,8 @@ a vendored file once for all of them -- and hands zig their manifest;
 a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,
-xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, and tl;
+xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, the
+IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
 hand-written one under `core/` (`curl_config.h`, `ares_config.h`,

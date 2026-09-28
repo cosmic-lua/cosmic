@@ -36,7 +36,7 @@
 #define MBEDTLS_PSA_CRYPTO_EXTERNAL_RNG
 #define MBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS
 
-/* Digests and HMAC (cosmic.hash, cosmic.crypto). */
+/* Digests and HMAC (cosmic.hash). */
 #define PSA_WANT_ALG_MD5 1
 #define PSA_WANT_ALG_SHA_1 1
 #define PSA_WANT_ALG_SHA_224 1

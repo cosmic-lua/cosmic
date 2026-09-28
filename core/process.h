@@ -2,8 +2,8 @@
  * The process table: the calls `cosmic.child` starts, feeds and reaps a
  * child with, and the one `cosmic.proc` relaunches this program with.
  * Registered as the raw `cosmic.internal.process` module, which only
- * those wrappers (and `build.filesystem_observations`, which watches a
- * test's children through it) are handed: none of it is public. A
+ * those wrappers (and `build.confine`, which starts a test's sandboxed
+ * children through it) are handed: none of it is public. A
  * public `waitpid(-1)` would reap a child a `Child` handle owns in an
  * adopting process, and a public spawn would start one no handle owns.
  *

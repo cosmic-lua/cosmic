@@ -18,6 +18,13 @@
  * syscall table's log (core/observed.c), the observer's rather than
  * the test's, which a test holding the core to `testing.c_heap` is not
  * held to; its growth fails only at its own fault point.
+ *
+ * TODO: route the rest of what this C allocates and frees through here
+ * too: core/syscalls.c's `execve` and `spawn` argument and environment
+ * arrays and its sandbox pairs, core/syscalls_fs.c's tree walk, and
+ * core/store.c's `push_portable_runtime` still call libc by name, so the
+ * checked core neither counts them nor fails them. `spawn`'s must stay
+ * allocated before the child is cloned.
  */
 
 #ifndef COSMIC_MEMORY_H

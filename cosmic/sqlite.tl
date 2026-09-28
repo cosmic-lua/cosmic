@@ -49,8 +49,8 @@ local record Sqlite
   type Statement = raw_sqlite.Statement
 
   --- One bound parameter. Its field says what SQLite is told it is, so
-  --- a blob never arrives as text by accident. Exactly one field is allowed;
-  --- an empty table explicitly binds SQL NULL.
+  --- a blob never arrives as text by accident. At most one field is
+  --- allowed; an empty table explicitly binds SQL NULL.
   record Value
     integer: integer
     number: number
@@ -117,8 +117,8 @@ end
 
 --- Binds SQLite parameters positionally. Parameter keys must be
 --- positional (1..N, matching the statement's own placeholders), and
---- each value must be a table with exactly one field named integer,
---- number, text, or blob (use {} for NULL).
+--- each value must be a table with at most one field, named integer,
+--- number, text, or blob ({} for NULL).
 local function bind(
   statement: Sqlite.Statement, values: {Sqlite.Value}
 ): boolean, string
