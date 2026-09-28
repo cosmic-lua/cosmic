@@ -43,10 +43,12 @@ if [ "${1-}" = zig-cache ]; then
   # cache of their own that ci.yml restores before the leg's suites and
   # saves after them, each leg its own, trimmed to what the run reached
   # where it passed (cosmic_ci/verdicts.tl). Whether a suite stands on
-  # them is cosmic_ci/orchestration.tl's (`stands`): the Linux legs do,
-  # in a branch push's run and the merge queue's; the macOS leg runs
-  # every test and stands on none. The portable suite keeps its own file
-  # beside this one (`portable_verdicts`), in the same cache.
+  # them is cosmic_ci/orchestration.tl's (`stands`): every leg does, in
+  # a push's run and the merge queue's -- the Linux legs sandboxed, the
+  # macOS leg keyed by declared inputs unenforced
+  # (COSMIC_TEST_KEY=declared) -- and none in a manual or scheduled run.
+  # The portable suite keeps its own file beside this one
+  # (`portable_verdicts`), in the same cache.
   echo "COSMIC_VERDICT_CACHE=$RUNNER_TEMP/verdicts/verdicts.db" >> "$GITHUB_ENV"
   # The compiles and parses every build of the leg shares
   # (build/shared_compiles.tl), in a cache of their own that ci.yml

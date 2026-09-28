@@ -502,7 +502,7 @@ end
   assert(result.ok, assert(Fs.read(output)))
   local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
-    _ = "/usr/bin/timeout", COSMIC_BUILD_CACHE = "/shared/cache.db",
+    _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1",
     COSMIC_TEST_KEY = "declared" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
@@ -513,8 +513,10 @@ end
   -- names one for what it starts.
   assert(kept.COSMIC_BUILD_CACHE == "0" and kept.COSMIC_VERDICT_CACHE == "0")
   -- How this run was started -- after a tool rebuilt itself, from a
-  -- shell that was elsewhere before -- is no worker's to see.
+  -- shell that was elsewhere before, or from a script rather than a
+  -- terminal (the shell's depth) -- is no worker's to see.
   assert(kept.COSMIC_REBOOTED == nil and kept.OLDPWD == nil and kept._ == nil)
+  assert(kept.SHLVL == nil)
   assert(kept.COSMIC_PORTABLE_CACHE == "c" and kept.PATH == "p")
 end
 

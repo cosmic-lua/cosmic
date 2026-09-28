@@ -200,6 +200,8 @@ local function test_a_resolution_is_the_one_the_log_makes(tmp: string)
   assert(Fs.symlink(real .. "/d", real .. "/link"))
   assert(Fs.symlink("missing", real .. "/dangling"))
   assert(Fs.symlink("d/e", real .. "/relative"))
+  assert(Fs.symlink(real .. "/loop-b", real .. "/loop-a"))
+  assert(Fs.symlink(real .. "/loop-a", real .. "/loop-b"))
   local long = real .. "/" .. string.rep("n", 200)
   for _ = 1, 25 do long = long .. "/" .. string.rep("n", 200) end
   local paths: {string} = { "/", "//", "", "relative/path", "/nowhere/at/all", "/nowhere/..",
@@ -207,6 +209,7 @@ local function test_a_resolution_is_the_one_the_log_makes(tmp: string)
     real .. "/link/..", real .. "/link/e/../f", real .. "/missing/../d/f", real .. "/d/f/",
     real .. "/d/f/g", real .. "/dangling", real .. "/dangling/x", real .. "/./d/./e",
     real .. "/link//", real .. "/relative/../f", real .. "/relative/missing/..", long,
+    real .. "/loop-a", real .. "/loop-a/x", real .. "/d/f/x/..", real .. "/link/f/y",
     long .. "/../f" }
   for _, path in ipairs(paths) do
     local told, logged = confine.resolution(path), observations.resolution(path)

@@ -1,4 +1,4 @@
---- The test verdicts a Linux leg keeps from one run to the next: the
+--- The test verdicts a leg keeps from one run to the next: the
 --- directory of the file COSMIC_VERDICT_CACHE names
 --- (build/shared_verdicts.tl in the candidate), which ci.yml restores
 --- before the leg's suites and saves after them -- `verdicts.db`, the

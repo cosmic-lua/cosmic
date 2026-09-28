@@ -667,9 +667,14 @@ capabilities; and what it has installed -- its package database and the system
 it says it is -- only for a module that declares `system`, whose worker alone
 is given /usr, /bin, /lib and /etc, or that declares a host directory. what
 that key still leaves out is in the `TODO:`s on `host_identity` and
-`system_identity` there and in `ci/cosmic_ci/orchestration.tl`'s `stands`. an
-unsandboxed run -- the macOS leg's, which runs every test and stands on none --
-is keyed instead by what its tests were observed to read, and shares nothing.
+`system_identity` there and in `ci/cosmic_ci/orchestration.tl`'s `stands`. the
+macOS leg, which has no sandbox, stands on shared verdicts keyed the same way
+(`COSMIC_TEST_KEY=declared`), which nothing holds its workers to: a Linux leg's
+sandbox holds the same test, under the same declaration and closure, to them;
+what reads something only on macOS is the gap. its image, beyond the sealed
+system volume, is named by `COSMIC_SYSTEM_ID`. any other unsandboxed
+run is keyed instead by what its tests were observed to read, and shares
+nothing.
 
 what the declared key leaves out, each with a `TODO:` where its fix goes:
 

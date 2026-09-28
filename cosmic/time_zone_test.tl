@@ -3,19 +3,18 @@
 --- /etc/localtime and /etc/timezone; and what a zone does to the
 --- calendar, RFC 3339 text and local times its clocks skip or repeat.
 
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local this_program = require("build.this_program")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start; and a fat tzif file,
---- America/New_York as tzdata 2025b's zic wrote it with a full version 1
---- block (Ubuntu's, public domain), which the binary's slim copy is not.
---- No zone is read from the host's files: a program reads only the
---- zones it carries.
-Test.needs{ reads = { "testdata/tzif/America-New_York.fat" }, tool = true }
+--- A fat tzif file, America/New_York as tzdata 2025b's zic wrote it
+--- with a full version 1 block (Ubuntu's, public domain), which the
+--- binary's slim copy is not. No zone is read from the host's files: a
+--- program reads only the zones it carries. The test that starts the
+--- program, to see what its environment names, is
+--- cosmic/time_zone_tool_test.tl's.
+Test.needs{ reads = { "testdata/tzif/America-New_York.fat" } }
 
 local NS <const> = 1000000000
 
@@ -618,43 +617,6 @@ local function test_local_zone_names_a_carried_zone(tmp: string)
       ":" .. tmp .. "/share/zoneinfo/Nowhere" }) do
     local z, why = Time.local_zone({ tz = tz, localtime = missing, timezone = missing })
     assert(z == nil and why ~= "", tz)
-  end
-end
-
---- `local_zone` with no options reads the process's own `TZ` -- set
---- and empty, UTC -- and neither it nor `zone` reads `TZDIR`: a zone
---- is the binary's, whatever the host's files say.
-local function test_the_environment_names_zones_and_holds_no_rules(tmp: string)
-  local script = tmp .. "/local.tl"
-  assert(Fs.write(script, [[
-local Fs = require("cosmic.fs")
-local Time = require("cosmic.time")
-return function(): integer
-  local z, why = Time.local_zone()
-  if z == nil then
-    Fs.put(Fs.stdout, "nil " .. why .. "\n")
-    return 1
-  end
-  local again = assert(Time.local_zone())
-  local only, _ = Time.zone("Test/Here")
-  Fs.put(Fs.stdout, z.name .. " " .. Time.civil(0, z).offset .. " " .. tostring(rawequal(z, again)) ..
-    " " .. tostring(only) .. "\n")
-  return 0
-end
-]]))
-  -- Zones `TZDIR` would have given, as glibc reads it: Tokyo under
-  -- Berlin's name, and one IANA has none of.
-  assert(Fs.mkdirs(tmp .. "/tzdir/Test"))
-  assert(Fs.mkdirs(tmp .. "/tzdir/Europe"))
-  local tokyo = assert(Store.zoneinfo("Asia/Tokyo"))
-  assert(Fs.write(tmp .. "/tzdir/Test/Here", tokyo))
-  assert(Fs.write(tmp .. "/tzdir/Europe/Berlin", tokyo))
-  for tz, want in pairs({ [""] = "UTC 0 true nil\n", ["Europe/Berlin"] = "Europe/Berlin 3600 true nil\n" }) do
-    local started = this_program.program({ "--standalone", script },
-      { env = { TZ = tz, TZDIR = tmp .. "/tzdir", XDG_CACHE_HOME = tmp .. "/cache" },
-        stdout = "capture", stderr = "capture", timeout_ms = 30000 })
-    local result = assert(Child.run(started.argv, started.options))
-    assert(result.code == 0 and result.stdout == want, tostring(result.stdout) .. tostring(result.stderr))
   end
 end
 

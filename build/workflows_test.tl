@@ -536,9 +536,10 @@ local function test_each_image_has_one_digest_everywhere()
   assert(count > 0, "no workflow pins an image by digest")
 end
 
---- A Linux leg's verdict cache is named by the host's features
---- (.github/scripts/host-features.sh) as well as its container: every
---- sandboxed verdict's key holds them (build/declared_key.tl's
+--- A leg's verdict cache is named by the host's features
+--- (.github/scripts/host-features.sh) as well as its container, or on
+--- macOS its runner (.github/scripts/leg-host-id.sh): every
+--- declared-key verdict's key holds them (build/declared_key.tl's
 --- `host_identity`), and a leg's runners do not share one set, so a
 --- cache named by the container alone could restore another host's
 --- verdicts, none of which stood (main's run 36320764857 on
@@ -550,7 +551,8 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
   for _, step in ipairs(jobs.platform.steps as {{string: any}}) do
     if step.id == "host-id" then
       local run = step.run as string
-      named = run:find("verdicts=[^;]*host%-features%.sh") ~= nil
+      assert(run:find("sh .github/scripts/leg-host-id.sh ", 1, true) == 1, run)
+      named = run:find(' "$(sh .github/scripts/host-features.sh)"', 1, true) ~= nil
     end
     local with = step.with as {string: string}
     if with ~= nil and with.path == "${{ runner.temp }}/verdicts" then
@@ -564,6 +566,74 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
   end
   assert(named, "the host-id step names no verdict cache by the host's features")
   assert(cached == 3, "restore, the lookup before the save, and save: " .. cached)
+end
+
+--- The steps that name, restore, trim and save a leg's test verdicts,
+--- by id or by what they run or cache.
+local function verdict_steps(steps: {{string: any}}): {string: integer}
+  local at: {string: integer} = {}
+  for i, step in ipairs(steps) do
+    local id = step.id as string
+    local run = step.run as string or ""
+    local with = step.with as {string: any}
+    local env = step.env as {string: string}
+    if id == "host-id" or id == "verdicts-restore" or id == "verdicts-newest" or
+        id == "verdicts-saves" then
+      at[id] = i
+    elseif env ~= nil and (env.KEY or ""):find("steps.verdicts-restore.", 1, true) ~= nil then
+      at.named = i
+    elseif run:find("driver.tl verdicts-trim", 1, true) ~= nil then
+      at.trim = i
+    elseif with ~= nil and with.path == "${{ runner.temp }}/verdicts" and
+        (step.uses as string):find("actions/cache/save@", 1, true) ~= nil then
+      at.save = i
+    end
+  end
+  return at
+end
+
+--- Every leg keeps its test verdicts from one run to the next, the
+--- macOS leg's too: its suites stand on them keyed by what each test
+--- declares, with no sandbox to hold a worker to it
+--- (COSMIC_CI_DECLARED_KEYS, which cosmic_ci/orchestration.tl makes
+--- COSMIC_TEST_KEY=declared), on exactly the leg that is not required
+--- sandboxed (COSMIC_CI_REQUIRE_SANDBOX). So no step of the cache turns
+--- on the leg's image, and each comes in the order that serves it: the
+--- host named, the cache restored and said, the suites, the trim, the
+--- tree moved back, and the lookup, the check and the save.
+local function test_every_leg_keeps_its_verdicts()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local env = jobs.platform.env as {string: string}
+  assert(env.COSMIC_CI_REQUIRE_SANDBOX == "${{ matrix.image && '1' || '0' }}",
+    tostring(env.COSMIC_CI_REQUIRE_SANDBOX))
+  assert(env.COSMIC_CI_DECLARED_KEYS == "${{ matrix.image && '0' || '1' }}",
+    "the leg with no sandbox is not keyed by declarations: " ..
+    tostring(env.COSMIC_CI_DECLARED_KEYS))
+  local steps = jobs.platform.steps as {{string: any}}
+  local at = verdict_steps(steps)
+  local back: integer
+  for i, step in ipairs(steps) do
+    if step.name == "move the tree back to where it was checked out" then back = i end
+    if step.id == "release-suite" or step.id == "portable-suite" then at[step.id as string] = i end
+  end
+  local order = { "host-id", "verdicts-restore", "named", "release-suite", "portable-suite",
+    "trim", "back", "verdicts-newest", "verdicts-saves", "save" }
+  at.back = back
+  for n, name in ipairs(order) do
+    assert(at[name] ~= nil, "no step " .. name)
+    if n > 1 then
+      assert(at[order[n - 1]] < at[name], order[n - 1] .. " comes after " .. name)
+    end
+    local condition = steps[at[name]]["if"] as string or ""
+    assert(condition:find("matrix.image", 1, true) == nil,
+      name .. " runs only on a leg with an image: " .. condition)
+  end
+  local restore = steps[at["verdicts-restore"]].with as {string: string}
+  assert(restore.key == "${{ steps.host-id.outputs.verdicts }}${{ github.sha }}-" ..
+    "${{ github.run_id }}-${{ github.run_attempt }}", restore.key)
+  assert(restore["restore-keys"] == "${{ steps.host-id.outputs.verdicts }}\n",
+    restore["restore-keys"])
 end
 
 --- A push to main saves its legs' verdicts, and their compiles, unless
@@ -647,10 +717,11 @@ local function test_a_main_push_saves_unless_a_newer_commit_saved_first()
   end
 end
 
---- A Linux leg saves only the verdicts its run relied on or reached,
+--- A leg saves only the verdicts its run relied on or reached,
 --- where it passed: a file saved whole carried some four runs' rows,
 --- most under keys no later run reaches, 41-43 MB a leg each main
---- push. The trim runs in the leg's container, after every suite that
+--- push. The trim runs where the suites do (a Linux leg's container,
+--- the macOS runner itself), after every suite that
 --- shares the file and before the save, and counts from a time taken
 --- before the first suite.
 local function test_a_leg_trims_its_verdicts_before_it_saves_them()
@@ -673,9 +744,8 @@ local function test_a_leg_trims_its_verdicts_before_it_saves_them()
   end
   assert(trim ~= nil, "no step trims the verdicts")
   local condition = trim["if"] as string
-  assert(condition:find("success()", 1, true) ~= nil and
-    condition:find("matrix.image", 1, true) ~= nil,
-    "the trim does not turn on a Linux leg's passing run: " .. condition)
+  assert(condition == "success()",
+    "the trim does not turn on every leg's passing run: " .. condition)
   assert((trim.run as string):find("steps.compiles-restored.outputs.since", 1, true) ~= nil,
     "the trim counts from no time taken before the suites: " .. (trim.run as string))
   -- `assemble` runs the checked suite, on the leg that runs it.
