@@ -341,10 +341,33 @@
         # save. The cost: a vendor change's first main run builds cold
         # (about 5 minutes more a Linux leg, 7 on macOS: runs 36292711231
         # against 36325134876), and a core change is compiled again,
-        # incrementally, by every run after it until the
-        # nightly save (seconds, or a minute or two for a header), where
-        # an eviction costs a cold build of everything to whoever meets
-        # it next (the fuzz job's checked core took 4m45s).
+        # incrementally, by every run after it until the nightly save
+        # (15-29 s a leg on main's runs after one), where an eviction
+        # costs a cold build of everything to whoever meets it next (the
+        # fuzz job's checked core took 4m45s).
+        #
+        # Nor does main save where only the core part moved, though
+        # every run after such a change until the nightly compiles it
+        # again: that is up to 30 of main's commits a day (140 from
+        # 09-17 to 09-27, 17 or more on six of those days), and a whole
+        # entry is about 0.53 GB for the four legs, compressed (136-142
+        # MB a Linux leg and 118 on macOS, as run 36358036690 restored them),
+        # and more with each save, which carries what it restored: a
+        # core change writes 29-40 MB (15 compressed, for a header) for
+        # the boot's three targets alone, and assemble links more cores.
+        # A save per core change is 9-16 GB a day from main at 17-30 of
+        # them, past the repository's 10 GB, beside the verdicts' saves
+        # (41-43 MB a Linux leg, about 0.13 GB each main push at its
+        # head).
+        # TODO: keep a core change's compiles for main's later runs at
+        # the cost of the change rather than of an entry: save beside
+        # the entry restored only what the build wrote under zig-build
+        # since (files newer than a stamp made after the restore), keyed
+        # by the restored entry's run, and restore it over that entry,
+        # everything since the entry in each such save so the newest
+        # holds the day's core changes. That waits on the TODO below
+        # (what a run adds when nothing moved would land in every such
+        # save) and on room in the repository's cache.
         #
         # Before, main saved after every run and a branch wherever its
         # exact inputs missed: 230-610 MB a leg a save (run 36322968083
@@ -469,27 +492,30 @@
           run: "sh .github/scripts/restored-cache.sh 'test verdicts' \"$KEY\"",
         },
 
-        # The compiles this leg's last run used (COSMIC_BUILD_CACHE,
-        # .github/scripts/cosmic-driver.sh; build/shared_compiles.tl), so
-        # a boot of a tree the last run built compiles only what moved:
-        # the build says how many it took ("taken from another
-        # checkout"). Every leg's, the macOS leg's too; a full run's
-        # portable suite, a build of a fresh copy of the tree by the
-        # product assembled from it, takes the boot's too, where it
-        # compiles under the same identity. A row is keyed by what it was
-        # compiled from and by what compiled it, so a restored one that
-        # no longer answers is a miss, never a wrong compile, and the
-        # cache needs naming by nothing but the leg: the newest this ref
-        # can restore, its own or else main's, as the verdicts above
-        # are. The builds
+        # The compiles and parses this leg's last run used
+        # (COSMIC_BUILD_CACHE, .github/scripts/cosmic-driver.sh;
+        # build/shared_compiles.tl), so a boot of a tree the last run built
+        # parses and compiles only what moved: the build says how many it
+        # took ("taken from another checkout"). Every leg's, the macOS
+        # leg's too; a full run's portable suite, a build of a fresh copy
+        # of the tree by the product assembled from it, takes the boot's
+        # too, where it compiles under the same identity. A compile is
+        # keyed by what it was compiled from and by what compiled it, and
+        # a parse by its source and the analyzer that parsed it, which a
+        # boot takes only where the rows that analyzer found name it again
+        # over this tree (build/importer.tl's `shared_analyzer`), so a
+        # restored row that no longer answers is a miss, never a wrong
+        # compile or parse, and the cache needs naming by nothing but the
+        # leg: the newest this ref can restore, its own or else main's, as
+        # the verdicts above are. The builds
         # hold the file to this user's and its directory to 0700, or do
         # without it; actions/cache, on the host, restores it as the
         # host's user, whose uid a Linux leg's `runner` has, with the
         # modes it was saved with less the umask. A run keeps only what
-        # it used ("keep only this run's compiles", below), so what is
+        # it used ("keep only this run's compiles and parses", below), so what is
         # saved is one tree's worth, a few MB.
         {
-          name: "restore compiles",
+          name: "restore compiles and parses",
           id: "compiles-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
@@ -499,12 +525,12 @@
           },
         },
 
-        # Which run's compiles were restored, and from when on a compile,
-        # or a test verdict, counts as this run's: the builds and the
-        # suites stamp what they use by the same clock, the container's
-        # being the host's.
+        # Which run's compiles and parses were restored, and from when on
+        # a row, or a test verdict, counts as this run's: the builds and
+        # the suites stamp what they use by the same clock, the
+        # container's being the host's.
         {
-          name: "name the restored compiles",
+          name: "name the restored compiles and parses",
           id: "compiles-restored",
           "working-directory": ".",
           shell: "sh",
@@ -721,18 +747,18 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform attest \"${{ strategy.job-total }}\"",
         },
 
-        # The compiles the next run restores are the ones this run used
-        # or made, since "name the restored compiles": the cache bounds
-        # itself only at 256 MB, and every change to the build's own
-        # modules moves every key, so a file saved back whole would grow
-        # by a tree's worth of compiles with most commits to main. Here,
+        # The compiles and parses the next run restores are the ones this
+        # run used or made, since "name the restored compiles and parses":
+        # the cache bounds itself only at 256 MB, and every change to the
+        # build's own modules moves every key, so a file saved back whole
+        # would grow by a tree's worth of rows with most commits to main. Here,
         # before the container goes, after the last build that shares
         # them (the fixtures share none: cosmic_ci/orchestration.tl's
         # `fixture`); saved below, only where the native build passed. A
         # trim that cannot read the file says why and fails nothing, as
         # the builds fail nothing over it.
         {
-          name: "keep only this run's compiles",
+          name: "keep only this run's compiles and parses",
           if: "always() && steps.driver.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.compiles-restored.outputs.since }}\"",
         },
@@ -905,13 +931,13 @@
         # What the next run of the leg restores, trimmed above to this
         # run's, saved when and where the verdicts are, for their reasons:
         # from main while its commit is main's head, so an older run's
-        # compiles never come to be the newest; elsewhere only where
+        # rows never come to be the newest; elsewhere only where
         # nothing was restored; never from the merge queue. Every leg's,
         # the macOS leg's too. Only where the native build and suite
         # passed: a run that stopped short would leave the next only what
-        # it reached (see "keep only this run's compiles").
+        # it reached (see "keep only this run's compiles and parses").
         {
-          name: "save compiles",
+          name: "save compiles and parses",
           if: "always() && steps.driver.outcome == 'success' && steps.release-suite.outcome == 'success' && github.event_name != 'merge_group' && (github.ref == 'refs/heads/main' && steps.main-head.outputs.head != 'false' || github.ref != 'refs/heads/main' && steps.compiles-restore.outputs.cache-matched-key == '')",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {

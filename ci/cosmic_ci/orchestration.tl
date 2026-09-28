@@ -343,10 +343,10 @@ end
 --- Nor can a verdict of its own stand: its project, and the o/ under
 --- it, is made afresh for each run (`fixture_project`), and it names the
 --- file it runs, so none is assumed. Nor does it share the compiles
---- every checkout keeps (COSMIC_BUILD_CACHE): a fixture that checks what
---- a fresh tree compiles, and what the tool built from it compiles
---- again (fixed_point_test, self_rebuild_test), must compile it, not
---- take the boot's compiles back.
+--- and parses every checkout keeps (COSMIC_BUILD_CACHE): a fixture that
+--- checks what a fresh tree compiles, and what the tool built from it
+--- compiles again (fixed_point_test, self_rebuild_test), must compile
+--- and parse it, not take the boot's work back.
 function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:string}
   env.TMPDIR = tmpdir
   -- Unsandboxed: a fixture reads and runs the candidate and its

@@ -59,10 +59,11 @@ allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal
   "line in the checker's own words"
 allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..
   "text without a compile"
-for _, name in ipairs({ "key", "open", "close", "look", "settle" }) do
-  allowed["build.shared_compiles." .. name] = "tested directly: build/shared_compiles_test.tl " ..
-    "and build/importer_test.tl read and write the cache file itself, to see what a " ..
-    "build shared and what a salt does to a key"
+for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "requires",
+                        "look_parse" }) do
+  allowed["build.shared_compiles." .. name] = "tested directly: build/shared_compiles_test.tl, " ..
+    "build/shared_parses_test.tl and build/importer_test.tl read and write the cache file " ..
+    "itself, to see what a build shared and what a salt does to a key"
 end
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"

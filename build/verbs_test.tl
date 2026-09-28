@@ -244,6 +244,20 @@ local function test_a_mistyped_verb_is_named(tmp: string)
   assert(err == "cosmic: no such verb or file: tset; see `cosmic help`\n", err)
 end
 
+--- A test's worker is cosmic's main's to start (cmd/cosmic/main.tl),
+--- ahead of build.dispatch, so a worker loads none of it: run
+--- in-process (`build.invoke`), which is dispatch alone, `test
+--- --worker` is `test` refusing an option it does not know.
+local function test_dispatch_starts_no_worker(tmp: string)
+  for _, mode in ipairs({ "--worker", "--worker-no-tool" }) do
+    local result = invoke.run({ "test", mode, tmp, "a_test", "test_a", tmp .. "/tmp",
+      tmp .. "/children" }, { cwd = tmp })
+    local err = result.stderr or ""
+    assert(result.code == 2, err)
+    assert(err:find("no such option: " .. mode, 1, true), err)
+  end
+end
+
 local function test_each_selector_must_match(tmp: string)
   local tree = write_tree(tmp)
   local result = cosmic(tree, { "test", "good", "nothing_here" })

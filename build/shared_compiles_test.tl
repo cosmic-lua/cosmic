@@ -271,7 +271,7 @@ local function test_an_earlier_formats_table_is_dropped(tmp: string)
   assert(not first:find("shared compiles: ", 1, true), first)
   assert(rows_in(path) == 3)
   local tables = dump(path, "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
-  assert(tables == "compiled_v2", tables)
+  assert(tables == "compiled_v2\nparsed_v1", tables)
 end
 
 --- A cache file that is a link is refused: SQLite would write its log

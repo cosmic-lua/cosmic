@@ -1,13 +1,13 @@
---- The compiles every checkout shares: a SQLite database under the
---- cosmic cache directory -- `build/cache.db` in `Fs.cache_dir`'s
---- `$XDG_CACHE_HOME/cosmic` (`~/.cache/cosmic`) by default, or the
---- absolute path `COSMIC_BUILD_CACHE` names, and none at all when it is
---- `0` -- beside the `compiled` table each checkout keeps in
---- `o/build.db`. A module's key (`build.importer`'s) names no path: the
---- module's import graph by name and content, and the compiler's
---- identity. So a compile one checkout made stands in another of the
---- same content, and a fresh worktree compiles only what no sibling has
---- compiled already.
+--- The compiles and parses every checkout shares: a SQLite database
+--- under the cosmic cache directory -- `build/cache.db` in
+--- `Fs.cache_dir`'s `$XDG_CACHE_HOME/cosmic` (`~/.cache/cosmic`) by
+--- default, or the absolute path `COSMIC_BUILD_CACHE` names, and none at
+--- all when it is `0` -- beside the `compiled` table and the parse
+--- tables each checkout keeps in `o/build.db`. A module's key
+--- (`build.importer`'s) names no path: the module's import graph by
+--- name and content, and the compiler's identity. So a compile one
+--- checkout made stands in another of the same content, and a fresh
+--- worktree compiles only what no sibling has compiled already.
 ---
 --- A row is keyed by more than the local key (`key`): what else decides
 --- whether a compile is accepted, which a checkout's own cache leaves
@@ -25,6 +25,14 @@
 --- made, and a digest of the three: a row that does not decode to what
 --- its digest says is a miss, and is deleted.
 ---
+--- A parse is shared the same way, a row per source: what one parse of
+--- it wrote in every table `build.importer` fills from a parse, keyed
+--- by the analyzer that parsed it (`importer.analyzer_identity`), the
+--- source's hash, and whether its docs' lines are mapped to a file it
+--- was generated from (`importer`'s `origin_lines`), with a digest of
+--- the lot. `build.importer`'s `derive` says when a row stands in for a
+--- parse.
+---
 --- A row's bytecode runs -- a build of cosmic's own tree carries the
 --- `build.*` modules' in `o/bin/cosmic` -- so whoever can write the
 --- file can run code as every user of it. The file and its directory
@@ -33,11 +41,12 @@
 ---
 --- Many builds share the file at once: it is in WAL mode, so a reader
 --- never waits on a writer; a build reads a row at a time and writes
---- what it compiled in one short transaction as its compile ends, and
---- two writers of one key write the same bytes. It is bounded: a row no
---- build has used for `kept_ns` goes, and past `kept_bytes`, the least
---- lately used go first. A cache that cannot be opened, read or written
---- is said so once and done without: it never fails a build.
+--- what it compiled and parsed in one short transaction as its compile
+--- ends, and two writers of one key write the same bytes. It is
+--- bounded: a row no build has used for `kept_ns` goes, and past
+--- `kept_bytes`, the least lately used of either table go first. A
+--- cache that cannot be opened, read or written is said so once and
+--- done without: it never fails a build.
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -66,11 +75,29 @@ local record shared_compiles
     references: {receivers.Reference}
   end
 
+  --- What a parse is shared under: the analyzer that made it, the
+  --- source's hash, and whether its docs' lines are mapped.
+  record ParseKey
+    analyzer: string
+    source_hash: string
+    mapped: boolean
+  end
+
+  --- One parse to keep, under its key.
+  record Parsed
+    key: ParseKey
+    made: importer.Shared.Parse
+  end
+
   --- What a build owes the cache when its compile ends.
   record Owed
     kept: {Kept}
     --- Keys the build took a compile from, which stay the longer for it.
     used: {string}
+    --- Parses made here, none when nil.
+    parses: {Parsed}
+    --- Parses the build took, which stay the longer for it; none when nil.
+    parses_used: {ParseKey}
   end
 end
 
@@ -95,6 +122,18 @@ local busy_ms <const> = 10000
 --- in for it.
 local version <const> = 2
 local compiled <const> = "compiled_v" .. version
+
+--- The parses' table, whose format is versioned as the compiles' is,
+--- on its own. It has `used_ns` and `size` as `compiled`'s has, which
+--- CI's trim of a leg's cache reads (ci/cosmic_ci/compiles.tl).
+local parsed_version <const> = 1
+local parsed <const> = "parsed_v" .. parsed_version
+
+--- Each format's table, by its name's prefix and its version.
+local formats <const>: {{string, integer}} = {
+  { "compiled_v", version },
+  { "parsed_v", parsed_version },
+}
 
 local log = Log.new("cosmic")
 
@@ -160,6 +199,20 @@ local schema <const> = {
                                                   size INTEGER NOT NULL,
                                                   used_ns INTEGER NOT NULL)]],
   "CREATE INDEX IF NOT EXISTS " .. compiled .. "_by_use ON " .. compiled .. " (used_ns)",
+  -- `requires` apart from `rows`, and not deflated: `build.importer`'s
+  -- fixed point reads it of every source, where it takes `rows` only
+  -- of the analyzer it settles on.
+  "CREATE TABLE IF NOT EXISTS " .. parsed .. [[ (analyzer TEXT NOT NULL,
+                                                source_hash TEXT NOT NULL,
+                                                mapped INTEGER NOT NULL,
+                                                requires TEXT NOT NULL,
+                                                rows BLOB NOT NULL,
+                                                digest TEXT NOT NULL,
+                                                size INTEGER NOT NULL,
+                                                used_ns INTEGER NOT NULL,
+                                                PRIMARY KEY (analyzer, source_hash, mapped))]],
+  "CREATE INDEX IF NOT EXISTS " .. parsed .. "_by_use ON " .. parsed .. " (used_ns)",
+  "CREATE INDEX IF NOT EXISTS " .. parsed .. "_by_source ON " .. parsed .. " (source_hash)",
 }
 
 --- The record-field uses, a line each: module, member and line, by tabs.
@@ -191,6 +244,32 @@ local function digest_of(lua: string, bytecode: string, refs: string): string
   return Hash.hex_sha256(#lua .. "\n" .. lua .. #bytecode .. "\n" .. bytecode .. refs)
 end
 
+--- The names a parse requires, a line each.
+local function packed_requires(names: {string}): string
+  local out: {string} = {}
+  for _, name in ipairs(names) do out[#out + 1] = name .. "\n" end
+  return table.concat(out)
+end
+
+--- `packed_requires` undone: nil for what it never writes.
+local function unpacked_requires(requires: string): {string} | nil
+  local out: {string} = {}
+  local rest = requires:gsub("([^\n]+)\n", function(name: string): string
+    out[#out + 1] = name
+    return ""
+  end)
+  if rest ~= "" then return nil end
+  return out
+end
+
+--- What a parse row's digest is of: its key, its packed requires and
+--- its rows, each but the last led by its length.
+local function parse_digest(key: shared_compiles.ParseKey, requires: string,
+                            rows: string): string
+  return Hash.hex_sha256(#key.analyzer .. "\n" .. key.analyzer .. key.source_hash .. "\n" ..
+    (key.mapped and "mapped" or "own") .. "\n" .. #requires .. "\n" .. requires .. rows)
+end
+
 --- Whether `path` is `kind` (a "dir" or a "file"), this user's and
 --- writable by no one else, as `Fs.cache_dir` holds its directories.
 --- A file is taken as it is, never through a link: SQLite writes its
@@ -206,23 +285,28 @@ local function private(path: string, kind: string): boolean, string
   return true, ""
 end
 
---- Makes this format's table when the file has none yet, dropping any
---- earlier format's, in one transaction; a file that has it is only read.
+--- Makes each format's table when the file has none yet, dropping any
+--- earlier format's of either, in one transaction; a file that has them
+--- is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'")
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
+    "(name GLOB 'compiled_v*' OR name GLOB 'parsed_v*')")
   if rows == nil then return false, trouble end
   local stale: {string} = {}
-  local current = false
+  local current = 0
   for _, row in ipairs(rows) do
-    local number = math.tointeger(tonumber(row[1]:match("^compiled_v(%d+)$")))
-    if row[1] == compiled then
-      current = true
-    elseif number ~= nil and number < version then
-      stale[#stale + 1] = row[1]
+    for _, format in ipairs(formats) do
+      local prefix, number = format[1], format[2]
+      local found = math.tointeger(tonumber(row[1]:match("^" .. prefix .. "(%d+)$")))
+      if found == number then
+        current = current + 1
+      elseif found ~= nil and found < number then
+        stale[#stale + 1] = row[1]
+      end
     end
   end
-  if current and #stale == 0 then return true, "" end
+  if current == #formats and #stale == 0 then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
   local statements: {string} = {}
@@ -377,14 +461,125 @@ function shared_compiles.look(cache: shared_compiles.Cache,
   return { lua = parts[1], bytecode = parts[2], references = references }, ""
 end
 
+--- A list of hashes, as SQLite's `json_each` reads it: each is hex.
+local function json_list(hashes: {string}): string
+  return '["' .. table.concat(hashes, '","') .. '"]'
+end
+
+--- The analyzers whose parses the cache holds of every one of `hashes`,
+--- the most lately used first.
+function shared_compiles.analyzers(cache: shared_compiles.Cache,
+                                   hashes: {string}): {string} | nil, string
+  local rows, trouble = Sqlite.text_rows(cache.db,
+    "SELECT analyzer FROM " .. parsed .. " WHERE source_hash IN " ..
+    "(SELECT value FROM json_each(?1)) GROUP BY analyzer " ..
+    "HAVING count(DISTINCT source_hash) = ?2 ORDER BY max(used_ns) DESC, analyzer",
+    { text(json_list(hashes)), { integer = #hashes } })
+  if rows == nil then return nil, trouble end
+  local out: {string} = {}
+  for _, row in ipairs(rows) do out[#out + 1] = row[1] end
+  return out, ""
+end
+
+--- What `analyzer` found each of `hashes` requires, by hash, of those
+--- the cache holds a parse of. Unchecked against a digest -- only a
+--- whole row read by `look_parse` is -- so it is a guess, for
+--- `build.importer`'s fixed point, and nothing it guesses is kept: a
+--- source's requires are the same whether its lines are mapped or not.
+function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string,
+                                  hashes: {string}): {string:{string}} | nil, string
+  local rows, trouble = Sqlite.text_rows(cache.db,
+    "SELECT source_hash, requires FROM " .. parsed .. " WHERE analyzer = ?1 " ..
+    "AND source_hash IN (SELECT value FROM json_each(?2))",
+    { text(analyzer), text(json_list(hashes)) })
+  if rows == nil then return nil, trouble end
+  local out: {string:{string}} = {}
+  for _, row in ipairs(rows) do
+    local names = unpacked_requires(row[2])
+    if names ~= nil then out[row[1]] = names end
+  end
+  return out, ""
+end
+
+--- The parse kept under `key`, or nil, and why when the cache could not
+--- answer. A row that does not decode to what its digest says is a miss,
+--- and is deleted, as `look` deletes a compile's.
+function shared_compiles.look_parse(cache: shared_compiles.Cache,
+                                    key: shared_compiles.ParseKey): importer.Shared.Parse | nil, string
+  local where: {Sqlite.Value} = { text(key.analyzer), text(key.source_hash),
+    { integer = key.mapped and 1 or 0 } }
+  local rows, trouble = Sqlite.rows(cache.db,
+    "SELECT requires, rows, digest FROM " .. parsed ..
+    " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3", where)
+  if rows == nil then return nil, trouble end
+  local row = rows[1]
+  if row == nil then return nil, "" end
+  local requires = row[1].text or row[1].blob
+  local packed_rows = row[2].blob or row[2].text
+  local inflated: string | nil = nil
+  if packed_rows ~= nil then
+    local out, _ = Compress.inflate("raw", packed_rows)
+    inflated = out
+  end
+  local names = requires ~= nil and unpacked_requires(requires) or nil
+  local stored = row[3].text
+  if names == nil or inflated == nil or requires == nil or
+      stored ~= parse_digest(key, requires, inflated) then
+    where[4] = stored ~= nil and text(stored) or {}
+    local _, _ = Sqlite.run(cache.db, "DELETE FROM " .. parsed ..
+      " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)
+    return nil, ""
+  end
+  return { requires = names, rows = inflated }, ""
+end
+
+--- Drops what the cache no longer keeps, at `now_ns`: rows of either
+--- table unused for thirty days, then, of both at once, the least
+--- lately used past `bound_bytes`.
+local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): boolean, string
+  for _, name in ipairs({ compiled, parsed }) do
+    local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
+      { { integer = now_ns - kept_ns } })
+    if not aged then return false, age_trouble end
+  end
+  local over, trouble = Sqlite.text_rows(db,
+    "SELECT tab, id FROM (SELECT tab, id, SUM(size) OVER (ORDER BY used_ns DESC, tab, id) " ..
+    "AS total FROM (SELECT 'c' AS tab, rowid AS id, size, used_ns FROM " .. compiled ..
+    " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
+    { { integer = bound_bytes } })
+  if over == nil then return false, trouble end
+  local ids: {string:{string}} = { c = {}, p = {} }
+  for _, row in ipairs(over) do
+    local list = ids[row[1]]
+    list[#list + 1] = row[2]
+  end
+  for tab, name in pairs({ c = compiled, p = parsed }) do
+    if #ids[tab] > 0 then
+      local ok, delete_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
+        " WHERE rowid IN (SELECT value FROM json_each(?1))",
+        { text("[" .. table.concat(ids[tab], ",") .. "]") })
+      if not ok then return false, delete_trouble end
+    end
+  end
+  return true, ""
+end
+
 --- Writes what a build owes the cache, at `now_ns`, in one transaction:
---- each compile kept where no row holds its key yet, each row used made
---- the latest, and, when anything was written, what is no longer kept
---- dropped: rows unused for thirty days, then the least lately used
---- past `bound_bytes` (by default 256 MB).
+--- each compile kept where no row holds its key yet, each parse kept
+--- over any row of its key, each row used made the latest, and, when
+--- anything was written, what is no longer kept dropped (`evict`),
+--- bounded by `bound_bytes` (by default 256 MB). A parse replaces its
+--- key's row because it is right by construction, where that row may
+--- not be: a `requires` guess `build.importer`'s fixed point reads
+--- without a digest could have led it to parse here what the row
+--- holds, and would lead every later build there again.
 function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compiles.Owed,
                                 now_ns: integer, bound_bytes?: integer): boolean, string
-  if #owed.kept == 0 and #owed.used == 0 then return true, "" end
+  local parses = owed.parses or {}
+  local parses_used = owed.parses_used or {}
+  if #owed.kept == 0 and #owed.used == 0 and #parses == 0 and #parses_used == 0 then
+    return true, ""
+  end
   local db = cache.db
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
@@ -407,13 +602,31 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
         { { integer = now_ns }, text(key) })
       if not ok then return false, trouble end
     end
-    if #owed.kept == 0 then return true, "" end
-    local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. compiled .. " WHERE used_ns < ?1",
-      { { integer = now_ns - kept_ns } })
-    if not aged then return false, age_trouble end
-    return Sqlite.run(db, "DELETE FROM " .. compiled .. " WHERE key IN (SELECT key FROM " ..
-      "(SELECT key, SUM(size) OVER (ORDER BY used_ns DESC, key) AS total FROM " .. compiled ..
-      ") WHERE total > ?1)", { { integer = bound_bytes or kept_bytes } })
+    for _, one in ipairs(parses) do
+      local key = one.key
+      local where: {Sqlite.Value} = { text(key.analyzer), text(key.source_hash),
+        { integer = key.mapped and 1 or 0 } }
+      local requires = packed_requires(one.made.requires)
+      local ok, trouble = Sqlite.run(db,
+        "INSERT OR REPLACE INTO " .. parsed .. " (analyzer, source_hash, mapped, requires, rows, " ..
+        "digest, size, used_ns) VALUES (?1, ?2, ?3, ?4, deflate(?5), ?6, 0, ?7)",
+        { where[1], where[2], where[3], text(requires), { blob = one.made.rows },
+          text(parse_digest(key, requires, one.made.rows)), { integer = now_ns } })
+      if not ok then return false, trouble end
+      ok, trouble = Sqlite.run(db, "UPDATE " .. parsed ..
+        " SET size = length(analyzer) + length(source_hash) + length(requires) + length(rows) " ..
+        "WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND size = 0", where)
+      if not ok then return false, trouble end
+    end
+    for _, key in ipairs(parses_used) do
+      local ok, trouble = Sqlite.run(db, "UPDATE " .. parsed .. " SET used_ns = ?1 " ..
+        "WHERE analyzer = ?2 AND source_hash = ?3 AND mapped = ?4",
+        { { integer = now_ns }, text(key.analyzer), text(key.source_hash),
+          { integer = key.mapped and 1 or 0 } })
+      if not ok then return false, trouble end
+    end
+    if #owed.kept == 0 and #parses == 0 then return true, "" end
+    return evict(db, now_ns, bound_bytes or kept_bytes)
   end
   local ok, trouble = steps()
   if not ok then
@@ -423,7 +636,8 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   return db:exec("COMMIT")
 end
 
---- The shared cache for one build, as `importer.compile` takes it, or
+--- The shared cache for one build, as `importer.derive` and
+--- `importer.compile` take it, or
 --- nil where there is none: turned off, or not to be opened, which is
 --- said once, as is any later failure to read or write it, and the
 --- build goes on without it. A corrupt file is moved aside
@@ -453,7 +667,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     if trouble ~= "" then drop(trouble) end
     return nil
   end
-  local owed: shared_compiles.Owed = { kept = {}, used = {} }
+  local owed: shared_compiles.Owed = { kept = {}, used = {}, parses = {}, parses_used = {} }
   return {
     look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile | nil
       if cache == nil then return nil end
@@ -472,6 +686,46 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
         key = shared_compiles.key(m.key, own_tree, m.generated, m.file),
         lua = made.lua, bytecode = made.bytecode, references = made.references,
       }
+    end,
+    analyzers = function(hashes: {string}): {string}
+      if cache == nil then return {} end
+      local found, found_trouble = shared_compiles.analyzers(cache, hashes)
+      if found == nil then
+        drop(found_trouble)
+        return {}
+      end
+      return found
+    end,
+    requires = function(analyzer: string, hashes: {string}): {string:{string}}
+      if cache == nil then return {} end
+      local found, found_trouble = shared_compiles.requires(cache, analyzer, hashes)
+      if found == nil then
+        drop(found_trouble)
+        return {}
+      end
+      return found
+    end,
+    parse = function(analyzer: string, source_hash: string,
+                     mapped: boolean): importer.Shared.Parse | nil
+      if cache == nil then return nil end
+      local key: shared_compiles.ParseKey = {
+        analyzer = analyzer, source_hash = source_hash, mapped = mapped,
+      }
+      local found, look_trouble = shared_compiles.look_parse(cache, key)
+      if found == nil then
+        if look_trouble ~= "" then drop(look_trouble) end
+        return nil
+      end
+      table.insert(owed.parses_used, key)
+      return found
+    end,
+    offer = function(analyzer: string, source_hash: string, mapped: boolean,
+                     made: importer.Shared.Parse)
+      if cache == nil then return end
+      table.insert(owed.parses, {
+        key = { analyzer = analyzer, source_hash = source_hash, mapped = mapped },
+        made = made,
+      })
     end,
     finish = function()
       if cache == nil then return end

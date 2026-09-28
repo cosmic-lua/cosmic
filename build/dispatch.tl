@@ -1,6 +1,10 @@
 --- What the binary's main does with its command line, as a module
 --- rather than the main itself, so a test can run a verb in-process
---- (`build.invoke`): `cmd/cosmic/main.tl` only hands `dispatch.main` on.
+--- (`build.invoke`): `cmd/cosmic/main.tl` hands `dispatch.main` every
+--- command line but a test's worker's (`cosmic test --worker`), which it
+--- runs itself, so a worker loads nothing of this module's. So
+--- `cosmic test --worker` here is `test` refusing an option it does
+--- not know.
 ---
 --- A bare path runs a file: cosmic builds the tree that file sits in,
 --- into that tree's own database, and then requires the module. The
@@ -516,19 +520,6 @@ local dispatch = {}
 --- @param argv the command line, with the program's own name at slot 0
 function dispatch.main(argv: {integer:string}): integer
   local word = argv[1]
-  if word == "test" and (argv[2] == "--worker" or argv[2] == "--worker-no-tool") then
-    -- One test in a process of its own, started by `cosmic test`: see
-    -- build.test_worker. Never stale-checked or rebuilt, since the run
-    -- that started it already was.
-    -- TODO: start a worker from cmd/cosmic/main.tl, ahead of this
-    -- module, and drop this branch, so build.dispatch and what only it
-    -- requires (build.clock, build.exit_status, cosmic.cli,
-    -- cosmic.flags) leave build/test_worker.tl's `worker.loads`, which
-    -- is what shrinks: every edit to build/dispatch.tl runs every
-    -- sandboxed test again.
-    local worker = require("build.test_worker")
-    return worker.run(argv)
-  end
   if word == "-e" then
     -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
     return evaluate(argv)

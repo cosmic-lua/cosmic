@@ -1,4 +1,4 @@
---- The compiles a leg keeps from one run to the next: the file
+--- The compiles and parses a leg keeps from one run to the next: the file
 --- COSMIC_BUILD_CACHE names (build/shared_compiles.tl in the candidate),
 --- which ci.yml restores before the leg's builds and saves after them.
 ---
@@ -21,14 +21,15 @@ local Fs = require("cosmic.fs")
 local record Compiles
 end
 
---- The tables of build/shared_compiles.tl's formats (`compiled_v<n>`),
---- every row of which goes where no build used or made it since.
-local tables: CacheTrim.Tables = { patterns = { "compiled_v[0-9]*" },
+--- The tables of build/shared_compiles.tl's formats (`compiled_v<n>`,
+--- `parsed_v<n>`), every row of which goes where no build used or made
+--- it since.
+local tables: CacheTrim.Tables = { patterns = { "compiled_v[0-9]*", "parsed_v[0-9]*" },
   whole_unless_reached = false }
 
---- Removes from the cache at `path` every compile no build has used or
---- made since `since_ns` (the wall clock, as the cache's `used_ns` is),
---- then rewrites the file without the space they took
+--- Removes from the cache at `path` every compile and parse no build
+--- has used or made since `since_ns` (the wall clock, as the cache's
+--- `used_ns` is), then rewrites the file without the space they took
 --- (`CacheTrim.trim`). Nil and "" for a file that is not there, which a
 --- leg whose builds never started leaves, and nil and why where the
 --- file could not be trimmed.
