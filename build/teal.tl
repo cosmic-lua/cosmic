@@ -13,6 +13,7 @@ local Fs = require("cosmic.fs")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local ast = require("build.ast")
 local type compiler = require("build.compiler")
 
 local record teal
@@ -340,35 +341,153 @@ local function module_bound(source: string, name: string): string | nil
   return module
 end
 
---- The hint for an assignment at line `y` of `source` refused for a
---- number where an integer was expected: see `teal.replacement`.
-local function integer_hint(source: string, y: integer): string | nil
-  local line = line_at(source, y)
-  local name = line ~= nil and line:match("^%s*([%a_][%w_]*)%s*=[^=]") or nil
-  if name == nil then
+--- What a name in scope is bound to, as far as the hint cares: the
+--- declaration when it is one `name = <integer literal>` alone.
+local record Binding
+  declaration: ast.Node | nil
+end
+
+--- The binding the assignment refused at `y`:`x` writes to. That
+--- assignment is the one statement `name = <expression>`, one name and
+--- one expression, whose expression the checker's position is (the
+--- operator of a binary one, the literal itself). The name resolves
+--- through the block, function, loop and `repeat` scopes the parser
+--- built, so a parameter, a loop variable, a closed block's local or
+--- a text that only looks like a declaration never answers for it.
+--- Nil when there is no such assignment, or its name is not a local
+--- (a global, a field).
+local function target_of(root: ast.Node, y: integer, x: integer): Binding | nil
+  local scopes: {{string: Binding}} = {}
+  local answer: Binding | nil = nil
+  local done = false
+  local function lookup(name: string): Binding | nil
+    for i = #scopes, 1, -1 do
+      local found = scopes[i][name]
+      if found ~= nil then
+        return found
+      end
+    end
     return nil
   end
-  for at = y - 1, 1, -1 do
-    local above = line_at(source, at) or ""
-    local names, init = above:match("^%s*local%s+([^=]-)%s*=%s*(.*)$")
-    if names == nil then
-      -- `local x` or `local x: T` with no initializer still shadows.
-      names = above:match("^%s*local%s+(.-)%s*$")
-    end
-    if names ~= nil and (" " .. names:gsub("[,:<>]", " ") .. " "):find(" " .. name .. " ", 1, true) then
-      if names ~= name or init == nil then
-        return nil
-      end
-      local literal, rest = init:match("^(%-?%d+)%s*(.*)$")
-      if literal == nil or (rest ~= "" and rest:sub(1, 2) ~= "--" and rest ~= ";") then
-        return nil
-      end
-      return name .. " is an integer, inferred from 'local " .. name .. " = " .. literal ..
-        "' at line " .. at .. "; write 'local " .. name .. " = " .. literal ..
-        ".0' or 'local " .. name .. ": number = " .. literal .. "' to hold a number"
+  local function declare(name: string | nil, binding: Binding)
+    if name ~= nil then
+      scopes[#scopes][name] = binding
     end
   end
-  return nil
+  local visit: function(ast.Node)
+  local function visit_all(n: ast.Node | nil)
+    if n ~= nil then
+      visit(n)
+    end
+  end
+  local function descend(n: ast.Node)
+    for _, child in ipairs(ast.children(n, { if_parent = true, fn_owner = true })) do
+      visit(child)
+    end
+  end
+  visit = function(n: ast.Node)
+    if done then
+      return
+    end
+    local kind = n.kind
+    if kind == "statements" then
+      scopes[#scopes + 1] = {}
+      for _, statement in ipairs(n) do
+        visit(statement)
+      end
+      scopes[#scopes] = nil
+    elseif kind == "local_declaration" then
+      -- Its expressions are read before its names exist.
+      visit_all(n.exps)
+      local names = n.vars ~= nil and n.vars or {}
+      -- The parser gives an unannotated declaration an empty tuple.
+      local written = n.decltuple ~= nil and n.decltuple.tuple or nil
+      local alone = #names == 1 and (written == nil or #written == 0)
+      for _, name in ipairs(names) do
+        declare(name.tk, { declaration = alone and n or nil })
+      end
+    elseif kind == "assignment" then
+      local names, values = n.vars, n.exps
+      local value = values ~= nil and values[1] or nil
+      if names ~= nil and #names == 1 and values ~= nil and #values == 1
+          and value ~= nil and value.y == y and value.x == x then
+        local target = names[1]
+        if target.kind == "variable" and target.tk ~= nil then
+          answer = lookup(target.tk)
+        end
+        done = true
+      else
+        descend(n)
+      end
+    elseif kind == "fornum" then
+      visit_all(n.from)
+      visit_all(n.to)
+      visit_all(n.step)
+      scopes[#scopes + 1] = {}
+      declare(n.var ~= nil and n.var.tk or nil, {})
+      visit_all(n.body)
+      scopes[#scopes] = nil
+    elseif kind == "forin" then
+      visit_all(n.exps)
+      scopes[#scopes + 1] = {}
+      for _, name in ipairs(n.vars ~= nil and n.vars or {}) do
+        declare(name.tk, {})
+      end
+      visit_all(n.body)
+      scopes[#scopes] = nil
+    elseif kind == "repeat" then
+      -- `until` reads the body's own locals.
+      scopes[#scopes + 1] = {}
+      for _, statement in ipairs(n.body ~= nil and n.body or {}) do
+        visit(statement)
+      end
+      visit_all(n.exp)
+      scopes[#scopes] = nil
+    elseif n.args ~= nil and n.body ~= nil then
+      if kind == "local_function" and n.name ~= nil then
+        declare(n.name.tk, {})
+      end
+      scopes[#scopes + 1] = {}
+      for _, argument in ipairs(n.args) do
+        declare(argument.tk, {})
+      end
+      visit_all(n.body)
+      scopes[#scopes] = nil
+    else
+      descend(n)
+    end
+  end
+  scopes[1] = {}
+  visit(root)
+  return answer
+end
+
+--- The hint for the assignment refused at `y`:`x` of `source` for a
+--- number where an integer was expected: see `teal.replacement`.
+local function integer_hint(source: string, y: integer, x: integer): string | nil
+  local built, _ = teal.load()
+  if built == nil then
+    return nil
+  end
+  local parsed, _ = ast.parse(built, source, "hint")
+  if parsed == nil then
+    return nil
+  end
+  local binding = target_of(parsed.node, y, x)
+  local declaration = binding ~= nil and binding.declaration or nil
+  local names = declaration ~= nil and declaration.vars or nil
+  local values = declaration ~= nil and declaration.exps or nil
+  if names == nil or values == nil or #values ~= 1 then
+    return nil
+  end
+  local target, value = names[1], values[1]
+  local name, literal = target.tk, value.tk
+  if name == nil or literal == nil or value.kind ~= "integer" or literal:match("^%d+$") == nil then
+    return nil
+  end
+  return name .. " is an integer, inferred from 'local " .. name .. " = " .. literal ..
+    "' at line " .. target.y .. "; write 'local " .. name .. " = " .. literal ..
+    ".0' or 'local " .. name .. ": number = " .. literal .. "' to hold a number"
 end
 
 --- What to write instead, when `msg` is the checker refusing a name
@@ -392,17 +511,23 @@ end
 --- in a nested block counts as if it were the file's own. Nil for every
 --- other message.
 ---
---- `in assignment: got number, expected integer` at line `y` names the
---- variable when that line is a plain `name = ...` and the nearest
---- `local` above it declares `name` alone from an integer literal
---- without an annotation (`local peak = 0`): the checker inferred
+--- `in assignment: got number, expected integer` at line `y`, column
+--- `x` names the variable when `source`'s parse has, at that position,
+--- the single assignment `name = <expression>` and `name` resolves,
+--- through the lexical scopes, to `local name = <integer literal>`
+--- with no annotation (`local peak = 0`): the checker inferred
 --- `integer` there, and the answer is to spell the float or the type.
---- Scope is not read, as above; a declaration with an annotation, a
---- non-literal initializer or several names, and a field (`t.n = ...`),
---- has no answer.
+--- Nothing is said for a parameter, a loop variable, a declaration
+--- with an annotation, a non-literal (or negative, or hexadecimal)
+--- initializer or several names, a global, a field (`t.n = ...`), a
+--- multiple assignment (`a, b = ...`), or a source that does not parse.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
   if msg == "in assignment: got number, expected integer" then
-    return integer_hint(source, y)
+    -- TODO: hint a table field too (`local t = {n = 0}; t.n = t.n + 0.5`,
+-- `t.n` an "op" node here): it waits on the checker's inferred type of
+-- a record field being readable from the AST, which the parser alone
+-- does not give; resolving it takes the type checker's own result.
+    return integer_hint(source, y, x)
   end
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
