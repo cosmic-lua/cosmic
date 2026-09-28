@@ -212,14 +212,19 @@ local record declared_key
   end
 
   --- Where `host_identity` and `system_identity` look, for a test: each
-  --- a path, but `machine`, `own_proc`, whether a sandbox gets a /proc
-  --- of its own, `host_id`, the value of `host_variable`, and `uid`.
+  --- a path, but `sysname`, `machine`, `own_proc`, whether a sandbox gets
+  --- a /proc of its own, `host_id`, the value of `host_variable`,
+  --- `system_id`, the value of `system_variable`, and `uid`.
   record HostSources
     packages: {string}
     --- The system the host says it is, then its kernel's release and
     --- version: `system_identity` reads the first, `host_identity` the
-    --- other two.
+    --- other two. Where it is nil, `system_sources(sysname)`.
     system: {string}
+    --- The kernel `uname` names, which chooses where `system` looks
+    --- when it is nil (`system_sources`).
+    sysname: string
+    system_id: string
     status: string
     cpuinfo: string
     --- The machine whose features `cpuinfo` keys (`dispatched`).
@@ -789,20 +794,69 @@ local package_databases: {string} = {
 local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osrelease",
   "/proc/sys/kernel/version" }
 
+--- The same on macOS, where there is no /proc and no /etc/os-release:
+--- the system volume's SystemVersion.plist for the system it says it is
+--- and for its kernel alike, and no third. Its ProductBuildVersion names
+--- the whole sealed system volume -- the kernel, /System, /usr/bin and
+--- /bin among it -- which System Integrity Protection keeps as built,
+--- so it names everything there a worker can read.
+-- TODO: read the OS cryptex's SystemVersion.plist too
+-- (/System/Cryptexes/OS/System/Library/CoreServices/SystemVersion.plist),
+-- beside this one, in .github/scripts/host-features.sh alike: a Rapid
+-- Security Response updates the cryptex, not the sealed volume, and
+-- names itself only there (ProductVersionExtra), so today a host
+-- before one and after it key alike.
+local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.plist",
+  "/System/Library/CoreServices/SystemVersion.plist", "" }
+
+--- Where `host_identity`, `system_identity` and `host_features` read
+--- the system the host says it is and its kernel's release and version
+--- (`HostSources`' `system`) on a host whose kernel `uname` names
+--- `sysname`: `darwin_system` on "Darwin", and /etc/os-release and
+--- /proc's elsewhere.
+function declared_key.system_sources(sysname: string): {string}
+  local chosen = sysname == "Darwin" and darwin_system or default_system
+  local out: {string} = {}
+  for i, path in ipairs(chosen) do out[i] = path end
+  return out
+end
+
+--- `from`'s `system`, or, where it names none, this host's, or the one
+--- whose kernel its `sysname` names (`system_sources`).
+local function system_of(from: declared_key.HostSources): {string}
+  if from.system ~= nil then return from.system end
+  local sysname = from.sysname
+  if sysname == nil then
+    local names, _ = sys.uname()
+    sysname = names ~= nil and names.sysname or ""
+  end
+  return declared_key.system_sources(sysname)
+end
+
 --- The variable a host names more of itself in than `host_identity`
 --- finds there: CI's legs, the container they run in -- its image, the
 --- seccomp profile and options it is started with, the container
 --- engine's version -- which no file inside it tells.
 local host_variable <const> = "COSMIC_HOST_ID"
 
+--- The variable a host names what it has installed in beyond what
+--- `system_identity` finds in its files: on macOS, where there is no
+--- package database, what the sealed system volume does not hold --
+--- Xcode and its command line tools, whose shims /usr/bin's git, make
+--- and cc are, and /opt/homebrew and /usr/local -- as CI's macOS leg
+--- names its runner image there. Only `system_identity` reads it, so
+--- only a module given the system's paths is keyed by it.
+local system_variable <const> = "COSMIC_SYSTEM_ID"
+
 --- What of this host every sandboxed worker runs on, whatever its
 --- module declares, as every key holds it -- each part because it
 --- decides what the core does, or what a sandbox lets a worker do:
 ---
 --- - its kernel's release and version (/proc/sys/kernel/osrelease and
----   version): the syscalls the core makes, and what a sandbox is
----   (namespaces, Landlock's ABI, whether a procfs may be mounted), are
----   the kernel's;
+---   version; on macOS, the system volume's SystemVersion.plist, which
+---   names its build, `darwin_system`): the syscalls the core makes, and
+---   what a sandbox is (namespaces, Landlock's ABI, whether a procfs may
+---   be mounted), are the kernel's;
 --- - its name and machine (`uname`): the core a run selects;
 --- - the processor's features a core chooses code by (/proc/cpuinfo's
 ---   flags, each once, `dispatched`);
@@ -844,15 +898,23 @@ local host_variable <const> = "COSMIC_HOST_ID"
 -- alone does not say: a test that declares `::1` runs offline
 -- (`test_inputs.offline`), where `::1` is there or not by them. No test
 -- declares `::1` today, so no verdict stands on it yet.
+-- TODO: key the groups this process runs with where there is no
+-- /proc/self/status (macOS), once cosmic.sys carries getgid and
+-- getgroups: today a macOS key holds the uid alone, so a verdict
+-- reached as a member of a group stands for a user not in it.
 function declared_key.host_identity(digests: declared_key.Digests,
                                     sources?: declared_key.HostSources): string
   local started = Time.monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
-  local system = from.system or default_system
+  local system = system_of(from)
   for i = 2, 3 do
-    local text, _ = Fs.read(system[i] or "")
-    lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
+    -- None ("", macOS's version) is read as nothing, not as the
+    -- working directory "" would open.
+    if system[i] ~= "" then
+      local text, _ = Fs.read(system[i] or "")
+      lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
+    end
   end
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
@@ -898,9 +960,11 @@ end
 --- What the host has installed, as the key of a module given the
 --- system's paths (`Test.needs`'s `system`) holds it: the database of
 --- the packages it has installed (`package_databases`), by contents,
---- where there is one, hashed only when its `lstat` moves; and the
---- system it says it is (/etc/os-release). `sources` moves where it
---- looks (`packages`, and `system`'s first path), for a test.
+--- where there is one, hashed only when its `lstat` moves; the system
+--- it says it is (/etc/os-release; on macOS, the system volume's
+--- SystemVersion.plist, `darwin_system`); and what it names of itself
+--- besides (`system_variable`). `sources` moves where it looks
+--- (`packages`, `system`'s first path, `system_id`), for a test.
 -- TODO: key what a package database does not say: a file under /usr,
 -- /etc or /lib changed by hand or by a tool other than the package
 -- manager, a package installed from source into /usr/local, and a
@@ -909,6 +973,13 @@ end
 -- run (/usr's stamps take half a second). Nor is the clock keyed: a
 -- test whose verdict turns on the date stands on one reached another
 -- day, which only a forced run (CI's scheduled one) catches.
+-- TODO: key what a developer's Mac has installed beyond the sealed
+-- system volume -- Xcode or its command line tools, /opt/homebrew,
+-- /usr/local, the programs a test finds on PATH there -- where no
+-- COSMIC_SYSTEM_ID names it, as CI's macOS leg names its image: wants
+-- a digest of each cheap enough to take every run (Xcode's version,
+-- Homebrew's installed list). Today such a Mac keys a `system` module
+-- by the OS build alone, so a verdict stands across an update of them.
 function declared_key.system_identity(digests: declared_key.Digests,
                                       sources?: declared_key.HostSources): string
   local started = Time.monotonic_ns()
@@ -921,11 +992,14 @@ function declared_key.system_identity(digests: declared_key.Digests,
       break
     end
   end
-  local release = (from.system or default_system)[1]
+  local release = system_of(from)[1]
   if release ~= nil then
     local text, _ = Fs.read(release)
     lines[#lines + 1] = release .. " " .. (text or "missing")
   end
+  local system_id = from.system_id
+  if system_id == nil then system_id = sys.getenv(system_variable) or "" end
+  lines[#lines + 1] = "system " .. system_id
   digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
@@ -933,20 +1007,26 @@ end
 --- What of `host_identity` differs between runners of one CI leg, as
 --- the first 16 hex digits of a sha256: the processor's features, a
 --- line each (`features`), then the kernel's release and version as
---- their files hold them, a missing one as empty. It is what
---- .github/scripts/host-features.sh prints, which names a Linux leg's
---- verdict cache, so a run restores one whose keys its host reaches.
---- `sources` moves where it looks (`cpuinfo`, `machine`, and
---- `system`'s second and third paths), for a test.
+--- their files hold them, a missing one as empty -- on macOS, the
+--- system volume's SystemVersion.plist, and nothing (`darwin_system`).
+--- It is what .github/scripts/host-features.sh prints, which names a
+--- leg's verdict cache, so a run restores one whose keys its host
+--- reaches. `sources` moves where it looks (`cpuinfo`, `machine`,
+--- `sysname`, and `system`'s second and third paths), for a test.
 function declared_key.host_features(sources?: declared_key.HostSources): string
   local from: declared_key.HostSources = sources or {}
-  local system = from.system or default_system
+  local system = system_of(from)
   local parts: {string} = {}
   for _, flag in ipairs(features(from.cpuinfo, from.machine)) do
     parts[#parts + 1] = flag .. "\n"
   end
   for i = 2, 3 do
-    local text, _ = Fs.read(system[i])
+    -- None ("", macOS's version) is read as nothing, as in `host_identity`.
+    local text: string = nil
+    if (system[i] or "") ~= "" then
+      local read, _ = Fs.read(system[i])
+      text = read
+    end
     parts[#parts + 1] = text or ""
   end
   return Hash.hex_sha256(table.concat(parts)):sub(1, 16)

@@ -16,7 +16,7 @@ local Test = require("cosmic.test")
 Test.needs{
   host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc/",
     "/usr/lib/os-release", "/usr/lib/sysimage/rpm/", "/var/lib/dpkg/status", "/var/lib/rpm/" },
-  env = { "COSMIC_HOST_ID" },
+  env = { "COSMIC_HOST_ID", "COSMIC_SYSTEM_ID" },
 }
 
 --- A tree at `root` holding a module, the module it requires, a
@@ -379,6 +379,42 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   differs("what the host says of itself")
   sources.uid = 2
   differs("the user")
+end
+
+--- On macOS, which has no /proc, no /etc/os-release and no package
+--- database, the system volume's SystemVersion.plist names both the
+--- kernel and the system (`declared_key.system_sources`): an update of
+--- it moves the host's identity and what it has installed alike. What
+--- the host names of what it has installed beyond that volume
+--- (COSMIC_SYSTEM_ID: Xcode, Homebrew) moves only what it has
+--- installed, which only a module given the system's paths is keyed by.
+local function test_a_macos_host_is_keyed_by_its_system_version(tmp: string)
+  local darwin = declared_key.system_sources("Darwin")
+  local plist = "/System/Library/CoreServices/SystemVersion.plist"
+  assert(darwin[1] == plist and darwin[2] == plist and darwin[3] == "", table.concat(darwin, " "))
+  assert(declared_key.system_sources("Linux")[2] == "/proc/sys/kernel/osrelease")
+  local fake = tmp .. "/SystemVersion.plist"
+  local system: {string} = {}
+  for i, path in ipairs(darwin) do system[i] = path == plist and fake or path end
+  local sources: declared_key.HostSources = {
+    packages = { tmp .. "/no-packages" }, system = system, status = tmp .. "/no-status",
+    cpuinfo = tmp .. "/no-cpuinfo", machine = "arm64", own_proc = false,
+    host_id = "macos-15", system_id = "macos15 20250901.1", uid = 501,
+  }
+  local function both(): string, string
+    return declared_key.host_identity(declared_key.digests(tmp), sources),
+      declared_key.system_identity(declared_key.digests(tmp), sources)
+  end
+  assert(Fs.write(fake, "<key>ProductBuildVersion</key><string>24G84</string>\n"))
+  local host, installed = both()
+  assert(Fs.write(fake, "<key>ProductBuildVersion</key><string>24G90</string>\n"))
+  local updated_host, updated = both()
+  assert(updated_host ~= host, "an update of the system moved no host")
+  assert(updated ~= installed, "an update of the system moved nothing installed")
+  sources.system_id = "macos15 20250908.1"
+  local same_host, other = both()
+  assert(same_host == updated_host, "what is installed beyond the system moved the host")
+  assert(other ~= updated, "what is installed beyond the system moved nothing installed")
 end
 
 --- Two hosts that differ only in what they have installed -- their

@@ -7,10 +7,24 @@ local Fs = require("cosmic.fs")
 local declared_key = require("build.declared_key")
 local Test = require("cosmic.test")
 
---- The script, run by the system's `sh`.
-Test.needs{ reads = { ".github/scripts/host-features.sh" }, system = true }
+--- The script, run by the system's `sh`; and where both read a macOS
+--- host's system version, which no other host has.
+Test.needs{
+  reads = { ".github/scripts/host-features.sh" }, system = true,
+  host = { "/System/Library/CoreServices/SystemVersion.plist" },
+}
 
 local SCRIPT <const> = ".github/scripts/host-features.sh"
+
+--- What the script prints, given `args`.
+local function script(args: {string}): string
+  local argv = { "/bin/sh", SCRIPT }
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
+  local result = assert(Child.run(argv, { stdout = "capture", stderr = "capture",
+    timeout_ms = 10000 }))
+  assert(result.ok, tostring(result.stderr))
+  return ((result.stdout as string):gsub("%s+$", ""))
+end
 
 --- A host under `tmp` of `machine` (nil: this host's, on both sides)
 --- whose /proc/cpuinfo holds `cpuinfo`:
@@ -31,18 +45,11 @@ local function host(tmp: string, machine: string, cpuinfo: string):
     cpuinfo = write("cpuinfo", cpuinfo), machine = machine,
     status = write("status", "Uid: 1 1 1 1\n"), own_proc = true, host_id = "h", uid = 1,
   }
-  local function script(): string
-    local argv = { "/bin/sh", SCRIPT, sources.cpuinfo, sources.system[2], sources.system[3] }
-    if machine ~= nil then argv[#argv + 1] = machine end
-    local result = assert(Child.run(argv, { stdout = "capture", stderr = "capture",
-      timeout_ms = 10000 }))
-    assert(result.ok, tostring(result.stderr))
-    return ((result.stdout as string):gsub("%s+$", ""))
-  end
   local names: {string:boolean} = {}
   local identities: {string:boolean} = {}
   local function both(what: string, moved: boolean)
-    local named, keyed = script(), declared_key.host_features(sources)
+    local named = script({ sources.cpuinfo, sources.system[2], sources.system[3], machine })
+    local keyed = declared_key.host_features(sources)
     assert(named == keyed, what .. ": the script names " .. named .. ", the key " .. keyed)
     assert(#named == 16, named)
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)
@@ -117,4 +124,42 @@ local function test_the_script_and_the_key_take_the_same_machine_by_default(tmp:
   local _, both = host(tmp, nil, "flags : aes avx2 fma fma4 pclmulqdq sse4_1 ssse3 " ..
     "avx512f hypervisor\nFeatures : asimd aes pmull crc32 sve\n")
   both("this host", true)
+end
+
+--- On macOS, where there is no /proc, the script and the key both read
+--- the system volume's SystemVersion.plist, and no version, where
+--- `declared_key.system_sources` says: SYSNAME Darwin chooses them in
+--- the script as `sysname` does in the key, and an update of the system
+--- moves the name and the host's identity alike.
+local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
+  local darwin = declared_key.system_sources("Darwin")
+  local text = assert(Fs.read(SCRIPT))
+  assert(text:find(darwin[2], 1, true), "the script reads no " .. darwin[2])
+  assert(darwin[3] == "", "a version beside the system's")
+  -- Where each is found on the host: the real plist on a Mac, and
+  -- none elsewhere.
+  assert(script({ tmp .. "/cpuinfo", "", "", "arm64", "Darwin" }) ==
+    declared_key.host_features({ cpuinfo = tmp .. "/cpuinfo", machine = "arm64",
+      sysname = "Darwin" }), "the system's own")
+  local plist = tmp .. "/SystemVersion.plist"
+  local system: {string} = {}
+  for i, path in ipairs(darwin) do system[i] = path == darwin[2] and plist or path end
+  local sources: declared_key.HostSources = {
+    packages = {}, system = system, cpuinfo = tmp .. "/cpuinfo", machine = "arm64",
+    status = tmp .. "/status", own_proc = false, host_id = "macos-15", uid = 501,
+  }
+  local names: {string:boolean} = {}
+  local identities: {string:boolean} = {}
+  local function both(what: string)
+    local named = script({ sources.cpuinfo, plist, "", "arm64", "Darwin" })
+    assert(named == declared_key.host_features(sources), what .. ": the script names " ..
+      named .. ", the key " .. declared_key.host_features(sources))
+    local id = declared_key.host_identity(declared_key.digests(tmp), sources)
+    assert(names[named] == nil and identities[id] == nil, what .. " moved nothing")
+    names[named], identities[id] = true, true
+  end
+  assert(Fs.write(plist, "<key>ProductBuildVersion</key><string>24G84</string>\n"))
+  both("the start")
+  assert(Fs.write(plist, "<key>ProductBuildVersion</key><string>24G90</string>\n"))
+  both("another build of the system")
 end

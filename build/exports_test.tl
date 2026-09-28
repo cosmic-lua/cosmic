@@ -42,6 +42,8 @@ allowed["build.declared_key.compiler_readers"] = "what build/compiler_readers_te
   "holds the tree to: every module that reads the compiler's identity is one a key names"
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
+allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
+  "holds .github/scripts/host-features.sh to: it reads a macOS host's system where a key does"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
