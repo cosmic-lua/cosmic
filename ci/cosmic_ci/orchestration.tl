@@ -11,6 +11,7 @@ local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
+local SuiteOutput = require("cosmic_ci.suite_output")
 local Time = require("cosmic.time")
 
 local record Orchestration
@@ -211,6 +212,9 @@ local record Context
   attempt: string
   root: string
   driver: string
+  --- The platform phase running (`platform`'s PHASE), which a suite's
+  --- row names.
+  phase: string
 end
 
 --- The environment variable `name`, or nil when it is unset or empty.
@@ -272,6 +276,30 @@ local function logged(c: Context, phase: string, command: {string}, out: string,
   if status ~= 0 then return status end
   assert(replay_ok, "could not replay retained output")
   return status
+end
+
+--- Records the suite `name`'s row (State.suite): how it ended, `code`,
+--- and what its stdout, the file `out`, said of it (SuiteOutput). A row
+--- that cannot be written is said on stderr and fails nothing: the
+--- suite's own status decides the leg.
+local function record_suite(c: Context, name: string, code: integer, out: string)
+  local called, trouble = pcall(function(): boolean
+    local said = exists(out) and read(out) or ""
+    local figures, status = SuiteOutput.read(said, code)
+    State.suite(State.external_path(c.db, c.root), {
+      worker = c.worker, run = c.run, attempt = c.attempt,
+      phase = c.phase or "", suite = name,
+      status = status, exit_code = code,
+      tests = figures.tests, modules = figures.modules, ran = figures.ran,
+      stood = figures.stood, every = figures.every, assumed = figures.assumed,
+      shared = figures.shared, failed = figures.failed,
+      elapsed_ms = figures.elapsed_ms, sandbox = figures.sandbox,
+      parts = figures.parts })
+    return true
+  end)
+  if not called then
+    Fs.put(Fs.stderr, name .. " suite: row not recorded: " .. tostring(trouble) .. "\n")
+  end
 end
 
 local function capture_small(c: Context, phase: string, command: {string},
@@ -404,10 +432,14 @@ local function fixture_test(c: Context, work: string, name: string,
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics); mkdir(diagnostics .. "/tmp")
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
-  return logged(c, "fixture: " .. name,
+  -- No --census: a fixture's run is keyed by nothing (`fixture`), so
+  -- there are no key parts to say.
+  local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
     Orchestration.fixture(environment(extra), diagnostics .. "/tmp"))
+  record_suite(c, "fixture " .. name, status, out)
+  return status
 end
 
 --- The checked core, verified on every leg -- its manifest entry in the
@@ -554,6 +586,7 @@ local function checked_suite(c: Context, target: string, work: string,
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     checked_suite_timeout_ms, c.root, checked_environment)
+  record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
   -- the workflow uploads with the diagnostics when the leg fails: what
@@ -615,10 +648,13 @@ local function suite(c: Context, name: string, executable: string,
   local err = diagnostics .. "/" .. name .. "-test.err"
   local words, values = Orchestration.suite_run(env)
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
+  -- Its key parts said, as the checked suite's are, for its row.
+  table.insert(words, 2, "--census")
   local argv: {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ms, c.root, values)
+  record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snap_called, snap_answer = pcall(snapshot, c, diagnostics,
     name .. "-immediate", executable)
@@ -812,7 +848,7 @@ local function phase_portable(p: PlatformContext): integer
   local fresh = p.fresh
   local executable = portable_d .. "/cosmic-portable"
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
-    attempt = c.attempt, root = fresh, driver = c.driver }
+    attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
   -- Where the other suites stand on verdicts (`stands`), it stands on
   -- its own (`suite_verdicts`), never on the local suite's;
   -- elsewhere it runs every test, as they do.
@@ -837,7 +873,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
   local portable_d = p.portable_diagnostics
   local fresh = p.fresh
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
-    attempt = c.attempt, root = fresh, driver = c.driver }
+    attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
   local s = snapshot(portable_context, portable_d, "portable-boundary",
     portable_d .. "/cosmic-portable"); if s ~= 0 then return s end
   if p.trailing == "success" then
@@ -990,7 +1026,8 @@ function Orchestration.platform(a: {string}): integer
   local ctx = ContextEnv.read()
   local target = ContextEnv.target()
   local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
-    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(a[0]))) }
+    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(a[0]))),
+    phase = phase }
   local p: PlatformContext = { trailing = a[2], operation = c, root = ctx.root,
     target = target, work = ctx.work, product = ctx.work .. "/product",
     contract = ctx.work .. "/contract", runtime = ctx.work .. "/runtime",
