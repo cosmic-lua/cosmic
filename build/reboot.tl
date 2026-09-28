@@ -20,6 +20,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
@@ -283,6 +284,147 @@ local function into(handle: work.Handle, built: compiler,
   return exec_trouble
 end
 
+--- The lock a run holds from the moment it finds it must rebuild or
+--- boot the tool until it re-enters the command on the tool it wrote,
+--- or exits: two runs in one checkout that both find the tool stale --
+--- an editor, a watcher and a terminal, say -- would otherwise rebuild
+--- it at once, each writing o/cosmic.db, o/carried.db and o/bin/cosmic
+--- under the other. It is an SQLite write lock on an empty database,
+--- `o/rebuild.lock`, which the system drops with the descriptor, so a
+--- holder that dies or execs (SQLite opens it close-on-exec) never
+--- leaves it held; a sandboxed test worker never takes it, since only
+--- the tree's own tool (`reboot.own_tool`) rebuilds.
+-- TODO: hold this with flock on o/rebuild.lock itself, once cosmic.sys
+-- carries flock, rather than through an SQLite transaction nothing
+-- writes.
+-- TODO: have a boot run by hand (`bin/zig build boot`, build/zig.tl)
+-- take this lock too, so a run rebuilding the tool and a boot in the
+-- same checkout wait for one another; a boot this module starts
+-- (`reboot.boot_into`) would be handed the lock its parent holds, as
+-- an environment variable naming it, rather than wait for it.
+local lock_name = "/o/rebuild.lock"
+
+--- Where the holder writes its process id, for a waiting run to name it.
+local holder_name = "/o/rebuild.lock.pid"
+
+--- How long a run waits for another's rebuild or boot before it refuses:
+--- a cold boot on a loaded host takes minutes, not half an hour.
+local lock_wait_ms <const> = 30 * 60 * 1000
+
+--- The lock this process holds, kept here so it lives as long as the
+--- process does, or until the exec that replaces it.
+local held: Sqlite.Handle | nil = nil
+
+--- The run holding the lock under `root`, as a waiting run names it.
+local function holder(root: string): string
+  local text, _ = Fs.read(root .. holder_name)
+  local pid: string | nil = nil
+  if text ~= nil then
+    pid = text:match("^(%d+)")
+  end
+  if pid == nil then
+    return "another cosmic run"
+  end
+  return "another cosmic run (pid " .. pid .. ")"
+end
+
+--- What `take` found of the rebuild lock: this process holds it, or
+--- another held it past the wait.
+local enum Taken
+  "held"
+  "busy"
+end
+
+--- Takes the rebuild lock of `root`, waiting up to `wait_ms` for a run
+--- that holds it. Answers "held" once this process holds it, "busy"
+--- when SQLite could not begin the lock's transaction in that time --
+--- another run holding it, since the file opened -- or nil and why when
+--- the lock's file cannot be opened at all.
+local function take(root: string, wait_ms: integer): Taken | nil, string
+  if held ~= nil then
+    return "held", ""
+  end
+  local db, open_trouble = Sqlite.open(root .. lock_name, true)
+  if db == nil then
+    return nil, root .. lock_name .. ": " .. open_trouble
+  end
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
+    tostring(wait_ms))
+  if not timed then
+    local _, _ = db:close()
+    return nil, root .. lock_name .. ": " .. time_trouble
+  end
+  local begun, _ = db:exec("BEGIN IMMEDIATE")
+  if not begun then
+    local _, _ = db:close()
+    return "busy", ""
+  end
+  held = db
+  local _, _ = Fs.write(root .. holder_name, tostring(sys.getpid()) .. "\n")
+  return "held", ""
+end
+
+--- Before a run rebuilds or boots the tool, takes the rebuild lock, so
+--- that only one run in a checkout does so at a time. Answers nil, the
+--- lock held and `handle` still open, when this run is to go on and
+--- rebuild. When another run holds the lock, this one closes `handle`
+--- -- the holder needs the working database to finish -- says so,
+--- waits for the holder to re-enter or exit, and replaces itself with
+--- the tool now under o/, running `argv` again: it is fresh when the
+--- holder's rebuild landed, and when it did not, that run takes the
+--- lock and rebuilds itself. The re-entered run is not counted as
+--- rebooted (`marker`), since it runs the tool another run wrote.
+--- Otherwise it has said why, closed `handle`, and answers the exit
+--- code to return.
+local function serialize(handle: work.Handle, root: string,
+                         argv: {integer:string}): integer | nil
+  -- Tried at once, while this run holds the working database: a run
+  -- holding the lock may be waiting for that database, so this run
+  -- waits for the lock only once it has closed it.
+  local taken, trouble = take(root, 0)
+  if taken == nil then
+    log:complain(closing(handle, trouble))
+    return 1
+  end
+  if taken == "held" then
+    return nil
+  end
+  local closed, close_trouble = work.close(handle)
+  if not closed then
+    log:complain(close_trouble)
+    return 1
+  end
+  local other = holder(root)
+  log:complain(other .. " in this checkout is rebuilding the tool; waiting for it")
+  local waited, wait_trouble = take(root, lock_wait_ms)
+  if waited == nil then
+    log:complain(wait_trouble)
+    return 1
+  end
+  if waited == "busy" then
+    log:complain(other .. " held the tool's rebuild lock past " ..
+      tostring(lock_wait_ms // 60000) .. " minutes; stop it, or wait " ..
+      "for it, and run this again")
+    return 3
+  end
+  -- Released at once: the run entered below takes it again if it must.
+  local lock = held
+  held = nil
+  if lock ~= nil then
+    local _, _ = lock:close()
+  end
+  local out, executable_trouble = Proc.executable()
+  if out == nil then
+    log:complain(executable_trouble)
+    return 1
+  end
+  local environment = sys.environ()
+  environment[marker] = nil
+  local _, exec_trouble = Proc.exec(out, reentry(argv), environment)
+  log:complain(exec_trouble)
+  return 3
+end
+
 --- Rebuilds the core with `root/bin/zig build boot`, whose output goes to
 --- stderr so a verb's own stdout stays its own, then replaces this process
 --- with the tool the boot wrote, `root/o/bin/cosmic`, running `argv` again.
@@ -324,7 +466,9 @@ end
 --- own whose database another writer wrote (`unsettled`) writes itself
 --- again, as a rebuild does, and re-enters `argv`; so does one a
 --- rebuild just wrote that is stale by its own code, which a rebuild
---- across a change to the fingerprint itself leaves.
+--- across a change to the fingerprint itself leaves. Each takes the
+--- rebuild lock first (`serialize`): a run that finds another rebuilding
+--- waits for it and re-enters `argv` on the tool it wrote.
 ---
 --- `handle` is the working database of `root`, which must be cosmic's
 --- own tree (`tree.is_own`), open and staged. Answers nil when the tool
@@ -352,6 +496,10 @@ function reboot.guard(handle: work.Handle, root: string,
     if not own then
       return nil
     end
+    local waited = serialize(handle, root, argv)
+    if waited ~= nil then
+      return waited
+    end
     log:complain("the tool's database was built by other code than its own; building it again")
     log:complain(into(handle, teal.lazy(), argv, true))
     return 3
@@ -361,14 +509,18 @@ function reboot.guard(handle: work.Handle, root: string,
     return 3
   end
   if state == "core" then
+    if not reboot.auto_boot() then
+      log:complain(closing(handle, core_refusal))
+      return 3
+    end
+    local waited = serialize(handle, root, argv)
+    if waited ~= nil then
+      return waited
+    end
     local closed, close_trouble = work.close(handle)
     if not closed then
       log:complain(close_trouble)
       return 1
-    end
-    if not reboot.auto_boot() then
-      log:complain(core_refusal)
-      return 3
     end
     log:complain(reboot.boot_into(root, argv))
     return 3
@@ -381,6 +533,10 @@ function reboot.guard(handle: work.Handle, root: string,
   -- `unsettled` too: it builds itself again, once, as a fresh unsettled
   -- tool does, rather than refusing; `into` sets the marker to "2", so
   -- a tool stale after that refuses.
+  local waited = serialize(handle, root, argv)
+  if waited ~= nil then
+    return waited
+  end
   if sys.getenv(marker) == "1" and unsettled() then
     log:complain("the tool's database was built by other code than its own; building it again")
     log:complain(into(handle, teal.lazy(), argv, true))

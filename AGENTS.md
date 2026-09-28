@@ -56,6 +56,10 @@
    status rather than piping it away. Only the tree's own tool (under
    `o/`) rebuilds or boots; another cosmic run in the tree when it is
    stale -- a release, the bootstrap cache's -- refuses, exiting 3.
+   Runs in one checkout at once (an editor's, a watcher's, a
+   terminal's) rebuild or boot the tool one at a time, under
+   `o/rebuild.lock`: one that finds another at it says so, waits, and
+   re-enters on the tool that run wrote (`build/reboot.tl`).
 4. Run `timeout 30 o/bin/cosmic test`. Its workers run sandboxed to each
    test's declared inputs where the kernel can -- the default on Linux --
    and a test whose declared inputs, closure, core, harness and host are
