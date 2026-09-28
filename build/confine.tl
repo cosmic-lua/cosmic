@@ -398,19 +398,22 @@ function confine.worker_unveil(tree: string, cwd: string | nil, scratch: string,
   -- host program (its core with the database appended, which the
   -- kernel runs itself) is its own core, which every worker needs.
   -- TODO: keep a worker whose test does not declare `tool` from reading
-  -- a host program's carried database by its name too -- its core is
-  -- that same file, so it would take the worker being handed its core as
-  -- a descriptor rather than a path (an fexecve of the retained
-  -- descriptor, core/syscalls.c's spawn); today such a worker, as in
+  -- a host program's carried database by its name too. Its core is
+  -- that same file, which the worker must run, and Landlock checks an
+  -- exec when it opens the file, execveat's AT_EMPTY_PATH included; so
+  -- the fix takes the worker exec'd before its ruleset holds it, and
+  -- host startup taking an inherited descriptor on itself rather than
+  -- opening /proc/self/exe again (core/executable.c's
+  -- `cosmic_executable_fd`). Today such a worker, as in
   -- build/sandboxed_verdicts_test.tl's tool project, reads the program.
   local program, _ = Proc.executable()
   local withheld = ""
   if not with_program and program ~= nil then
     local launched, _ = Proc.relaunch()
     local core = launched ~= nil and launched.argv[1] or program
-    local real_program, _ = calls().realpath(program)
-    local real_core, _ = calls().realpath(core)
-    if (real_program or program) ~= (real_core or core) then withheld = program end
+    local a, _ = calls().stat(program)
+    local b, _ = calls().stat(core)
+    if a == nil or b == nil or a.dev ~= b.dev or a.ino ~= b.ino then withheld = program end
   end
   for _, path in ipairs(confine.itself()) do
     if path ~= withheld then add(path) end

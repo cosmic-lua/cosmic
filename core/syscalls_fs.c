@@ -101,39 +101,13 @@ static void push_stat (lua_State *L, const struct stat *st) {
   lua_setfield(L, -2, "kind");
 }
 
-/* Why a call may not act on `path` (EACCES), or 0 where it may: whether
- * `path` names the file `artifact` retains a descriptor on --
- * following a last link where `follow` says, as the call it is asked
- * for will -- reached through a descriptor rather than by a name it
- * has: /proc/<pid>/fd/<n>, /dev/fd/<n> or a link to either, which hand
- * a caller the artifact whatever the sandbox gives it by name, as the
- * retained descriptor itself would (core/check.h's `cosmic_checkfd`).
- * Asked before the call, which may write (O_TRUNC, chmod), so a refusal
- * leaves the file as it was.
- *
- * The kernel says which, where it can: the path walked again refusing
- * every such link (openat2's RESOLVE_NO_MAGICLINKS) reaches the artifact
- * only by a name, where it could be reached as well. That refuses the
- * program named through /proc/self/cwd/... or /proc/self/root/... too,
- * which are such links: this program's own file is the one file refused
- * that way, and it has a name of its own to be reached by. Everywhere
- * first -- and alone on macOS, a kernel older than 5.6, a filter
- * refusing openat2 -- by the name (`reaches_descriptor_name`), each link
- * on the way followed by hand; and where it resolves under /dev or
- * /proc. A walk that fails otherwise answers its own errno, which the
- * call would have met.
- * TODO: decide on the file the call then acts on, not its name again --
- * open the O_PATH probe's file by its own descriptor (/proc/self/fd/<the
- * probe>, which this check itself would then have to let through), and
- * chmod or set the times through it (fchmod, futimens) -- so a process
- * the test starts cannot swap a link on the path between this check and
- * the call. */
 /* Whether `path`, spelled plainly, is a descriptor's own name that
  * reaches `artifact`: /dev/fd/<its descriptor> -- on macOS no link but
  * a node of its own (fdesc), whose stat need not be the artifact's, and
  * which an open copies the descriptor from and a chmod reaches it
- * through -- or /dev/fd/<n>, /proc/<self, thread-self or a pid>/fd/<n>
- * whose target is the artifact. */
+ * through -- or any /dev/fd/<n> or /proc/.../fd/<n> (/proc/<pid>/fd,
+ * /proc/<pid>/task/<tid>/fd, /proc/self/fd, /proc/thread-self/fd) whose
+ * target is the artifact. */
 static bool descriptor_name (const char *path, const struct cosmic_artifact *artifact) {
   /* A leading "//" is one "/" here, but realpath may keep it. */
   while (path[0] == '/' && path[1] == '/') path++;
@@ -142,9 +116,9 @@ static bool descriptor_name (const char *path, const struct cosmic_artifact *art
   if (dev) {
     number = path + 8;
   } else if (strncmp(path, "/proc/", 6) == 0) {
-    const char *slash = strchr(path + 6, '/');
-    if (slash == NULL || strncmp(slash, "/fd/", 4) != 0) return false;
-    number = slash + 4;
+    const char *last = strrchr(path, '/');
+    if (last == NULL || last < path + 9 || strncmp(last - 3, "/fd/", 4) != 0) return false;
+    number = last + 1;
   } else {
     return false;
   }
@@ -163,13 +137,15 @@ static bool descriptor_name (const char *path, const struct cosmic_artifact *art
 /* Whether `path` reaches a descriptor's own name (`descriptor_name`):
  * as given, with its directory resolved -- "//dev/fd/<n>", "/./proc/...",
  * a name relative to /proc/self/fd, a directory that is a link to one --
- * or through a link at its last part, each followed in turn. */
-static bool reaches_descriptor_name (const char *path,
+ * and, where `follow` says, through a link at its last part, each
+ * followed in turn; without it, the last part is the call's own, which
+ * a link there leaves as it is. */
+static bool reaches_descriptor_name (const char *path, bool follow,
                                      const struct cosmic_artifact *artifact) {
   char at[PATH_MAX], directory[PATH_MAX], real[PATH_MAX], joined[PATH_MAX],
       target[PATH_MAX];
   if (snprintf(at, sizeof at, "%s", path) >= (int)sizeof at) return false;
-  for (int hops = 0; hops < 40; hops++) {
+  for (int hops = 0;; hops++) {
     if (descriptor_name(at, artifact)) return true;
     const char *slash = strrchr(at, '/');
     const char *base = slash == NULL ? at : slash + 1;
@@ -181,6 +157,8 @@ static bool reaches_descriptor_name (const char *path,
                  base) < (int)sizeof joined &&
         descriptor_name(joined, artifact))
       return true;
+    /* As many links as the kernel follows (Linux's 40) before ELOOP. */
+    if (!follow || hops == 40) return false;
     ssize_t length = readlink(at, target, sizeof target - 1);
     if (length < 0) return false;
     target[length] = '\0';
@@ -190,28 +168,58 @@ static bool reaches_descriptor_name (const char *path,
     if (made < 0 || made >= (int)sizeof joined) return false;
     memcpy(at, joined, (size_t)made + 1);
   }
-  return false;
 }
 
+/* Why a call may not act on `path` (EACCES), or 0 where it may: whether
+ * `path` names the file `artifact` retains a descriptor on --
+ * following a last link where `follow` says, as the call it is asked
+ * for will -- reached through a descriptor rather than by a name it
+ * has: /proc/<pid>/fd/<n>, /dev/fd/<n> or a link to either, which hand
+ * a caller the artifact whatever the sandbox gives it by name, as the
+ * retained descriptor itself would (core/check.h's `cosmic_checkfd`).
+ * Asked before the call, which may write (O_TRUNC, chmod), so a refusal
+ * leaves the file as it was.
+ *
+ * On Linux every such name stats as the file it reaches, so a path whose
+ * stat is not the artifact's costs that stat alone. One that is: the
+ * kernel says how it got there, walking it again refusing every
+ * descriptor link (openat2's RESOLVE_NO_MAGICLINKS), which reaches the
+ * artifact only by a name, where it could be reached as well. That
+ * refuses the program named through /proc/self/cwd/... or
+ * /proc/self/root/... too, which are such links: this program's own
+ * file is the one file refused that way, and it has a name of its own to
+ * be reached by. Where openat2 is not to be had -- macOS, a kernel older
+ * than 5.6, a filter refusing it -- the path is walked by hand
+ * (`reaches_descriptor_name`), and what resolves under /dev or /proc is
+ * refused too. A walk that fails otherwise answers its own errno, which
+ * the call would have met.
+ * TODO: decide on the file the call then acts on, not its name again --
+ * open the O_PATH probe's file by its own descriptor (/proc/self/fd/<the
+ * probe>, which this check itself would then have to let through), and
+ * chmod or set the times through it (fchmod, futimens) -- so a process
+ * the test starts cannot swap a link on the path between this check and
+ * the call. */
 static int artifact_through_descriptor (const char *path, bool follow,
                                         const struct cosmic_artifact *artifact) {
   if (artifact == NULL) return 0;
-  if (reaches_descriptor_name(path, artifact)) return EACCES;
   struct stat st;
-  if ((follow ? stat(path, &st) : lstat(path, &st)) != 0 ||
-      (uint64_t)st.st_dev != artifact->device || (uint64_t)st.st_ino != artifact->inode)
-    return 0;
+  bool named = (follow ? stat(path, &st) : lstat(path, &st)) == 0 &&
+               (uint64_t)st.st_dev == artifact->device &&
+               (uint64_t)st.st_ino == artifact->inode;
+#if defined(__linux__)
+  if (!named) return 0;
+#endif
 #if defined(__linux__) && defined(SYS_openat2)
   struct open_how how;
   memset(&how, 0, sizeof how);
   how.flags = O_PATH | O_CLOEXEC | (follow ? 0 : O_NOFOLLOW);
   how.resolve = RESOLVE_NO_MAGICLINKS;
-  long named = syscall(SYS_openat2, AT_FDCWD, path, &how, sizeof how);
-  if (named >= 0) {
+  long walked = syscall(SYS_openat2, AT_FDCWD, path, &how, sizeof how);
+  if (walked >= 0) {
     struct stat again;
-    bool same = fstat((int)named, &again) == 0 && again.st_dev == st.st_dev &&
+    bool same = fstat((int)walked, &again) == 0 && again.st_dev == st.st_dev &&
                 again.st_ino == st.st_ino;
-    close((int)named);
+    close((int)walked);
     return same ? 0 : EACCES;
   }
   /* A descriptor link on the way is refused ELOOP (or EXDEV, for one
@@ -219,6 +227,8 @@ static int artifact_through_descriptor (const char *path, bool follow,
   if (errno == ELOOP || errno == EXDEV) return EACCES;
   if (errno != ENOSYS && errno != EPERM) return errno;
 #endif
+  if (reaches_descriptor_name(path, follow, artifact)) return EACCES;
+  if (!named) return 0;
   char resolved[PATH_MAX];
   if (realpath(path, resolved) == NULL) return errno;
   bool through = strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/proc/", 6) == 0 ||

@@ -192,6 +192,28 @@ local function test_an_open_through_the_artifact_descriptor_is_refused(tmp: stri
         assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
           tostring(opened) .. " " .. tostring(trouble))
       end
+      -- Through a thread's own descriptors, by name and relative to its
+      -- directory.
+      local pid = tostring(sys.getpid())
+      if dir == "/proc/self/fd/" then
+        for _, name in ipairs({ "/proc/thread-self/fd/" .. fd,
+            "/proc/" .. pid .. "/task/" .. pid .. "/fd/" .. fd }) do
+          if sys.stat(name) ~= nil then
+            local opened, trouble, errno = sys.open(name, sys.O_RDONLY)
+            if opened ~= nil then sys.close(opened) end
+            assert(opened == nil and errno == sys.EACCES, name .. " opened the artifact: " ..
+              tostring(opened) .. " " .. tostring(trouble))
+          end
+        end
+        local here, _ = sys.getcwd()
+        if sys.chdir("/proc/" .. pid .. "/task/" .. pid) then
+          local task, _, task_errno = sys.open("fd/" .. fd, sys.O_RDONLY)
+          if task ~= nil then sys.close(task) end
+          assert(sys.chdir(assert(here)))
+          assert(task == nil and task_errno == sys.EACCES,
+            "a name relative to a task opened the artifact")
+        end
+      end
       local moved, _ = sys.getcwd()
       if sys.chdir(dir) then
         local relative, _, relative_errno = sys.open(tostring(fd), sys.O_RDONLY)
