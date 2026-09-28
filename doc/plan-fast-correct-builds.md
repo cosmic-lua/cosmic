@@ -113,121 +113,78 @@ runs, which this container cannot run (no `gh`). Its targets:
 
 ## Stage 2: an edit reruns what it implicates (two weeks)
 
-2.1, #2285, has landed.
+2.1 (#2285), 2.2 (#2295), 2.3 (#2296) and 2.5 (#2294) have
+landed; 2.4 is under way.
 
-### 2.2 Key tests by a harness epoch
+### 2.2 Key tests by a harness epoch: landed (#2295)
 
-Every sandboxed key holds three things beyond the test's own inputs:
+- The declared key holds `epoch` (`build/harness_epoch.tl`) and
+  `timeout` in place of the harness's source and bytecode.
+- `build/harness_epoch_test.tl` holds the harness set (what a worker
+  loads, `harness_own`, the key's own code, by source and bytecode) to
+  an acknowledged digest. It also fails when a harness module requires
+  one outside the set.
+- A merge-queue run whose change moves `build/harness_epoch.tl` runs
+  `--all`.
+- Shows: a comment in `build/test.tl` reran 597 of 2020 tests (all
+  before), and one in `build/zig.tl` or `cosmic/http.tl` only their
+  importers.
+- Left: the sandbox's plan keyed as data (`build/test.tl`'s `TODO:`
+  above `harness_own`).
 
-- the harness digest: what a worker loads, plus `harness_own`;
-- `build.test` by its source;
-- the 38-module closure of the key's own code (`key_code`).
+### 2.3 Stand-in built once per run: landed (#2296)
 
-27 of 50 commits moved one of these, and each reran every test in every
-checkout and leg. The epoch replaces all three with a number that moves
-only when someone decides a change to the harness can change a verdict.
-
-- Change, the key:
-  - A test's key holds its import closure, its declarations, the core,
-    the host, and a new `timeout` part (closing `build/test.tl`'s
-    `TODO:` on the unkeyed timeout).
-  - It also holds `epoch` from `build/harness_epoch.tl`.
-  - The harness digest, `build.test`'s source and `key_code` leave it.
-  - A module the worker loads that the test's own closure also
-    requires stays keyed through that closure, as today.
-- Change, the guard: `build/harness_epoch.tl` also holds an
-  acknowledged digest of the harness files: `worker.loads`,
-  `harness_own`, `build.test`, and `key_code`'s closure.
-  `build/harness_epoch_test.tl` fails when that digest moves. Its
-  message names the choice:
-  - bump `epoch` if the change can alter a pass or a fail (what a
-    worker is given, how it is judged, how a key is computed);
-  - otherwise update the digest.
-
-  The choice is then one reviewable line in the diff.
-- Change, the backstop: a merge-queue run whose change moves
-  `build/harness_epoch.tl` runs every suite with `--all`, so a harness
-  change is gated on a full run of every test before it lands. The base
-  comes from `github.event.merge_group.base_sha`, and orchestration.tl's
-  `stands` takes it. Branch pushes and local runs do not pay this.
-- Kept:
-  - The harness's own tests import `build.test` and rerun on every edit
-    to it, as today.
-  - 0.1's field and preimage guards still hold `build.declared_key`.
-  - The nightly `--all` run.
-- Accepted:
-  - A harness change recorded as "keep" that does alter a verdict
-    stands until the merge queue's `--all` (before landing) or the
-    nightly run catches it.
-  - The tree's module names, which a worker's hold refuses, are not
-    keyed: a new module can only change a test that requires it, and
-    then its closure moves.
-- Waits on: nothing.
-- Shows:
-  - a comment in `build/test.tl`, `build/zig.tl` or `cosmic/http.tl`
-    reruns only the tests that import it, plus the `harness_epoch` test;
-  - a merge-queue run of such a change runs `--all`.
-
-### 2.3 Stand-in built once per run
-
-`build/stand_in.tl` builds a whole tree with `embed.tree`, in a child,
-for every test that needs one. That costs about 1 s on the release
-core and 3 s on the checked core, for about 40 tests: 31 s of release
-test time and 100 s of checked. It is also most of why
-`build/test_isolation_test.tl`'s hung-test case takes about 6 of its
-10 s, and timed out once under load (#2293).
-
-- Change, first PR: `build.embed` takes a prebuilt store (the `TODO:`
-  in `stand_in.build`).
-- Change, second PR: `stand_in.build` compiles only `cmd/probe/main.tl`
-  against the carried modules. This frees 62 tests from `tool`.
-- Failing that, the runner builds the stand-in once under `o/`, and
-  tests declare it as `tool` tests declare the program.
-- Shows:
-  - the checked suite, cold, runs about 100 s shorter;
-  - the isolation test takes under 4 s alone.
+- `stand_in.build` writes the probe's carried rows to a small
+  database and appends it to this program's core, in-process. It
+  starts nothing, so its tests need no `tool`.
+- `stand_in.build` fell from about 500 ms to 35 ms (release) and from
+  2.5 s to 0.45 s (checked). The 15 affected modules, run `--all`,
+  took 17.6 s instead of 45.2 s (release) and 84 s instead of 181 s
+  (checked).
+- `tool` fell to 312 tests from 455.
+- A test that confines a process in a root of its own keeps `tool`: a
+  worker without it runs under Landlock, which refuses the mounts a
+  nested sandbox is built from (`build/confine.tl`'s `TODO:`).
+- The isolation test still takes about 7 s. That is its two nested
+  runs, not the stand-in.
 
 ### 2.4 Tool and store floor, batch 2, and tree-wide checks out of the suite
 
-Batch 1 (#2283) took 245 tests off `tool`/`store`. Batch 2 takes the
-modules with 3 or more tests to move, each split into
-`<module>_tool_test.tl` or `<module>_store_test.tl`:
-
-- `core/syscalls_test` (65 of 80)
-- `build/filesystem_observations_test` (30 of 44)
-- `cosmic/child_test`
-- the sandbox tests
-- about 15 smaller modules
-
-Its prerequisites, 0.4 and 1.2, have landed.
+Batch 1 (#2283) took 245 tests off `tool`/`store`, and 2.3 took 143
+more. After 2.3 the floor was 348 (300 `tool`, 48 `store`), so the
+old target of about 355 was already met. The new target is at most
+275.
 
 - Rule R6: only a test of one module may read the store. A check over
-  the whole tree (every export documented, every module listed, and the
-  like) is not a unit test. It moves to the build or to `fix --check`,
-  which see the whole tree already, or to a CI step.
-  - 25 modules declare `store` today, and each reruns on every edit.
-  - Change: census them first. For each, it either reads only its
-    closure (drop `store`), splits into per-module tests, or moves out
-    of the suite.
-  - A module left with `store` needs a written reason.
-- Shows (with R6): the floor, counted by a named `o/bin/cosmic sql` query over
-  the catalog's `tool` and `store` declarations, is about 355 (about
-  542 before). 2.3's 62 freed tests lower it further.
+  the whole tree is not a unit test: it runs in `fix --check .`, from
+  `build/tree_checks.tl`. A module left with `store` says why.
+- A test keeps `tool` if it starts or reads this program, reads the
+  store beyond its closure, or nests a sandbox (see 2.3).
+- PRs, in order:
+  - A: tree-wide checks into `fix --check .` (exports, doc anchors,
+    compiler readers, command stand-ins, docs queries, `quieted`
+    names). `store` falls from 50 tests to 29.
+  - B: store seams (`errors`, `fix.notes`, `invoke`,
+    `core/declarations`), about 10 more.
+  - C: clean `tool` splits (`child`, `fault`, `test_audit`,
+    `test_closure`, `proc`, `test_sandbox`, `shared_compiles`,
+    `coverage_native`), about 34.
+  - D: the splits that need a check first (`standalone`, `refresh`,
+    `embed`), 15 to 32.
+  - E, optional: the store's lookup through attached databases
+    (`core/store.c`'s `TODO:`).
+- Shows: the floor, by the named `o/bin/cosmic sql` query over
+  `test_inputs`, at or under 275.
 
-### 2.5 Key precision, smaller
+### 2.5 Key precision, smaller: landed in part (#2294)
 
-- Writer identity, which is over-wide today (`build/work.tl`'s
-  `TODO:`):
-  - Change: roots for what a projection depends on, plus a guard like
-    the compiler's.
-  - Shows: an edit to a writer-only module moves no module's key.
-- The settle when one commit moves both the fingerprint's definition
-  and the compiler identity's (`build/reboot.tl`'s `TODO:`):
-  - Shows: a test commit that moves both boots once.
-- The compiler identity is still wider than what shapes a compile
-  (`build/work.tl:1136`).
-- A test that starts a process keeps no verdict until its second run
-  (`build/test.tl:795`).
+- The writer identity is built from roots, with a guard like the
+  compiler's.
+- A commit that moves both the fingerprint's definition and an
+  identity settles once instead of refusing.
+- Left: the compiler identity is still wider than what shapes a
+  compile (`build/work.tl`); a test that starts a process keeps no
+  verdict until its second run (`build/test.tl`). Both stay `TODO:`s.
 
 ### Milestone M2
 
@@ -566,6 +523,8 @@ Each milestone is decided from 0.3's `report`, as follows.
   - 1.3 plain caches (#2291)
   - #2293 also fixed a sandbox mount race on the cores directory's
     stamp.
+- **Stage 2** (2026-09-28): 2.2 harness epoch (#2295), 2.3 stand-in
+  in-process (#2296), 2.5 writer identity and one settle (#2294).
 - **Observation removal, PR 1** (#2285).
 - **Shared compiles and parses** across checkouts (#2259, #2268). CI
   restores and saves them per leg (#2261). A fresh boot fell from 31 s
