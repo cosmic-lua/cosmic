@@ -3440,18 +3440,11 @@ function test.run(argv: {integer:string}): integer
       end
     end
   end
-  -- Where every keyed test was looked up in the shared cache, none of
-  -- them ever ran or stood in this checkout -- a fresh one, as CI's is -- and
-  -- none was found there, though the cache holds rows, say what every
-  -- key holds, so two runs' lines say which part moved. An edit in a
-  -- checkout says nothing: what it moved ran here before. Asked
-  -- (`--census`, as CI's checked suite is, in a checkout the local
-  -- suite already ran in), say it wherever none was found, and say the
-  -- parts alone wherever the line would not be said.
-  local census_asked = parsed.set["--census"] == true
-  if keyed and (census_asked or (rec.shared ~= nil and looked_count > 0 and
-      looked_count == keyed_count and ran_here == 0 and found_count == 0)) then
-    local parts: {{string}} = {
+  -- The digests every key of the run holds, which each row it keeps
+  -- in the shared cache is stamped with (`shared_verdicts.settle`).
+  local parts: {{string}} = {}
+  if keyed then
+    parts = {
       -- As .github/scripts/host-features.sh names CI's verdict cache.
       { "host features", declared_key.host_features() },
       { "host", rec.host:sub(1, 12) },
@@ -3469,6 +3462,22 @@ function test.run(argv: {integer:string}): integer
     if runs_tool and rec.program ~= nil then
       parts[#parts + 1] = { "program", rec.program:sub(1, 12) }
     end
+    rec.owed.parts = shared_verdicts.named(parts)
+  end
+  -- Where every keyed test was looked up in the shared cache, none of
+  -- them ever ran or stood in this checkout -- a fresh one, as CI's is -- and
+  -- none was found there, though the cache holds rows, say what every
+  -- key holds, so two runs' lines say which part moved. An edit in a
+  -- checkout says nothing: what it moved ran here before. Asked
+  -- (`--census`, as CI's checked suite is, in a checkout the local
+  -- suite already ran in), say it wherever none was found, and say the
+  -- parts alone wherever the line would not be said; then say the key
+  -- parts the cache's rows name, as this run found them, so a report
+  -- tells whether its own were among what CI restored
+  -- (ci/cosmic_ci/report.tl's `qualify`).
+  local census_asked = parsed.set["--census"] == true
+  if keyed and (census_asked or (rec.shared ~= nil and looked_count > 0 and
+      looked_count == keyed_count and ran_here == 0 and found_count == 0)) then
     local line: string = nil
     if rec.shared ~= nil and found_count == 0 then
       local census, _ = shared_verdicts.census(rec.shared, looked)
@@ -3477,6 +3486,10 @@ function test.run(argv: {integer:string}): integer
     end
     if line == nil and census_asked then line = shared_verdicts.key_parts(parts) end
     if line ~= nil then log:say(line) end
+    if census_asked and rec.shared ~= nil then
+      local held, _ = shared_verdicts.held(rec.shared)
+      if held ~= nil then log:say(shared_verdicts.census_line(held)) end
+    end
   end
   if keyed then
     -- From here each key looks again: a verdict is kept only under a

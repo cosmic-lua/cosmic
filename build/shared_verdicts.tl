@@ -12,7 +12,10 @@
 --- The cache is a plain map from key to verdict: a row holds no
 --- evidence of what the run read to check again -- the key reached is
 --- the whole check -- only the test it is of, the lines it hit, for the
---- coverage it is credited, and how long it took.
+--- coverage it is credited, how long it took, and the key parts (the
+--- runtime's digest, the harness's epoch, ...) its key holds, which
+--- nothing looks a verdict up by: they say what a cache holds
+--- (`held`), as `cosmic test --census` does.
 ---
 --- Many runs share the file at once: it is in WAL mode, so a reader
 --- never waits on a writer, and a run reads it a statement at a time
@@ -58,8 +61,18 @@ local record shared_verdicts
     of_tests: integer
   end
 
+  --- How many rows the cache holds under one set of key parts, as
+  --- `named` says them ("" for rows kept by a run that named none).
+  record Held
+    parts: string
+    rows: integer
+  end
+
   --- What a run owes the cache when it ends.
   record Owed
+    --- The key parts every key of the run holds (`named`), which each
+    --- row it keeps, or stands on unnamed, is stamped with; nil for none.
+    parts: string
     kept: {Kept}
     --- Keys the run relied on, which stay the longer for it.
     used: {string}
@@ -124,7 +137,8 @@ local schema <const> = {
                                                   hits BLOB NOT NULL,
                                                   elapsed_ns INTEGER NOT NULL,
                                                   used_ns INTEGER NOT NULL,
-                                                  origin TEXT NOT NULL)]],
+                                                  origin TEXT NOT NULL,
+                                                  parts TEXT NOT NULL DEFAULT '')]],
   "CREATE INDEX IF NOT EXISTS " .. declared .. "_by_use ON " .. declared .. " (used_ns)",
 }
 
@@ -159,8 +173,20 @@ local function unpacked(hits: string): string
   end))
 end
 
+--- Whether `db`'s table of this format has its `parts` column: a file
+--- written before the column was lacks it.
+local function has_parts(db: Sqlite.Handle): boolean | nil, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM pragma_table_info('" ..
+    declared .. "') WHERE name = 'parts'")
+  if rows == nil then return nil, trouble end
+  return #rows > 0, ""
+end
+
 --- Makes this format's table when the file has none yet, in one
---- transaction; a file that has it is only read. The tables
+--- transaction, or adds the `parts` column to one from before it, its
+--- rows naming none; a file that has both is only read. A binary from
+--- before the column shares the file still: its rows name no parts,
+--- until a run that names them stands on one (`settle`). The tables
 --- observation-keyed runs shared (`verdicts_v<n>`) are left as they
 --- are: a binary of that format sharing the file still writes its own
 --- and ages its rows out, and none of this one's reads them.
@@ -168,15 +194,28 @@ local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = '" .. declared .. "'")
   if rows == nil then return false, trouble end
-  if #rows > 0 then return true, "" end
+  if #rows > 0 then
+    local named, named_trouble = has_parts(db)
+    if named == nil then return false, named_trouble end
+    if named then return true, "" end
+  end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
-  for _, statement in ipairs(schema) do
-    local ok, statement_trouble = db:exec(statement)
-    if not ok then
-      local _, _ = db:exec("ROLLBACK")
-      return false, statement_trouble
+  local function steps(): boolean, string
+    for _, statement in ipairs(schema) do
+      local ok, statement_trouble = db:exec(statement)
+      if not ok then return false, statement_trouble end
     end
+    -- Another run may have added it since the look above.
+    local named, named_trouble = has_parts(db)
+    if named == nil then return false, named_trouble end
+    if named then return true, "" end
+    return db:exec("ALTER TABLE " .. declared .. " ADD COLUMN parts TEXT NOT NULL DEFAULT ''")
+  end
+  local ok, step_trouble = steps()
+  if not ok then
+    local _, _ = db:exec("ROLLBACK")
+    return false, step_trouble
   end
   return db:exec("COMMIT")
 end
@@ -270,13 +309,51 @@ function shared_verdicts.census(cache: shared_verdicts.Cache,
   return out, ""
 end
 
+--- `parts`, the digests every key of a run holds (a name and a digest
+--- each, in order), as the run says them: "name digest, name digest".
+function shared_verdicts.named(parts: {{string}}): string
+  local named: {string} = {}
+  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
+  return table.concat(named, ", ")
+end
+
 --- The line a run asked for its key parts (`cosmic test --census`)
 --- says where it says no `unmatched` line: the digests (a name and a
 --- digest each, as given, in order) that every key of the run holds.
 function shared_verdicts.key_parts(parts: {{string}}): string
-  local named: {string} = {}
-  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
-  return "test: key parts: " .. table.concat(named, ", ")
+  return "test: key parts: " .. shared_verdicts.named(parts)
+end
+
+--- How many rows the cache holds under each set of key parts its rows
+--- name, the most first: what a run found in the cache before it
+--- stood on or kept anything (`cosmic test --census`).
+function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held} | nil, string
+  local rows, trouble = Sqlite.text_rows(cache.db, "SELECT parts, COUNT(*) FROM " ..
+    declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
+  if rows == nil then return nil, trouble end
+  local out: {shared_verdicts.Held} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { parts = row[1] or "", rows = math.tointeger(tonumber(row[2]) or 0) or 0 }
+  end
+  return out, ""
+end
+
+--- The line a run asked for its census (`cosmic test --census`) says of
+--- what the cache held (`held`): each set of key parts and how many
+--- rows it keys, "; " between them, or that it held none, so a report
+--- says whether the run's own parts were among what it restored:
+---
+---     test: census: 1994 rows under host features X, ..., harness e1t60000; 3 rows under no parts named
+---     test: census: no rows
+function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
+  if #held == 0 then return "test: census: no rows" end
+  local groups: {string} = {}
+  for _, group in ipairs(held) do
+    groups[#groups + 1] = string.format("%d %s under %s", group.rows,
+      group.rows == 1 and "row" or "rows",
+      group.parts ~= "" and group.parts or "no parts named")
+  end
+  return "test: census: " .. table.concat(groups, "; ")
 end
 
 --- The line a run says where it looked `looked` tests up in the cache
@@ -288,21 +365,22 @@ function shared_verdicts.unmatched(path: string, looked: integer,
                                    census: shared_verdicts.Census,
                                    parts: {{string}}): string | nil
   if looked == 0 or census.rows == 0 then return nil end
-  local named: {string} = {}
-  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
   local why = census.of_tests > 0 and "none under the keys this run reached" or
     "no other run reached them"
   return string.format("test: shared verdicts: none of %d tests looked up stood, " ..
     "though %s holds %d rows, %d of them of those tests: %s (%s)",
-    looked, path, census.rows, census.of_tests, why, table.concat(named, ", "))
+    looked, path, census.rows, census.of_tests, why, shared_verdicts.named(parts))
 end
 
 --- Writes what a run owes the cache, at `now_ns`, and drops what it no
 --- longer keeps, in one transaction. `origin` names the checkout
---- writing each row.
+--- writing each row, and `owed.parts` its key parts: a row stood on
+--- that names none is stamped with them too, since its key, reached
+--- again, holds the same.
 function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
                                 owed: shared_verdicts.Owed, now_ns: integer): boolean, string
   local db = cache.db
+  local parts = owed.parts or ""
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
   local function steps(): boolean, string
@@ -316,15 +394,16 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for _, kept in ipairs(owed.kept) do
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
-        "origin) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6)",
+        "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
         { text(kept.key), text(kept.test), text(packed(kept.hits)),
-          { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin) })
+          { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin), text(parts) })
       if not ok then return false, trouble end
     end
     for _, key in ipairs(owed.used) do
       for _, name in ipairs(tables) do
-        local ok, trouble = Sqlite.run(db, "UPDATE " .. name .. " SET used_ns = ?1 WHERE key = ?2",
-          { { integer = now_ns }, text(key) })
+        local ok, trouble = Sqlite.run(db, "UPDATE " .. name .. " SET used_ns = ?1, " ..
+          "parts = CASE WHEN parts = '' THEN ?3 ELSE parts END WHERE key = ?2",
+          { { integer = now_ns }, text(key), text(parts) })
         if not ok then return false, trouble end
       end
     end

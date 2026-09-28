@@ -205,6 +205,11 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   local parts = said("parts", tmp .. "/first", "0 ran, 5 stood", { "--census" })
   assert(parts:find("test: key parts: host features %x+, host %x+, system %x+, runtime %x+") and
     not parts:find("shared verdicts: none of", 1, true), parts)
+  -- And what the cache held: rows under the parts the runs keeping
+  -- them said, these among them.
+  local said_parts = parts:match("test: key parts: ([^\n]*)")
+  assert(parts:find("test: census: %d+ rows? under ") and
+    parts:find("under " .. said_parts, 1, true) ~= nil, parts)
 end
 
 --- A run that chooses only an edited module runs its tests and says
@@ -550,6 +555,46 @@ local function test_a_cache_that_answers_nothing_says_what_it_holds(tmp: string)
   local other = assert(shared_verdicts.census(cache, { ["c_test.tl test_d"] = true }))
   local unreached = assert(shared_verdicts.unmatched(path, 1, other, {}))
   assert(unreached:find("0 of them of those tests: no other run reached them", 1, true), unreached)
+  shared_verdicts.close(cache)
+end
+
+--- A census names the key parts the cache's rows were kept under, the
+--- most rows first: a run's own, stamped on each row it keeps, and a
+--- row from before the column, which names none until a run stands on
+--- it, whose key holds the same parts again.
+local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: string)
+  local path = tmp .. "/cache/verdicts.db"
+  local cache = assert(shared_verdicts.open(path))
+  assert(shared_verdicts.census_line((assert(shared_verdicts.held(cache)))) ==
+    "test: census: no rows")
+  shared_verdicts.close(cache)
+  -- As a cache from before the column, holding one row.
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("DROP TABLE declared_v1"))
+  assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
+    "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
+    "origin TEXT NOT NULL)"))
+  assert(db:exec("INSERT INTO declared_v1 VALUES ('old', 'a_test.tl test_a', " ..
+    "deflate(''), 1, " .. Time.now_ns() .. ", 'before')"))
+  assert(db:close())
+  cache = assert(shared_verdicts.open(path))
+  assert(shared_verdicts.declared(cache, "old") ~= nil, "the earlier row went")
+  local now = shared_verdicts.named({ { "runtime", "r1" }, { "harness", "e1t60000" } })
+  assert(now == "runtime r1, harness e1t60000", now)
+  local kept: {shared_verdicts.Kept} = {}
+  for i = 1, 2 do
+    kept[i] = { key = "k" .. i, test = "b_test.tl test_" .. i, hits = "", elapsed_ns = 1 }
+  end
+  assert(shared_verdicts.settle(cache, "first", { parts = now, kept = kept, used = {},
+    failed = {} }, Time.now_ns()))
+  assert(shared_verdicts.census_line((assert(shared_verdicts.held(cache)))) ==
+    "test: census: 2 rows under runtime r1, harness e1t60000; 1 row under no parts named")
+  -- Stood on, the earlier row is stamped; a named one keeps its parts.
+  assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2t60000",
+    kept = {}, used = { "old", "k1" }, failed = {} }, Time.now_ns()))
+  local held = assert(shared_verdicts.held(cache))
+  assert(#held == 2 and held[1].rows == 2 and held[1].parts == now, held[1].parts)
+  assert(held[2].rows == 1 and held[2].parts == "runtime r2, harness e2t60000", held[2].parts)
   shared_verdicts.close(cache)
 end
 

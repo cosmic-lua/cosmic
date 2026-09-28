@@ -10,6 +10,11 @@
 --
 --     test: key parts: host features X, host Y, system Z, runtime R, compiler C, harness H
 --
+-- and, after it, the key parts the rows of the verdict cache it found
+-- name, each set with how many rows it keys (`census_line`):
+--
+--     test: census: 1994 rows under host features X, ..., harness H; 3 rows under no parts named
+--
 -- A run that said neither -- one timed out, or failed before its tests
 -- ran -- yields no figures, never an error: the driver still records
 -- how it ended (`status`).
@@ -34,6 +39,16 @@ local record SuiteOutput
     --- Each key part by the name the line gives it ("host features",
     --- "runtime", ...), its digest's prefix as said ("" for none).
     parts: {string:string}
+    --- What the verdict cache held when the run began: its census
+    --- line's list as said ("" for "no rows"), which `held` reads;
+    --- nil where the run said none.
+    held: string
+  end
+  --- One set of key parts a verdict cache's rows name (`parts`, {} for
+  --- rows that name none), and how many rows it keys.
+  record Held
+    parts: {string:string}
+    rows: integer
   end
 end
 
@@ -77,8 +92,23 @@ local function fail_figures(detail: string, into: SuiteOutput.Figures): boolean
   return true
 end
 
---- The figures `text`, a suite's stdout, holds: its last summary line's
---- and its last key-parts line's, each left nil where it has none.
+--- The sets of key parts a census line's list (`Figures.held`) names,
+--- as said, the most rows first; none for "" (a cache with no rows).
+function SuiteOutput.held(list: string): {SuiteOutput.Held}
+  local out: {SuiteOutput.Held} = {}
+  for group in (list .. "; "):gmatch("(.-); ") do
+    local rows, named = group:match("^(%d+) rows? under (.*)$")
+    if rows then
+      out[#out + 1] = { rows = number(rows),
+        parts = named == "no parts named" and {} or parts_of(named) }
+    end
+  end
+  return out
+end
+
+--- The figures `text`, a suite's stdout, holds: its last summary line's,
+--- its last key-parts line's and its last census line's, each left nil
+--- where it has none.
 function SuiteOutput.parse(text: string): SuiteOutput.Figures
   local figures: SuiteOutput.Figures = {}
   for raw in text:gmatch("[^\n]+") do
@@ -87,16 +117,19 @@ function SuiteOutput.parse(text: string): SuiteOutput.Figures
     local failed = line:match("^test: FAIL %((.*)%)$")
     local listed = line:match("^test: key parts: (.*)$") or
       line:match("^test: shared verdicts: none of %d+ tests looked up stood, .* %(([^()]*)%)$")
+    local census = line:match("^test: census: (.*)$")
     if passed then
-      local parts = figures.parts
-      figures = { parts = parts }
+      local parts, held = figures.parts, figures.held
+      figures = { parts = parts, held = held }
       pass_figures(passed, figures)
     elseif failed then
-      local parts = figures.parts
-      local candidate: SuiteOutput.Figures = { parts = parts }
+      local parts, held = figures.parts, figures.held
+      local candidate: SuiteOutput.Figures = { parts = parts, held = held }
       if fail_figures(failed, candidate) then figures = candidate end
     elseif listed then
       figures.parts = parts_of(listed)
+    elseif census then
+      figures.held = census == "no rows" and "" or census
     end
   end
   return figures
@@ -117,13 +150,14 @@ end
 
 --- What a suite's row holds, from `text`, its stdout, and `code`, its
 --- exit status: its figures (`parse`) and its status (`status`). A
---- suite the driver ended (status 124) keeps only its key parts, said
---- before its tests ran: a summary line in its output is some test's
---- own nested run's, never the suite's, which it did not reach.
+--- suite the driver ended (status 124) keeps only its key parts and
+--- census, said before its tests ran: a summary line in its output is
+--- some test's own nested run's, never the suite's, which it did not
+--- reach.
 function SuiteOutput.read(text: string, code: integer): SuiteOutput.Figures, string
   local figures = SuiteOutput.parse(text)
   local status = SuiteOutput.status(figures, code)
-  if status == "timeout" then figures = { parts = figures.parts } end
+  if status == "timeout" then figures = { parts = figures.parts, held = figures.held } end
   return figures, status
 end
 

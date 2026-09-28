@@ -29,6 +29,40 @@ local function test_median()
   assert(Report.median({ 4, 1, 3, 2 }) == 2.5)
 end
 
+--- A run whose rows say what its restored cache held qualifies by
+--- that, not by the run before it: its own parts among the cache's,
+--- though the earlier run's harness differs, qualifies; parts the cache
+--- did not hold, though the earlier run's are the same, do not; nor
+--- does an empty cache. A row from before the census falls back to the
+--- earlier run.
+local function test_a_run_qualifies_by_what_its_restored_cache_held()
+  local function run(id: string, harness: string, held?: string): Report.Run
+    local suites: {State.SuiteRun} = {}
+    for _, suite in ipairs({ "local", "checked" }) do
+      suites[#suites + 1] = { worker = "linux-x86_64", suite = suite,
+        parts = { runtime = "rrrr", harness = harness }, held = held }
+    end
+    return { id = id, conclusion = "success", jobs = {}, suites = suites, missing = {} }
+  end
+  local runs = {
+    run("50", "h2", "10 rows under runtime rrrr, harness h2; 2 rows under no parts named"),
+    run("40", "h1", "12 rows under runtime rrrr, harness h2"),
+    run("30", "h1", ""),
+    run("20", "h1"),
+    run("10", "h9"),
+  }
+  Report.qualify(runs, 4)
+  assert(runs[1].qualifies, runs[1].why)
+  assert(runs[1].why == "runtime and harness epoch and timeout among the restored cache's",
+    runs[1].why)
+  assert(not runs[2].qualifies and runs[2].why == "linux-x86_64 checked: runtime or harness " ..
+    "not among the restored cache's (12 rows); linux-x86_64 local: runtime or harness not " ..
+    "among the restored cache's (12 rows)", runs[2].why)
+  assert(not runs[3].qualifies and
+    runs[3].why:find("linux-x86_64 local: the restored cache held no rows", 1, true), runs[3].why)
+  assert(not runs[4].qualifies and runs[4].why:find("harness moved", 1, true), runs[4].why)
+end
+
 --- A fake GitHub: a gh on PATH answering from `state` (testdata/report/gh.tl).
 local record Fake
   state: string
