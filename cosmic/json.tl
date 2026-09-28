@@ -444,22 +444,70 @@ local function shape_kind(v: any): string
   return kind(v)
 end
 
---- `s` as a JSON string, for a key a word does not spell.
-local function quoted(s: string): string
-  local text, _ = Json.encode(s)
-  return text or string.format("%q", s)
+--- `s` as a JSON string literal, for a message: `"` and `\\` escaped and
+--- every control character a `\u` escape, so a key or a value reads in
+--- a message as it did in the text. Unlike `encode`, it answers for any
+--- bytes, UTF-8 or not.
+function Json.quote(s: string): string
+  return '"' .. s:gsub('[%c"\\]', function(c: string): string
+    if c == '"' or c == "\\" then return "\\" .. c end
+    return ("\\u%04x"):format(c:byte())
+  end) .. '"'
 end
 
---- A key as a path names it: `.name` for a word, `["a key"]` otherwise,
---- as cosmic.shape writes it.
--- TODO: once cosmic.shape can take its path helpers from here rather than
--- keeping its own copy (it requires this module, so they would be
--- exported), delete one of the two.
-local function key_path(path: string, key: string): string
-  if key:match("^[%a_][%w_]*$") then
-    return path .. "." .. key
+--- `path` extended by one step, in the style of `encode`'s and
+--- `cosmic.shape`'s messages: `.name` for a key that is a word,
+--- `["a key"]` (quoted as `Json.quote` does) for one that is not, and
+--- `[3]` for an array index, counted from 1. Start from `"$"`.
+function Json.step_path(path: string, step: string | integer): string
+  if step is string then
+    if step:match("^[%a_][%w_]*$") then
+      return path .. "." .. step
+    end
+    return path .. "[" .. Json.quote(step) .. "]"
   end
-  return path .. "[" .. quoted(key) .. "]"
+  return path .. "[" .. step .. "]"
+end
+
+--- Where `descend` got to: the value, the message ("" on success) and
+--- the path reached.
+local record Reached
+  value: any
+  err: string
+  at: string
+end
+
+--- `get`'s walk, shared with `entries` and `items`.
+local function descend(value: any, path: {string | integer}): Reached
+  local at = "$"
+  local here = value
+  for _, step in ipairs(path) do
+    local step_value: any = step
+    if step_value is integer then
+      at = Json.step_path(at, step_value)
+      if not (here is {any:any}) or table_kind(here) ~= "array" then
+        return { err = at .. ": expected an array, got " .. shape_kind(here), at = at }
+      end
+      if step_value < 1 or step_value > rawlen(here) then
+        return { err = at .. ": index out of range, the array has " .. rawlen(here), at = at }
+      end
+      here = here[step_value]
+    elseif step_value is string then
+      at = Json.step_path(at, step_value)
+      if not (here is {any:any}) or table_kind(here) ~= "object" then
+        return { err = at .. ": expected an object, got " .. shape_kind(here), at = at }
+      end
+      local found = here[step_value]
+      if found == nil then
+        return { err = at .. ": no such key", at = at }
+      end
+      here = found
+    else
+      local what = math.type(step_value) or type(step_value)
+      error("json: a path step must be a string or an integer, got " .. what, 3)
+    end
+  end
+  return { value = here, err = "", at = at }
 end
 
 --- The value at `path` under `value`, and "". A string step is an
@@ -468,70 +516,77 @@ end
 --- `{ "users", 3, "name" }` is `$.users[3].name`. An empty path is
 --- `value` itself. nil and a message naming the path reached, in that
 --- style, when a key is missing, a step meets a value that is not an
---- object or array as the step needs, or an index is out of range:
+--- object or array as the step needs (by the rules `entries` and
+--- `items` apply), or an index is out of range:
 --- `$.users[5]: index out of range, the array has 3`. `Json.null` is a
 --- value like any other at the end of the path, and reaching through
 --- it is an error: `$.a: expected an object, got null`. A key whose
 --- value decoded to nil (a `null` without `null_value`) is missing, as
 --- an array's hole is nil with an empty message; decode with
---- `null_value = Json.null` to tell them from an absent key. A step
---- that is neither a string nor an integer raises.
+--- `null_value = Json.null` to tell them from an absent key. Test the
+--- message, not the value: a leaf of `false` or `nil` answers
+--- `false, ""` or `nil, ""`. A step that is neither a string nor an
+--- integer (a float such as `1.0` too) raises.
 ---
 ---     local doc = assert(Json.decode('{"rows": [{"id": "a"}]}'))
----     assert(Json.get(doc, { "rows", 1, "id" }) == "a")
+---     local id, err = Json.get(doc, { "rows", 1, "id" })
+---     assert(err == "" and id == "a")
 function Json.get(value: any, path: {string | integer}): any | nil, string
-  local at = "$"
-  local here = value
-  for _, step in ipairs(path) do
-    local step_value: any = step
-    if step_value is integer then
-      local index = step_value
-      at = at .. "[" .. index .. "]"
-      if not (here is {any:any}) or table_kind(here) ~= "array" then
-        return nil, at .. ": expected an array, got " .. shape_kind(here)
-      end
-      if index < 1 or index > rawlen(here) then
-        return nil, at .. ": index out of range, the array has " .. rawlen(here)
-      end
-      here = here[index]
-    elseif step_value is string then
-      at = key_path(at, step_value)
-      if not (here is {any:any}) or raw.is_array(here) then
-        return nil, at .. ": expected an object, got " .. shape_kind(here)
-      end
-      local found = here[step_value]
-      if found == nil then
-        return nil, at .. ": no such key"
-      end
-      here = found
-    else
-      error("json: a path step must be a string or an integer, got " .. type(step_value), 2)
-    end
+  local reached = descend(value, path)
+  if reached.err ~= "" then
+    return nil, reached.err
   end
-  return here, ""
+  return reached.value, ""
 end
 
---- The object `value` is, as a map to loop over with `pairs`, and "".
---- nil and a message when it is anything else. An empty table that no
+--- The object `value` is, or the one at `path` under it as `get` finds
+--- it, as a map to loop over with `pairs`, and "". nil and a message
+--- when it is anything else, naming the path when one is given
+--- (`$.a: expected a JSON object, got array`). An empty table that no
 --- `Json.array` mark or decoded `[]` made an array is an object, as
 --- `encode` writes it.
-function Json.entries(value: any): {string:any} | nil, string
-  if value is {string:any} and table_kind(value) == "object" then
-    return value, ""
+function Json.entries(value: any, path?: {string | integer}): {string:any} | nil, string
+  local at = ""
+  local here = value
+  if path ~= nil then
+    local reached = descend(value, path)
+    if reached.err ~= "" then
+      return nil, reached.err
+    end
+    here = reached.value
+    at = reached.at .. ": "
   end
-  return nil, "expected a JSON object, got " .. shape_kind(value)
+  if here is {string:any} and table_kind(here) == "object" then
+    return here, ""
+  end
+  return nil, at .. "expected a JSON object, got " .. shape_kind(here)
 end
 
---- The array `value` is, as a list to loop over with `ipairs`, and "".
---- nil and a message when it is anything else. A table counts as an
---- array when it carries the mark (`Json.is_array`) or has integer keys
---- from 1 up and no others; an unmarked empty table is an object, so
---- it fails here, as `encode` writes it `{}`.
-function Json.items(value: any): {any} | nil, string
-  if value is {any} and table_kind(value) == "array" then
-    return value, ""
+--- The array `value` is, or the one at `path` under it as `get` finds
+--- it, as a list to loop over with `ipairs`, and "". nil and a message
+--- when it is anything else, naming the path when one is given. A
+--- table counts as an array when it carries the mark (`Json.is_array`)
+--- or has integer keys from 1 up and no others; an unmarked empty
+--- table is an object, so it fails here, as `encode` writes it `{}`.
+---
+---     for _, row in ipairs((assert(Json.items(doc, { "rows" })))) do
+---       print(row)
+---     end
+function Json.items(value: any, path?: {string | integer}): {any} | nil, string
+  local at = ""
+  local here = value
+  if path ~= nil then
+    local reached = descend(value, path)
+    if reached.err ~= "" then
+      return nil, reached.err
+    end
+    here = reached.value
+    at = reached.at .. ": "
   end
-  return nil, "expected a JSON array, got " .. shape_kind(value)
+  if here is {any} and table_kind(here) == "array" then
+    return here, ""
+  end
+  return nil, at .. "expected a JSON array, got " .. shape_kind(here)
 end
 
 --- What the values seen at one place look like, merged.
@@ -620,7 +675,7 @@ local function render(node: Node): string
       local members: {string} = {}
       for _, name in ipairs(sorted_keys(node.fields)) do
         local optional = node.seen[name] < node.objects and "?" or ""
-        members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or quoted(name)) .. optional .. ": " .. render(node.fields[name])
+        members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(node.fields[name])
       end
       parts[#parts + 1] = "{" .. table.concat(members, ", ") .. "}"
     end
@@ -648,7 +703,11 @@ end
 --- so a long array costs no more to read than a short one. Scalars are
 --- `string`, `number` (integer or float), `boolean` and `null`
 --- (`Json.null`, or a hole). Past `max_depth` nesting a container is
---- `{...}` or `[n x ...]`. The same value always gives the same text.
+--- `{...}` or `[n x ...]`, and `max_depth` is bounded by the stack, as
+--- the walk recurses once per level. Beyond `string`, `number`, `boolean`
+--- and `null`, a Lua value that is no JSON prints as its type,
+--- `function` or `userdata`, and a table of mixed keys as `table`. The
+--- same value always gives the same text.
 --- An array with holes (a decoded `null` without `null_value`) has no
 --- reliable length: decode with `null_value = Json.null` to describe one.
 --- Raises when `max_depth` is not an integer of at least 0.

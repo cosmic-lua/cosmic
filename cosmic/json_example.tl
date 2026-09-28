@@ -66,8 +66,7 @@ function Example.explore()
   assert(Json.get(doc, { "rows", 2, "id" }) == "b")
   local _, why = Json.get(doc, { "rows", 3 })
   print(why)
-  local rows = (assert(Json.get(doc, { "rows" })))
-  for _, row in ipairs((assert(Json.items(rows)))) do
+  for _, row in ipairs((assert(Json.items(doc, { "rows" })))) do
     for key in pairs((assert(Json.entries(row)))) do print(key) end
   end
 end

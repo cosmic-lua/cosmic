@@ -762,8 +762,52 @@ local function test_get_treats_null_as_a_leaf()
 end
 
 local function test_get_raises_on_a_step_that_is_no_key_or_index()
-  assert(not pcall(Json.get, {}, { true } as {any} as {string | integer}))
-  assert(not pcall(Json.get, {}, { 1.5 } as {any} as {string | integer}))
+  local ok, message = pcall(Json.get, {}, { true } as {any} as {string | integer})
+  assert(not ok and tostring(message):find("got boolean", 1, true) ~= nil, tostring(message))
+  local function float_step(): any
+    -- Not a tail call, which would leave no frame here to name.
+    local v = Json.get({ 1 }, { 1.0 } as {any} as {string | integer})
+    return v
+  end
+  local ok2, float = pcall(float_step)
+  assert(not ok2 and tostring(float):find("got float", 1, true) ~= nil, tostring(float))
+  assert(tostring(float):find("json_test", 1, true) ~= nil, "named where it was called: " .. tostring(float))
+end
+
+local function test_get_tells_a_key_from_an_index_and_takes_no_negative_one()
+  local arr = decoded('[10, 20]')
+  assert(get_failure(arr, { "1" }) == '$["1"]: expected an object, got array')
+  assert(get_failure(arr, { "x" }) == "$.x: expected an object, got array")
+  assert(get_failure(arr, { -1 }) == "$[-1]: index out of range, the array has 2")
+  local obj = decoded('{"1": "s"}')
+  assert(got(obj, { "1" }) == "s")
+  assert(get_failure(obj, { 1 }) == "$[1]: expected an array, got object")
+  assert(get_failure({ 10, 20 }, { "x" }) == "$.x: expected an object, got array")
+  local mixed = { 1, a = 2 }
+  assert(get_failure(mixed, { "a" }) == "$.a: expected an object, got table with mixed keys")
+  assert(get_failure(mixed, { 1 }) == "$[1]: expected an array, got table with mixed keys")
+end
+
+--- entries and items take a path as get does, and name it.
+local function test_entries_and_items_take_a_path()
+  local doc = decoded('{"a": {"rows": [{"id": 1}, {"id": 2}]}, "s": "x"}')
+  local ids = 0
+  for _, row in ipairs((assert(Json.items(doc, { "a", "rows" })))) do
+    for _, id in pairs((assert(Json.entries(row)))) do ids = ids + (id as integer) end
+  end
+  assert(ids == 3)
+  assert(Json.entries(doc, { "a", "rows", 2 }) ~= nil)
+  assert(Json.entries(doc, {}) ~= nil, "an empty path is the value")
+  local _a, why_a = Json.items(doc, { "a" })
+  assert(why_a == "$.a: expected a JSON array, got object", why_a)
+  local _b, why_b = Json.entries(doc, { "a", "rows" })
+  assert(why_b == "$.a.rows: expected a JSON object, got array", why_b)
+  local _c, why_c = Json.items(doc, { "a", "nope" })
+  assert(why_c == "$.a.nope: no such key", why_c)
+  local _d, why_d = Json.items(doc, { "s", 1 })
+  assert(why_d == "$.s[1]: expected an array, got string", why_d)
+  local _e, why_e = Json.items(doc, {})
+  assert(why_e == "$: expected a JSON array, got object", why_e)
 end
 
 local function test_entries_and_items_narrow_by_kind()
@@ -833,6 +877,24 @@ local function test_describe_scalars_empties_and_null()
   assert(not pcall(Json.describe, {}, { max_depth = -1 }))
   local fraction: any = 1.5
   assert(not pcall(Json.describe, {}, { max_depth = fraction as integer }))
+end
+
+--- `?` and a depth cut, objects merged across nested arrays, holes.
+local function test_describe_optional_keys_cuts_and_holes()
+  assert(Json.describe(decoded('[{"a": {"x": 1}}, {"b": 1}]'), { max_depth = 2 })
+    == "[2 x {a?: {...}, b?: number}]")
+  assert(Json.describe(decoded('[[{"a": 1}], [{"b": 1}]]')) == "[2 x [1 x {a?: number, b?: number}]]")
+  local holed = decoded('[1, null, 3]', { null_value = Json.null })
+  assert(Json.describe(holed) == "[3 x null|number]")
+  local plain = Json.describe(decoded('[1, null, 3]'))
+  assert(plain:find("^%[%d x number") ~= nil, plain)
+end
+
+local function test_quote_and_step_path_spell_a_path()
+  assert(Json.quote('a"b\\c\n') == '"a\\"b\\\\c\\u000a"')
+  assert(Json.step_path("$", "rows") == "$.rows")
+  assert(Json.step_path("$.rows", 2) == "$.rows[2]")
+  assert(Json.step_path("$", "a key") == '$["a key"]')
 end
 
 local function test_describe_a_long_array_is_one_merged_shape()
