@@ -217,8 +217,8 @@ local function test_a_short_module_name_finds_the_public_module(dir: string)
   assert(#read == 1 and read[1].source_symbol == "Fs.read", tostring(#read))
 end
 
---- A symbol the bare name also names follows the module: `docs test`
---- shows `cosmic.test` and then the verb `Cli.test`.
+--- A verb the bare name names answers first, then the module: `docs
+--- test` shows `Cli.test`, then `cosmic.test`.
 local function test_a_short_module_name_keeps_its_verb(dir: string)
   local db = built(dir, {
     ["cosmic/test.tl"] = source(
@@ -242,8 +242,8 @@ local function test_a_short_module_name_keeps_its_verb(dir: string)
   })
   local found = assert(docs.lookup(view({ db }), "test"))
   assert(found.exact and #found == 2, tostring(#found))
-  assert(found[1].module == "cosmic.test" and found[1].kind == "module", found[1].module)
-  assert(found[2].source_symbol == "Cli.test", found[2].source_symbol)
+  assert(found[1].source_symbol == "Cli.test", found[1].source_symbol)
+  assert(found[2].module == "cosmic.test" and found[2].kind == "module", found[2].module)
 end
 
 --- Asked nothing, docs lists every module with the first sentence of
@@ -457,6 +457,36 @@ local function test_the_listing_keeps_a_colon_and_its_example_together(dir: stri
     at(plain, "function Fs.read(") < at(plain, "More prose"), table.concat(plain, "\n"))
   local one = listing_at({ "--- Just one paragraph." })
   assert(at(one, "Just one") < at(one, "function Fs.read("), table.concat(one, "\n"))
+end
+
+--- A colon-ended paragraph keeps a multi-block example together: the
+--- listing follows the whole run of indented blocks, not the first.
+local function test_the_listing_follows_a_multi_block_example(dir: string)
+  local db = built(dir, { ["cosmic/fs.tl"] = source(
+    "--- Files, for example:",
+    "---",
+    "---     l1",
+    "---",
+    "---     l2",
+    "---",
+    "--- More prose.",
+    "",
+    "local record Fs",
+    "end",
+    "",
+    "function Fs.read(path: string): string",
+    "  return path",
+    "end",
+    "",
+    "return Fs") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  local l2 = text:find("l2", 1, true)
+  local listing = text:find("function Fs.read(", 1, true)
+  local prose = text:find("More prose", 1, true)
+  assert(l2 ~= nil and listing ~= nil and prose ~= nil and l2 < listing and
+    listing < prose, text)
 end
 
 --- Words that name no symbol search the documentation, every word

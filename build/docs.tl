@@ -197,9 +197,9 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   return out
 end
 
---- The public modules whose last dotted name is `query` (`json` for
---- `cosmic.json`, `util` for a project's `myproj.util`), as their own
---- rows, a project's own ahead of the standard library's. A module
+--- The modules that document themselves whose last dotted name is
+--- `query` (`json` for `cosmic.json`, `util` for a project's
+--- `myproj.util`), as their own rows, a project's own ahead of the standard library's. A module
 --- under `cosmic.internal`, a test module and an example module are
 --- never one, whatever database is read, as in `docs.index`, so a bare
 --- name means what a user of a library means by it.
@@ -260,6 +260,13 @@ end
 --- in. A private helper function is left out -- a reader scanning the
 --- module wants what they can call -- but `cosmic docs <name>` still
 --- finds it.
+-- TODO: `cosmic.sys`'s calls are missing here: each is a row of kind
+-- `field` (`lstat`, signature `lstat: function(...)`) declared in the
+-- `syscalls` record, and the `d.kind NOT IN ('field', 'value')` test
+-- drops it, so `cosmic docs cosmic.sys` lists none though `cosmic.fs`
+-- says it lists every one. Keep a `field` row whose signature is a
+-- function type when the module's own record declares it, and show it
+-- as a function row in `listed`.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
@@ -755,18 +762,27 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     for _, entry in ipairs(modules) do
       seen[entry.module .. "\n" .. entry.symbol] = true
     end
+    -- The verb `cosmic <query>` names answers first, as `cosmic docs
+    -- test` says it does, then the modules, then the other symbols.
+    local answers: {docs.Entry} = {}
+    local rest: {docs.Entry} = {}
     for _, entry in ipairs(exact) do
       local internal = entry.module:sub(1, 16) == "cosmic.internal." and
         entry.symbol == query
-      if not internal and not seen[entry.module .. "\n" .. entry.symbol] then
-        modules[#modules + 1] = entry
+      if entry.module == "cosmic.cli" and entry.symbol == "Cli." .. query then
+        answers[#answers + 1] = entry
+        seen[entry.module .. "\n" .. entry.symbol] = true
+      elseif not internal and not seen[entry.module .. "\n" .. entry.symbol] then
+        rest[#rest + 1] = entry
       end
     end
-    local counted, count_trouble = effective_counts(view, modules)
+    for _, entry in ipairs(modules) do answers[#answers + 1] = entry end
+    for _, entry in ipairs(rest) do answers[#answers + 1] = entry end
+    local counted, count_trouble = effective_counts(view, answers)
     if not counted then
       return nil, count_trouble
     end
-    return lookup(modules, true, #modules), ""
+    return lookup(answers, true, #answers), ""
   end
   if #exact > 0 then
     local named_count = #exact
@@ -1016,17 +1032,34 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     end
   end
   -- The listing goes after the first paragraph, or, when that ends in
-  -- a colon, after the block it introduces (an example), so the two stay
-  -- together.
+  -- a colon, after the run of indented or fenced blocks it introduces
+  -- (an example), or else the next block, so the two stay together.
+  local text_lines: {string} = {}
+  for line in String.lines(entry.text) do text_lines[#text_lines + 1] = line end
+  local function code_at(from: integer): boolean
+    for j = from, #text_lines do
+      if text_lines[j] ~= "" then
+        return text_lines[j]:match("^%s") ~= nil or text_lines[j]:sub(1, 3) == "```"
+      end
+    end
+    return false
+  end
   local placed = #index == 0
   local last = ""
-  for line in String.lines(entry.text) do
-    if not placed and line == "" and last ~= "" and last:sub(-1) ~= ":" then
-      lines[#lines + 1] = ""
-      for _, row in ipairs(index) do lines[#lines + 1] = row end
-      placed = true
+  local hold = false
+  local fence = false
+  for at, line in ipairs(text_lines) do
+    if line:sub(1, 3) == "```" then fence = not fence end
+    if not placed and not fence and line == "" and last ~= "" then
+      if last:sub(-1) == ":" then
+        hold = true
+      elseif not (hold and code_at(at + 1)) then
+        lines[#lines + 1] = ""
+        for _, row in ipairs(index) do lines[#lines + 1] = row end
+        placed = true
+      end
     end
-    if line ~= "" or last ~= "" then last = line end
+    if line ~= "" then last = line end
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
   end
   if not placed then

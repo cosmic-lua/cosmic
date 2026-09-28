@@ -2,7 +2,8 @@
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
 --- fix, db, sql, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
---- with what that verb does. This is not an argument parser for a
+--- with what that verb does, ahead of the module of the same name (and
+--- the other symbols) when there is one. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
 --- cosmic.flags reads its options, or `Flags.dispatch(argv, 1,
