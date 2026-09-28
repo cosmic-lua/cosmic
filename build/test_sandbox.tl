@@ -253,6 +253,38 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- first where it is not there yet, so a fresh host has one to bind.
   local made, trouble = caches.make(effective.cache_paths or {})
   for _, path in ipairs(effective.cache_paths or {}) do writes[#writes + 1] = path end
+  -- A path given to read at its own name that a cache given to write
+  -- holds already -- this program's core and the stamp beside it, in
+  -- the cores directory the `bootstrap` cache is -- is not given again
+  -- on top of it. Bound there, its mount point would be the host's own
+  -- file, seen through the cache's bind, and a mount onto a file the
+  -- host renames another over as it is made fails ENOENT (the kernel's
+  -- lock_mount finds its dentry unlinked): the stamp each start writes
+  -- until one holds, early in a run on a new core, failed the worker's
+  -- start so. The key still holds it (`held`), and the cache gives it.
+  -- TODO: bind each path given inside another at a mount point of the
+  -- sandbox's own (core/syscalls.c's build_root: the file bound first at
+  -- a name in its tmpfs, then moved into place), so no mount point is the
+  -- host's dentry: a file given inside a directory given to read -- a
+  -- closure's source beneath a declared directory of the tree -- would
+  -- meet the same ENOENT were the host to rename another over it as a
+  -- worker starts, which nothing in a run does today.
+  local given_reads: {string} = {}
+  for _, path in ipairs(reads) do
+    local held_by_cache = false
+    if at[path] == nil then
+      local real = confine.resolution(path)
+      for _, cache in ipairs(effective.cache_paths or {}) do
+        local cache_real = confine.resolution(cache)
+        if Fs.within(path, cache) or (real ~= "" and cache_real ~= "" and
+            Fs.within(real, cache_real)) then
+          held_by_cache = true
+        end
+      end
+    end
+    if not held_by_cache then given_reads[#given_reads + 1] = path end
+  end
+  reads = given_reads
   local kept: {string} = {}
   for _, list in ipairs({ reads, writes }) do
     for _, path in ipairs(list) do

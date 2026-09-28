@@ -127,7 +127,25 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(holds(cached.sandbox.unveil.writes, tmp .. "/caches/zig-global") and
     cached.sandbox.unveil.at[tmp .. "/caches/zig-global"] == nil)
   assert(Fs.exists(tmp .. "/caches/zig-global"))
+  -- A file a declared cache holds is given through the cache alone, not
+  -- bound again on top of it: there its mount point would be the host's
+  -- own file, and a mount onto one renamed over as it is made fails
+  -- the worker's start (the stamp beside this program's core, in the
+  -- cores directory the `bootstrap` cache is). The key still holds it.
+  local stamp = tmp .. "/caches/cores/.verified-core"
+  assert(Fs.mkdirs(tmp .. "/caches/cores"))
+  assert(Fs.write(stamp, "s"))
+  inputs.host = { stamp }
+  inputs.cache_paths = { tmp .. "/caches/cores" }
+  local nested = test_sandbox.plan(root, scratch, inputs, {})
+  assert(nested.trouble == "", nested.trouble)
+  assert(holds(nested.sandbox.unveil.writes, tmp .. "/caches/cores") and
+    not holds(nested.sandbox.unveil.reads, stamp))
+  assert(holds(nested.held, stamp))
   inputs.cache_paths = {}
+  local alone = test_sandbox.plan(root, scratch, inputs, {})
+  assert(holds(alone.sandbox.unveil.reads, stamp))
+  inputs.host = { host .. "/" }
   -- A host path where the sandbox has its own -- its scratch directory,
   -- or above it, or /tmp or /tree themselves -- cannot be given, and
   -- one a variable names is named as declared.

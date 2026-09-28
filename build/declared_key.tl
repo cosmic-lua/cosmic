@@ -503,9 +503,12 @@ end
 --- - `projected`: build.writer reads it from a projection it wrote, to
 ---   skip writing the same one again, never from a binary.
 ---
---- And every sandboxed worker runs this same binary, with these same
---- rows in reach of `Store.meta`, whether its test declares `tool` or
---- not, and no key of one that does not has ever held them.
+--- And every sandboxed worker runs this same binary, whether its test
+--- declares `tool` or not; one that declares neither `tool` nor `store`
+--- reads through `Store.meta` only the rows its key holds, and
+--- `boot_hash` (`build.test_worker`'s `held_meta`), while one that
+--- declares either has these same rows in reach, which its key holds
+--- by the program's image and the rows it carries, but for these.
 -- Remembered under "program-v2", as `launcher_identity` under
 -- "launcher-v2", since a core carrying DWARF came to be keyed by its
 -- image: what either remembered by the earlier formula is not read.
@@ -1235,7 +1238,8 @@ end
 --- when a module of the tree reads it and is not named here.
 declared_key.compiler_readers = {
   "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.test", "core.allocation_test", "cosmic.store_test", "doc.guides.portable-runtime",
+  "build.store_meta_readers_test", "build.test", "core.allocation_test", "cosmic.store_test",
+  "doc.guides.portable-runtime",
 }
 
 --- Whether an import closure, the names of its modules, holds a module

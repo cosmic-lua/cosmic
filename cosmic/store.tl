@@ -43,7 +43,11 @@ function Store.bytecode(name: string): string | nil, string
 end
 
 --- One entry of the meta table, which is where a build records what it
---- decided. Nil when no database holds that key.
+--- decided. Nil when no database holds that key. Under a test worker's
+--- hold on the store (`build.test_worker`'s `hold_store`), a row its
+--- test's key does not hold is answered only by a database the test
+--- attached itself, and raises, naming the declaration that would
+--- allow it, where none of those holds it.
 function Store.meta(key: string): string | nil
   return store.meta(key)
 end

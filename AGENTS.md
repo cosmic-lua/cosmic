@@ -96,8 +96,11 @@
    `tool` holds every other lookup in the store to that closure too
    (`build/test_worker.tl`'s `hold_store`): `Store.bytecode` or
    `Store.source` of a module of the tree outside it, or a searcher
-   called by hand, answers none, and `Store.databases()`, whose handles
-   read every module's rows, raises, each naming the fix. So require a
+   called by hand, answers none, `Store.meta` of a row its key does not
+   hold (the compiler's identity outside `compiler_readers`'s closures,
+   `projected`, `written_by`) raises unless a database the test attached
+   itself answers it, and `Store.databases()`, whose handles read every
+   module's rows, raises, each naming the fix. So require a
    module the test reads at its top level (`local type _ = require(...)`
    for a declaration a type-checked snippet needs), or declare
    `store = true` where a test reads rows of modules outside its closure

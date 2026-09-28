@@ -395,10 +395,11 @@ local Test = require("cosmic.test")
 Test.needs { reads = { "o/build.db" } }
 
 -- Through the store's own lookup: a hold on the store (this module
--- declares no `store`) hands no test its databases.
+-- declares no `store`) hands no test its databases, and answers a row
+-- no key holds from a database the test attached alone.
 local function test_reads_the_working_database()
   assert(Store.attach("o/build.db"))
-  local _ = Store.meta("reads the working database")
+  assert(Store.meta("schema") ~= nil, "the working database records its schema")
 end
 ]]))
   end

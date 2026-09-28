@@ -24,7 +24,9 @@ local record store
   bytecode: function(path: string): string | nil, string
 
   --- One entry of the meta table, which is where the build records what
-  --- it decided. Nil when no database holds that key.
+  --- it decided. Nil when no database holds that key; under a hold, a
+  --- key outside its `meta_keys` is answered only by a database attached
+  --- since it went up, and raises where none of those holds it.
   meta: function(key: string): string | nil
 
   --- One module's Teal source, or a declaration's, from the binary's own
@@ -59,8 +61,12 @@ local record store
   --- the set holds as keys, saying why of a module with the first text
   --- and why of `databases` with the second; raises when one is up
   --- already. While it is up, the searcher, `bytecode`, `source` and
-  --- `requires` answer none of those names, and `databases` raises.
-  hold: function(names: {string:boolean}, why: string, why_databases: string)
+  --- `requires` answer none of those names, and `databases` raises;
+  --- `meta` of a key the set `meta_keys` does not hold searches only the
+  --- databases attached since, raising with `why_meta` when none of
+  --- those answers.
+  hold: function(names: {string:boolean}, why: string, why_databases: string,
+                 meta_keys: {string:boolean}, why_meta: string)
 
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.

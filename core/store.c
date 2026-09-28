@@ -27,11 +27,16 @@
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
 /* The hold `store_hold` puts up: the set of names no lookup answers, why
- * of a module and why of `databases`, each in the registry once it is up
- * and nil until then. */
+ * of a module and why of `databases`, the set of `meta` keys every
+ * database answers and why of any other, and how many databases the list
+ * held as it went up, each in the registry once it is up and nil until
+ * then. */
 #define STORE_HOLD "cosmic.store.hold"
 #define STORE_HOLD_WHY "cosmic.store.hold.why"
 #define STORE_HOLD_WHY_ALL "cosmic.store.hold.why_all"
+#define STORE_HOLD_META "cosmic.store.hold.meta"
+#define STORE_HOLD_WHY_META "cosmic.store.hold.why_meta"
+#define STORE_HOLD_COUNT "cosmic.store.hold.count"
 
 #ifndef COSMIC_TARGET_NAME
 #error "build.zig must define COSMIC_TARGET_NAME"
@@ -221,6 +226,26 @@ static void push_refusal (lua_State *L, const char *name) {
   else
     lua_pushfstring(L, "Store.databases() is held: %s", why);
   lua_remove(L, -2);
+}
+
+/* How many databases, from the first, a lookup of the `meta` row `key`
+ * searches of the `count` the list holds: every one, but while a hold is
+ * up whose set of `meta` keys does not hold `key`, only those attached
+ * since it went up, which `store_attach` puts ahead of the rest -- a
+ * test's own, keyed by what it declares it reads -- and none while
+ * `store_alone` has set them aside. Read raw, as `held` reads. */
+static lua_Integer meta_reach (lua_State *L, const char *key,
+                               lua_Integer count) {
+  if (!held(L, NULL)) return count;
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_META);
+  lua_pushstring(L, key);
+  bool answered = lua_rawget(L, -2) != LUA_TNIL && lua_toboolean(L, -1);
+  lua_pop(L, 2);
+  if (answered) return count;
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_COUNT);
+  lua_Integer at_hold = lua_tointeger(L, -1);
+  lua_pop(L, 1);
+  return count > at_hold ? count - at_hold : 0;
 }
 
 /* Reads one module's bytecode out of one database. Returns 1 with the
@@ -709,9 +734,16 @@ static int store_meta (lua_State *L) {
     return 1;
   }
 
-  for (lua_Integer i = 1; i <= count; i++) {
+  lua_Integer reach = meta_reach(L, key, count);
+  for (lua_Integer i = 1; i <= reach; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db != NULL && database_meta(L, db, key)) return 1;
+  }
+  if (reach < count) {
+    lua_getfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_META);
+    lua_pushfstring(L, "Store.meta of \"%s\" is held: %s", key,
+                    lua_tostring(L, -1));
+    return lua_error(L);
   }
   lua_pushnil(L);
   return 1;
@@ -776,9 +808,12 @@ static int store_databases (lua_State *L) {
    * while a hold is up none is handed out: the hold cannot sort rows. */
   /* TODO: hand out, while a hold is up, a handle on a database attached
    * since it went up -- a test's own, keyed by what it declares it
-   * reads -- once the list can tell those apart from the ones the hold
-   * covers (`store_alone` moves every one) without the binary's losing
-   * its place as the last. */
+   * reads -- through a lookup of its own. The list tells those apart
+   * already (`STORE_HOLD_COUNT`, as `meta_reach` reads it), but this
+   * answers every database `require` searches, the binary's last: a
+   * caller handed only the test's own would query less than it asked
+   * for, and answer silently, where it raises now. Waits on a caller
+   * that needs one. */
   if (held(L, NULL)) {
     push_refusal(L, NULL);
     return lua_error(L);
@@ -944,9 +979,12 @@ static int store_zone_names (lua_State *L) {
 /* Puts up a hold, for the rest of the process: while it is up, a lookup
  * of a name the set at 1 holds as a key -- the searcher's, `bytecode`'s,
  * `source`'s, `requires`' -- answers as if no database held it, saying
- * why with the text at 2, and `databases` raises the text at 3. A test
- * worker holds a test so to the modules its verdict is keyed by. The
- * set is consulted as it stands, not copied. Nothing takes a hold down,
+ * why with the text at 2, and `databases` raises the text at 3; and a
+ * `meta` lookup of a key the set at 4 does not hold searches only the
+ * databases attached since (`meta_reach`), raising the text at 5 when
+ * none of those answers. A test worker holds a test so to the modules
+ * and rows its verdict is keyed by. The sets are consulted as they
+ * stand, not copied. Nothing takes a hold down,
  * nor puts up another: what runs under one -- a finalizer a test left,
  * run after the test is over -- cannot loosen or replace it. The set is
  * stored last, which is what puts the hold up: should a store before it
@@ -956,10 +994,19 @@ static int store_hold (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checkstring(L, 2);
   luaL_checkstring(L, 3);
+  luaL_checktype(L, 4, LUA_TTABLE);
+  luaL_checkstring(L, 5);
   if (held(L, NULL)) {
     return luaL_error(L, "the store is held already");
   }
-  lua_settop(L, 3);
+  lua_settop(L, 5);
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, -1);
+  lua_pop(L, 1);
+  lua_pushinteger(L, count);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_COUNT);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_META);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_META);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY_ALL);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD_WHY);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_HOLD);
