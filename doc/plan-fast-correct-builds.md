@@ -271,10 +271,15 @@ new transport.
 - Change, restore: every leg and every event restores each cache by its
   prefix (per leg, container and host features, as now), taking the
   newest entry.
-- Change, save: only a push to main and the scheduled run save. Branch
-  and merge-queue runs restore only.
+- Change, save: only a push to main and the scheduled run save, for
+  every cache: verdicts, compiles, the zig build cache and the
+  driver-check marker. Branch and merge-queue runs restore only.
   - The merge queue's saves are unreadable from main anyway.
   - The ref-dependent save conditions go.
+  - A PR's later pushes stand on main's entries, not on its own earlier
+    push. They rerun what the PR changed, and a PR that moves a vendor
+    part or `ci/` rebuilds the zig outputs or reruns the driver check
+    on each push until it lands.
 - Change, save key: the prefix plus a digest of the trimmed content,
   computed by a driver verb over the rows, since SQLite's file bytes
   vary. A run that stood on everything saves nothing new, because its
@@ -297,15 +302,12 @@ new transport.
   change implicated. It stays a second execution of the changed tests
   on another runner, and still builds the products `prerelease.yml`
   publishes.
-- The zig build cache keeps its own keys (vendor part, nightly). The
-  driver-check marker is already keyed by content; drop the event from
-  its key.
-- Decision, measured with 0.4: before dropping branch saves, count how
-  often a PR's later push stood on its own earlier push over two
-  weeks. If that saves more than a minute on the median PR, keep
-  branch saves, still keyed by content.
+- The zig build cache keeps its own keys (vendor part, nightly), and
+  drops "restore zig build outputs of another vendor part", which only
+  a branch needs. The driver-check marker is already keyed by content;
+  drop the event from its key.
 - Waits on: 0.1, since only the nightly run and 0.1's report now run a
-  test that main stood on; and 0.4, for the decision.
+  test that main stood on.
 - Shows:
   - ci.yml loses `save-unless-descendant.sh` and at least 8 steps per
     Linux leg (47 today).
