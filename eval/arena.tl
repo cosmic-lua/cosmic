@@ -15,10 +15,6 @@ local sys = require("cosmic.sys")
 local record Arena
 end
 
-local function under(path: string, dir: string): boolean
-  return path == dir or path:sub(1, #dir + 1) == dir .. "/"
-end
-
 --- The prompt the solver is given, naming the arena's own paths.
 function Arena.prompt(dir: string): string
   return "Your working directory is " .. dir .. "/project. Set that working directory explicitly\n"
@@ -58,7 +54,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   -- A repository that cannot be resolved is compared as it is spelled.
   local resolved_repo, _ = Fs.absolute(repo)
   local real_repo = resolved_repo or repo
-  if under(dir, eval) or under(dir, repo) then
+  if Fs.within(dir, eval) or Fs.within(dir, repo) then
     return nil, dir .. " is inside the repository; put the arena outside it"
   end
   local name = dir:match("([^/]+)$")
@@ -90,7 +86,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, ptrouble
   end
   dir = (physical == "/" and "" or physical) .. rest .. "/" .. name
-  if under(dir, real_repo) then
+  if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local made, mtrouble = Fs.mkdirs(dir:match("^(.*)/[^/]+$"))
@@ -104,7 +100,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, ptrouble
   end
   dir = (physical == "/" and "" or physical) .. "/" .. name
-  if under(dir, real_repo) then
+  if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local new, ntrouble, errno = sys.mkdir(dir)

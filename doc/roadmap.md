@@ -112,9 +112,10 @@ promises lean on come first:
   `Json.decode` on the same text once the benchmark harness exists.
 - `format`, `check`: small modules a program
   otherwise hand-rolls.
-- `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under
-  `build/`. decide which become public `cosmic.*` modules and what a program
-  gets from each.
+- `ast`, `teal`, `doc` and `embed` exist only as build internals under
+  `build/`, and of `test` only `cosmic.test`'s `needs` is public, the
+  runner staying in `build/`. decide which become public `cosmic.*`
+  modules and what a program gets from each.
 - `shape` specs a caller may come to need, each added once one does: a
   `nullable` that tells `null` from a missing key (a PATCH body's two
   meanings); `big_integer`, taking the digits `big_numbers_as_strings`
@@ -178,12 +179,6 @@ four-producer provenance join.
   pinned bootstrap cosmic, so the build driver is already self-hosted while the
   compiler is not; that is evidence, not the answer. Do not assume full
   self-hosting is the desired answer before comparing the maintained systems.
-- **DNS and HTTP in C.** design.md's C/Teal line still says DNS is a Teal
-  resolver and HTTP/1.1 framing starts in C once a fuzzed implementation
-  exists, while `cosmic.http` shipped as curl over c-ares and mbedtls. Either
-  amend that paragraph to record why curl and c-ares met the bar (fuzzed
-  upstream, TLS needed now), or plan the Teal resolver and decide what then
-  remains in C.
 - **sanitizer tier.** The Linux lane already runs the whole suite on a checked
   core (ReleaseSafe, full undefined-behavior checking, Lua's own assertions),
   the static analyzer, and a walk of every allocation-failure path. What is

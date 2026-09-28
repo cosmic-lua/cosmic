@@ -246,17 +246,22 @@ DNS resolution, anything locale-shaped. musl and libSystem agree on
 `open`; they do not agree on `regcomp`'s corners or `getaddrinfo`'s
 ordering. the planned regex engine is a standalone extraction of musl's
 TRE-derived one, about 4,300 lines, compiled the same on both OSes.
-DNS is a resolver in Teal over UDP and TCP, reading
-`/etc/resolv.conf` and `/etc/hosts`, which both OSes have; this also
-keeps Mach services out of the macOS sandbox profile.
+DNS is c-ares, one resolver compiled the same on every target in place
+of each libc's `getaddrinfo`, driven by the core's own poll loop
+(core/ares_config.h). it reads `/etc/resolv.conf` and `/etc/hosts`,
+and on macOS the system's DNS configuration too, through Apple's
+dnsinfo, which reaches a Mach service a macOS sandbox profile will
+have to allow.
 
 Teal by default: filesystem policy (walk, find, atomic write), child
 processes above spawn and wait, sandbox policy over raw enforcement
 syscalls, URL, SSE, tar, the zip directory, and the whole artifact build.
 C when a benchmark on
 a real scenario says the Teal is too slow and a fuzzed, vendorable C
-implementation exists. HTTP/1.1 framing starts in C on the second
-half of that rule, a fuzzed implementation existing. JSON starts in C
+implementation exists. HTTP/1.1 framing and DNS started in C on the
+second half of that rule: curl and c-ares are each fuzzed upstream
+(OSS-Fuzz), and `cosmic.http` needed a TLS client, mbedtls under curl,
+before a Teal one could be written and fuzzed. JSON starts in C
 on the same half: every program that talks to a service parses it,
 and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
 exact, and reads RFC 8259 unless a caller names JSON5 for the one
