@@ -711,3 +711,135 @@ local function test_write_line_answers_a_writer_failure_and_lines_a_bad_limit()
   local ok, message = pcall(bad_limit)
   assert(not ok and tostring(message):find("json_test", 1, true) ~= nil, tostring(message))
 end
+
+local function got(value: any, path: {string | integer}): any
+  local v, err = Json.get(value, path)
+  assert(err == "", err)
+  return v
+end
+
+--- The message get fails with; the test fails if it succeeds.
+local function get_failure(value: any, path: {string | integer}): string
+  local v, err = Json.get(value, path)
+  assert(v == nil and err ~= "", "expected get to fail")
+  return err
+end
+
+--- Objects, arrays and an empty path.
+local function test_get_descends_keys_and_indices_from_one()
+  local doc = decoded('{"rows": [{"id": "a"}, {"id": "b", "odd key": [7]}], "n": 3}')
+  assert(got(doc, { "rows", 1, "id" }) == "a")
+  assert(got(doc, { "rows", 2, "odd key", 1 }) == 7)
+  assert(got(doc, {}) == doc, "an empty path is the value")
+  assert(got(doc, { "n" }) == 3)
+  local nothing, err = Json.get(nil, {})
+  assert(nothing == nil and err == "")
+end
+
+--- A failure names the path reached, as encode and shape write one.
+local function test_get_names_the_path_of_a_failure()
+  local doc = decoded('{"a": [{"b": 1}], "s": "x", "e": []}')
+  assert(get_failure(doc, { "a", 1, "c" }) == "$.a[1].c: no such key")
+  assert(get_failure(doc, { "a", 2 }) == "$.a[2]: index out of range, the array has 1")
+  assert(get_failure(doc, { "a", 0 }) == "$.a[0]: index out of range, the array has 1")
+  assert(get_failure(doc, { "e", 1 }) == "$.e[1]: index out of range, the array has 0")
+  assert(get_failure(doc, { "s", "x" }) == "$.s.x: expected an object, got string")
+  assert(get_failure(doc, { "s", 1 }) == "$.s[1]: expected an array, got string")
+  assert(get_failure(doc, { "a", "b" }) == "$.a.b: expected an object, got array")
+  assert(get_failure(doc, { "a", 1, 1 }) == "$.a[1][1]: expected an array, got object")
+  assert(get_failure(doc, { "a key" }) == '$["a key"]: no such key')
+end
+
+--- Json.null is a value at the end and an error to go through.
+local function test_get_treats_null_as_a_leaf()
+  local doc = decoded('{"a": null, "l": [1, null]}', { null_value = Json.null })
+  assert(got(doc, { "a" }) == Json.null)
+  assert(got(doc, { "l", 2 }) == Json.null)
+  assert(get_failure(doc, { "a", "b" }) == "$.a.b: expected an object, got null")
+  assert(get_failure(doc, { "a", 1 }) == "$.a[1]: expected an array, got null")
+  local plain = decoded('{"a": null}')
+  assert(get_failure(plain, { "a" }) == "$.a: no such key")
+end
+
+local function test_get_raises_on_a_step_that_is_no_key_or_index()
+  assert(not pcall(Json.get, {}, { true } as {any} as {string | integer}))
+  assert(not pcall(Json.get, {}, { 1.5 } as {any} as {string | integer}))
+end
+
+local function test_entries_and_items_narrow_by_kind()
+  local doc = decoded('{"o": {"b": 1, "a": 2}, "l": [1, 2], "e": [], "eo": {}}')
+  local o = assert(Json.entries(got(doc, { "o" })))
+  local keys: {string} = {}
+  for k in pairs(o) do keys[#keys + 1] = k end
+  table.sort(keys)
+  assert(table.concat(keys, ",") == "a,b")
+  local l = assert(Json.items(got(doc, { "l" })))
+  assert(#l == 2 and l[2] == 2)
+  assert(#assert(Json.items(got(doc, { "e" }))) == 0, "a decoded [] is an array")
+  assert(assert(Json.entries(got(doc, { "eo" }))) ~= nil)
+  assert(Json.entries(got(doc, { "e" })) == nil, "a decoded [] is not an object")
+  local _, why = Json.entries(got(doc, { "l" }))
+  assert(why == "expected a JSON object, got array", why)
+  local _l, why_l = Json.items(got(doc, { "o" }))
+  assert(why_l == "expected a JSON array, got object", why_l)
+  local _s, why_s = Json.items("x")
+  assert(why_s == "expected a JSON array, got string", why_s)
+  local _n, why_n = Json.entries(Json.null)
+  assert(why_n == "expected a JSON object, got null", why_n)
+  local _z, why_z = Json.entries(nil)
+  assert(why_z == "expected a JSON object, got null", why_z)
+end
+
+--- An empty table's kind follows encode: an object unless marked.
+local function test_entries_and_items_follow_the_encode_rules_for_tables()
+  assert(Json.entries({}) ~= nil and Json.items({}) == nil)
+  assert(Json.items(Json.array()) ~= nil and Json.entries(Json.array()) == nil)
+  assert(Json.items({ 1, 2 }) ~= nil and Json.entries({ 1, 2 }) == nil)
+  local mixed = { 1, a = 2 }
+  local _, why = Json.entries(mixed)
+  assert(why == "expected a JSON object, got table with mixed keys", why)
+  assert(Json.items(mixed) == nil)
+  assert(Json.items({ [1] = 1, [3] = 3 }) == nil, "a hole is no unmarked array")
+end
+
+local function test_describe_summarizes_nested_shapes_sorted()
+  local doc = decoded('{"today": {"accounts": [{"id": "a", "balance": 1.5}, {"id": "b", "balance": 2}]},'
+    .. ' "plans": [{"x": 1}, {"x": 2}, {"x": 3}], "ok": true, "name": "n"}')
+  assert(Json.describe(doc) == "{name: string, ok: boolean, plans: [3 x {x: number}],"
+    .. " today: {accounts: [2 x {balance: number, id: string}]}}", Json.describe(doc))
+  assert(Json.describe(doc, { max_depth = 2 }) == "{name: string, ok: boolean, plans: [3 x {...}],"
+    .. " today: {accounts: [2 x ...]}}", Json.describe(doc, { max_depth = 2 }))
+  assert(Json.describe(doc, { max_depth = 0 }) == "{...}")
+end
+
+local function test_describe_merges_heterogeneous_elements()
+  assert(Json.describe(decoded('[1, "a", 2, null, true]', { null_value = Json.null })) == "[5 x boolean|null|number|string]")
+  assert(Json.describe(decoded('[{"a": 1}, {"a": 2, "b": "x"}, {"a": "s"}]'))
+    == "[3 x {a: number|string, b?: string}]")
+  assert(Json.describe(decoded('[[1, 2], [3], []]')) == "[3 x [0..2 x number]]")
+  assert(Json.describe(decoded('[{"a": 1}, 2]')) == "[2 x number|{a: number}]")
+end
+
+local function test_describe_scalars_empties_and_null()
+  assert(Json.describe(nil) == "null")
+  assert(Json.describe(Json.null) == "null")
+  assert(Json.describe("s") == "string")
+  assert(Json.describe(1) == "number" and Json.describe(1.5) == "number")
+  assert(Json.describe(decoded("[]")) == "[0]")
+  assert(Json.describe(decoded("{}")) == "{}")
+  assert(Json.describe(decoded('{"a": {}, "b": [], "c": null}', { null_value = Json.null }))
+    == "{a: {}, b: [0], c: null}")
+  assert(Json.describe(decoded('{"odd key": 1}')) == '{"odd key": number}', Json.describe(decoded('{"odd key": 1}')))
+  assert(not pcall(Json.describe, {}, { max_depth = -1 }))
+  local fraction: any = 1.5
+  assert(not pcall(Json.describe, {}, { max_depth = fraction as integer }))
+end
+
+local function test_describe_a_long_array_is_one_merged_shape()
+  local items = Json.array()
+  for i = 1, 50000 do items[i] = { id = i, tag = "t" } end
+  assert(Json.describe(items) == "[50000 x {id: number, tag: string}]")
+  local cycle: {any:any} = {}
+  cycle.self = cycle
+  assert(Json.describe(cycle, { max_depth = 3 }) == "{self: {self: {self: {...}}}}")
+end
