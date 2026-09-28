@@ -103,7 +103,7 @@ bool cosmic_host_trailer (int fd) {
       (uint64_t)st.st_size < COSMIC_PORTABLE_TRAILER_LENGTH)
     return false;
   return cosmic_read_at(fd, magic, sizeof magic,
-                 (uint64_t)st.st_size - COSMIC_PORTABLE_TRAILER_LENGTH) &&
+                        (uint64_t)st.st_size - COSMIC_PORTABLE_TRAILER_LENGTH) &&
          memcmp(magic, COSMIC_HOST_TRAILER_MAGIC, sizeof magic) == 0;
 }
 
