@@ -233,6 +233,32 @@ static const char *plain_string (lua_State *L, int index, const char *what) {
   return value;
 }
 
+/* The length of the argv table at `index`, raising unless every entry
+ * is a plain string and an array of that many pointers, and its NULL,
+ * fits: what `execve` and `spawn` check before allocating anything. */
+static size_t checked_argv (lua_State *L, int index) {
+  size_t count = lua_rawlen(L, index);
+  if (count > (size_t)LUA_MAXINTEGER ||
+      count > SIZE_MAX / sizeof(char *) - 1)
+    luaL_argerror(L, index, "argv is too large");
+  for (size_t i = 1; i <= count; i++) {
+    lua_rawgeti(L, index, (lua_Integer)i);
+    plain_string(L, -1, "argv entry");
+    lua_pop(L, 1);
+  }
+  return count;
+}
+
+/* Raises unless the pair `lua_next` left on top of the stack, from the
+ * environment table at `index`, is a plain string name, nonempty and
+ * without '=', and a plain string value. */
+static void checked_variable (lua_State *L, int index) {
+  const char *name = plain_string(L, -2, "environment name");
+  plain_string(L, -1, "environment value");
+  if (*name == '\0' || strchr(name, '=') != NULL)
+    luaL_argerror(L, index, "environment name is empty or contains '='");
+}
+
 /* Whether cosmic itself set SIGPIPE to be ignored, so that a program it
  * starts or becomes gets the default disposition back instead of
  * inheriting ours. */
@@ -250,15 +276,7 @@ COSMIC_SYSCALL(execve, 3) {
   luaL_checktype(L, 2, LUA_TTABLE);
   luaL_checktype(L, 3, LUA_TTABLE);
 
-  size_t count = lua_rawlen(L, 2);
-  if (count > (size_t)LUA_MAXINTEGER ||
-      count > SIZE_MAX / sizeof(char *) - 1)
-    return luaL_argerror(L, 2, "argv is too large");
-  for (size_t i = 1; i <= count; i++) {
-    lua_rawgeti(L, 2, (lua_Integer)i);
-    plain_string(L, -1, "argv entry");
-    lua_pop(L, 1);
-  }
+  size_t count = checked_argv(L, 2);
 
   /* Each "NAME=value" entry is built by concatenation and kept in a
    * table on the stack, which is what keeps its bytes alive; the key
@@ -268,10 +286,7 @@ COSMIC_SYSCALL(execve, 3) {
   lua_Integer variables = 0;
   lua_pushnil(L);
   while (lua_next(L, 3) != 0) {
-    const char *name = plain_string(L, -2, "environment name");
-    plain_string(L, -1, "environment value");
-    if (*name == '\0' || strchr(name, '=') != NULL)
-      return luaL_argerror(L, 3, "environment name is empty or contains '='");
+    checked_variable(L, 3);
     lua_pushvalue(L, -2);
     lua_pushliteral(L, "=");
     lua_pushvalue(L, -3);
@@ -1972,28 +1987,17 @@ int cosmic_spawn_unobserved (lua_State *L) {
   long descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < 0) descriptor_limit = 1024;
 
-  size_t argc = lua_rawlen(L, 2);
-  if (argc == 0) {
+  if (lua_rawlen(L, 2) == 0) {
     return luaL_argerror(L, 2, "argv is empty");
   }
-  if (argc > (size_t)LUA_MAXINTEGER ||
-      argc > SIZE_MAX / sizeof(char *) - 1)
-    return luaL_argerror(L, 2, "argv is too large");
   /* Validate everything that can raise before allocating native memory. */
-  for (size_t i = 1; i <= argc; i++) {
-    lua_rawgeti(L, 2, (lua_Integer)i);
-    plain_string(L, -1, "argv entry");
-    lua_pop(L, 1);
-  }
+  size_t argc = checked_argv(L, 2);
 
   lua_Integer envc = 0;
   if (!lua_isnoneornil(L, 3)) {
     lua_pushnil(L);
     while (lua_next(L, 3) != 0) {
-      const char *name = plain_string(L, -2, "environment name");
-      plain_string(L, -1, "environment value");
-      if (*name == '\0' || strchr(name, '=') != NULL)
-        return luaL_argerror(L, 3, "environment name is empty or contains '='");
+      checked_variable(L, 3);
       envc++;
       lua_pop(L, 1);
     }
