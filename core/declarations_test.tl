@@ -282,7 +282,8 @@ local function raw_module(name: string): any
   end
   assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
     "this test does not know how to reach")
-  return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value"))
+  return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
+    "(require it with `local type` at the top so it is in the closure)"))
 end
 
 --- The raw modules whose declaration the build derives from a header
@@ -331,24 +332,32 @@ local function test_every_declaration_is_what_the_core_registers()
     testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
 end
 
---- core/store.c's `raw_modules`, read from its source: the raw module
+--- The `raw_modules` table of core/store.c's `source`: the raw module
 --- each wrapper is handed, by the wrapper's name, less the
---- `cosmic.internal.` prefix. It fails rather than answer part of the
---- table when an entry is not the shape it reads.
-local function raw_modules_in_c(): {string: string}
-  local source = assert(Fs.read("core/store.c"))
+--- `cosmic.internal.` prefix; or nil and why when the table is not all
+--- entries of the shape this reads -- a macro, a comment, an entry
+--- spelled otherwise -- rather than answer part of it.
+local function raw_modules_in(source: string): {string: string} | nil, string
   local body = source:match("%} raw_modules%[%] = {\n(.-)\n};")
-  assert(body ~= nil, "core/store.c declares no raw_modules table this test can read")
+  if body == nil then
+    return nil, "core/store.c declares no raw_modules table this test can read"
+  end
   local out: {string: string} = {}
   local read = 0
-  for wrapper, raw in body:gmatch('{"([%w_.]+)",%s*"cosmic%.internal%.([%w_]+)",') do
+  local entry = '{"([%w_.]+)",%s*"cosmic%.internal%.([%w_]+)",%s*[%w_]+%s*},'
+  for wrapper, raw in body:gmatch(entry) do
     out[wrapper] = raw
     read = read + 1
   end
-  local _, entries = body:gsub("{", "")
-  assert(read == entries and read >= 10, "read " .. read .. " of core/store.c's " ..
-    entries .. " raw_modules entries")
-  return out
+  local rest = body:gsub(entry, ""):gsub("%s", "")
+  if rest ~= "" then
+    return nil, "core/store.c's raw_modules holds what this test cannot read as an " ..
+      "entry: " .. rest
+  end
+  if read < 10 then
+    return nil, "read only " .. read .. " raw_modules entries of core/store.c"
+  end
+  return out, ""
 end
 
 --- Every wrapper core/store.c hands a raw value to is one this test
@@ -356,14 +365,28 @@ end
 --- module no declaration names fails here; and the running core hands
 --- each one its raw value.
 local function test_every_raw_module_has_a_declaration()
-  local in_c = raw_modules_in_c()
+  local in_c = assert(raw_modules_in((assert(Fs.read("core/store.c")))))
   for wrapper, raw in pairs(in_c) do
     assert(wrappers[wrapper] == raw, wrapper .. " is handed cosmic.internal." .. raw ..
       ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
   end
   for wrapper in pairs(wrappers) do
     assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
-    assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value")
+    assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value " ..
+      "(require it with `local type` at the top so it is in the closure)")
+  end
+end
+
+--- An entry of `raw_modules` this test cannot read -- a macro standing
+--- for one, a comment -- fails the read rather than go uncounted.
+local function test_an_unreadable_raw_modules_entry_is_refused()
+  local source = assert(Fs.read("core/store.c"))
+  assert(raw_modules_in(source) ~= nil)
+  for _, planted in ipairs({ "  RAW_ENTRY(cosmic.planted),\n", "  /* planted */\n" }) do
+    local with = source:gsub("(%} raw_modules%[%] = {\n)", "%1" .. planted)
+    assert(with ~= source, "the table was not found to plant in")
+    local found, why = raw_modules_in(with)
+    assert(found == nil and why:find("cannot read", 1, true) ~= nil, why)
   end
 end
 
