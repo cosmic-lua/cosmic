@@ -316,6 +316,13 @@ static sqlite3 *database_at (lua_State *L, int list, lua_Integer index) {
   return db;
 }
 
+/* The binary's own database, the last of the list at `list`, or NULL
+ * when there is none. */
+static sqlite3 *binary_database (lua_State *L, int list) {
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  return count > 0 ? database_at(L, list, count) : NULL;
+}
+
 /* The one searcher. Its upvalue is the list of databases, in the order
  * they are searched: index `count` is always the one attached to the
  * running binary, because `store_attach` only ever prepends. A reserved
@@ -559,9 +566,7 @@ static const char *inflate_top (lua_State *L) {
  * both deflated (`build.writer`), so each is inflated here. */
 static int store_source (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
-  int list = lua_upvalueindex(1);
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  sqlite3 *db = count > 0 ? database_at(L, list, count) : NULL;
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   static const char *queries[] = {
     "SELECT source FROM main.decls WHERE path = ?1",
     "SELECT source FROM main.modules WHERE path = ?1",
@@ -622,8 +627,7 @@ static void push_hex (lua_State *L, const unsigned char *bytes, size_t length) {
 static int push_portable_runtime (lua_State *L,
                                   const struct cosmic_artifact *artifact,
                                   int list) {
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
+  sqlite3 *binary = binary_database(L, list);
   if (binary == NULL || !database_meta(L, binary, "runtime_basis")) {
     lua_pushnil(L);
     return 1;
@@ -670,8 +674,7 @@ static int push_portable_runtime (lua_State *L,
 }
 
 static int push_binary_meta (lua_State *L, int list, const char *key) {
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
+  sqlite3 *binary = binary_database(L, list);
   if (binary != NULL && database_meta(L, binary, key)) return 1;
   lua_pushnil(L);
   return 1;
@@ -831,13 +834,6 @@ static int store_databases (lua_State *L) {
   return 1;
 }
 
-/* The binary's own database, or NULL when there is none. */
-static sqlite3 *binary_database (lua_State *L) {
-  int list = lua_upvalueindex(1);
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  return count > 0 ? database_at(L, list, count) : NULL;
-}
-
 /* Why a zone query failed, as nil and a message: `db`'s own error, or a
  * raise when it failed for memory. */
 static int zones_failed (lua_State *L, sqlite3 *db, int rc) {
@@ -862,7 +858,7 @@ static int store_requires (lua_State *L) {
     push_refusal(L, name);
     return 2;
   }
-  sqlite3 *db = binary_database(L);
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   if (db == NULL) {
     lua_pushnil(L);
     lua_pushliteral(L, "the running binary has no database");
@@ -908,7 +904,7 @@ static int store_requires (lua_State *L) {
  * the query failed. */
 static int store_zoneinfo (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
-  sqlite3 *db = binary_database(L);
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   if (db == NULL) {
     lua_pushnil(L);
     lua_pushliteral(L, "the running binary has no database");
@@ -943,7 +939,7 @@ static int store_zoneinfo (lua_State *L) {
 /* Every time zone name the binary's own database carries, as a set, or
  * nil and why when the query failed: as `store_zoneinfo`, no handle. */
 static int store_zone_names (lua_State *L) {
-  sqlite3 *db = binary_database(L);
+  sqlite3 *db = binary_database(L, lua_upvalueindex(1));
   if (db == NULL) {
     lua_pushnil(L);
     lua_pushliteral(L, "the running binary has no database");

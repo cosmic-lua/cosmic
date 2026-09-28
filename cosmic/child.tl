@@ -265,6 +265,15 @@ local function now(): integer
   return Time.monotonic_ns()
 end
 
+--- How long the next poll may wait, in milliseconds: POLL_MS, or less
+--- as `deadline` nears; nil once it has passed.
+local function slice(deadline: integer): integer
+  if deadline == nil then return POLL_MS end
+  local remaining = deadline - now()
+  if remaining <= 0 then return nil end
+  return math.min(POLL_MS, remaining // (1000 * 1000))
+end
+
 local function target(self: Handle): integer
   return self.process_group and -self.pid or self.pid
 end
@@ -525,12 +534,8 @@ local function poll_until(self: Handle, deadline?: integer,
       local cancelled = active:cancelled()
       if cancelled ~= 0 then return nil, cancelled_by(cancelled) end
     end
-    local left = POLL_MS
-    if deadline then
-      local remaining = deadline - now()
-      if remaining <= 0 then return nil, "" end
-      left = math.max(0, math.min(POLL_MS, remaining // (1000 * 1000)))
-    end
+    local left = slice(deadline)
+    if left == nil then return nil, "" end
     pump({ self }, left)
   end
 end
@@ -927,7 +932,7 @@ local function without_nul(value: string, name: string)
   if value:find("\0", 1, true) then error(name .. " contains a NUL byte", 4) end
 end
 
-local function validate(argv: {string}, opts: Options): boolean
+local function validate(argv: {string}, opts: Options)
   if #argv == 0 then error("argv is empty", 3) end
   for i, value in ipairs(argv) do
     if type(value) ~= "string" then error("argv[" .. tostring(i) .. "] must be a string", 3) end
@@ -976,7 +981,6 @@ local function validate(argv: {string}, opts: Options): boolean
       end
     end
   end
-  return true
 end
 
 --- Descriptors this process opened for one start, closed together
@@ -1215,12 +1219,8 @@ function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, 
       end
       if trouble ~= "" then return nil, trouble end
     end
-    local left = POLL_MS
-    if deadline then
-      local remaining = deadline - now()
-      if remaining <= 0 then return nil, "" end
-      left = math.max(0, math.min(POLL_MS, remaining // (1000 * 1000)))
-    end
+    local left = slice(deadline)
+    if left == nil then return nil, "" end
     pump(handles, left)
   end
 end
