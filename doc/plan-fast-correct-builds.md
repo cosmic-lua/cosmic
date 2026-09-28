@@ -187,7 +187,7 @@ test time and 100 s of checked. It is also most of why
   - the checked suite, cold, runs about 100 s shorter;
   - the isolation test takes under 4 s alone.
 
-### 2.4 Tool and store floor, batch 2
+### 2.4 Tool and store floor, batch 2, and tree-wide checks out of the suite
 
 Batch 1 (#2283) took 245 tests off `tool`/`store`. Batch 2 takes the
 modules with 3 or more tests to move, each split into
@@ -201,7 +201,16 @@ modules with 3 or more tests to move, each split into
 
 Its prerequisites, 0.4 and 1.2, have landed.
 
-- Shows: the floor, counted by a named `o/bin/cosmic sql` query over
+- Rule R6: only a test of one module may read the store. A check over
+  the whole tree (every export documented, every module listed, and the
+  like) is not a unit test. It moves to the build or to `fix --check`,
+  which see the whole tree already, or to a CI step.
+  - 25 modules declare `store` today, and each reruns on every edit.
+  - Change: census them first. For each, it either reads only its
+    closure (drop `store`), splits into per-module tests, or moves out
+    of the suite.
+  - A module left with `store` needs a written reason.
+- Shows (with R6): the floor, counted by a named `o/bin/cosmic sql` query over
   the catalog's `tool` and `store` declarations, is about 355 (about
   542 before). 2.3's 62 freed tests lower it further.
 
@@ -240,10 +249,43 @@ line numbers are on main at 93a6bba.
 **Rule:** a fix that tightens a hold or a bind without adding a key
 part bumps the harness epoch (2.2). Otherwise verdicts earned through
 the hole stand until the merge queue's `--all` or the nightly run.
-Holes shaped by the host (3.1 items 6, 9 and 11, and the kernel at
+Holes shaped by the host (3.1 items 8 and 9, and the kernel at
 `build/declared_key.tl:1047`) are never caught by CI's `--all`, which
 runs only CI's images. Each is fixed, or accepted in writing here, not
 left to that backstop.
+
+### 3.0 Rules instead of keys
+
+Where a rule removes a hole at little cost, the plan takes the rule
+over a key that tracks the hole. Each rule is stated in AGENTS.md
+beside `Test.needs`, and refused by the analyzer or the sandbox where
+that is cheap.
+
+- **R1. No real network.** A test may reach loopback only.
+  - No test but the harness's own tests of the mechanism declares
+    another host.
+  - Change: `Test.needs` refuses a network host other than loopback.
+    The unkeyed path for such tests goes: they no longer run every time
+    or get counted as unkeyed. The harness tests that used
+    `example.com` test the refusal instead.
+- **R2. Loopback is `127.0.0.1`.** `::1` is refused as a declared host.
+  This replaces the IPv6 item: nothing keys the host's IPv6 sysctls.
+- **R3. Host files, not host directories, except `/proc`.** A declared
+  host path names a file, or `/proc`, which no key can hold by contents
+  anyway. Real uses today are `/proc`, `/dev/urandom`, `/etc/localtime`
+  and fixture-variable paths. This replaces walking a declared host
+  directory; the analyzer refuses a directory.
+- **R4. One `cosmic test` run per checkout at a time.** The rebuild lock
+  from #2288 is held for the whole run, and a second run waits for the
+  first.
+  - This replaces the concurrent-runs item: the closure store and
+    writer scratch-name races (`build/closure_store.tl:321`,
+    `build/writer.tl:367`) cannot happen within a checkout.
+  - A hand-run boot takes the same lock (`build/reboot.tl:312`).
+  - Waits on: 2.5, which edits `build/reboot.tl`.
+- **R5. No test depends on stat times** (item 1 below).
+- R1 to R3 wait on 2.2, which edits `build/declared_key.tl` and
+  `build/test.tl`.
 
 ### 3.1 Holes, in order
 
@@ -274,30 +316,15 @@ left to that backstop.
    #2278.
    - Moves every local key once.
    - Shows: moving `x.tl` to `x/init.tl` recompiles.
-4. **IPv6 in a new network namespace (S)**
-   (`build/declared_key.tl:1053`).
-   - Change: key the two sysctls when a module declares `::1`.
-   - Shows: a declared-`::1` key moves with `disable_ipv6`.
-5. **zig started while `declaring` runs, keyed by nothing (S–M)**
+4. **zig started while `declaring` runs, keyed by nothing (S–M)**
    (`build/confine.tl:833`, `build/filesystem_observations.tl:512`).
-6. **Concurrent runs in one checkout (M).** A closure store written
-   under another run's name can stand at its address for good
-   (`build/closure_store.tl:321`); `build/writer.tl:367` and
-   `build/reboot.tl:312` go with it.
-   - Change: unique `.building` names, a sweep that spares names a live
-     run holds, and a hand-run boot that takes the lock.
-   - Shows: two runs at once leave every store equal to its address.
-7. **A host directory keyed by its name (M)**
-   (`build/declared_key.tl:703`).
-   - Change: walk it once per run and remember its digest by lstat.
-   - Shows: a file added to a declared directory moves the key.
-8. **A `tool` worker not held (M)** (`build/test.tl:2057`,
+5. **A `tool` worker not held (M)** (`build/test.tl:2057`,
    `can_forbid`). #2290 narrowed it to workers whose module declares
    the `bootstrap` cache.
    - Change: a cores directory the worker owns, bound by the sandbox.
    - Shows: a `bootstrap`-cache test that runs `o/bin/cosmic` is
      refused.
-9. **The artifact's other ways in (M, C and a boot).**
+6. **The artifact's other ways in (M, C and a boot).**
    - A host program reads the artifact at `/proc/<worker>/fd/<n>`
      (`core/syscalls.c:474`; `PR_SET_DUMPABLE`).
    - A link can be swapped between the check and the call
@@ -305,17 +332,17 @@ left to that backstop.
    - Shows: `sh -c 'cat /proc/$PPID/fd/<n>'` in a `system` test fails.
    - A host-program tree's database read by name (`build/confine.tl:400`)
      is out of scope: projects only.
-10. **The program bound at its host path, for `tool` workers (M, C and a
+7. **The program bound at its host path, for `tool` workers (M, C and a
     boot)** (`build/test_sandbox.tl:180`), with the mount-point race
     beside it (`build/test_sandbox.tl:265`, same `build_root` code).
     - Shows: a `tool` test's `Proc.executable()` is `/tree/o/bin/cosmic`.
-11. **`/usr` changed outside a package (M, or accept)**
+8. **`/usr` changed outside a package (M, or accept)**
     (`build/declared_key.tl:1126`).
     - Change: a once-per-run walk, about 0.5 s, only when the run holds
       a `system` module.
     - Accepting it leaves developer hosts uncaught; say so here if
       chosen.
-12. **The C check's verdicts don't hold the host's sh, sed, wc and tr
+9. **The C check's verdicts don't hold the host's sh, sed, wc and tr
     (S)** (`build/c/init.tl:131`).
 
 Accepted or out of scope:
