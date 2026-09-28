@@ -236,6 +236,7 @@ local wrappers <const>: {string: string} = {
   ["build.artifact"] = "store",
   ["build.test_worker"] = "store",
   ["build.filesystem_observations"] = "observations",
+  ["build.confine"] = "process",
   ["build.fuzz"] = "budget",
   ["cosmic.child"] = "process",
   ["cosmic.compress"] = "compress",

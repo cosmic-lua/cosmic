@@ -15,7 +15,8 @@ local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
@@ -49,7 +50,7 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
 --- Whether the run holds this host to confining a process: with
---- COSMIC_SANDBOX=must (see build.filesystem_observations'
+--- COSMIC_SANDBOX=must (see build.confine's
 --- `must_confine`), a sandbox the kernel refuses -- no Landlock, no
 --- pledge, no unveiling -- fails its test here rather than passing it
 --- unchecked.
@@ -57,11 +58,11 @@ local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/int
 -- the run's summary beside ran, stood and assumed, once build/test.tl's
 -- tally has a skipped verdict: today, without COSMIC_SANDBOX=must, a
 -- host that cannot sandbox passes them as though it had checked them.
---- The descriptors `observations.program` hands its child, as
+--- The descriptors `this_program.program` hands its child, as
 --- `process.spawn` takes them: each a descriptor of this process, as
 --- the relaunch's are, and none "capture", which only `cosmic.child`
 --- reads.
-local function spawn_fds(started: observations.Program): {integer:integer}
+local function spawn_fds(started: this_program.Program): {integer:integer}
   local fds: {integer:integer} = {}
   for number, fd in pairs(started.options.fds) do
     if fd is integer then
@@ -850,7 +851,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   for name in pairs(under_tmp) do listed[#listed + 1] = name .. "\n" end
   table.sort(listed)
   local common = "fd\n700\n" .. table.concat(listed) .. "t\n"
-  local own = observations.own_proc_given()
+  local own = confine.own_proc_given()
   assert(seen == common .. (own and "own-proc\nown-writable\n" or "host-proc\nown-read-only\n") ..
     "sys-read-only\n", seen)
   local nothing, _, nothing_errno = process.spawn(probe, { probe }, nil, tmp,
@@ -1018,7 +1019,7 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
   assert(lines[1]:match("^Pid:%s*2$") and lines[2] == "spared", said)
   if lines[4] ~= "cosmic-init" then
-    assert(not observations.own_proc_given(), "no procfs of its own: " .. said)
+    assert(not confine.own_proc_given(), "no procfs of its own: " .. said)
     return -- the host's /proc
   end
   assert(lines[3] == "unseen", said)
@@ -1100,7 +1101,7 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   assert(status ~= nil and status.code == 0, said)
   -- Only a procfs of its own shows its namespace's processes alone: its
   -- init and itself, and no orphan, reaped or not.
-  if observations.own_proc_given() then
+  if confine.own_proc_given() then
     local processes: {string} = {}
     for line in said:gmatch("[^\n]+") do
       if line:match("^%d+$") or line == "cosmic-init" then processes[#processes + 1] = line end
@@ -1157,7 +1158,7 @@ local function test_a_confined_child_can_write_no_host_state_through_its_proc(tm
     local status, said = run_confined(tmp, probe, "find-writable /proc; print done", online)
     if status == nil then return end
     assert(status.code == 0 and said:sub(-5) == "done\n", said)
-    local own = observations.own_proc_given()
+    local own = confine.own_proc_given()
     local opened = 0
     for path in said:gmatch("([^\n]+)\n") do
       if path ~= "done" then
@@ -1201,7 +1202,7 @@ local function test_a_confined_child_ends_with_its_parent(tmp: string)
   local adopting = process.subreaper()
   if not adopting then return end -- no subreaper to be (not Linux)
   local report = create(tmp .. "/parent")
-  local started = observations.program({ "-e", chunk_preamble .. [==[
+  local started = this_program.program({ "-e", chunk_preamble .. [==[
 local pid, trouble = process.spawn(reads[1], { reads[1], "sleep 30000" }, nil, "/", nil,
   nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
 print(pid or "refused " .. trouble)
@@ -1310,7 +1311,7 @@ end
 -- message words the two alike.
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local report = create(tmp .. "/report")
-  local started = observations.program({ "-e",
+  local started = this_program.program({ "-e",
     "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
     "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" })
   local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,

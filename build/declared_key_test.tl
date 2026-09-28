@@ -678,3 +678,14 @@ local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
   assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")
   assert(key_of(tmp, whole) ~= whole_before, "the projection left a declared store's key")
 end
+
+--- `key_part` hex-encodes both the path and the answer; these literals
+--- pin the encoding for the bytes most likely to break a lookup-table
+--- rewrite of it: NUL, newline, DEL, and 0xff, plus a multibyte UTF-8
+--- path, none of which are ASCII letters or digits.
+local function test_key_part_matches_known_hex_for_edge_bytes()
+  local edges = string.char(0x00, 0x0a, 0x7f, 0xff)
+  assert(declared_key.key_part("s", edges, "") == "s 000a7fff ")
+  assert(declared_key.key_part("o", "", edges) == "o  000a7fff")
+  assert(declared_key.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
+end

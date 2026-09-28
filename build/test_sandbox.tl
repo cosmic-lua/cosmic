@@ -26,7 +26,7 @@
 ---   that locate them;
 --- - /proc and the devices every program takes for granted, the
 ---   program, its core and the stamp that says the core was verified
----   (`observations.worker_unveil`), the system's own paths (/usr, /bin,
+---   (`confine.worker_unveil`), the system's own paths (/usr, /bin,
 ---   /lib, /etc and the like) only where the module declares `system`,
 ---   and the `host` paths the module declares, each at its own name --
 ---   one a variable names (`$NAME/path`) where the variable says, as
@@ -52,6 +52,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
@@ -103,7 +104,7 @@ test_sandbox.scratch = "/tmp"
 test_sandbox.switch = "COSMIC_TEST_SANDBOX"
 
 --- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).
-local UNVEIL_MAX <const> = observations.unveil_max
+local UNVEIL_MAX <const> = confine.unveil_max
 
 --- How the switch asks for the sandbox: "auto", unset or empty, for
 --- each worker sandboxed wherever one can be; "on", "1", for every
@@ -152,7 +153,7 @@ end
 --- store of its closure, keyed by its address.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string): test_sandbox.Plan
-  local base = observations.worker_unveil(root, nil, scratch, effective.system)
+  local base = confine.worker_unveil(root, nil, scratch, effective.system)
   local reads: {string} = {}
   local at: {string:string} = {}
   local seen: {string:boolean} = {}
@@ -230,8 +231,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       local declared = (effective.spelled or {})[plain]
       -- By its name and by where it resolves: a link to the host's
       -- temporary directory would bind all of it.
-      local real = observations.resolution(plain)
-      local own_real = observations.resolution(scratch)
+      local real = confine.resolution(plain)
+      local own_real = confine.resolution(scratch)
       for _, where in ipairs({ plain, real }) do
         for _, own in ipairs({ scratch, own_real, test_sandbox.tree, test_sandbox.scratch }) do
           local mine = own == scratch or own == own_real
@@ -301,16 +302,16 @@ end
 
 --- Whether a worker given `writes` to write -- the host caches its
 --- module declares -- can be kept from running `programs`, this very
---- program (`observations.forbid_running`): not where one of them is
+--- program (`confine.forbid_running`): not where one of them is
 --- beneath a path it may write, by its name or where it resolves -- the
 --- cores directory a portable cosmic extracts to, which the `bootstrap`
 --- cache holds -- since a core another cosmic extracts there after the
 --- worker holds itself could not be run.
 function test_sandbox.forbiddable(writes: {string}, programs: {string}): boolean
   for _, path in ipairs(writes) do
-    local writable = observations.resolution(path)
+    local writable = confine.resolution(path)
     for _, program in ipairs(programs) do
-      local real = observations.resolution(program)
+      local real = confine.resolution(program)
       if Fs.within(program, path) or (real ~= "" and writable ~= "" and
           Fs.within(real, writable)) then
         return false
@@ -414,21 +415,21 @@ end
 --- Whether this host can run a worker sandboxed: `argv`, this program
 --- started again with `env` and `fds`, runs a chunk that holds itself
 --- to running anything but this program, as a worker whose test does not
---- declare `tool` does (`observations.forbid_running`), held to the
+--- declare `tool` does (`confine.forbid_running`), held to the
 --- least a worker is given -- /proc, the devices and the program, none
 --- of the system's own paths -- offline, in `scratch`. False and why
 --- where it cannot: no worker then runs sandboxed, and no verdict is
 --- keyed by its declared inputs.
 function test_sandbox.available(argv: {string}, env: {string:string}, fds: {integer:integer},
                                 scratch: string): boolean, string
-  local base = observations.worker_unveil(scratch, nil, scratch)
+  local base = confine.worker_unveil(scratch, nil, scratch)
   local command: {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
-  -- (`observations.forbid_running`): where it cannot, no worker is
+  -- (`confine.forbid_running`): where it cannot, no worker is
   -- sandboxed, since what such a test would run no key holds.
   command[#command + 1] = "-e"
-  command[#command + 1] = "local o = require('build.filesystem_observations') " ..
+  command[#command + 1] = "local o = require('build.confine') " ..
     "local ok, why = o.forbid_running(o.itself()) if not ok then error(why) end"
   local given: {integer:integer | string} = {}
   for number, fd in pairs(fds) do given[number] = fd end

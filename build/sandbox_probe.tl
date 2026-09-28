@@ -40,7 +40,7 @@ local record SandboxProbe
   --- One part of the sandbox, as tried.
   record Part
     name: string
-    --- whether a test's confinement (`observations.confine`) needs it
+    --- whether a test's confinement (build.confine's `confine`) needs it
     needed: boolean
     held: boolean
     --- "held", or why not: an errno's name and message, or what the
@@ -189,7 +189,7 @@ end
 --- Tries each part of the sandbox, and all of them together, in `tmp`,
 --- a fresh directory of the caller's: a child held to a Landlock
 --- ruleset, a pledge, no network, an unveiled filesystem, the last two
---- as `observations.confine` holds a test's processes, and all four;
+--- as build.confine's `confine` holds a test's processes, and all four;
 --- and, unveiled, whether the child is in a pid namespace of its own,
 --- and whether its /proc is that namespace's own procfs or, where the
 --- kernel refuses one (a container masking parts of its /proc), the

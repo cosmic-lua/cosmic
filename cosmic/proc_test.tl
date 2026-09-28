@@ -3,7 +3,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
 
@@ -37,7 +37,7 @@ return function(): integer
   return 0
 end
 ]]))
-  local started = observations.program({ script }, { env = observations.environment(), cwd = tmp,
+  local started = this_program.program({ script }, { env = this_program.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
@@ -80,7 +80,7 @@ return function(argv: {string}): integer
   return 1
 end
 ]]))
-  local started = observations.program({ script, probe }, { env = observations.environment(), cwd = tmp,
+  local started = this_program.program({ script, probe }, { env = this_program.environment(), cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ms = 30000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))

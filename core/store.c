@@ -92,9 +92,10 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * entry. `build.test_worker` gets the store's to put a hold up
  * (`store_hold`), which `cosmic.store` does not offer. `build.fuzz` gets the instruction budget alone, which shares
  * the coverage collector's hook but none of its collection. The
- * process table is `cosmic.child`'s and `cosmic.proc`'s;
- * `build.filesystem_observations` is handed it, SQLite's and the
- * syscall table's log together (`open_observations`). */
+ * process table is `cosmic.child`'s, `cosmic.proc`'s and
+ * `build.confine`'s, whose stand-in for its `spawn` confines each child
+ * a test starts; `build.filesystem_observations` is handed SQLite's
+ * table and the syscall table's log together (`open_observations`). */
 static int open_observations (lua_State *L);
 
 static const struct raw_module {
@@ -110,6 +111,7 @@ static const struct raw_module {
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},
+  {"build.confine", "cosmic.internal.process", NULL},
   {"build.filesystem_observations", "cosmic.internal.observations",
     open_observations},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
@@ -163,16 +165,16 @@ static int raw_value (lua_State *L, const char *name) {
   return 1;
 }
 
-/* `build.filesystem_observations`' raw value: the process table, whose
- * `spawn` it stands in for to confine each child a test starts; SQLite's,
- * whose record of the files SQLite opens it drains; and the syscall
- * table's log of what its calls were asked and answered
- * (core/observed.c's `cosmic_open_observed`), which it drains too. The first two are
- * registered by entries above its own in `raw_modules`, which
- * `cosmic_store_open_raw` opens in order. */
+/* `build.filesystem_observations`' raw value: SQLite's table, whose
+ * record of the files SQLite opens it drains, and the syscall table's
+ * log of what its calls were asked and answered (core/observed.c's
+ * `cosmic_open_observed`), which it drains too. SQLite's is registered
+ * by an entry above its own in `raw_modules`, which
+ * `cosmic_store_open_raw` opens in order. The process table, whose
+ * `spawn` stands in to confine each child a test starts, is
+ * `build.confine`'s. */
 static int open_observations (lua_State *L) {
-  lua_createtable(L, 0, 3);
-  if (raw_value(L, "cosmic.internal.process")) lua_setfield(L, -2, "process");
+  lua_createtable(L, 0, 2);
   if (raw_value(L, "cosmic.internal.sqlite")) lua_setfield(L, -2, "sqlite");
   cosmic_open_observed(L);
   lua_setfield(L, -2, "syscalls");

@@ -49,11 +49,11 @@ allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl
   "holds .github/scripts/host-features.sh to: it reads a macOS host's system where a key does"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
-allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..
+allowed["build.confine.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
-allowed["build.filesystem_observations.must_confine"] = "a test's own declaration: " ..
+allowed["build.confine.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
-allowed["build.filesystem_observations.held_to_sandbox"] = "what a test whose " ..
+allowed["build.confine.held_to_sandbox"] = "what a test whose " ..
   "assertion is about a nested run's sandbox asks, to fail where a run held to " ..
   "sandboxing gave that run none, rather than return unchecked"
 allowed["build.filesystem_observations.reads_stat_times"] = "a test's own declaration: " ..

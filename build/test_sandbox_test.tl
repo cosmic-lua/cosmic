@@ -7,7 +7,9 @@ local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local declared_key = require("build.declared_key")
+local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
@@ -239,7 +241,7 @@ end
 --- unprivileged runners nest them, and there it fails.
 local function unsandboxed(text: string): boolean
   if not text:find("no worker can be sandboxed here", 1, true) then return false end
-  assert(not observations.held_to_sandbox(),
+  assert(not confine.held_to_sandbox(),
     "the run is held to sandboxing, but the run it started was not:\n" .. text)
   return true
 end
@@ -248,7 +250,7 @@ end
 --- and whether it passed.
 local function run(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
-  local started = observations.program({ "test", "--all" }, {
+  local started = this_program.program({ "test", "--all" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -294,7 +296,7 @@ local function test_view(tmp: string)
     tostring(sys.getenv("UNDECLARED_VAR")), (tostring(child.stdout):gsub("\n", "")), "end" }, "|"))
 end
 ]], hidden)))
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -375,7 +377,7 @@ local function test_write()
   error("wrote|" .. tostring(declared) .. "|" .. tostring(undeclared) .. "|end")
 end
 ]]))
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -417,7 +419,7 @@ local function test_read()
     tostring((Fs.read(dir .. "/sibling.txt"))) .. "|end")
 end
 ]]))
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -461,7 +463,7 @@ end
 --- printed and whether it passed.
 local function run_again(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
-  local started = observations.program({ "test" }, {
+  local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ms = 60000,
   })
   local result, trouble = Child.run(started.argv, started.options)
@@ -519,7 +521,7 @@ local function test_child_could_reach_the_network()
   assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
 end
 ]]))
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -564,7 +566,7 @@ end
 local function test_first(tmp: string) hold(tmp) end
 local function test_second(tmp: string) hold(tmp) end
 ]]))
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
@@ -583,7 +585,7 @@ local function test_second(tmp: string) hold(tmp) end
   end
   local output = tmp .. "/interrupted.out"
   local fd = assert(Fs.open_write(output))
-  local interrupted = observations.program(
+  local interrupted = this_program.program(
     { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
     { cwd = root, env = env, stdout = fd, stderr = fd, process_group = true })
   local runner, trouble = Child.start(interrupted.argv, interrupted.options)

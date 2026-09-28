@@ -2,15 +2,15 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local confine = require("build.confine")
+local declared_key = require("build.declared_key")
 local observations = require("build.filesystem_observations")
 local stand_in = require("build.stand_in")
 local test = require("build.test")
 local type raw_process = require("cosmic.internal.process")
-local type Raw = require("cosmic.internal.observations")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -39,20 +39,15 @@ local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/stand-in")))
 end
 
---- What `require` hands the observations' loader.
-local function raw_tables(): Raw
+--- The raw process table build.confine stands in for the spawn of.
+local function raw_process_table(): raw_process
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
-    local loader, extra = searcher("build.filesystem_observations")
+    local loader, extra = searcher("build.confine")
     if type(loader) == "function" and type(extra) == "table" then
-      return extra as Raw -- cast: the table core/store.c's open_observations makes
+      return extra as raw_process -- cast: the table core/process.h defines
     end
   end
-  error("build.filesystem_observations is handed no raw table")
-end
-
---- The raw process table the observations stand in for the spawn of.
-local function raw_process_table(): raw_process
-  return raw_tables().process
+  error("build.confine is handed no raw table")
 end
 
 local function test_round_trips_every_path_byte()
@@ -64,8 +59,8 @@ local function test_round_trips_every_path_byte()
   assert(decoded[1].kind == "s")
   assert(decoded[1].path == path)
   assert(observations.decode("plain/old/read.txt") == nil)
-  assert(observations.key_part("s", "a\nb", "c") ~=
-    observations.key_part("s", "a", "b\nc"))
+  assert(declared_key.key_part("s", "a\nb", "c") ~=
+    declared_key.key_part("s", "a", "b\nc"))
 end
 
 local function test_capture_preserves_a_produced_table_and_restores(tmp: string)
@@ -292,17 +287,6 @@ local function test_restores_all_wrappers_after_an_error()
   assert(sys.readdir == readdir)
 end
 
---- `key_part` hex-encodes both the path and the answer; these literals
---- pin the encoding for the bytes most likely to break a lookup-table
---- rewrite of it: NUL, newline, DEL, and 0xff, plus a multibyte UTF-8
---- path, none of which are ASCII letters or digits.
-local function test_key_part_matches_known_hex_for_edge_bytes()
-  local edges = string.char(0x00, 0x0a, 0x7f, 0xff)
-  assert(observations.key_part("s", edges, "") == "s 000a7fff ")
-  assert(observations.key_part("o", "", edges) == "o  000a7fff")
-  assert(observations.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
-end
-
 local function test_getenv_environ_spawn_and_mkdtemp_are_observed(tmp: string)
   local probe = probe_in(tmp)
   local run = observations.call(function()
@@ -444,10 +428,10 @@ local function test_a_confined_process_is_noted_by_what_it_was_given(tmp: string
   assert(Fs.write(hidden .. "/f", "secret"))
   local code: integer = nil
   local run = observations.call(function()
-    observations.confine({ reads = { given, probe } })
+    confine.confine({ reads = { given, probe } })
     local r = assert(Child.run({ probe,
       "exists " .. hidden .. "/f 3; copy " .. given .. "/f out" }))
-    observations.confine(nil)
+    confine.confine(nil)
     code = r.code
   end, nil, { tree = tmp .. "/tree", own = { own } })
   assert(run.passed, run.message)
@@ -507,12 +491,12 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   local run: observations.Run = nil
   local sandboxed = refusing_sandboxes(function()
     run = observations.call(function()
-      observations.confine({ reads = { probe } })
+      confine.confine({ reads = { probe } })
       assert(Child.run({ probe, "cwd where" }))
       many[#many + 1] = probe
-      observations.confine({ reads = many })
+      confine.confine({ reads = many })
       assert(Child.run({ probe, "exit 0" }))
-      observations.confine(nil)
+      confine.confine(nil)
     end, nil, { tree = tmp .. "/tree", own = { own } })
   end)
   assert(run.passed, run.message)
@@ -534,10 +518,10 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
     local run: observations.Run = nil
     local function attempt()
       run = observations.call(function()
-        observations.must_confine({})
+        confine.must_confine({})
         local ran: any = nil
         ran, trouble = Child.run({ own })
-        observations.confine(nil)
+        confine.confine(nil)
         assert(ran == nil, "a directory ran")
       end, nil, { tree = tmp .. "/tree", own = { own } })
     end
@@ -555,10 +539,10 @@ local function test_a_confined_write_or_descriptor_outside_the_test_is_unkeyable
   for _, dir in ipairs({ own, elsewhere }) do assert(Fs.mkdirs(dir)) end
   local directory = assert(sys.open(elsewhere, sys.O_RDONLY))
   local run = observations.call(function()
-    observations.confine({ reads = { probe }, writes = { elsewhere } })
+    confine.confine({ reads = { probe }, writes = { elsewhere } })
     assert(Child.run({ probe, "write " .. elsewhere .. "/f x" }))
     assert(Child.run({ probe, "exit 0" }, { fds = { [3] = directory } }))
-    observations.confine(nil)
+    confine.confine(nil)
   end, nil, { tree = tmp .. "/tree", own = { own } })
   sys.close(directory)
   assert(run.passed, run.message)
@@ -616,14 +600,14 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   local inherited = Env.get("TMPDIR")
   local said: {string} = {}
   local run = observations.call(function()
-    observations.confine({ reads = { probe } })
+    confine.confine({ reads = { probe } })
     for _, environment in ipairs({ {} as {string:string}, { TMPDIR = chosen },
         inherited ~= nil and { TMPDIR = inherited } or nil }) do
       local r = assert(Child.run({ probe, "write /tmp/f x && cat /tmp/f; env-of TMPDIR" },
         { env = environment, stdout = "capture" }))
       said[#said + 1] = assert(r.stdout)
     end
-    observations.confine(nil)
+    confine.confine(nil)
   end, nil, { tree = tmp .. "/tree", own = { own } })
   assert(run.passed, run.message)
   local _, unconfined = confined_notes(run)
@@ -651,7 +635,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
   local resolved = assert(sys.realpath(real))
   local said: {string} = {}
   local run = observations.call(function()
-    observations.confine({ reads = { real .. "/core", probe } })
+    confine.confine({ reads = { real .. "/core", probe } })
     for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do
       local r = assert(Child.run({ probe,
         "mkdirs $COSMIC_PORTABLE_CACHE && ls $COSMIC_PORTABLE_CACHE; " ..
@@ -659,7 +643,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
         { env = { COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
       said[#said + 1] = assert(r.stdout)
     end
-    observations.confine(nil)
+    confine.confine(nil)
   end, nil, { tree = tmp .. "/tree", own = { own } })
   assert(run.passed, run.message)
   local notes, unconfined = confined_notes(run)
@@ -740,146 +724,6 @@ local function test_an_unveiled_sandbox_is_read_as_the_core_reads_it(tmp: string
   assert(notes:find("x //proc/sys/kernel/random\n", 1, true) or
     notes:find("x " .. probe .. "\n", 1, true), notes)
   assert(not notes:find("u //proc", 1, true), notes)
-end
-
---- What a sandboxed worker's chunk says: whether its /proc is a procfs
---- of its own pid namespace (which has no /proc/sys) or the host's;
---- whether its core found the stamp beside it in the cache that spares
---- hashing it again; and what the grandchild it confines to `...`'s
---- first path -- the stand-in that is the third, with /proc, where it
---- finds itself -- read of that path and of the second, which it was
---- not given.
-local worker_chunk <const> = [==[
-local sys = require("cosmic.sys")
-local given, hidden, probe = ...
-local said = { sys.stat("/proc/sys") == nil and "own-proc" or "host-proc" }
-local core = assert(sys.readlink("/proc/self/exe"))
-local directory, name = core:match("^(.*)/(core%-[^/]*)$")
-if directory == nil then
-  said[#said + 1] = "uncached"
-else
-  local st = assert(sys.stat(core))
-  local fd = sys.open(directory .. "/.verified-" .. name, sys.O_RDONLY)
-  local line = fd ~= nil and sys.read(fd, 96) or ""
-  said[#said + 1] = line == string.format("%d|%d|%d|%d\n", st.size, st.ino, st.mtime, st.ctime)
-    and "stamped" or "unstamped"
-end
-local process
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.child")
-  if type(loader) == "function" and type(extra) == "table" then process = extra end
-end
-local reads = { given, probe, "/proc" }
-local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-local pid, trouble, errno = process.spawn(probe, { probe,
-  "cat " .. given .. "/f; print; present " .. hidden .. "/f && print hidden-seen || print hidden-absent" },
-  {}, "/", nil, report, report, false, nil, { unveil = { reads = reads }, offline = true })
-if pid == nil then
-  said[#said + 1] = "refused " .. tostring(sys.errno_name(errno)) .. ": " .. trouble
-else
-  said[#said + 1] = "exited " .. process.waitpid(pid, false).code
-  said[#said + 1] = sys.pread(report, 4096, 0)
-end
-print(table.concat(said, "\n"))
-]==]
-
---- The descriptors `observations.program` hands its child, as
---- `process.spawn` takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only `cosmic.child`
---- reads.
-local function spawn_fds(started: observations.Program): {integer:integer}
-  local fds: {integer:integer} = {}
-  for number, fd in pairs(started.options.fds) do
-    if fd is integer then
-      fds[number] = fd
-    else
-      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
-    end
-  end
-  return fds
-end
-
---- Runs `worker_chunk` in a worker of this very program sandboxed to
---- `worker_unveil`'s paths, as a worker whose module declares nothing
---- of the system's is (the chunk starts a stand-in, in `tmp`, its
---- scratch), in `tmp`: the lines it said, or nil where there is no
---- portable artifact to start again, or no sandbox to be had.
-local function sandboxed_worker(tmp: string): {string} | nil
-  if Proc.relaunch() == nil then return nil end -- no portable artifact to start again
-  local probe = probe_in(tmp)
-  local given, hidden = tmp .. "/given", tmp .. "/hidden"
-  for _, dir in ipairs({ given, hidden }) do assert(Fs.mkdirs(dir)) end
-  assert(Fs.write(given .. "/f", "in"))
-  assert(Fs.write(hidden .. "/f", "secret"))
-  local tree = assert(sys.getcwd())
-  local unveil = observations.worker_unveil(tree, tree, tmp)
-  -- Given no environment but the relaunch's, as `cosmic test` gives
-  -- its worker none but what it pins.
-  local worker = observations.program({ "-e", worker_chunk, given, hidden, probe }, { env = {} })
-  local argv, opts = worker.argv, worker.options
-  local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local process = raw_process_table()
-  local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output,
-    output, false, spawn_fds(worker),
-    { unveil = unveil, offline = true })
-  if pid == nil then
-    sys.close(output)
-    assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but no sandbox: " ..
-      trouble)
-    -- Only as a kernel that cannot confine refuses, never for a path
-    -- the set left out.
-    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return nil
-  end
-  local status = assert(process.waitpid(pid, false))
-  local said = assert(sys.pread(output, 65536, 0))
-  sys.close(output)
-  assert(status.code == 0, said)
-  local lines: {string} = {}
-  for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
-  return lines
-end
-
---- A worker of this very program sandboxed to `worker_unveil`'s paths,
---- and no more, starts, finds the stamp that says its core was verified
---- (where the cache has one), so hashes nothing again, and, having a
---- procfs of its own, can confine a process of its own in turn to a part
---- of what it was given: that process reads its part and has nothing
---- else -- run by root too, whose worker, having given up the CAP_SETFCAP
---- that mapping root takes, starts it unmapped. Where the kernel refuses
---- it a procfs of its own (a container masking parts of its /proc), its
---- /proc is the host's, read-only whole, so the uid_map its process
---- writes is too, and that process is refused. So is it where this test
---- runs as root without CAP_SETFCAP, as in a sandbox already (a
---- sandboxed `cosmic test` worker's, build/test_sandbox.tl): the worker
---- it starts is root unmapped, whom the kernel refuses a user namespace
---- (core/syscalls.c's `map_ids`).
-local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
-  local lines = sandboxed_worker(tmp)
-  if lines == nil then return end
-  local said = table.concat(lines, "\n")
-  -- Whether the cache holds a stamp for the core, which the worker
-  -- then has to find.
-  local relaunch = assert(Proc.relaunch())
-  local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$")
-  local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil
-  assert(not stamped or lines[2] == "stamped", said)
-  -- Root that has given up CAP_SETFCAP (bit 31 of CapEff) -- as root
-  -- in a sandbox has -- may not map root into a user namespace of its
-  -- own, so its worker starts unmapped and cannot confine another.
-  local status = Fs.read("/proc/self/status") or ""
-  local effective = status:match("\nCapEff:%s*(%x+)") or "0"
-  local capabilities = math.tointeger(tonumber(effective:sub(-8), 16)) or 0
-  local inner_root = sys.getuid() == 0 and capabilities & (1 << 31) == 0
-  if inner_root then
-    assert(lines[3]:find("^refused EPERM") ~= nil, said)
-  elseif observations.own_proc_given() then
-    assert(lines[1] == "own-proc" and lines[3] == "exited 0" and lines[4] == "in" and
-      lines[5] == "hidden-absent", said)
-  else
-    assert(lines[1] == "host-proc" and lines[3]:find("^refused EROFS") ~= nil, said)
-  end
 end
 
 --- The observation of `kind` of `path` in `found`, or nil.
@@ -1273,120 +1117,4 @@ local function test_a_stat_answer_leaves_out_the_owner(tmp: string)
   assert(#fields == 11, answer)
   assert(fields[1] == "ok" and fields[2] == tostring(st.size) and fields[10] == tostring(st.ctime),
     answer)
-end
-
---- Swaps `Proc.relaunch` for one answering `relaunch` while `fn` runs.
-local function relaunching(relaunch: Proc.Relaunch | nil, fn: function())
-  local real = Proc.relaunch
-  Proc.relaunch = function(): Proc.Relaunch | nil, string
-    return relaunch, relaunch == nil and "no artifact" or ""
-  end
-  local ok, trouble = pcall(function(): string
-    fn()
-    return ""
-  end)
-  Proc.relaunch = real
-  assert(ok, tostring(trouble))
-end
-
---- `program` starts the core the relaunch names with its arguments and
---- the program's after them, or, with no artifact to relaunch, the
---- program itself; either way without the startup test's handshake.
-local function test_program_starts_the_relaunch_or_else_the_executable()
-  relaunching({ argv = { "/cache/core-x", "--artifact", "/tree/o/bin/cosmic" }, env = {},
-    fds = {} }, function()
-      local argv = observations.program({ "test", "--all" }).argv
-      assert(table.concat(argv, " ") == "/cache/core-x --artifact /tree/o/bin/cosmic test --all",
-        table.concat(argv, " "))
-    end)
-  relaunching(nil, function()
-    local started = observations.program({ "-e", "" }, { env = { HOME = "/home",
-      COSMIC_PORTABLE_STARTUP_TEST_READY = "r", COSMIC_PORTABLE_STARTUP_TEST_GO = "g" },
-      fds = { [3] = 1 } })
-    local argv = started.argv
-    assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
-      argv[3] == "", table.concat(argv, " "))
-    local env = started.options.env
-    assert(env.HOME == "/home" and env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
-    assert(started.options.fds[3] == 1 and next(started.options.fds, 3) == nil)
-  end)
-  -- And this very program's: its relaunch where it has one.
-  local relaunch = Proc.relaunch()
-  local argv = observations.program({ "x" }).argv
-  local lead = relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }
-  assert(#argv == #lead + 1 and argv[#argv] == "x", table.concat(argv, " "))
-  for i, word in ipairs(lead) do assert(argv[i] == word, table.concat(argv, " ")) end
-end
-
---- `program` adds the relaunch's variables to the environment the
---- caller gives, in a copy, or to the whole of this process's where it
---- gives none, and takes out the startup test's handshake either way;
---- the relaunch's descriptors go beside the caller's, and one the
---- caller names already raises; every other option is the caller's,
---- and the caller's tables are left as they were.
-local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
-  local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--artifact", "/a" },
-    env = { COSMIC_PORTABLE_ARTIFACT = "/a", SHARED = "relaunch" },
-    fds = { [254] = 7, [255] = 8 } }
-  relaunching(relaunch, function()
-    local env: {string:string} = { HOME = "/home", SHARED = "caller",
-      COSMIC_PORTABLE_STARTUP_TEST_READY = "r", COSMIC_PORTABLE_STARTUP_TEST_GO = "g" }
-    local fds: {integer:integer | string} = { [3] = 1, [4] = "capture" }
-    local sandbox: Child.Sandbox = { offline = true }
-    -- Every field of `Child.Options`, so one the copy drops fails.
-    local given: Child.Options = { env = env, cwd = "/somewhere", stdin = "pipe", input = "bytes",
-      stdout = "capture", stderr = "stdout", fds = fds, capture_limit = 9,
-      process_group = true, timeout_ms = 5, sandbox = sandbox }
-    local opts = observations.program({}, given).options
-    assert(opts.env ~= env and opts.fds ~= fds, "the caller's tables are copied")
-    assert(opts.env.HOME == "/home" and opts.env.COSMIC_PORTABLE_ARTIFACT == "/a" and
-      opts.env.SHARED == "relaunch")
-    assert(opts.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      opts.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
-    assert(opts.fds[3] == 1 and opts.fds[4] == "capture" and opts.fds[254] == 7 and
-      opts.fds[255] == 8)
-    assert(opts.cwd == "/somewhere" and opts.stdin == "pipe" and opts.stdout == "capture" and
-      opts.input == "bytes" and opts.stderr == "stdout" and opts.capture_limit == 9 and opts.process_group == true and
-      opts.timeout_ms == 5 and opts.sandbox == sandbox)
-    assert(given.env == env and given.fds == fds)
-    assert(env.SHARED == "caller" and env.COSMIC_PORTABLE_ARTIFACT == nil and
-      env.COSMIC_PORTABLE_STARTUP_TEST_READY == "r" and env.COSMIC_PORTABLE_STARTUP_TEST_GO == "g")
-    assert(fds[254] == nil and fds[255] == nil)
-    -- A descriptor the relaunch hands the core its artifact as, named
-    -- by the caller too, raises rather than being dropped.
-    local ok, trouble = pcall(observations.program, {}, { fds = { [254] = "capture" } })
-    assert(not ok and tostring(trouble):find("descriptor 254", 1, true), tostring(trouble))
-    -- No environment given: this process's whole, which a child given
-    -- none would have inherited, with the relaunch's added.
-    local whole = observations.program({ "x" }).options
-    local own = Env.all()
-    for name, value in pairs(own) do
-      if name ~= "COSMIC_PORTABLE_STARTUP_TEST_READY" and name ~= "COSMIC_PORTABLE_STARTUP_TEST_GO"
-        and relaunch.env[name] == nil then
-        assert(whole.env[name] == value, name)
-      end
-    end
-    for name, value in pairs(relaunch.env) do assert(whole.env[name] == value, name) end
-    assert(whole.env.COSMIC_PORTABLE_STARTUP_TEST_READY == nil and
-      whole.env.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
-    assert(whole.fds[254] == 7 and whole.fds[255] == 8)
-  end)
-end
-
---- This very program, started as `program` says, starts with an empty
---- environment on the core the relaunch names: not the one a launcher
---- given no cache home would find or unpack elsewhere.
-local function test_program_starts_this_program_with_no_environment(tmp: string)
-  local started = observations.program({ "-e", [[
-local Fs = require("cosmic.fs")
-local cmdline = Fs.read("/proc/self/cmdline")
-print(cmdline ~= nil and cmdline:match("^[^%z]*") or "")
-]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 30000 })
-  local r = assert(Child.run(started.argv, started.options))
-  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
-  local relaunch = Proc.relaunch()
-  if relaunch == nil or not Fs.exists("/proc/self/cmdline") then return end
-  assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
-    relaunch.argv[1])
 end

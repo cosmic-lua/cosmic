@@ -1,12 +1,13 @@
 --- `cosmic test`'s sandboxed worker (build/test_sandbox.tl) for a module
 --- that declares `system`, and a process such a module's test confines
---- (build.filesystem_observations' `confine`): the cases of
+--- (build.confine's `confine`): the cases of
 --- build/test_sandbox_test.tl and build/filesystem_observations_test.tl
 --- that look for the system's own paths, which only a worker given them
 --- has to give, and so the ones that declare them themselves.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
@@ -55,9 +56,9 @@ local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
   assert(Fs.mkdirs(own))
   local code: integer = nil
   local run = observations.call(function()
-    observations.confine({ reads = { probe } })
+    confine.confine({ reads = { probe } })
     local r = assert(Child.run({ probe, "present /usr || exit 3" }, { env = {} }))
-    observations.confine(nil)
+    confine.confine(nil)
     code = r.code
   end, nil, { tree = tmp .. "/tree", own = { own } })
   assert(run.passed, run.message)

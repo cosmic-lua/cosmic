@@ -126,8 +126,8 @@
    declares, but nothing else holds it to its declaration, which a
    sandboxed run (a Linux leg of CI) must enforce.
    Only the sandbox's own tests nest one sandbox in another with
-   `observations.confine`: where the kernel cannot confine a process,
-   `confine` starts it unconfined; `observations.must_confine` fails
+   build.confine's `confine`: where the kernel cannot confine a process,
+   `confine` starts it unconfined; `must_confine` fails
    the spawn, and the test, instead, naming the part of the sandbox
    refused and its errno. `COSMIC_SANDBOX=must` (off by default) makes
    every `confine` one, runs every assumed test as `--all` does, and
@@ -141,7 +141,7 @@
    core/syscalls.c's `map_ids`) -- those tests return before asserting,
    or fail where the run is held to sandboxing (`COSMIC_TEST_SANDBOX=1`,
    `COSMIC_SANDBOX=must` or `COSMIC_CI_REQUIRE_SANDBOX=1`:
-   `observations.held_to_sandbox`). CI's unprivileged runners nest at
+   build.confine's `held_to_sandbox`). CI's unprivileged runners nest at
    any depth; locally, check them by running the suite as an
    unprivileged user, as `ci/run-local` runs its driver as `nobody`.
    A test module declares what it reads beyond its import closure, its
@@ -152,7 +152,7 @@
    call that would hold it. Keep it clean, narrowing a test before declaring
    a large set. What it declares, it declares for the processes it
    starts too, which inherit its worker's sandbox and environment; build
-   a process's environment from `observations.environment()` only where
+   a process's environment from build.this_program's `environment()` only where
    the test means to choose it. The closure is what the build
    finds `require`d by a literal name, and a test's `require` of any
    other module of the tree (a computed name, `pcall(require, ...)`)
@@ -165,7 +165,7 @@
    module declares `system = true`, as one that starts a host program --
    a shell, `sleep`, a compiler, o/bin/cosmic's `#!/bin/sh` launcher --
    must; a test that starts cosmic's core past the launcher
-   (`observations.program`) needs none, and one that reads a file or two
+   (build.this_program's `program`) needs none, and one that reads a file or two
    of the system names them in `host`. `--audit` names a host program a
    test ran undeclared. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed

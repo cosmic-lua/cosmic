@@ -126,6 +126,7 @@ local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 local closure_store = require("build.closure_store")
+local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
 local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
@@ -627,7 +628,7 @@ end
 --- other is read for it here, and one that is gone says so.
 ---
 --- Nothing in a key names where the tree is: a read under the root is
---- keyed by its name there (`observations.tree_name`), a variable by what
+--- keyed by its name there (`declared_key.tree_name`), a variable by what
 --- `observations.held_variable` keeps of it, and a path a confined
 --- process was given by what `observations.unveiled_answer` says of
 --- it; its `shared` key keeps of a stat only what `held_stat` does,
@@ -757,7 +758,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- Generation 12 keys a test's `sys.tree_digest` of a path of the tree
   -- by what the walk answers ("g" and "j"), which generation 11 never
   -- observed.
-  local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
+  local header = declared_key.key_part("i", id, declared_key.key_part("m", module_key, runtime))
   local lines: {string} = { "recording-12", "module-load-reads-v1", header }
   local shared_lines: {string} = { "shared-recording-6", "module-load-reads-v1", header }
   if whole then
@@ -880,11 +881,11 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       -- checkout's own key, and by `tree_name` in the shared one, as
       -- every checkout of the tree answers alike.
       local value = answer:match("^ok (.*)$")
-      if value ~= nil then shared_answer = "ok " .. observations.tree_name(value, root) end
+      if value ~= nil then shared_answer = "ok " .. declared_key.tree_name(value, root) end
     elseif kind == "r" or kind == "v" then
-      answer = observations.tree_name(answer, root)
+      answer = declared_key.tree_name(answer, root)
     elseif kind == "u" then
-      named = observations.tree_name(relative, root)
+      named = declared_key.tree_name(relative, root)
     end
     -- The same (kind, relative, answer) triple recurs across the run's
     -- tests constantly -- module loads and shared fixtures are read by
@@ -894,7 +895,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       local memo_key = kind .. "\0" .. named .. "\0" .. said
       local part = key_parts[memo_key]
       if part == nil then
-        part = observations.key_part(kind, named, said)
+        part = declared_key.key_part(kind, named, said)
         key_parts[memo_key] = part
       end
       return part
@@ -930,7 +931,7 @@ end
 
 --- Whether a passing verdict over `reads` is safe to reuse later: false
 --- when the run spawned a process other than a confined one (an input no
---- observation can hash; see `observations.confine`),
+--- observation can hash; see `confine.confine`),
 --- made a request over the network or read a relative path when its
 --- working directory could not be told (an "x" observation), or opened, stat'd, or listed a path outside `root`, `scratch`,
 --- and every directory an "m" observation anywhere in the same list
@@ -1048,7 +1049,7 @@ end
 --- (`build.test_inputs`): each read of the tree or the host beyond it,
 --- each variable, each request, each thing a process was handed past
 --- observation, and each program of the system's own a process ran
---- (`observations.in_system`), or the interpreter a script it ran names,
+--- (`confine.in_system`), or the interpreter a script it ran names,
 --- as the field of `cosmic.test`'s `Needs` that would declare it, once
 --- each: a read of the system's own paths by the test itself asks
 --- `host` of them, which keys a file by its contents, and a program run
@@ -1061,7 +1062,7 @@ end
 --- leads -- and what a stat asks of a directory above them or the tree;
 --- a device whose every answer is the same, and the test's own process
 --- in /proc; each path a confined process was given, which
---- `observations.confine` declares already, or the worker's own sandbox
+--- `confine.confine` declares already, or the worker's own sandbox
 --- holds it to; and a read that found nothing there (`found_nothing`). `tool` names the program running
 --- the tests, a read of which is a `tool` finding, as one of
 --- o/bin/cosmic is. `sandboxed` says the reads were a sandboxed
@@ -1113,7 +1114,7 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
     return false
   end
   -- TODO: hold each path a confined process was given ("u") to the
-  -- effective inputs too, once `observations.confine` narrows a
+  -- effective inputs too, once `confine.confine` narrows a
   -- worker's own inputs rather than adding to them: a sandboxed worker
   -- can give its process only what it has (nested confinement). Only
   -- the program itself is held to them today, below.
@@ -1124,7 +1125,7 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
     return false
   end
   -- This program, started by the test -- given to a confined process
-  -- ("u"), as `observations.itself()` gives it, or started unconfined
+  -- ("u"), as `confine.itself()` gives it, or started unconfined
   -- ("p") -- runs what no key of the test holds but the tool's: a
   -- `tool` finding.
   local function runs_the_tool(path: string): boolean
@@ -1135,13 +1136,13 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
     -- Sandboxed, every process the test starts is noted "u" of all its
     -- worker's sandbox holds, the program among it, whatever it runs; a
     -- sandboxed worker that may not run the program is refused it
-    -- (`observations.forbid_running`) rather than audited.
+    -- (`confine.forbid_running`) rather than audited.
     if (kind == "p" or (kind == "u" and not sandboxed)) and not effective.tool and
         path:sub(1, 1) == "/" and runs_the_tool(path) then
       add("tool", path)
     end
     if (kind == "p" or kind == "y") and not effective.system and path:sub(1, 1) == "/" and
-        observations.in_system(path) then
+        confine.in_system(path) then
       -- A program of the system's own, or the interpreter a script's
       -- first line names: a sandboxed worker is given the system's
       -- paths only where its module declares `system`, and one declared
@@ -1196,12 +1197,12 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
       elseif the_tool(judged) or the_tool(path) then
         if not effective.tool then add("tool", judged) end
       elseif not test_inputs.covers_host(effective, test_inputs.plain(judged), kind) and
-          not (effective.system and observations.in_system(judged)) then
+          not (effective.system and confine.in_system(judged)) then
         local plain = test_inputs.plain(judged)
         -- A program looked for in a directory of the system's programs
         -- (`Proc.find`'s walk of PATH), which the host has there: what
         -- runs it needs its loader too, which `host` would not give.
-        if observations.in_system(plain) and plain:match("/s?bin/[^/]+$") ~= nil then
+        if confine.in_system(plain) and plain:match("/s?bin/[^/]+$") ~= nil then
           add("system", plain)
         else
           -- By the variable the module declares that says where it is,
@@ -1222,7 +1223,7 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
     if system then
       local kept: {test_inputs.Finding} = {}
       for _, finding in ipairs(out) do
-        if not (finding.field == "host" and observations.in_system(finding.value)) then
+        if not (finding.field == "host" and confine.in_system(finding.value)) then
           kept[#kept + 1] = finding
         end
       end
@@ -2048,7 +2049,7 @@ end
 
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
 --- this program where its module does not declare `tool`
---- (`observations.forbid_running`): not where it may write a directory
+--- (`confine.forbid_running`): not where it may write a directory
 --- the program is in -- the cores a portable cosmic extracts, which the
 --- `bootstrap` cache names (`build.caches`) -- since a core another
 --- cosmic extracts there after the worker holds itself could not be
@@ -2060,7 +2061,7 @@ end
 local function can_forbid(rec: Recording, m: importer.Module): boolean
   local found = rec.forbiddable[m.path]
   if found ~= nil then return found end
-  rec.tool = rec.tool or observations.itself()
+  rec.tool = rec.tool or confine.itself()
   found = test_sandbox.forbiddable(rec.effective[m.path].cache_paths or {}, rec.tool)
   rec.forbiddable[m.path] = found
   return found
@@ -2377,7 +2378,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if not passed and reported ~= nil and job.plan ~= nil then
     -- Sandboxed, a read of what the module does not declare found
     -- nothing: name each, and the declaration that would give it.
-    rec.tool = rec.tool or observations.itself()
+    rec.tool = rec.tool or confine.itself()
     local findings = test.audited(rec.root, job.scratch, rec.effective[job.m.path], reads,
       rec.tool, true)
     local lines = test_inputs.report(job.m, { [job.name] = findings })
@@ -2666,7 +2667,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   -- Sandboxed, a worker whose module does not declare `tool` may not
-  -- run this program (`observations.forbid_running`): what it would run
+  -- run this program (`confine.forbid_running`): what it would run
   -- is no input of its test's key. A module whose key holds the whole
   -- projection, or the program and the modules it carries, has no hold
   -- on the store (`build.test_worker`).
@@ -2939,7 +2940,7 @@ function test.run(argv: {integer:string}): integer
   -- whole tree that chooses it. COSMIC_SANDBOX=must asks for all of
   -- them: one assumed may have passed with a process that fell back to
   -- running unconfined, which the mode refuses
-  -- (build.filesystem_observations' `must_confine`).
+  -- (build.confine's `must_confine`).
   -- An audit runs every test it chooses, to observe what each reads.
   local audit = parsed.set["--audit"] == true
   local forced = audit or parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
@@ -3044,7 +3045,7 @@ function test.run(argv: {integer:string}): integer
     sandboxed, why = sandbox_here()
     if sandboxed then
       -- And whether it is held to confining what it starts
-      -- (`observations.must_confine`), which a test's verdict turns on.
+      -- (`confine.must_confine`), which a test's verdict turns on.
       runtime = runtime .. " sandboxed" .. (must and " must" or "")
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
@@ -3278,7 +3279,7 @@ function test.run(argv: {integer:string}): integer
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations)
   end
   if audit then
-    rec.audit, rec.tool = {}, observations.itself()
+    rec.audit, rec.tool = {}, confine.itself()
     for i = 1, #rec.tool do rec.tool[#rec.tool + 1] = observations.resolution(rec.tool[i]) end
   end
   if audit or keyed then
@@ -3319,7 +3320,7 @@ function test.run(argv: {integer:string}): integer
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
     rec.system = declared_key.system_identity(rec.digests)
-    rec.tool = rec.tool or observations.itself()
+    rec.tool = rec.tool or confine.itself()
     rec.program = declared_key.program_identity(rec.digests, rec.tool)
     -- The runtime identity holds the core an artifact selects, not the
     -- launcher and manifest that selected it, which a test that does

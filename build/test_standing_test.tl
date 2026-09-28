@@ -8,7 +8,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
@@ -21,7 +21,7 @@ local function run(root: string, output: string, env: {string:string}, fails?: b
   local fd = assert(Fs.open_write(output))
   local args: {string} = { "test" }
   for _, word in ipairs(words or { "--all" }) do args[#args + 1] = word end
-  local started = observations.program(args, {
+  local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
   })
@@ -93,7 +93,7 @@ local function test_plain()
   assert(1 + 1 == 2)
 end
 ]]))
-  local env = observations.environment()
+  local env = this_program.environment()
   -- Unsandboxed: what is keyed is a worker's read of the host.
   env.COSMIC_TEST_SANDBOX = "0"
   env.OUTSIDE = tmp .. "/outside"
@@ -137,7 +137,7 @@ local function test_plain()
 end
 ]]
   assert(Fs.write(root .. "/suite/outside_test.tl", source))
-  local env = observations.environment()
+  local env = this_program.environment()
   -- Unsandboxed: what is keyed is a worker's read of the host.
   env.COSMIC_TEST_SANDBOX = "0"
   env.OUTSIDE = tmp .. "/outside"

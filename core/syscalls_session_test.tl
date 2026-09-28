@@ -4,7 +4,8 @@
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 
 -- TODO: start the session with cosmic once cosmic.sys carries setsid,
@@ -41,11 +42,11 @@ local function create(path: string): integer
   return fd
 end
 
---- The descriptors `observations.program` hands its child, as
+--- The descriptors `this_program.program` hands its child, as
 --- `process.spawn` takes them: each a descriptor of this process, as
 --- the relaunch's are, and none "capture", which only `cosmic.child`
 --- reads.
-local function spawn_fds(started: observations.Program): {integer:integer}
+local function spawn_fds(started: this_program.Program): {integer:integer}
   local fds: {integer:integer} = {}
   for number, fd in pairs(started.options.fds) do
     if fd is integer then
@@ -74,7 +75,7 @@ local function in_own_session(tmp: string, chunk: string, ...: string): string |
   local report = create(tmp .. "/session")
   local args: {string} = { "-e", chunk }
   for _, word in ipairs({ ... }) do args[#args + 1] = word end
-  local started = observations.program(args)
+  local started = this_program.program(args)
   local argv: {string} = { setsid }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local pid = assert(process.spawn(setsid, argv, started.options.env, tmp, nil, report, report,
@@ -143,7 +144,7 @@ return 0
   -- It set its own, where its /proc is its own and so writable, and, as
   -- root, its init's.
   assert(said:find("kept\n$") ~= nil, said)
-  local own = observations.own_proc_given()
+  local own = confine.own_proc_given()
   assert(not own or said:find(" nice 19\n", 1, true) ~= nil, said)
   assert(not own or sys.getuid() ~= 0 or said:find("init-set\n", 1, true) ~= nil, said)
 end

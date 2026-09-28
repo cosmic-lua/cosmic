@@ -9,7 +9,8 @@ local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- /proc, where a confined child's coverage is found; and the program
@@ -29,10 +30,10 @@ return function(): integer
   return 0
 end
 ]]))
-  -- TODO: start this program through `observations.program`, in this
+  -- TODO: start this program through `this_program.program`, in this
   -- parent and in test_processes_confined_apart_report_apart's, once it
   -- moves to `cosmic.test` (the TODO above it in
-  -- build/filesystem_observations.tl): a file run cannot reach build/,
+  -- build/this_program.tl): a file run cannot reach build/,
   -- so each relaunches by hand.
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
@@ -40,7 +41,7 @@ local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   Coverage.children(argv[1])
-  -- This program again, past its launcher, as `observations.program`
+  -- This program again, past its launcher, as `this_program.program`
   -- starts it (a file run cannot reach build/), in an empty environment
   -- but for how to start the core: only the core can carry the
   -- directory.
@@ -58,9 +59,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = observations.program({ "parent.tl", reports,
+  local started = this_program.program({ "parent.tl", reports,
     tmp .. "/child/child.tl", tmp .. "/child" },
-    { env = observations.environment(), cwd = tmp .. "/parent", stdout = "capture",
+    { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
       stderr = "capture", timeout_ms = 60000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
@@ -89,7 +90,7 @@ local function test_processes_confined_apart_report_apart(tmp: string)
   -- start -- itself alone, every Linux core being static
   -- (core/linkage_test.tl) -- and the directory it reports to.
   local reads: {string} = {}
-  for _, path in ipairs(observations.itself()) do reads[#reads + 1] = path end
+  for _, path in ipairs(confine.itself()) do reads[#reads + 1] = path end
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if Fs.exists(path) then reads[#reads + 1] = path end
   end
@@ -135,8 +136,8 @@ return function(argv: {string}): integer
   return 0
 end
 ]]))
-  local started = observations.program({ "parent.tl", reports, table.concat(reads, "\n") },
-    { env = observations.environment(), cwd = tmp .. "/parent", stdout = "capture",
+  local started = this_program.program({ "parent.tl", reports, table.concat(reads, "\n") },
+    { env = this_program.environment(), cwd = tmp .. "/parent", stdout = "capture",
       stderr = "capture", timeout_ms = 60000 })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
@@ -172,9 +173,9 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
       tmp .. "/unsigned" }) do
     local dir = value:match("[^:]*$")
     assert(Fs.mkdirs(dir))
-    local env = observations.environment()
+    local env = this_program.environment()
     env.COSMIC_COVERAGE_CHILDREN = value
-    local started = observations.program({ "-e", "return 0" },
+    local started = this_program.program({ "-e", "return 0" },
       { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ms = 60000 })
     local r = assert(Child.run(started.argv, started.options))
     assert(r.ok, tostring(r.stderr))

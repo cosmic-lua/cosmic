@@ -12,7 +12,7 @@
 --- with it. Start a child with `process_group = false` for one meant
 --- to outlive the call that started it. A child started with a
 --- `sandbox` that unveils, or one the test runner confines
---- (build.filesystem_observations' `confine`, through the process
+--- (build.confine's `confine`, through the process
 --- table's sandbox), starts a session, and so a group, of its own
 --- whatever `process_group` says, in a pid namespace of its own that
 --- ends when it does: nothing it starts outlives it there.

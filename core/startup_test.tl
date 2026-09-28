@@ -9,14 +9,14 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local observations = require("build.filesystem_observations")
+local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start past its launcher.
 Test.needs{ tool = true }
 
 local function environment(): {string:string}
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
   return env

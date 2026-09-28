@@ -2,12 +2,13 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
-local observations = require("build.filesystem_observations")
+local confine = require("build.confine")
+local this_program = require("build.this_program")
 local work = require("build.work")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, and what holds a run to
---- sandboxing (`observations.held_to_sandbox`).
+--- sandboxing (`confine.held_to_sandbox`).
 Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true }
 
 local function count(db: Sqlite.Handle, table_name: string): integer
@@ -87,7 +88,7 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local held = assert(work.open(tmp))
   local output = tmp .. "/second.out"
   local fd = assert(Fs.open_write(output))
-  local build = observations.program({ "main.tl" }, { cwd = tmp, stdout = fd, stderr = fd })
+  local build = this_program.program({ "main.tl" }, { cwd = tmp, stdout = fd, stderr = fd })
   local second, trouble = Child.start(build.argv, build.options)
   assert(Fs.close(fd))
   assert(second, trouble)
@@ -226,9 +227,9 @@ end
 --- they had none, only a run held to sandboxing fails.
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)
-  local env = observations.environment()
+  local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = nil
-  local started = observations.program({ "test" }, {
+  local started = this_program.program({ "test" }, {
     cwd = project, env = env, stdout = "capture", stderr = "capture",
     timeout_ms = 60000,
   })
@@ -236,7 +237,7 @@ local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string
   local out = (result.stdout or "") .. (result.stderr or "")
   assert(result.code == 0, out)
   assert(out:find("(2 tests, 2 modules", 1, true), out)
-  assert(out:find("; sandboxed)", 1, true) or not observations.held_to_sandbox(),
+  assert(out:find("; sandboxed)", 1, true) or not confine.held_to_sandbox(),
     "the run is held to sandboxing, but the run it started was not:\n" .. out)
 end
 
