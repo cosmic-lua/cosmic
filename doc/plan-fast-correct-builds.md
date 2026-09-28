@@ -83,8 +83,7 @@ Worse, a red run leaves the wrong pass standing, in every leg's saved
 cache and in each developer's `~/.cache`.
 
 - Change: a final job in ci.yml and fuzz.yml.
-  - It runs on `schedule`, and on a push to main for as long as main
-    still runs the full scope (1.2 ends that).
+  - It runs on `schedule` and on a push to main.
   - On failure, it opens an issue with a stable label, or comments on
     the open one, naming the run and its failing tests. It needs
     `issues: write` on that job alone.
@@ -244,57 +243,87 @@ today, and 2.4 moves tests off `store` onto `hold_store`.
 - Shows: a test module that reads an unlisted meta key fails, and
   names the declaration that would allow it.
 
-### 1.3 Main stops re-running the queue's SHA
+### 1.3 Plain caches: save from main, key by content
 
-Today every change runs the full scope twice. Main repeats the queue's
-run for two reasons:
+Today each leg saves its caches from every push and every run, under a
+key unique to the run (`…-${{ github.run_id }}-${{ github.run_attempt
+}}`). Three consequences follow:
 
-- A `merge_group` run saves no cache (every save in ci.yml has
-  `github.event_name != 'merge_group'`), and its ref's caches cannot be
-  read from main.
-- `prerelease.yml` takes its products from the main run.
+- Every run writes a new snapshot. The per-run trims and the pressure
+  on the 10 GB limit come from that.
+- Main runs finish out of order, so an older commit can save last and
+  become the newest entry. `save-unless-descendant.sh` and its
+  lookup-only restores exist to prevent that.
+- The long key expressions are spelled out twice, once on the restore
+  and once on the save.
 
-Main's run is also the only second execution of a change, on another
-runner. That second run catches some flaky and clock-dependent passes.
-After this item, the only safety net is the nightly `--all` run and
-0.1's pull.
+The patterns in actions/cache's `caching-strategies.md` need none of
+this:
 
-- Change, queue run: upload each leg's trimmed `verdicts.db`,
-  `portable.db`, `checked.db` and compiles database as artifacts. They
-  are 8 to 13 MB.
-- Change, main push: a first job finds the successful `merge_group` run
-  of ci.yml for `github.sha`, polling while it finishes. If there is
-  one, and the commit moves no vendor part:
-  - Each leg downloads those databases by run id and saves them under
-    main's keys, the way the queue run would have. This needs
-    `actions: read`.
-  - Every phase is skipped.
-  - A trim is not needed, since the queue already trimmed. A
-    boot-and-native-suite trim would drop the portable and checked
-    rows and assemble's compiles.
-- Change, otherwise: a commit that moves a vendor part runs the full
-  scope, so the `full` zig entry is saved.
-- Change, prerelease:
-  - `prerelease.yml` resolves the queue run id. It already has
-    `actions: read`.
-  - Loosen its `event == 'push'` gate.
-  - Take the products from that run.
-  - `SOURCE_RUN_URL` names the queue run. `prerelease.tl` checks the
-    lanes' bytes as data, so products from another run pass it.
-  - The `ci` job's provenance step points at the queue run.
-- Waits on: 1.1, since the checked verdicts reach later queue runs only
-  through main's saves; and 0.1.
-- Shows: a main push whose SHA passed the queue finishes in under 3
-  min. Its prerelease names the queue run. The next gating run stands
-  as it would have without this item.
+- key an entry by the content that decides it
+- save from one place
+- restore everywhere else
+- reuse the restore step's key on the save
+
+This item adopts them for the verdict and compiles caches, and adds no
+new transport.
+
+- Change, restore: every leg and every event restores each cache by its
+  prefix (per leg, container and host features, as now), taking the
+  newest entry.
+- Change, save: only a push to main and the scheduled run save. Branch
+  and merge-queue runs restore only.
+  - The merge queue's saves are unreadable from main anyway.
+  - The ref-dependent save conditions go.
+- Change, save key: the prefix plus a digest of the trimmed content,
+  computed by a driver verb over the rows, since SQLite's file bytes
+  vary. A run that stood on everything saves nothing new, because its
+  key already exists.
+  - Which entry a restore picks decides only how many tests stand,
+    never whether a verdict is right: every row is keyed by its own
+    inputs.
+- Change, ordering: main gets one concurrency group with
+  `cancel-in-progress: false`. GitHub runs main pushes one at a time
+  and keeps only the newest one pending, so saves land in commit order.
+  - `save-unless-descendant.sh`, the lookup-only restores and their
+    `if:` chains are deleted.
+  - An intermediate commit may get no main run, and so no prerelease.
+    `prerelease.tl` already accepts a commit without one, and a pin
+    moves to a later one.
+- Change, save steps: use the restore step's `cache-primary-key`
+  output instead of repeating the key.
+- Main's push still runs its gating scope, and stands on main's own
+  entries. After 1.1 and stage 2, that means it runs only what the
+  change implicated. It stays a second execution of the changed tests
+  on another runner, and still builds the products `prerelease.yml`
+  publishes.
+- The zig build cache keeps its own keys (vendor part, nightly). The
+  driver-check marker is already keyed by content; drop the event from
+  its key.
+- Decision, measured with 0.4: before dropping branch saves, count how
+  often a PR's later push stood on its own earlier push over two
+  weeks. If that saves more than a minute on the median PR, keep
+  branch saves, still keyed by content.
+- Waits on: 0.1, since only the nightly run and 0.1's report now run a
+  test that main stood on; and 0.4, for the decision.
+- Shows:
+  - ci.yml loses `save-unless-descendant.sh` and at least 8 steps per
+    Linux leg (47 today).
+  - A docs-only main push saves no new entry.
+  - The repository's cache usage (`gh api
+    repos/cosmic-lua/cosmic/actions/cache/usage`) stays well under 10
+    GB.
+  - The next gating run after a main push stands as often as before.
 
 ### Milestone M1
 
 - The median gating run is under 9 min, over the ten gating runs whose
   core and harness digests match the restored ones (see Milestones).
 - On those runs, the checked suite stands on at least 90% of its tests.
-- A main push after a green queue run takes under 3 min.
-- Runner-minutes per landed change fall from about 70 to under 40.
+- A main push that moves neither the core nor the harness takes under
+  6 min, on the same median.
+- Runner-minutes per landed change (queue run plus main push) fall from
+  about 70 to under 45.
 
 ## Stage 2: an edit reruns what it implicates (two weeks)
 
@@ -514,8 +543,7 @@ paths by the variable that holds them (`$COSMIC_FIXTURE_PRODUCT`,
 - The same PR moves `ci/cosmic-driver.pin`. Its design note goes in the
   PR description, not session scratch.
 
-- Waits on: stage 3, and a prerelease carrying #2279. After 1.3, that
-  prerelease comes from a queue run.
+- Waits on: stage 3, and a prerelease carrying #2279.
 - Shows: runtime, launcher, identity and product stand on a commit that
   moves neither the product nor the fixtures, taking 25 to 40 s a leg
   (about 2 min today).
@@ -543,31 +571,28 @@ paths by the variable that holds them (`$COSMIC_FIXTURE_PRODUCT`,
   - the C function count
   - the size of `o/build.db`
 
-### 4.3 One cache verb in CI
+### 4.3 One SQLite module for the shared caches
 
-ci.yml has three copies of the same sequence: look up the newest
-entry, check whether a descendant saved it, save. One copy each covers
-verdicts, compiles and the driver-check marker. The SQLite
-open/WAL/corruption/set-aside code also has three copies:
+The SQLite code for opening a cache (WAL, busy timeout, corruption
+detection, setting a corrupt file aside) has three copies:
 `build/shared_compiles.tl`, `build/shared_verdicts.tl` and
-`ci/cosmic_ci/cache_trim.tl`.
+`ci/cosmic_ci/cache_trim.tl`. The last one also reaches into the
+tools' tables directly.
 
-- Change: a local composite action, with the decision in a driver verb
-  tested in `orchestration_test.tl`. `save-unless-descendant.sh` folds
-  into that verb.
-- Change: one module holds the shared SQLite code. `cache_trim.tl`
-  calls the tools' own trim verb.
-- Change: the driver-check marker is no longer keyed by event.
-- Waits on: M2. This item is maintainability, not speed.
-- Shows: at least 10 fewer steps per Linux leg (47 today), and the
-  cache decisions have a driver test.
+- Change: one module holds the shared code. Each cache keeps its own
+  row shape and eviction policy.
+- Change: `cache_trim.tl` calls the tools' own trim verb, as its
+  `TODO:` asks, and prints the content digest 1.3's save key uses.
+- Waits on: 1.3. This item is maintainability, not speed.
+- Shows: the three copies are one, and `cache_trim.tl` reads no
+  table of the tools' directly.
 
 ### Milestone M4
 
 - `COSMIC_TEST_KEY`, the observed path and `core/observed.c` are gone,
   with their line counts in the PR descriptions.
 - The fixtures' rows show them standing on the median gating run.
-- ci.yml's cache handling is one action plus one driver verb.
+- The shared caches open through one module.
 
 ## Milestones
 
