@@ -198,14 +198,18 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
 end
 
 --- The public modules whose last dotted name is `query` (`json` for
---- `cosmic.json`), as their own rows. A module under `cosmic.internal`
---- or a test module is never one, whatever database is read, so a bare
---- name means what a user of the standard library means by it.
+--- `cosmic.json`, `util` for a project's `myproj.util`), as their own
+--- rows, a project's own ahead of the standard library's. A module
+--- under `cosmic.internal`, a test module and an example module are
+--- never one, whatever database is read, as in `docs.index`, so a bare
+--- name means what a user of a library means by it.
 local function modules_ending(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.symbol = '' AND " ..
     "substr(d.module, -length(?1) - 1) = '.' || ?1 AND " ..
-    symbols.public_only("d.module", true) .. " ORDER BY d.module, d.id",
+    "d.module NOT LIKE 'cosmic.internal.%' AND substr(d.module, -5) <> '_test' AND " ..
+    "substr(d.module, -8) <> '_example' " ..
+    "ORDER BY d.module LIKE 'cosmic.%', d.module, d.id",
     { text(query) })
   if rows == nil then
     return nil, trouble
@@ -723,32 +727,19 @@ end
 --- options do (see `by_options`).
 function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   -- A bare lowercase name that ends a public module's name is that
-  -- module (`json` is `cosmic.json`, not the internal record `json`).
+  -- module (`json` is `cosmic.json`, not the internal record `json`);
+  -- the symbols it names exactly follow the module (`string` is
+  -- `cosmic.string`, then `Shape.string`).
+  local modules: {docs.Entry} = {}
   if query:match("^%l[%w_]*$") ~= nil then
-    local modules, modules_trouble = across(view,
+    local found_modules, modules_trouble = across(view,
       function(db: Sqlite.Handle, _: boolean): {docs.Entry} | nil, string
         return modules_ending(db, query)
       end, entry_module)
-    if modules == nil then
+    if found_modules == nil then
       return nil, modules_trouble
     end
-    if #modules > 0 then
-      -- `cosmic docs test` has always answered with the verb: it stays,
-      -- after the module.
-      local verbs, verbs_trouble = across(view,
-        function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
-          return named_all(db, public, { "Cli." .. query })
-        end, entry_module)
-      if verbs == nil then
-        return nil, verbs_trouble
-      end
-      for _, verb in ipairs(verbs) do
-        if verb.module == "cosmic.cli" then
-          modules[#modules + 1] = verb
-        end
-      end
-      return lookup(modules, true, #modules), ""
-    end
+    modules = found_modules
   end
   local exact, exact_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -756,6 +747,26 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     end, entry_module)
   if exact == nil then
     return nil, exact_trouble
+  end
+  if #modules > 0 then
+    -- What only shares the module's name, an internal record (`json`),
+    -- is not another answer.
+    local seen: {string: boolean} = {}
+    for _, entry in ipairs(modules) do
+      seen[entry.module .. "\n" .. entry.symbol] = true
+    end
+    for _, entry in ipairs(exact) do
+      local internal = entry.module:sub(1, 16) == "cosmic.internal." and
+        entry.symbol == query
+      if not internal and not seen[entry.module .. "\n" .. entry.symbol] then
+        modules[#modules + 1] = entry
+      end
+    end
+    local counted, count_trouble = effective_counts(view, modules)
+    if not counted then
+      return nil, count_trouble
+    end
+    return lookup(modules, true, #modules), ""
   end
   if #exact > 0 then
     local named_count = #exact
@@ -1004,13 +1015,18 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       index[#index + 1] = "  " .. listed(item)
     end
   end
+  -- The listing goes after the first paragraph, or, when that ends in
+  -- a colon, after the block it introduces (an example), so the two stay
+  -- together.
   local placed = #index == 0
+  local last = ""
   for line in String.lines(entry.text) do
-    if not placed and line == "" then
+    if not placed and line == "" and last ~= "" and last:sub(-1) ~= ":" then
       lines[#lines + 1] = ""
       for _, row in ipairs(index) do lines[#lines + 1] = row end
       placed = true
     end
+    if line ~= "" or last ~= "" then last = line end
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
   end
   if not placed then
