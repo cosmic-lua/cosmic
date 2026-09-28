@@ -97,8 +97,17 @@ local function environment(extra?: {string:string}): {string:string}
   -- Where the leg is given what spawn's sandbox needs, every suite runs
   -- each worker sandboxed (build/test_sandbox.tl), as `cosmic test`
   -- does by default wherever it can, and fails where it cannot rather
-  -- than run them unsandboxed.
-  if all.COSMIC_CI_REQUIRE_SANDBOX == "1" then all.COSMIC_TEST_SANDBOX = "1" end
+  -- than run them unsandboxed; and every `observations.confine` of a
+  -- test is a `must_confine` there (COSMIC_SANDBOX=must,
+  -- build/filesystem_observations.tl), so a process a test confines
+  -- runs confined or fails the test, never unconfined, and the sandbox
+  -- tests of core/syscalls_test.tl cannot pass unchecked. The mode
+  -- also runs every test no key can hold, as --all does; a sandboxed
+  -- run has none.
+  if all.COSMIC_CI_REQUIRE_SANDBOX == "1" then
+    all.COSMIC_TEST_SANDBOX = "1"
+    all.COSMIC_SANDBOX = "must"
+  end
   if extra then for k, v in pairs(extra) do all[k] = v end end
   return all
 end
@@ -213,13 +222,6 @@ local function operation(c: Context, phase: string, command: {string},
   if not child_environment.COSMIC_AUTO_BOOT then
     child_environment.COSMIC_AUTO_BOOT = "0"
   end
-  -- TODO: set COSMIC_SANDBOX=must here on the Linux legs, so every
-  -- `observations.confine` of a test is a `must_confine` and the sandbox
-  -- tests of core/syscalls_test.tl cannot pass unchecked, once the Linux
-  -- legs' hosts allow unprivileged user namespaces (ci.yml's TODO on
-  -- container options; `phase_sandbox`'s probe says when): GitHub's
-  -- refuse them through kernel.apparmor_restrict_unprivileged_userns=1
-  -- as well as through Docker's seccomp profile.
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ms = timeout,
     output = output, error = error_output }).code
