@@ -19,8 +19,7 @@ The rule every item serves: a test's verdict is keyed by the digest of
 its declared inputs (`Test.needs`, its import closure, the core, the
 host), and the sandbox holds the worker to those inputs. A verdict that
 stands wrongly is silent. So each step that leans on the cache more
-waits for the alarm, and for the soundness fixes that make that step
-safe.
+waits for the soundness fixes that make that step safe.
 
 ## Where it stands (main at 13922ff, 2026-09-28)
 
@@ -38,7 +37,7 @@ The milestones move these numbers. Each milestone measures them again.
   - About 70 runner-minutes per landed change, queue and main together
     (37 + 35 in runs 36369832830 and 36370736026).
 - **Branch push** (light scope): 2 to 4.5 min, with no breakdown by
-  step yet (0.4 records one).
+  step yet (0.3 records one).
 - **CI-only commit** (9022243): linux-x86_64's native suite took 25 s
   and its portable suite 17 s, both standing. When the key moved, they
   took 2 min and 1.6 min.
@@ -67,36 +66,12 @@ A comment appended to one file reruns:
 - `build/test.tl`, `build/zig.tl` and `cosmic/http.tl`: every test. No
   worker runs these; the key holds them anyway (item 2.2).
 
-## Stage 0: the alarm, the key's guards, the numbers (days)
+## Stage 0: the key's guards and the numbers (days)
 
 These items are cheap and mostly independent. Every later stage
 leans on them.
 
-### 0.1 Report a red scheduled run, and pull its verdict
-
-Only the scheduled `--all` run catches a pass that a key does not
-answer for: the clock, a flaky test, a missed input. Today it tells
-only whoever last edited the cron line (the `TODO:` on ci.yml's
-`schedule`), and fuzz.yml's nightly run is the same.
-
-Worse, a red run leaves the wrong pass standing, in every leg's saved
-cache and in each developer's `~/.cache`.
-
-- Change: a final job in ci.yml and fuzz.yml.
-  - It runs on `schedule` and on a push to main.
-  - On failure, it opens an issue with a stable label, or comments on
-    the open one, naming the run and its failing tests. It needs
-    `issues: write` on that job alone.
-  - The failing leg saves its verdict cache with each failed test's
-    rows deleted, under a key newer than any before it. The next run
-    of every branch then reruns those tests.
-- Waits on: nothing.
-- Shows: a `workflow_dispatch` input that forces one named test to fail
-  opens the issue. The next run of main reruns that test. A scheduled
-  run cannot be tried off the default branch, so the dispatch input is
-  the test.
-
-### 0.2 Guard what shapes a key
+### 0.1 Guard what shapes a key
 
 `build.declared_key` and `build.shared_verdicts` are held by their
 source, so an edit to them moves every key. The hand-bumped
@@ -125,7 +100,7 @@ this guard a prerequisite for it.
   - A trial edit that leaves one field out of the key fails the test.
   - A trial edit to the graph key's encoding fails the pin.
 
-### 0.3 Two `cosmic test` runs in one checkout
+### 0.2 Two `cosmic test` runs in one checkout
 
 A review run saw two concurrent `cosmic test` invocations in one
 checkout end in `the tool's database was built by other code than its
@@ -140,7 +115,7 @@ all hit this.
 - Waits on: nothing.
 - Shows: the test.
 
-### 0.4 Emit the numbers every milestone reads
+### 0.3 Emit the numbers every milestone reads
 
 `driver.tl summarize` records each operation's phase and time. It
 records no suite tallies and no digests, so today a milestone rests on
@@ -161,7 +136,7 @@ scraping logs.
 - Shows: `report --runs 10` prints this file's "Where it stands" CI
   numbers.
 
-### 0.5 Refuse the retained artifact descriptor
+### 0.4 Refuse the retained artifact descriptor
 
 A portable start keeps a descriptor on the artifact
 (`COSMIC_PORTABLE_ARTIFACT_FD`). Through it, a test can read every
@@ -186,7 +161,6 @@ already exists (`core/store.h`), so the fix is not blocked.
 
 ### Milestone M0
 
-- A forced failure opens the issue and pulls the verdict.
 - `declared_key_test` fails on an omitted field.
 - The concurrent-run case is a test.
 - `report` prints the baseline.
@@ -221,7 +195,7 @@ directory, which is new on every relink.
     `ci/run-local`.
   - The suite writes `checked.db` beside the leg's `verdicts.db`.
   - The suite runs `cosmic test --census`.
-- Waits on: 0.4, to show it.
+- Waits on: 0.3, to show it.
 - Shows: the next gating run after a main push, on a commit whose core
   and harness digests match the restored ones, has a `checked` row
   standing on at least 90% of its tests. The suite's share of
@@ -307,7 +281,7 @@ new transport.
   that moves a vendor part now leans on for every push. The
   driver-check marker is already keyed by content; drop the event from
   its key.
-- Waits on: 0.1, since only the nightly run and 0.1's report now run a
+- Waits on: nothing. The nightly `--all` run is now the only run of a
   test that main stood on.
 - Shows:
   - ci.yml loses `save-unless-descendant.sh` and at least 8 steps per
@@ -376,7 +350,7 @@ these reruns every test, even though no worker runs them. Edits to
     Its spec assembly moves into the held module.
 - A test pins the held set's closure, as
   `build/compiler_readers_test.tl` does for the compiler's.
-- Waits on: 0.2, which guards what leaves the source-held set, and
+- Waits on: 0.1, which guards what leaves the source-held set, and
   1.2.
 - Shows: a comment in `build/zig.tl`, `cosmic/http.tl` or
   `build/test.tl`'s reporting code reruns only the tool/store floor and
@@ -385,7 +359,7 @@ these reruns every test, even though no worker runs them. Edits to
 
 ### 2.3 The checked job split, if still needed
 
-- Decision: with 0.4's `report`, count the last 20 gating runs in which
+- Decision: with 0.3's `report`, count the last 20 gating runs in which
   linux-x86_64 exceeds the next-slowest leg by more than 2 min. Split
   only if that is more than a quarter of them.
 - Change, if split: a `checked-linux-x86_64` job runs a new `platform
@@ -412,7 +386,7 @@ modules with 3 or more tests to move, each split into
 - the sandbox tests
 - about 15 smaller modules
 
-- Waits on: 0.5 and 1.2. A test moved off `tool` is still exposed to
+- Waits on: 0.4 and 1.2. A test moved off `tool` is still exposed to
   the artifact descriptor, and one moved off `store` to `Store.meta`.
 - Shows: the floor, counted by a named `o/bin/cosmic sql` query over
   the catalog's `tool` and `store` declarations, is about 355 (about
@@ -431,7 +405,7 @@ no in-process memo helps.
 - Failing that, the runner builds the stand-in once under `o/`, and
   tests declare it as `tool` tests declare the program.
 - Waits on: `build.embed` taking a prebuilt store (the `TODO:` in
-  `stand_in.build`, a PR of its own), and 0.5.
+  `stand_in.build`, a PR of its own), and 0.4.
 - Shows: the checked suite, cold, runs about 100 s shorter.
 
 ### 2.6 Key precision, smaller
@@ -504,8 +478,8 @@ Linux legs hold the same tests sandboxed. That is not true of a darwin
 branch. Most darwin branches are C (`__APPLE__` in seven `core/*.c`
 files), which the catalog does not see.
 
-- Decision: the macOS leg's scheduled run stays `--all`, and 0.1's pull
-  is the backstop.
+- Decision: the macOS leg's scheduled run stays `--all`, and is the
+  backstop.
 - Change: add a hand-maintained list of test modules that exercise a
   darwin branch, with a test that the list's modules exist. The macOS
   leg's gating run stands on nothing for those.
@@ -599,7 +573,7 @@ tools' tables directly.
 
 ## Milestones
 
-Each milestone is decided from 0.4's `report`, as follows.
+Each milestone is decided from 0.3's `report`, as follows.
 
 - **A gating run's time:** the slowest `platform` job's
   `started_at`..`completed_at`, which leaves out queueing. The figure
@@ -630,6 +604,8 @@ Each milestone is decided from 0.4's `report`, as follows.
 
 ## Dropped or deferred
 
+- **Report a red scheduled run, and pull its verdict:** dropped. The
+  `TODO:` on ci.yml's `schedule` stays.
 - **Portable suite narrowed** to the tests that depend on the artifact:
   deferred. It stands when its key holds (17 s a leg). Revisit if,
   after 2.2, its key still moves on more than 20% of commits.
