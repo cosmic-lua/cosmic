@@ -318,6 +318,13 @@ function closure_store.write(whole: string, out: string, names: {string},
     end)
     local _, _ = db:exec("DETACH whole")
     if not made then return false, refused end
+    -- TODO: write aside under a name of this run's own, not `out`'s
+    -- `.building`: two runs in one checkout making the same store both
+    -- write it, and build.test's `sweep_stores` removes another run's
+    -- `.building` as a store cut short, so a store written into under
+    -- another could stand at its address for good. The fix, as for
+    -- `writer.write_result`'s, is a unique name and a sweep that spares
+    -- names a live run holds.
     local _, _ = Fs.remove(out .. ".building")
     local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1", { text(out .. ".building") })
     if not vacuumed then return false, vacuum_trouble end

@@ -364,6 +364,11 @@ function writer.write_result(handle: work.Handle, out: string,
   if not attached then
     return false, attach_trouble
   end
+  -- TODO: write aside under a name of this run's own, not `out`'s
+  -- `.building`, which another run's write_result in this checkout
+  -- (projecting the same edit after this one's commit, before this
+  -- one's rename) removes and vacuums into under this one; the sweep
+  -- a unique name needs, of names no live run holds, is the fix.
   local projected, trouble = project(handle, out, result, signature, by)
   local _, _ = db:exec("DETACH out")
   if not projected then
