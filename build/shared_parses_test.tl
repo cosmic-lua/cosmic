@@ -12,38 +12,17 @@ local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local work = require("build.work")
+local parses_fixture = require("build.parses_fixture")
 
 local built, load_trouble = teal.load()
 if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))
 end
 
---- The tables a parse fills (`build.importer`'s `analysis_tables`), as
---- build/shared_parses_tool_test.tl lists them too.
-local parse_tables: {string} = {
-  "parsed", "requires", "tests", "catalog", "docs", "refs", "examples", "test_inputs",
-}
-
---- Every row `sql` answers of the database at `path`, a line each.
-local function dump(path: string, sql: string): string
-  local db = assert(Sqlite.open(path, false))
-  local rows = assert(Sqlite.text_rows(db, sql))
-  assert(db:close())
-  local lines: {string} = {}
-  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row, "\t") end
-  return table.concat(lines, "\n")
-end
-
---- Every row of every parse table of the working database `db`.
-local function parse_rows(db: Sqlite.Handle): string
-  local out: {string} = {}
-  for _, name in ipairs(parse_tables) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2"))
-    out[#out + 1] = name .. " " .. #rows
-    for _, row in ipairs(rows) do out[#out + 1] = table.concat(row, "\t") end
-  end
-  return table.concat(out, "\n")
-end
+--- Every row `sql` answers of the database at `path`, a line each, and
+--- every row of every parse table of a working database.
+local dump = parses_fixture.dump
+local parse_rows = parses_fixture.rows
 
 --- The tree a boot case derives: `build.importer` and the analyzer
 --- modules it names (`build.analyzer`, `build.ast`), what they reach

@@ -9,17 +9,17 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local parses_fixture = require("build.parses_fixture")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
 
---- The tables a parse fills (`build.importer`'s `analysis_tables`), as
---- build/shared_parses_test.tl lists them too.
-local parse_tables: {string} = {
-  "parsed", "requires", "tests", "catalog", "docs", "refs", "examples", "test_inputs",
-}
+--- Every row `sql` answers of the database at `path`, a line each, and
+--- every row of every parse table of a working database.
+local dump = parses_fixture.dump
+local parse_rows = parses_fixture.rows
 
 --- The project every case builds: `a` requires `b`, which requires
 --- `c`; `c` documents a record and its field, `b` reads that field, and
@@ -124,27 +124,6 @@ local function built_as(root: string, env: {string:string}, wanted: string): str
   local text = build(root, env)
   assert(text:find(wanted, 1, true), wanted .. "\n" .. text)
   return text
-end
-
---- Every row `sql` answers of the database at `path`, a line each.
-local function dump(path: string, sql: string): string
-  local db = assert(Sqlite.open(path, false))
-  local rows = assert(Sqlite.text_rows(db, sql))
-  assert(db:close())
-  local lines: {string} = {}
-  for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row, "\t") end
-  return table.concat(lines, "\n")
-end
-
---- Every row of every parse table of the working database `db`.
-local function parse_rows(db: Sqlite.Handle): string
-  local out: {string} = {}
-  for _, name in ipairs(parse_tables) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2"))
-    out[#out + 1] = name .. " " .. #rows
-    for _, row in ipairs(rows) do out[#out + 1] = table.concat(row, "\t") end
-  end
-  return table.concat(out, "\n")
 end
 
 --- `parse_rows` of the checkout at `root`.
