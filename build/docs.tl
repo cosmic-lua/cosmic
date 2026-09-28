@@ -197,6 +197,22 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   return out
 end
 
+--- The public modules whose last dotted name is `query` (`json` for
+--- `cosmic.json`), as their own rows. A module under `cosmic.internal`
+--- or a test module is never one, whatever database is read, so a bare
+--- name means what a user of the standard library means by it.
+local function modules_ending(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.symbol = '' AND " ..
+    "substr(d.module, -length(?1) - 1) = '.' || ?1 AND " ..
+    symbols.public_only("d.module", true) .. " ORDER BY d.module, d.id",
+    { text(query) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
 --- The rows named `query` exactly: a symbol as declared (`Fs.read`), a
 --- symbol's last name alone (`read`, matching every `X.read` and
 --- `X:read`), or a module's own row (`cosmic.fs`).
@@ -698,12 +714,42 @@ local function by_options(view: docs.View, query: string,
   return out, ""
 end
 
---- What `query` names, across `databases`: its exact matches when it
+--- What `query` names, across `databases`: the public module a bare
+--- lowercase name ends (`json`, `fs`; with its verb, if it is one:
+--- `test`); else its exact matches when it
 --- names a symbol or a module; for a qualified name that names nothing,
 --- what its qualifier offers (see `scoped`); otherwise the
 --- documentation that carries all its words, and the verbs whose
 --- options do (see `by_options`).
 function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
+  -- A bare lowercase name that ends a public module's name is that
+  -- module (`json` is `cosmic.json`, not the internal record `json`).
+  if query:match("^%l[%w_]*$") ~= nil then
+    local modules, modules_trouble = across(view,
+      function(db: Sqlite.Handle, _: boolean): {docs.Entry} | nil, string
+        return modules_ending(db, query)
+      end, entry_module)
+    if modules == nil then
+      return nil, modules_trouble
+    end
+    if #modules > 0 then
+      -- `cosmic docs test` has always answered with the verb: it stays,
+      -- after the module.
+      local verbs, verbs_trouble = across(view,
+        function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+          return named_all(db, public, { "Cli." .. query })
+        end, entry_module)
+      if verbs == nil then
+        return nil, verbs_trouble
+      end
+      for _, verb in ipairs(verbs) do
+        if verb.module == "cosmic.cli" then
+          modules[#modules + 1] = verb
+        end
+      end
+      return lookup(modules, true, #modules), ""
+    end
+  end
   local exact, exact_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
       return named(db, public, query)
@@ -879,6 +925,26 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   return out
 end
 
+--- One declared symbol as a module's listing shows it: a function or
+--- method by its signature, anything else (a record's signature spans
+--- lines) by kind and name, then its uses and examples.
+local function listed(item: docs.Entry): string
+  local marks: {string} = {}
+  if item.uses > 0 then
+    marks[#marks + 1] = item.uses .. " uses"
+  end
+  if item.examples > 0 then
+    marks[#marks + 1] = item.examples .. " example" ..
+      (item.examples == 1 and "" or "s")
+  end
+  local shown = item.kind .. " " .. item.source_symbol
+  if (item.kind == "function" or item.kind == "method") and
+     item.signature ~= "" and not item.signature:find("\n", 1, true) then
+    shown = item.signature
+  end
+  return shown .. (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
+end
+
 --- One entry, as `cosmic docs` prints it: where it is, its signature,
 --- its documentation indented under that, and how many places use it.
 --- A module's row lists the symbols it declares instead of a signature.
@@ -918,19 +984,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       end
     end
   end
-  for line in String.lines(entry.text) do
-    lines[#lines + 1] = #line > 0 and "  " .. line or ""
-  end
-  -- A verb's options are data, `Cli.options`, not prose: shown under
-  -- its field as `cosmic help` shows them, and searched by
-  -- `by_options`.
-  local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
-  if verb ~= nil and Cli.options[verb] ~= nil then
-    lines[#lines + 1] = "  options:"
-    for line in String.lines(Flags.options(Cli.options[verb])) do
-      lines[#lines + 1] = "  " .. line
-    end
-  end
+  -- A module's signatures come right after its opening paragraph, ahead
+  -- of the long prose: a reader scanning for a call wants the shapes
+  -- first, and the prose that follows explains their shared contract.
+  local index: {string} = {}
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -944,18 +1001,33 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       return nil, count_trouble
     end
     for _, item in ipairs(declared) do
-      local marks: {string} = {}
-      if item.uses > 0 then
-        marks[#marks + 1] = item.uses .. " uses"
-      end
-      if item.examples > 0 then
-        marks[#marks + 1] = item.examples .. " example" ..
-          (item.examples == 1 and "" or "s")
-      end
-      lines[#lines + 1] = "  " .. item.kind .. " " .. item.source_symbol ..
-        (#marks > 0 and " (" .. table.concat(marks, ", ") .. ")" or "")
+      index[#index + 1] = "  " .. listed(item)
     end
-  else
+  end
+  local placed = #index == 0
+  for line in String.lines(entry.text) do
+    if not placed and line == "" then
+      lines[#lines + 1] = ""
+      for _, row in ipairs(index) do lines[#lines + 1] = row end
+      placed = true
+    end
+    lines[#lines + 1] = #line > 0 and "  " .. line or ""
+  end
+  if not placed then
+    if entry.text ~= "" then lines[#lines + 1] = "" end
+    for _, row in ipairs(index) do lines[#lines + 1] = row end
+  end
+  -- A verb's options are data, `Cli.options`, not prose: shown under
+  -- its field as `cosmic help` shows them, and searched by
+  -- `by_options`.
+  local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
+  if verb ~= nil and Cli.options[verb] ~= nil then
+    lines[#lines + 1] = "  options:"
+    for line in String.lines(Flags.options(Cli.options[verb])) do
+      lines[#lines + 1] = "  " .. line
+    end
+  end
+  if entry.symbol ~= "" then
     if entry.uses > 0 then
       lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
         (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.source_symbol
