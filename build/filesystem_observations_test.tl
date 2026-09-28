@@ -7,28 +7,37 @@ local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
+local stand_in = require("build.stand_in")
 local test = require("build.test")
 local type raw_process = require("cosmic.internal.process")
 local type Raw = require("cosmic.internal.observations")
 
--- TODO: name these host paths per platform once a declaration can
--- (a `host` entry for Linux and one for macOS, or a path the sandbox
--- resolves): /etc (a link to /private/etc) differs on macOS, where the audit would find these
--- reads undeclared; only Linux enforces declarations for now.
+-- TODO: declare /proc for Linux alone once a declaration can name a
+-- host path per platform (a `host` entry for Linux and one for macOS):
+-- macOS has no /proc, so there this declares a path that is not there,
+-- which gives and keys nothing but says what the tests need wrongly.
 --- What the observer is tested observing: processes it cannot confine, the
---- system's own directories, the environment, and requests to closed local
---- ports; and /proc, where a program a test starts reads its own command
---- line.
+--- environment, and requests to closed local ports; /proc, where a
+--- program a test starts reads its own command line; and the program
+--- itself, whose core the stand-in its processes run is built from.
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   network = { "127.0.0.1", "127.0.0.2" },
   processes = true,
   tool = true,
-  system = true,
 }
 
 local type Searcher = function(string): any, any
+
+--- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- the script its first argument holds: what a process a test here
+--- starts runs, a static executable that reads only itself (and /proc,
+--- where it finds itself), so one confined needs nothing of the
+--- system's own.
+local function probe_in(tmp: string): string
+  return (assert(stand_in.build(tmp .. "/stand-in")))
+end
 
 --- What `require` hands the observations' loader.
 local function raw_tables(): Raw
@@ -294,11 +303,12 @@ local function test_key_part_matches_known_hex_for_edge_bytes()
   assert(observations.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
 end
 
-local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
+local function test_getenv_environ_spawn_and_mkdtemp_are_observed(tmp: string)
+  local probe = probe_in(tmp)
   local run = observations.call(function()
     Env.get("HOME")
     assert(Fs.mkdtemp("cosmic-observed-"))
-    assert(Child.run({ "/bin/sh", "-c", "true" }))
+    assert(Child.run({ probe, "exit 0" }))
   end, nil)
   assert(run.passed, run.message)
   local kinds: {string:integer} = {}
@@ -380,10 +390,11 @@ end
 --- A process started inside `declared` is noted "h", one outside it "p",
 --- and a declaration that did not hold, or one that raised, leaves the
 --- run unkeyable or the count of running declarations as it was.
-local function test_a_declared_process_is_noted_apart()
+local function test_a_declared_process_is_noted_apart(tmp: string)
+  local probe = probe_in(tmp)
   local run = observations.call(function()
     observations.declared("held", function(): boolean
-      assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
+      assert(Child.run({ probe, "exit 0" }))
       return true
     end)
     observations.declared("not held", function(): boolean return false end)
@@ -391,7 +402,7 @@ local function test_a_declared_process_is_noted_apart()
       error("boom")
     end)
     assert(not raised)
-    assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
+    assert(Child.run({ probe, "exit 0" }))
   end, nil)
   assert(run.passed, run.message)
   local kinds: {string} = {}
@@ -401,7 +412,7 @@ local function test_a_declared_process_is_noted_apart()
     end
   end
   local text = table.concat(kinds, "\n")
-  assert(text == "h /bin/sh\nx not held\np /bin/sh", text)
+  assert(text == "h " .. probe .. "\nx not held\np " .. probe, text)
 end
 
 --- What a confined process ran with, seen from the run's reads: "p"
@@ -419,20 +430,23 @@ local function confined_notes(run: observations.Run): string, boolean
   return table.concat(notes, "\n") .. "\n", unconfined
 end
 
---- A process a test declared what it needs for has that and the
---- system's own, noted "u" each, and its test's own directory besides,
---- which is not noted and where it starts; a path it was not given is
---- not there at all; the environment it inherits is noted whole.
+--- A process a test declared what it needs for has that and what every
+--- process has -- /dev/null and /proc, and the system's own where its
+--- worker has them -- noted "u" each, and its test's own directory
+--- besides, which is not noted and where it starts; a path it was not
+--- given is not there at all; the environment it inherits is noted
+--- whole.
 local function test_a_confined_process_is_noted_by_what_it_was_given(tmp: string)
+  local probe = probe_in(tmp)
   local given, own, hidden = tmp .. "/given", tmp .. "/own", tmp .. "/hidden"
   for _, dir in ipairs({ given, own, hidden }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
   local code: integer = nil
   local run = observations.call(function()
-    observations.confine({ reads = { given } })
-    local r = assert(Child.run({ "/bin/sh", "-c",
-      "test -e " .. hidden .. "/f && exit 3; cat " .. given .. "/f > out" }))
+    observations.confine({ reads = { given, probe } })
+    local r = assert(Child.run({ probe,
+      "exists " .. hidden .. "/f 3; copy " .. given .. "/f out" }))
     observations.confine(nil)
     code = r.code
   end, nil, { tree = tmp .. "/tree", own = { own } })
@@ -440,14 +454,14 @@ local function test_a_confined_process_is_noted_by_what_it_was_given(tmp: string
   local notes, unconfined = confined_notes(run)
   if unconfined then
     -- Unconfined, it sees what it was not given, and says so.
-    assert(notes == "p /bin/sh\n", notes)
-    assert(code == 3, "an unconfined shell sees everything: " .. tostring(code))
+    assert(notes == "p " .. probe .. "\n", notes)
+    assert(code == 3, "an unconfined process sees everything: " .. tostring(code))
     return
   end
-  assert(code == 0, "the confined shell exited " .. tostring(code))
+  assert(code == 0, "the confined process exited " .. tostring(code))
   assert(assert(Fs.read(own .. "/out")) == "in")
   assert(notes:find("u " .. given .. "\n", 1, true), notes)
-  assert(notes:find("u /usr\n", 1, true), notes)
+  assert(notes:find("u /dev/null\n", 1, true), notes)
   assert(notes:find("e \0environ\n", 1, true), notes)
   assert(not notes:find(own, 1, true), notes)
   assert(not notes:find("p ", 1, true), notes)
@@ -485,6 +499,7 @@ end
 --- mode to refusing it).
 local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   if sys.getenv("COSMIC_SANDBOX") == "must" then return end
+  local probe = probe_in(tmp)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local many: {string} = {}
@@ -492,17 +507,18 @@ local function test_an_unconfinable_process_starts_unconfined(tmp: string)
   local run: observations.Run = nil
   local sandboxed = refusing_sandboxes(function()
     run = observations.call(function()
-      observations.confine({})
-      assert(Child.run({ "/bin/sh", "-c", "pwd > where" }))
+      observations.confine({ reads = { probe } })
+      assert(Child.run({ probe, "cwd where" }))
+      many[#many + 1] = probe
       observations.confine({ reads = many })
-      assert(Child.run({ "/bin/sh", "-c", "true" }))
+      assert(Child.run({ probe, "exit 0" }))
       observations.confine(nil)
     end, nil, { tree = tmp .. "/tree", own = { own } })
   end)
   assert(run.passed, run.message)
   assert(sandboxed == 1, "only the first was tried confined: " .. tostring(sandboxed))
   local notes, _ = confined_notes(run)
-  assert(notes == "p /bin/sh\np /bin/sh\n", notes)
+  assert(notes == "p " .. probe .. "\np " .. probe .. "\n", notes)
   assert(assert(Fs.read(own .. "/where")) == assert(Fs.absolute(own)) .. "\n")
 end
 
@@ -534,13 +550,14 @@ end
 --- What a confined process may change outside its test's own directory
 --- is no input a key holds, nor is a directory it is handed open.
 local function test_a_confined_write_or_descriptor_outside_the_test_is_unkeyable(tmp: string)
+  local probe = probe_in(tmp)
   local own, elsewhere = tmp .. "/own", tmp .. "/elsewhere"
   for _, dir in ipairs({ own, elsewhere }) do assert(Fs.mkdirs(dir)) end
   local directory = assert(sys.open(elsewhere, sys.O_RDONLY))
   local run = observations.call(function()
-    observations.confine({ writes = { elsewhere } })
-    assert(Child.run({ "/bin/sh", "-c", "echo x > " .. elsewhere .. "/f" }))
-    assert(Child.run({ "/bin/sh", "-c", "true" }, { fds = { [3] = directory } }))
+    observations.confine({ reads = { probe }, writes = { elsewhere } })
+    assert(Child.run({ probe, "write " .. elsewhere .. "/f x" }))
+    assert(Child.run({ probe, "exit 0" }, { fds = { [3] = directory } }))
     observations.confine(nil)
   end, nil, { tree = tmp .. "/tree", own = { own } })
   sys.close(directory)
@@ -577,7 +594,7 @@ local function test_an_unveiled_answer_follows_what_the_path_holds(tmp: string)
   assert(linked ~= rewritten, "a link added outside")
   assert(observations.unveiled_answer(tmp .. "/missing", tree) == "missing")
   assert(observations.unveiled_answer(outside, tree):sub(1, 10) ~= "unkeyable ")
-  assert(assert(Child.run({ "/bin/sh", "-c", "mkfifo " .. outside .. "/fifo" })).ok)
+  assert(sys.mkfifo(outside .. "/fifo"))
   assert(observations.unveiled_answer(outside, tree):sub(1, 10) == "unkeyable ")
   local decoded = assert(observations.decode(observations.encode({
     { kind = "u", path = tree, answer = "" },
@@ -592,18 +609,17 @@ end
 -- one with no environment given, once cosmic.sys can set a variable of
 -- this process: today it runs only where the host's TMPDIR is set.
 local function test_a_confined_process_has_somewhere_to_write(tmp: string)
+  local probe = probe_in(tmp)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local chosen = own .. "/chosen"
   local inherited = Env.get("TMPDIR")
   local said: {string} = {}
   local run = observations.call(function()
-    observations.confine({})
-    for _, environment in ipairs({ { PATH = "/usr/bin:/bin" },
-        { PATH = "/usr/bin:/bin", TMPDIR = chosen },
-        inherited ~= nil and { PATH = "/usr/bin:/bin", TMPDIR = inherited } or nil }) do
-      local r = assert(Child.run({ "/bin/sh", "-c",
-        "echo x > /tmp/f && cat /tmp/f; echo \"${TMPDIR-unset}\"" },
+    observations.confine({ reads = { probe } })
+    for _, environment in ipairs({ {} as {string:string}, { TMPDIR = chosen },
+        inherited ~= nil and { TMPDIR = inherited } or nil }) do
+      local r = assert(Child.run({ probe, "write /tmp/f x && cat /tmp/f; env-of TMPDIR" },
         { env = environment, stdout = "capture" }))
       said[#said + 1] = assert(r.stdout)
     end
@@ -612,10 +628,10 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   assert(run.passed, run.message)
   local _, unconfined = confined_notes(run)
   if unconfined then return end
-  assert(said[1] == "x\nunset\n", said[1])
-  assert(said[2] == "x\n" .. chosen .. "\n", said[2])
+  assert(said[1] == "x\nTMPDIR unset\n", said[1])
+  assert(said[2] == "x\nTMPDIR=" .. chosen .. "\n", said[2])
   if inherited ~= nil and not Fs.within(inherited, own) then
-    assert(said[3] == "x\n" .. own .. "\n", said[3])
+    assert(said[3] == "x\nTMPDIR=" .. own .. "\n", said[3])
   end
 end
 
@@ -626,6 +642,7 @@ end
 --- leads, and one named without a link is kept as named. What it leads
 --- to is no read a key must place: the run stays keyable.
 local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(tmp: string)
+  local probe = probe_in(tmp)
   local own = tmp .. "/own"
   local real = own .. "/real/cache"
   assert(Fs.mkdirs(real))
@@ -634,12 +651,12 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
   local resolved = assert(sys.realpath(real))
   local said: {string} = {}
   local run = observations.call(function()
-    observations.confine({ reads = { real .. "/core" } })
+    observations.confine({ reads = { real .. "/core", probe } })
     for _, cache in ipairs({ tmp .. "/linked/cache", resolved, tmp .. "/linked/fresh/cache" }) do
-      local r = assert(Child.run({ "/bin/sh", "-c",
-        "mkdir -p \"$COSMIC_PORTABLE_CACHE\" && ls \"$COSMIC_PORTABLE_CACHE\"; " ..
-        "echo \"$COSMIC_PORTABLE_CACHE\"" },
-        { env = { PATH = "/usr/bin:/bin", COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
+      local r = assert(Child.run({ probe,
+        "mkdirs $COSMIC_PORTABLE_CACHE && ls $COSMIC_PORTABLE_CACHE; " ..
+        "print $COSMIC_PORTABLE_CACHE" },
+        { env = { COSMIC_PORTABLE_CACHE = cache }, stdout = "capture" }))
       said[#said + 1] = assert(r.stdout)
     end
     observations.confine(nil)
@@ -659,16 +676,15 @@ end
 --- the network is noted by what it was given, as a confined one is; one
 --- held only by a pledge is not held to what it reads, and is a "p".
 local function test_an_unveiled_sandbox_of_its_own_is_noted_by_what_it_was_given(tmp: string)
+  local probe = probe_in(tmp)
   local own, given = tmp .. "/own", tmp .. "/given"
   for _, dir in ipairs({ own, given }) do assert(Fs.mkdirs(dir)) end
   local process = raw_process_table()
-  local reads: {string} = { given }
-  for _, dir in ipairs({ "/usr", "/bin", "/lib", "/lib64", "/etc" }) do
-    if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
-  end
+  local reads: {string} = { given, probe }
+  if sys.stat("/proc") ~= nil then reads[#reads + 1] = "/proc" end
   local ran = true
   local run = observations.call(function()
-    local pid, _, errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, "/", nil, nil,
+    local pid, _, errno = process.spawn(probe, { probe, "exit 0" }, nil, "/", nil, nil,
       nil, false, nil, { unveil = { reads = reads, writes = { own } }, offline = true })
     if pid == nil then
       ran = false
@@ -676,7 +692,7 @@ local function test_an_unveiled_sandbox_of_its_own_is_noted_by_what_it_was_given
     else
       assert(process.waitpid(pid, false))
     end
-    local pledged = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil,
+    local pledged = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil,
       false, nil, { pledge = {} })
     if pledged ~= nil then assert(process.waitpid(pledged, false)) end
   end, nil, { tree = tmp .. "/tree", own = { own } })
@@ -684,11 +700,11 @@ local function test_an_unveiled_sandbox_of_its_own_is_noted_by_what_it_was_given
   local notes, _ = confined_notes(run)
   if ran then
     assert(notes:find("u " .. given .. "\n", 1, true), notes)
-    assert(not notes:find("x /bin/sh", 1, true), notes)
+    assert(not notes:find("x " .. probe, 1, true), notes)
   else
-    assert(notes:find("x /bin/sh\n", 1, true), notes)
+    assert(notes:find("x " .. probe .. "\n", 1, true), notes)
   end
-  assert(notes:find("p /bin/sh\n", 1, true), "a pledge alone: " .. notes)
+  assert(notes:find("p " .. probe .. "\n", 1, true), "a pledge alone: " .. notes)
   assert(not notes:find(own, 1, true), notes)
 end
 
@@ -696,32 +712,33 @@ end
 --- answers for holds nothing; and a path given that leads into /proc
 --- or /sys, however spelled, is the host's state.
 local function test_an_unveiled_sandbox_is_read_as_the_core_reads_it(tmp: string)
+  local probe = probe_in(tmp)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local process = raw_process_table()
-  local reads: {string} = { "//proc/sys/kernel/random" }
-  for _, dir in ipairs({ "/usr", "/bin", "/lib", "/lib64", "/etc" }) do
-    if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
-  end
+  -- The stand-in finds itself through /proc, so it is given that too:
+  -- given, it runs to its end.
+  local reads: {string} = { "//proc/sys/kernel/random", probe }
+  if sys.stat("/proc") ~= nil then reads[#reads + 1] = "/proc" end
   local run = observations.call(function()
     local hidden = setmetatable({} as {string:any}, { __index = function(_: any, key: string): any
       if key == "unveil" then return { reads = reads } end
       return nil
     end }) as raw_process.Sandbox
     hidden.offline = true
-    local pid = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, "/", nil, nil, nil, false,
+    local pid = process.spawn(probe, { probe, "exit 0" }, nil, "/", nil, nil, nil, false,
       nil, hidden)
-    if pid ~= nil then assert(process.waitpid(pid, false)) end
-    local given = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, "/", nil, nil, nil,
+    if pid ~= nil then assert(assert(process.waitpid(pid, false)).code == 0) end
+    local given = process.spawn(probe, { probe, "exit 0" }, nil, "/", nil, nil, nil,
       false, nil, { unveil = { reads = reads }, offline = true })
-    if given ~= nil then assert(process.waitpid(given, false)) end
+    if given ~= nil then assert(assert(process.waitpid(given, false)).code == 0) end
   end, nil, { tree = tmp .. "/tree", own = { own } })
   assert(run.passed, run.message)
   local notes, _ = confined_notes(run)
   -- The first holds nothing unveiled, so it is a process like any other.
-  assert(notes:find("p /bin/sh\n", 1, true), notes)
+  assert(notes:find("p " .. probe .. "\n", 1, true), notes)
   assert(notes:find("x //proc/sys/kernel/random\n", 1, true) or
-    notes:find("x /bin/sh\n", 1, true), notes)
+    notes:find("x " .. probe .. "\n", 1, true), notes)
   assert(not notes:find("u //proc", 1, true), notes)
 end
 
@@ -729,11 +746,12 @@ end
 --- of its own pid namespace (which has no /proc/sys) or the host's;
 --- whether its core found the stamp beside it in the cache that spares
 --- hashing it again; and what the grandchild it confines to `...`'s
---- first path read of that path and of the second, which it was not
---- given.
+--- first path -- the stand-in that is the third, with /proc, where it
+--- finds itself -- read of that path and of the second, which it was
+--- not given.
 local worker_chunk <const> = [==[
 local sys = require("cosmic.sys")
-local given, hidden = ...
+local given, hidden, probe = ...
 local said = { sys.stat("/proc/sys") == nil and "own-proc" or "host-proc" }
 local core = assert(sys.readlink("/proc/self/exe"))
 local directory, name = core:match("^(.*)/(core%-[^/]*)$")
@@ -751,13 +769,10 @@ for _, searcher in ipairs(package.searchers) do
   local loader, extra = searcher("cosmic.child")
   if type(loader) == "function" and type(extra) == "table" then process = extra end
 end
-local reads = { given }
-for _, dir in ipairs({ "/usr", "/bin", "/lib", "/lib64", "/etc" }) do
-  if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
-end
+local reads = { given, probe, "/proc" }
 local report = assert(sys.open(given .. "/../report", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
-  "cat " .. given .. "/f; echo; test -e " .. hidden .. "/f && echo hidden-seen || echo hidden-absent" },
+local pid, trouble, errno = process.spawn(probe, { probe,
+  "cat " .. given .. "/f; print; present " .. hidden .. "/f && print hidden-seen || print hidden-absent" },
   {}, "/", nil, report, report, false, nil, { unveil = { reads = reads }, offline = true })
 if pid == nil then
   said[#said + 1] = "refused " .. tostring(sys.errno_name(errno)) .. ": " .. trouble
@@ -785,21 +800,22 @@ local function spawn_fds(started: observations.Program): {integer:integer}
 end
 
 --- Runs `worker_chunk` in a worker of this very program sandboxed to
---- `worker_unveil`'s paths, the system's among them, as a worker whose
---- module declares `system` is (the chunk starts the system's `sh`), in
---- `tmp`: the lines it said, or nil where there is no portable artifact
---- to start again, or no sandbox to be had.
+--- `worker_unveil`'s paths, as a worker whose module declares nothing
+--- of the system's is (the chunk starts a stand-in, in `tmp`, its
+--- scratch), in `tmp`: the lines it said, or nil where there is no
+--- portable artifact to start again, or no sandbox to be had.
 local function sandboxed_worker(tmp: string): {string} | nil
   if Proc.relaunch() == nil then return nil end -- no portable artifact to start again
+  local probe = probe_in(tmp)
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
   for _, dir in ipairs({ given, hidden }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.write(given .. "/f", "in"))
   assert(Fs.write(hidden .. "/f", "secret"))
   local tree = assert(sys.getcwd())
-  local unveil = observations.worker_unveil(tree, tree, tmp, true)
+  local unveil = observations.worker_unveil(tree, tree, tmp)
   -- Given no environment but the relaunch's, as `cosmic test` gives
   -- its worker none but what it pins.
-  local worker = observations.program({ "-e", worker_chunk, given, hidden }, { env = {} })
+  local worker = observations.program({ "-e", worker_chunk, given, hidden, probe }, { env = {} })
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = raw_process_table()
@@ -965,13 +981,13 @@ local function test_a_query_of_the_tests_own_directory_is_judged_by_where_it_lea
   end
   local out = observations.call(function()
     assert(sys.realpath(tmp .. "/out"))
-    local _ = sys.lstat(tmp .. "/out/etc")
+    local _ = sys.lstat(tmp .. "/out/proc")
   end, nil, resolving)
   assert(out.passed, out.message)
   local link = assert(noted(out.reads, "t", tmp .. "/out"))
   assert(link.answer == "/", link.answer)
-  local through = assert(noted(out.reads, "w", tmp .. "/out/etc"))
-  assert(through.answer == "/etc", through.answer)
+  local through = assert(noted(out.reads, "w", tmp .. "/out/proc"))
+  assert(through.answer == "/proc", through.answer)
 end
 
 --- Every call the observations once stood in for is logged by its
@@ -1034,17 +1050,18 @@ end
 --- The process table's own `spawn`, called past the stand-in for it --
 --- here through a stand-in kept after its capture ended -- is logged,
 --- and the process noted "p" by the capture running then.
-local function test_a_process_started_past_the_stand_in_is_noted()
+local function test_a_process_started_past_the_stand_in_is_noted(tmp: string)
+  local probe = probe_in(tmp)
   local process = raw_process_table()
   local held = process.spawn
   local first = observations.capture(function() held = process.spawn end)
   assert(first.ok, tostring(first.produced))
   local c = observations.capture(function()
-    local pid = assert(held("/bin/sh", { "sh", "-c", "exit 0" }, nil, nil, nil, nil, nil, false))
+    local pid = assert(held(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false))
     assert(process.waitpid(pid, false))
   end)
   assert(c.ok, tostring(c.produced))
-  assert(noted(c.reads, "p", "/bin/sh") ~= nil)
+  assert(noted(c.reads, "p", probe) ~= nil)
 end
 
 --- The path of a read outside the tree is resolved as the call is made,
@@ -1185,11 +1202,12 @@ end
 --- nothing a key can hold (`unkeyable`), "x" besides. Without `held` it
 --- is noted "p", as ever.
 local function test_a_process_a_sandboxed_worker_starts_is_noted_by_what_it_holds(tmp: string)
+  local probe = probe_in(tmp)
   local given, own = tmp .. "/given", tmp .. "/own"
   for _, dir in ipairs({ given, own }) do assert(Fs.mkdirs(dir)) end
   local function started(resolving: observations.Resolving): string
     local run = observations.call(function()
-      local r = assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
+      local r = assert(Child.run({ probe, "exit 0" }))
       assert(r.ok)
     end, nil, resolving)
     assert(run.passed, run.message)
@@ -1206,19 +1224,21 @@ local function test_a_process_a_sandboxed_worker_starts_is_noted_by_what_it_hold
   assert(online:find("u " .. given .. "\n", 1, true) and
     online:find("x the network\n", 1, true), online)
   local plain = started({ tree = tmp .. "/tree", own = { own } })
-  assert(plain:find("p /bin/sh\n", 1, true) and not plain:find("u ", 1, true), plain)
+  assert(plain:find("p " .. probe .. "\n", 1, true) and not plain:find("u ", 1, true), plain)
 end
 
 --- A sandboxed worker's process is noted "y" by the program it runs and
---- the interpreter a script's first line names, for the audit, which
+--- the interpreter a script's first line names -- here the stand-in,
+--- which runs the script's body -- for the audit, which
 --- asks `system` of the system's own; these survive encoding. A
 --- relative program is noted where it starts from. Unheld, nothing is
 --- noted "y".
 local function test_a_sandboxed_worker_s_process_is_noted_by_what_it_runs(tmp: string)
+  local probe = probe_in(tmp)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local script = own .. "/script"
-  assert(Fs.write(script, "#!/bin/sh\nexit 0\n"))
+  assert(Fs.write(script, "#!" .. probe .. "\nexit 0\n"))
   assert(sys.chmod(script, 493)) -- 0o755
   local function ran(resolving: observations.Resolving, relative?: boolean): {string}
     local run = observations.call(function()
@@ -1234,9 +1254,9 @@ local function test_a_sandboxed_worker_s_process_is_noted_by_what_it_runs(tmp: s
     return programs
   end
   local held = ran({ tree = tmp .. "/tree", own = { own }, held = { own } })
-  assert(table.concat(held, " ") == script .. " /bin/sh", table.concat(held, " "))
+  assert(table.concat(held, " ") == script .. " " .. probe, table.concat(held, " "))
   local relative = ran({ tree = tmp .. "/tree", own = { own }, held = { own } }, true)
-  assert(table.concat(relative, " ") == script .. " /bin/sh", table.concat(relative, " "))
+  assert(table.concat(relative, " ") == script .. " " .. probe, table.concat(relative, " "))
   assert(#ran({ tree = tmp .. "/tree", own = { own } }) == 0)
 end
 

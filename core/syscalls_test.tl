@@ -16,19 +16,21 @@ local Test = require("cosmic.test")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local observations = require("build.filesystem_observations")
+local stand_in = require("build.stand_in")
 
--- TODO: name these host paths per platform once a declaration can
--- (a `host` entry for Linux and one for macOS, or a path the sandbox
--- resolves): /etc (a link to /private/etc) and /proc (absent) differs on macOS, where the audit would find these
--- reads undeclared; only Linux enforces declarations for now.
---- What the syscall table is tested on: the system's own directories, the
---- whole environment, processes it holds and the program itself.
+-- TODO: declare /proc for Linux alone once a declaration can name a
+-- host path per platform (a `host` entry for Linux and one for macOS):
+-- macOS has no /proc, so there this declares a path that is not there,
+-- which gives and keys nothing but says what the tests need wrongly.
+--- What the syscall table is tested on: /proc, the whole environment,
+--- processes it holds, and the program itself, whose core a stand-in
+--- program is built from (build/stand_in.tl): what a child here runs,
+--- confined or not, reading nothing of the system's.
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   processes = true,
   tool = true,
-  system = true,
 }
 
 local type Searcher = function(string): any, any
@@ -73,6 +75,23 @@ end
 
 local function sandbox_required(): boolean
   return sys.getenv("COSMIC_SANDBOX") == "must"
+end
+
+--- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- the script its first argument holds: a static executable that reads
+--- only itself, so one confined needs nothing of the system's own.
+local function probe_in(tmp: string): string
+  return (assert(stand_in.build(tmp .. "/stand-in")))
+end
+
+--- What a confined `probe` is given to read: itself, and /proc and
+--- /dev/null where this host has them.
+local function probe_reads(probe: string): {string}
+  local reads: {string} = { probe }
+  for _, path in ipairs({ "/proc", "/dev/null" }) do
+    if sys.stat(path) ~= nil then reads[#reads + 1] = path end
+  end
+  return reads
 end
 
 --- Asserts `value, message, number` is the failure shape: `nil` or
@@ -509,10 +528,8 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   written = create(outside .. "/f")
   assert(sys.write(written, "out") == 3)
   sys.close(written)
-  local reads: {string} = { inside }
-  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64", "/etc" }) do
-    if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
-  end
+  local probe = probe_in(tmp)
+  local reads: {string} = { inside, probe }
   local ruleset, trouble, errno = process.landlock_ruleset(reads, {})
   if ruleset == nil then
     -- No Landlock: not built in, turned off, or refused by a filter (a
@@ -522,8 +539,9 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
     return
   end
   local output = create(tmp .. "/said")
-  local pid = assert(process.spawn("/bin/sh", { "sh", "-c",
-    "cat in/f; echo; sh -c 'cat out/f' || echo refused; echo x > in/g || echo unwritten" },
+  local pid = assert(process.spawn(probe, { probe,
+    "cat in/f; print; run " .. probe .. " cat out/f || print refused; " ..
+    "append in/g x || print unwritten" },
     nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
   sys.close(ruleset)
   local status = assert(process.waitpid(pid, false))
@@ -542,21 +560,24 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   assert(sys.mkdir(tmp .. "/w", 0x1c0))
   local writing = assert(process.landlock_ruleset(reads, { tmp .. "/w" }))
   local report = create(tmp .. "/report")
-  -- A free descriptor a shell can name (at most 9 is the child's own).
+  -- A free descriptor from 4 to 10, the child's own ending below it.
   local free = 10
   while free > 4 and sys.fstat(free) ~= nil do free = free - 1 end
   assert(sys.fstat(free) == nil, "no descriptor from 4 to 10 is free")
   assert(sys.dup2(writing, free))
   sys.close(writing)
   local own = tostring(free - 1)
-  local wrote = assert(process.spawn("/bin/sh", { "sh", "-c",
-    "echo w > w/f && cat w/f >&" .. own .. "; echo x > in/h 2>/dev/null || echo held >&" .. own },
+  local wrote = assert(process.spawn(probe, { probe,
+    "append w/f w && write-fd " .. own .. " w-written; append in/h x || write-fd " .. own .. " held" },
     nil, tmp, nil, nil, nil, false, { [free - 1] = report }, { ruleset = free }))
   sys.close(free)
   assert(assert(process.waitpid(wrote, false)).code == 0)
   local reported = assert(sys.pread(report, 4096, 0))
   sys.close(report)
-  assert(reported == "w\nheld\n", reported)
+  assert(reported == "w-written\nheld\n", reported)
+  local fd = assert(sys.open(tmp .. "/w/f", sys.O_RDONLY))
+  assert(sys.read(fd, 16) == "w\n")
+  sys.close(fd)
   local bad, bad_trouble = process.landlock_ruleset({ tmp .. "/nowhere" }, {})
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
 end
@@ -567,44 +588,40 @@ end
 --- The hold is for good, so it is taken last: this test's worker ends
 --- with the test. Where there is no Landlock, taking one says so.
 local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: string)
-  local system: {string} = {}
-  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64" }) do
-    if sys.stat(dir) ~= nil then system[#system + 1] = dir end
-  end
-  local script = tmp .. "/run"
-  local fd = create(script)
-  assert(sys.write(fd, "#!/bin/sh\nexit 0\n") == 17)
-  sys.close(fd)
-  assert(sys.chmod(script, 493)) -- 0o755
+  -- The program beneath a path given, and a copy of it beneath none.
+  local built = probe_in(tmp)
+  local probe, elsewhere = tmp .. "/bin/probe", tmp .. "/elsewhere/run"
+  assert(sys.mkdir(tmp .. "/bin", 0x1c0) and sys.mkdir(tmp .. "/elsewhere", 0x1c0))
+  assert(stand_in.place(built, probe))
+  assert(stand_in.place(built, elsewhere))
   local function status_of(path: string, argv: {string}): integer | string
     local pid, trouble = process.spawn(path, argv, nil, tmp, nil, nil, nil, false)
     if pid == nil then return trouble end
     return assert(process.waitpid(pid, false)).code
   end
-  assert(status_of(script, { "run" }) == 0, "the script runs before the hold")
+  assert(status_of(elsewhere, { elsewhere, "exit 0" }) == 0, "the copy runs before the hold")
   -- Beneath a path given, a file may still move to another directory.
   local given = tmp .. "/given"
   assert(sys.mkdir(given, 0x1c0) and sys.mkdir(given .. "/a", 0x1c0) and
     sys.mkdir(given .. "/b", 0x1c0))
   sys.close(create(given .. "/a/f"))
-  system[#system + 1] = given
-  local held, trouble, errno = process.landlock_restrict_execute(system)
+  local held, trouble, errno = process.landlock_restrict_execute({ tmp .. "/bin", given })
   if not held then
     assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no Landlock: " .. trouble)
     assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
     return
   end
-  assert(status_of("/bin/sh", { "sh", "-c", "exit 3" }) == 3, "a program beneath them runs")
-  assert(status_of(script, { "run" }) ~= 0, "a program elsewhere ran")
-  -- What it starts is held too: the shell may not run the script.
-  assert(status_of("/bin/sh", { "sh", "-c", script .. " || exit 7" }) == 7)
+  assert(status_of(probe, { probe, "exit 3" }) == 3, "a program beneath them runs")
+  assert(status_of(elsewhere, { elsewhere, "exit 0" }) ~= 0, "a program elsewhere ran")
+  -- What it starts is held too: the program may not run the copy.
+  assert(status_of(probe, { probe, "run " .. elsewhere .. " || exit 7" }) == 7)
   assert(sys.rename(given .. "/a/f", given .. "/b/f"))
   -- Reading and writing are as they were.
   local written = create(tmp .. "/after")
   assert(sys.write(written, "w") == 1)
   sys.close(written)
-  local reading = assert(sys.open(script, sys.O_RDONLY))
-  assert(sys.read(reading, 2) == "#!")
+  local reading = assert(sys.open(elsewhere, sys.O_RDONLY))
+  assert(sys.read(reading, 4) == "\x7fELF")
   sys.close(reading)
   local bad, _ = pcall(process.landlock_restrict_execute, { 1 } as {string})
   assert(not bad, "a path that is no string is refused")
@@ -619,13 +636,14 @@ end
 -- open one: curl, the only socket maker, words a refused socket and a
 -- refused connection alike.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
-  local refused = pcall(process.spawn, "/bin/sh", { "sh", "-c", "true" }, nil, nil, nil, nil, nil,
+  local probe = probe_in(tmp)
+  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
     false, nil, { pledge = { "fly" } })
   assert(not refused, "a promise no one keeps is refused")
   local function filtered(sandbox: raw_process.Sandbox | nil): string
     local output = create(tmp .. "/status")
-    local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
-      "grep Seccomp: /proc/self/status; sh -c 'grep Seccomp: /proc/self/status'" },
+    local pid, trouble, errno = process.spawn(probe, { probe,
+      "status-field Seccomp; run " .. probe .. " status-field Seccomp" },
       nil, nil, nil, output, output, false, nil, sandbox)
     if pid == nil then
       sys.close(output)
@@ -642,7 +660,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local status_file = sys.open("/proc/self/status", sys.O_RDONLY)
   if status_file == nil then
     -- No /proc to ask: a pledge is at most refused as unsupported.
-    local ok, trouble, errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, nil, nil,
+    local ok, trouble, errno = process.spawn(probe, { probe }, nil, nil, nil,
       nil, nil, false, nil, { pledge = {} })
     if ok == nil then
       assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no pledge: " .. trouble)
@@ -668,6 +686,7 @@ end
 --- moves to hand its program the ones asked for, and a later step that
 --- fails, leave every one of this process's as it was.
 local function test_a_child_s_descriptors_are_its_own(tmp: string)
+  local probe = probe_in(tmp)
   local held: {integer} = {}
   local target = 0
   for i = 1, 4 do
@@ -677,11 +696,11 @@ local function test_a_child_s_descriptors_are_its_own(tmp: string)
   -- Handed above all of them, so the child closes every one on its way.
   target = target + 2
   local report = create(tmp .. "/report")
-  local pid = assert(process.spawn("/bin/sh", { "sh", "-c", "echo mapped > /dev/fd/" .. target },
+  local pid = assert(process.spawn(probe, { probe, "append /dev/fd/" .. target .. " mapped" },
     nil, nil, nil, nil, nil, false, { [target] = report }))
   assert(assert(process.waitpid(pid, false)).code == 0)
   assert(assert(sys.pread(report, 64, 0)) == "mapped\n")
-  failed_with(sys.ENOENT, process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp .. "/missing",
+  failed_with(sys.ENOENT, process.spawn(probe, { probe }, nil, tmp .. "/missing",
     nil, nil, nil, false, { [target] = report }))
   for _, fd in ipairs(held) do
     assert(sys.fstat(fd) ~= nil, "a descriptor the child closed is still open here")
@@ -696,12 +715,13 @@ end
 --- with this process's own mask all the same, catching nothing, and
 --- ignoring nothing this process does not.
 local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
+  local probe = probe_in(tmp)
   local status = sys.open("/proc/self/status", sys.O_RDONLY)
   if status == nil then return end -- no /proc to ask
   local own = assert(sys.read(status, 65536))
   sys.close(status)
   local output = create(tmp .. "/status")
-  local pid = assert(process.spawn("/bin/cat", { "cat", "/proc/self/status" },
+  local pid = assert(process.spawn(probe, { probe, "cat /proc/self/status" },
     nil, nil, nil, output, nil, false))
   assert(assert(process.waitpid(pid, false)).code == 0)
   local child = assert(sys.pread(output, 65536, 0))
@@ -722,6 +742,7 @@ end
 --- pipe, is handed a spawned program at its default: a program that
 --- writes to a closed pipe ends as it would started from a shell.
 local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
+  local probe = probe_in(tmp)
   assert(process.ignore_sigpipe())
   local function ignored(text: string): integer
     return math.tointeger(tonumber(assert(text:match("SigIgn:%s*(%x+)"), text), 16)) as integer
@@ -733,7 +754,7 @@ local function test_a_child_starts_with_sigpipe_at_its_default(tmp: string)
   local bit = 1 << (sys.SIGPIPE - 1)
   assert(ignored(own) & bit ~= 0, own)
   local output = create(tmp .. "/status")
-  local pid = assert(process.spawn("/bin/cat", { "cat", "/proc/self/status" },
+  local pid = assert(process.spawn(probe, { probe, "cat /proc/self/status" },
     nil, nil, nil, output, nil, false))
   assert(assert(process.waitpid(pid, false)).code == 0)
   local child = assert(sys.pread(output, 65536, 0))
@@ -751,18 +772,7 @@ end
 --- not even a program to run. Where unprivileged namespaces are refused,
 --- spawning one says so.
 local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
-  local standard = { "/bin", "/usr", "/lib", "/lib64", "/etc", "/proc" }
-  local shell = sys.realpath("/bin/sh")
-  local reachable = false
-  for _, dir in ipairs(standard) do
-    if shell ~= nil and shell:sub(1, #dir + 1) == dir .. "/" then reachable = true end
-  end
-  if not reachable then
-    -- A /bin/sh from elsewhere (/nix/store): none to run unveiled.
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but /bin/sh is " ..
-      tostring(shell) .. ", beneath none of the paths this test unveils")
-    return
-  end
+  local probe = probe_in(tmp)
   local inside, outside, out = tmp .. "/in", tmp .. "/out", tmp .. "/w"
   for _, dir in ipairs({ inside, outside, out }) do assert(sys.mkdir(dir, 0x1c0)) end
   local written = create(inside .. "/f")
@@ -772,18 +782,16 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   assert(sys.symlink(inside, tmp .. "/link"))
   -- Given through a link, a path is had under the name it resolves to and,
   -- as a link to that, under the name given; a file can be given as well
-  -- as a directory: /dev/null alone of /dev.
-  local reads: {string} = { tmp .. "/link", "/dev/null" }
-  for _, dir in ipairs(standard) do
-    if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
-  end
+  -- as a directory: /dev/null alone of /dev, and the program alone of
+  -- the directory it is in.
+  local reads: {string} = { tmp .. "/link" }
+  for _, path in ipairs(probe_reads(probe)) do reads[#reads + 1] = path end
   local report = create(tmp .. "/report")
-  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
-    "cat link/f; echo; test -e out/f && echo outside-seen || echo outside-absent; " ..
-    "cat " .. assert(sys.realpath(inside)) .. "/f; echo; " ..
-    "(echo x > link/g) 2>/dev/null || echo read-only; echo w > w/f && cat w/f; " ..
-    "grep CapEff: /proc/self/status | tr -d ' \\t'; " ..
-    "if test -r /proc/self/net/dev; then grep -c : /proc/self/net/dev; else echo 1; fi" },
+  local pid, trouble, errno = process.spawn(probe, { probe,
+    "cat link/f; print; present out/f && print outside-seen || print outside-absent; " ..
+    "cat " .. assert(sys.realpath(inside)) .. "/f; print; " ..
+    "write link/g x || print read-only; write w/f w && cat w/f; status-field CapEff; " ..
+    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || print 1" },
     nil, tmp, nil, report, report, false, nil,
     { unveil = { reads = reads, writes = { out } }, offline = true })
   if pid == nil then
@@ -797,7 +805,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(said == "in\noutside-absent\nin\nread-only\nw\n" ..
-    "CapEff:0000000000000000\n1\n", said)
+    "CapEff:\t0000000000000000\n1\n", said)
   -- The parent is not held.
   assert(sys.stat(outside .. "/f") ~= nil)
   -- With /proc, /dev/fd leads into it; a directory made above a given
@@ -809,14 +817,14 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local mirrored: {string} = { "/proc", private .. "/inner" }
   for _, path in ipairs(reads) do mirrored[#mirrored + 1] = path end
   -- Whether a file is writable, by opening it to append, which writes
-  -- nothing: busybox's `test -w` judges by the mode alone, not the mount.
+  -- nothing (`writable`), not by its mode, which says nothing of the mount.
   local second = create(tmp .. "/second")
-  local again = assert(process.spawn("/bin/sh", { "sh", "-c",
-    "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) ..
-    "; ls -A /tmp | grep -c . ; echo t > /tmp/f && cat /tmp/f; " ..
-    "test -e /proc/sys && echo host-proc || echo own-proc; " ..
-    "(: >> /proc/self/uid_map) 2>/dev/null && echo own-writable || echo own-read-only; " ..
-    "(: >> /proc/sys/vm/swappiness) 2>/dev/null || echo sys-read-only" },
+  local again = assert(process.spawn(probe, { probe,
+    "present /dev/fd/0 && print fd; mode " .. assert(sys.realpath(private)) ..
+    "; ls /tmp; write /tmp/f t && cat /tmp/f; " ..
+    "present /proc/sys && print host-proc || print own-proc; " ..
+    "writable /proc/self/uid_map && print own-writable || print own-read-only; " ..
+    "writable /proc/sys/vm/swappiness || print sys-read-only" },
     nil, "/", nil, second, second, false, nil,
     { unveil = { reads = mirrored }, offline = true }))
   assert(assert(process.waitpid(again, false)).code == 0)
@@ -838,47 +846,29 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
       if top ~= nil then under_tmp[top] = true end
     end
   end
-  local given_under_tmp = 0
-  for _ in pairs(under_tmp) do given_under_tmp = given_under_tmp + 1 end
-  local common = "fd\n700\n" .. tostring(given_under_tmp) .. "\nt\n"
+  local listed: {string} = {}
+  for name in pairs(under_tmp) do listed[#listed + 1] = name .. "\n" end
+  table.sort(listed)
+  local common = "fd\n700\n" .. table.concat(listed) .. "t\n"
   local own = observations.own_proc_given()
   assert(seen == common .. (own and "own-proc\nown-writable\n" or "host-proc\nown-read-only\n") ..
     "sys-read-only\n", seen)
-  local nothing, _, nothing_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
+  local nothing, _, nothing_errno = process.spawn(probe, { probe }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
-  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
 end
 
---- The system's own paths a confined /bin/sh needs, each where this
---- host has it, /proc and /dev/null among them; nil where /bin/sh is beneath none of
---- them (a /nix/store one), which fails the test under
---- COSMIC_SANDBOX=must.
-local function shell_reads(): {string} | nil
-  local reads: {string} = {}
-  local shell = sys.realpath("/bin/sh")
-  local reachable = false
-  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64", "/etc", "/proc", "/dev/null" }) do
-    if sys.stat(dir) ~= nil then
-      reads[#reads + 1] = dir
-      if shell ~= nil and shell:sub(1, #dir + 1) == dir .. "/" then reachable = true end
-    end
-  end
-  if reachable then return reads end
-  assert(not sandbox_required(), "COSMIC_SANDBOX=must, but /bin/sh is " .. tostring(shell) ..
-    ", beneath none of the paths this test unveils")
-  return nil
-end
-
---- Starts `script` in /bin/sh confined to `reads`, offline unless
+--- Starts `probe` on `script`, confined to `probe_reads`, offline unless
 --- `online`, in /, with `output` its standard output and error: its pid,
 --- or nil where the kernel will not confine it, which fails the test
 --- under COSMIC_SANDBOX=must.
-local function start_confined(reads: {string}, script: string, output: integer,
+local function start_confined(probe: string, script: string, output: integer,
                               online?: boolean): integer | nil
-  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c", script }, nil, "/", nil,
-    output, output, false, nil, { unveil = { reads = reads }, offline = not online })
+  local pid, trouble, errno = process.spawn(probe, { probe, script }, nil, "/", nil,
+    output, output, false, nil,
+    { unveil = { reads = probe_reads(probe) }, offline = not online })
   if pid ~= nil then return pid end
   assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
   assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
@@ -889,10 +879,10 @@ end
 --- Runs `script` as `start_confined` starts it, its output in `tmp`: its
 --- status and what it printed, or nil where the kernel will not confine
 --- it.
-local function run_confined(tmp: string, reads: {string}, script: string,
+local function run_confined(tmp: string, probe: string, script: string,
                             online?: boolean): raw_process.ChildStatus | nil, string
   local report = create(tmp .. "/report")
-  local pid = start_confined(reads, script, report, online)
+  local pid = start_confined(probe, script, report, online)
   local status: raw_process.ChildStatus | nil = nil
   if pid ~= nil then status = assert(process.waitpid(pid, false)) end
   local said = assert(sys.pread(report, 65536, 0))
@@ -908,8 +898,8 @@ end
 --- of its own beside. A name that is not absolute and plain, is /, or
 --- is given for a path not unveiled, is refused.
 local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
-  local reads = shell_reads()
-  if reads == nil then return end
+  local probe = probe_in(tmp)
+  local reads = probe_reads(probe)
   local tree, scratch = tmp .. "/checkout", tmp .. "/scratch"
   for _, dir in ipairs({ tree, tree .. "/sub", scratch }) do assert(sys.mkdir(dir, 0x1c0)) end
   local written = create(tree .. "/sub/f")
@@ -918,13 +908,15 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   local real_tree = assert(sys.realpath(tree))
   local given: {string} = { tree }
   for _, path in ipairs(reads) do given[#given + 1] = path end
+  -- The program is bound at a name of its own: its own, beneath this
+  -- test's directory, would be beneath /tmp too, where `scratch` is.
   local report = create(tmp .. "/report")
-  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
-    "cat sub/f; echo; pwd; test -e " .. real_tree .. " && echo own-name || echo no-own-name; " ..
-    "echo w > /tmp/g && echo tmp-written; (echo x > sub/g) 2>/dev/null || echo tree-read-only" },
+  local pid, trouble, errno = process.spawn("/probe", { "/probe",
+    "cat sub/f; print; cwd; present " .. real_tree .. " && print own-name || print no-own-name; " ..
+    "write /tmp/g w && print tmp-written; write sub/g x || print tree-read-only" },
     nil, "/tree", nil, report, report, false, nil,
-    { unveil = { reads = given, writes = { scratch }, at = { [tree] = "/tree", [scratch] = "/tmp" } },
-      offline = true })
+    { unveil = { reads = given, writes = { scratch },
+      at = { [tree] = "/tree", [scratch] = "/tmp", [probe] = "/probe" } }, offline = true })
   if pid == nil then
     sys.close(report)
     assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
@@ -941,10 +933,10 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   assert(sys.read(fd, 16) == "w\n")
   sys.close(fd)
   for _, bad in ipairs({ "relative", "/", "/a/../b", "/a/" }) do
-    assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+    assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
       { unveil = { reads = { tree }, at = { [tree] = bad } } }), "bound at " .. bad)
   end
-  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { tree }, at = { [scratch] = "/tmp" } } }), "at a path not unveiled")
   -- A name placed beneath a path bound from the host goes through no
   -- link there: one leading out, or climbing, refuses the start rather
@@ -954,7 +946,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   assert(sys.symlink(victim, tree .. "/out"))
   assert(sys.symlink("../victim", tree .. "/up"))
   for _, placed in ipairs({ "/tree/out/new.txt", "/tree/up/new.txt", "/tree/out" }) do
-    local escaped, _, escaped_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, "/",
+    local escaped, _, escaped_errno = process.spawn(probe, { probe }, nil, "/",
       nil, nil, nil, false, nil, { unveil = { reads = { tree, tree .. "/sub/f", table.unpack(reads) },
         at = { [tree] = "/tree", [tree .. "/sub/f"] = placed } }, offline = true })
     if escaped ~= nil then process.waitpid(escaped, false) end
@@ -966,49 +958,53 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
   -- Two paths bound at one name, or a name beneath the old root's, are
   -- refused as arguments.
-  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { tree, scratch }, at = { [tree] = "/x", [scratch] = "/x" } } }))
-  assert(not pcall(process.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
     { unveil = { reads = { tree }, at = { [tree] = "/.old/x" } } }))
-  -- The host's /proc bound at another name is the host's state, and
-  -- mounted read-only, given to write as it may be.
+  -- The host's /proc bound through `at` -- here at /proc itself, so the
+  -- child has no procfs of its own there, only the host's -- is the
+  -- host's state, and mounted read-only, given to write as it may be:
+  -- the stand-in, a native program, finds itself in it, and its own pid
+  -- there is the host's, not the 2 its own namespace gives it.
   local without_proc: {string} = {}
   for _, path in ipairs(reads) do
     if path ~= "/proc" then without_proc[#without_proc + 1] = path end
   end
   local proc_report = create(tmp .. "/proc-report")
-  local proc_pid = process.spawn("/bin/sh", { "sh", "-c",
-    "grep -q ' /host-proc ro[, ]' /host-proc/self/mountinfo && echo read-only || echo writable" },
+  local proc_pid = process.spawn(probe, { probe, "status-field Pid; cat /proc/self/mountinfo" },
     nil, "/", nil, proc_report, proc_report, false, nil,
-    { unveil = { reads = without_proc, writes = { "/proc" }, at = { ["/proc"] = "/host-proc" } },
+    { unveil = { reads = without_proc, writes = { "/proc" }, at = { ["/proc"] = "/proc" } },
       offline = true })
   if proc_pid ~= nil then
-    assert(assert(process.waitpid(proc_pid, false)).code == 0)
-    local proc_said = assert(sys.pread(proc_report, 4096, 0))
-    assert(proc_said == "read-only\n", proc_said)
+    local proc_status = assert(process.waitpid(proc_pid, false))
+    local proc_said = assert(sys.pread(proc_report, 1 << 20, 0))
+    assert(proc_status.code == 0, proc_said)
+    local own_pid = assert(proc_said:match("^Pid:%s*(%d+)\n"), proc_said)
+    assert(own_pid ~= "2", "a procfs of its own at /proc: " .. proc_said)
+    assert(proc_said:find(" /proc ro[, ]") ~= nil, proc_said)
   else
     -- It started above, so it starts here, as it would anywhere.
-    error("the host's /proc could not be bound at another name")
+    error("the host's /proc could not be bound through at")
   end
   sys.close(proc_report)
 end
 
 --- An unveiled child is pid 2 of a pid namespace of its own, beneath the
 --- sandbox's init, pid 1: it cannot signal a process outside it, of its
---- own user as it may be -- here a shell of this process's, which it
+--- own user as it may be -- here a stand-in of this process's, which it
 --- tries to kill -- and its /proc, a procfs of that namespace, lists
 --- its init, itself and what it starts, and nothing else; where the
 --- kernel refuses a procfs of its own (a container masking parts of its
 --- /proc), it is the host's, which shows the host's processes, though
 --- it cannot signal them.
 local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tmp: string)
-  local reads = shell_reads()
-  if reads == nil then return end
-  local outside = assert(process.spawn("/bin/sh", { "sh", "-c", "sleep 30" }, nil, nil, nil,
+  local probe = probe_in(tmp)
+  local outside = assert(process.spawn(probe, { probe, "sleep 30000" }, nil, nil, nil,
     nil, nil, false))
-  local status, said = run_confined(tmp, reads, "echo $$; kill -KILL " .. tostring(outside) ..
-    " 2>/dev/null && echo killed || echo spared; test -e /proc/" .. tostring(outside) ..
-    " && echo seen || echo unseen; cat /proc/1/comm; ls /proc | tr '\\n' ' '")
+  local status, said = run_confined(tmp, probe, "status-field Pid; signal KILL " ..
+    tostring(outside) .. " && print killed || print spared; present /proc/" ..
+    tostring(outside) .. " && print seen || print unseen; cat /proc/1/comm; ls /proc")
   -- Still running, not a zombie, which a signal of 0 would find too.
   local alive = assert(process.waitpid(outside, true)).pid == 0
   if alive then
@@ -1020,14 +1016,15 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
   assert(alive, "the confined child killed a process outside it: " .. said)
   local lines: {string} = {}
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
-  assert(lines[1] == "2" and lines[2] == "spared", said)
+  assert(lines[1]:match("^Pid:%s*2$") and lines[2] == "spared", said)
   if lines[4] ~= "cosmic-init" then
     assert(not observations.own_proc_given(), "no procfs of its own: " .. said)
     return -- the host's /proc
   end
   assert(lines[3] == "unseen", said)
   local listed: {integer:boolean} = {}
-  for entry in (lines[5] or ""):gmatch("%S+") do
+  for i = 5, #lines do
+    local entry = lines[i]
     local number = math.tointeger(tonumber(entry))
     if number ~= nil then
       listed[number] = true
@@ -1043,15 +1040,15 @@ end
 --- is -- its exit code, a signal it sent itself, one from outside it
 --- does not catch -- which it would not be as its pid namespace's pid 1,
 --- to which a signal it does not catch is not delivered. When it ends,
---- what it left running in its namespace ends too: a background sleep
---- holding its output open lets that pipe end at once. And an orphan in
---- it is the init's to reap, left no zombie -- which only a procfs of
---- its own shows: where the kernel refuses one, its /proc is the
---- host's, whose zombies are not its namespace's, and that is not checked.
+--- what it left running in its namespace ends too: a sleep started in
+--- the background holding its output open lets that pipe end at once.
+--- And an orphan in it is the init's to reap, left no zombie -- which
+--- only a procfs of its own shows, listing its init and itself and no
+--- more: where the kernel refuses one, its /proc is the host's, whose
+--- zombies are not its namespace's, and that is not checked.
 local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
-  local reads = shell_reads()
-  if reads == nil then return end
-  local exited = run_confined(tmp, reads, "exit 7")
+  local probe = probe_in(tmp)
+  local exited = run_confined(tmp, probe, "exit 7")
   if exited == nil then return end
   assert(exited.code == 7 and exited.signal == -1)
   -- Its init is gone with it once the wait answers: no child of this
@@ -1070,17 +1067,18 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
       end
     end
   end
-  local own = assert(run_confined(tmp, reads, "kill -TERM $$; exit 3"))
+  local own = assert(run_confined(tmp, probe, "signal TERM; exit 3"))
   assert(own.code == -1 and own.signal == sys.SIGTERM, "a signal of its own: " .. own.code)
   local quiet = create(tmp .. "/quiet")
-  local sleeping = assert(start_confined(reads, "exec sleep 30", quiet))
+  local sleeping = assert(start_confined(probe, "sleep 30000", quiet))
   sys.close(quiet)
   assert(sys.kill(sleeping, sys.SIGTERM))
   local ended = assert(process.waitpid(sleeping, false))
   assert(ended.code == -1 and ended.signal == sys.SIGTERM,
     "a signal from outside: " .. tostring(ended.code))
   local ends = assert(process.pipe())
-  local left = assert(start_confined(reads, "sleep 30 & echo started", ends.writer))
+  local left = assert(start_confined(probe, "start " .. probe .. " sleep 30000; print started",
+    ends.writer))
   sys.close(ends.writer)
   assert(assert(process.waitpid(left, false)).code == 0)
   assert(process.set_nonblocking(ends.reader, true))
@@ -1096,11 +1094,20 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   end
   sys.close(ends.reader)
   assert(read == "started\n" and closed, "what it left running outlived it: " .. read)
-  local status, said = run_confined(tmp, reads, "sh -c 'sleep 0.1 &'; sleep 1; " ..
-    "cat /proc/1/comm; cat /proc/[0-9]*/stat | grep -c ') Z '; true")
+  -- One it runs starts one more, which outlives it: an orphan.
+  local status, said = run_confined(tmp, probe, "run " .. probe .. " start " .. probe ..
+    " sleep 100; sleep 1000; cat /proc/1/comm; ls /proc")
   assert(status ~= nil and status.code == 0, said)
-  -- Only a procfs of its own shows its namespace's zombies alone.
-  if observations.own_proc_given() then assert(said == "cosmic-init\n0\n", said) end
+  -- Only a procfs of its own shows its namespace's processes alone: its
+  -- init and itself, and no orphan, reaped or not.
+  if observations.own_proc_given() then
+    local processes: {string} = {}
+    for line in said:gmatch("[^\n]+") do
+      if line:match("^%d+$") or line == "cosmic-init" then processes[#processes + 1] = line end
+    end
+    table.sort(processes)
+    assert(table.concat(processes, " ") == "1 2 cosmic-init", said)
+  end
 end
 
 --- The files of a confined child's /proc it may open to write, each its
@@ -1139,17 +1146,15 @@ local own_writable: {string:string} = {
 --- refuses it one, its /proc is the host's, read-only whole, and nothing
 --- opens -- but a device a container's runtime bound over an entry
 --- (/dev/null, masking /proc/kcore and the like), which a read-only mount
---- does not hold, and which is no file of the host's state: `find`
---- takes it for the file it hides, so each is looked at again (`test -f`).
+--- does not hold, and which is no file of the host's state: a listing
+--- takes it for the file it hides, so each is looked at again, where it
+--- leads (`find-writable`).
 local function test_a_confined_child_can_write_no_host_state_through_its_proc(tmp: string)
-  local reads = shell_reads()
-  if reads == nil then return end
+  local probe = probe_in(tmp)
   -- Offline and online: an online child's /proc/<pid>/net is its
   -- parent's network namespace's.
   for _, online in ipairs({ false, true }) do
-    local status, said = run_confined(tmp, reads, "find /proc -type f 2>/dev/null | " ..
-      "while read f; do test -f \"$f\" && (: >> \"$f\") 2>/dev/null && echo \"$f\"; done; " ..
-      "echo done", online)
+    local status, said = run_confined(tmp, probe, "find-writable /proc; print done", online)
     if status == nil then return end
     assert(status.code == 0 and said:sub(-5) == "done\n", said)
     local own = observations.own_proc_given()
@@ -1171,38 +1176,10 @@ local function test_a_confined_child_can_write_no_host_state_through_its_proc(tm
   end
 end
 
---- The setsid program where this host has one, or nil.
-local function setsid_program(): string | nil
-  for _, path in ipairs({ "/usr/bin/setsid", "/bin/setsid", "/usr/sbin/setsid" }) do
-    if sys.stat(path) ~= nil then return path end
-  end
-  return nil
-end
-
---- Runs `chunk`, with `...` after it, in this program, in a session of
---- its own (`setsid`), in `tmp`: what it printed, or nil where the host
---- has no setsid program.
-local function in_own_session(tmp: string, chunk: string, ...: string): string | nil
-  local setsid = setsid_program()
-  if setsid == nil then return nil end
-  local report = create(tmp .. "/session")
-  local args: {string} = { "-e", chunk }
-  for _, word in ipairs({ ... }) do args[#args + 1] = word end
-  local started = observations.program(args)
-  local argv: {string} = { setsid }
-  for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
-  local pid = assert(process.spawn(setsid, argv, started.options.env, tmp, nil, report, report,
-    false, spawn_fds(started)))
-  local status = assert(process.waitpid(pid, false))
-  local said = assert(sys.pread(report, 65536, 0))
-  sys.close(report)
-  assert(status.code == 0, said)
-  return said
-end
-
---- What a chunk run by `in_own_session` starts a confined child with:
---- the raw process table, and the paths a shell needs, from `...`.
-local session_preamble <const> = [==[
+--- What a chunk of this program's starts a confined child with: the
+--- raw process table, and the paths it reads, from `...`, colon-joined,
+--- the program first.
+local chunk_preamble <const> = [==[
 local sys = require("cosmic.sys")
 local process
 for _, searcher in ipairs(package.searchers) do
@@ -1211,50 +1188,7 @@ for _, searcher in ipairs(package.searchers) do
 end
 local reads = {}
 for path in (...):gmatch("[^:]+") do reads[#reads + 1] = path end
-local function read(path)
-  local fd = sys.open(path, sys.O_RDONLY)
-  if fd == nil then return "" end
-  local text = sys.read(fd, 4096) or ""
-  sys.close(fd)
-  return text
-end
 ]==]
-
---- A confined child's autogroup is its own session's, not its parent's:
---- the nice it sets through its init's /proc/1/autogroup, and then
---- through /proc/self/autogroup, leaves its parent's session's as it
---- was. The init's is written first, and its own a fifth of a second
---- later: without CAP_SYS_ADMIN the kernel lets autogroups be reniced
---- once a tenth of a second, the whole system over (EAGAIN). /proc/1 is
---- open to the child only where it runs as root (its init is
---- undumpable, so owned by the namespace's root), so that half is
---- checked only in a run as root -- not CI's, which runs unprivileged,
---- nor ci/run-local's, as nobody. Run in a session of this test's own,
---- so a failure changes nothing of the runner's. Where the kernel has
---- no autogroup, or the host no setsid program, there is nothing to
---- check.
-local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string)
-  local reads = shell_reads()
-  if reads == nil or sys.stat("/proc/self/autogroup") == nil then return end
-  local said = in_own_session(tmp, session_preamble .. [==[
-local before = read("/proc/self/autogroup")
-local pid, trouble = process.spawn("/bin/sh", { "sh", "-c",
-  "(echo 19 > /proc/1/autogroup) 2>/dev/null && echo init-set; sleep 0.2; " ..
-  "echo 19 > /proc/self/autogroup; sed 's/.* nice /own nice /' /proc/self/autogroup" },
-  nil, "/", nil, nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
-if pid == nil then print("refused " .. trouble) return 0 end
-process.waitpid(pid, false)
-print(before == read("/proc/self/autogroup") and "kept" or "changed: " .. before)
-return 0
-]==], table.concat(reads, ":"))
-  if said == nil or said:find("^refused ") then return end
-  -- It set its own, where its /proc is its own and so writable, and, as
-  -- root, its init's.
-  assert(said:find("kept\n$") ~= nil, said)
-  local own = observations.own_proc_given()
-  assert(not own or said:find("own nice 19\n", 1, true) ~= nil, said)
-  assert(not own or sys.getuid() ~= 0 or said:find("init-set\n", 1, true) ~= nil, said)
-end
 
 --- A confined child ends when the process that started it does, killed
 --- or ended by a signal from a terminal, not left running on its own:
@@ -1263,17 +1197,16 @@ end
 --- ends them: `cosmic test`'s runner, a subreaper itself, would end any
 --- that reached it as strays, and pass this with the init's end undone.
 local function test_a_confined_child_ends_with_its_parent(tmp: string)
-  local reads = shell_reads()
-  if reads == nil then return end
+  local probe = probe_in(tmp)
   local adopting = process.subreaper()
   if not adopting then return end -- no subreaper to be (not Linux)
   local report = create(tmp .. "/parent")
-  local started = observations.program({ "-e", session_preamble .. [==[
-local pid, trouble = process.spawn("/bin/sh", { "sh", "-c", "exec sleep 30" }, nil, "/", nil,
+  local started = observations.program({ "-e", chunk_preamble .. [==[
+local pid, trouble = process.spawn(reads[1], { reads[1], "sleep 30000" }, nil, "/", nil,
   nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
 print(pid or "refused " .. trouble)
 sys.nanosleep(30 * 1000000000)
-]==], table.concat(reads, ":") })
+]==], table.concat(probe_reads(probe), ":") })
   local parent = assert(process.spawn(started.argv[1], started.argv, started.options.env, tmp,
     nil, report, report, false,
     spawn_fds(started)))
@@ -1318,18 +1251,17 @@ end
 --- process has one: in a sandbox of its own (a sandboxed `cosmic test`
 --- worker's), its /proc has no /proc/sys to give.
 local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: string)
-  local reads = shell_reads()
-  if reads == nil then return end
+  local probe = probe_in(tmp)
   local without: {string} = {}
-  for _, path in ipairs(reads) do
+  for _, path in ipairs(probe_reads(probe)) do
     if path ~= "/proc" then without[#without + 1] = path end
   end
   local writes: {string} = { "/proc" }
   if sys.stat("/proc/sys/kernel") ~= nil then writes[2] = "/proc/sys/kernel" end
   local report = create(tmp .. "/written")
-  local pid, trouble, errno = process.spawn("/bin/sh", { "sh", "-c",
-    "(: >> /proc/sys/vm/swappiness) 2>/dev/null && echo sys-writable || echo sys-read-only; " ..
-    "(: >> /proc/sys/kernel/hostname) 2>/dev/null && echo name-writable || echo name-read-only" },
+  local pid, trouble, errno = process.spawn(probe, { probe,
+    "writable /proc/sys/vm/swappiness && print sys-writable || print sys-read-only; " ..
+    "writable /proc/sys/kernel/hostname && print name-writable || print name-read-only" },
     nil, "/", nil, report, report, false, nil,
     { unveil = { reads = without, writes = writes }, offline = true })
   if pid == nil then
@@ -1350,15 +1282,14 @@ end
 --- (core/syscalls.c's `end_sandbox_init`): a run of `cosmic test` that
 --- confines each of its processes, as build/shared_verdicts_test.tl's
 --- nested runs do, would pay that second for every one. Each of a few
---- runs of a confined /bin/sh that exits at once takes well under half
+--- runs of a confined program that exits at once takes well under half
 --- a second, and leaves no init behind.
 local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: string)
-  local reads = shell_reads()
-  if reads == nil then return end
+  local probe = probe_in(tmp)
   local slowest = 0
   for _ = 1, 5 do
     local started = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
-    local status = run_confined(tmp, reads, "true")
+    local status = run_confined(tmp, probe, "exit 0")
     if status == nil then return end
     local took = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) - started
     assert(status.code == 0)
@@ -1444,14 +1375,17 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.utimensat(nul, 0, 0))
   failed_with(sys.EINVAL, sys.access(nul, 0))
   failed_with(sys.EINVAL, sys.mkfifo(tmp .. "/pipe\0x"))
-  -- execve, like spawn, refuses a NUL by raising, before it allocates.
-  raises(sys.execve, tmp .. "\0/sh", { "sh" }, {})
-  raises(sys.execve, "/bin/sh", { "sh", "-c\0x" }, {})
-  raises(sys.execve, "/bin/sh", { "sh" }, { A = "b\0c" })
+  -- execve, like spawn, refuses a NUL by raising, before it allocates;
+  -- the program named is not there, so one that did not would fail
+  -- rather than run it.
+  local program = tmp .. "/program"
+  raises(sys.execve, tmp .. "\0/program", { "program" }, {})
+  raises(sys.execve, program, { "program", "-c\0x" }, {})
+  raises(sys.execve, program, { "program" }, { A = "b\0c" })
   -- spawn refused a NUL before this rule existed, by raising, and
   -- `cosmic.child` relies on that; it never truncates either way.
-  raises(process.spawn, tmp .. "\0/sh", { "sh" }, nil, nil, nil, nil, nil, false)
-  raises(process.spawn, "/bin/sh", { "sh" }, nil, tmp .. "\0x", nil, nil, nil, false)
+  raises(process.spawn, tmp .. "\0/program", { "program" }, nil, nil, nil, nil, nil, false)
+  raises(process.spawn, program, { "program" }, nil, tmp .. "\0x", nil, nil, nil, false)
   -- The file the truncated paths name is exactly as it was.
   local st = assert(sys.stat(file))
   assert(st.kind == "file" and st.mode & 511 == 420)
@@ -1698,9 +1632,7 @@ local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
     assert(sys.mkdir(at, 0x1ed))
   end
   assert(assert(sys.tree_digest(deep, false)).special, "a tree too deep to see")
-  local fifo = assert(process.spawn("/bin/sh", { "sh", "-c", "mkfifo " .. tree .. "/sub/fifo" },
-    nil, nil, nil, nil, nil, false))
-  assert(assert(process.waitpid(fifo, false)).code == 0)
+  assert(sys.mkfifo(tree .. "/sub/fifo"))
   assert(assert(sys.tree_digest(tree, true)).special, "a FIFO answers from past the tree")
   assert(not assert(sys.tree_digest("/dev/null", false)).special)
   local missing, _, errno = sys.tree_digest(tmp .. "/missing", false)
