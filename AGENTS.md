@@ -45,6 +45,12 @@
    not report. A C
    path is written back in Lua's own layout (`build/c/layout.tl`) and
    checked against the rules in `build/c/rules.tl` (see C, below).
+   The checks only the whole tree can answer (`build/tree_checks.tl`:
+   every export earned, every doc anchor its own, and the like) run in
+   `o/bin/cosmic fix --check .`, as CI runs it, and not in a `fix` of
+   some paths: run it before pushing a change to what they read. Since
+   they read the tree's projection, that run also refuses a tree that
+   does not build.
 3. A tool older than the tree rebuilds itself and re-enters the command the
    moment it notices, so `o/bin/cosmic test` after an edit is enough. An
    edit to Teal rebuilds its database; a change to the core's C under
@@ -123,7 +129,10 @@
    (their docs, catalog or bytecode, that way, through a verb run
    in-process, or by opening o/cosmic.db itself), and only there -- in a
    module of its own, if the rest of its tests need not -- since that
-   test runs again on every edit to the tree.
+   test runs again on every edit to the tree. A module left declaring
+   `store` says why above its declaration. Only a test of one module
+   may read the store so: a check over the whole tree is no test, and
+   goes in `build/tree_checks.tl`.
    `--all` (`COSMIC_TEST_ALL=1`) runs everything. The worker still reads
    /proc, /dev/null, /dev/zero and /dev/urandom, keyed only through the
    host's identity, and the program, its core and its database, keyed

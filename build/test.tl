@@ -470,8 +470,8 @@ local function climbs(path: string): boolean
 end
 
 --- Whether a path under the root names the build's own output, o/:
---- the databases it projects (`o/cosmic.db`, which a whole-tree check
---- such as build/exports_test.tl asks what the build found, and
+--- the databases it projects (`o/cosmic.db`, whose rows of every module
+--- a test declaring `store` reads, and
 --- `o/carried.db`), the tool it writes (`o/bin/cosmic`), and whatever
 --- else a build or a test leaves there. None of it is staged, so a read
 --- of it is keyed by its bytes (`output_hash`), as any file the stage
