@@ -27,6 +27,6 @@ local record harness_epoch
 end
 
 harness_epoch.epoch = 1
-harness_epoch.acknowledged = "9509a621a4e449cd43c4cd6ad88d56cd331f358bcc1868b3bfa7e2ea56f61aa5"
+harness_epoch.acknowledged = "fe01e05c5e508d62f55898a7f0dd36dded29c4559ee0fd11f9d414b335b59710"
 
 return harness_epoch

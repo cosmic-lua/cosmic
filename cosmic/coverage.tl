@@ -41,7 +41,7 @@ local record Coverage
   end
 end
 
-local collecting = false
+--- The open window's session, nil while none is open.
 local active: Coverage.Session | nil = nil
 
 --- Starts collecting line hits, discarding anything collected before,
@@ -49,16 +49,12 @@ local active: Coverage.Session | nil = nil
 --- Refuses, touching no shared state, while a window opened by an
 --- earlier `start` is still open -- a second, unrelated caller cannot
 --- silently reset a collection already in progress.
---- Only one collection window may be open at a time: call
---- `Coverage.stop` with the session an earlier `Coverage.start`
---- returned before starting another.
 --- @return Session | nil The session `stop` must be called with, or nil if refused
 --- @return string Error message when refused, "" on success
 function Coverage.start(): Coverage.Session | nil, string
-  if collecting then
+  if active ~= nil then
     return nil, "coverage collection is already active"
   end
-  collecting = true
   local session: Coverage.Session = {}
   active = session
   native.start()
@@ -69,17 +65,16 @@ end
 --- `start`, by module import path -- but only for the exact `session`
 --- that `start` returned. Any other value, including no collection
 --- being open at all, is refused without touching the real window: the
---- hook stays installed, `collecting` stays true, and nothing already
+--- hook stays installed, the window stays open, and nothing already
 --- gathered is discarded. This is what keeps a caller other than the
 --- one that opened the window from ending or corrupting it.
 --- @param session Session The value the matching `start` returned
 --- @return Hits | nil Every line hit since `start`, or nil if refused
 --- @return string Error message when refused, "" on success
 function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
-  if not collecting or session ~= active then
+  if active == nil or session ~= active then
     return nil, "no matching open coverage collection for this session"
   end
-  collecting = false
   active = nil
   return native.stop(), ""
 end
@@ -92,7 +87,7 @@ end
 --- Empty when no collection is open.
 --- @return Hits Every line hit so far
 function Coverage.snapshot(): Coverage.Hits
-  if not collecting then
+  if active == nil then
     return {}
   end
   return native.snapshot()
