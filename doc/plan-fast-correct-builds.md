@@ -95,8 +95,9 @@ qualified. It stood on 96.6% of the checked suite, gated in 6.0 min, and
 took 43.8 runner-minutes. The other three landed changes moved the core
 or the harness and reran everything: 14.4 min median gating, 81
 runner-minutes per change, no better than before. Stages 0 and 1
-themselves rewrote what every key holds. M1 is measured again over ten
-ordinary commits after 2.2 lands.
+themselves rewrote what every key holds. 2.2 has landed, so M1 is
+measured again over the next ten ordinary commits; stage 2's own PRs
+moved the harness and do not qualify.
 
 Before that measurement, `ci/cosmic_ci/report.tl:257` (small): have
 `cosmic test --census` name the key parts of the rows it restored, so
@@ -160,19 +161,22 @@ old target of about 355 was already met. The new target is at most
   `build/tree_checks.tl`. A module left with `store` says why.
 - A test keeps `tool` if it starts or reads this program, reads the
   store beyond its closure, or nests a sandbox (see 2.3).
-- PRs, in order:
-  - A: tree-wide checks into `fix --check .` (exports, doc anchors,
-    compiler readers, command stand-ins, docs queries, `quieted`
-    names). `store` falls from 50 tests to 29.
-  - B: store seams (`errors`, `fix.notes`, `invoke`,
-    `core/declarations`), about 10 more.
-  - C: clean `tool` splits (`child`, `fault`, `test_audit`,
-    `test_closure`, `proc`, `test_sandbox`, `shared_compiles`,
-    `coverage_native`), about 34.
-  - D: the splits that need a check first (`standalone`, `refresh`,
-    `embed`), 15 to 32.
-  - E, optional: the store's lookup through attached databases
-    (`core/store.c`'s `TODO:`).
+- PRs:
+  - A, landed (#2298): tree-wide checks into `fix --check .`
+    (exports, doc anchors, compiler readers, command stand-ins, docs
+    queries, `quieted` names). `store` fell from 50 tests to 29.
+  - C, landed (#2299): eight clean `tool` splits, 35 tests.
+  - D, landed (#2301): `standalone`, `refresh` and `embed`, 17 tests.
+    `embed` freed only 3 of 13: writing an executable copies the
+    store's rows.
+  - B, in the queue (#2305): store seams (`errors`, `fix.notes`,
+    `invoke`, `core/declarations`), 10 tests. The floor is then 279.
+  - F, in progress: the modules the census marked as needing neither
+    (`verbs`, `test_isolation`, `log`, `store` and five more), to
+    close the last 4.
+  - E, deferred: the store's lookup through attached databases
+    (`core/store.c:809`). It needs a binding, an export and an epoch
+    bump to free one test.
 - Shows: the floor, by the named `o/bin/cosmic sql` query over
   `test_inputs`, at or under 275.
 
@@ -190,7 +194,7 @@ old target of about 355 was already met. The new target is at most
 
 These use the local probes (see Measuring):
 
-- The tool/store floor is at most 355.
+- The tool/store floor is at most 275.
 - A comment in `cosmic/shape.tl` reruns at most 400 tests (582 before).
 - A comment in `build/zig.tl`, `cosmic/http.tl` or `build/test.tl`
   reruns at most 400. Each reran every test before.
@@ -239,10 +243,9 @@ that is cheap.
     writer scratch-name races (`build/closure_store.tl:321`,
     `build/writer.tl:367`) cannot happen within a checkout.
   - A hand-run boot takes the same lock (`build/reboot.tl:312`).
-  - Waits on: 2.5, which edits `build/reboot.tl`.
+  - 2.5 has landed, so this can start.
 - **R5. No test depends on stat times** (item 1 below).
-- R1 to R3 wait on 2.2, which edits `build/declared_key.tl` and
-  `build/test.tl`.
+- 2.2 has landed, so R1 to R3 and R5 can start.
 
 ### 3.1 Holes, in order
 
@@ -264,7 +267,7 @@ that is cheap.
      `fstat` of a path under the tree answer fixed times and inode. A
      test that leans on them then sees the same value in every checkout,
      rather than a value only some checkouts give.
-   - Waits on: 2.2, which edits `build/test.tl`.
+   - 2.2 has landed, so this can start.
    - Shows: no module declares stat times, and the rule is in AGENTS.md.
 2. **eval/ and test/portable not tool trees (S)** (`build/work.tl:540`).
    - Shows: an edit to `eval/summarize.tl` moves `boot_hash`.
