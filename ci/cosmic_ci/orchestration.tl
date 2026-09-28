@@ -20,7 +20,7 @@ local record Orchestration
   fixture: function(env: {string:string}, tmpdir: string): {string:string}
   forget_run: function(env: {string:string})
   suite_run: function(extra?: {string:string}): {string}, {string:string}
-  portable_verdicts: function(env: {string:string}): string
+  suite_verdicts: function(env: {string:string}, name: string): string
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -177,8 +177,8 @@ function Orchestration.suite_run(extra?: {string:string}): {string}, {string:str
   return words, values
 end
 
---- The shared verdict cache (COSMIC_VERDICT_CACHE) the portable suite
---- keeps and stands on, given `env`, the driver's: `portable.db` beside
+--- The shared verdict cache (COSMIC_VERDICT_CACHE) the suite `name`
+--- keeps and stands on, given `env`, the driver's: `<name>.db` beside
 --- the one `env` names -- in the directory ci.yml's verdict cache saves
 --- and restores, so it rides along -- or "0", none, where `env` names
 --- no absolute path or turns the cache off.
@@ -194,10 +194,14 @@ end
 --- test itself and stands only on earlier portable runs', whose keys
 --- move with its launcher, cores and manifest as with anything else a
 --- test is given.
-function Orchestration.portable_verdicts(env: {string:string}): string
+---
+--- Nor the checked suite's (`checked`), which the local suite's rows
+--- would otherwise crowd toward the file's bound, and whose census
+--- (`--census`) then counts its own suite's rows alone.
+function Orchestration.suite_verdicts(env: {string:string}, name: string): string
   local shared = env.COSMIC_VERDICT_CACHE or ""
   if shared:sub(1, 1) ~= "/" then return "0" end
-  return shared:match("^(.*)/[^/]*$") .. "/portable.db"
+  return shared:match("^(.*)/[^/]*$") .. "/" .. name .. ".db"
 end
 
 local record Context
@@ -453,6 +457,34 @@ local function checked_suite(c: Context, target: string, work: string,
   assert(#extracted == length and Hash.hex_sha256(extracted) == digest and
     extracted == raw, "checked core range differs")
   write(work .. "/checked.core", extracted)
+  -- The checked core keeps its debug information, so its bytes name no
+  -- path of the run that built it (build.zig's `debug_dir` and the
+  -- generated map's `-g0`): the checked suite's verdicts are keyed by
+  -- the core's digest, and a core naming the tree root -- per commit in
+  -- CI (place-tree.sh) -- or the map's zig-cache directory, new on every
+  -- relink, would move every key each run and stand on none. Plain finds
+  -- over the core already read above, some 35 ms for 38 MB. The tree
+  -- root may be named under the checkout's own zig cache (run-local's
+  -- `o/zig-cache`, whose vendored trees' paths the core's assert strings
+  -- hold; build.zig's `debug_dir`), which is no path CI's builds name.
+  -- TODO: hold each compile unit's DW_AT_comp_dir to "." here, reading
+  -- the core's DWARF, once musl's is (the TODO beside build.zig's
+  -- `debug_dir`): a unit naming the bare tree root is today told from
+  -- musl's, which names whichever checkout first built libc, by nothing
+  -- a find can see, so only a root followed by a path is refused.
+  local cache = c.root .. "/o/zig-cache/"
+  local at = 1
+  while true do
+    local leak = raw:find(c.root .. "/", at, true)
+    if not leak then break end
+    assert(raw:sub(leak, leak + #cache - 1) == cache,
+      "the checked core names a path under the tree root " .. c.root ..
+      ": a compile lacks build.zig's -fdebug-compilation-dir=.")
+    at = leak + #cache
+  end
+  assert(not raw:find("/coverage_map.c", 1, true),
+    "the checked core names its generated coverage map's path: " ..
+    "the map compiles without build.zig's -g0")
   local expected = offset .. "\t" .. length .. "\t" .. digest .. "\n"
   -- That the checked artifact runs the checked core: its runtime
   -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
@@ -502,19 +534,20 @@ local function checked_suite(c: Context, target: string, work: string,
   -- Its earlier bounds each timed out as the suite grew past them: 180 s,
   -- set for 1400 tests unsandboxed, once every worker was sandboxed;
   -- 320 s, set at twice 157 s for 1869 tests, at 1948 (36358276275) and
-  -- at 1967. The suite stands on no verdict from an earlier run
-  -- (0 stood in every run seen), though its key is meant to let it:
+  -- at 1967. Where its key holds, it stands on the last run's verdicts
+  -- as the local suite does: a commit that moves neither the core nor
+  -- the runner keys the checked core by the same digest, since its bytes
+  -- name no path of the run (asserted above; before, each object's
+  -- DW_AT_comp_dir named the checkout that first compiled it, and the
+  -- map its zig-cache directory, so it stood on none). It keeps its
+  -- verdicts in checked.db (`suite_verdicts`), and says which key parts
+  -- a run that stands on none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
-  -- TODO: find what part of the checked suite's key moves between runs
-  -- (the checked core's bytes across CI's per-commit tree paths, or a
-  -- run-dependent input to its program identity), so that a commit that
-  -- moves neither the core nor the runner stands on the last run's
-  -- verdicts here as the local suite does; the census line that would
-  -- say (build/test.tl, "none under the keys this run reached") is
-  -- suppressed where the local suite already ran in this checkout.
   local checked_argv: {string} = { cosmic }
-  local checked_words, checked_environment = Orchestration.suite_run()
+  local checked_words, checked_environment = Orchestration.suite_run({
+    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked") })
+  table.insert(checked_words, 2, "--census")
   for _, word in ipairs(checked_words) do
     checked_argv[#checked_argv + 1] = word
   end
@@ -781,11 +814,11 @@ local function phase_portable(p: PlatformContext): integer
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver }
   -- Where the other suites stand on verdicts (`stands`), it stands on
-  -- its own (`portable_verdicts`), never on the local suite's;
+  -- its own (`suite_verdicts`), never on the local suite's;
   -- elsewhere it runs every test, as they do.
   local s = suite(portable_context, "portable", executable, portable_d,
     { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
-      COSMIC_VERDICT_CACHE = Orchestration.portable_verdicts(Env.all()) })
+      COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") })
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
     assert(read(portable_d .. "/portable-artifact.before.sha256") ==

@@ -184,6 +184,9 @@ local module: Module = {
         "default and declared inputs (build.inputs), and fail if any did" },
       ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
         "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
+      ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
+        "stood on the shared cache, how many rows it holds, even in a checkout " ..
+        "that ran before" },
       ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
       ["--timeout"] = { value = "seconds",
         about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },

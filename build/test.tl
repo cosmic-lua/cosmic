@@ -3403,20 +3403,37 @@ function test.run(argv: {integer:string}): integer
   -- them ever ran or stood in this checkout -- a fresh one, as CI's is -- and
   -- none was found there, though the cache holds rows, say what every
   -- key holds, so two runs' lines say which part moved. An edit in a
-  -- checkout says nothing: what it moved ran here before.
-  if keyed and rec.shared ~= nil and looked_count > 0 and looked_count == keyed_count and
-      ran_here == 0 and found_count == 0 then
-    local census, _ = shared_verdicts.census(rec.shared, looked)
-    local line = census ~= nil and shared_verdicts.unmatched(rec.shared.path, looked_count,
-      census, {
-        -- As .github/scripts/host-features.sh names CI's verdict cache.
-        { "host features", declared_key.host_features() },
-        { "host", rec.host:sub(1, 12) },
-        { "system", (rec.system or ""):sub(1, 12) },
-        { "runtime", Hash.hex_sha256(rec.runtime or ""):sub(1, 12) },
-        { "compiler", (rec.compiler or ""):sub(1, 12) },
-        { "harness", (rec.harness or ""):sub(1, 12) },
-      }) or nil
+  -- checkout says nothing: what it moved ran here before. Asked
+  -- (`--census`, as CI's checked suite is, in a checkout the local
+  -- suite already ran in), say it wherever none was found, and say the
+  -- parts alone wherever the line would not be said.
+  local census_asked = parsed.set["--census"] == true
+  if keyed and (census_asked or (rec.shared ~= nil and looked_count > 0 and
+      looked_count == keyed_count and ran_here == 0 and found_count == 0)) then
+    local parts: {{string}} = {
+      -- As .github/scripts/host-features.sh names CI's verdict cache.
+      { "host features", declared_key.host_features() },
+      { "host", rec.host:sub(1, 12) },
+      { "system", (rec.system or ""):sub(1, 12) },
+      { "runtime", Hash.hex_sha256(rec.runtime or ""):sub(1, 12) },
+      { "compiler", (rec.compiler or ""):sub(1, 12) },
+      { "harness", (rec.harness or ""):sub(1, 12) },
+    }
+    if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
+    local runs_tool = false
+    for _, m in ipairs(selected_modules) do
+      if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end
+    end
+    if runs_tool and rec.program ~= nil then
+      parts[#parts + 1] = { "program", rec.program:sub(1, 12) }
+    end
+    local line: string = nil
+    if rec.shared ~= nil and found_count == 0 then
+      local census, _ = shared_verdicts.census(rec.shared, looked)
+      line = census ~= nil and shared_verdicts.unmatched(rec.shared.path, looked_count,
+        census, parts) or nil
+    end
+    if line == nil and census_asked then line = shared_verdicts.key_parts(parts) end
     if line ~= nil then log:say(line) end
   end
   if keyed then

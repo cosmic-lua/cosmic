@@ -2,9 +2,10 @@
 --- directory of the file COSMIC_VERDICT_CACHE names
 --- (build/shared_verdicts.tl in the candidate), which ci.yml restores
 --- before the leg's suites and saves after them -- `verdicts.db`, the
---- native suite's, and the checked suite's on the one leg that runs it
---- (COSMIC_CI_CHECKED_SUITE), and `portable.db` beside it, the portable
---- suite's (cosmic_ci/orchestration.tl's `portable_verdicts`).
+--- native suite's; `portable.db` beside it, the portable suite's; and
+--- `checked.db`, the checked suite's on the one leg that runs it
+--- (COSMIC_CI_CHECKED_SUITE) (cosmic_ci/orchestration.tl's
+--- `suite_verdicts`).
 ---
 --- A file bounds itself at 8192 rows and thirty days, some 3 KB a row
 --- (the lines each test hit, deflated, most of it), and SQLite keeps

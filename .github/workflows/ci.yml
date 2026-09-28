@@ -485,7 +485,7 @@
         # The test verdicts this leg reached before, on the same host
         # (COSMIC_VERDICT_CACHE, .github/scripts/cosmic-driver.sh, and the
         # portable suite's file beside it, orchestration.tl's
-        # `portable_verdicts`): the newest this ref can restore under its
+        # `suite_verdicts`): the newest this ref can restore under its
         # name -- its own, else main's, which is all the merge queue's
         # refs, whose runs save none, ever restore -- from a host of the
         # same features (host-features.sh). A leg's push, main's or a
@@ -808,8 +808,8 @@
         # portable suite's in portable.db, some 3900 rows and about 8.5 MB
         # compressed on linux-aarch64 and alpine-x86_64, and on
         # linux-x86_64, the one leg that runs the checked suite
-        # (COSMIC_CI_CHECKED_SUITE), its rows too in verdicts.db, some
-        # 5800 rows and about 13 MB. The cost, the choice compiles-trim
+        # (COSMIC_CI_CHECKED_SUITE), its rows in checked.db too, some
+        # 5800 rows and about 13 MB in all. The cost, the choice compiles-trim
         # made: main's saved file holds only its newest commit's keys, so a
         # branch based on an older main, whose keys a change to build/ has
         # since moved, runs every test again, where a whole file's two to
