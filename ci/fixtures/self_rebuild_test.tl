@@ -1,6 +1,7 @@
 local Fs = require("cosmic.fs")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
+local Sqlite = require("cosmic.sqlite")
 
 local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
@@ -390,6 +391,96 @@ local function test_self_rebuild_docs_verb(tmp: string)
   Fixture.contains(second.out, "step8-docs-marker")
   assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
     "docs: second invocation reported staleness though the tool is fresh")
+end
+
+-- Runs of one stale tool started at once in one checkout -- an editor's,
+-- a watcher's and a terminal's -- rebuild it one at a time: each either
+-- rebuilds it or waits for the run that is and re-enters on the tool that
+-- run wrote, and every one shows the edit. Unserialized, their rebuilds
+-- wrote o/cosmic.db, o/carried.db and the tool under one another, and
+-- ended in "disk I/O error" or "portable program database has no SQLite
+-- header" and a spurious "(the tool is stale)" failure.
+local function test_self_rebuild_by_concurrent_runs(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-concurrent"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = place_runtime(fixture_dir, tree)
+  local before_hash = Fixture.hash(program)
+  apply_docs_marker_edit(tree)
+
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  supervised(function(active: {Running})
+    for n = 1, 3 do
+      active[#active + 1] = start("concurrent-" .. tostring(n),
+        { program, "docs", "cosmic.child" }, tree, values, diagnostics)
+    end
+    local rebuilt = 0
+    for _, child in ipairs(active) do
+      local result = finish(child, rebuild_timeout_ms)
+      local err = Fixture.read(child.err)
+      assert(result.ok, child.label .. ": exit status " ..
+        tostring(result.code) .. ", want 0; it said:\n" .. err)
+      Fixture.contains(child.out, "step8-docs-marker")
+      -- Started together, before any rebuild could land, each run meets
+      -- the tool stale: it rebuilds, waits for the run that does, or
+      -- finds that run's rebuild already landed and enters it.
+      assert(err:find("the tool is stale; rebuilding it from the tree", 1, true) or
+        err:find("is rebuilding the tool; waiting for it", 1, true) or
+        err:find("rebuilt the tool; entering it", 1, true),
+        child.label .. ": neither rebuilt the tool, waited nor entered " ..
+        "another's; it said:\n" .. err)
+      rebuilt = rebuilt + count_occurrences(err,
+        "the tool is stale; rebuilding it from the tree")
+    end
+    assert(rebuilt >= 1, "concurrent: no run rebuilt the tool")
+  end)
+  assert(Fixture.hash(program) ~= before_hash,
+    "concurrent: no run changed the artifact")
+end
+
+-- A run a reboot entered (COSMIC_REBOOTED) that would refuse as still
+-- stale refuses at once, though another run holds the rebuild lock: it
+-- neither waits for that run nor, re-entering after it, rebuilds, so
+-- runs that cannot settle the tool do not rebuild it by turns for good.
+local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-rebooted"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = place_runtime(fixture_dir, tree)
+  local before_hash = Fixture.hash(program)
+  apply_docs_marker_edit(tree)
+
+  -- Held as a run rebuilding the tool holds it (build.reboot).
+  local lock = assert(Sqlite.open(tree .. "/o/rebuild.lock", true))
+  assert(lock:exec("BEGIN IMMEDIATE"))
+  local held_ok, failure = pcall(function(): boolean
+    for _, entered in ipairs({ "1", "2" }) do
+      local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
+        COSMIC_REBOOTED = entered })
+      local outcome = Fixture.call_with_environment("rebooted-" .. entered,
+        { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+      assert(outcome.result.code == 3, "rebooted " .. entered ..
+        ": exit status was " .. tostring(outcome.result.code) .. ", want 3")
+      Fixture.contains(outcome.err, "the tool is still stale after a reboot")
+      assert(not Fixture.read(outcome.err):find("waiting for it", 1, true),
+        "rebooted " .. entered .. ": waited for the rebuild lock")
+    end
+    return true
+  end)
+  local _, _ = lock:close()
+  if not held_ok then error(failure) end
+  assert(Fixture.hash(program) == before_hash,
+    "rebooted: a refusing run changed the artifact")
 end
 
 -- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
