@@ -63,6 +63,17 @@ works. Numbers print as `Json.encode` writes them, so `1e2` reads
 `100.0`. It is only a lookup, with no filters: for more, write the
 script with `cosmic.json`. `cosmic help json` has the rest.
 
+## a quick look inside an archive
+
+`cosmic archive list release.tar.gz` prints one entry per line (path, size,
+mode, type), and `--json` an array of objects for `cosmic
+json`; `cosmic archive extract release.zip -C out [member...]` unpacks
+all or some of it, refusing a path that escapes `out` and a file it would
+overwrite (unless `--force`); `cosmic archive create out.tar.gz dir
+--reproducible` packs a tree, as a zip or a gzip tar. The format is read from
+the file's bytes, not its name; `-` reads standard input. `cosmic help archive`
+has the rest.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function
