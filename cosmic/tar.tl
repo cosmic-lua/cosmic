@@ -567,10 +567,9 @@ local function oct(n: integer, width: integer): string
   return string.format("%0" .. tostring(width - 1) .. "o", n) .. "\0"
 end
 
+--- The zero bytes that carry `size` bytes of data to a block boundary.
 local function pad_bytes(size: integer): string
-  local rem = size % BLOCK
-  if rem == 0 then return "" end
-  return string.rep("\0", BLOCK - rem)
+  return string.rep("\0", padding_of(size))
 end
 
 --- A path split for the ustar name/prefix fields: the rightmost `/`
@@ -595,12 +594,13 @@ local function split_ustar(path: string): string, string, boolean
   return path:sub(1, best - 1), path:sub(best + 1), true
 end
 
+--- A ustar header block. Every entry is owned by uid and gid 0 with no
+--- user or group name, as `Tar.Writer` documents.
 local function build_header(name: string, prefix: string, typeflag: string, size: integer,
-    mode: integer, uid: integer, gid: integer, mtime: integer, linkname: string,
-    uname: string, gname: string): string
-  local block = txt(name, 100) .. oct(mode, 8) .. oct(uid, 8) .. oct(gid, 8) ..
+    mode: integer, mtime: integer, linkname: string): string
+  local block = txt(name, 100) .. oct(mode, 8) .. oct(0, 8) .. oct(0, 8) ..
     oct(size, 12) .. oct(mtime, 12) .. string.rep(" ", 8) .. typeflag ..
-    txt(linkname, 100) .. "ustar\0" .. "00" .. txt(uname, 32) .. txt(gname, 32) ..
+    txt(linkname, 100) .. "ustar\0" .. "00" .. txt("", 32) .. txt("", 32) ..
     oct(0, 8) .. oct(0, 8) .. txt(prefix, 155) .. string.rep("\0", 12)
   local checksum = string.format("%06o", header_sum(block)) .. "\0 "
   return block:sub(1, 148) .. checksum .. block:sub(157)
@@ -623,7 +623,7 @@ local function pax_header(real_name: string, records: string): string
   local base = real_name:match("([^/]+)/?$") or real_name
   local pax_name = "PaxHeaders/" .. base
   if #pax_name > 100 then pax_name = pax_name:sub(1, 100) end
-  return build_header(pax_name, "", "x", #records, 0, 0, 0, 0, "", "", "") ..
+  return build_header(pax_name, "", "x", #records, 0, 0, "") ..
     records .. pad_bytes(#records)
 end
 
@@ -664,7 +664,6 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     end
     if size < 0 then return false, "tar: negative size" end
     if deterministic then mtime = 0 end
-    local uid, gid, uname, gname = 0, 0, "", ""
     local prefix, name, fits = split_ustar(path)
     local link_fits = #linkname <= 100
     local size_fits = size < OCTAL_11_LIMIT
@@ -681,8 +680,8 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     end
     local header_size = size_fits and size or 0
     local header_mtime = mtime_fits and mtime or (mtime < 0 and 0 or OCTAL_11_LIMIT - 1)
-    local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF, uid, gid,
-      header_mtime, linkname:sub(1, 100), uname, gname)
+    local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
+      header_mtime, linkname:sub(1, 100))
     return put(header)
   end
 
