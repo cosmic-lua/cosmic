@@ -808,9 +808,12 @@ static int store_databases (lua_State *L) {
    * while a hold is up none is handed out: the hold cannot sort rows. */
   /* TODO: hand out, while a hold is up, a handle on a database attached
    * since it went up -- a test's own, keyed by what it declares it
-   * reads -- once the list can tell those apart from the ones the hold
-   * covers (`store_alone` moves every one) without the binary's losing
-   * its place as the last. */
+   * reads -- through a lookup of its own. The list tells those apart
+   * already (`STORE_HOLD_COUNT`, as `meta_reach` reads it), but this
+   * answers every database `require` searches, the binary's last: a
+   * caller handed only the test's own would query less than it asked
+   * for, and answer silently, where it raises now. Waits on a caller
+   * that needs one. */
   if (held(L, NULL)) {
     push_refusal(L, NULL);
     return lua_error(L);

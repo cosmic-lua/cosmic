@@ -423,6 +423,16 @@ end
 --- among them -- is the running tool's or the whole projection's, which
 --- no key of a test without `store` holds, but for `compiler_meta` and
 --- `writer_meta`, each where the closure holds what it digests.
+---
+--- `runtime_basis` is here for a program started with no artifact
+--- descriptor alone, whose `Store.meta` reads it from the databases in
+--- search order rather than from the one it carries: with one, it is
+--- answered ahead of the hold. And library code a held test reaches
+--- that read a row outside this set as nil -- build.reboot's
+--- `unsettled`, which reads `written_by` and `writer`, or its
+--- `replaced`, which reads the tool's identity rows -- now raises
+--- there, loudly and naming `store = true`, rather than deciding on a
+--- value no key of the test holds.
 -- TODO: hold `boot_hash` too, once build.importer and build.writer tell
 -- a built tool from a boot, and a tool fresh against a tree from one
 -- that is not, by other means than its `boot_hash`: no key of a test

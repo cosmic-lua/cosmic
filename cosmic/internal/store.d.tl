@@ -24,7 +24,9 @@ local record store
   bytecode: function(path: string): string | nil, string
 
   --- One entry of the meta table, which is where the build records what
-  --- it decided. Nil when no database holds that key.
+  --- it decided. Nil when no database holds that key; under a hold, a
+  --- key outside its `meta_keys` is answered only by a database attached
+  --- since it went up, and raises where none of those holds it.
   meta: function(key: string): string | nil
 
   --- One module's Teal source, or a declaration's, from the binary's own

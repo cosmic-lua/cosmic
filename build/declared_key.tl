@@ -499,9 +499,12 @@ end
 --- - `projected`: build.writer reads it from a projection it wrote, to
 ---   skip writing the same one again, never from a binary.
 ---
---- And every sandboxed worker runs this same binary, with these same
---- rows in reach of `Store.meta`, whether its test declares `tool` or
---- not, and no key of one that does not has ever held them.
+--- And every sandboxed worker runs this same binary, whether its test
+--- declares `tool` or not; one that declares neither `tool` nor `store`
+--- reads through `Store.meta` only the rows its key holds, and
+--- `boot_hash` (`build.test_worker`'s `held_meta`), while one that
+--- declares either has these same rows in reach, which its key holds
+--- by the program's image and the rows it carries, but for these.
 local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
   return remembered(digests, "program\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
