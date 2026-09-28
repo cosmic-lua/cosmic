@@ -605,7 +605,10 @@ every time. an unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) is keyed
 instead by the module and runtime keys plus observed file contents, stat
 results, directory listings and environment reads; a test that spawns a process
 or makes an unsupported observation outside the tree is only assumed to pass as
-it last did, and none of its verdicts is shared. each test
+it last did, and none of its verdicts is shared -- unless
+`COSMIC_TEST_KEY=declared` keys it by declared inputs as a sandboxed run is,
+trusting the declarations a sandboxed run elsewhere enforces, and shares its
+verdicts apart from sandboxed ones. each test
 that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its

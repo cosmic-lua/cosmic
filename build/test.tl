@@ -81,7 +81,14 @@
 --- kernel cannot sandbox a worker (macOS, a host refusing user
 --- namespaces), or `COSMIC_TEST_SANDBOX=0` turns it off, the run says
 --- so, runs each unsandboxed, and shares no verdict; with
---- `COSMIC_TEST_SANDBOX=1` it fails there instead.
+--- `COSMIC_TEST_SANDBOX=1` it fails there instead. With
+--- `COSMIC_TEST_KEY=declared` (`key_mode`), such a run keys, stands and
+--- shares as a sandboxed one does, by declared inputs, and gives each
+--- worker the environment a sandbox would -- but nothing holds a worker
+--- to the rest of what it declares: it trusts the declaration a
+--- sandboxed run of the same test, on another host (CI's Linux legs),
+--- enforces. Its verdicts are kept apart from sandboxed ones by a
+--- runtime of their own, so neither stands for the other.
 ---
 --- Sandboxed, a verdict is keyed by what its test was given rather than
 --- by what it read: the digest of its declared inputs, computed before
@@ -216,6 +223,25 @@ local timeout_variable = "COSMIC_TEST_TIMEOUT"
 --- takes about a second, so this leaves a loaded CI host ample room
 --- while still ending a hung test well inside any whole-run budget.
 local default_timeout_s = 30
+
+--- The variable that says how an unsandboxed run keys its verdicts
+--- (`key_mode`).
+local key_switch <const> = "COSMIC_TEST_KEY"
+
+--- How an unsandboxed run keys its verdicts, by `key_switch`: "observed",
+--- unset or empty, by what each test was seen to read, sharing none;
+--- "declared" by what each declares, as a sandboxed run keys them,
+--- standing on and sharing them as it does, though nothing holds a
+--- worker to its declaration. A sandboxed run keys by what it declares
+--- whatever it says. Any other value is an error, so a misspelt one
+--- never passes for either.
+local function key_mode(): string | nil, string
+  local value = Env.get(key_switch)
+  if value == nil or value == "" then return "observed", "" end
+  if value == "declared" then return "declared", "" end
+  return nil, string.format("%s is %q: set it to declared to key an unsandboxed run by " ..
+    "what each test declares, or leave it unset", key_switch, value)
+end
 
 --- A selector without its trailing slashes and leading "./".
 local function normalized(selector: string): string
@@ -1856,8 +1882,14 @@ local record Recording
   --- selected module's inputs, and `views` the environment its workers
   --- are given, by module path.
   sandbox: boolean
-  --- What reruns one test as this run ran it: the switch as the run
-  --- was given it (`test_sandbox.mode`), or "" when unset.
+  --- Whether each verdict is keyed by its test's declared inputs
+  --- (`build.declared_key`): every sandboxed run's, and an unsandboxed
+  --- one's given COSMIC_TEST_KEY=declared (`key_mode`), which gives a
+  --- worker the environment a sandbox would and holds it to nothing
+  --- else. Each field below said "Sandboxed" is one of a keyed run.
+  keyed: boolean
+  --- What reruns one test as this run ran it: the switches as the run
+  --- was given them (`test_sandbox.mode`, `key_mode`), or "" when unset.
   rerun_prefix: string
   views: {string:{string:string}}
   --- Sandboxed, what keys each verdict (`build.declared_key`): the
@@ -1928,9 +1960,11 @@ end
 
 --- The environment the workers of `m`'s tests are given, which a
 --- variable they read is keyed by: nil for every worker's own, where
---- they run unsandboxed.
+--- they run unsandboxed and unkeyed. Keyed, it is what a sandbox gives
+--- one (`test_sandbox.environment`), TMPDIR its /tmp, whether or not a
+--- sandbox holds it (`launch`).
 local function view_of(rec: Recording, m: importer.Module): {string:string} | nil
-  if not rec.sandbox then return nil end
+  if not rec.keyed then return nil end
   local view = rec.views[m.path]
   if view == nil then
     view = test_sandbox.environment(worker_view(), rec.effective[m.path])
@@ -2233,7 +2267,7 @@ end
 
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
---- (`build.test_worker`'s `judge`). Sandboxed, where a key holds what
+--- (`build.test_worker`'s `judge`). Keyed, where a key holds what
 --- a worker runs by `worker.loads` and the test's closure, a worker
 --- that ran a module of the tree the tool carries beyond both fails
 --- its test.
@@ -2245,8 +2279,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local judged = worker.judge({
     result = result, trouble = trouble, timeout_ms = limits.timeout_ms,
     sandboxed = rec.sandbox, refused = refused == true,
-    carried = rec.sandbox and rec.carried or nil,
-    closure = rec.sandbox and closure_set(rec, job.m) or nil,
+    carried = rec.keyed and rec.carried or nil,
+    closure = rec.keyed and closure_set(rec, job.m) or nil,
   })
   local reported, passed, message = judged.report, judged.passed, judged.message
   local reads: {observations.Observation} = {}
@@ -2269,7 +2303,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
         rec.tool, rec.sandbox)
     end
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and not rec.sandbox and
+    cacheable = reported.loaded and not rec.keyed and
       test.keyable(rec.root, job.scratch, reads, caches_of(rec, job.m))
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
@@ -2280,7 +2314,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     merge_hits(rec.hits, hit)
     rec.by_test[id] = encode_hits(hit)
   end
-  if rec.sandbox then
+  if rec.keyed then
     -- Keyed by what it was given: its declared inputs, as they were
     -- before it started -- and still are, or the verdict describes no
     -- one state of them, and is not kept.
@@ -2384,7 +2418,8 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, _
 --- process's own launch, not to every worker it starts, and less what
 --- `launch_only` names, and with the shared verdict cache off
 --- (`COSMIC_VERDICT_CACHE=0`), and the shared compiles too
---- (`COSMIC_BUILD_CACHE=0`).
+--- (`COSMIC_BUILD_CACHE=0`), and less COSMIC_TEST_NO_SHARED and
+--- COSMIC_TEST_KEY (`key_switch`).
 function test.worker_environment(environment: {string:string}): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do
@@ -2401,9 +2436,11 @@ function test.worker_environment(environment: {string:string}): {string:string}
   -- outside what the test declares, unless the test names a cache of
   -- its own.
   shared_compiles.turn_off(out)
-  -- Nor does it take this run's choice not to stand on them: a test
-  -- that runs `cosmic test` says for itself what that run does.
+  -- Nor does it take this run's choice not to stand on them, nor how
+  -- this run keys its verdicts: a test that runs `cosmic test` says
+  -- for itself what that run does.
   out.COSMIC_TEST_NO_SHARED = nil
+  out[key_switch] = nil
   return out
 end
 
@@ -2596,6 +2633,35 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     env, sandbox = plan.env, plan.sandbox
     root, inside, cwd = test_sandbox.tree, test_sandbox.scratch, test_sandbox.tree
     held = table.concat(plan.held, "\n")
+  elseif rec.keyed then
+    -- Keyed but unsandboxed (COSMIC_TEST_KEY=declared), the worker is
+    -- given the environment its key holds -- the pinned variables and
+    -- its declared ones -- with TMPDIR its scratch directory, as a
+    -- sandbox gives it at /tmp; the key names that /tmp, not this path,
+    -- which is new every run. Nothing holds it to the rest of what it
+    -- declares.
+    -- A test that declares only loopback hosts is keyed as offline
+    -- (`declared_key.keyable`, `test_inputs.offline`), but here runs
+    -- online, in the host's network namespace: a reach past loopback
+    -- goes unnoticed here, and a Linux leg's sandbox, which runs it
+    -- offline, is what fails it.
+    -- TODO: give an unenforced worker the tree at a path no checkout
+    -- moves, as a sandbox gives it /tree -- a chdir into a link or a
+    -- bind mount of the tree at a fixed name where the host allows one,
+    -- or else the tree's path in its key: today it runs in the
+    -- checkout where it is, which no key holds, so a test whose verdict
+    -- turns on that path stands in another checkout, and a Linux leg,
+    -- where every worker sees /tree, cannot catch it.
+    -- TODO: give an unsandboxed keyed worker the store of its closure
+    -- at o/cosmic.db, as a sandbox does (`given_store`), once `cosmic
+    -- test --worker` takes a `--store` path, and hands it on to what the
+    -- test starts: today it reads the whole projection, which its key
+    -- holds only by the closure store's address, and only a lookup
+    -- through `Store` is held to its closure (build.test_worker's
+    -- `hold_store`); a Linux leg's sandbox enforces what macOS trusts.
+    env = {}
+    for name, value in pairs(view_of(rec, job.m) or {}) do env[name] = value end
+    env.TMPDIR = scratch
   end
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
@@ -2846,6 +2912,11 @@ function test.run(argv: {integer:string}): integer
     log:complain("test: " .. sandbox_trouble)
     return 2
   end
+  local key_choice, key_trouble = key_mode()
+  if key_choice == nil then
+    log:complain("test: " .. key_trouble)
+    return 2
+  end
   local selectors: {string} = {}
   for _, word in ipairs(parsed.words) do
     local module, name = split(word)
@@ -2959,8 +3030,14 @@ function test.run(argv: {integer:string}): integer
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
   -- the switch turns it off; a verdict reached so is kept apart from one
   -- reached without, by a runtime of its own, so neither stands for the
-  -- other. An unsandboxed run's verdicts are this checkout's alone: no
-  -- sandbox held what its tests read, so none is shared, nor stood on.
+  -- other. An unsandboxed run's verdicts are this checkout's alone -- no
+  -- sandbox held what its tests read, so none is shared, nor stood on --
+  -- unless it is keyed by its tests' declarations (`key_mode`),
+  -- which it trusts where a sandboxed run elsewhere enforces them: its
+  -- verdicts are kept apart from both others' by a runtime of their own.
+  local must = Env.get("COSMIC_SANDBOX") == "must"
+  local declared = key_choice == "declared"
+  local unenforced = "each test is keyed by what it declares, which nothing holds it to"
   local sandboxed, sandbox_summary = false, ""
   if sandbox_mode ~= "off" then
     local why: string
@@ -2968,8 +3045,7 @@ function test.run(argv: {integer:string}): integer
     if sandboxed then
       -- And whether it is held to confining what it starts
       -- (`observations.must_confine`), which a test's verdict turns on.
-      runtime = runtime .. " sandboxed" ..
-        (Env.get("COSMIC_SANDBOX") == "must" and " must" or "")
+      runtime = runtime .. " sandboxed" .. (must and " must" or "")
       sandbox_summary = "; sandboxed"
       log:say("test: sandbox: each worker is held to its inputs, the tree at " ..
         test_sandbox.tree)
@@ -2978,14 +3054,31 @@ function test.run(argv: {integer:string}): integer
       log:complain("test: " .. test_sandbox.switch .. "=1, but no worker can be sandboxed " ..
         "here: " .. why)
       return 1
+    elseif declared then
+      log:say("test: no worker can be sandboxed here: " .. why .. "; " .. unenforced ..
+        " (" .. key_switch .. "=declared)")
     else
       sandbox_summary = "; unsandboxed, as no worker can be sandboxed here, sharing no verdicts"
       log:say("test: no worker can be sandboxed here: " .. why .. "; " ..
         test_sandbox.switch .. "=0 runs them unsandboxed without asking")
     end
+  elseif declared then
+    log:say("test: declared: workers run unsandboxed (" .. test_sandbox.switch .. "=0); " ..
+      unenforced)
   else
     sandbox_summary = "; unsandboxed (" .. test_sandbox.switch .. "=0), sharing no verdicts"
   end
+  local keyed = sandboxed or declared
+  if keyed and not sandboxed then
+    -- The pinned COSMIC_TEST_SANDBOX and the " sandboxed" mark already
+    -- tell these verdicts from a sandboxed run's; the tag says so in
+    -- the key itself (build/declared_unenforced_test.tl).
+    runtime = runtime .. " declared" .. (must and " must" or "")
+    sandbox_summary = "; unsandboxed, keyed by declared inputs (" .. key_switch .. "=declared)"
+  end
+  -- What names what a keyed run says of its keys: the sandbox's, or,
+  -- keyed with no sandbox, the declarations'.
+  local keying = sandboxed and "test: sandbox: " or "test: declared: "
 
   local result, compile_trouble = importer.compile(handle, built, tool, false,
     shared_compiles.for_build())
@@ -3129,19 +3222,21 @@ function test.run(argv: {integer:string}): integer
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
-    sandbox = sandboxed, views = {}, caches = {}, unkeyed = {}, forbiddable = {},
+    sandbox = sandboxed, keyed = keyed, views = {}, caches = {}, unkeyed = {},
+    forbiddable = {},
     harness = harness.digest, store_salt = harness.store_salt, carried = harness.carried,
     closure_sets = {},
-    rerun_prefix = sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
-      sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or "",
+    rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
+      sandbox_mode == "off" and (test_sandbox.switch .. "=0 ") or "") ..
+      (keyed and not sandboxed and (key_switch .. "=declared ") or ""),
   }
   -- The verdicts every checkout of the tree shares: one that stands
   -- here, run where another checkout reached it, is not run again.
   -- Without them the run goes on as before, said so when that is not
-  -- what was asked for. An unsandboxed run neither reads nor writes
-  -- them (see above).
+  -- what was asked for. An unkeyed run neither reads nor writes them
+  -- (see above).
   local cache_path, cache_trouble: string, string = nil, ""
-  if sandboxed then cache_path, cache_trouble = shared_verdicts.location() end
+  if keyed then cache_path, cache_trouble = shared_verdicts.location() end
   if cache_path ~= nil then
     rec.shared, cache_trouble = shared_verdicts.open(cache_path)
   end
@@ -3186,7 +3281,7 @@ function test.run(argv: {integer:string}): integer
     rec.audit, rec.tool = {}, observations.itself()
     for i = 1, #rec.tool do rec.tool[#rec.tool + 1] = observations.resolution(rec.tool[i]) end
   end
-  if audit or sandboxed then
+  if audit or keyed then
     rec.effective = {}
     for _, m in ipairs(selected_modules) do
       local effective = test_inputs.effective(m, by_path, declarations)
@@ -3195,7 +3290,7 @@ function test.run(argv: {integer:string}): integer
       rec.effective[m.path] = effective
     end
   end
-  if sandboxed then
+  if keyed then
     -- What an earlier run hashed, so a key reads none of it again
     -- (`build.declared_key`).
     local remembered, remembered_trouble = Sqlite.text_rows(records,
@@ -3216,7 +3311,10 @@ function test.run(argv: {integer:string}): integer
       log:complain("test: the stores of the test modules' closures: " .. address_trouble)
       return 1
     end
-    sweep_stores(rec)
+    -- Unsandboxed, the stores are only addressed, for their keys: no
+    -- worker is given one (the TODO in `launch`), so none is written,
+    -- and those a sandboxed run wrote stay for the next.
+    if sandboxed then sweep_stores(rec) end
     rec.digests = declared_key.digests(root, remembered)
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
@@ -3242,8 +3340,8 @@ function test.run(argv: {integer:string}): integer
   for _, m in ipairs(selected_modules) do
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
-      if sandboxed then
-        -- Sandboxed, a test is keyed by what it is given, and runs
+      if keyed then
+        -- Keyed, a test is keyed by what it is given, and runs
         -- unless a verdict under that key passed, here or in another
         -- checkout -- or it is forced, by --all, COSMIC_TEST_ALL or an
         -- audit, or reaches a network beyond loopback, which no key
@@ -3270,11 +3368,13 @@ function test.run(argv: {integer:string}): integer
           share(rec, m, name, id, key, elsewhere, last_reads(previous, id))
         end
       else
-        -- TODO: key an unsandboxed run by its declared inputs too, where
-        -- no sandbox can hold a worker to them (macOS), trusting the
-        -- declaration as a sandbox would enforce it: today
-        -- it is keyed by what it was seen to read, and shares only with
-        -- another unsandboxed run.
+        -- TODO: key every unsandboxed run by its declared inputs, as
+        -- COSMIC_TEST_KEY=declared does, and retire the switch with
+        -- `standing`, `assumable`, `identity_of` and `test.verdict_key`,
+        -- once --audit finds what a test reads undeclared by other means
+        -- than build.filesystem_observations' log (a sandbox that logs
+        -- what it refuses): today a run not given it is keyed by what it
+        -- was seen to read, and shares no verdict.
         local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
         if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
         local assumed: Assumed = nil
@@ -3301,7 +3401,7 @@ function test.run(argv: {integer:string}): integer
   -- none was found there, though the cache holds rows, say what every
   -- key holds, so two runs' lines say which part moved. An edit in a
   -- checkout says nothing: what it moved ran here before.
-  if sandboxed and rec.shared ~= nil and looked_count > 0 and looked_count == keyed_count and
+  if keyed and rec.shared ~= nil and looked_count > 0 and looked_count == keyed_count and
       ran_here == 0 and found_count == 0 then
     local census, _ = shared_verdicts.census(rec.shared, looked)
     local line = census ~= nil and shared_verdicts.unmatched(rec.shared.path, looked_count,
@@ -3316,19 +3416,19 @@ function test.run(argv: {integer:string}): integer
       }) or nil
     if line ~= nil then log:say(line) end
   end
-  if sandboxed then
+  if keyed then
     -- From here each key looks again: a verdict is kept only under a
     -- key its inputs still reach once its test has run.
     declared_key.thaw(rec.digests)
     local tests = 0
     for _, m in ipairs(selected_modules) do tests = tests + #selected_tests[m.path] end
-    log:say(string.format("test: sandbox: %d tests keyed by their declared inputs in %.1f ms " ..
+    log:say(string.format(keying .. "%d tests keyed by their declared inputs in %.1f ms " ..
       "(%d files read)", tests, rec.digests.spent_ns / 1e6, rec.digests.read))
     local unkeyed: {string} = {}
     for path in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = path end
     table.sort(unkeyed)
     for _, path in ipairs(unkeyed) do
-      log:say("test: sandbox: " .. path .. " has no key, so its tests run every time: " ..
+      log:say(keying .. path .. " has no key, so its tests run every time: " ..
         rec.unkeyed[path])
     end
   end

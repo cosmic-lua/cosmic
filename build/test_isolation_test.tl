@@ -502,8 +502,12 @@ end
   local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", COSMIC_BUILD_CACHE = "/shared/cache.db",
-    COSMIC_VERDICT_CACHE = "/shared/verdicts.db" })
+    COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1",
+    COSMIC_TEST_KEY = "declared" })
   assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+  -- Nor whether this run stands on shared verdicts, or how it keys
+  -- them: a `cosmic test` a test starts says that for itself.
+  assert(kept.COSMIC_TEST_NO_SHARED == nil and kept.COSMIC_TEST_KEY == nil)
   -- Neither cache every checkout shares is a worker's, unless its test
   -- names one for what it starts.
   assert(kept.COSMIC_BUILD_CACHE == "0" and kept.COSMIC_VERDICT_CACHE == "0")

@@ -45,6 +45,8 @@ allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the 
   "in the compiler's identity or left out of it with a reason"
 allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
+allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
+  "holds .github/scripts/host-features.sh to: it reads a macOS host's system where a key does"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
 allowed["build.filesystem_observations.confine"] = "a test's own declaration: " ..

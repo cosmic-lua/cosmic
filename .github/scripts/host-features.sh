@@ -6,17 +6,20 @@
 # ("flags" on x86, "Features" on arm), each once, in byte order, a line
 # each, less those a core on this machine chooses no code by (`keep`
 # below); then the kernel's release and version, as their files hold
-# them.
-# ci.yml names a Linux leg's verdict cache by it, so a runner restores
-# the newest cache written on a host whose keys it can reach.
+# them -- on macOS, where there is no /proc, the system volume's
+# SystemVersion.plist, which names its build, and nothing
+# (`darwin_system` there).
+# ci.yml names a leg's verdict cache by it, so a runner restores the
+# newest cache written on a host whose keys it can reach.
 #
-#     sh .github/scripts/host-features.sh [CPUINFO [OSRELEASE [VERSION [MACHINE]]]]
+#     sh .github/scripts/host-features.sh [CPUINFO [OSRELEASE [VERSION [MACHINE [SYSNAME]]]]]
 #
-# Each argument moves where that part is read from, and MACHINE (`uname
-# -m` by default) which features are kept, for a test. A file
-# that is missing is read as empty: a host without /proc/cpuinfo prints
-# the digest of no features, which every such host shares, as its key
-# does.
+# Each argument moves where that part is read from, MACHINE (`uname -m`
+# by default) which features are kept, and SYSNAME (`uname -s` by
+# default) where OSRELEASE and VERSION are read from when they are not
+# given (empty), for a test. A file that is missing is read as empty,
+# as is none (macOS's VERSION): a host without /proc/cpuinfo prints the
+# digest of no features, which every such host shares, as its key does.
 set -eu
 
 # The sha256 of standard input, as hex: sha256sum where there is one
@@ -26,9 +29,14 @@ digest() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi
 }
 
+sysname=${5:-$(uname -s 2>/dev/null || true)}
+case $sysname in
+  Darwin) system=/System/Library/CoreServices/SystemVersion.plist kernel='' ;;
+  *) system=/proc/sys/kernel/osrelease kernel=/proc/sys/kernel/version ;;
+esac
 cpuinfo=${1:-/proc/cpuinfo}
-osrelease=${2:-/proc/sys/kernel/osrelease}
-version=${3:-/proc/sys/kernel/version}
+osrelease=${2:-$system}
+version=${3:-$kernel}
 machine=${4:-$(uname -m 2>/dev/null || true)}
 
 # The features a core on this machine chooses code by, as
@@ -53,8 +61,8 @@ kept() {
 named=$({
   { sed -nE 's/^(flags|Features)[[:space:]]*:[[:space:]]*//p' "$cpuinfo" 2>/dev/null || true; } |
     tr -s ' \t' '\n\n' | sed '/^$/d' | LC_ALL=C sort -u | kept
-  cat "$osrelease" 2>/dev/null || true
-  cat "$version" 2>/dev/null || true
+  if [ -n "$osrelease" ]; then cat "$osrelease" 2>/dev/null || true; fi
+  if [ -n "$version" ]; then cat "$version" 2>/dev/null || true; fi
 } | digest 2>/dev/null | cut -c1-16)
 case $named in
   [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
