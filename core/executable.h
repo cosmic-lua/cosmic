@@ -1,4 +1,6 @@
-/* The physical executable identity and logical process path. */
+/* The physical executable identity: where the running executable is.
+ * The logical process path is COSMIC_LOGICAL_EXECUTABLE's, in
+ * core/syscalls.h. */
 
 #ifndef COSMIC_EXECUTABLE_H
 #define COSMIC_EXECUTABLE_H

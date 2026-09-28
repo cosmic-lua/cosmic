@@ -4,9 +4,10 @@
 -- `io.open` and the handle it returns, `io.stderr`, `io.type`,
 -- `os.getenv`, `package.path` and `package.searchers` -- over the syscall
 -- table, so the compiler runs unpatched and never observes that those
--- names are gone. It also holds the one module that exists before any
--- file does, the syscall table's declaration, and serves it to the
--- checker from memory.
+-- names are gone. It also holds the modules that exist before any file
+-- does, the declarations boot derives from a header (the syscall
+-- table's and the raw process table's), and serves them to the checker
+-- from memory.
 --
 -- A boot (`cosmic-core --boot <root> ...`, core/boot.c) loads it from
 -- the tree it boots, as it loads the vendored compiler, and runs it with
@@ -107,10 +108,10 @@ local function complain(file, result)
   return table.concat(lines, '\n')
 end
 
--- A module handed in as text, never written anywhere: the syscall
--- table's declaration, which boot generates with build.gen_syscalls
--- before the bridge checks any module, and which every module that
--- requires `cosmic.sys` is checked against.
+-- Modules handed in as text, never written anywhere: the declarations
+-- boot generates with build.gen_syscalls (the syscall table's and the
+-- raw process table's) before the bridge checks any module, and which
+-- every module that requires one is checked against.
 local declared = {}
 
 local function declare(name, text)

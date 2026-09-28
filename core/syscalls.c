@@ -45,9 +45,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include "check.h"
 #include "coverage.h"
 #include "fail.h"
-#include "fault.h"
 #include "guard.h"
-#include "memory.h"
 #include "observed.h"
 #include "lauxlib.h"
 #include "executable.h"
@@ -458,13 +456,6 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
 #endif
 }
 
-/* A ruleset that handles running a file, one rule per path, and this
- * process held to it. It handles moving a file to another directory
- * too, granted beneath the same paths: a ruleset that leaves that
- * unhandled refuses every such rename or link (EXDEV), as the first
- * ABI did, so a kernel without the second is refused. Every entry is
- * checked to be a plain string before the ruleset is made, so nothing
- * after it can raise. */
 /* Whether this process can no longer run its own core -- held by
  * `landlock_restrict_execute` to files none of which is beneath it --
  * and so hands its artifact's descriptor on to no child (`handed_on`):
@@ -502,6 +493,13 @@ static bool listed_beneath (lua_State *L, int index, lua_Integer count, const ch
 }
 #endif
 
+/* A ruleset that handles running a file, one rule per path, and this
+ * process held to it. It handles moving a file to another directory
+ * too, granted beneath the same paths: a ruleset that leaves that
+ * unhandled refuses every such rename or link (EXDEV), as the first
+ * ABI did, so a kernel without the second is refused. Every entry is
+ * checked to be a plain string before the ruleset is made, so nothing
+ * after it can raise. */
 COSMIC_SYSCALL(landlock_restrict_execute, 1) {
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_Integer count = (lua_Integer)lua_rawlen(L, 1);

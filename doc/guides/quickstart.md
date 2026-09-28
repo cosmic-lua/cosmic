@@ -164,3 +164,12 @@ if config == nil then
   Proc.exit(2)
 end
 ```
+
+## a number that starts at zero
+
+Teal infers `integer` for `local peak = 0`, so a later `peak = peak + 1.5`
+(or `peak = peak / 2`) is refused with `got number, expected integer`. When
+the variable is a plain local declared from an integer literal, the message
+names the fix. Write `local peak = 0.0`, or annotate `local peak: number = 0`,
+for a variable that holds floats. A function declared `: number` may still
+`return 0`: an integer is a number.

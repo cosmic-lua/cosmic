@@ -55,6 +55,16 @@
 --- array when every key is an integer from 1 up, and an error when its
 --- keys mix the two or are anything else.
 ---
+--- To explore a document whose shape is not known, `Json.encode(v,
+--- { pretty = true })` dumps a value and `Json.describe(v)` summarizes
+--- its shape, keys sorted, each array as its length and one merged
+--- element shape. `Json.get(v, { "a", 1, "b" })` reaches into it, and
+--- `Json.entries` and `Json.items` narrow an object or an array so a
+--- caller can `pairs` or `ipairs` it without a cast.
+---
+--- `Json.quote` and `Json.child_path` spell a key or a path (`$.rows[2]`)
+--- in a message of your own.
+---
 --- Duplicate keys are allowed, and the last one stands. Encoded
 --- objects list their keys in byte order unless `sorted = false`, so
 --- the same value always encodes to the same text.
@@ -149,6 +159,14 @@ local record Json
     --- Why the values ended early, or "" when they have not: after an
     --- `each` loop, "" means every value was read.
     failure: function(Lines): string
+  end
+
+  --- What `describe` may be told. Every field is optional.
+  record DescribeOptions
+    --- How many arrays and objects may nest in the summary before the
+    --- rest is shown as `...` (default 6). 0 shows only the outermost
+    --- value's kind.
+    max_depth: integer
   end
 
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a
@@ -382,6 +400,362 @@ end
 --- or one `Json.array` marked.
 function Json.is_array(v: any): boolean
   return raw.is_array(v)
+end
+
+--- Whether the unmarked table `t` is an object, an array, or neither,
+--- by the rules `encode` applies: an empty one is an object, one whose
+--- keys are all strings an object, one whose keys are all integers from
+--- 1 up an array, "hole" for integer keys from 1 up with a gap, and
+--- anything else "mixed". A marked array is one without a scan.
+local function table_kind(t: {any:any}): string
+  if raw.is_array(t) then
+    return "array"
+  end
+  local strings, integers, count = 0, 0, 0
+  for key in pairs(t) do
+    local k: any = key
+    count = count + 1
+    if k is string then
+      strings = strings + 1
+    elseif k is integer and k >= 1 then
+      integers = integers + 1
+    else
+      return "mixed"
+    end
+  end
+  if strings > 0 and integers > 0 then
+    return "mixed"
+  end
+  if integers > 0 and integers == count and integers == rawlen(t) then
+    return "array"
+  end
+  if integers > 0 then
+    return "hole"
+  end
+  return "object"
+end
+
+--- What `v` is, for a message: `kind`, with a table of neither shape
+--- named for what is wrong with it.
+local function shape_kind(v: any): string
+  if v is {any:any} then
+    local k = table_kind(v)
+    if k == "mixed" then
+      return "table with mixed keys"
+    elseif k == "hole" then
+      return "array with a hole"
+    end
+    return k
+  end
+  return kind(v)
+end
+
+--- `s` as a JSON string literal, for a message: `"` and `\\` escaped and
+--- every control character a `\u` escape, so a key or a value reads in
+--- a message as it did in the text. It is for messages and is not a
+--- JSON encoder: it answers for any bytes, UTF-8 or not, where `encode`
+--- refuses what is not UTF-8. Use `Json.encode` to write JSON.
+function Json.quote(s: string): string
+  return '"' .. s:gsub('[%c"\\]', function(c: string): string
+    if c == '"' or c == "\\" then return "\\" .. c end
+    return ("\\u%04x"):format(c:byte())
+  end) .. '"'
+end
+
+--- The path of `step` under `path`, as `encode` writes where it failed:
+--- `.name` for a key that is a word, `["a key"]` (quoted as `Json.quote`
+--- does) for one that is not, and `[3]` for an array index, counted from
+--- 1. `path` is `"$"` for the document itself, so
+--- `Json.child_path(Json.child_path("$", "rows"), 2)` is `$.rows[2]`.
+function Json.child_path(path: string, step: string | integer): string
+  if step is string then
+    if step:match("^[%a_][%w_]*$") then
+      return path .. "." .. step
+    end
+    return path .. "[" .. Json.quote(step) .. "]"
+  end
+  return path .. "[" .. step .. "]"
+end
+
+--- Where `descend` got to: the value, the message ("" on success) and
+--- the path reached.
+local record Reached
+  value: any
+  err: string
+  at: string
+end
+
+--- `get`'s walk, shared with `entries` and `items`. A failure names the
+--- value at fault, and `at` is the path of the value reached. A string
+--- step on an unmarked table with no array part is indexed directly, so
+--- a lookup in a large decoded object is not a scan of it; the scan
+--- that names what is wrong runs only for a failure.
+local function descend(value: any, path: {string | integer}): Reached
+  local steps = 0
+  local loose: any = path
+  if loose is {any:any} then
+    for _ in pairs(loose) do steps = steps + 1 end
+  end
+  if steps ~= rawlen(path) then
+    error("json: a path must be a sequence, with no nil hole in it", 3)
+  end
+  local at = "$"
+  local here = value
+  for _, step in ipairs(path) do
+    local step_value: any = step
+    if step_value is integer then
+      if not (here is {any:any}) or table_kind(here) ~= "array" then
+        return { err = at .. ": expected an array to look up " .. Json.child_path("", step_value)
+          .. ", got " .. shape_kind(here), at = at }
+      end
+      if step_value < 1 or step_value > rawlen(here) then
+        return { err = at .. ": index " .. step_value .. " out of range, the array has " .. rawlen(here), at = at }
+      end
+      here = here[step_value]
+    elseif step_value is string then
+      local found: any
+      if here is {any:any} and rawlen(here) == 0 and not raw.is_array(here) then
+        found = here[step_value]
+      elseif not (here is {any:any}) or table_kind(here) ~= "object" then
+        return { err = at .. ": expected an object to look up " .. Json.quote(step_value)
+          .. ", got " .. shape_kind(here), at = at }
+      else
+        found = here[step_value]
+      end
+      if found == nil then
+        if here is {any:any} and table_kind(here) ~= "object" then
+          return { err = at .. ": expected an object to look up " .. Json.quote(step_value)
+            .. ", got " .. shape_kind(here), at = at }
+        end
+        return { err = at .. ": no key " .. Json.quote(step_value), at = at }
+      end
+      here = found
+    else
+      local what = math.type(step_value) or type(step_value)
+      error("json: a path step must be a string or an integer, got " .. what, 3)
+    end
+    at = Json.child_path(at, step)
+  end
+  return { value = here, err = "", at = at }
+end
+
+--- The value at `path` under `value`, and "". A string step is an
+--- object's key and an integer step an array's index, counted from 1
+--- as Lua counts and as `encode`'s messages do:
+--- `{ "users", 3, "name" }` is `$.users[3].name`. An empty path is
+--- `value` itself. nil and a message naming the path reached, in that
+--- style, when a key is missing, a step meets a value that is not an
+--- object or array as the step needs (by the rules `entries` and
+--- `items` apply), or an index is out of range:
+--- `$.users[5]: index out of range, the array has 3`. `Json.null` is a
+--- value like any other at the end of the path, and reaching through
+--- it is an error: `$.a: expected an object, got null`. A key whose
+--- value decoded to nil (a `null` without `null_value`) is missing, as
+--- an array's hole is nil with an empty message; decode with
+--- `null_value = Json.null` to tell them from an absent key. A path with
+--- a nil hole in it raises. Test the
+--- message, not the value: a leaf of `false` or `nil` answers
+--- `false, ""` or `nil, ""`. A step that is neither a string nor an
+--- integer (a float such as `1.0` too) raises.
+---
+---     local doc = assert(Json.decode('{"rows": [{"id": "a"}]}'))
+---     local id, err = Json.get(doc, { "rows", 1, "id" })
+---     assert(err == "" and id == "a")
+function Json.get(value: any, path: {string | integer}): any | nil, string
+  local reached = descend(value, path)
+  if reached.err ~= "" then
+    return nil, reached.err
+  end
+  return reached.value, ""
+end
+
+--- The object `value` is, or the one at `path` under it as `get` finds
+--- it, as a map to loop over with `pairs`, and "". nil and a message
+--- when it is anything else, naming the path when one is given
+--- (`$.a: expected a JSON object, got array`). An empty table that no
+--- `Json.array` mark or decoded `[]` made an array is an object, as
+--- `encode` writes it.
+function Json.entries(value: any, path?: {string | integer}): {string:any} | nil, string
+  local at = ""
+  local here = value
+  if path ~= nil then
+    local reached = descend(value, path)
+    if reached.err ~= "" then
+      return nil, reached.err
+    end
+    here = reached.value
+    at = reached.at .. ": "
+  end
+  if here is {string:any} and table_kind(here) == "object" then
+    return here, ""
+  end
+  return nil, at .. "expected a JSON object, got " .. shape_kind(here)
+end
+
+--- The array `value` is, or the one at `path` under it as `get` finds
+--- it, as a list to loop over with `ipairs`, and "". nil and a message
+--- when it is anything else, naming the path when one is given. A
+--- table counts as an array when it carries the mark (`Json.is_array`)
+--- or has integer keys from 1 up and no others; an unmarked empty
+--- table is an object, so it fails here, as `encode` writes it `{}`.
+---
+---     for _, row in ipairs((assert(Json.items(doc, { "rows" })))) do
+---       print(row)
+---     end
+function Json.items(value: any, path?: {string | integer}): {any} | nil, string
+  local at = ""
+  local here = value
+  if path ~= nil then
+    local reached = descend(value, path)
+    if reached.err ~= "" then
+      return nil, reached.err
+    end
+    here = reached.value
+    at = reached.at .. ": "
+  end
+  if here is {any} and table_kind(here) == "array" then
+    return here, ""
+  end
+  return nil, at .. "expected a JSON array, got " .. shape_kind(here)
+end
+
+--- What the values seen at one place look like, merged.
+local record Node
+  scalars: {string:boolean}
+  objects: integer
+  fields: {string:Node}
+  seen: {string:integer}
+  arrays: integer
+  shortest: integer
+  longest: integer
+  elements: Node
+  cut: boolean
+end
+
+local function new_node(): Node
+  return { scalars = {}, objects = 0, fields = {}, seen = {}, arrays = 0, shortest = 0, longest = 0, cut = false }
+end
+
+--- Folds `v` into `node`, `depth` containers below the top and no
+--- deeper than `limit`: each value is visited once, so a long array costs
+--- its length, not a summary apiece.
+local function absorb(node: Node, v: any, depth: integer, limit: integer)
+  if v == nil or rawequal(v, raw.null) then
+    node.scalars["null"] = true
+    return
+  end
+  if type(v) == "number" then
+    node.scalars["number"] = true
+    return
+  end
+  if not (v is {any:any}) then
+    node.scalars[type(v)] = true
+    return
+  end
+  local k = table_kind(v)
+  if k == "mixed" then
+    node.scalars["table"] = true
+  elseif k == "array" then
+    local n = rawlen(v)
+    if node.arrays == 0 or n < node.shortest then node.shortest = n end
+    if node.arrays == 0 or n > node.longest then node.longest = n end
+    node.arrays = node.arrays + 1
+    if depth >= limit then
+      node.cut = true
+      return
+    end
+    if n > 0 and node.elements == nil then node.elements = new_node() end
+    for i = 1, n do
+      absorb(node.elements, v[i], depth + 1, limit)
+    end
+  else
+    node.objects = node.objects + 1
+    if depth >= limit then
+      node.cut = true
+      return
+    end
+    for key, member in pairs(v) do
+      local name: any = key
+      if not (name is string) then goto continue end
+      local field = node.fields[name]
+      if field == nil then
+        field = new_node()
+        node.fields[name] = field
+      end
+      node.seen[name] = (node.seen[name] or 0) + 1
+      absorb(field, member, depth + 1, limit)
+      ::continue::
+    end
+  end
+end
+
+local function sorted_keys<T>(t: {string:T}): {string}
+  local keys: {string} = {}
+  for key in pairs(t) do keys[#keys + 1] = key end
+  table.sort(keys)
+  return keys
+end
+
+local function render(node: Node): string
+  local parts: {string} = sorted_keys(node.scalars)
+  if node.objects > 0 then
+    if node.cut then
+      parts[#parts + 1] = "{...}"
+    else
+      local members: {string} = {}
+      for _, name in ipairs(sorted_keys(node.fields)) do
+        local optional = node.seen[name] < node.objects and "?" or ""
+        members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(node.fields[name])
+      end
+      parts[#parts + 1] = "{" .. table.concat(members, ", ") .. "}"
+    end
+  end
+  if node.arrays > 0 then
+    local size = tostring(node.shortest)
+    if node.longest ~= node.shortest then size = size .. ".." .. node.longest end
+    if node.cut then
+      parts[#parts + 1] = "[" .. size .. " x ...]"
+    elseif node.elements == nil then
+      parts[#parts + 1] = "[" .. size .. "]"
+    else
+      parts[#parts + 1] = "[" .. size .. " x " .. render(node.elements) .. "]"
+    end
+  end
+  return table.concat(parts, "|")
+end
+
+--- A compact summary of `value`'s shape, for exploring a document whose
+--- shape is not known: `{plans: [3 x {...}], today: {id: string}}`.
+--- Object keys are sorted, and a key some of the objects merged at one
+--- place lack is `key?`. An array is `[length x element]`, with every
+--- element folded into one shape (`number|string` for a mix, the
+--- length as `min..max` when merged arrays differ, `[0]` when empty),
+--- so a long array costs no more to read than a short one. Scalars are
+--- `string`, `number` (integer or float), `boolean` and `null`
+--- (`Json.null`, or a hole). Past `max_depth` nesting a container is
+--- `{...}` or `[n x ...]`, and `max_depth` is bounded by the stack, as
+--- the walk recurses once per level. Beyond `string`, `number`, `boolean`
+--- and `null`, a Lua value that is no JSON prints as its type,
+--- `function` or `userdata`, and a table of mixed keys as `table`. The
+--- same value always gives the same text.
+--- An array with holes (a decoded `null` without `null_value`) has no
+--- reliable length: decode with `null_value = Json.null` to describe one.
+--- Raises when `max_depth` is not an integer of at least 0.
+---
+---     print(Json.describe(assert(Json.decode('{"ids": [1, 2], "ok": true}'))))
+---     -- {ids: [2 x number], ok: boolean}
+function Json.describe(value: any, opts?: Json.DescribeOptions): string
+  local limit = 6
+  if opts ~= nil and opts.max_depth ~= nil then
+    local given: any = opts.max_depth
+    if not (given is integer) or given < 0 then
+      error("json: max_depth must be an integer of at least 0", 2)
+    end
+    limit = given
+  end
+  local node = new_node()
+  absorb(node, value, 0, limit)
+  return render(node)
 end
 
 return Json

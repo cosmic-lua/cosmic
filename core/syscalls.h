@@ -9,8 +9,8 @@
  * refuses a function whose annotation is missing a slot. A binding
  * cannot exist without its type, and the C surface cannot grow without
  * a diff in this file -- or in core/process.h, which declares, in the
- * same grammar, the calls only `cosmic.child` and `cosmic.proc` are
- * handed, as the raw `cosmic.internal.process`.
+ * same grammar, the calls only `cosmic.child`, `cosmic.proc` and
+ * `build.confine` are handed, as the raw `cosmic.internal.process`.
  *
  * Two shapes, and no third. An argument-shape error -- a degenerate
  * input no correct program passes -- raises. A failure a correct caller

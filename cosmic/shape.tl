@@ -231,23 +231,8 @@ function Shape.either(...: Spec): Spec
   return { kind = "either", optional = false, choices = choices }
 end
 
---- `s` as a JSON string, so a key or a value in a message reads the
---- same as it did in the text.
-local function quoted(s: string): string
-  return '"' .. s:gsub('[%c"\\]', function(c: string): string
-    if c == '"' or c == "\\" then return "\\" .. c end
-    return ("\\u%04x"):format(c:byte())
-  end) .. '"'
-end
-
---- The path of `key` under `path`: `.name` for a key that is a word,
---- `["a key"]` for one that is not.
-local function field_path(path: string, key: string): string
-  if key:match("^[%a_][%w_]*$") then
-    return path .. "." .. key
-  end
-  return path .. "[" .. quoted(key) .. "]"
-end
+local quoted = Json.quote
+local field_path = Json.child_path
 
 --- What a value is, for a message: the Lua type, with integer and float
 --- told apart, and JSON's null and arrays by their JSON names.
