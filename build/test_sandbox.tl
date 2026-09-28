@@ -12,11 +12,11 @@
 --- - the tree at `test_sandbox.tree`, /tree, wherever the host keeps
 ---   it, and its working directory there, holding only its store at
 ---   o/cosmic.db -- the store of its module's import closure
----   (`build.writer`'s `closure`), or the whole projection for a module
----   that declares `store` -- its module's import closure as source files, the
----   fuzz corpora for a module that uses `build.fuzz`, and what the
----   module declares it `reads`, with o/bin for one that declares `tool`
----   -- each read-only;
+---   (`build.closure_store`'s `write`), or the whole projection for a
+---   module that declares `store` -- its module's import closure as
+---   source files, the fuzz corpora for a module that uses
+---   `build.fuzz`, and what the module declares it `reads`, with o/bin
+---   for one that declares `tool` -- each read-only;
 --- - its scratch directory at `test_sandbox.scratch`, /tmp, writable:
 ---   the test's own directory (/tmp/tmp, a link to /tmp/real), where
 ---   the processes it starts write their coverage (/tmp/children), and
@@ -140,9 +140,9 @@ end
 --- The sandbox a worker of the tree at `root` runs a test of the module
 --- `effective` holds the inputs of in, its scratch directory `scratch`,
 --- with the runner's view of a worker's environment `environment`, and
---- at o/cosmic.db the closure store at `closure_store` (`build.writer`'s
---- `closure`) where the module does not declare `store`, else the whole
---- projection. A caller keys the store as it gives it
+--- at o/cosmic.db the closure store at `closure_store`
+--- (`build.closure_store`'s `write`) where the module does not declare
+--- `store`, else the whole projection. A caller keys the store as it gives it
 --- (`build.declared_key`): the whole projection by its contents only
 --- where the module declares `store`, so it gives one that does not the
 --- store of its closure, keyed by its address.

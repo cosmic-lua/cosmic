@@ -309,7 +309,7 @@ function databases.run(argv: {integer:string}): integer
     end
   end
   -- The stores of test modules' closures a sandboxed `cosmic test`
-  -- gives its workers (`build.writer`'s `closure`), as a whole.
+  -- gives its workers (`build.closure_store`'s `write`), as a whole.
   if #paths == 0 then
     local stores = root .. "/o/stores"
     local listed, _ = Fs.list(stores)
