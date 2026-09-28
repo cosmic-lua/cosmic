@@ -321,7 +321,10 @@ end
 --- The compiler identity is what turns source into bytecode: the Teal
 --- compiler's and Lua's pins and patches, and the build's own modules
 --- in the importer's closure. The standard library the importer runs on
---- is not in it, so an edit there does not recompile the world.
+--- is not in it, so an edit there does not recompile the world -- but
+--- for `cosmic.removed`, the names `build.teal` strips from the checker,
+--- which decide what a compile accepts: an edit to it moves the
+--- compiler's identity, though not the runtime basis.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -332,21 +335,38 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/patch/tl/01.txt", "a record"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n"))
+  assert(Fs.write(root .. "/cosmic/removed.tl",
+    "local record Removed\nend\nreturn Removed\n"))
+  assert(Fs.write(root .. "/build/teal.tl",
+    "local Fs = require(\"cosmic.fs\")\nlocal Removed = require(\"cosmic.removed\")\n" ..
+    "local record teal\nend\nteal.fs = Fs\nteal.removed = Removed\nreturn teal\n"))
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local teal = require(\"build.teal\")\nlocal record importer\nend\n" ..
+    "importer.teal = teal\nreturn importer\n"))
   local function identities(): {string}
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
+    assert(importer.derive(handle, true, built))
     local found = assert(work.record_identities(handle))
     work.close(handle)
     return { found.compiler, found.runtime_basis }
   end
   local original = identities()
+  assert(identities()[1] == original[1], "a second open of the same tree moved the identity")
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n-- edited\n"))
   local after_stdlib = identities()
   assert(after_stdlib[1] == original[1], "a stdlib edit moved the compiler identity")
   assert(after_stdlib[2] == original[2], "a stdlib edit moved the runtime basis")
+  assert(Fs.write(root .. "/cosmic/removed.tl",
+    "local record Removed\nend\nreturn Removed\n-- edited\n"))
+  local after_removed = identities()
+  assert(after_removed[1] ~= original[1],
+    "an edit to the names the checker strips did not move the compiler identity")
+  assert(after_removed[2] == original[2], "an edit to cosmic.removed moved the runtime basis")
   assert(Fs.write(root .. "/patch/tl/01.txt", "another record"))
   local after_patch = identities()
-  assert(after_patch[1] ~= original[1], "a compiler patch did not move the compiler identity")
+  assert(after_patch[1] ~= after_removed[1],
+    "a compiler patch did not move the compiler identity")
   assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime basis")
 end
 

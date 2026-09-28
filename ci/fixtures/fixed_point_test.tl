@@ -105,6 +105,21 @@ local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "compiler", "build/positions.tl", commented, true)
 end
 
+-- An edit to how the compiler's identity is defined (`build.work`'s
+-- `compiler_identity`): the stale tool records the tree's identity by
+-- its own, older definition, so the tool it writes carries a name its
+-- own code does not give the tree. Settling, that tool keys its compiles
+-- by the identity its own code takes (`build.reboot`'s `into`), which is
+-- what the tool it writes carries, so each stage settles once; keyed by
+-- the carried name instead, the settled tool would be unsettled still,
+-- and refuse (exit 3).
+local function test_a_redefined_compiler_lands_on_the_booted_tool(tmp: string)
+  run_fixed_point_case(tmp, "identity", "build/work.tl", function(source: string): string
+    return (source:gsub("OR path = 'cosmic%.removed'\"",
+      "OR path = 'cosmic.removed' OR path = 'cosmic.fs'\"", 1))
+  end, true)
+end
+
 -- An edit to what the tool's fingerprint covers (`build.work`'s
 -- `tool_files`): the stale tool records the tree's fingerprint by its
 -- own, older definition, so the tool it writes is stale by its own

@@ -547,7 +547,8 @@ redirecting the rebuild into the tree;
 when the C core's inputs differ, only zig can build it, so the tool
 runs `bin/zig build boot` and re-enters the command, or, under
 `COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries
-two identities: the compiler it is, over the build's own modules in the importer's closure and the Teal
+two identities: the compiler it is, over the build's own modules in the importer's closure,
+`cosmic.removed` (the names the checker is stripped of) and the Teal
 compiler's and Lua's pins and patches, which every module key
 carries; and the runtime it is, over its host image and the same
 pins, which every test verdict carries. the standard library the

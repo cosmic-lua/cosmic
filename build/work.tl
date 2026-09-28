@@ -57,10 +57,11 @@ local record work
 
   --- What a compile and a verdict are functions of, beyond their own
   --- inputs. `compiler` is the build's own modules in the importer's
-  --- import closure and the Teal compiler's and Lua's pins and
-  --- patches: what turns source into bytecode. The standard library
-  --- the importer runs on is plumbing, not transformation -- a bug
-  --- there breaks the build loudly rather than changing bytecode
+  --- import closure, `cosmic.removed` (the names the checker is
+  --- stripped of), and the Teal compiler's and Lua's pins and
+  --- patches: what turns source into bytecode. The rest of the standard
+  --- library the importer runs on is plumbing, not transformation -- a
+  --- bug there breaks the build loudly rather than changing bytecode
   --- quietly -- and is left out, which is what keeps an edit to it
   --- from recompiling everything. `runtime_basis` is the host-independent
   --- hash of the Teal and Lua pins and patches. Portable startup combines
@@ -1173,15 +1174,15 @@ local pins <const> =
   "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
   "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
 
---- The hash of the modules in `root`'s import closure whose path
---- matches `glob`, then `extra`.
-local function closure(root: string, glob: string, extra: string): string
+--- The hash of the modules in `root`'s import closure for which the
+--- SQL condition `chosen` holds of `path`, then `extra`.
+local function closure(root: string, chosen: string, extra: string): string
   return "WITH RECURSIVE closure(path) AS (SELECT '" .. root .. "' UNION " ..
     "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
     "JOIN requires r ON r.source_hash = i.source_hash) " ..
     "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
     "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
-    "(SELECT path FROM closure) AND path GLOB '" .. glob .. "'), '') || " ..
+    "(SELECT path FROM closure) AND (" .. chosen .. ")), '') || " ..
     "char(10) || " .. extra .. ")))"
 end
 
@@ -1192,17 +1193,13 @@ end
 --- the same identity, while none of them has changed, and another
 --- whenever one it reaches has, since each one's source hash is in it.
 --- What a boot names its analyzer by before it parses
---- (`build.importer.tree_code`).
--- TODO: take in `cosmic.removed`'s source hash too: `build.teal`'s
--- `environment_for` strips the names it lists from the checker, so a
--- binary stripping other names accepts what this one refuses, under the
--- same identity. Waits on a change that may move every compile and
--- verdict key at once, one of its own; build.shared_compiles' `key`
--- salts the shared key with those names meanwhile, and drops that salt
--- then.
+--- (`build.importer.tree_code`). Of the standard library it holds
+--- `cosmic.removed` alone: `build.teal`'s `environment_for` strips the
+--- names it lists from the checker, so it is data deciding what a
+--- compile accepts, where the rest is what the compile runs on.
 function work.compiler_identity(handle: work.Handle): string | nil, string
   local rows, trouble = Sqlite.text_rows(handle.db,
-    closure("build.importer", "build.*", pins))
+    closure("build.importer", "path GLOB 'build.*' OR path = 'cosmic.removed'", pins))
   if rows == nil then
     return nil, trouble
   end
@@ -1222,7 +1219,7 @@ function work.record_identities(handle: work.Handle): work.Identities | nil, str
     return nil, compiler_trouble
   end
   local writers, writer_trouble = Sqlite.text_rows(db,
-    closure("build.writer", "*",
+    closure("build.writer", "1",
       "coalesce((SELECT value FROM meta WHERE key = 'image_hash'), '')"))
   if writers == nil then
     return nil, writer_trouble

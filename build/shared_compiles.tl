@@ -13,8 +13,7 @@
 --- whether a compile is accepted, which a checkout's own cache leaves
 --- out -- whether the tree is cosmic's own (`build.contracts` runs only
 --- there), whether the module was extracted from a doc, the file the
---- module is read from, and the names the checker's environment strips
---- (`cosmic.removed`) -- so a row never stands where a compile of the
+--- module is read from -- so a row never stands where a compile of the
 --- module here would refuse it. A compile refused and kept only for
 --- the run that made it (an unjudged run's, `seen = -1`) is never
 --- shared.
@@ -53,7 +52,6 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Log = require("cosmic.log")
 local Compress = require("cosmic.compress")
-local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
@@ -170,24 +168,17 @@ function shared_compiles.turn_off(environment: {string:string})
   environment[variable] = "0"
 end
 
---- The names the checker's environment strips (`build.teal`'s
---- `environment_for`), which decide what it accepts beside the key.
-local removed_digest = Hash.hex_sha256(table.concat(Removed.order, "\n"))
-
 --- The key a compile is shared under: the module's own key
 --- (`importer.Module.key`) and what else decides whether it is
---- accepted, and the format it is kept in. `removed` is the stripped
---- names' digest, by default the running binary's, and `format` the
---- format's table, by default this one's.
--- The file and the removed names are salts only because the local key
--- lacks them: see the TODOs in build.importer's `dependency_keys` and
--- build.work's `compiler_identity`.
+--- accepted, and the format it is kept in: `format` the format's
+--- table, by default this one's.
+-- The file is a salt only because the local key lacks it: see the TODO
+-- in build.importer's `dependency_keys`.
 function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
-                             file: string, removed?: string, format?: string): string
+                             file: string, format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
     (own_tree and "own" or "project") .. "\n" ..
-    (generated and "doctest" or "tree") .. "\n" .. file .. "\n" ..
-    (removed or removed_digest))
+    (generated and "doctest" or "tree") .. "\n" .. file)
 end
 
 local schema <const> = {
