@@ -632,9 +632,11 @@ local function test_every_leg_keeps_its_verdicts()
 end
 
 --- The condition on which a push to main and the scheduled run, and
---- no other, save a cache.
-local MAIN_SAVES <const> = "github.ref == 'refs/heads/main' && " ..
-  "(github.event_name == 'push' || github.event_name == 'schedule')"
+--- no other, save a cache: ci.yml's COSMIC_CI_SAVES, which each save's
+--- condition reads.
+local MAIN_SAVES <const> = "${{ github.ref == 'refs/heads/main' && " ..
+  "(github.event_name == 'push' || github.event_name == 'schedule') }}"
+local SAVES <const> = "env.COSMIC_CI_SAVES == 'true'"
 
 --- Every cache the platform job saves, it saves from main alone -- a
 --- push or the scheduled run, never a branch's push nor the merge
@@ -656,7 +658,14 @@ local function test_only_main_saves_a_cache_every_run_restores()
     "main's pushes run in a group of each commit's own: " .. concurrency.group)
   assert(concurrency["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}",
     "a run of main cancels another: " .. concurrency["cancel-in-progress"])
+  local saves_env = (ci.env as {string: string}).COSMIC_CI_SAVES
+  assert(saves_env == MAIN_SAVES, "COSMIC_CI_SAVES is not main's push and schedule: " ..
+    tostring(saves_env))
   local jobs = ci.jobs as {string: {string: any}}
+  for name, job in pairs(jobs) do
+    local env = job.env as {string: string}
+    assert(env == nil or env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
+  end
   local steps = jobs.platform.steps as {{string: any}}
   local restores: {string: {string: any}} = {}
   local trims: {string: string} = {}
@@ -691,9 +700,8 @@ local function test_only_main_saves_a_cache_every_run_restores()
       local key = with.key as string
       local restore = restores[path]
       assert(restore ~= nil, path .. " is saved but restored on no run before")
-      assert(condition:find(MAIN_SAVES, 1, true) ~= nil or
-        (condition:find("github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || " ..
-          "github.event_name == 'push' && ", 1, true) ~= nil),
+      assert(condition:find(SAVES, 1, true) ~= nil and
+        not condition:find(SAVES .. " ||", 1, true) and not condition:find("|| " .. SAVES, 1, true),
         path .. " is saved off main, or by another of main's events: " .. condition)
       assert(not condition:find("merge_group", 1, true) and not key:find("event_name", 1, true),
         path .. "'s save turns on the merge queue: " .. condition .. " " .. key)
@@ -715,6 +723,21 @@ local function test_only_main_saves_a_cache_every_run_restores()
     end
   end
   assert(saves == 4, "the verdicts, compiles, zig outputs and driver marker: " .. saves)
+end
+
+--- A run's scope is decided once, in ci.yml's workflow-level
+--- COSMIC_CI_SCOPE, which the legs' steps and the provenance join
+--- alike read: `full` for any run but a push off main.
+local function test_the_scope_is_decided_once()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local scope = (ci.env as {string: string}).COSMIC_CI_SCOPE
+  assert(scope == "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && " ..
+    "'full' || 'light' }}", "the scope: " .. tostring(scope))
+  for name, job in pairs(ci.jobs as {string: {string: any}}) do
+    local env = job.env as {string: string}
+    assert(env == nil or (env.COSMIC_CI_SCOPE == nil and env.FULL == nil),
+      "job " .. name .. " decides its scope again")
+  end
 end
 
 --- A leg saves only the verdicts its run relied on or reached,
