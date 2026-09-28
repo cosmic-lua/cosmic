@@ -631,6 +631,16 @@ local function test_every_leg_keeps_its_verdicts()
     restore["restore-keys"])
 end
 
+--- A job's `env` and each of its steps' that has one.
+local function envs_of(job: {string: any}): {{string: string}}
+  local out: {{string: string}} = {}
+  if job.env ~= nil then out[#out + 1] = job.env as {string: string} end
+  for _, step in ipairs(job.steps as {{string: any}} or {}) do
+    if step.env ~= nil then out[#out + 1] = step.env as {string: string} end
+  end
+  return out
+end
+
 --- The condition on which a push to main and the scheduled run, and
 --- no other, save a cache: ci.yml's COSMIC_CI_SAVES, which each save's
 --- condition reads.
@@ -663,8 +673,9 @@ local function test_only_main_saves_a_cache_every_run_restores()
     tostring(saves_env))
   local jobs = ci.jobs as {string: {string: any}}
   for name, job in pairs(jobs) do
-    local env = job.env as {string: string}
-    assert(env == nil or env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
+    for _, env in ipairs(envs_of(job)) do
+      assert(env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
+    end
   end
   local steps = jobs.platform.steps as {{string: any}}
   local restores: {string: {string: any}} = {}
@@ -734,9 +745,10 @@ local function test_the_scope_is_decided_once()
   assert(scope == "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && " ..
     "'full' || 'light' }}", "the scope: " .. tostring(scope))
   for name, job in pairs(ci.jobs as {string: {string: any}}) do
-    local env = job.env as {string: string}
-    assert(env == nil or (env.COSMIC_CI_SCOPE == nil and env.FULL == nil),
-      "job " .. name .. " decides its scope again")
+    for _, env in ipairs(envs_of(job)) do
+      assert(env.COSMIC_CI_SCOPE == nil and env.FULL == nil,
+        "job " .. name .. " decides its scope again")
+    end
   end
 end
 

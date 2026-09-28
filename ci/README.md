@@ -234,9 +234,10 @@ would share its group and cancel it, which the queue reads as a failure.
 spawn's sandbox (`core/process.h`'s `Sandbox`) confines a test's child
 in a new user namespace, where it mounts, unveils and goes offline. A
 Linux leg's container needs these relaxations for it, and no more; a
-probe of each image on each runner, as uid 65534, found every part
-(landlock, pledge, offline, unveil, unveil+offline) held with all of
-them, and each item says what failed without it:
+probe, as uid 65534, of the ubuntu and alpine images on ubuntu-24.04
+(x86_64) and the ubuntu image on ubuntu-24.04-arm (aarch64) found every
+part (landlock, pledge, offline, unveil, unveil+offline) held with all
+of them, and each item says what failed without it:
 
 1. The host's `kernel.apparmor_restrict_unprivileged_userns=1` (GitHub's
    hosts set it) withholds a new user namespace's capabilities from a
@@ -272,7 +273,10 @@ whose every edit would move it. The verdict cache is also named by the
 processor features a core chooses code by and the kernel's release and
 version (`host-features.sh`), which differ between runners of one leg:
 named by the container alone, a run restored another runner's cache and
-none of its verdicts stood.
+none of its verdicts stood. The step was "name the leg's container", as
+`leg-container.sh` still calls it: an edit to that file moves every
+Linux leg's `COSMIC_HOST_ID`, and so its verdicts, which an edit to
+ci.yml does not, so the stale name waits for its next real change.
 
 ### the caches
 
@@ -333,14 +337,21 @@ job's and other legs' own among them, which then built cold. The
 nightly cold build is what bounds an entry. The cost: a vendor change's
 first main run builds cold (minutes a leg), and a core change is
 compiled again, incrementally, by every run after it until the nightly
-save.
+save. Where assemble fails on the first main run after a vendor change,
+nothing is saved, so every main run builds vendor/ cold until one
+passes assemble or the nightly saves; a branch stays warm through the
+restore of another vendor part.
 
 actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
 relative to it, which names nothing through the link `place-tree.sh`
 leaves when the tree is more than one directory deep. So the tree moves
 back where it was checked out for the saves, and again at the end for
 checkout's post step, whose git refuses a repository at another path and
-leaves its credentials behind.
+leaves its credentials behind. The move means a test whose verdict
+turns on the tree's path meets it on the macOS leg (unsandboxed; a
+Linux leg's workers see the tree at /tree) only where its key moved or
+on the scheduled run, which stands on nothing; the TODO on
+`build/test.tl`'s `launch` would give such a worker a fixed path.
 
 The CI driver check's marker is keyed by what cosmic_ci's tests read
 (`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
@@ -349,7 +360,10 @@ manual runs.
 
 ### artifacts
 
-`ci-driver-<leg>` and `portable-product-<leg>` are kept seven days. The
-`ci` join reads the products within the run, and prerelease.yml as the
-run completes; `report` reads the driver databases, and reports a run
-whose artifacts expired from its step times alone.
+`ci-driver-<leg>`, `portable-product-<leg>` and
+`platform-diagnostics-<leg>` are kept seven days. The `ci` join reads
+the products within the run, and prerelease.yml as the run completes;
+a re-run of either job more than seven days later cannot download them.
+`report` reads the driver databases, so its suite rows cover about the
+last week; a run whose artifacts expired it reports from its step times
+alone.

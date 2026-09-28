@@ -480,6 +480,7 @@
             name: "platform-diagnostics-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/checked-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
             "if-no-files-found": "ignore",
+            "retention-days": 7,
           },
         },
 
