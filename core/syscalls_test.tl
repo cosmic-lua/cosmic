@@ -16,7 +16,6 @@ local Test = require("cosmic.test")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
@@ -24,14 +23,14 @@ local stand_in = require("build.stand_in")
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What the syscall table is tested on: /proc, the whole environment,
---- processes it holds, and the program itself, whose core a stand-in
---- program is built from (build/stand_in.tl): what a child here runs,
---- confined or not, reading nothing of the system's.
+--- and processes it holds: a stand-in program (build/stand_in.tl) is
+--- what a child here runs, confined or not, reading nothing of the
+--- system's. The cases that start this program itself, or read it, are
+--- core/syscalls_tool_test.tl's.
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   processes = true,
-  tool = true,
 }
 
 local type Searcher = function(string): any, any
@@ -58,22 +57,6 @@ local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/int
 -- the run's summary beside ran, stood and assumed, once build/test.tl's
 -- tally has a skipped verdict: today, without COSMIC_SANDBOX=must, a
 -- host that cannot sandbox passes them as though it had checked them.
---- The descriptors `this_program.program` hands its child, as
---- `process.spawn` takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only `cosmic.child`
---- reads.
-local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: {integer:integer} = {}
-  for number, fd in pairs(started.options.fds) do
-    if fd is integer then
-      fds[number] = fd
-    else
-      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
-    end
-  end
-  return fds
-end
-
 local function sandbox_required(): boolean
   return sys.getenv("COSMIC_SANDBOX") == "must"
 end
@@ -1177,74 +1160,6 @@ local function test_a_confined_child_can_write_no_host_state_through_its_proc(tm
   end
 end
 
---- What a chunk of this program's starts a confined child with: the
---- raw process table, and the paths it reads, from `...`, colon-joined,
---- the program first.
-local chunk_preamble <const> = [==[
-local sys = require("cosmic.sys")
-local process
-for _, searcher in ipairs(package.searchers) do
-  local loader, extra = searcher("cosmic.child")
-  if type(loader) == "function" and type(extra) == "table" then process = extra end
-end
-local reads = {}
-for path in (...):gmatch("[^:]+") do reads[#reads + 1] = path end
-]==]
-
---- A confined child ends when the process that started it does, killed
---- or ended by a signal from a terminal, not left running on its own:
---- its init ends with its parent, and its namespace with the init. This
---- process takes the orphans, as a subreaper, so no one but the kernel
---- ends them: `cosmic test`'s runner, a subreaper itself, would end any
---- that reached it as strays, and pass this with the init's end undone.
-local function test_a_confined_child_ends_with_its_parent(tmp: string)
-  local probe = probe_in(tmp)
-  local adopting = process.subreaper()
-  if not adopting then return end -- no subreaper to be (not Linux)
-  local report = create(tmp .. "/parent")
-  local started = this_program.program({ "-e", chunk_preamble .. [==[
-local pid, trouble = process.spawn(reads[1], { reads[1], "sleep 30000" }, nil, "/", nil,
-  nil, nil, false, nil, { unveil = { reads = reads }, offline = true })
-print(pid or "refused " .. trouble)
-sys.nanosleep(30 * 1000000000)
-]==], table.concat(probe_reads(probe), ":") })
-  local parent = assert(process.spawn(started.argv[1], started.argv, started.options.env, tmp,
-    nil, report, report, false,
-    spawn_fds(started)))
-  local said = ""
-  local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 30 * 1000000000
-  while not said:find("\n") and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    assert(sys.nanosleep(10 * 1000000))
-    said = assert(sys.pread(report, 4096, 0))
-  end
-  sys.close(report)
-  assert(sys.kill(parent, sys.SIGKILL))
-  assert(process.waitpid(parent, false))
-  if said:find("^refused ") then
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but: " .. said)
-    return
-  end
-  local child = assert(math.tointeger(tonumber(said:match("^(%d+)\n"))), said)
-  -- This process adopted it: it ends by the kernel's SIGKILL, its
-  -- namespace's end, within seconds, where it would sleep on for 30.
-  local ended: raw_process.ChildStatus | nil = nil
-  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
-  while ended == nil and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    local status = assert(process.waitpid(child, true))
-    if status.pid == child then ended = status else assert(sys.nanosleep(10 * 1000000)) end
-  end
-  if ended == nil then assert(sys.kill(child, sys.SIGKILL)) end
-  -- The rest it adopted: the init, ended with its parent.
-  by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + 5 * 1000000000
-  while assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
-    local status = process.waitpid(-1, true)
-    if status == nil then break end
-    if status.pid == 0 then assert(sys.nanosleep(10 * 1000000)) end
-  end
-  assert(ended ~= nil, "the confined child outlived its parent")
-  assert(ended.signal == sys.SIGKILL, "ended by " .. tostring(ended.signal))
-end
-
 --- /proc given to write is no more the host's to change than given to
 --- read: a procfs of the child's own is writable, and holds no /proc/sys;
 --- where the kernel refuses one, the host's is bound read-only all the
@@ -1299,36 +1214,6 @@ local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: stri
   end
   assert(slowest < 500 * 1000000, "a confined start and wait took " ..
     tostring(slowest // 1000000) .. " ms")
-end
-
---- An offline child's loopback is up, as a host's is: the kernel gives
---- lo its 127.0.0.1 only when lo comes up, so the child's own routing
---- table (/proc/self/net is the reader's network namespace) holds that
---- address as a local route. The child is this program, reading it.
--- TODO: connect to a closed port of 127.0.0.1 and hold the child to
--- ECONNREFUSED, not ENETUNREACH, once cosmic.sys can open a socket or
--- core/http.c answers a failed request with CURLINFO_OS_ERRNO: curl's own
--- message words the two alike.
-local function test_an_offline_child_s_loopback_is_up(tmp: string)
-  local report = create(tmp .. "/report")
-  local started = this_program.program({ "-e",
-    "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
-    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" })
-  local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
-    tmp, nil, report, report, false,
-    spawn_fds(started),
-    { offline = true })
-  if pid == nil then
-    sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no network namespace: " .. trouble)
-    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
-    return
-  end
-  local status = assert(process.waitpid(pid, false))
-  local said = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(status.code == 0 and said == "up\n", said)
 end
 
 local function test_cpu_count_is_at_least_one()
@@ -1391,12 +1276,6 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   local st = assert(sys.stat(file))
   assert(st.kind == "file" and st.mode & 511 == 420)
   assert(sys.stat(tmp .. "/moved") == nil and sys.lstat(tmp .. "/link") == nil)
-end
-
-local function test_executable_is_a_file()
-  local path = assert(sys.executable())
-  assert(path:sub(1, 1) == "/", "the executable's path is absolute")
-  assert(assert(sys.stat(path)).kind == "file")
 end
 
 --- The core's own lookup of its path refuses a buffer the path does not

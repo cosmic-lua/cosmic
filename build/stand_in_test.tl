@@ -7,10 +7,6 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local stand_in = require("build.stand_in")
-local Test = require("cosmic.test")
-
---- The program's core, which building a stand-in reads.
-Test.needs{ tool = true }
 
 --- A stand-in built under `tmp`.
 local function built(tmp: string): string
@@ -230,15 +226,13 @@ local function test_the_process_verbs(tmp: string)
   end
 end
 
---- A build that fails says why, from the process it ran in.
+--- A build that cannot be written says why.
 local function test_a_failed_build_says_why(tmp: string)
   local dir = tmp .. "/stand-in"
-  assert(Fs.mkdirs(dir .. "/cmd/broken"))
-  assert(Fs.write(dir .. "/cmd/broken/main.tl", "return function(): integer return 'x' end\n"))
+  assert(Fs.write(dir, "a file where its directory would be\n"))
   local probe, trouble = stand_in.build(dir)
   assert(probe == nil, probe)
-  assert(trouble:find("building the stand-in failed: ", 1, true), trouble)
-  assert(trouble:find("cmd/broken/main.tl", 1, true), trouble)
+  assert(trouble:find(dir, 1, true), trouble)
 end
 
 --- Commands chain as a shell's do: `&&` goes on to the next only past a

@@ -5,12 +5,6 @@ local Fs = require("cosmic.fs")
 local VerifyCodesign = require("build.verify_codesign")
 local stand_in = require("build.stand_in")
 local sys = require("cosmic.sys")
-local Test = require("cosmic.test")
-
---- The program's core, which building the stand-in codesign reads
---- (`build.stand_in`). The stand-in reads none of the environment it
---- inherits, so a test's verdict turns on none of it.
-Test.needs{ tool = true }
 
 --- A stand-in program built under `dir`, outside the PATH it searches.
 local function stand_in_under(dir: string): string

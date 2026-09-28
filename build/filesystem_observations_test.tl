@@ -18,14 +18,12 @@ local type raw_process = require("cosmic.internal.process")
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What the observer is tested observing: processes it cannot confine, the
 --- environment, and requests to closed local ports; /proc, where a
---- program a test starts reads its own command line; and the program
---- itself, whose core the stand-in its processes run is built from.
+--- program a test starts reads its own command line.
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   network = { "127.0.0.1", "127.0.0.2" },
   processes = true,
-  tool = true,
 }
 
 local type Searcher = function(string): any, any

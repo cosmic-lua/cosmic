@@ -17,8 +17,8 @@ local type raw_process = require("cosmic.internal.process")
 -- macOS has no /proc, so there this declares a path that is not there,
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What a sandboxed worker of this very program reads: /proc, where the
---- stand-in it starts finds itself, and the program itself, whose core
---- that stand-in is built from.
+--- stand-in it starts finds itself, and the program itself, which its
+--- tests start again as that worker.
 Test.needs{
   host = { "/proc" },
   env = { "COSMIC_SANDBOX" },

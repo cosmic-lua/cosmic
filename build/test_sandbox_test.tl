@@ -15,9 +15,8 @@ local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
---- What a worker's plan gives it of the host, the program it runs, whose
---- core the stand-in its suites' tests start is built from, and what
---- holds a run to sandboxing (`unsandboxed`).
+--- What a worker's plan gives it of the host, the program it runs, and
+--- what holds a run to sandboxing (`unsandboxed`).
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
