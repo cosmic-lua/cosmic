@@ -6,11 +6,11 @@
 ---
 --- Its cases start this program, or read its store beyond their
 --- module's closure (help and docs), so it declares `tool`;
---- build/verbs_test.tl holds the command lines that need neither. Two
---- cases here start nothing -- every verb classified, and each refusing
---- in this process what it does not take -- but hold the tables of each
---- verb's cases that the rest run, which a copy in another file would
---- let drift, so they stay with them.
+--- build/verbs_test.tl holds what needs neither, every verb classified
+--- among it, over the tables both read (`build.verb_cases`). One case
+--- here starts nothing -- each verb refusing in this process what it
+--- does not take -- but shares its helpers with the started verbs'
+--- case, so it stays with it.
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
@@ -20,6 +20,7 @@ local Test = require("cosmic.test")
 local invoke = require("build.invoke")
 local observations = require("build.filesystem_observations")
 local this_program = require("build.this_program")
+local verb_cases = require("build.verb_cases")
 
 --- The tool itself, the CA bundle a file run reads, and what bin/zig reads
 --- to find or fetch zig.
@@ -32,60 +33,14 @@ Test.needs{
   tool = true,
 }
 
---- The verbs that end in no verdict line: those whose words after the
---- file are the program's own, so no option or argument is theirs to
---- refuse, and whose output is the program's; and `--version`, whose
---- one line is all it prints (build/version_test.tl holds it).
-local passthrough: {string:string} = {
-  run = "the words after the file are its program's argv",
-  standalone = "the words after the file are its program's argv",
-  eval = "the words after the chunk are its `...`",
-  version = "it prints one line and no verdict",
-}
-
---- A command line with one argument more than each verb takes, or why
---- the verb has none: it takes any number of words.
-local surplus: {string:{string} | string} = {
-  test = "takes any number of selectors",
-  fix = "takes any number of paths",
-  build = "takes any number of paths",
-  db = "takes any number of paths",
-  docs = "takes any number of words to search for",
-  uses = "takes a symbol and any number of paths",
-  todos = "takes any number of paths and words",
-  sql = { "sql", "SELECT 1", "extra" },
-  help = { "help", "test", "fix" },
-  bom = { "bom", "extra" },
-  refresh = { "refresh", "-o", "out", "nosuch" },
-}
+local passthrough = verb_cases.passthrough
+local surplus = verb_cases.surplus
 
 --- The vendored bundle, which `refresh` reads with no network; the
 --- tree's root is where a test module loads.
 local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
 
---- One command line that passes and one that fails, each run in `tree`
---- unless it names another directory; a string for a failure no command
---- line can bring about.
-local record Case
-  pass: {string}
-  fail: {string} | string
-  fail_in: string
-end
-
-local cases: {string:Case} = {
-  test = { pass = { "test", "good" }, fail = { "test", "bad" } },
-  fix = { pass = { "fix", "--check", "good" }, fail = { "fix", "--check", "messy.tl" } },
-  build = { pass = { "build" }, fail = { "build" }, fail_in = "broken" },
-  db = { pass = { "db" }, fail = { "db" }, fail_in = "empty" },
-  docs = { pass = { "docs", "Fs.read" }, fail = { "docs", "zzqqx_nothing_named" } },
-  uses = { pass = { "uses", "Fs.read" }, fail = { "uses", "zzqqx_nothing_named" } },
-  todos = { pass = { "todos" }, fail = { "todos", "zzqqx_nothing_named" } },
-  sql = { pass = { "sql", "SELECT 1" }, fail = { "sql", "SELECT * FROM zzqqx_no_table" } },
-  help = { pass = { "help" }, fail = "help has nothing to fail on but its command line" },
-  bom = { pass = { "bom" }, fail = { "bom", "--json", "no/such/directory/bom.json" } },
-  refresh = { pass = { "refresh", "-o", "out", "--cacert", bundle },
-    fail = { "refresh", "-o", "out", "--cacert", "no/such/cacert.pem" } },
-}
+local cases = verb_cases.cases(bundle)
 
 local function write_tree(tmp: string): string
   local tree = tmp .. "/tree"
@@ -171,20 +126,6 @@ local function expect(dir: string, verb: string, args: {string}, code: integer):
   assert(verdict_of(last, verb) == (code == 0 and "PASS" or "FAIL"),
     "expected the output to end in the verdict: " .. shown)
   return result
-end
-
-local function test_every_verb_is_classified()
-  local listed: {string:boolean} = {}
-  for _, verb in ipairs(Cli.order) do
-    listed[verb] = true
-    if passthrough[verb] == nil then
-      assert(surplus[verb] ~= nil, verb .. ": say what one argument too many is")
-      assert(cases[verb] ~= nil, verb .. ": give a passing and a failing command line")
-    end
-  end
-  for verb in pairs(passthrough) do assert(listed[verb], verb .. " is not a verb") end
-  for verb in pairs(surplus) do assert(listed[verb], verb .. " is not a verb") end
-  for verb in pairs(cases) do assert(listed[verb], verb .. " is not a verb") end
 end
 
 --- Whether `verb`'s cases run in this process: a test that starts one

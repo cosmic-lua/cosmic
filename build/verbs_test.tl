@@ -1,12 +1,20 @@
 --- Command lines that dispatch refuses or runs in this process
 --- (`build.invoke`), starting nothing and reading nothing of this
 --- program beyond their module's closure: a mistyped verb, a worker's
---- mode, which is main's and not dispatch's, and `-e`'s chunk.
---- build/verbs_tool_test.tl holds every verb to the command-line
---- contract.
+--- mode, which is main's and not dispatch's, and `-e`'s chunk; and every
+--- verb `cosmic.cli` names classified in the tables
+--- build/verbs_tool_test.tl holds each one to (`build.verb_cases`).
 
+local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
+local verb_cases = require("build.verb_cases")
+
+local passthrough = verb_cases.passthrough
+local surplus = verb_cases.surplus
+--- Only which verbs have cases is read here, so the bundle `refresh`
+--- reads is named as the tree holds it, unresolved.
+local cases = verb_cases.cases("vendor/cacert/cacert.pem")
 
 --- Runs `cosmic <args>` in `dir`, in this process, as
 --- build/verbs_tool_test.tl's `cosmic` runs every command line that
@@ -62,4 +70,18 @@ local function test_e_runs_a_lua_chunk(tmp: string)
   end
   local nothing, _ = Fs.exists(tmp .. "/o")
   assert(nothing == false, "-e wrote under o/")
+end
+
+local function test_every_verb_is_classified()
+  local listed: {string:boolean} = {}
+  for _, verb in ipairs(Cli.order) do
+    listed[verb] = true
+    if passthrough[verb] == nil then
+      assert(surplus[verb] ~= nil, verb .. ": say what one argument too many is")
+      assert(cases[verb] ~= nil, verb .. ": give a passing and a failing command line")
+    end
+  end
+  for verb in pairs(passthrough) do assert(listed[verb], verb .. " is not a verb") end
+  for verb in pairs(surplus) do assert(listed[verb], verb .. " is not a verb") end
+  for verb in pairs(cases) do assert(listed[verb], verb .. " is not a verb") end
 end
