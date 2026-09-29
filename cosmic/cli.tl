@@ -153,13 +153,17 @@ local record Cli
   --- `--head` prints `HTTP <status>` and the headers, names lowercased
   --- and sorted, or with `--json` an object of `status`, `url` and
   --- `headers`, and then fails on a non-2xx too. Redirects are followed,
-  --- up to 10, as `cosmic.http` follows them. Certificates are always
+  --- up to 10, as `cosmic.http` follows them, and one may downgrade https
+  --- to http, as curl's default does: use `--sha256` when that matters. Header
+  --- values print with control bytes as `\xNN`, and a URL's userinfo prints as
+  --- `***`. Streaming to standard output can leave partial bytes sent before a
+  --- failure (exit 1); `--sha256` there buffers the whole body, uncapped. Certificates are always
   --- verified: there is no option that turns it off. GET only, by
   --- design: for a header, a body or another method write the script
   --- with `cosmic.http`. It prints no verdict line, which would be in
   --- the body a pipe reads. Exits 0 when the body was delivered, 1 when
   --- the fetch failed (no connection, a bad status, a digest that does
-  --- not match, a body that broke off), 2 for a command line, a URL or
+  --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
   --- a write to standard output it cannot use
   fetch: string
   --- `cosmic docs [q]`: what the database says about q -- a symbol

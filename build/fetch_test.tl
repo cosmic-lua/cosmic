@@ -142,7 +142,7 @@ end
 
 local function test_a_bad_url_or_command_line_is_a_usage_error()
   for _, words in ipairs({
-    { "notaurl" }, { "ftp://example.com/x" }, { "http://" }, {}, { url, "extra" },
+    { "notaurl" }, { "ftp://example.com/x" }, { "http://" }, { "http://@/" }, { "http://:80/" }, { "http://u:p@:80/x" }, {}, { url, "extra" },
     { url, "--bogus" }, { url, "--sha256", "abc" }, { url, "--json" },
     { url, "--head", "-o", "x" }, { url, "-o", "" },
   } as {{string}}) do
@@ -153,6 +153,9 @@ local function test_a_bad_url_or_command_line_is_a_usage_error()
 end
 
 local function test_a_refused_connection_fails()
+  -- Port 1 is never listening (as cosmic/http_test.tl's probe is);
+  -- TODO: bind and close an ephemeral port instead, once a socket
+  -- module of the tree can bind one.
   local ran = run({ "http://127.0.0.1:1/" }, nil)
   assert(ran.code == 1, tostring(ran.code) .. ran.err)
   assert(ran.out == "" and ran.err:find("cosmic: fetch: http://127.0.0.1:1/", 1, true) == 1, ran.err)
@@ -167,4 +170,45 @@ local function test_a_failed_write_to_standard_output_exits_two()
   local verified = run({ "--sha256", Hash.hex_sha256("hello"), url },
     { reply("200 OK", "", "hello") }, "broken pipe")
   assert(verified.code == 2, tostring(verified.code))
+end
+
+local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
+  local secret = "http://user:hunter2@cosmic.test/data"
+  for _, words in ipairs({ { secret }, { secret, "-o", tmp .. "/x" },
+      { "--sha256", string.rep("0", 64), secret } } as {{string}}) do
+    local ran = run(words, { reply("404 Not Found", "", "no") })
+    assert(ran.code == 1, ran.err)
+    assert(not ran.err:find("hunter2", 1, true) and not ran.err:find("user:", 1, true), ran.err)
+    assert(ran.err:find("***@cosmic.test", 1, true), ran.err)
+  end
+  local mismatch = run({ secret, "-o", tmp .. "/y", "--sha256", string.rep("0", 64) },
+    { reply("200 OK", "", "hello") })
+  assert(mismatch.code == 1 and not mismatch.err:find("hunter2", 1, true), mismatch.err)
+  local json = run({ "--head", "--json", secret }, { reply("200 OK", "") })
+  assert(json.code == 0 and not json.out:find("hunter2", 1, true), json.out)
+  assert(json.out:find("***@cosmic.test", 1, true), json.out)
+  local refused = run({ "http://user:hunter2@127.0.0.1:1/" }, nil)
+  assert(refused.code == 1 and not refused.err:find("hunter2", 1, true), refused.err)
+end
+
+local function test_head_escapes_control_bytes_in_header_values()
+  local ran = run({ "--head", url }, { reply("200 OK", "X-Evil: a\027[31mb\1c\127d\te\r\n") })
+  assert(ran.code == 0, ran.err)
+  assert(not ran.out:find("\027", 1, true), "an escape byte reached the terminal")
+  assert(ran.out:find("x-evil: a\\x1B[31mb\\x01c\\x7Fd\te\n", 1, true), ran.out)
+end
+
+local function test_a_truncated_body_fails_after_what_arrived()
+  local cut = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabc"
+  local ran = run({ url }, { cut })
+  assert(ran.code == 1, tostring(ran.code) .. ran.err)
+  assert(ran.err:find("cosmic: fetch: ", 1, true) == 1, ran.err)
+  local verified = run({ "--sha256", string.rep("0", 64), url }, { cut })
+  assert(verified.code == 1 and verified.out == "", verified.out .. verified.err)
+end
+
+local function test_sha256_on_standard_output_with_a_bad_status_sends_nothing()
+  local ran = run({ "--sha256", Hash.hex_sha256("no"), url }, { reply("404 Not Found", "", "no") })
+  assert(ran.code == 1 and ran.out == "", ran.out)
+  assert(ran.err:find("HTTP 404", 1, true), ran.err)
 end

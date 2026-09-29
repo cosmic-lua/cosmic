@@ -8,7 +8,7 @@
 --- Like `cosmic json` it ends in no verdict line -- its standard output
 --- is the body -- and its exit status is the verdict: 0 the body was
 --- delivered, 1 the fetch failed (no connection, a status outside 2xx,
---- a digest that does not match, a body that broke off), 2 a command
+--- a digest that does not match, a body that broke off, an `-o` write that failed), 2 a command
 --- line, a URL or a write it cannot use. build/dispatch.tl's `bare`
 --- names it.
 ---
@@ -29,7 +29,21 @@
 ---   line. The cost is the body's size in memory; `-o` streams.
 ---
 --- Redirects are followed as `cosmic.http` follows them: up to 10 hops
---- (`Http.Options.max_redirects`), a longer chain failing the fetch.
+--- (`Http.Options.max_redirects`), a longer chain failing the fetch. A
+--- redirect may downgrade https to http, as curl's default does: pass
+--- `--sha256` when that matters.
+-- TODO: add a no-downgrade option (refuse a redirect from https to http)
+-- once Http.Options carries a redirect-protocols field.
+---
+--- Failures: a body that breaks off after some bytes went to standard
+--- output leaves those bytes sent (exit 1), since a pipe cannot take
+--- them back; `--sha256` on standard output buffers the whole body in
+--- memory, with no cap. A failed write of the `-o` file is exit 1, a
+--- failed fetch like the rest; only standard output's is 2.
+-- TODO: remove the `-o` temporary file when the process is killed by
+-- SIGINT, once cosmic.sys carries a signal handler or an exit hook to
+-- run it from; today an interrupt leaves the `.part` file beside the
+-- target.
 --- Certificates are always verified; there is no option that turns that
 --- off, and none will be added.
 
@@ -64,8 +78,33 @@ local usage = "cosmic fetch <url> [-o <file>] [--sha256 <hex>] [--head [--json]]
 --- are. `Http.open` would refuse others too, but as a failed fetch and
 --- not a usage error.
 local function is_url(url: string): boolean
-  local host = url:match("^https?://([^/?#]*)") or url:match("^HTTPS?://([^/?#]*)")
-  return host ~= nil and host ~= ""
+  local authority = url:match("^%a+://([^/?#]*)")
+  if authority == nil then return false end
+  local scheme = url:match("^(%a+)://"):lower()
+  if scheme ~= "http" and scheme ~= "https" then return false end
+  local host = authority:match("([^@]*)$")
+  if host:sub(1, 1) == "[" then
+    return host:match("^%[.+%]") ~= nil
+  end
+  return host:match("^[^:]*") ~= ""
+end
+
+--- `url` with any userinfo replaced by `***`, for every place the verb
+--- prints one: a password in a URL must not reach a log.
+local function redact(url: string): string
+  local scheme, authority, rest = url:match("^(%a+://)([^/?#]*)(.*)$")
+  if scheme == nil or not authority:find("@", 1, true) then return url end
+  return scheme .. "***@" .. authority:match("([^@]*)$") .. rest
+end
+
+--- `text` with every byte a terminal would act on -- below 0x20 but a
+--- tab, and 0x7f -- written `\xNN`, so a hostile server's header cannot
+--- inject an escape sequence or a line of its own.
+local function escaped(text: string): string
+  local safe = text:gsub("[%z\1-\8\11-\31\127]", function(byte: string): string
+    return string.format("\\x%02X", byte:byte())
+  end)
+  return safe
 end
 
 local standard: verb.Io = {
@@ -87,7 +126,14 @@ end
 --- @param io where the body and complaints go; the process's own when nil
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
+  -- `shown` is the URL as it may be printed; a complaint that carries
+  -- the URL as given (curl's, Http.download's) is rewritten to it.
+  local shown = ""
+  local given = ""
   local function complain(line: string)
+    if given ~= "" and shown ~= given then
+      line = line:gsub(given:gsub("%p", "%%%0"), (shown:gsub("%%", "%%%%")))
+    end
     to.err("cosmic: fetch: " .. line)
   end
   local function refuse(why: string): integer
@@ -101,6 +147,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("give one URL, not " .. #parsed.words .. " words")
   end
   local url = parsed.words[1]
+  shown, given = redact(url), url
   if not is_url(url) then
     return refuse(url .. " is not an http:// or https:// URL")
   end
@@ -126,7 +173,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   local options: Http.Options = { script = to.script }
   local function failed_status(status: integer): integer
-    complain(url .. ": HTTP " .. status)
+    complain(shown .. ": HTTP " .. status)
     return 1
   end
   local function written(ok: boolean, why: string): integer
@@ -147,7 +194,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   local response, open_trouble = Http.open(url, options)
   if response == nil then
-    complain(url .. ": " .. open_trouble)
+    complain(shown .. ": " .. open_trouble)
     return 1
   end
   local ok2 = response.status >= 200 and response.status < 300
@@ -159,7 +206,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local text: string
     if as_json then
       local encoded, encode_trouble = Json.encode({
-        status = response.status, url = response.url, headers = response.headers,
+        status = response.status, url = redact(response.url), headers = response.headers,
       }, { pretty = true })
       if encoded == nil then
         complain(encode_trouble)
@@ -173,7 +220,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       for _, name in ipairs(names) do
         -- A repeated Set-Cookie arrives joined with "\n": a line each.
         for value in (response.headers[name] .. "\n"):gmatch("(.-)\n") do
-          lines[#lines + 1] = name .. ": " .. value
+          lines[#lines + 1] = escaped(name .. ": " .. value)
         end
       end
       text = table.concat(lines, "\n") .. "\n"
@@ -193,12 +240,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local body, read_trouble = Stream.read_all(response)
     done(response)
     if body == nil then
-      complain(url .. ": " .. read_trouble)
+      complain(shown .. ": " .. read_trouble)
       return 1
     end
     local got = Hash.hex_sha256(body)
     if got ~= want then
-      complain(url .. ": sha256 mismatch: want " .. want .. ", got " .. got)
+      complain(shown .. ": sha256 mismatch: want " .. want .. ", got " .. got)
       return 1
     end
     return written(to.out(body))
@@ -209,7 +256,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if chunk == nil then
       done(response)
       if read_trouble ~= "" then
-        complain(url .. ": " .. read_trouble)
+        complain(shown .. ": " .. read_trouble)
         return 1
       end
       return 0
