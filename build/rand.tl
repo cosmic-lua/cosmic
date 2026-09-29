@@ -16,7 +16,7 @@
 --- data for a pipe. Exit 0 is ok, 2 a command line, a file or a request
 --- it refuses (a failed write to standard output included), 1 the
 --- operating system's entropy source failing. Complaints go to standard
---- error as `cosmic: rand: ...`. build/dispatch.tl's `bare` names it.
+--- error as `cosmic: rand: ...`. its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- UUIDs. Version 4 is 122 bits of entropy. Version 7 (RFC 9562) is the
 --- Unix time in milliseconds from `cosmic.time`, then the rest from
@@ -43,9 +43,12 @@ local Proc = require("cosmic.proc")
 local Rand = require("cosmic.rand")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
+local verb_spec = require("build.verb_spec")
 
 --- The `cosmic rand` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where `run` reads, writes and draws: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -471,5 +474,17 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   return code
 end
+
+--- The `rand` verb as `build/verb_list.tl` lists it. Draws from the OS
+--- entropy source, or a seed on request; reads no tree, so never stale-
+--- checked.
+verb.spec = {
+  name = "rand",
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "a subcommand and its words",
+  exits = "\n`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its\ncommand line or a write fails.",
+  passthrough = "its output is data for a pipe, so its exit status is the verdict (build/rand_test.tl)",
+}
 
 return verb

@@ -66,8 +66,11 @@ local type compiler = require("build.compiler")
 local type Sqlite = require("cosmic.sqlite")
 
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
 
 local record fix
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- What one file's pipeline produced, and whether it differs from
   --- what is on disk. Bundled into one record rather than returned as
   --- separate slots: the first return admits nil, and a fallible return
@@ -697,5 +700,12 @@ function fix.run(argv: {integer:string}): integer
     (checking and " to fix, " or " fixed, ") .. clock.took(started))
   return 0
 end
+
+--- The `fix` verb as `build/verb_list.tl` lists it.
+fix.spec = {
+  name = "fix",
+  run = function(argv: {integer:string}): integer return fix.run(argv) end,
+  bare = false,
+}
 
 return fix

@@ -48,6 +48,7 @@ local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local verdicts = require("build.verdict")
+local verb_spec = require("build.verb_spec")
 
 local log = verdicts.log
 
@@ -55,6 +56,8 @@ local log = verdicts.log
 --- `source`, `open` and `query` are its steps, each testable on its
 --- own.
 local record sql
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where a statement runs.
   record Source
     --- What the verdict line and a complaint call it.
@@ -763,5 +766,18 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   verdict(true, rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
   return 0
 end
+
+--- The `sql` verb as `build/verb_list.tl` lists it. Never stale-checked,
+--- unlike `db`: a staleness check stages the tree, and this verb reads o/
+--- and nothing else under it. It gives its own verdict on every exit, a
+--- usage error included, so the check main runs after a verdictless exit
+--- 2 never runs for it (build/verbs_tool_test.tl's
+--- test_sql_never_stages_the_tree).
+sql.spec = {
+  name = "sql",
+  run = function(argv: {integer:string}): integer return sql.run(argv) end,
+  bare = false,
+  takes = "one statement",
+}
 
 return sql

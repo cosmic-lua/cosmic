@@ -25,9 +25,12 @@ local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
+local verb_spec = require("build.verb_spec")
 
 --- The `cosmic archive` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -641,5 +644,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if outcome.why ~= "" then complain(outcome.why) end
   return outcome.code
 end
+
+--- The `archive` verb as `build/verb_list.tl` lists it. Reads an archive
+--- it is given, never the tree: not stale-checked.
+verb.spec = {
+  name = "archive",
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "a subcommand and its paths",
+  exits = "`archive` prints its\nlisting or the paths it wrote, and exits 0, 1 or 2 as `json` does.",
+  passthrough = "its output is data for a pipe, so its exit status is the verdict (build/archive_test.tl)",
+}
 
 return verb

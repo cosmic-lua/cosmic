@@ -36,8 +36,11 @@ local writer = require("build.writer")
 
 local log = require("build.verdict").log
 local bind = require("build.bind")
+local verb_spec = require("build.verb_spec")
 
 local record embed
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
 end
 
 local text = bind.text
@@ -446,5 +449,12 @@ function embed.run(argv: {integer:string}): integer
   log:verdict("build", true, wrote .. ", " .. clock.took(started))
   return 0
 end
+
+--- The `build` verb as `build/verb_list.tl` lists it.
+embed.spec = {
+  name = "build",
+  run = function(argv: {integer:string}): integer return embed.run(argv) end,
+  bare = false,
+}
 
 return embed

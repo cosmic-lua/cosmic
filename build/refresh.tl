@@ -45,8 +45,11 @@ local roots = require("build.roots")
 local work = require("build.work")
 
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
 
 local record refresh
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- A release of a dataset, as a file on disk.
   record Source
     path: string
@@ -611,5 +614,15 @@ function refresh.run(argv: {integer:string}): integer
   end
   return finish(0, "wrote " .. out)
 end
+
+--- The `refresh` verb as `build/verb_list.tl` lists it. What it copies is
+--- a binary, not the tree, but its own code is the tree's: a stale tool
+--- rebuilds first, as `bom` does.
+refresh.spec = {
+  name = "refresh",
+  run = function(argv: {integer:string}): integer return refresh.run(argv) end,
+  bare = false,
+  fresh = true,
+}
 
 return refresh

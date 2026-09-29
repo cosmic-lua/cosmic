@@ -27,8 +27,11 @@ local tree = require("build.tree")
 local work = require("build.work")
 
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
 
 local record todos
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- What blame says about one line.
   record Blame
     --- The commit's full hash; all zeros for a line not committed yet.
@@ -635,5 +638,12 @@ function todos.run(argv: {integer:string}): integer
     tostring(blamed) .. " files blamed, " .. clock.took(started))
   return 0
 end
+
+--- The `todos` verb as `build/verb_list.tl` lists it.
+todos.spec = {
+  name = "todos",
+  run = function(argv: {integer:string}): integer return todos.run(argv) end,
+  bare = false,
+}
 
 return todos

@@ -10,7 +10,7 @@
 --- the verdict: 0 all well, 1 a check failed or a listed file could not
 --- be read, 2 a command line, a file to hash or a sums file it cannot
 --- use, or a failed write to standard output. Complaints go to standard
---- error as `cosmic: hash: ...`. build/dispatch.tl's `bare` names it.
+--- error as `cosmic: hash: ...`. its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- `--check` differs from GNU's in three ways. A line it cannot read (a
 --- BSD `SHA256 (file) = hex` line, a one-space separator, a bad escape)
@@ -34,9 +34,12 @@ local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
+local verb_spec = require("build.verb_spec")
 
 --- The `cosmic hash` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -434,5 +437,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if #sums.bad > 0 then return 2 end
   return (failed > 0 or unread > 0) and 1 or 0
 end
+
+--- The `hash` verb as `build/verb_list.tl` lists it. Reads the files it
+--- is given, never the tree: never stale-checked.
+verb.spec = {
+  name = "hash",
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "the files to digest",
+  exits = "`hash` prints digests,\nand exits 1 when a `--check` fails.",
+  passthrough = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
+}
 
 return verb

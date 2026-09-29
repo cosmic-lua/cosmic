@@ -13,8 +13,11 @@ local narrow = require("build.narrow")
 local reboot = require("build.reboot")
 
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
 
 local record databases
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
 end
 
 --- `name` as an SQL identifier, quoted, with each `"` in it doubled.
@@ -342,5 +345,12 @@ function databases.run(argv: {integer:string}): integer
     clock.took(started))
   return 0
 end
+
+--- The `db` verb as `build/verb_list.tl` lists it.
+databases.spec = {
+  name = "db",
+  run = function(argv: {integer:string}): integer return databases.run(argv) end,
+  bare = false,
+}
 
 return databases

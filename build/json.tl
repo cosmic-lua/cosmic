@@ -16,7 +16,7 @@
 --- for a reader to drop, but a JSON value has no line to drop. Its exit
 --- status is the verdict: 0 found, 1 the path is not there, 2 a command
 --- line, a file or a text it cannot read. Complaints go to standard
---- error, as every verb's do. build/dispatch.tl's `bare` names it, and
+--- error, as every verb's do. Its `spec` (build/verb_spec.tl) is `bare`, and
 --- build/verbs_test.tl says why the rest of the tree may not.
 ---
 --- A JSON `null` is a value here, not an absence: `--exists` is true of a
@@ -29,9 +29,12 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
+local verb_spec = require("build.verb_spec")
 
 --- The `cosmic json` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -321,5 +324,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   return written(to.out(encoded .. "\n"))
 end
+
+--- The `json` verb as `build/verb_list.tl` lists it. Reads a document it
+--- is given, never the tree, so never stale-checked either.
+verb.spec = {
+  name = "json",
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "a path and a file",
+  exits = "`json` prints its\nvalue and nothing after, for a pipe, and exits 0 when it found the path, 1\nwhen the path is not there, 2 for a command line or a text it refused.",
+  passthrough = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
+}
 
 return verb

@@ -2,7 +2,7 @@
 --- ("what is this token in hex?") that a script costs more than. It
 --- reads a file, or standard input, and writes the encoding, or with
 --- `-d` the bytes it spells -- and nothing else: like `cosmic json` it
---- ends in no verdict line (build/dispatch.tl's `bare`), because its
+--- ends in no verdict line (its `spec` is `bare`), because its
 --- standard output is data for a pipe. Its exit status is the verdict:
 --- 0 done, 2 a command line, an input or a write it cannot honor.
 --- Complaints go to standard error as `cosmic: codec: ...`.
@@ -47,9 +47,12 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
+local verb_spec = require("build.verb_spec")
 
 --- The `cosmic codec` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given. False and why when the
@@ -433,5 +436,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   return 0
 end
+
+--- The `codec` verb as `build/verb_list.tl` lists it. Reads what it is
+--- given, never the tree.
+verb.spec = {
+  name = "codec",
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "an encoding and a file",
+  exits = "`codec`\nprints its text or bytes and nothing after, and exits 0 or 2.",
+  passthrough = "its output is data for a pipe, so its exit status is the verdict (build/codec_test.tl)",
+}
 
 return verb
