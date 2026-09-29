@@ -4,6 +4,7 @@
 #
 #     sh .github/scripts/queue-seed.sh find
 #     sh .github/scripts/queue-seed.sh stage
+#     sh .github/scripts/queue-seed.sh ahead
 #
 # find, ci.yml's `reuse` job on a push to main: asks the API, through
 # `gh` (GH_TOKEN, with actions: read), for REPOSITORY's merge_group runs
@@ -37,9 +38,27 @@
 # to main, for a branch based on it: .github/scripts/merge-base.sh); and
 # `driver-checked` (from $RUNNER_TEMP/driver-checked), the key its marker
 # holds, where the driver check ran and passed.
+#
+# ahead, a merge_group run's job before its suite (ci.yml's "find the
+# run ahead in the queue"): finds the run ahead of this one in the
+# queue, the merge_group run of ci.yml on a gh-readonly-queue/main/
+# branch whose head_sha is BASE, this run's base
+# (github.event.merge_group.base_sha), asking the API as `find` does,
+# and writes `run=<id>` to $GITHUB_OUTPUT where that run holds an
+# unexpired ARTIFACT, the verdicts its job JOB keeps once its suite
+# passes, for this run to take (ci.yml's `verdicts-ahead`); `run=`
+# where it does not. While that run is in progress and JOB in it has
+# not completed, or while the API fails, it asks again, every
+# WAIT_SECONDS, up to TRIES times, each call cut off as `find`'s are
+# and at most three a round: TRIES * (WAIT_SECONDS + 3 * CALL_SECONDS)
+# at most, which ci.yml's settings hold under the step's timeout
+# (build/workflows_test.tl). A BASE no queue run has for its head --
+# main's already, whose verdicts the restore took -- is none at once, as
+# is a run, or its JOB, that completed without ARTIFACT. Either way it
+# exits 0: none costs time, never a result.
 set -eu
 
-usage="usage: queue-seed.sh find|stage"
+usage="usage: queue-seed.sh find|stage|ahead"
 [ $# -eq 1 ] || { echo "$usage" >&2; exit 2; }
 out=${GITHUB_OUTPUT:-/dev/stdout}
 
@@ -103,6 +122,69 @@ EOF
   [ -z "${GITHUB_STEP_SUMMARY-}" ] || echo "$said" >> "$GITHUB_STEP_SUMMARY"
 }
 
+# Whether $1 is a whole commit id.
+is_commit() {
+  case $1 in
+    "" | *[!0-9a-f]*) return 1 ;;
+  esac
+  [ ${#1} -eq 40 ]
+}
+
+ahead() {
+  { [ -n "${ARTIFACT-}" ] && [ -n "${JOB-}" ]; } ||
+    { echo "queue-seed.sh ahead: no ARTIFACT or JOB" >&2; exit 2; }
+  base=${BASE-} round=0 found= said=
+  is_commit "$base" || said="no base to find the run ahead by: the restore's verdicts alone."
+  while [ -z "$said" ]; do
+    round=$((round + 1))
+    pending= run= status=
+    if runs=$(api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$base&per_page=20" \
+        --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "none") \(.head_sha) \(.head_branch) \(.html_url)"'); then
+      # The newest, where a run was retried.
+      while read -r id state _ sha branch _; do
+        [ "$sha" = "$base" ] && [ -z "$run" ] || continue
+        case $branch in gh-readonly-queue/main/*) run=$id status=$state ;; esac
+      done <<EOF
+$runs
+EOF
+      [ -n "$run" ] || said="$base is no merge queue run's head: the restore's verdicts alone."
+    else
+      pending=1
+    fi
+    if [ -n "$run" ]; then
+      if names=$(api "repos/$REPOSITORY/actions/runs/$run/artifacts?per_page=100" \
+          --jq '.artifacts[] | select(.expired | not) | .name'); then
+        if printf '%s\n' "$names" | grep -qx "$ARTIFACT"; then
+          found=$run
+        elif [ "$status" = completed ]; then
+          said="the run ahead, $run, completed without $ARTIFACT: the restore's verdicts alone."
+        elif jobs=$(api "repos/$REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+            --jq '.jobs[] | "\(.status) \(.name)"'); then
+          if printf '%s\n' "$jobs" | grep -qxF "completed $JOB"; then
+            said="$JOB of the run ahead, $run, completed without $ARTIFACT: the restore's verdicts alone."
+          else
+            pending=1
+          fi
+        else
+          pending=1
+        fi
+      else
+        pending=1
+      fi
+    fi
+    if [ -n "$found" ] || [ -n "$said" ] || [ -z "$pending" ] || [ "$round" -ge "$tries" ]; then break; fi
+    sleep "$wait"
+  done
+  echo "run=$found" >> "$out"
+  if [ -n "$found" ]; then
+    said="the run ahead, $found, holds $ARTIFACT: this run takes its verdicts."
+  elif [ -z "$said" ]; then
+    said="the run ahead of $base left no $ARTIFACT in time: the restore's verdicts alone."
+  fi
+  echo "$said"
+  [ -z "${GITHUB_STEP_SUMMARY-}" ] || echo "$said" >> "$GITHUB_STEP_SUMMARY"
+}
+
 # The entry NAME, from DIR, under PREFIX and DIGEST, unless the digest is
 # empty or the key is RESTORED.
 entry() {
@@ -133,5 +215,6 @@ stage() {
 case $1 in
   find) find_run ;;
   stage) stage ;;
+  ahead) ahead ;;
   *) echo "$usage" >&2; exit 2 ;;
 esac

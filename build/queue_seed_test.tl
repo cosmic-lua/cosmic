@@ -1,7 +1,9 @@
 --- .github/scripts/queue-seed.sh, which finds the merge queue's run a
---- push to main reuses (`find`), and keeps in a queue run's leg what
---- main would have saved, under the keys it would have saved it under
---- (`stage`). `find` runs against a fake `gh` holding the API's JSON,
+--- push to main reuses (`find`), keeps in a queue run's leg what main
+--- would have saved, under the keys it would have saved it under
+--- (`stage`), and finds the run ahead of a queue run whose verdicts it
+--- takes (`ahead`). `find` and `ahead` run against a fake `gh` holding
+--- the API's JSON,
 --- which it answers through the script's own `--jq` filters with the
 --- system's jq, one lookup at a time; where the system has no jq (CI's
 --- images), those cases return unchecked, and the filters are held to
@@ -23,13 +25,15 @@ local QUEUE <const> = "gh-readonly-queue/main/pr-7-fedcba"
 --- The filters the script hands `gh api --jq`, as it writes them.
 local RUNS_FILTER <const> = [[.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "none") \(.head_sha) \(.head_branch) \(.html_url)"]]
 local ARTIFACTS_FILTER <const> = ".artifacts[] | select(.expired | not) | .name"
+local JOBS_FILTER <const> = [[.jobs[] | "\(.status) \(.name)"]]
 
 --- A fake `gh api URL --jq FILTER`: each lookup of the runs answers the
 --- next of the lookups written (one "FAIL" fails), the last again once
---- they run out; one of run <id>'s artifacts answers artifacts-<id>
---- (none where there is no such file), and fails once where
---- artifacts-<id>.fail is there. Each call's arguments are logged to
---- `calls`.
+--- they run out; the k-th lookup of run <id>'s artifacts answers
+--- artifacts-<id>-<k>, else artifacts-<id> (none where there is no such
+--- file), and fails once where artifacts-<id>.fail is there; one of its
+--- jobs answers jobs-<id> (none where there is none). Each call's
+--- arguments are logged to `calls`.
 local FAKE <const> = [[#!/bin/sh
 echo "$*" >> "$FAKE/calls"
 [ "$1" = api ] && [ "$3" = --jq ] && [ $# -eq 4 ] || { echo "fake gh: $*" >&2; exit 2; }
@@ -37,7 +41,12 @@ case $2 in
   */artifacts*)
     id=${2%/artifacts*}; id=${id##*/}; file=$FAKE/artifacts-$id
     if [ -f "$file.fail" ]; then rm "$file.fail"; exit 1; fi
+    k=$(($(cat "$file.n" 2>/dev/null || echo 0) + 1)); echo "$k" > "$file.n"
+    [ ! -f "$file-$k" ] || file=$file-$k
     [ -f "$file" ] || file=$FAKE/no-artifacts ;;
+  */jobs*)
+    id=${2%/jobs*}; id=${id##*/}; file=$FAKE/jobs-$id
+    [ -f "$file" ] || file=$FAKE/no-jobs ;;
   *)
     n=$(($(cat "$FAKE/n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$FAKE/n"
     file=$FAKE/lookup-$n; [ -f "$file" ] || file=$FAKE/lookup-last ;;
@@ -122,6 +131,7 @@ local function test_the_filters_are_the_scripts()
   local text = assert(Fs.read(SCRIPT))
   assert(text:find("--jq '" .. RUNS_FILTER .. "'", 1, true), "the runs' filter moved")
   assert(text:find("--jq '" .. ARTIFACTS_FILTER .. "'", 1, true), "the artifacts' filter moved")
+  assert(text:find("--jq '" .. JOBS_FILTER .. "'", 1, true), "the jobs' filter moved")
 end
 
 --- The queue's passing run of this commit is found, by the commit and
@@ -268,4 +278,125 @@ local function test_stage_keeps_the_verdicts_under_the_commit(tmp: string)
 
   seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "", SHA = SHA }, false)
   assert(keys == "" and not Fs.exists(seed .. "/verdicts"), keys)
+end
+
+--- A run's jobs, as the API lists them: each `status name`.
+local function jobs(...: string): string
+  local items: {string} = {}
+  for _, job in ipairs({ ... }) do
+    local status, name = job:match("^(%S+) (.+)$")
+    items[#items + 1] = '{"name":"' .. name .. '","status":"' .. status .. '"}'
+  end
+  return '{"total_count":' .. #items .. ',"jobs":[' .. table.concat(items, ",") .. "]}"
+end
+
+--- What `ahead` writes to $GITHUB_OUTPUT for job `a`'s artifact
+--- `verdicts-a`, with BASE `base`, the calls it made to `gh`, its status
+--- and what it said; `answers` are the runs' lookups, as `find`'s are,
+--- `listing` names each run's artifacts (`<id>`, or
+--- `<id>-<k>` for the k-th lookup), and `listed_jobs` its jobs.
+local function ahead(tmp: string, base: string, answers: {string}, listing: {string: string},
+    listed_jobs?: {string: string}): string, string, integer, string
+  runs = runs + 1
+  local dir = tmp .. "/ahead-" .. runs
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.write(dir .. "/bin/gh", FAKE))
+  assert(Fs.chmod(dir .. "/bin/gh", 493))
+  for i, text in ipairs(answers) do
+    assert(Fs.write(dir .. "/lookup-" .. (i == #answers and "last" or tostring(i)), text))
+  end
+  assert(Fs.write(dir .. "/no-artifacts", artifacts({}, {})))
+  assert(Fs.write(dir .. "/no-jobs", jobs()))
+  for id, text in pairs(listing) do assert(Fs.write(dir .. "/artifacts-" .. id, text)) end
+  for id, text in pairs(listed_jobs or {}) do assert(Fs.write(dir .. "/jobs-" .. id, text)) end
+  local env: {string: string} = {
+    PATH = dir .. "/bin:" .. (Env.get("PATH") or "/usr/bin:/bin"), FAKE = dir,
+    GITHUB_OUTPUT = dir .. "/output", GITHUB_STEP_SUMMARY = dir .. "/summary",
+    REPOSITORY = "o/r", BASE = base, JOB = "a", ARTIFACT = "verdicts-a", WAIT_SECONDS = "0", TRIES = "3",
+  }
+  local result = assert(Child.run({ "/bin/sh", SCRIPT, "ahead" }, { env = env, cwd = dir,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  return Fs.read(dir .. "/output") or "", Fs.read(dir .. "/calls") or "", result.code,
+    (result.stdout or "") .. (result.stderr or "")
+end
+
+local KEPT <const> = artifacts({ "ci-driver-a", "verdicts-a", "verdicts-b" }, {})
+
+--- The run ahead, whose head is this run's base, is found by the base
+--- and the event, and taken where it holds the job's verdicts, whether
+--- it is still running or done.
+local function test_the_run_ahead_is_found_with_its_verdicts(tmp: string)
+  if not has_jq() then return end
+  for _, status in ipairs({ "in_progress", "completed" }) do
+    local output, calls, code, said = ahead(tmp, SHA, { listed(run("42", status, nil, SHA, QUEUE),
+      run("41", "completed", "cancelled", SHA, QUEUE)) }, { ["42"] = KEPT })
+    assert(code == 0 and output == "run=42\n", output .. said)
+    assert(calls:find("api repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
+      "&per_page=20 --jq " .. RUNS_FILTER, 1, true), calls)
+    assert(calls:find("api repos/o/r/actions/runs/42/artifacts?per_page=100 --jq " .. ARTIFACTS_FILTER, 1, true),
+      calls)
+    assert(lookups(calls) == 1 and not calls:find("/jobs", 1, true), calls)
+    assert(said:find("this run takes its verdicts", 1, true), said)
+  end
+end
+
+--- A run ahead still running whose job has not kept its verdicts yet
+--- is asked after again until it has, as is a failed call to the API.
+local function test_the_run_ahead_is_waited_for(tmp: string)
+  if not has_jq() then return end
+  local running = listed(run("42", "in_progress", nil, SHA, QUEUE))
+  local output, calls, code, said = ahead(tmp, SHA, { running, "FAIL", running },
+    { ["42-1"] = artifacts({ "ci-driver-a" }, {}), ["42"] = KEPT },
+    { ["42"] = jobs("in_progress a", "completed b") })
+  assert(code == 0 and output == "run=42\n", output .. said)
+  assert(lookups(calls) == 3, calls)
+  assert(calls:find("api repos/o/r/actions/runs/42/jobs?per_page=100 --jq " .. JOBS_FILTER, 1, true), calls)
+  -- One that never keeps them, or an API that keeps failing, is given
+  -- up on after TRIES lookups, and fails nothing.
+  for _, stuck in ipairs({ running, "FAIL" }) do
+    output, calls, code, said = ahead(tmp, SHA, { stuck }, {}, { ["42"] = jobs("in_progress a") })
+    assert(code == 0 and output == "run=\n" and lookups(calls) == 3, output .. calls)
+    assert(said:find("left no verdicts-a in time", 1, true), said)
+  end
+end
+
+--- A run ahead that completed, or whose job completed, without the
+--- job's verdicts -- its suite failed, or never ran -- is none at once,
+--- with no wait; so is one whose artifact expired.
+local function test_a_run_ahead_done_without_its_verdicts_is_none_at_once(tmp: string)
+  if not has_jq() then return end
+  local cases: {{string: string}} = {
+    { runs = listed(run("42", "completed", "failure", SHA, QUEUE)), why = "a completed run" },
+    { runs = listed(run("43", "in_progress", nil, SHA, QUEUE)), why = "a completed job" },
+    { runs = listed(run("44", "completed", "success", SHA, QUEUE)), why = "an expired artifact" },
+  }
+  for _, case in ipairs(cases) do
+    local output, calls, code, said = ahead(tmp, SHA, { case.runs },
+      { ["43"] = artifacts({ "verdicts-b" }, {}), ["44"] = artifacts({ "verdicts-a" }, { ["verdicts-a"] = true }) },
+      { ["43"] = jobs("in_progress b", "completed a") })
+    assert(code == 0 and output == "run=\n", case.why .. ": " .. output .. said)
+    assert(lookups(calls) == 1, case.why .. ": " .. calls)
+    assert(said:find("completed without verdicts-a", 1, true), case.why .. ": " .. said)
+  end
+end
+
+--- A base no queue run has for its head -- main's already, whose
+--- verdicts the restore took -- is none at once, as is another
+--- commit's, another queue's, and a push's run; with no base at all
+--- nothing is asked.
+local function test_a_base_that_heads_no_queue_run_is_none(tmp: string)
+  if not has_jq() then return end
+  for _, runs_listed in ipairs({ listed(), listed(run("42", "in_progress", nil, "f" .. SHA:sub(2), QUEUE)),
+      listed(run("42", "in_progress", nil, SHA, "gh-readonly-queue/other/pr-7-x")),
+      listed(run("42", "in_progress", nil, SHA, "main")) }) do
+    local output, calls, code, said = ahead(tmp, SHA, { runs_listed }, { ["42"] = KEPT })
+    assert(code == 0 and output == "run=\n" and lookups(calls) == 1, output .. calls .. said)
+    assert(not calls:find("/artifacts", 1, true), calls)
+    assert(said:find("is no merge queue run's head", 1, true), said)
+  end
+  for _, base in ipairs({ "", "main", SHA:sub(2) }) do
+    local output, calls, code = ahead(tmp, base, { listed(run("42", "in_progress", nil, SHA, QUEUE)) },
+      { ["42"] = KEPT })
+    assert(code == 0 and output == "run=\n" and calls == "", base .. ": " .. output .. calls)
+  end
 end

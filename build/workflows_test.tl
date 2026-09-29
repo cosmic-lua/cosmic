@@ -1434,3 +1434,90 @@ local function test_a_branch_push_starts_no_job_it_skips()
   end
   assert(count > 0, "no workflow a branch push starts")
 end
+
+--- A queue run takes the verdicts of the run ahead of it in the queue,
+--- which tests its base and whose verdicts main has not saved yet: each
+--- leg and the checked job keeps its suite's verdicts, on a queue run,
+--- the moment the suite passes, as `verdicts-<job>`, a name no other
+--- job's shares; and each, between its restore and its suite, finds
+--- that run by its base (queue-seed.sh ahead), with the job's own name
+--- and artifact, downloads what it kept from that run, and merges it
+--- into what it restored (driver.tl verdicts-merge), with the driver
+--- bootstrapped. None of it fails the job, it needs `actions: read`,
+--- and the lookup's budget is under its step's timeout, which is under
+--- the job's, its wait at most three minutes.
+local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local script = assert(Fs.read(".github/scripts/queue-seed.sh"))
+  local call = math.tointeger(tonumber(script:match("call=%${CALL_SECONDS:%-(%d+)}\n")))
+  assert(call ~= nil, "queue-seed.sh's call budget moved")
+  local QUEUE <const> = "github.event_name == 'merge_group'"
+  local names: {string: string} = {}
+  for _, case in ipairs({
+      { job = "platform", suite = "release-suite", file = "verdicts.db", name = "${{ matrix.name }}" },
+      { job = "checked", suite = "checked-suite", file = "checked.db", name = "linux-x86_64-checked" } }) do
+    local job = jobs[case.job]
+    local where = case.job
+    assert(job.name == case.name, where .. "'s name: " .. tostring(job.name))
+    assert((job.permissions as {string: string}).actions == "read", where .. " cannot read the run ahead")
+    local steps = job.steps as {{string: any}}
+    local at: {string: integer} = {}
+    local keep: {string: any}
+    for i, step in ipairs(steps) do
+      local id = step.id as string
+      if id ~= nil then at[id] = i end
+      local with = step.with as {string: any}
+      if (step.uses as string or ""):find("actions/upload-artifact@", 1, true) ~= nil and
+          (with.path as string):find("${{ runner.temp }}/verdicts/", 1, true) == 1 then
+        assert(keep == nil, where .. " keeps its verdicts twice")
+        keep, at.keep = step, i
+      end
+    end
+    assert(keep ~= nil, where .. " keeps no verdicts for the run behind it")
+    local order = { "verdicts-restore", "ahead", "ahead-download", "verdicts-ahead", case.suite, "keep" }
+    for n = 2, #order do
+      assert(at[order[n - 1]] ~= nil and at[order[n]] ~= nil and at[order[n - 1]] < at[order[n]],
+        where .. ": " .. order[n - 1] .. " does not come before " .. order[n])
+    end
+    assert(at.driver < at["verdicts-ahead"], where .. " merges before its driver is there")
+    local artifact = "verdicts-" .. case.name
+    local kept = keep.with as {string: any}
+    assert(kept.name == artifact and kept.path == "${{ runner.temp }}/verdicts/" .. case.file .. "*" and
+      kept["retention-days"] == 1, where .. " keeps other verdicts, or for long: " .. tostring(kept.name))
+    local condition = keep["if"] as string
+    assert(condition:find(QUEUE, 1, true) and
+      condition:find("steps." .. case.suite .. ".outcome == 'success'", 1, true) and
+      keep["continue-on-error"] == true, where .. " keeps verdicts its suite did not pass: " .. condition)
+    names[where] = artifact
+
+    local find = steps[at.ahead]
+    local env = find.env as {string: string}
+    assert(find.run == "sh .github/scripts/queue-seed.sh ahead" and find.shell == "sh" and
+      find["working-directory"] == "." and find["continue-on-error"] == true and
+      (find["if"] as string):sub(-#QUEUE) == QUEUE, where .. " looks for the run ahead elsewhere, or fails for it")
+    assert(env.BASE == "${{ github.event.merge_group.base_sha }}" and env.JOB == case.name and
+      env.ARTIFACT == artifact and env.GH_TOKEN == "${{ github.token }}" and
+      env.REPOSITORY == "${{ github.repository }}", where .. " looks for another run's or job's verdicts")
+    local tries, wait = math.tointeger(tonumber(env.TRIES)), math.tointeger(tonumber(env.WAIT_SECONDS))
+    assert(tries ~= nil and wait ~= nil and (tries - 1) * wait <= 180, where .. " waits too long for the run ahead")
+    local budget = tries * (wait + 3 * call)
+    local minutes = find["timeout-minutes"] as integer
+    assert(budget <= minutes * 60 and minutes < (job["timeout-minutes"] as integer),
+      where .. "'s lookup outlasts its step, or its step the job: " .. budget .. " s")
+
+    local download = steps[at["ahead-download"]]
+    local with = download.with as {string: string}
+    assert((download.uses as string):find("actions/download-artifact@", 1, true) == 1 and
+      with.name == artifact and with["run-id"] == "${{ steps.ahead.outputs.run }}" and
+      with["github-token"] == "${{ github.token }}" and download["continue-on-error"] == true and
+      (download["if"] as string):find("steps.ahead.outputs.run != ''", 1, true),
+      where .. " downloads other verdicts than the run ahead's, or fails for it")
+    local merge = steps[at["verdicts-ahead"]]
+    assert(merge.run == "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"" .. with.path .. "\"" and
+      merge["continue-on-error"] == true and
+      (merge["if"] as string):find("steps.ahead-download.outcome == 'success'", 1, true),
+      where .. " merges something else, or fails for it: " .. tostring(merge.run))
+  end
+  assert(names.platform ~= names.checked, "the legs and the checked job keep their verdicts under one name")
+end

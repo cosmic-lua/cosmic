@@ -140,8 +140,9 @@
         },
       },
       "runs-on": "${{ matrix.runner }}",
-      # packages: to pull the Linux legs' images from GHCR.
-      permissions: {contents: "read", packages: "read"},
+      # packages: to pull the Linux legs' images from GHCR; actions: to
+      # read the queue's run ahead (queue-seed.sh ahead).
+      permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 45,
       env: {
         COSMIC_WORKER: "${{ matrix.name }}",
@@ -393,10 +394,77 @@
           run: "cosmic-driver test cosmic_ci && mkdir -p \"$RUNNER_TEMP/driver-checked\" && echo \"${{ steps.driver-check-restore.outputs.cache-primary-key }}\" > \"$RUNNER_TEMP/driver-checked/key\"",
         },
 
+        # In the merge queue, the run ahead of this one tests this run's
+        # base, which main has saved no verdicts of yet: the restore took
+        # main's newest, a change or more behind. That run's leg keeps its
+        # suite's verdicts the moment the suite passes (below), and this
+        # one adds them to what it restored (verdicts-merge, a union),
+        # waiting up to two minutes for them while that leg runs. A row
+        # stands only under its own key, so they decide how many tests
+        # stand, never whether one passes. Where none are found, or a
+        # step fails, the suite runs on what was restored.
+        # TODO: wait for them after the boot rather than before it, once
+        # `platform build` is a boot and a suite phase apart (as the
+        # checked job's `platform boot` and `platform checked` are): the
+        # wait holds up the leg's boot, which reads no verdict.
+        {
+          name: "find the run ahead in the queue",
+          id: "ahead",
+          if: "github.event_name == 'merge_group'",
+          "working-directory": ".",
+          shell: "sh",
+          "continue-on-error": true,
+          "timeout-minutes": 10,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            BASE: "${{ github.event.merge_group.base_sha }}",
+            JOB: "${{ matrix.name }}",
+            ARTIFACT: "verdicts-${{ matrix.name }}",
+            TRIES: "9",
+            WAIT_SECONDS: "15",
+          },
+          run: "sh .github/scripts/queue-seed.sh ahead",
+        },
+        {
+          name: "download the verdicts of the run ahead",
+          id: "ahead-download",
+          if: "steps.ahead.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts-ahead",
+            "run-id": "${{ steps.ahead.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take the verdicts of the run ahead",
+          id: "verdicts-ahead",
+          if: "steps.ahead-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/verdicts-ahead\"",
+        },
+
         {
           name: "build release Cosmic and run its native suite",
           id: "release-suite",
           run: "cosmic-driver cosmic_ci/driver.tl platform build",
+        },
+
+        # For the run behind this one in the queue (above), kept a day.
+        {
+          name: "keep the suite's verdicts for the run behind in the queue",
+          if: "github.event_name == 'merge_group' && steps.release-suite.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/verdicts.db*",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
 
         {
@@ -667,7 +735,7 @@
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
-      permissions: {contents: "read", packages: "read"},
+      permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 45,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked",
@@ -809,11 +877,65 @@
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked-build",
         },
+        # As a leg takes the verdicts of the run ahead in the queue, but
+        # waiting up to three minutes: the checked job ahead keeps them
+        # some minutes later into its run than a leg does.
+        {
+          name: "find the run ahead in the queue",
+          id: "ahead",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group'",
+          "working-directory": ".",
+          shell: "sh",
+          "continue-on-error": true,
+          "timeout-minutes": 15,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            BASE: "${{ github.event.merge_group.base_sha }}",
+            JOB: "linux-x86_64-checked",
+            ARTIFACT: "verdicts-linux-x86_64-checked",
+            TRIES: "13",
+            WAIT_SECONDS: "15",
+          },
+          run: "sh .github/scripts/queue-seed.sh ahead",
+        },
+        {
+          name: "download the verdicts of the run ahead",
+          id: "ahead-download",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.ahead.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "verdicts-linux-x86_64-checked",
+            path: "${{ runner.temp }}/verdicts-ahead",
+            "run-id": "${{ steps.ahead.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take the verdicts of the run ahead",
+          id: "verdicts-ahead",
+          if: "env.COSMIC_CI_SCOPE == 'full' && steps.ahead-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/verdicts-ahead\"",
+        },
         {
           name: "run the checked core's suite",
           id: "checked-suite",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "cosmic-driver cosmic_ci/driver.tl platform checked",
+        },
+        {
+          name: "keep the suite's verdicts for the run behind in the queue",
+          if: "env.COSMIC_CI_SCOPE == 'full' && github.event_name == 'merge_group' && steps.checked-suite.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "verdicts-linux-x86_64-checked",
+            path: "${{ runner.temp }}/verdicts/checked.db*",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         # A run that failed keeps what it restored too (`whole`).
         {
