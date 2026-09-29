@@ -47,8 +47,8 @@ local record Module
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
   -- TODO: a field removed from a record a caller builds as a table
-  -- literal (cosmic.archive's ExtractOptions.strip, now strip_prefix and
-  -- strip_components) has no entry: the checker says only `unknown
+  -- literal (cosmic.archive's ExtractOptions.strip, replaced by
+  -- strip_prefix and strip_components) has no entry: the checker says only `unknown
   -- field strip`, without the record it was checked against, so
   -- `build.teal`'s `replacement` cannot look one up. Key entries by
   -- record (`cosmic.archive.ExtractOptions.strip`) once that message

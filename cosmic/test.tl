@@ -1,5 +1,5 @@
---- What a test module tells `cosmic test` about itself. For now, what
---- its tests read beyond their default inputs, with `needs`:
+--- What a test module tells `cosmic test` about itself: what its tests
+--- read beyond their default inputs, with `needs`:
 ---
 ---     local Test = require("cosmic.test")
 ---     Test.needs { reads = { "testdata/" }, env = { "PATH" } }

@@ -342,10 +342,11 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
   return q, ""
 end
 
---- A direct text projection for callers whose SQL already defines the desired
---- coercion. SQLite's byte representation is returned for every value: NULL,
---- empty text, and empty blob all become `""`; integers and floats use
---- SQLite's text formatting; text and blobs remain byte strings, including NUL.
+--- A direct text projection for callers whose SQL already defines the
+--- coercion they want. SQLite's byte representation is returned for
+--- every value: NULL, empty text and empty blob all become `""`;
+--- integers and floats use SQLite's text formatting; text and blobs
+--- remain byte strings, including NUL.
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
                            values?: {Sqlite.Value}): {{string}} | nil, string
   local statement, trouble = prepared(handle, sql, values)
