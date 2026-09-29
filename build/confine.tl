@@ -529,6 +529,17 @@ end
 -- its worker has (the TODO above build/test.tl's `the_tool`): today
 -- `itself` is given to the process it confines, and a worker without
 -- the program fails the start EACCES.
+-- TODO: grant moving a file to another directory (Landlock's REFER)
+-- beneath / as a whole, not only beneath `allowed`: a directory above
+-- the program -- /tmp, where the tree sits under it, as ci/run-local's
+-- candidate does -- is granted it only for the entries it held when the
+-- ruleset was made, so a test's temporary directory made there later
+-- cannot move a file between its own subdirectories (EXDEV:
+-- build/importer_test.tl's
+-- test_a_module_moved_to_its_init_file_is_compiled_again fails so under
+-- ci/run-local). The fix is for landlock_restrict_execute
+-- (core/syscalls.c) to add a REFER-only rule for / beside the
+-- execute rules.
 -- TODO: hold a copy of the program as the program -- one a test copies
 -- or links elsewhere and runs, or a core it loads some other way than
 -- by exec -- once a ruleset can name a file by its contents: today a
