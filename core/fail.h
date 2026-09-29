@@ -39,4 +39,10 @@ static inline int cosmic_succeeded (lua_State *L) {
   return 2;
 }
 
+/* An effect that succeeded, in the same shape: `true, ""`. */
+static inline int cosmic_done (lua_State *L) {
+  lua_pushboolean(L, 1);
+  return cosmic_succeeded(L);
+}
+
 #endif

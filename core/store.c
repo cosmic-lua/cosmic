@@ -461,8 +461,7 @@ static int store_attach (lua_State *L) {
   lua_seti(L, list, 1);
   guard->resource = NULL;
 
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static void release_statement (void *stmt) { sqlite3_finalize(stmt); }

@@ -27,7 +27,7 @@ static bool reject (struct cosmic_portable *out, const char **error,
   return false;
 }
 
-static bool read_at (int fd, void *into, size_t length, uint64_t offset) {
+bool cosmic_read_at (int fd, void *into, size_t length, uint64_t offset) {
   unsigned char *p = into;
   if (offset > (uint64_t)INT64_MAX) return false;
   while (length > 0) {
@@ -54,7 +54,7 @@ void cosmic_artifact_close (struct cosmic_artifact *artifact) {
 bool cosmic_artifact_read (const struct cosmic_artifact *artifact, void *into,
                            size_t length, uint64_t offset) {
   return artifact != NULL && artifact->fd >= 0 &&
-         read_at(artifact->fd, into, length, offset);
+         cosmic_read_at(artifact->fd, into, length, offset);
 }
 
 static uint32_t be32 (const unsigned char *p) {
@@ -86,7 +86,7 @@ static bool zero_range (int fd, uint64_t offset, uint64_t length) {
   unsigned char bytes[4096];
   while (length > 0) {
     size_t take = length < sizeof bytes ? (size_t)length : sizeof bytes;
-    if (!read_at(fd, bytes, take, offset)) return false;
+    if (!cosmic_read_at(fd, bytes, take, offset)) return false;
     for (size_t i = 0; i < take; i++) {
       if (bytes[i] != 0) return false;
     }
@@ -102,8 +102,8 @@ bool cosmic_host_trailer (int fd) {
   if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
       (uint64_t)st.st_size < COSMIC_PORTABLE_TRAILER_LENGTH)
     return false;
-  return read_at(fd, magic, sizeof magic,
-                 (uint64_t)st.st_size - COSMIC_PORTABLE_TRAILER_LENGTH) &&
+  return cosmic_read_at(fd, magic, sizeof magic,
+                        (uint64_t)st.st_size - COSMIC_PORTABLE_TRAILER_LENGTH) &&
          memcmp(magic, COSMIC_HOST_TRAILER_MAGIC, sizeof magic) == 0;
 }
 
@@ -129,7 +129,7 @@ static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_cor
                         SQLITE_HEADER_LENGTH + COSMIC_PORTABLE_TRAILER_LENGTH)
     return reject(out, error, "artifact is truncated");
   uint64_t trailer_offset = file_length - COSMIC_PORTABLE_TRAILER_LENGTH;
-  if (!read_at(fd, trailer, sizeof trailer, trailer_offset))
+  if (!cosmic_read_at(fd, trailer, sizeof trailer, trailer_offset))
     return reject(out, error, "trailer cannot be read");
   if (memcmp(trailer, trailer_magic, COSMIC_PORTABLE_MAGIC_LENGTH) != 0)
     return reject(out, error, "trailer magic differs");
@@ -155,7 +155,7 @@ static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_cor
   if (decoded->manifest_offset < first_core ||
       decoded->manifest_offset % COSMIC_PORTABLE_CORE_ALIGNMENT != 0)
     return reject(out, error, "manifest offset is not aligned after the cores");
-  if (!read_at(fd, manifest, sizeof manifest, decoded->manifest_offset))
+  if (!cosmic_read_at(fd, manifest, sizeof manifest, decoded->manifest_offset))
     return reject(out, error, "manifest cannot be read");
   if (memcmp(manifest, COSMIC_PORTABLE_MANIFEST_MAGIC,
              COSMIC_PORTABLE_MAGIC_LENGTH) != 0)
@@ -202,7 +202,7 @@ static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_cor
       return reject(out, error, "core range is outside the aligned prefix");
   }
   if (decoded->database_length < SQLITE_HEADER_LENGTH ||
-      !read_at(fd, header, sizeof header, decoded->database_offset) ||
+      !cosmic_read_at(fd, header, sizeof header, decoded->database_offset) ||
       memcmp(header, SQLITE_HEADER, SQLITE_HEADER_LENGTH) != 0)
     return reject(out, error, "database header differs from SQLite");
   return true;
@@ -255,7 +255,7 @@ bool cosmic_portable_decode (int fd, uint32_t target_id,
   if (!decode_blocks(fd, COSMIC_PORTABLE_TRAILER_MAGIC,
                      COSMIC_PORTABLE_SHELL_LENGTH, &decoded, out, error))
     return false;
-  if (!read_at(fd, shebang, sizeof shebang - 1, 0) ||
+  if (!cosmic_read_at(fd, shebang, sizeof shebang - 1, 0) ||
       memcmp(shebang, "#!/bin/sh\n", sizeof shebang - 1) != 0)
     return reject(out, error, "shell header has no portable shebang");
 
