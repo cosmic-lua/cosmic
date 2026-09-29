@@ -380,7 +380,7 @@ local function test_a_run_names_each_check(dir: string)
     seen[line:match("^([^:]+): ") or line] = true
   end
   for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "stand-ins",
-                          "docs queries", "quieted" }) do
+                          "docs queries", "quieted", "rendered docs", "doc references" }) do
     assert(seen[name], name .. " reported nothing on a projection that has none of the tree")
   end
 end

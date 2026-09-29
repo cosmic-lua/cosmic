@@ -53,6 +53,7 @@ function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle | ni
     return nil, open_trouble
   end
   if not removed then
+    local _, _ = db:close()
     return nil, remove_trouble
   end
   return db
@@ -60,12 +61,13 @@ end
 
 --- What `cosmic help` prints, by what asks for it: `""` the index,
 --- `exit`, and each verb's own; the input `references` reads help from.
---- Empty until `build.dispatch` has loaded and called `provide_help`.
-function docs_checks.help_texts(): {string: string}
+--- Nil and why until `build.dispatch` has loaded and called
+--- `provide_help`.
+function docs_checks.help_texts(): {string: string} | nil, string
   if help_source == nil then
-    return {}
+    return nil, "build.dispatch has not provided the texts of `cosmic help`"
   end
-  return help_source()
+  return help_source(), ""
 end
 
 --- The kinds whose page lists other symbols, which only the renderer

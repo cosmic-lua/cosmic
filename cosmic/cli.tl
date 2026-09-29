@@ -6,10 +6,9 @@
 --- project's cmd/<name>/main.tl gets its arguments as a plain array, and
 --- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options, or
 --- `Flags.dispatch(argv, 1, commands)` its commands -- see argv.
-
--- The index comes from `usage`, `summary` and `groups`, a verb's page
--- from its field and `options`, in the order `order` gives. The
--- generator is `verb_help` in build/dispatch.tl.
+---
+--- The index comes from `usage`, `summary` and `groups`, a verb's page
+--- from its field and `options`, in the order `order` gives.
 
 local Flags = require("cosmic.flags")
 

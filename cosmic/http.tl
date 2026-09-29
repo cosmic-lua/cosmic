@@ -119,6 +119,7 @@ local record Http
     --- The effective URL, after every redirect taken.
     url: string
     --- What curl wrote to the connection; for tests with a `script`.
+    --- Raises after `close`.
     sent: function(Response): string
   end
 

@@ -650,7 +650,11 @@ local function run(argv: {integer:string}): integer
       if carried == nil then
         findings[#findings + 1] = "tree checks: " .. carried_trouble
       end
-      local found = tree_checks.run(db, guide, carried, docs_checks.help_texts())
+      local help, help_trouble = docs_checks.help_texts()
+      if help == nil then
+        findings[#findings + 1] = "tree checks: " .. help_trouble
+      end
+      local found = tree_checks.run(db, guide, carried, help)
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
       end

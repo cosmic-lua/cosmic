@@ -32,7 +32,8 @@ local record Archive
     linkpath: string
     --- The entry's body. Read it before asking for the next entry: a
     --- tar body cannot be read after that, and no body can be read once
-    --- the Reader is closed.
+    --- the Reader is closed. An entry from `Archive.list` cannot be opened
+    --- at all.
     open: function(Entry): Stream.Reader | nil, string
   end
 

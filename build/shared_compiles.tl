@@ -170,9 +170,9 @@ end
 --- (`importer.Module.key`), what else decides whether the compile is
 --- accepted (`own_tree`, `generated`), and the format's table (`format`,
 --- this one's by default).
--- The file the module is read from is no salt here: the module's own
--- key holds it already (build.importer's `dependency_keys`), so a
--- compile is never taken across a moved file.
+--- The file the module is read from is no salt here: the module's own
+--- key holds it already (build.importer's `dependency_keys`), so a
+--- compile is never taken across a moved file.
 function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
                              format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
