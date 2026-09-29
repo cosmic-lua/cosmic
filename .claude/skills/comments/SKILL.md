@@ -53,6 +53,28 @@ it guarantees. They do not describe the implementation unless the
 caller must know it. A module's leading `---` block says what the
 module is for and the rules that hold across it.
 
+## Links
+
+A comment or a Markdown file links to what it names in one of three
+forms: `` [`x`] ``, whose target is `x`; `[text](target)`; and
+`[text][label]` with a `[label]: target` line in the same comment
+block (anywhere in the file, in Markdown). A name in backticks alone,
+`` `x` ``, is a literal and is never checked. `cosmic fix` fails a link
+that does not resolve. It looks, in order, for a name the file
+declares (which shadows the rest) or the Lua standard library cosmic
+carries (`string.format`), a symbol as `cosmic docs <x>` finds it, and
+a file relative to the linking file and then to the root; a `#anchor`
+must name a Markdown heading. A shortcut that matches two symbols, or
+a symbol and a file, fails too: spell it in full (`build.links.parse`,
+or `./path`). In `[text](target)` the target is a path first. Brackets
+in any other shape, and a reference with no definition, are prose.
+`build/links.tl` has the rules.
+
+```lua
+--- Reads the file whole with [`Fs.read`]; the store is described in
+--- [the design](doc/design.md#the-database).
+```
+
 ## Examples
 
 Restates the code:

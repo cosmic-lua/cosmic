@@ -36,6 +36,9 @@ local record docs
   record Sources
     handles: {Sqlite.Handle}
     public: {boolean}
+    --- The handles `databases` opened itself, which its caller closes;
+    --- the store's own are not among them.
+    opened: {Sqlite.Handle}
   end
   --- One ordered database view and the owner of every module in it.
   record View
@@ -863,6 +866,7 @@ end
 function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   local out: {Sqlite.Handle} = {}
   local public: {boolean} = {}
+  local opened: {Sqlite.Handle} = {}
   local own_exists, own_trouble = Fs.exists("o/cosmic.db")
   assert(own_exists ~= nil, own_trouble)
   if own_exists then
@@ -878,6 +882,7 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
       else
         out[#out + 1] = own
         public[#out] = false
+        opened[#opened + 1] = own
       end
     end
   end
@@ -893,7 +898,7 @@ function docs.databases(store?: {Sqlite.Handle}): docs.Sources
     out[#out + 1] = db
     public[#out] = outside
   end
-  return { handles = out, public = public }
+  return { handles = out, public = public, opened = opened }
 end
 
 --- One lookup over `databases`, in order, with a module answered by an
@@ -1092,6 +1097,8 @@ end
 --- record: `Child.Options.fds`, `Sqlite.Handle.exec`. Defined with the
 --- other member helpers, below `first_sentence`.
 local through_alias: function(view: docs.View, query: string): {docs.Entry} | nil, string
+local aliased_members: function(view: docs.View, owners: {docs.Entry},
+                                name: string): {docs.Entry} | nil, string
 
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
@@ -1328,6 +1335,80 @@ function docs.named_all(view: docs.View, names: {string}): {docs.Entry} | nil, s
     return nil, count_trouble
   end
   return found, ""
+end
+
+--- What `query` names exactly, by the rule `docs.lookup` answers an
+--- exact query with: the public modules a bare lowercase name ends
+--- (only those, when there are any), else every row `named` finds,
+--- else the module the index lists under that whole name, else the
+--- member of a type an alias stands for (`Sqlite.Handle.close`, whose
+--- row is `cosmic.internal.sqlite`'s). It neither searches nor counts
+--- uses, so it is cheap to ask once per name.
+function docs.exact(view: docs.View, query: string): {docs.Entry} | nil, string
+  if query:match("^%l[%w_]*$") ~= nil then
+    local modules, modules_trouble = across(view,
+      function(db: Sqlite.Handle, _: boolean): {docs.Entry} | nil, string
+        return modules_ending(db, query)
+      end, entry_module)
+    if modules == nil then
+      return nil, modules_trouble
+    end
+    if #modules > 0 then
+      return modules, ""
+    end
+  end
+  local found, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+      return named(db, public, query)
+    end, entry_module)
+  if found == nil then
+    return nil, trouble
+  end
+  if #found > 0 then
+    return found, ""
+  end
+  if view.owners[query] ~= nil then
+    local owner = view.owners[query]
+    local held, held_trouble = module_symbol(view.databases[owner], view.public[owner] == true, query)
+    if held == nil then
+      return nil, held_trouble
+    end
+    if #held > 0 then
+      return held, ""
+    end
+  end
+  return through_alias(view, query)
+end
+
+--- The rows of `module` whose symbol is `name`, as the symbol column
+--- reads (`read`, `Writer.write`) or as the source spells it
+--- (`Fs.read`), a method's `:` read as `.`; else, as `docs.exact` does,
+--- the member of a type an alias of the module stands for
+--- (`Handle.close` of `cosmic.sqlite`). None when the view holds no
+--- such module. The database that owns the module answers.
+function docs.member(view: docs.View, module: string, name: string): {docs.Entry} | nil, string
+  local owner = view.owners[module]
+  if owner == nil then
+    return {}, ""
+  end
+  local rows, trouble = Sqlite.text_rows(view.databases[owner],
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.symbol <> '' AND " ..
+    "(replace(d.symbol, ':', '.') = ?2 OR replace(d.source_symbol, ':', '.') = ?2) AND " ..
+    symbols.shown_docs("d", view.public[owner] == true) .. " ORDER BY d.id",
+    { text(module), text((name:gsub(":", "."))) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local found = entries_of(rows)
+  local prefix, last = name:gsub(":", "."):match("^(.+)%.([%w_]+)$")
+  if #found > 0 or prefix == nil then
+    return found, ""
+  end
+  local owners, owners_trouble = docs.member(view, module, prefix)
+  if owners == nil then
+    return nil, owners_trouble
+  end
+  return aliased_members(view, owners, last)
 end
 
 --- Every place across `databases` that refers to what `query` names.
@@ -1592,19 +1673,12 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | n
   return lines
 end
 
-through_alias = function(view: docs.View, query: string): {docs.Entry} | nil, string
-  local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
-  if prefix == nil then
-    return {}
-  end
+--- The members named `name` of the types `owners` stand for, each as
+--- the owner's own member (`Handle.close` of `cosmic.sqlite` for the
+--- `close` of the record its `Handle` aliases).
+aliased_members = function(view: docs.View, owners: {docs.Entry},
+                           name: string): {docs.Entry} | nil, string
   local out: {docs.Entry} = {}
-  local owners, owners_trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
-      return named(db, public, prefix)
-    end, entry_module)
-  if owners == nil then
-    return nil, owners_trouble
-  end
   for _, owner in ipairs(owners) do
     for _, reference in ipairs(type_references(owner)) do
       local target, target_trouble = resolved_type(view, owner.module, reference, 0)
@@ -1628,7 +1702,22 @@ through_alias = function(view: docs.View, query: string): {docs.Entry} | nil, st
       end
     end
   end
-  return out
+  return out, ""
+end
+
+through_alias = function(view: docs.View, query: string): {docs.Entry} | nil, string
+  local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
+  if prefix == nil then
+    return {}
+  end
+  local owners, owners_trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+      return named(db, public, prefix)
+    end, entry_module)
+  if owners == nil then
+    return nil, owners_trouble
+  end
+  return aliased_members(view, owners, name)
 end
 
 --- One entry, as `cosmic docs` prints it: where it is, its signature,

@@ -47,6 +47,8 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
+allowed["build.links.parse"] = "tested directly: the parser's cases and its fuzz test " ..
+  "hold it to the forms a link takes"
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
