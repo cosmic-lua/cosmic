@@ -904,7 +904,8 @@ end
 
 --- The devices whose every answer is the same, whenever a test reads
 --- them: no input a key need hold.
-local constant_devices: {string:boolean} = { ["/dev/null"] = true, ["/dev/zero"] = true }
+local constant_devices: {string:boolean} = { ["/dev/null"] = true, ["/dev/zero"] = true,
+  ["/dev/full"] = true }
 
 --- Whether `path` names what /proc says of the test's own process and
 --- nothing else: its status, its descriptors' flags, its threads. What

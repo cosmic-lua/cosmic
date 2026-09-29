@@ -154,7 +154,7 @@ local record Test
     --- shell, `sleep`, a compiler's headers, the zone database. Without
     --- it a sandboxed worker has none of them, only /proc and the
     --- devices every program takes for granted (/dev/null, /dev/zero,
-    --- /dev/urandom), and its key holds nothing of which packages the
+    --- /dev/full, /dev/urandom), and its key holds nothing of which packages the
     --- host has installed or which system it says it is: a verdict that
     --- stood on one host stands on another of the same kernel and
     --- processor. A test that starts this program's core directly, past
