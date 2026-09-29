@@ -738,29 +738,24 @@ what an observed key leaves out, each with a `TODO:` where its fix goes:
   anything under `o/` is keyed by its bytes, hashed once a run while its stat
   holds; a read of the working database, which every run rewrites, is never
   kept.
-- [x] *a stat's times and inode, declared*: a test whose verdict turns on
-  what `stat` says of a file of the tree beyond its kind, size and mode -- its
-  modification or change time, inode, device, link count or owner -- declares
-  it with `observations.reads_stat_times()` (build/filesystem_observations.tl),
-  at its module's top level or in the test. the capture notes the declaration
-  among the test's reads, so the key a stored run is looked up under sees it
-  before the test is judged. every stat and lstat it made of a path of the
-  tree, the stat of every file of the tree it opened, and the stamps of
-  everything beneath each path of the tree a confined process of it was given
-  are keyed whole, in both its own key and its shared key, `o/` included.
-  other checkouts never share an inode or a change time with this one, so a
-  declared test's verdict effectively never stands in a sibling: it runs there
-  itself, as it must. no key holds the access time, which the test's own reads
-  move. every other test's shared key keeps kind, size and mode, and so, under
-  `o/`, does its own. no test in the tree turns on times: its stats of the tree
-  ask whether a path is there and what it is, and its comparisons of inodes
-  (`Fs.walk`'s cycles, `build/refresh.tl`'s `same_file`) ask whether two paths
-  are one file, which the tree's links, keyed by lstat and readlink, decide.
-- [ ] *a stat's times and inode, undeclared* (`build/test.tl`, above
-  `held_stat`): a test that reads them without the declaration -- through a
-  stat, or an fstat of a descriptor it opened -- stands on a sibling's verdict
-  where they differ, and, for a file under `o/`, on its own checkout's. infer
-  the declaration from the fields of a stat's answer the test reads.
+- [x] *a stat's times and inode, by rule*: a key holds of a stat of the tree
+  only its kind, size and mode across checkouts, and under `o/` its own key
+  does too; no key holds the access time, which the test's own reads move. so
+  a test must not depend on the times, inode, device, link count or owner of a
+  file it did not make; one that needs them makes its own files in its
+  temporary directory and sets them (`utimensat`, a fresh file for a new
+  inode). this replaced a declaration that keyed them whole
+  (`reads_stat_times`), which no test made. no test in the tree turns on
+  times: its stats of the tree ask whether a path is there and what it is,
+  and its comparisons of inodes (`Fs.walk`'s cycles, `build/refresh.tl`'s
+  `same_file`) ask whether two paths are one file, which the tree's links,
+  keyed by lstat and readlink, decide.
+- [ ] *a stat's times and inode, enforced* (`build/test.tl`, above
+  `held_stat`): a test that reads a file of the tree's times anyway --
+  through a stat, or an fstat of a descriptor it opened -- stands on a
+  sibling's verdict where they differ, and, for a file under `o/`, on its
+  own checkout's. have a worker's hold answer fixed times and inode for a
+  stat of the tree, which takes C and a boot.
 - [x] *a tree digest*: `sys.tree_digest` logs its walk in its binding
   (core/observed.h), one record of the path it was given and what it answered,
   not one of each entry beneath it, and a capture notes it "g", walked by

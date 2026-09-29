@@ -90,8 +90,6 @@ allowed["build.confine.must_confine"] = "a test's own declaration: " ..
 allowed["build.confine.held_to_sandbox"] = "what a test whose " ..
   "assertion is about a nested run's sandbox asks, to fail where a run held to " ..
   "sandboxing gave that run none, rather than return unchecked"
-allowed["build.filesystem_observations.reads_stat_times"] = "a test's own declaration: " ..
-  "that its verdict turns on stat's times, which only a test makes"
 allowed["build.test_sandbox.refusal"] = "tested directly: the test hands it each errno " ..
   "a host refusing user namespaces answers, which no host running the suite can be made to"
 allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..

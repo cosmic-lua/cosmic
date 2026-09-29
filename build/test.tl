@@ -605,18 +605,20 @@ local worker_view: function(): {string:string}
 --- given are no part of what the tree holds, and would keep a verdict
 --- from standing in any checkout but the one that reached it; a
 --- checkout's own key keeps them, so a file touched there runs what
---- stat'd it again -- but for one under o/, which the build rewrites. A
---- test that declares it reads them (`observations.reads_stat_times`)
---- is keyed by every field instead, in both keys, o/ included.
--- TODO: infer the declaration rather than trust a test to make it: a
--- test that reads an in-tree file's times, inode, device, link count or
--- owner without declaring it -- through a stat, or an fstat of a
--- descriptor it opened -- stands on a sibling's verdict where they
--- differ, and, for a file under o/, on its own checkout's. Have `stat`,
--- `lstat` and `fstat` note "z" themselves when a capture runs and any
--- field of what they answered but its kind, size and mode is read
--- (their answer a table whose other fields are looked up through its
--- metatable, in core/syscalls_fs.c), and retire the declaration.
+--- stat'd it again -- but for one under o/, which the build rewrites,
+--- and no sandboxed key holds them at all.
+---
+--- The rule that makes that sound (R5): a test must not depend on the
+--- times, inode, device, link count or owner of a file it did not make.
+--- One that needs them makes its own files in its temporary directory
+--- and sets them -- `utimensat` for the times, a fresh file for a new
+--- inode -- so they are the same in every checkout.
+-- TODO: enforce the rule under a worker's hold, as the store's is held:
+-- have `stat`, `lstat` and `fstat` of a path of the tree answer fixed
+-- times and inode there, once core/syscalls_fs.c's stat takes a hold
+-- from build.test_worker as core/store.c's lookups do (C, and a boot):
+-- today a test that leans on a file of the tree's times sees what its
+-- checkout gave it, and stands on a sibling's verdict where they differ.
 local function held_stat(answer: string): string
   local size, mode, kind = answer:match("^ok (%S+) (%S+) (%S+)")
   if size == nil then return answer end
@@ -637,10 +639,7 @@ end
 --- it; its `shared` key keeps of a stat only what `held_stat` does,
 --- so another checkout of the same content computes the same shared
 --- key, and a verdict one reached stands in the other
---- (`build.shared_verdicts`). A test that declares it reads stat's
---- times (`observations.reads_stat_times`) is keyed by every field of
---- each stat in both keys, and by the stat of each file of the tree it
---- opened: its shared key is effectively its checkout's alone.
+--- (`build.shared_verdicts`).
 ---
 --- Exposed as `test.verdict_key` (`standing` and `finish` use it the
 --- same as any other caller would) so `test_test.tl` can pin two
@@ -666,13 +665,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local stable = true
   local late = false
   local paths: {string} = {}
-  -- Whether the test declared it reads stat's times
-  -- (`observations.reads_stat_times`): its stats are keyed whole, and
-  -- each file of the tree it opened is keyed by its stat too.
-  local whole = false
-  for _, observation in ipairs(reads) do
-    if observation.kind == "z" then whole = true end
-  end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     local keyed = kind == "e" or kind == "u" or kind == "c" or kind == "b"
@@ -715,11 +707,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         if before ~= nil and before ~= observation.answer then stable = false end
         answers[identified] = observation.answer
       end
-      local stated = "s " .. (relative or "")
-      if whole and kind == "o" and relative ~= nil and not seen[stated] then
-        seen[stated] = true
-        paths[#paths + 1] = stated
-      end
     end
   end
   table.sort(paths)
@@ -753,8 +740,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- capture ended.
   -- Generation 10 records a stat's change time, and keys a stat's every
   -- field, and each path a confined process was given by its entries'
-  -- stamps, for a test that declares it reads them
-  -- (`observations.reads_stat_times`): generation 9 recorded no change
+  -- stamps, for a test that declared it read them (a declaration since
+  -- retired for a rule: `held_stat`): generation 9 recorded no change
   -- time, and kept a declared test's times out of its shared key.
   -- Generation 11 notes each file a connection opened before the capture
   -- holds as it begins, which generation 10 never keyed.
@@ -764,10 +751,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local header = declared_key.key_part("i", id, declared_key.key_part("m", module_key, runtime))
   local lines: {string} = { "recording-12", "module-load-reads-v1", header }
   local shared_lines: {string} = { "shared-recording-6", "module-load-reads-v1", header }
-  if whole then
-    lines[#lines + 1] = "stat-times"
-    shared_lines[#shared_lines + 1] = "stat-times"
-  end
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -780,17 +763,14 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     elseif kind == "u" then
       -- A path a confined process was given may be a whole directory,
       -- one most of a run's tests give theirs (the system's own), so
-      -- what it holds is walked once a run. For a declared test, one
-      -- under the tree is walked a second time, by what `lstat` says of
-      -- each entry beneath it -- its times and inode -- and remembered
-      -- apart from the walk of its contents every other test shares.
-      local function walk(tag: string, stamped: boolean): string
-        local memo_key = "\1u" .. tag .. "\0" .. relative
+      -- what it holds is walked once a run.
+      local function walk(): string
+        local memo_key = "\1u\0" .. relative
         local walked_answer = key_parts[memo_key]
         if walked_answer == nil then
-          walked_answer = observations.unveiled_answer(relative, root, stamped)
+          walked_answer = observations.unveiled_answer(relative, root)
           key_parts[memo_key] = walked_answer
-          key_parts["\2u" .. tag .. "\0" .. relative] = tostring(Time.monotonic_ns())
+          key_parts["\2u\0" .. relative] = tostring(Time.monotonic_ns())
         end
         -- Walked only after the test started, the answer may be of what
         -- the path became since its process read it: such a verdict is
@@ -801,15 +781,11 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         -- start one (a digest remembered by what `lstat` says, say):
         -- today a test that starts a process keeps no verdict until its
         -- second run.
-        local walked = math.tointeger(key_parts["\2u" .. tag .. "\0" .. relative]) or 0
+        local walked = math.tointeger(key_parts["\2u\0" .. relative]) or 0
         if started_ns ~= nil and walked >= started_ns then late = true end
         return walked_answer
       end
-      current = walk("", false)
-      if whole then
-        local stamps = walk("s", true)
-        if stamps ~= current then current = current .. "\0" .. stamps end
-      end
+      current = walk()
       if current:sub(1, 10) == "unkeyable " then stable = false end
     elseif kind == "o" then
       current = hashes[relative]
@@ -834,9 +810,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     elseif kind == "g" or kind == "j" then
       -- The walk itself, again: by contents for "g", and by what
       -- `lstat` says of each entry for "j" -- stamps a test that walks
-      -- by them reads, so keyed whole in both keys, declared
-      -- (`observations.reads_stat_times`) or not, and never standing in
-      -- another checkout, whose inodes and times are its own.
+      -- by them reads, so keyed whole in both keys, and never standing
+      -- in another checkout, whose inodes and times are its own.
       -- TODO: key a link beneath the path whose target names the tree
       -- by `tree_name` in the shared key, as a readlink's answer is,
       -- once `sys.tree_digest` can answer its entries' lines rather
@@ -870,8 +845,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         key_parts[memo_held] = held
       end
       answer = held
-    elseif (kind == "s" or kind == "l") and whole then
-      -- Declared: whole in both keys, o/ included.
     elseif (kind == "s" or kind == "l") and output(relative) then
       -- When the build last wrote a file is its own, not the tree's:
       -- held as the shared key holds it here too, lest a test that

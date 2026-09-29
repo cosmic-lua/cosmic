@@ -168,9 +168,8 @@
    can hold: it is assumed to pass as it last did until it, or what it
    loads, changes -- the summary counts it "assumed" -- and runs when
    named, or on `--all`. A key holds of a stat of the tree only its
-   kind, size and mode across checkouts: a test whose verdict turns on
-   a file's times, inode, device or link count calls
-   `observations.reads_stat_times()`, which keys them whole.
+   kind, size and mode across checkouts (the rule beside `Test.needs`
+   below).
    `COSMIC_TEST_KEY=declared` keys an unsandboxed run as a sandboxed
    one instead, by what each test declares, and shares its verdicts
    apart from sandboxed ones: its worker gets only the environment it
@@ -201,7 +200,11 @@
    `o/bin/cosmic docs cosmic.test`); `o/bin/cosmic test --audit` runs
    every test and names what each read undeclared, with the `needs`
    call that would hold it. Keep it clean, narrowing a test before declaring
-   a large set. What it declares, it declares for the processes it
+   a large set. No key holds a file's times, inode, device, link count or
+   owner, which differ in every checkout: a test must not depend on them
+   for a file it did not make; one that needs them makes its own files in
+   its temporary directory and sets them (`utimensat`, a fresh file for a
+   new inode). What it declares, it declares for the processes it
    starts too, which inherit its worker's sandbox and environment; build
    a process's environment from build.this_program's `environment()` only where
    the test means to choose it. The closure is what the build
