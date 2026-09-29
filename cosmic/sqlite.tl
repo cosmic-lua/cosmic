@@ -1,11 +1,11 @@
 --- SQLite, typed.
 ---
---- The C boundary keeps a value's type: text and bytes are separate
---- calls, and a parameter is bound by naming what it is. This module
---- keeps that property and adds the shapes a caller wants: a query that
---- yields rows, all at once (`rows`) or one at a time (`query`), a
---- statement run once, and a transaction that rolls back when the work
---- inside it fails.
+--- Values keep their type: text and bytes are different, and a parameter
+--- is bound by naming what it is. On top of a handle this module gives
+--- the shapes a caller wants: a query that yields rows, all at once
+--- (`rows`) or one at a time (`query`), a statement run once (`run`),
+--- and a transaction that rolls back when the work inside it fails
+--- (`transact`).
 ---
 --- A parameter is a one-field table naming its type, one per `?N`, in
 --- order; a result cell carries its `kind` and the matching field:
@@ -24,10 +24,13 @@
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
 
---- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace, and arrives as the second argument
---- `require` passes this chunk's loader, or by name in boot mode: see
---- cosmic/store.tl for why.
+-- The raw module behind this one lives under the reserved
+-- `cosmic.internal.` namespace, which never satisfies an ordinary
+-- `require` for any caller -- see cosmic/store.tl for why -- and
+-- arrives instead as the second argument `require` passes this
+-- chunk's own loader, present because this module was itself loaded,
+-- trusted, from the binary's own tree. Boot mode falls back to
+-- requiring it by name, which only boot's own preload answers.
 local type raw_sqlite = require("cosmic.internal.sqlite")
 
 local extra: any = select(2, ...)
@@ -66,7 +69,9 @@ local record Sqlite
     blob: string
   end
 
+  --- One result row: its cells in column order.
   type Row = {Cell}
+  --- Every row of a result, in the order the query gave them.
   type Rows = {Row}
 
   --- A query's rows read one at a time: see `Sqlite.query`.
@@ -92,30 +97,35 @@ local record Sqlite
   version: string
 end
 
---- A database file, read-only unless `writable` says otherwise, in which
---- case a missing file is created. Every handle knows `sha256(X)`, the
---- 32-byte digest of a text or blob, `digest(A, X)`, the digest under
---- the algorithm A names (the names `cosmic.hash` takes), and
---- `hmac(A, K, X)`, the HMAC of X under key K over A; a NULL argument
---- gives NULL. `lower(hex(sha256(X)))` is the form the build writes
---- into keys. `deflate(X)` is the raw deflate of X, as
---- `Compress.deflate("raw", X)` writes it, and `inflate(X)` what such a
---- stream decodes to, as a blob: the shipped database stores each
---- module's source that way, so `CAST(inflate(source) AS TEXT)` reads it.
---- `immutable` opens a database nothing will change while it is open
---- read-only and takes no lock: no `-wal`, `-shm` or journal file is
---- made beside it, even for a WAL-mode database whose `-wal` is gone,
---- and a running statement holds nothing a writer waits on. Giving it
---- with `writable` raises. A `-wal` is never read: commits still in one
---- do not show, so a database being written is opened without it.
+--- Opens the database file at `path`: read-only unless `writable` is
+--- true, in which case a missing file is created. Answers the handle, or
+--- `nil` and why.
+---
+--- `immutable` opens a database that nothing will change while it is
+--- open, read-only and with no lock: no `-wal`, `-shm` or journal file
+--- is made beside it, and a running statement holds nothing a writer
+--- waits on. A `-wal` is never read, so commits still in one do not
+--- show: open a database that is being written without `immutable`.
+--- Giving `immutable` with `writable` raises.
+---
+--- Every handle adds these SQL functions, each answering NULL for a NULL
+--- argument:
+---
+--- - `sha256(X)`: the 32-byte digest of a text or blob.
+--- - `digest(A, X)`: the digest of X under the algorithm A names (a
+---   `cosmic.hash` `Algorithm`).
+--- - `hmac(A, K, X)`: the HMAC of X under the key K over A.
+--- - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)`
+---   writes it; `inflate(X)` decodes such a stream, to a blob.
+---
 --- `handle:limit(name, value)` sets one of the connection's limits,
 --- `"attached"` among them, and answers the old one.
 function Sqlite.open(path: string, writable?: boolean, immutable?: boolean): Sqlite.Handle | nil, string
   return sqlite.open(path, writable, immutable)
 end
 
---- A database held in memory, which is where a build assembles one
---- before writing it out.
+--- A writable database held in memory: it is gone when the handle
+--- closes.
 function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
@@ -184,10 +194,13 @@ local function prepared(handle: Sqlite.Handle, sql: string,
   return statement, ""
 end
 
---- Runs a statement that yields no rows. Parameters are a dense list
---- indexed by SQLite's parameter index, through its highest index.
---- Repeated named parameters share an index; ?NNN gaps still need
---- entries (use {}). Missing entries and extra keys are errors.
+--- Runs a statement that yields no rows: it answers `true` and
+--- "", or `false` and why.
+---
+--- `values` is a dense list indexed by SQLite's parameter index, through
+--- its highest index. Repeated named parameters share an index, and a
+--- gap in `?NNN` numbers still needs an entry (use `{}`). A missing entry
+--- or an extra key is an error.
 function Sqlite.run(handle: Sqlite.Handle, sql: string,
                     values?: {Sqlite.Value}): boolean, string
   local statement, trouble = prepared(handle, sql, values)
@@ -229,9 +242,9 @@ local function row_of(statement: Sqlite.Statement): Sqlite.Row
   return row
 end
 
---- Every row a query yields, each row a dense list of typed cells in
---- column order. SQL NULL is an explicit `kind = "null"` cell.
---- Parameters follow the same complete-list contract as `run`.
+--- Every row a query yields, each a dense list of typed cells in column
+--- order; SQL NULL is a cell with `kind = "null"`. Answers the rows, or
+--- `nil` and why. `values` follows `Sqlite.run`'s contract.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Rows | nil, string
   local statement, trouble = prepared(handle, sql, values)
@@ -262,11 +275,11 @@ local query_mt: metatable<Sqlite.Query> = {
 
 --- A query whose rows are read one at a time, as `rows` gives them but
 --- never all held at once: nil and why when the statement does not
---- prepare or bind. Parameters follow the same complete-list contract
---- as `run`. The statement stays open, and the handle cannot close,
---- until the last row is read, a step fails, or the query is closed;
---- hold it in a `<close>` variable to close it on a `break` or an error
---- too.
+--- prepare or bind (`values` follows `Sqlite.run`'s contract). The
+--- statement stays open, and the handle cannot close, until the last
+--- row is read, a step fails, or the query is
+--- closed; hold it in a `<close>` variable to close it on a `break` or
+--- an error too.
 ---
 --- An open query holds SQLite's read lock on a file database between
 --- reads, so a writer on another connection waits for it (in rollback
@@ -362,7 +375,21 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
   return out, ""
 end
 
---- Runs `work` inside a transaction, rolling back when it fails.
+--- Runs `work` inside a transaction and commits when it answers `true`.
+--- When `work` answers `false` and why, or the commit fails, the
+--- transaction rolls back and this answers `false` and that reason. When
+--- `work` raises, the transaction rolls back and the same error is
+--- raised again. A transaction already open on `handle` makes `BEGIN`
+--- fail, so calls do not nest.
+---
+--- The statements of one transaction are written through the same
+--- handle:
+---
+---     local ok, why = Sqlite.transact(db, function(): boolean, string
+---       local a, trouble = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "a" } })
+---       if not a then return false, trouble end
+---       return Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "b" } })
+---     end)
 function Sqlite.transact(handle: Sqlite.Handle,
                           work: function(): boolean, string): boolean, string
   local started, trouble = handle:exec("BEGIN")

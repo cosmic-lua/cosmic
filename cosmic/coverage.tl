@@ -1,17 +1,16 @@
---- Line coverage collected by the native C line hook in core/coverage.c.
---- A core built with native coverage adds the lines of its own C, by
---- repository path (see `Coverage.native_lines`).
---- Lua's `debug` library is never opened; the VM's internal debugging
---- support remains available to the native hook and tracebacks.
+--- Line coverage for test tooling: which source lines ran between
+--- `start` and `stop`. A core built with native coverage also reports
+--- the lines of its own C, by repository path (see
+--- `Coverage.native_lines`).
 ---
---- The collector is exposed as `cosmic.internal.debug` only while this
---- trusted wrapper loads from the binary's own tree. The wrapper keeps
---- the raw table private and exposes collection windows guarded by an
---- opaque session token.
----
---- Only one window may be open. `start` refuses without changing state
---- while another is active, and `stop` accepts only the exact token that
---- opened it. All callers share this module's cached state.
+--- Only one collection window may be open. `start` refuses, changing
+--- nothing, while another is active, and `stop` accepts only the
+--- session that `start` returned. All callers share this state.
+
+-- The collector is exposed as `cosmic.internal.debug` only while this
+-- trusted wrapper loads from the binary's own tree. The wrapper keeps
+-- the raw table private and exposes collection windows guarded by an
+-- opaque session token. Lua's `debug` library is never opened.
 
 local type NativeCoverage = require("cosmic.internal.debug")
 
@@ -24,13 +23,14 @@ else
 end
 
 local record Coverage
-  --- Every source line hit while collecting was on, by the module's
-  --- own import path: the chunk's full source identifier with its
-  --- leading `@` removed (see cosmic/internal/debug.d.tl).
+  --- The lines hit, as a map from a module's import path to the set of
+  --- its line numbers (`hits[path][line] == true`). The path is the
+  --- chunk's full source identifier with its leading `@` removed.
   type Hits = NativeCoverage.Hits
 
-  --- One of the core's own C functions: `path` and `line` name the line
-  --- it begins on, which a hit names when the function was entered.
+  --- One of the core's own C functions: `path` is its file by
+  --- repository path, `line` the line it begins on, which a hit names
+  --- when the function was entered, and `name` its name.
   type Function = NativeCoverage.Function
 
   --- An opaque handle to one open collection window, compared only by

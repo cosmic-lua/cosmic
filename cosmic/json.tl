@@ -3,7 +3,7 @@
 --- Reading is RFC 8259 and nothing else: no comments, no trailing
 --- commas, no NaN, and a string must be UTF-8 with no lone surrogate.
 --- A failure names the line and column where the text stopped being
---- JSON. The reader is yyjson, vendored and fuzzed upstream.
+--- JSON. The reader is yyjson.
 ---
 --- `decode(text, { json5 = true })` reads JSON5 instead -- comments,
 --- trailing commas, single-quoted strings, unquoted keys, hexadecimal
@@ -20,8 +20,7 @@
 --- a GitHub workflow, say, with double-quoted strings, keys quoted
 --- unless they are identifiers YAML reads as their text (`on`, `no`
 --- and `null` it does not), a space after each `:`, and a space before
---- each `#`. build/workflows_test.tl holds the tree's workflows to
---- that subset.
+--- each `#`.
 ---
 ---     local text = '{\n  # what GitHub shows\n  name: "ci",\n}'
 ---     local workflow = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
@@ -73,9 +72,9 @@
 --- objects list their keys in byte order unless `sorted = false`, so
 --- the same value always encodes to the same text.
 
---- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
---- indirection exists.
+-- The raw module behind this one lives under the reserved
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
+-- indirection exists.
 local type raw_json = require("cosmic.internal.json")
 
 local extra: any = select(2, ...)
@@ -731,7 +730,7 @@ end
 --- `cosmic json` is a lookup and no query language; `cosmic json --flat`
 --- with `grep`, or a script over `Json.select`, does what they would.
 ---
----     local pattern = assert(Json.parse_pattern("$..price"))
+---     local pattern = (assert(Json.parse_pattern("$..price")))
 ---     assert(pattern[1].kind == "deep_key" and pattern[1].key == "price")
 function Json.parse_pattern(text: string): {Json.Step} | nil, string
   return read_steps(text, true)
@@ -1078,7 +1077,7 @@ end
 --- `parse_pattern` makes.
 ---
 ---     local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
----     local found = assert(Json.select(doc, assert(Json.parse_pattern("$..id"))))
+---     local found = assert(Json.select(doc, (assert(Json.parse_pattern("$..id")))))
 ---     assert(found[1].path == "$.a.id" and found[2].path == "$.b[1].id")
 function Json.select(value: any, pattern: {Json.Step}, opts?: Json.WalkOptions): {Json.Located} | nil, string
   local limit, root = walk_options(opts)
