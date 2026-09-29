@@ -80,6 +80,9 @@ local record Tar
 end
 
 local BLOCK <const> = 512
+
+--- The most of an entry's body read at once, as `cosmic.stream` reads.
+local chunk_size <const> = 1 << 16
 local OCTAL_11_LIMIT <const> = 1 << 33 -- 8^11, what 11 octal digits hold
 --- The largest `L`/`K`/`x`/`g` body read into memory. Real ones are a
 --- path or a handful of records; a header claiming more is refused
@@ -377,7 +380,7 @@ Body_methods.read = function(self: Body, max: integer): string | nil, string
   end
   local left = self.left
   if left <= 0 then return nil, "" end
-  local want = max or (1 << 16)
+  local want = max or chunk_size
   if want > left then want = left end
   local chunk, rtrouble = state.raw:read(want)
   if chunk == nil then
@@ -689,7 +692,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
       local written = 0
       while written < size do
         local want = size - written
-        if want > (1 << 16) then want = 1 << 16 end
+        if want > chunk_size then want = chunk_size end
         local chunk, rtrouble = data:read(want)
         if chunk == nil then
           if rtrouble ~= "" then return sink:fail(rtrouble) end
