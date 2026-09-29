@@ -22,8 +22,11 @@ local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
 
+  --- The descriptor of standard input, 0: what `Fs.take` reads from.
   stdin: integer
+  --- The descriptor of standard output, 1: what `Fs.put` writes to.
   stdout: integer
+  --- The descriptor of standard error, 2: what `Fs.put` writes to.
   stderr: integer
 end
 
@@ -81,10 +84,15 @@ local function write_all(fd: integer, data: string): boolean, string
   return true, ""
 end
 
---- Writes all bytes, replacing the path. This is the whole-file alternative
---- to io.open/io.write. Replaces a file atomically for readers, and leaves the old contents in
---- place if anything before the rename fails. This provides atomic visibility,
---- not crash durability: neither the file nor its directory is synchronized.
+--- Writes `data` to `path` through a temporary file and a rename: a
+--- reader sees the old contents or the new, never a mix, and a failure
+--- before the rename leaves the old file. Nothing is synced, so a crash
+--- can still lose the write. This is the whole-file alternative to
+--- io.open/io.write.
+---
+--- `mode` is the permission bits of the file it creates, as an integer
+--- (0x1a4 for 0644, the default), less the process's umask. The file is
+--- always a new one, so an existing file's mode is not kept.
 function Fs.write(path: string, data: string, mode?: integer): boolean, string
   local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
   if temporary == nil then
@@ -500,6 +508,9 @@ end
 --- Opens a file for writing, creating it and emptying it, and returns an
 --- integer descriptor rather than an io.open file handle. Use Fs.put and
 --- Fs.close; Fs.write is safer when the whole replacement is available.
+--- `mode` is the permission bits of a file this call creates, as an
+--- integer (0x1a4 for 0644, the default), less the process's umask; an
+--- existing file keeps its own.
 function Fs.open_write(path: string, mode?: integer): integer | nil, string
   local flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
   local fd, trouble = sys.open(path, flags, mode or 0x1a4)

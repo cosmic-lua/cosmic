@@ -10,10 +10,10 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- The processes the examples start, as a program would: this program
---- itself, past its launcher (`Proc.relaunch`), so no start takes a
---- shell.
-Test.needs{ processes = true, tool = true }
+--- The processes the examples start: this program itself, past its
+--- launcher (`Proc.relaunch`), and one host program, `/bin/sh`, which
+--- the `system` declaration makes visible to the sandboxed worker.
+Test.needs{ processes = true, system = true, tool = true }
 
 -- TODO: confine the processes these examples start, once an example
 -- may declare what its processes need, as a test does through
@@ -21,6 +21,20 @@ Test.needs{ processes = true, tool = true }
 -- not import build.confine.
 
 local Example = {}
+
+--- A host program run to completion, its output collected: a failing
+--- exit is a `Result` with `ok` false and the status in `code`, not an
+--- error. `argv[1]` is a path, as given: `Proc.find` finds a program by
+--- name.
+function Example.run()
+  local result = assert(Child.run(
+    { "/bin/sh", "-c", "echo out; echo warning >&2; exit 3" },
+    { stdout = "capture", stderr = "capture" }))
+  print(result.stdout, result.stderr, result.code)
+  assert(result.stdout == "out\n", result.stdout)
+  assert(result.stderr == "warning\n", result.stderr)
+  assert(result.code == 3 and not result.ok and not result.timed_out)
+end
 
 --- Several children at once, and Ctrl-C ends them before it ends this
 --- process: the guard holds SIGINT and SIGTERM while they run, each

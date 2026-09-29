@@ -3,9 +3,8 @@
 local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 
---- `relaunch` lives in the raw process table, under the reserved
---- `cosmic.internal.` namespace -- see cosmic/store.tl for
---- why.
+-- `relaunch` lives in the raw process table, under the reserved
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
 local type raw_process = require("cosmic.internal.process")
 
 local extra: any = select(2, ...)
@@ -28,8 +27,8 @@ local record Proc
   end
 end
 
---- The descriptors a relaunched child sees its artifact and core as:
---- high, so they stay clear of any a caller hands it.
+-- The descriptors a relaunched child sees its artifact and core as:
+-- high, so they stay clear of any a caller hands it.
 local ARTIFACT_FD <const> = 254
 local CORE_FD <const> = 255
 
@@ -68,10 +67,10 @@ end
 --- private startup contract its launcher would give it, so the child
 --- skips the launcher and cannot land on another core -- a checked build
 --- relaunches as a checked build. A host program is executed again as it
---- is, since it has no launcher to skip. Append the child's own arguments to
---- `argv`, add `env` to its environment, and pass `fds` to
---- `Child.start`. Nil for a process not started from a portable
---- artifact; `Proc.executable` is the way to start that one again.
+--- is: `argv` is just its path, and `env` and `fds` are empty. Append the
+--- child's own arguments to `argv`, add `env` to its environment, and pass
+--- `fds` to `Child.start`. Returns nil and a message when this process has
+--- no artifact to start again.
 function Proc.relaunch(): Proc.Relaunch | nil, string
   if relaunch ~= nil then return relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
@@ -90,7 +89,7 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
   return relaunch, ""
 end
 
---- The search list `find` uses when PATH is unset, as execvp does.
+-- The search list `find` uses when PATH is unset, as execvp does.
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 
 --- Where the program `name` would run from, found as a shell (or `which`,
