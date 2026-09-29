@@ -126,7 +126,7 @@ only what its program prints and exits with what it returns.
 `--version` is not one either: it prints its one line. `json` prints its
 value and nothing after, for a pipe, and exits 0 when it found the path, 1
 when the path is not there, 2 for a command line or a text it refused.
-`rand` prints what it draws and nothing after; 2 refuses its command line or a failed write.
+`rand` prints what it draws and nothing after; 1 when the entropy source failed, 2 refuses its command line or a failed write.
 ]]
 
 --- The directory a path sits in, absolute.
@@ -485,7 +485,7 @@ local verbs: {string: function({integer:string}): integer} = {
   -- and this verb reads o/ and nothing else under it. It gives its own
   -- verdict on every exit, a usage error included, so the check main
   -- runs after a verdictless exit 2 never runs for it
-  -- (build/verbs_test.tl's test_sql_never_stages_the_tree).
+  -- (build/verbs_tool_test.tl's test_sql_never_stages_the_tree).
   sql = function(argv: {integer:string}): integer
     return require("build.sql").run(argv)
   end,

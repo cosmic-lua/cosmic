@@ -213,13 +213,14 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
   -- Range 0..2 is masked to two bits: a draw of 3 is outside it and must
   -- be drawn again, not reduced modulo 3 to 0.
   local draws = { 3, 3, 1, 2, 0 }
-  local taken = 0
+  local calls = 0
   local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string | nil, string
-    assert(count == 8)
-    taken = taken + 1
-    return string.pack("<i8", draws[taken]), ""
+    calls = calls + 1
+    local parts: {string} = {}
+    for index = 1, count // 8 do parts[index] = string.pack("<i8", draws[(index - 1) % 5 + 1]) end
+    return table.concat(parts), ""
   end })
-  assert(ran.out == "1\n2\n0\n" and taken == 5, ran.out .. taken)
+  assert(ran.out == "1\n2\n0\n" and calls == 1, ran.out .. calls)
 end
 
 local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()
@@ -348,4 +349,36 @@ local function test_options_belong_to_their_subcommands()
     local ran = run(words, { stdin = "a\n" })
     assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
   end
+end
+
+local function test_v7_counter_carries_into_the_milliseconds_at_4095()
+  -- 4095/4096 of a millisecond in: fraction 4095. The next draw at the
+  -- same instant would be fraction 4096, which carries into the ms.
+  local ns = 7000000000 + 999756
+  local ran = run({ "uuid", "--v7", "-n", "3" }, { now_ns = function(): integer return ns end,
+    entropy = function(count: integer): string | nil, string return string.rep("\0", count), "" end })
+  local ids = lines(ran.out)
+  local ms = ("%012x"):format(7000)
+  local next_ms = ("%012x"):format(7001)
+  assert(ids[1] == ms:sub(1, 8) .. "-" .. ms:sub(9, 12) .. "-7fff-8000-000000000000", ids[1])
+  assert(ids[2] == next_ms:sub(1, 8) .. "-" .. next_ms:sub(9, 12) .. "-7000-8000-000000000000", ids[2])
+  assert(ids[3] == next_ms:sub(1, 8) .. "-" .. next_ms:sub(9, 12) .. "-7001-8000-000000000000", ids[3])
+end
+
+local function test_a_negative_count_is_refused_and_a_negative_bound_is_a_bound()
+  local ran = run({ "uuid", "-n", "-5" })
+  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.err:find("-n needs a whole number", 1, true), ran.err)
+  local bound = run({ "int", "-n", "2", "-4", "-4" })
+  assert(bound.code == 0 and bound.out == "-4\n-4\n", bound.out .. bound.err)
+  -- Only int reads a word that begins with the marker as a bound.
+  local other = run({ "shuffle", "-5" }, { stdin = "a\n" })
+  assert(other.code == 2, other.err)
+end
+
+local function test_crlf_input_reads_as_lf()
+  local crlf = run({ "shuffle", "--seed", "1" }, { stdin = "a\r\nb\r\nc\r\nd\r\n" })
+  assert(crlf.code == 0 and crlf.out == "b\nd\nc\na\n", crlf.out)
+  local blank = run({ "shuffle" }, { stdin = "\r\n" })
+  assert(blank.out == "\n", blank.out)
 end

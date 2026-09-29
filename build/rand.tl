@@ -20,13 +20,20 @@
 ---
 --- UUIDs. Version 4 is 122 bits of entropy. Version 7 (RFC 9562) is the
 --- Unix time in milliseconds from `cosmic.time`, then the rest from
---- entropy. Its 12 bits after the version are the RFC's method 1, a
---- fixed-length dedicated counter: the clock's fraction of the current
---- millisecond, in 4096ths, and where a draw would not sort after the
---- one before -- the same fraction, or a clock that stepped back -- the
---- previous value plus one, carrying into the milliseconds. So the values
---- of one run always sort in the order they were drawn. Only one run is
---- ordered: two runs in one millisecond can draw either way.
+--- entropy. Its 12 bits after the version are the RFC's method 3
+--- (section 6.2, increased clock precision): the clock's fraction of the
+--- current millisecond, in 4096ths, and where a draw would not sort after
+--- the one before -- the same fraction, or a clock that stepped back --
+--- the previous value plus one, carrying into the milliseconds. So the
+--- values of one run always sort in the order they were drawn. A clock
+--- that steps far back leaves the timestamps ahead of real time for the
+--- rest of the run: each draw then adds 1/4096 of a millisecond until
+--- the clock overtakes them. Only one run is ordered: two runs in one
+--- millisecond can draw either way.
+---
+--- Lines (`pick`, `shuffle`) end at "\n", and a "\r" before it is
+--- dropped, so CRLF input gives the same lines as LF input; output ends
+--- each line with "\n".
 
 local Codec = require("cosmic.codec")
 local Cli = require("cosmic.cli")
@@ -75,6 +82,8 @@ local record Source
 end
 
 --- The smallest all-ones mask covering `n`, read as unsigned.
+--- TODO: share this with the private `mask_for` of cosmic/rand.tl, once
+--- cosmic.rand exports one (it is a copy here so the two agree).
 local function mask_for(n: integer): integer
   local m = n
   m = m | (m >> 1)
@@ -157,7 +166,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
   end
   local request: Request = { command = command, version = 4, bytes = 32, encoding = "base64url", words = {} }
   for _, word in ipairs(parsed.words) do
-    if word:sub(1, #NEGATIVE) == NEGATIVE then word = word:sub(#NEGATIVE + 1) end
+    if command == "int" and word:sub(1, #NEGATIVE) == NEGATIVE then word = word:sub(#NEGATIVE + 1) end
     request.words[#request.words + 1] = word
   end
   if parsed.set["--v4"] and parsed.set["--v7"] then
@@ -228,7 +237,7 @@ local standard: verb.Io = {
   now_ns = Time.now_ns,
 }
 
---- The lines of `text`, split at "\n"; a last line's newline ends it, it
+--- The lines of `text`, split at "\n" with a "\r" before it dropped; a last line's newline ends it, it
 --- does not begin another, so "" is no lines and "a\n\nb" is three.
 local function lines_of(text: string): {string}
   local lines: {string} = {}
@@ -239,7 +248,9 @@ local function lines_of(text: string): {string}
       lines[#lines + 1] = text:sub(at)
       break
     end
-    lines[#lines + 1] = text:sub(at, stop - 1)
+    local last = stop - 1
+    if last >= at and text:byte(last) == 13 then last = last - 1 end
+    lines[#lines + 1] = text:sub(at, last)
     at = stop + 1
   end
   return lines
@@ -268,12 +279,26 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   --- may be a secret is made from bytes this returns; a seeded
   --- generator (`Rand.new`) is reached only from `seeded` below.
   local broken: string | nil
-  local function secret(count: integer): string
+  local function fetch(count: integer): string
     local bytes, why = draw_entropy(count)
     if bytes == nil or #bytes ~= count then
       broken = why ~= "" and why or "short read"
       error("entropy", 0)
     end
+    return bytes
+  end
+  -- Small draws share one read of the entropy source (one getentropy
+  -- for many values), which is still the operating system's entropy:
+  -- each byte is handed out once. A large draw reads for itself.
+  local POOL <const> = 8192
+  local pool, used = "", 0
+  local function secret(count: integer): string
+    if count > 64 then return fetch(count) end
+    if used + count > #pool then
+      pool, used = fetch(POOL), 0
+    end
+    local bytes = pool:sub(used + 1, used + count)
+    used = used + count
     return bytes
   end
 
