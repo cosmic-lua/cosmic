@@ -17,6 +17,13 @@
 # absolute path fails some run rather than none. The log names both
 # inputs and the path, and `--name` with the same two gives it again.
 #
+# TODO: choose the macOS leg's path by the leg alone, or decide to keep
+# paying for a path chosen by the commit there: an unsandboxed worker's
+# key holds the tree's path (build/declared_key.tl's `Spec.tree`), so on
+# that leg every test runs on every new commit and stands only on a
+# re-run's verdicts; a path fixed per leg would stand across commits,
+# and a checkout moved elsewhere would still run every test.
+#
 # Only the name varies, never the depth: the tree is always one
 # directory below $GITHUB_WORKSPACE's parent, as deep as the workspace
 # itself. actions/cache names a path outside the workspace, such as

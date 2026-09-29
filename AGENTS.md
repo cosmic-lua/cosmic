@@ -83,7 +83,8 @@
    one that does: a re-run meets the same path, a new commit a new one.
    A sandboxed worker sees the tree at /tree wherever it is, so only an
    unsandboxed leg (macOS) meets the moved path, and there, under
-   `COSMIC_TEST_KEY=declared`, only a test whose key moved runs to meet it.
+   `COSMIC_TEST_KEY=declared`, whose keys hold the tree's path, every test
+   runs to meet it.
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
@@ -182,10 +183,12 @@
    kind, size and mode across checkouts (the rule beside `Test.needs`
    below).
    `COSMIC_TEST_KEY=declared` keys an unsandboxed run as a sandboxed
-   one instead, by what each test declares, and shares its verdicts
-   apart from sandboxed ones: its worker gets only the environment it
-   declares, but nothing else holds it to its declaration, which a
-   sandboxed run (a Linux leg of CI) must enforce.
+   one instead, by what each test declares and by where the tree is,
+   which its worker sees, and shares its verdicts apart from sandboxed
+   ones and only with a checkout at the same path: its worker gets only
+   the environment it declares and the store of its closure, but nothing
+   else holds it to its declaration, which a sandboxed run (a Linux leg
+   of CI) must enforce.
    Only the sandbox's own tests nest one sandbox in another with
    build.confine's `confine`: where the kernel cannot confine a process,
    `confine` starts it unconfined; `must_confine` fails

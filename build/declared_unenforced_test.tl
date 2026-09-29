@@ -2,9 +2,12 @@
 --- each verdict by its test's declared inputs, as a sandboxed run does
 --- (build/declared_key.tl), though nothing holds a worker to them -- as
 --- macOS, which has no sandbox, trusts what CI's Linux legs enforce. Its
---- verdict stands on a run again and in another checkout, through the
---- shared cache, until what the test declares changes; its worker is
---- given the environment its key holds and no more; and neither a
+--- verdict stands on a run again and in another checkout at the same
+--- path, through the shared cache, until what the test declares
+--- changes -- but not in a checkout elsewhere, since its worker sees
+--- the tree where it is, not at /tree as a sandboxed one does; its worker is
+--- given the environment its key holds and no more, and the store of
+--- its closure; and neither a
 --- sandboxed verdict nor an unenforced one stands for the other. Each
 --- run is unsandboxed by COSMIC_TEST_SANDBOX=0, so every host runs
 --- these, whether or not it can sandbox a worker.
@@ -107,18 +110,53 @@ end
 
 --- Its verdicts stand on a run again -- the scratch directory each
 --- worker is given, new every run, is no part of their keys -- and in
---- another checkout of the same content, on the verdicts the first
---- reached; the summary says how the run was keyed; and each worker
---- was given only the variables its key holds.
+--- another checkout of the same content at the same path, on the
+--- verdicts the first reached; the summary says how the run was keyed;
+--- and each worker was given only the variables its key holds.
 local function test_an_unenforced_verdict_stands_again_and_in_another_checkout(tmp: string)
   local env = environment(tmp .. "/cache/verdicts.db")
   checkout(tmp .. "/first")
-  says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
+  -- Each worker attaches the store of its module's closure, as a
+  -- sandbox gives it one, which its key holds by address.
+  local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
+  assert(first:find("test: declared: 2 closure stores written", 1, true), first)
   says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")
-  checkout(tmp .. "/second")
-  local second = says(tmp .. "/second", tmp .. "/second.out", env,
+  -- Another checkout where the first was, which has none of the
+  -- first's own verdicts: it stands on those it shared.
+  assert(Fs.rename(tmp .. "/first", tmp .. "/moved"))
+  checkout(tmp .. "/first")
+  local second = says(tmp .. "/first", tmp .. "/second.out", env,
     "0 ran, 2 stood, 2 of them on another checkout's verdict")
   assert(second:find(UNENFORCED, 1, true), second)
+end
+
+--- A checkout of the same content elsewhere stands on none of them: an
+--- unsandboxed worker sees the tree where it is, and a test's verdict
+--- may turn on that path -- here, on its length -- so its key holds it,
+--- as a sandboxed key need not, whose worker sees the tree at /tree
+--- wherever it is.
+local function test_an_unenforced_verdict_stands_in_no_checkout_elsewhere(tmp: string)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local function placed(root: string)
+    checkout(root)
+    assert(Fs.write(root .. "/suite/place_test.tl", string.format([[
+local sys = require("cosmic.sys")
+
+local function test_where_the_tree_is()
+  assert(#assert(sys.getcwd()) == %d, "the tree moved")
+end
+]], #assert(Fs.absolute(root)))))
+  end
+  placed(tmp .. "/first")
+  says(tmp .. "/first", tmp .. "/first.out", env, "3 ran, 0 stood")
+  -- The same content at a longer path: each of its tests runs again,
+  -- and the one that turns on where the tree is fails there, as it
+  -- would have had its verdict not stood.
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  assert(Fs.rename(tmp .. "/first", tmp .. "/elsewhere/first"))
+  local code, text = run(tmp .. "/elsewhere/first", tmp .. "/elsewhere.out", env)
+  assert(code ~= 0, text)
+  assert(text:find("1 of 3 failed", 1, true) and text:find("the tree moved", 1, true), text)
 end
 
 --- A file beneath a declared directory that changes runs the test that

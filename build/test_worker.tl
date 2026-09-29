@@ -90,6 +90,10 @@ local record worker
     --- store's hold is off (`--open`).
     hold: worker.Hold
     open: boolean
+    --- The store of its module's closure it attaches in place of the
+    --- projection at `root`/o/cosmic.db (`--store`), for a worker no
+    --- sandbox gives it there; nil for none, and where `open` is set.
+    store: string
     --- The names of the module's import closure, of every module of
     --- the tree, and of what only a declaration of the tree answers
     --- for (see `run`).
@@ -568,8 +572,8 @@ local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = 
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
---- <held> [--open] <closure>... --tree <tree>... --declared
---- <declared>...` (`run`), with the report captured at `report_fd`,
+--- <held> [--open | --store <store>] <closure>... --tree <tree>...
+--- --declared <declared>...` (`run`), with the report captured at `report_fd`,
 --- and its environment `env` with `start`'s variables added and
 --- coverage collected from its first instruction (core/coverage.c,
 --- COSMIC_COVERAGE_STARTUP), so its first window holds the Lua that
@@ -588,7 +592,12 @@ function worker.invocation(given: worker.Invocation): worker.Command
                            given.scratch .. "/children", given.needs, given.held }) do
     argv[#argv + 1] = value
   end
-  if given.open then argv[#argv + 1] = "--open" end
+  if given.open then
+    argv[#argv + 1] = "--open"
+  elseif given.store ~= nil then
+    argv[#argv + 1] = "--store"
+    argv[#argv + 1] = given.store
+  end
   for _, name in ipairs(given.closure) do argv[#argv + 1] = name end
   argv[#argv + 1] = "--tree"
   for _, name in ipairs(given.tree) do argv[#argv + 1] = name end
@@ -686,7 +695,8 @@ end
 --- else means there is no report to read.
 ---
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> <held> [--open] <closure>... --tree <tree>... --declared <declared>...`:
+--- <needs> <held> [--open | --store <store>] <closure>... --tree <tree>...
+--- --declared <declared>...`:
 ---
 --- - `children` is a directory, not yet there, to collect the coverage
 ---   of the processes the test starts in.
@@ -709,6 +719,11 @@ end
 --- - `declared` is the names only a declaration of the tree answers
 ---   for, which the store's hold holds too (`hold_store`), unless
 ---   `--open` comes ahead of the closure: its module declares `store`.
+--- - `--store <store>` ahead of the closure names the store of the
+---   module's closure (`build.closure_store`) to attach in place of
+---   `<root>/o/cosmic.db`: an unsandboxed worker's, whose key holds the
+---   store it is given by that store's address, as a sandboxed one is
+---   given it at o/cosmic.db.
 ---
 --- `--worker-no-tool` in place of `--worker` holds the worker, before
 --- anything of the test loads, to running anything but this very
@@ -737,7 +752,20 @@ function worker.run(argv: {integer:string}): integer
       return 2
     end
   end
+  -- The closure's names start after `--open`, or `--store` and its
+  -- path, where either is given.
+  local first = 10
+  local open = argv[10] == "--open"
   local db_path = root .. "/o/cosmic.db"
+  if open then
+    first = 11
+  elseif argv[10] == "--store" then
+    if argv[11] == nil then
+      complain("test --worker: --store needs a path")
+      return 2
+    end
+    db_path, first = argv[11], 12
+  end
   local attached, attach_trouble = store.attach(db_path)
   if not attached then
     complain(db_path .. ": " .. attach_trouble)
@@ -749,13 +777,12 @@ function worker.run(argv: {integer:string}): integer
   end
   -- Once the closure is read, what puts up the store's hold.
   local hold: function() = nil
-  if argv[10] ~= nil then
+  if argv[first] ~= nil then
     local closure: {string:boolean} = {}
     local tree: {string:boolean} = {}
     local declared: {string:boolean} = {}
     local into = closure
-    local open = argv[10] == "--open"
-    local i = open and 11 or 10
+    local i = first
     while argv[i] ~= nil do
       if argv[i] == "--tree" and into == closure then
         into = tree

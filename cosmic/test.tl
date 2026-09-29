@@ -119,7 +119,9 @@ local record Test
     --- the rows of modules of the tree outside their import closure.
     --- Without it, a sandboxed worker is given at o/cosmic.db the store
     --- of its module's import closure alone, which its key holds, and a
-    --- `require` reaches only that closure. Every other lookup in the
+    --- `require` reaches only that closure; unsandboxed under
+    --- COSMIC_TEST_KEY=declared, the worker attaches that store in the
+    --- projection's place, though what it starts reads o/cosmic.db. Every other lookup in the
     --- store is held to the closure too, from the module's load until
     --- the worker ends: `Store.bytecode`, `Store.source` or
     --- `Store.requires` of a module outside it, or the store's searcher
