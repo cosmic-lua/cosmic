@@ -106,11 +106,22 @@ local record Cli
   --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
   --- BY type'`): each `--from` is loaded as a table of an in-memory
   --- database, named for the file's stem (`--from name=file` names it,
-  --- and `-` reads standard input), read as JSON, or as JSON Lines for
-  --- `.jsonl` and `.ndjson`; `--as json|ndjson` overrides the
-  --- extension, and standard input needs it. `--as` and `--at '<path>'`
-  --- apply to the `--from` before them, and `--at` reads the rows from
-  --- the array at a path, as `cosmic json` reads one. An array of
+  --- and `-` reads standard input), read as JSON, as JSON Lines for
+  --- `.jsonl` and `.ndjson`, as CSV for `.csv` and as TSV for `.tsv` and
+  --- `.tab`; `--as json|ndjson|csv|tsv` overrides the extension, and
+  --- standard input needs it. `--as`, `--at '<path>'` and `--raw` apply
+  --- to the `--from` before them, and `--at` reads the rows from
+  --- the array at a path, as `cosmic json` reads one (a CSV or TSV has
+  --- no path). A CSV or TSV (RFC 4180, quotes and all) has a header
+  --- line naming the columns, in that order, and a row per record; a record with more
+  --- or fewer fields than the header is refused, naming its line, and a
+  --- blank line is skipped, except in a one-column file, where one before
+  --- the last record is an empty cell (blank lines at the end are dropped, so a final empty cell is written `""` to be kept). Its
+  --- cells are typed by one rule: a cell that is plainly a number (an
+  --- optional `-`, digits, an optional fraction or exponent; no `+`, no
+  --- leading zero, no spaces) is an integer or a real, an empty cell is
+  --- NULL, and anything else, `007` and ZIP codes included, is text;
+  --- `--raw` keeps every cell text, the empty one `''`. An array of
   --- objects is a table of them, with a column per key, an array of
   --- scalars a `value` column, and any other value one row; a nested
   --- object or array is JSON text for `json_extract`, a boolean is 0 or
@@ -270,8 +281,10 @@ local module: Module = {
       ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
       ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
         "named for its stem, or `name=file`; repeat for a join" },
-      ["--as"] = { value = "format", about = "read the --from before it as json or ndjson, " ..
-        "rather than by its extension" },
+      ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
+        "or tsv, rather than by its extension" },
+      ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
+        "no number is read, an empty cell is '' not NULL" },
       ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
         "path ($.rows), not the document" },
     },
