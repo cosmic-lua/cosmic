@@ -116,15 +116,18 @@ local function test_a_rule_that_will_not_compile_is_named()
     end)
 end
 
---- A hit whose replacement would swallow a comment is left unmodified,
---- comment and all: `build.ast.rewrite`'s refusal reaching through
---- this stage. `rule.apply` reads only the spliced code and does not
---- pass the refusal list on (see the TODO there), so the file's other
---- hits are rewritten around it and nothing is said. This pins that
---- the comment is still there afterwards.
-local function test_a_hit_that_would_eat_a_comment_is_left_alone()
-  local got = fixed("print( -- why\n  a)\nprint(b)\n")
-  assert(got == "print( -- why\n  a)\nlog(b)\n", "got:\n" .. got)
+--- A hit whose replacement would swallow a comment is refused by
+--- `build.ast.rewrite`, and `rule.apply` reports it rather than skipping
+--- it: the verb fails the file, naming the rule, the line and the
+--- comment, so the file is left as it was.
+local function test_a_hit_that_would_eat_a_comment_is_reported()
+  with_rule(probe, function()
+    local result, trouble = fix.source(built,
+      "print(b)\nprint( -- why\n  a)\n", "probe.tl")
+    assert(result == nil, "a refused hit must not pass silently")
+    assert(trouble == "probe: hit refused, line 2 would drop -- why",
+      "got: " .. trouble)
+  end)
 end
 
 --- Nested probes restore a nonempty registry, including after a body

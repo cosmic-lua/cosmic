@@ -104,6 +104,18 @@ local function test_rewrite_refuses_a_statement_deletion_dropping_a_trailing_com
   assert(result.code == source, "code should be unchanged")
 end
 
+--- A call inside a larger statement is an expression, not a statement:
+--- an empty replacement removes its bytes and leaves the rest of the
+--- line. Treating it as a statement would delete `local x = f(1)` whole.
+local function test_rewrite_deletes_only_the_span_of_a_nested_call()
+  local pattern = pattern_ok("f($X)")
+  local source = "local x = f(1)\nrun()\n"
+  local result, err = rewrite_mod.rewrite(built, source, "nested.tl", pattern, "")
+  assert(result ~= nil, "rewrite failed: " .. tostring(err))
+  assert(#result.refused == 0, "expected no refusals")
+  assert(result.code == "local x = \nrun()\n", "code: " .. result.code)
+end
+
 local function test_rewrite_reports_only_accepted_original_hits_in_source_order()
   local pattern = pattern_ok("os.execute($CMD)")
   local source = "os.execute(a)\nos.execute(b --[[ keep ]] )\nos.execute(c)\n"
