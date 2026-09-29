@@ -42,8 +42,7 @@ local record CacheTrim
 end
 
 --- How long a trim waits on another connection's lock, as the builds
---- and the suites wait (the `busy_ms` of build/shared_compiles.tl and
---- build/shared_verdicts.tl).
+--- and the suites wait (the `busy_ms` of build/shared_sqlite.tl).
 local busy_ms <const> = 10000
 
 local function size(path: string): integer
@@ -58,8 +57,7 @@ local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): i
 end
 
 --- Whether `trouble`, from SQLite, says the file is no database, or a
---- broken one, as build/shared_compiles.tl's and
---- build/shared_verdicts.tl's `corrupt` read it.
+--- broken one, as build/shared_sqlite.tl's `corrupt` reads it.
 function CacheTrim.corrupt(trouble: string): boolean
   return trouble:find("malformed", 1, true) ~= nil or
     trouble:find("not a database", 1, true) ~= nil
@@ -78,8 +76,8 @@ function CacheTrim.remove_database(path: string): {string}
 end
 
 --- Removes the caches the tool set aside beside `path` as broken
---- (`<name>.corrupt-<ns>`, with their logs: the `set_aside` of
---- build/shared_compiles.tl and build/shared_verdicts.tl), which no run
+--- (`<name>.corrupt-<ns>`, with their logs: build/shared_sqlite.tl's
+--- `set_aside`), which no run
 --- reads again and a save would otherwise carry from run to run.
 --- Answers what it removed.
 function CacheTrim.remove_set_aside(path: string): {string}
@@ -104,10 +102,14 @@ end
 --- all. A table without a `used_ns` column is left whole and named in
 --- the answer's `unstamped`. Answers nil and "" for a file that is not
 --- there, and nil and why where the file could not be trimmed.
--- TODO: ask the tool to trim its caches to what one run used, once
--- build/shared_compiles.tl and build/shared_verdicts.tl can (a verb, or
--- a bound the environment sets), rather than reach into their tables
--- here: this reads every table of their formats by its `used_ns`
+-- TODO: ask the tool to trim its caches to what one run used, rather
+-- than reach into their tables here, once ci/cosmic-driver.pin names a
+-- release with a verb that does (through build/shared_sqlite.tl, beside
+-- build/shared_compiles.tl's and build/shared_verdicts.tl's formats),
+-- which the tree has yet to add: the trims run where the tree's
+-- o/bin/cosmic may never have been built (ci.yml's steps need only the
+-- driver), and this module, on the pinned release, cannot require the
+-- tree's. This reads every table of their formats by its `used_ns`
 -- column, and leaves a table without one whole.
 function CacheTrim.trim(path: string, since_ns: integer,
                         tables: CacheTrim.Tables): CacheTrim.Trimmed | nil, string
