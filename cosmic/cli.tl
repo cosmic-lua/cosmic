@@ -121,8 +121,21 @@ local record Cli
   --- `.key` or `["a key"]` and `[1]`, counted from 1 as `Json.get`
   --- counts (`$.users[1].name`); with a file after it, a first key
   --- needs no dot (`a.b`), and whitespace in a path is part of a key.
-  --- `*` and `..` are kept for wildcards and are refused. A key named
-  --- `*` is `["*"]`. Quote a path in single quotes in a shell
+  --- `*` (`.*` or `[*]`) is every member of an object or element of an
+  --- array, and `..key` or `..[n]` that key or index at any depth, the
+  --- current level included (`$..id`, `$.users[*].name`): such a path
+  --- prints each match as a `path = value` line, the value as compact
+  --- JSON (`$.users[1].name = "ann"`), in document order (arrays by
+  --- index, keys sorted); with `-r`, the raw values alone, one to a line;
+  --- with `--exists`, nothing, and 0 when at least one matches. A key
+  --- named `*` is `["*"]`. JSONPath's filters, slices and unions are
+  --- left out on purpose: this is a lookup, not a query language.
+  --- `--flat` prints every leaf under the path (the whole document with
+  --- none) as such lines, in the same order, an empty object or array
+  --- as `{}` or `[]`; the path of each line is exactly one this command
+  --- takes, so `cosmic json --flat export.json | grep -i email` finds a
+  --- leaf and its path pastes back into `cosmic json '$.users[2].email'
+  --- export.json`. Quote a path in single quotes in a shell
   --- (`'$.users[1]'`), which would expand `$` and `[1]`. With one word,
   --- it is the path when it begins `$`, `.` or `[` (and not `./` or
   --- `../`), else the file; a file named `.data.json` is `./.data.json`,
@@ -132,9 +145,11 @@ local record Cli
   --- precision. `--exists` prints
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
-  --- `--shape` prints `Json.describe` of the value. Only a lookup: no
-  --- filter, no transform. Exits 0 when the path is found, 1 when it is
-  --- not, with the message `Json.get` gives on standard error (a
+  --- `--shape` prints `Json.describe` of the value, and neither takes a
+  --- pattern, which can match many values. Only a lookup: no
+  --- filter, no transform. Exits 0 when the path is found (a pattern:
+  --- when something matches), 1 when it is not, with the message
+  --- `Json.get` gives on standard error (a
   --- `null` value is found), 2 for a command line it cannot read or a
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
@@ -234,8 +249,9 @@ local module: Module = {
     },
     json = {
       ["--compact"] = { about = "print the value on one line" },
-      ["-r"] = { about = "print a string as its text, without quotes" },
-      ["--raw"] = { about = "print a string as its text, without quotes" },
+      ["-r"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+      ["--raw"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+      ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
       ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
       ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },

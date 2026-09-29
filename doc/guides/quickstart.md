@@ -60,8 +60,23 @@ style the JSON messages print, with indices counted from 1; quote it in
 single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
 out to read standard input, so `curl ... | cosmic json '.items[1]'`
 works. Numbers print as `Json.encode` writes them, so `1e2` reads
-`100.0`. It is only a lookup, with no filters: for more, write the
-script with `cosmic.json`. `cosmic help json` has the rest.
+`100.0`.
+
+When you do not know where a value lives, list them all: `cosmic json
+--flat export.json` prints every leaf as a `path = value` line, keys
+sorted, and `cosmic json --flat export.json | grep -i email` finds the
+one you want, say `$.users[2].contact.email = "bo@example.com"`. That
+path is exactly what `cosmic json` takes, so paste it back: `cosmic json
+'$.users[2].contact'` shows what is around it. A `*` stands for every
+member or element, and `..` for any depth: `cosmic json '$.users[*].name'
+export.json` prints each user's name as such a line, `cosmic json -r
+'$..email' export.json` every email in the file, bare, and `cosmic json
+--exists '$..error' export.json` asks whether any `error` key is there.
+`--keys` and `--shape` take one path, not a pattern. There are no
+JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
+over `--flat` does the rest. For more, write the script with
+`cosmic.json`, whose `Json.flatten` and `Json.select` are these two.
+`cosmic help json` has the rest.
 
 ## below cosmic.fs
 

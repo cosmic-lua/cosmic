@@ -1008,15 +1008,16 @@ local function test_parse_path_names_where_a_path_stops_being_one()
   refused_path("$[9223372036854775808]", "does not fit an integer")
 end
 
-local function test_parse_path_keeps_wildcards_and_descent_for_later()
-  refused_path("$.a..b", "`..` (recursive descent) is not supported yet")
-  refused_path("..balance", "recursive descent")
+local function test_parse_path_refuses_wildcards_and_descent_pointing_at_patterns()
+  refused_path("$.a..b", "`..` (recursive descent) is a pattern, not a path")
+  refused_path("..balance", "Json.parse_pattern")
   refused_path("$..", "recursive descent")
-  refused_path("$.*", "wildcard) is not supported yet")
+  refused_path("$.*", "Json.parse_pattern")
   refused_path("$.a.*.b", "wildcard")
   refused_path("*", "wildcard")
-  refused_path("$[*]", "wildcard")
+  refused_path("$[*]", "Json.parse_pattern")
   refused_path("a[*]", "wildcard")
+  refused_path("$..[1]", "recursive descent")
   -- A key named `*` is still reachable, quoted, and `*` inside a longer key is a key.
   assert_steps('$["*"]', { "*" })
   assert_steps("$.a*", { "a*" })
@@ -1030,4 +1031,373 @@ local function test_parse_path_round_trips_child_path()
     local text = Json.child_path(Json.child_path("$", key), 3)
     assert_steps(text, { key, 3 })
   end
+end
+
+local function flat_lines(value: any, opts?: Json.WalkOptions): {string}
+  local leaves, err = Json.flatten(value, opts)
+  assert(leaves ~= nil, err)
+  assert(err == "")
+  local lines: {string} = {}
+  for i, leaf in ipairs(leaves) do
+    local line, why = Json.flat_line(leaf.path, leaf.value)
+    assert(line ~= nil, why)
+    lines[i] = line
+  end
+  return lines
+end
+
+local function assert_lines(got_lines: {string}, want: {string})
+  assert(table.concat(got_lines, "\n") == table.concat(want, "\n"),
+    "got:\n" .. table.concat(got_lines, "\n") .. "\nwant:\n" .. table.concat(want, "\n"))
+end
+
+local function pat(text: string): {Json.Step}
+  local steps, err = Json.parse_pattern(text)
+  assert(steps ~= nil, text .. ": " .. err)
+  return steps
+end
+
+local function test_flatten_lists_every_leaf_in_a_fixed_order()
+  local doc = decoded('{"n": null, "c": "s", "b": [10, {"z": 1, "a": []}], "a": {}, "f": 1200.5, "t": true}',
+    { null_value = Json.null })
+  assert_lines(flat_lines(doc), {
+    "$.a = {}", "$.b[1] = 10", "$.b[2].a = []", "$.b[2].z = 1", "$.c = \"s\"",
+    "$.f = 1200.5", "$.n = null", "$.t = true",
+  })
+end
+
+local function test_flatten_spells_keys_as_child_path_does()
+  local doc = decoded('{"k k": [{"a.b": 1}], "": 2, "q\\"": 3}')
+  assert_lines(flat_lines(doc), { '$[""] = 2', '$["k k"][1]["a.b"] = 1', '$["q\\""] = 3' })
+end
+
+local function test_flatten_of_a_scalar_or_an_empty_container_is_that_one_leaf()
+  assert_lines(flat_lines(3), { "$ = 3" })
+  assert_lines(flat_lines("x"), { '$ = "x"' })
+  assert_lines(flat_lines(decoded("{}")), { "$ = {}" })
+  assert_lines(flat_lines(decoded("[]")), { "$ = []" })
+  assert_lines(flat_lines(Json.array()), { "$ = []" })
+  assert_lines(flat_lines(decoded("null", { null_value = Json.null })), { "$ = null" })
+  assert_lines(flat_lines(decoded('[[], [[]], {}]')), { "$[1] = []", "$[2][1] = []", "$[3] = {}" })
+end
+
+local function test_flatten_skips_holes_and_keeps_the_neighbours_indexes()
+  local holey: {integer:string} = { [1] = "a", [3] = "c", [7] = "g" }
+  assert_lines(flat_lines(holey), { '$[1] = "a"', '$[3] = "c"', '$[7] = "g"' })
+  -- Nulls decoded to nothing leave an object member absent, and an object of only those is empty.
+  assert_lines(flat_lines(decoded('{"a": null, "b": 1}')), { "$.b = 1" })
+  assert_lines(flat_lines(decoded('{"a": null}')), { "$ = {}" })
+end
+
+local function test_flatten_root_spells_the_value_where_it_was_found()
+  local doc = decoded('{"users": [{"id": 1}]}')
+  local user = got(doc, { "users", 1 })
+  assert_lines(flat_lines(user, { root = "$.users[1]" }), { "$.users[1].id = 1" })
+end
+
+local function test_flatten_stops_at_max_depth_naming_the_path()
+  local doc = decoded('{"a": {"b": [1]}}')
+  local leaves, err = Json.flatten(doc, { max_depth = 2 })
+  assert(leaves == nil and err:find("$.a.b", 1, true) and err:find("max_depth 2", 1, true), err)
+  assert_lines(flat_lines(doc, { max_depth = 3 }), { "$.a.b[1] = 1" })
+  -- An empty container still nests: it is a container.
+  local _, empty_err = Json.flatten(decoded('[[[]]]'), { max_depth = 2 })
+  assert(empty_err:find("$[1][1]", 1, true), empty_err)
+  local deep: any = 1
+  for _ = 1, 100 do deep = { deep } end
+  local _, default_err = Json.flatten(deep)
+  assert(default_err:find("max_depth 64", 1, true), default_err)
+  assert(Json.flatten(deep, { max_depth = 200 }) ~= nil)
+  assert(not pcall(Json.flatten, doc, { max_depth = 0 }))
+  assert(not pcall(Json.flatten, doc, { max_depth = Json.depth_limit + 1 }))
+end
+
+local function test_flatten_fails_on_a_cycle_and_on_mixed_keys()
+  local loop: {string:any} = { name = "x" }
+  loop.self = loop
+  local leaves, err = Json.flatten(loop)
+  assert(leaves == nil and err:find("$.self: the table contains itself", 1, true), err)
+  local mixed: {any:any} = { a = 1, [1] = 2 }
+  local m, mixed_err = Json.flatten({ rows = mixed })
+  assert(m == nil and mixed_err:find("$.rows: expected an object or an array, got table with mixed keys", 1, true), mixed_err)
+  -- The same table twice is no cycle.
+  local shared = { 1 }
+  assert_lines(flat_lines({ a = shared, b = shared }), { "$.a[1] = 1", "$.b[1] = 1" })
+end
+
+local function test_flat_line_prints_the_compact_value()
+  assert(Json.flat_line("$.a[1].b", 1200.5) == "$.a[1].b = 1200.5")
+  assert(Json.flat_line("$", Json.null) == "$ = null")
+  assert(Json.flat_line("$.s", 'a "q" = b\n') == '$.s = "a \\"q\\" = b\\n"')
+  local line, err = Json.flat_line("$.f", function() end)
+  assert(line == nil and err:find("$.f", 1, true), err)
+end
+
+local function test_every_flat_path_reads_back_to_its_leaf()
+  local doc = decoded('{"a b": [1, {"c\\"d": [true, null, {}], "e": "s"}], "": {"": 0}, "$": 1.5}',
+    { null_value = Json.null })
+  local leaves = assert(Json.flatten(doc))
+  assert(#leaves == 7, #leaves)
+  for _, leaf in ipairs(leaves) do
+    local steps = path_of(leaf.path)
+    local value = got(doc, steps)
+    local expected = leaf.value
+    if expected is {any:any} then
+      assert(encoded(value) == encoded(expected), leaf.path)
+    else
+      assert(value == expected, leaf.path)
+    end
+  end
+end
+
+local record Kinds
+  kind: Json.StepKind
+  key: string
+  index: integer
+end
+
+local function assert_pattern(text: string, want: {Kinds})
+  local steps, err = Json.parse_pattern(text)
+  assert(steps ~= nil, text .. ": " .. err)
+  assert(err == "")
+  assert(#steps == #want, text .. " read as " .. #steps .. " steps")
+  for i, w in ipairs(want) do
+    assert(steps[i].kind == w.kind and steps[i].key == w.key and steps[i].index == w.index,
+      text .. " step " .. i .. " is " .. steps[i].kind)
+  end
+  assert(Json.spell_pattern(steps) == Json.spell_pattern(pat(Json.spell_pattern(steps))))
+end
+
+local function refused_pattern(text: string, why: string)
+  local steps, err = Json.parse_pattern(text)
+  assert(steps == nil, text .. " read")
+  assert(err:find(why, 1, true), text .. ": " .. err)
+end
+
+local function test_parse_pattern_reads_wildcards_and_descent()
+  assert_pattern("$", {})
+  assert_pattern("$.a.*", { { kind = "key", key = "a" }, { kind = "any" } })
+  assert_pattern("a[*].b", { { kind = "key", key = "a" }, { kind = "any" }, { kind = "key", key = "b" } })
+  assert_pattern("*", { { kind = "any" } })
+  assert_pattern("$..id", { { kind = "deep_key", key = "id" } })
+  assert_pattern("..id", { { kind = "deep_key", key = "id" } })
+  assert_pattern("$.a..[3]", { { kind = "key", key = "a" }, { kind = "deep_index", index = 3 } })
+  assert_pattern('$..["a key"].x', { { kind = "deep_key", key = "a key" }, { kind = "key", key = "x" } })
+  assert_pattern("$..*", { { kind = "deep_any" } })
+  assert_pattern("$..[*]", { { kind = "deep_any" } })
+  assert_pattern("$[-1]..a[2]", { { kind = "index", index = -1 }, { kind = "deep_key", key = "a" }, { kind = "index", index = 2 } })
+  -- Quoted `*` and `..` are keys.
+  assert_pattern('$["*"]["..x"]', { { kind = "key", key = "*" }, { kind = "key", key = "..x" } })
+  assert_pattern("$.a*.*b", { { kind = "key", key = "a*" }, { kind = "key", key = "*b" } })
+end
+
+local function test_parse_pattern_refuses_what_parse_path_refuses()
+  refused_pattern("", "empty")
+  refused_pattern("$.", "column 3: expected a key")
+  refused_pattern("$..", "column 4: expected a key after `..`")
+  refused_pattern("$...a", "expected a key after `..`")
+  refused_pattern("$.a..", "expected a key after `..`")
+  refused_pattern("$[", "expected an integer or a quoted key")
+  refused_pattern("$[**]", "expected an integer or a quoted key")
+  refused_pattern("$..[", "expected an integer or a quoted key")
+  refused_pattern("$..[1.5]", "expected an integer or a quoted key")
+  refused_pattern('$.*["a', "unclosed [")
+  refused_pattern("$.*x[1]y", "expected `.` or `[`")
+end
+
+local function test_parse_pattern_and_parse_path_agree_on_plain_text_and_split_on_the_rest()
+  for _, text in ipairs({ "$", "$.a[2][\"b c\"]", "a.b", "[1]", '$["*"]' }) do
+    local plain = path_of(text)
+    local steps = pat(text)
+    assert(#steps == #plain, text)
+    for i, step in ipairs(steps) do
+      local want: string | integer = plain[i]
+      if want is string then
+        assert(step.kind == "key" and step.key == want, text)
+      else
+        assert(step.kind == "index" and step.index == want, text)
+      end
+    end
+  end
+  for _, text in ipairs({ "$.*", "$.a[*]", "$..a", "$.a..[1]", "$..*" }) do
+    refused_path(text, "Json.parse_pattern")
+    assert(#pat(text) > 0, text)
+  end
+end
+
+local function test_spell_pattern_reads_back_as_the_same_steps()
+  for _, text in ipairs({ "$", "$.a.*", "$..id", '$..["a key"]', "$..[3]", "$..*", '$["*"]..["*"]', "$[-2]" }) do
+    assert(Json.spell_pattern(pat(text)) == text, text)
+  end
+  assert(Json.spell_pattern(pat("a[*]..b")) == "$.a.*..b")
+  assert(not pcall(Json.spell_pattern, { { kind = "key" } }))
+end
+
+--- The paths `Json.select` finds for `pattern` in `doc`, joined by spaces.
+local function selected(doc: any, pattern: string): string
+  local found, err = Json.select(doc, pat(pattern))
+  assert(found ~= nil, pattern .. ": " .. err)
+  assert(err == "")
+  local paths: {string} = {}
+  for i, match in ipairs(found) do paths[i] = match.path end
+  return table.concat(paths, " ")
+end
+
+local SELECT_DOC <const> = [=[
+{"id": 0, "users": [{"id": 1, "name": "ann", "tags": ["x", "y"], "kin": {"id": 11}},
+                    {"id": 2, "name": "bo", "tags": []}],
+ "meta": {"id": 9, "n": null, "deep": {"deep": {"id": 10}}}, "k k": [[1, 2], [3]]}
+]=]
+
+local function test_select_a_plain_pattern_matches_what_get_finds()
+  local doc = decoded(SELECT_DOC)
+  assert(selected(doc, "$") == "$")
+  assert(selected(doc, "$.users[2].name") == "$.users[2].name")
+  assert(selected(doc, '$["k k"][2][1]') == '$["k k"][2][1]')
+  assert(selected(doc, "$.nope") == "")
+  assert(selected(doc, "$.users[3]") == "")
+  assert(selected(doc, "$.id.x") == "")
+end
+
+local function test_select_wildcards_take_every_member_or_element()
+  local doc = decoded(SELECT_DOC, { null_value = Json.null })
+  assert(selected(doc, "$.users[*].name") == "$.users[1].name $.users[2].name")
+  assert(selected(doc, "$.users.*.name") == "$.users[1].name $.users[2].name")
+  assert(selected(doc, "$.meta.*") == "$.meta.deep $.meta.id $.meta.n")
+  assert(selected(doc, "$.users[1].tags[*]") == "$.users[1].tags[1] $.users[1].tags[2]")
+  assert(selected(doc, '$["k k"][*][*]') == '$["k k"][1][1] $["k k"][1][2] $["k k"][2][1]')
+  assert(selected(doc, "$.users[*].tags[*]") == "$.users[1].tags[1] $.users[1].tags[2]")
+  assert(selected(doc, "$.users[2].tags[*]") == "")
+  -- A wildcard over a scalar or a null matches nothing, and is no error.
+  assert(selected(doc, "$.id.*") == "")
+  assert(selected(doc, "$.meta.n[*]") == "")
+  assert(selected(doc, "$.users[*].nope") == "")
+  assert(selected(doc, "$.id[*]") == "")
+  assert(selected(doc, "$.tags[*]") == "")
+end
+
+local function test_select_a_wildcard_meeting_the_other_kind_of_container_matches_by_kind()
+  local doc = decoded('{"o": {"1": "s"}, "a": ["t"]}')
+  assert(selected(doc, "$.o[1]") == "")
+  assert(selected(doc, "$.a.x") == "")
+  assert(selected(doc, "$.o[*]") == '$.o["1"]')
+  assert(selected(doc, "$.*[*]") == '$.a[1] $.o["1"]')
+end
+
+local function test_select_descent_finds_a_key_at_any_depth_root_level_included()
+  local doc = decoded(SELECT_DOC, { null_value = Json.null })
+  assert(selected(doc, "$..id") ==
+    "$.id $.meta.deep.deep.id $.meta.id $.users[1].id $.users[1].kin.id $.users[2].id")
+  -- At the root's own level and below, and a match before what is inside it.
+  assert(selected(decoded('{"a": {"a": 1}, "b": {"a": 2}}'), "$..a") == "$.a $.a.a $.b.a")
+  assert(selected(decoded('{"a": 1}'), "..a") == "$.a")
+  assert(selected(doc, "$..deep") == "$.meta.deep $.meta.deep.deep")
+  assert(selected(doc, "$.meta..deep.id") == "$.meta.deep.deep.id")
+  assert(selected(doc, "$.users..name") == "$.users[1].name $.users[2].name")
+  assert(selected(doc, "$..nope") == "")
+  assert(selected(decoded("5"), "$..a") == "")
+end
+
+local function test_select_descent_by_index_and_over_everything()
+  local doc = decoded(SELECT_DOC, { null_value = Json.null })
+  assert(selected(doc, "$..[1]") == '$["k k"][1] $["k k"][1][1] $["k k"][2][1] $.users[1] $.users[1].tags[1]')
+  assert(selected(doc, "$.users[1].kin..*") == "$.users[1].kin.id")
+  assert(selected(decoded('{"a": [1, [2]]}'), "$..*") == "$.a $.a[1] $.a[2] $.a[2][1]")
+  assert(selected(decoded('{"a": [1, [2]]}'), "$..[*]") == "$.a $.a[1] $.a[2] $.a[2][1]")
+end
+
+local function test_select_lists_each_value_once_however_it_is_reached()
+  local doc = decoded('{"a": {"a": {"a": {"b": 1}}}}')
+  assert(selected(doc, "$..a..b") == "$.a.a.a.b")
+  assert(selected(doc, "$..a.a.b") == "$.a.a.a.b")
+  assert(selected(doc, "$..a..*") == "$.a.a $.a.a.a $.a.a.a.b")
+  local paired = decoded('{"x": {"x": 1}}')
+  assert(selected(paired, "$..x..x") == "$.x.x")
+end
+
+local function test_select_answers_the_values_with_the_paths()
+  local doc = decoded('{"a": [{"n": 1}, {"n": 2.5}], "b": {"n": "s"}}')
+  local found = assert(Json.select(doc, pat("$..n")))
+  assert(#found == 3)
+  assert(found[1].path == "$.a[1].n" and found[1].value == 1)
+  assert(found[2].path == "$.a[2].n" and found[2].value == 2.5)
+  assert(found[3].path == "$.b.n" and found[3].value == "s")
+  local whole = assert(Json.select(doc, {}))
+  assert(#whole == 1 and whole[1].path == "$" and rawequal(whole[1].value, doc))
+  local container = assert(Json.select(doc, pat("$.a[*]")))
+  assert(rawequal(container[1].value, (got(doc, { "a", 1 }))))
+  -- Each match's path reads back to it.
+  for _, match in ipairs(found) do assert(got(doc, path_of(match.path)) == match.value) end
+end
+
+local function test_select_spells_paths_from_the_root_it_is_given()
+  local doc = decoded('{"n": 1, "m": [2]}')
+  local found = assert(Json.select(doc, pat("$.*"), { root = "$.x" }))
+  assert(#found == 2 and found[1].path == "$.x.m" and found[2].path == "$.x.n")
+end
+
+local function test_select_hole_matches_nothing_and_neighbours_keep_indexes()
+  local holey: {any:any} = { [1] = "a", [3] = "c" }
+  assert(selected(holey, "$[*]") == "$[1] $[3]")
+  assert(selected(holey, "$[2]") == "")
+  assert(selected(holey, "$[3]") == "$[3]")
+  assert(selected(holey, "$..*") == "$[1] $[3]")
+end
+
+local function test_select_fails_like_flatten_on_depth_cycles_and_mixed_keys()
+  local doc = decoded('{"a": {"b": {"c": 1}}}')
+  local found, err = Json.select(doc, pat("$..c"), { max_depth = 2 })
+  assert(found == nil and err:find("$.a.b: nested deeper than max_depth 2", 1, true), err)
+  assert(Json.select(doc, pat("$..c"), { max_depth = 3 }) ~= nil)
+  -- A pattern that never goes down that far does not meet the limit.
+  assert(Json.select(doc, pat("$.a"), { max_depth = 1 }) ~= nil)
+  local loop: {string:any} = { name = "x" }
+  loop.self = loop
+  local _, cycle = Json.select(loop, pat("$..zzz"))
+  assert(cycle:find("contains itself", 1, true), cycle)
+  local _, mixed = Json.select({ a = 1, [1] = 2 }, pat("$.*"))
+  assert(mixed:find("mixed keys", 1, true), mixed)
+  assert(not pcall(Json.select, doc, { { kind = "key" } }))
+  assert(not pcall(Json.select, doc, {}, { max_depth = 0 }))
+end
+
+local function test_select_descent_over_a_large_document_is_linear()
+  local parts: {string} = {}
+  for i = 1, 16000 do
+    parts[i] = '{"id": ' .. i .. ', "tags": ["a", "b"], "in": {"id": -' .. i .. '}}'
+  end
+  -- 16000 x 7 values (the record, id, tags and its two strings, in, in.id) is over 100k.
+  local doc = decoded('{"rows": [' .. table.concat(parts, ",") .. ']}')
+  local pattern = pat("$..id")
+  local started = Time.monotonic_ns()
+  local ids = assert(Json.select(doc, pattern))
+  local elapsed = Time.monotonic_ns() - started
+  assert(#ids == 32000, #ids)
+  assert(ids[1].path == "$.rows[1].id" and ids[2].path == "$.rows[1].in.id")
+  assert(elapsed < 1000000000, "descent over 112k values took " .. elapsed // 1000000 .. " ms")
+end
+
+local function test_select_chained_descents_are_linear_not_a_product()
+  -- Every `a` is inside every earlier `a`: a walk that restarts at each
+  -- match meets the innermost ones once per way of reaching them, over
+  -- 100 million times here, and lists them that often.
+  local chain: any = { leaf = 1 }
+  for _ = 1, 900 do chain = { a = chain } end
+  local started = Time.monotonic_ns()
+  local found = assert(Json.select(chain, pat("$..a..a..a"), { max_depth = 1000 }))
+  local elapsed = Time.monotonic_ns() - started
+  assert(#found == 898, #found)
+  assert(found[1].path == "$.a.a.a" and found[898].path:sub(-6) == ".a.a.a")
+  assert(elapsed < 1000000000, "chained descent took " .. elapsed // 1000000 .. " ms")
+end
+
+local function test_flatten_of_a_large_document_is_linear_too()
+  local rows: {any} = {}
+  for i = 1, 25000 do rows[i] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
+  local started = Time.monotonic_ns()
+  local leaves = assert(Json.flatten({ rows = Json.array(rows) }))
+  local elapsed = Time.monotonic_ns() - started
+  assert(#leaves == 100000, #leaves)
+  assert(leaves[1].path == "$.rows[1].id" and leaves[4].path == "$.rows[1].tags[2]")
+  assert(elapsed < 1000000000, "flatten of 100k leaves took " .. elapsed // 1000000 .. " ms")
 end
