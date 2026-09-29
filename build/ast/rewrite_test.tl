@@ -20,9 +20,9 @@ local function pattern_ok(pattern_src: string): Node
   return pattern
 end
 
---- A clean splice -- no comment anywhere near the match -- with a
---- replacement template (`assert(os.execute($X))`) that is already
---- correctly spaced, so the raw splice matches byte-for-byte.
+--- A clean splice, with no comment near the match, of a template
+--- (`assert(os.execute($X))`) already spaced as it should read, so the
+--- raw splice is byte-exact.
 local function test_rewrite_applies_a_clean_splice()
   local pattern = pattern_ok("os.execute($X)")
   local result, err = rewrite_mod.rewrite(
@@ -32,12 +32,11 @@ local function test_rewrite_applies_a_clean_splice()
   assert(#result.refused == 0, "expected no refusals")
 end
 
---- One capture name that is a literal prefix of another's (`_X` inside
---- `_XS`, once desugared) must not corrupt the longer name's own
---- substitution: an unanchored `text:gsub(cname, ...)` over `_X` would
---- also hit the `_X` inside `_XS`, turning "xs" into "xS" -- whole-
---- identifier matching (`find_name`) is what keeps the two capture
---- names from colliding.
+--- A capture name that prefixes another's (`_X` in `_XS`, once
+--- desugared) must not corrupt the longer name's substitution. An
+--- unanchored replacement of `_X` would also hit the `_X` inside `_XS`
+--- and turn "xs" into "xS"; whole-identifier matching (`find_name`)
+--- prevents it.
 local function test_rewrite_does_not_corrupt_a_capture_name_that_is_a_prefix_of_another()
   local pattern = pattern_ok("return $X + $XS")
   local result, err = rewrite_mod.rewrite(
@@ -47,11 +46,9 @@ local function test_rewrite_does_not_corrupt_a_capture_name_that_is_a_prefix_of_
   assert(result.code == "return xs - x\n", "code: " .. result.code)
 end
 
---- Two matches in one source: splicing must run back-to-front so the
---- first hit's byte offsets (computed once, up front) stay valid after
---- the second hit's splice runs -- front-to-back would shift them out
---- from under it, corrupting the first hit's replacement into a syntax
---- error.
+--- Two matches in one source. Splicing runs back to front so the
+--- first hit's byte offsets, computed once up front, stay valid; front
+--- to back would shift them under the second hit.
 local function test_rewrite_applies_both_hits_in_a_two_hit_source()
   local pattern = pattern_ok("os.execute($X)")
   local source = "os.execute(cmd1)\nos.execute(cmd2)\n"
@@ -63,10 +60,9 @@ local function test_rewrite_applies_both_hits_in_a_two_hit_source()
     "code: " .. result.code)
 end
 
---- A comment sitting between the two captures -- in the gap the swapped
---- template doesn't cover -- is not carried forward by either capture's
---- own span, so the hit is refused: left byte-for-byte unmodified
---- (comment included) rather than silently mangled by the splice.
+--- A comment between the two captures sits in the gap the swapped
+--- template does not cover, so neither capture carries it forward. The
+--- hit is refused and its bytes, comment included, stay as they were.
 local function test_rewrite_refuses_a_hit_that_would_drop_a_comment()
   local pattern = pattern_ok("return $A + $B")
   local source = "return a --[[ keep this ]] + b\n"
@@ -80,15 +76,10 @@ local function test_rewrite_refuses_a_hit_that_would_drop_a_comment()
 end
 
 --- An empty replacement against a call-statement hit removes the whole
---- STATEMENT -- `test_a()`'s own line entirely, not just its own byte
---- span spliced with "" -- so the deletion leaves no blank line behind
---- and both `run()` calls (the one call `$F:^test_()`'s predicate does
---- not match) survive untouched.
----
---- The deleted statement sits between two others, not first in the
---- file: a byte-span-only deletion (the node's own span, leaving its
---- line's newline and the next line's content behind) would leave a
---- STRAY BLANK LINE mid-file.
+--- line of `test_a()`, not just its byte span, so no blank line is left
+--- and both `run()` calls, which `$F:^test_()` does not match, survive.
+--- The deleted statement sits between two others: deleting only its
+--- byte span would leave a blank line mid-file.
 local function test_rewrite_deletes_a_call_statement_leaving_no_blank_line()
   local pattern = pattern_ok("$F:^test_()")
   local source = "run()\ntest_a()\nrun()\n"
@@ -98,11 +89,10 @@ local function test_rewrite_deletes_a_call_statement_leaving_no_blank_line()
   assert(result.code == "run()\nrun()\n", "code: " .. result.code)
 end
 
---- The same deletion, refusal side: a comment trailing the statement
---- on its OWN line sits outside the call node's own byte span but
---- inside the whole-line range the deletion removes -- the hit is
---- refused, exactly as a comment inside a normal splice's own span
---- would be, rather than silently vanishing with the line.
+--- The same deletion, refused: a comment trailing the statement lies
+--- outside the call's byte span but inside the whole-line range the
+--- deletion removes, so the hit is refused as a comment inside a
+--- normal splice would be.
 local function test_rewrite_refuses_a_statement_deletion_dropping_a_trailing_comment()
   local pattern = pattern_ok("$F:^test_()")
   local source = "test_a() -- keep this\nrun()\n"
