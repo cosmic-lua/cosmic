@@ -515,6 +515,25 @@ local function test_a_local_type_only_a_private_member_names_stays_private()
   assert(not by_symbol["Pipe"].exported and not by_symbol["Pipe.fd"].exported)
 end
 
+--- A `--` note beside a `---` block (a `TODO:` under it) is not part of
+--- the documentation; a run of `--` alone still is.
+local function test_a_plain_comment_beside_a_doc_block_is_not_documentation()
+  local by_symbol = docs(lines({
+    "--- Opens a thing.",
+    "-- TODO: open two.",
+    "local function open_thing()",
+    "end",
+    "",
+    "-- Closes a thing.",
+    "-- Twice, even.",
+    "local function close_thing()",
+    "end",
+  }))
+  assert(by_symbol["open_thing"].text == "Opens a thing.", by_symbol["open_thing"].text)
+  assert(by_symbol["close_thing"].text == "Closes a thing.\nTwice, even.",
+    by_symbol["close_thing"].text)
+end
+
 --- A function with no comment of its own is still a symbol, with an
 --- empty text: `cosmic docs` can still say where it lives.
 local function test_an_undocumented_function_is_still_a_symbol()
