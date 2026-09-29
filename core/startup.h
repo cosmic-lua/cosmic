@@ -20,8 +20,9 @@
  * descriptors from its bounded candidate set, then leaves the artifact and
  * verified standalone core open on them across its one exec. Startup must
  * validate and clear exactly these bounded fields before Lua can inspect or
- * propagate the environment. cosmic_startup_portable below does the validate
- * and clear; cosmic_startup_adopt does the adoption once that succeeds.
+ * propagate the environment. cosmic_startup_portable below reads and clears
+ * them, cosmic_startup_validate reports a field it found invalid, and
+ * cosmic_startup_adopt adopts the handles once validation passes.
  */
 #define COSMIC_PORTABLE_ENV_ARTIFACT_FD "COSMIC_PORTABLE_ARTIFACT_FD"
 #define COSMIC_PORTABLE_ENV_CORE_FD "COSMIC_PORTABLE_CORE_FD"

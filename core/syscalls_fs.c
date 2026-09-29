@@ -43,9 +43,9 @@
 #include "store.h"
 #include "syscalls.h"
 
-/* The one place the two systems name the same field differently. macOS
- * keeps a timespec once _DARWIN_C_SOURCE asks for the full header level
- * mkdtemp also needs, and Linux always did. */
+/* The one place the two systems name the same field differently: macOS
+ * has the timespec fields as st_mtimespec once _DARWIN_C_SOURCE asks for
+ * the full header level mkdtemp needs too, Linux as st_mtim. */
 #if defined(__APPLE__)
 #define COSMIC_MTIME_SECONDS(st) ((st).st_mtimespec.tv_sec)
 #define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtimespec.tv_nsec)
@@ -466,13 +466,12 @@ COSMIC_SYSCALL(mkdir, 2) {
   if (mkdir(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
   }
-  /* Noted once it is made, as the test's own; one the log cannot keep
-   * is taken back. The rmdir is of the empty directory this call made
-   * a moment ago, in a parent it could write: it fails only where
-   * another process raced into it, and then the directory stays, no
-   * directory of the test's own -- a read beneath it is resolved as
-   * any other path's, which keys it no less -- and the call still says
-   * why it failed: its record could not be kept. */
+  /* Noted once it is made, as the test's own. When the log cannot keep
+   * the record, the directory is removed again and the call fails with
+   * ENOMEM. The rmdir can fail only where another process raced into
+   * the new, empty directory; it then stays, which costs no key
+   * anything, since a read beneath it is resolved like any other
+   * path's. */
   if (cosmic_observing &&
       !cosmic_observed_note(COSMIC_OBSERVED_MKDIR, path, strlen(path))) {
     (void)rmdir(path);
@@ -657,13 +656,8 @@ COSMIC_SYSCALL(mkdtemp, 1) {
   if (mkdtemp(room) == NULL) {
     return cosmic_fail(L, errno);
   }
-  /* Noted once it is made, as the test's own; one the log cannot keep
-   * is taken back. The rmdir is of the empty directory this call made
-   * a moment ago, in a parent it could write: it fails only where
-   * another process raced into it, and then the directory stays, no
-   * directory of the test's own -- a read beneath it is resolved as
-   * any other path's, which keys it no less -- and the call still says
-   * why it failed: its record could not be kept. */
+  /* Noted once it is made, and taken back when the log cannot keep the
+   * record, as `mkdir` does. */
   if (cosmic_observing &&
       !cosmic_observed_note(COSMIC_OBSERVED_MKDTEMP, room, len)) {
     (void)rmdir(room);
