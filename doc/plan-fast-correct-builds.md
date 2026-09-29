@@ -258,6 +258,20 @@ old target of about 355 was already met. The new target is at most
 - Then take M1 over the next ten ordinary merges. Without `gh` in this
   container, the run data comes through the GitHub API tools.
 - Shows: M1's four numbers, recorded above.
+- Third measurement (19 queue runs after #2340, #2343 to #2359; 7
+  qualify): median gate 8.8 min on the qualifying runs (10.1 over all
+  18), checked suite 79.4% stood (missed), main push 50 s, 37.8
+  runner-minutes per change. Not yet ten qualifying runs.
+  - 7 of 18 went `--all`, each editing build/harness_epoch.tl: the
+    epoch bump and the 2.7 PRs, and three ordinary PRs touching
+    build.test or build.analyzer (2.7b's split is what cuts those).
+  - 5 of the other 11 lost their stands to the run queued ahead, which
+    moved a key part the restored cache lacked. The merge-base restore
+    cannot help there: the base is the entry ahead, saved nowhere yet.
+    A queue run restoring the seed of the run ahead of it would.
+  - The checked job is never the gate. macOS is (10 of 18), then
+    linux-aarch64 (5): their fixtures (macOS about 210 s; aarch64's
+    fixed-point fixture about 117 s) and the portable suite.
 
 ### 2.7 Every worker loads less
 
@@ -694,8 +708,18 @@ Items, in order:
    older than 24 h. A doc-only skip is not safe: `doc/guides/*.md`
    compile into tests.
    - Shows: a branch five commits behind main stands on verdicts.
-8. **The portable suite narrowed:** re-decided after item 2, with its
-   numbers.
+8. **The portable suite narrowed (S): in progress.** It reruns exactly
+   the native suite's ran set on every leg (72 of 72 leg-runs), 89 to
+   153 s a leg, about 7.9 runner-minutes a queue run. It stays apart
+   from the native suite's verdicts by design (it exists to run tests
+   under the portable build), so a gating run runs it on the two
+   x86-64 legs (glibc and musl) and the scheduled run on every leg
+   (`COSMIC_CI_PORTABLE_SUITE`). Expected: median gate 10.1 to about
+   9.2 min.
+9. **A queue run restores the seed of the run ahead of it (M):
+   proposed.** Stacked queue runs restore main's newest save, which
+   lacks the key part the run ahead moves; the run ahead's `seed-<leg>`
+   artifact has it.
 
 Expected after items 2 to 5: the queue about 8 min wall and 34
 runner-minutes, main about 1.5 min and 4, about 38 per landed change.
