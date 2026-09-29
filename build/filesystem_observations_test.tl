@@ -4,6 +4,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local declared_key = require("build.declared_key")
@@ -394,7 +395,7 @@ local function test_a_process_a_library_declares_is_held(tmp: string)
   if text == "p" then
     -- The kernel confined neither: only a worker that runs in no
     -- sandbox, where it cannot give one, meets that.
-    Test.skip("the kernel confined neither process")
+    sandbox_skip.refused("the kernel confined neither process")
     return
   end
   assert(text == "u p", text)

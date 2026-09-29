@@ -240,8 +240,8 @@ end
 -- this variable (C, and a boot): today such a spawn fails EPERM as the
 -- kernel refuses its mounts, which a test that passes over a kernel
 -- that cannot confine (test/coverage_children_test.tl's parent, say)
--- takes for one, and passes unchecked where the run is not held to
--- sandboxing. So too a `cosmic test` a held worker's process starts
+-- takes for one, and counts skipped (build.sandbox_skip) where the run
+-- is not held to sandboxing. So too a `cosmic test` a held worker's process starts
 -- with an environment that drops this variable: its probe of the
 -- sandbox fails EPERM, and it runs its workers unsandboxed, saying only
 -- that the host may be refusing a user namespace or holding it by a

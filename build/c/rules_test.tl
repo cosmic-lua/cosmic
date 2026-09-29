@@ -2,6 +2,7 @@
 --- checked the way `cosmic fix` checks the core: through clang's dump.
 
 local Fs = require("cosmic.fs")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 local c = require("build.c")
 local observations = require("build.filesystem_observations")
@@ -674,7 +675,7 @@ local function test_checking_reads_what_the_compiler_read(tmp: string)
     -- Only a worker that runs in no sandbox, where the kernel can give
     -- its compilers none, starts them unconfined: what holds them is
     -- then unchecked.
-    Test.skip("the kernel confined no compiler: " .. table.concat(unheld, ", "))
+    sandbox_skip.refused("the kernel confined no compiler: " .. table.concat(unheld, ", "))
     for _, line in ipairs(unheld) do assert(line:sub(1, 2) == "p ", line) end
   else
     assert(given > 0, "no compiler was started")
@@ -725,7 +726,7 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   for _, observation in ipairs(run.reads) do
     if observation.kind == "p" then
       -- The kernel could confine none: the compiler read what it found.
-      Test.skip("a compiler ran unconfined: " .. observation.path)
+      sandbox_skip.refused("a compiler ran unconfined: " .. observation.path)
       return
     end
   end

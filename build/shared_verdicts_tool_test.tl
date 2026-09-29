@@ -14,6 +14,7 @@ local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, roots of their own for
@@ -53,9 +54,7 @@ end
 --- unprivileged runners nest them.
 local function shares(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return true end
-  Test.skip("the run it started sandboxed no worker: " ..
-    (text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
-      text:match("[^\n]*unsandboxed[^\n]*") or text))
+  sandbox_skip.nested(text)
   return false
 end
 

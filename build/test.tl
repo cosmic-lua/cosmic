@@ -2412,7 +2412,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   -- host that can check it, whose key differs, as its own; and a run
   -- held to sandboxing, which exists to prove the host checked it all,
   -- fails it.
-  local skipped = judged.skipped
+  local skipped = judged.passed and judged.skipped or ""
   if skipped ~= "" and rec.held then
     passed, skipped = false, ""
     message = "skipped (" .. judged.skipped .. "), but the run is held to sandboxing " ..

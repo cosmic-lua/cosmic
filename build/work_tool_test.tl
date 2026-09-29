@@ -8,6 +8,7 @@ local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
 local this_program = require("build.this_program")
 local work = require("build.work")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start, roots of their own for the
@@ -72,8 +73,6 @@ local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string
   assert(result.code == 0, out)
   assert(out:find("(2 tests, 2 modules", 1, true), out)
   if not out:find("; sandboxed)", 1, true) then
-    Test.skip("the run it started sandboxed no worker: " ..
-      (out:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
-      out:match("[^\n]*unsandboxed[^\n]*") or out))
+    sandbox_skip.nested(out)
   end
 end

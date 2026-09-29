@@ -213,8 +213,13 @@
    (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
    `COSMIC_CI_REQUIRE_SANDBOX=1`: build.confine's `held_to_sandbox`)
    fails any skipped test instead. A test that returns early because
-   the host cannot check it calls `Test.skip` too, never passing as
-   though it had checked. CI's unprivileged runners nest at
+   this host cannot be given the sandbox it is about calls `Test.skip`
+   too (`build.sandbox_skip`'s `refused`), never passing as though it
+   had checked -- but only where the platform could give it: off Linux
+   (no user namespaces, Landlock or subreaper) it returns silently, a
+   pass the key's kernel part pins to that platform. A test that
+   returns early for a host tool or artifact it lacks (jq, a portable
+   artifact) does not skip: a held run would fail it. CI's unprivileged runners nest at
    any depth; locally, check them by running the suite as an
    unprivileged user, as `ci/run-local` runs its driver as `nobody`.
    A test module declares what it reads beyond its import closure, its

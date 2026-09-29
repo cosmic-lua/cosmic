@@ -31,9 +31,9 @@
 --- another test module that calls `needs`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
 ---
---- A test that finds this host cannot check what it exists to check
---- says so with `skip`, as it returns early: the run counts it skipped
---- rather than passed.
+--- A test that this host cannot give the sandbox it is about says so
+--- with `skip`, as it returns early: the run counts it skipped rather
+--- than passed.
 -- TODO: take `environment` and `program` from build.this_program, which
 -- a test calls to say what a process of this program it starts needs
 -- and how to start one past its launcher, once each can be read from the
@@ -307,7 +307,13 @@ end
 --- (COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must or
 --- COSMIC_CI_REQUIRE_SANDBOX=1, as CI's Linux legs are) fails a
 --- skipped test, naming its reason: such a run proves the host checked
---- everything. Raises for a reason that is not a non-empty string and,
+--- everything. So a test skips only where its platform could give what
+--- this host refused (root nests a sandbox only two deep; a container
+--- refuses user namespaces); where the platform itself has none -- no
+--- user namespaces or Landlock off Linux -- there is nothing to check,
+--- and it returns silently, a pass that stands, since the key's kernel
+--- part names the platform. Nor does a test skip for a host tool or
+--- artifact it lacks. Raises for a reason that is not a non-empty string and,
 --- under a runner, for a call as the module loads rather than from a
 --- test. Outside a runner it does nothing.
 function Test.skip(reason: string)

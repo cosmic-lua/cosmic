@@ -22,6 +22,7 @@ local artifact = require("build.artifact")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
@@ -84,9 +85,7 @@ end
 --- they are (CI's unprivileged runner nests them).
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  Test.skip("the run it started sandboxed no worker: " ..
-    (text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
-      text:match("[^\n]*unsandboxed[^\n]*") or text))
+  sandbox_skip.nested(text)
   return true
 end
 

@@ -9,9 +9,8 @@ local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, and what holds a run to
---- sandboxing, which `this_program.environment` reads.
-Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true }
+--- The program itself, which its tests start.
+Test.needs{ tool = true }
 
 --- A project of one test module: one test that skips, one that passes.
 local function project(tmp: string): string
@@ -33,13 +32,15 @@ end
   return root
 end
 
---- What `cosmic test` in `root` printed and its status, run with `mode`
---- as COSMIC_SANDBOX (nil for none) and held to nothing else.
-local function run(root: string, mode: string | nil): string, integer
+--- What `cosmic test` in `root` printed and its status, run
+--- unsandboxed with `extra` set in its environment, and held to
+--- sandboxing by nothing else.
+local function run(root: string, extra: {string:string}): string, integer
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_SANDBOX = mode
+  env.COSMIC_SANDBOX = nil
   env.COSMIC_CI_REQUIRE_SANDBOX = nil
+  for name, value in pairs(extra) do env[name] = value end
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ms = 60000,
   })
@@ -49,24 +50,38 @@ end
 
 local function test_a_skipped_test_is_counted_and_runs_every_time(tmp: string)
   local root = project(tmp)
-  local out, code = run(root, nil)
+  local out, code = run(root, {})
   assert(code == 0, out)
   assert(out:find("(2 tests, 1 module; 2 ran, 0 stood, 1 skipped (this host could not " ..
     "check it), ", 1, true), out)
   -- Each reason once.
   assert(out:find("test: SKIP  skip_test test_skips: this host cannot\n", 1, true), out)
   -- No verdict is kept of it: the pass stands, the skip runs again.
-  out, code = run(root, nil)
+  out, code = run(root, {})
   assert(code == 0, out)
   assert(out:find("; 1 ran, 1 stood, 1 skipped ", 1, true), out)
 end
 
---- A run held to sandboxing fails a skipped test, naming why it skipped.
+--- Keyed by what each test declares, as a sandboxed run is, no verdict
+--- is kept of a skip either: it runs again where the pass stands.
+local function test_a_skip_keyed_by_its_declaration_keeps_no_verdict(tmp: string)
+  local root = project(tmp)
+  local keyed = { COSMIC_TEST_KEY = "declared", COSMIC_VERDICT_CACHE = "0" }
+  local out, code = run(root, keyed)
+  assert(code == 0 and out:find("; 2 ran, 0 stood, 1 skipped ", 1, true), out)
+  out, code = run(root, keyed)
+  assert(code == 0 and out:find("; 1 ran, 1 stood, 1 skipped ", 1, true), out)
+end
+
+--- A run held to sandboxing fails a skipped test, naming why it skipped:
+--- held by COSMIC_SANDBOX=must, or by CI's COSMIC_CI_REQUIRE_SANDBOX=1.
 local function test_a_run_held_to_sandboxing_fails_a_skipped_test(tmp: string)
-  local out, code = run(project(tmp), "must")
-  assert(code ~= 0, out)
-  assert(out:find("test: FAIL  skip_test test_skips: skipped (this host cannot), but the " ..
-    "run is held to sandboxing", 1, true), out)
-  assert(out:find("test: FAIL (1 of 2 failed, ", 1, true), out)
-  assert(not out:find("test: SKIP", 1, true), out)
+  for i, held in ipairs({ { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }) do
+    local out, code = run(project(tmp .. "/" .. tostring(i)), held)
+    assert(code ~= 0, out)
+    assert(out:find("test: FAIL  skip_test test_skips: skipped (this host cannot), but the " ..
+      "run is held to sandboxing", 1, true), out)
+    assert(out:find("test: FAIL (1 of 2 failed, ", 1, true), out)
+    assert(not out:find("test: SKIP", 1, true), out)
+  end
 end

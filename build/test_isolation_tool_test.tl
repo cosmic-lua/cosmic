@@ -12,6 +12,7 @@ local sys = require("cosmic.sys")
 local test = require("build.test")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
@@ -46,9 +47,7 @@ end
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return false end
-  Test.skip("the run it started sandboxed no worker: " ..
-    (text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
-      text:match("[^\n]*unsandboxed[^\n]*") or text))
+  sandbox_skip.nested(text)
   return true
 end
 

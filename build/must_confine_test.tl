@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local this_program = require("build.this_program")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
@@ -62,9 +63,7 @@ end
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  Test.skip("the run it started sandboxed no worker: " ..
-    (text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
-      text:match("[^\n]*unsandboxed[^\n]*") or text))
+  sandbox_skip.nested(text)
   return true
 end
 
@@ -282,7 +281,7 @@ end
   assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
     "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
   if unsandboxed(text) then return end
-  Test.skip("a sandboxed worker could not confine what it started: " .. why)
+  sandbox_skip.refused("a sandboxed worker could not confine what it started: " .. why)
 end
 
 --- COSMIC_SANDBOX=must makes every `confine` a `must_confine`, and runs

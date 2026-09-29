@@ -16,6 +16,7 @@ local Test = require("cosmic.test")
 local type raw_hash = require("cosmic.internal.hash")
 local type raw_process = require("cosmic.internal.process")
 local stand_in = require("build.stand_in")
+local sandbox_skip = require("build.sandbox_skip")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -48,12 +49,14 @@ end
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
---- Says a sandbox test is skipped (`Test.skip`) where the kernel
+--- Says a sandbox test is skipped (`Test.skip`) where this Linux host
 --- refuses the sandbox it is about -- no Landlock, no pledge -- as it
 --- returns early: the run counts it skipped rather than passed, and a
 --- run held to sandboxing (COSMIC_SANDBOX=must among them) fails it.
+--- Another platform has no such sandbox to check, and returns silently
+--- (build.sandbox_skip).
 local function unsandboxable(what: string, trouble: string)
-  Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs

@@ -16,6 +16,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What a run of `cosmic test` needs of the host, and the program it
@@ -207,18 +208,13 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
   end
   -- macOS has no sandbox at all: nothing to check there.
   local names = assert(sys.uname())
-  if names.sysname == "Darwin" then
-    Test.skip("macOS has no sandbox")
-    return
-  end
+  if names.sysname == "Darwin" then return end
   local sandboxed, unenforced = environments(tmp .. "/cache/verdicts.db")
   checkout(tmp .. "/first")
   local code, first = run(tmp .. "/first", tmp .. "/first.out", sandboxed)
   assert(code == 0, first)
   if not first:find("; sandboxed)", 1, true) then
-    Test.skip("the run it started sandboxed no worker: " ..
-      (first:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
-      first:match("[^\n]*unsandboxed[^\n]*") or first))
+    sandbox_skip.nested(first)
     return
   end
   assert(first:find("2 ran, 0 stood", 1, true), first)

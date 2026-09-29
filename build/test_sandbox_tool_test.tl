@@ -20,6 +20,7 @@ local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What a worker's plan gives it of the host, the program it runs,
@@ -288,9 +289,7 @@ end
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if not text:find("no worker can be sandboxed here", 1, true) then return false end
-  Test.skip("the run it started sandboxed no worker: " ..
-    (text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
-      text:match("[^\n]*unsandboxed[^\n]*") or text))
+  sandbox_skip.nested(text)
   return true
 end
 

@@ -10,6 +10,7 @@ local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
+local sandbox_skip = require("build.sandbox_skip")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -58,13 +59,13 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
   return fds
 end
 
---- Says a sandbox test is skipped (`Test.skip`) where the kernel
---- refuses the sandbox it is about, as core/syscalls_test.tl's
+--- Says a sandbox test is skipped (`Test.skip`) where this Linux host
+--- refuses the sandbox it is about (build.sandbox_skip), as core/syscalls_test.tl's
 --- `unsandboxable` does, as it returns early: the run counts it skipped
 --- rather than passed, and a run held to sandboxing (COSMIC_SANDBOX=must
 --- among them) fails it.
 local function unsandboxable(what: string, trouble: string)
-  Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
+  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl).
@@ -112,10 +113,7 @@ for path in (...):gmatch("[^:]+") do reads[#reads + 1] = path end
 local function test_a_confined_child_ends_with_its_parent(tmp: string)
   local probe = probe_in(tmp)
   local adopting = process.subreaper()
-  if not adopting then
-    Test.skip("no subreaper to be (not Linux)")
-    return
-  end
+  if not adopting then return end -- no subreaper to be (not Linux)
   local report = create(tmp .. "/parent")
   local started = this_program.program({ "-e", chunk_preamble .. [==[
 local pid, trouble = process.spawn(reads[1], { reads[1], "sleep 30000" }, nil, "/", nil,

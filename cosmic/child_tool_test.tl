@@ -16,6 +16,7 @@ local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
+local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
 
 --- What the tests read: the environment, which a child inherits unless
@@ -172,7 +173,8 @@ end
 --- in a sandbox of its own, where it is its pid namespace's pid 2, not
 --- the pid 1 that would pass over a signal it does not catch from
 --- outside the namespace. Where the kernel will not sandbox a child, the
---- sandboxed case is the kernel's to refuse.
+--- sandboxed case is the kernel's to refuse, which skips the test
+--- (build.sandbox_skip).
 local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
   local r = assert(Child.run(lua(sleep(100000), nil,
     { timeout_ms = 200, process_group = false })))
@@ -186,7 +188,7 @@ local function test_a_timeout_ends_a_child_that_catches_nothing(tmp: string)
   local sandboxed, trouble = Child.run(lua(sleep(100000), nil,
     { cwd = tmp, timeout_ms = 200, sandbox = { unveil = { reads = reads }, offline = true } }))
   if sandboxed == nil then
-    assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. trouble)
+    sandbox_skip.refused("no sandbox for the child: " .. tostring(trouble))
     return
   end
   assert(sandboxed.timed_out and sandboxed.signal == sys.SIGTERM,
@@ -697,7 +699,8 @@ end
 --- at the name `at` gives it, and is held there with every process it
 --- starts; a relative unveiled path is refused. Where the kernel will not
 --- sandbox a child (not Linux, or no unprivileged user namespaces), the
---- start fails and says why, but under COSMIC_SANDBOX=must.
+--- start fails and says why, and the test is skipped where the platform
+--- could have given one (build.sandbox_skip).
 local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
   assert(Fs.mkdirs(given))
@@ -716,7 +719,7 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
     { cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then
-    assert(sys.getenv("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. trouble)
+    sandbox_skip.refused("no sandbox for the child: " .. tostring(trouble))
     -- Only as a kernel that cannot sandbox refuses.
     local refused = false
     for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
