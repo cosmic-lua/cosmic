@@ -949,3 +949,85 @@ local function test_get_on_a_large_object_does_not_scan_it()
   assert(total == 20000 * 20001 // 2)
   assert(Time.monotonic_ns() - started < 1000000000, "get scanned the object")
 end
+
+local function path_of(text: string): {string | integer}
+  local steps, err = Json.parse_path(text)
+  assert(steps ~= nil, text .. ": " .. err)
+  assert(err == "")
+  return steps
+end
+
+local function assert_steps(text: string, want: {string | integer})
+  local read = path_of(text)
+  assert(#read == #want, text .. " read as " .. #read .. " steps")
+  for i, step in ipairs(want) do
+    assert(read[i] == step and math.type(read[i] as number) == math.type(step as number), text .. " step " .. i)
+  end
+end
+
+local function refused_path(text: string, why: string)
+  local steps, err = Json.parse_path(text)
+  assert(steps == nil, text .. " read")
+  assert(err:find(why, 1, true), text .. ": " .. err)
+end
+
+local function test_parse_path_reads_the_forms_child_path_writes()
+  assert_steps("$", {})
+  assert_steps("$.a", { "a" })
+  assert_steps("$.rows[2].name", { "rows", 2, "name" })
+  assert_steps('$["a key"][1]', { "a key", 1 })
+  assert_steps('$["\\"\\\\\\n\\u00e9\\ud83d\\ude00"]', { '"\\\né\u{1F600}' })
+  assert_steps("$[-1]", { -1 })
+end
+
+local function test_parse_path_takes_a_bare_or_dotted_start()
+  assert_steps("a.b", { "a", "b" })
+  assert_steps(".a.b", { "a", "b" })
+  assert_steps("[1]", { 1 })
+  assert_steps('["a b"].c', { "a b", "c" })
+  assert_steps("a[1].b", { "a", 1, "b" })
+  assert_steps("$.foo-bar", { "foo-bar" })
+end
+
+local function test_parse_path_names_where_a_path_stops_being_one()
+  refused_path("", "empty")
+  refused_path("$.", "column 3: expected a key")
+  refused_path("$..a", "column 2: `..`")
+  refused_path("$a", "expected `.` or `[`")
+  refused_path("$[", "expected an integer or a quoted key")
+  refused_path("$[]", "expected an integer or a quoted key")
+  refused_path("$[1.5]", "expected an integer or a quoted key")
+  refused_path("$[ 1 ]", "expected an integer or a quoted key")
+  refused_path('$["a', "unclosed [")
+  refused_path('$["a"', "expected `]`")
+  refused_path('$["a"]x', "expected `.` or `[`")
+  refused_path('$["\\x"]', "no such escape")
+  refused_path('$["\\ud83d"]', "lone surrogate")
+  refused_path('$["\\ude00"]', "lone surrogate")
+  refused_path('$["\\u12"]', "four hex digits")
+  refused_path("$[9223372036854775808]", "does not fit an integer")
+end
+
+local function test_parse_path_keeps_wildcards_and_descent_for_later()
+  refused_path("$.a..b", "`..` (recursive descent) is not supported yet")
+  refused_path("..balance", "recursive descent")
+  refused_path("$..", "recursive descent")
+  refused_path("$.*", "wildcard) is not supported yet")
+  refused_path("$.a.*.b", "wildcard")
+  refused_path("*", "wildcard")
+  refused_path("$[*]", "wildcard")
+  refused_path("a[*]", "wildcard")
+  -- A key named `*` is still reachable, quoted, and `*` inside a longer key is a key.
+  assert_steps('$["*"]', { "*" })
+  assert_steps("$.a*", { "a*" })
+  assert_steps("$.*a", { "*a" })
+  assert_steps(Json.child_path("$", "*"), { "*" })
+end
+
+local function test_parse_path_round_trips_child_path()
+  local keys = { "a", "a key", "", "a.b", '"', "\\", "\n", "\xff", "é", "[1]" }
+  for _, key in ipairs(keys) do
+    local text = Json.child_path(Json.child_path("$", key), 3)
+    assert_steps(text, { key, 3 })
+  end
+end
