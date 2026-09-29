@@ -159,8 +159,10 @@ local function test_a_caught_signal_ends_a_wait(tmp: string)
   assert(client:close())
 end
 
---- A write to a peer that has gone fails rather than ending the process
---- with SIGPIPE.
+--- A write to a peer that has gone fails, and keeps failing. That it
+--- does so rather than ending the process with SIGPIPE is
+--- cosmic/net_tool_test.tl's, in a process that starts with SIGPIPE at
+--- its default, where this worker's may be ignored.
 local function test_a_write_to_a_closed_peer_fails(tmp: string)
   local p <close> = pair(tmp)
   local client, accepted = p.client, p.accepted
