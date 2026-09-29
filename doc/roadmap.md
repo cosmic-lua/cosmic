@@ -126,7 +126,23 @@ promises lean on come first:
 - a public descriptor-poll API, once a caller outside `cosmic.child`
   waits on a descriptor: a module over `set_nonblocking` and `poll`, say,
   or both back in `cosmic.sys`. They live in core/process.h today,
-  `cosmic.child` their one caller.
+  `cosmic.child` their one caller; `cosmic.net` waits on one socket at a
+  time through core/socket.h's own `wait`.
+- `cosmic.net` past a unix stream socket, each once a caller needs it:
+  a "tcp" `Address` (host and port, the port the kernel chose read back
+  from the listener) for the loopback servers the `TODO:`s in
+  build/fetch_test.tl, build/fetch_tool_test.tl, cosmic/http_test.tl and
+  core/syscalls*_test.tl wait on; datagrams ("udp", "unixgram") as a
+  socket of their own with `send_to` and `receive_from` over the same
+  `Address`; of a unix socket, its peer's user and process
+  (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
+  (`SCM_RIGHTS`), Linux's abstract names, a socket file's mode, and
+  taking over a socket file a listener left behind (it exited without
+  `close`), which `listen` refuses today -- only where connecting there
+  is refused, since macOS refuses a live listener whose backlog is full
+  alike; and
+  a wait on several connections and `Child` handles at once, where the
+  public poll above would land.
 
 ## documentation and examples
 

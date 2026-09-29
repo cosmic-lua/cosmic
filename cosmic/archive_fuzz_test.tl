@@ -433,8 +433,11 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
       if (from_file == nil) ~= (from_stream == nil) then
         return false, "file: " .. tostring(file_why) .. "\nstream: " .. tostring(stream_why)
       end
-      local file_words = file_why:gsub(case .. "/by%-file", "DEST")
-      local stream_words = stream_why:gsub(case .. "/by%-stream", "DEST")
+      -- The directory is a pattern's text: escaped, a "-" in its name
+      -- (as a test's scratch directory's has) means itself.
+      local at = case:gsub("%p", "%%%0")
+      local file_words = file_why:gsub(at .. "/by%-file", "DEST")
+      local stream_words = stream_why:gsub(at .. "/by%-stream", "DEST")
       if file_words ~= stream_words then return false, file_words .. "\n" .. stream_words end
       if from_file ~= nil and from_stream ~= nil and table.concat(from_file, "\n") ~= table.concat(from_stream, "\n") then
         return false, "wrote " .. table.concat(from_file, ",") .. " / " .. table.concat(from_stream, ",")

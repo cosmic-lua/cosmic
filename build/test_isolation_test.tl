@@ -7,12 +7,16 @@
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local test = require("build.test")
+local test_sandbox = require("build.test_sandbox")
 local worker = require("build.test_worker")
 
 --- A test's directory is reached through a link, so a path resolved on
 --- one side of a comparison and not the other fails here as it does
 --- under macOS's /var; the one this test itself was handed is too.
+--- It is as long as macOS's is, sandboxed or not, so a bound on a
+--- path's length is met on every host.
 local function test_a_test_directory_is_reached_through_a_link(tmp: string)
+  assert(#tmp >= test_sandbox.scratch_length + #"/tmp", tmp)
   local st = assert(sys.lstat(tmp))
   assert(st.kind == "link", tmp .. " is a " .. st.kind)
   local resolved = assert(Fs.absolute(tmp))
@@ -20,6 +24,7 @@ local function test_a_test_directory_is_reached_through_a_link(tmp: string)
   assert(Fs.is_dir(resolved))
   local scratch = assert(test.scratch())
   assert(assert(Fs.absolute(scratch)) == scratch, scratch)
+  assert(#scratch >= test_sandbox.scratch_length, scratch)
   assert(assert(Fs.readlink(scratch .. "/tmp")) == "real")
   assert(assert(Fs.absolute(scratch .. "/tmp")) == scratch .. "/real")
   assert(Fs.remove_tree(scratch))

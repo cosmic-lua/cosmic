@@ -38,14 +38,15 @@ local type _coverage = require("cosmic.coverage")
 local type _hash = require("cosmic.hash")
 local type _http = require("cosmic.http")
 local type _json = require("cosmic.json")
+local type _net = require("cosmic.net")
 local type _proc = require("cosmic.proc")
 local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
 
---- Every declaration of the core's raw modules, the header the process
---- table's is derived from, and core/store.c, whose `raw_modules` names
+--- Every declaration of the core's raw modules, the headers the process
+--- and socket tables' are derived from, and core/store.c, whose `raw_modules` names
 --- the wrapper each raw module is handed to.
-Test.needs{ reads = { "cosmic/internal/", "core/process.h", "core/store.c" } }
+Test.needs{ reads = { "cosmic/internal/", "core/process.h", "core/socket.h", "core/store.c" } }
 
 local built = assert(teal.load())
 
@@ -264,6 +265,7 @@ local wrappers <const>: {string: string} = {
   ["cosmic.hash"] = "hash",
   ["cosmic.http"] = "http",
   ["cosmic.json"] = "json",
+  ["cosmic.net"] = "socket",
   ["cosmic.proc"] = "process",
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",
