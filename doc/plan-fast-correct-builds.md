@@ -290,7 +290,11 @@ over a key that tracks the hole. Each rule is stated in AGENTS.md
 beside `Test.needs`, and refused by the analyzer or the sandbox where
 that is cheap.
 
-- **R1. No real network.** A test may reach loopback only.
+- **R1. No real network.** A test may reach loopback only. This holds
+  for every project, not just this tree: `cosmic.test` is public, and a
+  project whose tests declare a real host or `network = true` is
+  refused, with a message naming the rule (decided 2026-09-29; a
+  breaking change, said so in the release notes).
   - No test but the harness's own tests of the mechanism declares
     another host.
   - Change: `Test.needs` refuses a network host other than loopback.
