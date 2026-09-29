@@ -1,7 +1,8 @@
 --- .github/scripts/place-tree.sh, which moves CI's checkout to a path
 --- the commit and the leg choose: the same two choose the same path, so
 --- a re-run meets it again, and another leg, or another commit, chooses
---- another.
+--- another. The path is always one directory beside the workspace, so
+--- actions/cache's paths relative to the workspace resolve through it.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -29,19 +30,32 @@ local SHA <const> = "2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d"
 local function test_the_same_commit_and_leg_name_the_same_path()
   local first = name(SHA, "linux-x86_64")
   assert(first == name(SHA, "linux-x86_64"), first)
-  -- One to three names, each one to 24 hex digits.
-  local count = 0
-  for part in first:gmatch("[^/]+") do
-    count = count + 1
-    assert(#part >= 1 and #part <= 24 and part:match("^%x+$") ~= nil, first)
+  -- One name, of one to 24 hex digits.
+  assert(#first >= 1 and #first <= 24 and first:match("^%x+$") ~= nil, first)
+end
+
+local LEGS <const> = { "linux-x86_64", "linux-aarch64", "macos-aarch64", "alpine-x86_64", "fuzz", "checked" }
+
+local function test_every_commit_and_leg_names_one_directory_of_its_own_length()
+  local lengths: {integer: boolean} = {}
+  local distinct = 0
+  for n = 0, 15 do
+    local sha = string.format("%x", n) .. SHA:sub(2)
+    for _, leg in ipairs(LEGS) do
+      local named = name(sha, leg)
+      assert(named:match("^%x+$") ~= nil and #named <= 24, sha .. " " .. leg .. " names " .. named)
+      if not lengths[#named] then distinct = distinct + 1 end
+      lengths[#named] = true
+    end
   end
-  assert(count >= 1 and count <= 3, first)
+  -- The name's length varies too, not only its digits.
+  assert(distinct >= 8, "only " .. distinct .. " lengths in 96 names")
 end
 
 local function test_another_leg_or_commit_names_another_path()
   local here = name(SHA, "linux-x86_64")
-  for _, leg in ipairs({ "linux-aarch64", "macos-aarch64", "alpine-x86_64", "fuzz" }) do
-    assert(name(SHA, leg) ~= here, leg .. " names " .. here .. " too")
+  for _, leg in ipairs(LEGS) do
+    assert(leg == "linux-x86_64" or name(SHA, leg) ~= here, leg .. " names " .. here .. " too")
   end
   assert(name("0" .. SHA:sub(2), "linux-x86_64") ~= here, "another commit names " .. here)
 end
@@ -130,21 +144,42 @@ local function test_a_restore_after_a_move_stopped_halfway_finishes_it()
   assert(Fs.remove_tree(root))
 end
 
-local function test_a_restore_leaves_a_directory_above_the_tree_that_is_not_empty()
-  -- Two deep for this commit and leg: the directory above the tree is
-  -- the move's own.
-  local leg = "macos-aarch64"
-  local relative = name(SHA, leg)
-  local top = relative:match("^[^/]+")
-  assert(top ~= relative, relative)
+--- A runner's layout: the workspace at <work>/cosmic/cosmic and the
+--- runner's temporary directory at <work>/_temp.
+local function runner(): string, string
+  local root = assert(Fs.mkdtemp("cosmic-place-tree-test-"))
+  assert(Fs.mkdirs(root .. "/_temp/zig-build"))
+  assert(Fs.write(root .. "/_temp/zig-build/entry", "entry\n"))
+  assert(Fs.mkdirs(root .. "/cosmic/cosmic/ci"))
+  assert(Fs.write(root .. "/cosmic/cosmic/ci/driver.tl", "driver\n"))
+  return root, root .. "/cosmic/cosmic"
+end
+
+local function test_a_moved_tree_sits_beside_the_workspace_where_its_relative_paths_resolve()
+  for _, leg in ipairs(LEGS) do
+    local root, workspace = runner()
+    place(workspace, nil, leg)
+    local relative = name(SHA, leg)
+    assert(Fs.readlink(workspace) == relative, layout(root))
+    assert(Fs.read(root .. "/cosmic/" .. relative .. "/ci/driver.tl") == "driver\n", layout(root))
+    -- As actions/cache names $RUNNER_TEMP for `tar -C $GITHUB_WORKSPACE`:
+    -- the kernel climbs from the link's target, which is as deep as the
+    -- workspace, so it reaches the same _temp.
+    assert(Fs.read(workspace .. "/../../_temp/zig-build/entry") == "entry\n",
+      leg .. ": " .. layout(root))
+    place(workspace, "--restore", leg)
+    assert(Fs.readlink(workspace) == nil and Fs.read(workspace .. "/ci/driver.tl") == "driver\n",
+      layout(root))
+    assert(Fs.remove_tree(root))
+  end
+end
+
+local function test_a_move_that_ran_already_moves_nothing()
   local root, workspace = checkout()
-  place(workspace, nil, leg)
-  assert(Fs.write(root .. "/" .. top .. "/stray", "stray\n"))
-  local said = place(workspace, "--restore", leg)
-  -- The tree is back where it was checked out, and the stray is named.
-  assert(Fs.readlink(workspace) == nil, layout(root))
-  assert(Fs.read(workspace .. "/ci/driver.tl") == "driver\n", layout(root))
-  assert(Fs.read(root .. "/" .. top .. "/stray") == "stray\n", layout(root))
-  assert(said:find("not empty", 1, true) and said:find("stray", 1, true), said)
+  place(workspace)
+  local placed = layout(root)
+  place(workspace)
+  assert(layout(root) == placed, layout(root))
+  place(workspace, "--restore")
   assert(Fs.remove_tree(root))
 end

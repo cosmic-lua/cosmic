@@ -1131,6 +1131,54 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     ours["bootstrap the pinned CI driver"]["if"] == FULL, "the checked job's driver runs on a light run")
 end
 
+--- A job that moves its tree (.github/scripts/place-tree.sh) moves it
+--- once and puts it back once, after its last step that runs the CI
+--- driver and before checkout's post step: place-tree.sh keeps the tree
+--- one directory deep, as deep as the workspace, so actions/cache's
+--- paths relative to the workspace resolve with it moved and nothing
+--- puts it back for a save. What a cache step names while it is moved
+--- is under the runner's temporary directory, which those paths reach.
+local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
+  local placed = 0
+  for path, workflow in pairs(decoded_workflows()) do
+    for job_name, job in pairs(workflow.jobs as {string: {string: any}}) do
+      local where = path .. " " .. job_name
+      local steps = job.steps as {{string: any}} or {}
+      local moves: {integer} = {}
+      local backs: {integer} = {}
+      local last_driver = 0
+      for i, step in ipairs(steps) do
+        local run = step.run
+        if run is string then
+          if run:match("place%-tree%.sh%s*$") ~= nil then moves[#moves + 1] = i end
+          if run:find("place-tree.sh --restore", 1, true) ~= nil then backs[#backs + 1] = i end
+          if run:find("cosmic-driver ", 1, true) ~= nil then last_driver = i end
+        end
+        if step.uses == DRIVER then last_driver = i end
+      end
+      if #moves > 0 or #backs > 0 then
+        placed = placed + 1
+        assert(#moves == 1, where .. " moves its tree " .. #moves .. " times")
+        assert(#backs == 1, where .. " puts its tree back " .. #backs .. " times")
+        local move, back = moves[1], backs[1]
+        assert(move < back, where .. " puts its tree back before it moves it")
+        assert(last_driver < back, where .. " runs the CI driver after it puts its tree back")
+        assert((steps[back]["if"] as string or ""):find("always()", 1, true) ~= nil,
+          where .. " puts its tree back only where the job has not failed")
+        for i = move + 1, back - 1 do
+          local uses = steps[i].uses as string or ""
+          if uses:find("^actions/cache") ~= nil then
+            local cached = (steps[i].with as {string: string}).path
+            assert(cached:find("^%${{ runner%.temp }}/") ~= nil,
+              where .. " caches " .. cached .. " with its tree moved")
+          end
+        end
+      end
+    end
+  end
+  assert(placed >= 3, "only " .. placed .. " jobs move their tree")
+end
+
 --- Only three jobs save a cache every run restores: the platform legs
 --- and the checked job, where COSMIC_CI_SAVES (main's push and the
 --- scheduled run), and `seed`, which runs only on a push to main that

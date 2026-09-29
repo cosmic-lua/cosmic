@@ -448,15 +448,17 @@ passes assemble or the nightly saves; a branch stays warm through the
 restore of another vendor part.
 
 actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
-relative to it, which names nothing through the link `place-tree.sh`
-leaves when the tree is more than one directory deep. So the tree moves
-back where it was checked out for the saves, and again at the end for
-checkout's post step, whose git refuses a repository at another path and
-leaves its credentials behind. The move means a test whose verdict
-turns on the tree's path meets it on the macOS leg (unsandboxed; a
-Linux leg's workers see the tree at /tree) only where its key moved or
-on the scheduled run, which stands on nothing; the TODO on
-`build/test.tl`'s `launch` would give such a worker a fixed path.
+relative to it (`../../_temp/...`), which names nothing through the
+link `place-tree.sh` leaves were the tree more than one directory deep.
+So the tree moves only to a directory beside the workspace, whose name
+the commit and the leg choose, and the saves run with it moved; it
+moves back at the end for checkout's post step, whose git refuses a
+repository at another path and leaves its credentials behind. The move
+means a test whose verdict turns on the tree's path meets it on the
+macOS leg (unsandboxed; a Linux leg's workers see the tree at /tree)
+only where its key moved or on the scheduled run, which stands on
+nothing; the TODO on `build/test.tl`'s `launch` would give such a
+worker a fixed path.
 
 The CI driver check's marker is keyed by what cosmic_ci's tests read
 (`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
