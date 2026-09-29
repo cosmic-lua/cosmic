@@ -468,3 +468,162 @@ local function test_next_reports_a_symlink_target()
   end
   assert(found)
 end
+
+--- A Reader over `rounds` copies of `chunk`, that calls `each(n)` before
+--- its n-th read.
+local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
+  local n = 0
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    if n >= rounds then return nil, "" end
+    n = n + 1
+    if each ~= nil then each(n) end
+    return chunk, ""
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  return r
+end
+
+local function test_a_streamed_body_round_trips_through_the_reader()
+  local chunk = "streamed body, "
+  local whole = string.rep(chunk, 5000)
+  for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
+    local c = Stream.collect()
+    local w = Zip.writer(c)
+    assert(w:add_file("a", repeating(chunk, 5000), { method = method }))
+    assert(w:add_file("empty", Stream.from_string(""), { method = method, size = 0 }))
+    assert(w:add_file("plain", "after a stream", { method = method }))
+    assert(w:add_file("sized", Stream.from_string(whole), { method = method, size = #whole }))
+    assert(w:close())
+    local r = assert(Zip.open_string(c:result()))
+    local entries = r:entries()
+    assert(#entries == 4)
+    assert(Stream.read_all((assert(by_path(entries, "a"):open()))) == whole, method)
+    assert(Stream.read_all((assert(by_path(entries, "empty"):open()))) == "", method)
+    assert(Stream.read_all((assert(by_path(entries, "plain"):open()))) == "after a stream", method)
+    assert(Stream.read_all((assert(by_path(entries, "sized"):open()))) == whole, method)
+    local a = by_path(entries, "a")
+    assert(a.size == #whole and a.crc32 == Compress.crc32(whole))
+    assert(a.method == (method == "store" and 0 or 8))
+    if method == "deflate" then assert(a.compressed_size < #whole // 10) end
+  end
+end
+
+local function test_a_streamed_entry_carries_a_data_descriptor_after_its_body()
+  local body = string.rep("descriptor ", 300)
+  local c = Stream.collect()
+  local w = Zip.writer(c)
+  assert(w:add_file("d.txt", Stream.from_string(body), { method = "store" }))
+  assert(w:add_file("s.txt", "string", { method = "store" }))
+  assert(w:close())
+  local bytes = c:result()
+  -- The local header: bit 3 set, and no CRC or sizes.
+  assert(bytes:sub(1, 4) == "PK\3\4")
+  assert(rd32(bytes, 7) & 0xFFFF == 8, "general-purpose bit 3")
+  assert(rd32(bytes, 15) == 0 and rd32(bytes, 19) == 0 and rd32(bytes, 23) == 0)
+  -- The descriptor follows the body and repeats what the central
+  -- directory records.
+  local at = 31 + #"d.txt" + #body
+  assert(bytes:sub(at, at + 3) == "PK\7\8", "data descriptor signature")
+  assert(rd32(bytes, at + 4) == Compress.crc32(body))
+  assert(rd32(bytes, at + 8) == #body and rd32(bytes, at + 12) == #body)
+  local r = assert(Zip.open_string(bytes))
+  local entry = by_path(r:entries(), "d.txt")
+  assert(entry.crc32 == rd32(bytes, at + 4) and entry.compressed_size == #body)
+  -- A string body keeps its local header sizes and no descriptor.
+  local s = by_path(r:entries(), "s.txt")
+  assert(rd32(bytes, s.offset + 7) & 0xFFFF == 0)
+  assert(rd32(bytes, s.offset + 19) == 6)
+end
+
+--- Everything written to it, kept as a list of pieces; `close` and
+--- `abort` are noted.
+local function recording(): Stream.Writer, {string}
+  local pieces: {string} = {}
+  local w: Stream.Writer = {}
+  w.write = function(_self: Stream.Writer, data: string): boolean, string
+    pieces[#pieces + 1] = data
+    return true, ""
+  end
+  w.close = function(_self: Stream.Writer): boolean, string return true, "" end
+  w.abort = function(_self: Stream.Writer): boolean, string return true, "" end
+  return w, pieces
+end
+
+local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
+  local sink, pieces = recording()
+  local w = Zip.writer(sink)
+  -- The body is far shorter than it says, which fails the write, but
+  -- only after the local header has gone out.
+  local ok, trouble = w:add_file("big", Stream.from_string("short"),
+    { method = "store", size = 1 << 32 })
+  assert(not ok and trouble:find("not 4294967296", 1, true), trouble)
+  local header = pieces[1]
+  assert(header:sub(1, 4) == "PK\3\4")
+  assert(rd32(header, 5) & 0xFFFF == 45, "version needed")
+  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
+  -- With the field there, the header's own sizes are the sentinel.
+  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF)
+  assert(not w:close())
+end
+
+local function test_a_streamed_size_that_is_wrong_fails_the_write()
+  for _, size in ipairs({ 4, 6 }) do
+    local w = Zip.writer(Stream.collect())
+    local ok, trouble = w:add_file("f", Stream.from_string("12345"), { size = size })
+    assert(not ok and trouble:find("body is 5 bytes", 1, true), trouble)
+    assert(not w:add_file("g", "x"))
+    assert(not w:close())
+  end
+end
+
+local function test_a_failing_body_fails_and_aborts_the_writer()
+  local w = Zip.writer(Stream.collect())
+  local bad: Stream.Reader = {}
+  bad.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    return nil, "disk on fire"
+  end
+  bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local ok, trouble = w:add_file("f", bad)
+  assert(not ok and trouble == "disk on fire", trouble)
+  ok, trouble = w:add_file("g", "x")
+  assert(not ok and trouble == "disk on fire", trouble)
+end
+
+local function test_a_streamed_body_takes_bounded_memory()
+  local block = {} as {integer}
+  for i = 1, 65536 do block[i] = (i * 131 + (i >> 8) + (i >> 3) * 7) & 255 end
+  local pieces: {string} = {}
+  for first = 1, #block, 4096 do
+    pieces[#pieces + 1] = string.char(table.unpack(block, first, first + 4095))
+  end
+  local chunk = table.concat(pieces)
+  local rounds = 48 -- 3 MiB through each method
+  local warm = 6
+  for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
+    local written = 0
+    local sink: Stream.Writer = {}
+    sink.write = function(_self: Stream.Writer, data: string): boolean, string
+      written = written + #data
+      return true, ""
+    end
+    sink.close = function(_self: Stream.Writer): boolean, string return true, "" end
+    sink.abort = function(_self: Stream.Writer): boolean, string return true, "" end
+    collectgarbage()
+    collectgarbage()
+    local base = collectgarbage("count")
+    local early, late = 0.0, 0.0
+    local body = repeating(chunk, rounds, function(n: integer)
+      collectgarbage()
+      local grown = collectgarbage("count") - base
+      if n <= warm then early = math.max(early, grown) else late = math.max(late, grown) end
+    end)
+    local w = Zip.writer(sink)
+    assert(w:add_file("big", body, { method = method }))
+    assert(w:close())
+    assert(written > 0 and (method == "deflate" or written > #chunk * rounds), method)
+    assert(early < 512 and late < early + 128,
+      ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
+        method, early, late, #chunk * rounds // 1024))
+  end
+end

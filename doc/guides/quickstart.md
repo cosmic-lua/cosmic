@@ -129,6 +129,10 @@ objects and arrays are JSON text, so `json_extract(owner, '$.name')`
 reaches into them; a boolean is 0 or 1. A column or table that does not
 exist is answered with the ones that do. `cosmic help sql` has the rest.
 
+## the digest of a file
+
+`cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
+
 ## bytes to text and back
 
 `cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
@@ -151,6 +155,18 @@ stay written; `cosmic archive create out.tar.gz dir
 --reproducible` packs a tree (fixed times, file modes kept), as a zip or a gzip tar. The format is read from
 the file's bytes, not its name; `-` reads standard input. `cosmic help archive`
 has the rest.
+
+## a quick question about a time
+
+For a clock or calendar question, `cosmic time` answers the same on every
+host, where GNU and BSD `date` differ, with zones from the binary's own tz
+database. `cosmic time now --zone Asia/Tokyo`; `cosmic time convert
+2026-03-08T12:00Z --to America/New_York`; `cosmic time between 2026-01-01
+2026-09-28 --days`; `cosmic time add 2026-01-31 1mo --clamp` (a duration is
+`1y2mo3d4h5m6s`, negative with a leading `-`). A time is RFC 3339, a date,
+a local `2026-03-08T02:30` (read in `--from`; a gap or overlap resolved by
+`--disambiguate`) or `@<epoch>`. `--json` prints the fields. `cosmic help
+time` has the rest.
 
 ## below cosmic.fs
 
