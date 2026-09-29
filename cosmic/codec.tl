@@ -6,6 +6,30 @@
 --- decoder accepts encodes back to exactly itself.
 
 local record Codec
+  --- The encodings `encoder` and `decoder` take by name.
+  enum Name
+    "hex"
+    "base64"
+    "base64url"
+  end
+
+  --- One incremental transform, a chunk at a time, in the shape of
+  --- `cosmic.compress`'s streams: `update(chunk)` feeds bytes (or
+  --- text) and returns the output that is ready, possibly ""; and
+  --- `finish()` says no more input follows and returns what is left,
+  --- with `nil` and a reason when a decoder's text was refused. Both
+  --- answer `value, ""` on success. An encoder never fails. A decoder
+  --- fails only at `finish`: it cannot tell a bad length from a bad
+  --- character until the text ends, and the whole-string decoders
+  --- report the length first, so it keeps the first bad character and
+  --- carries on. A coder holds at most three characters of a group not
+  --- yet whole, plus a little state, however much passes through it,
+  --- and gives all the output it has at each call. After `finish`,
+  --- `update` and `finish` raise.
+  record Coder
+    update: function(Coder, chunk: string): string | nil, string
+    finish: function(Coder): string | nil, string
+  end
 end
 
 --- Every byte's two lowercase hex digits, by the byte: `gsub` takes the
@@ -114,6 +138,29 @@ end
 --- four, and few enough bytes to pass as arguments.
 local BATCH <const> = 4096
 
+--- Appends to `out`, after its `k` pieces, the bytes the first `whole`
+--- characters of `s` spell (a multiple of four, all in the alphabet
+--- whose values are `value`), and returns the new count of pieces.
+--- Bytes gather in a buffer and leave a batch at a time through one
+--- `string.char`: a string per group would intern millions of them.
+local function expand(value: {integer:integer}, s: string, whole: integer,
+    out: {string}, k: integer): integer
+  local buf: {integer} = {}
+  for first = 1, whole, BATCH do
+    local last = math.min(first + BATCH - 1, whole)
+    local m = 0
+    for i = first, last, 4 do
+      local c1, c2, c3, c4 = s:byte(i, i + 3)
+      local v = (value[c1] << 18) | (value[c2] << 12) | (value[c3] << 6) | value[c4]
+      buf[m + 1], buf[m + 2], buf[m + 3] = v >> 16, (v >> 8) & 255, v & 255
+      m = m + 3
+    end
+    k = k + 1
+    out[k] = string.char(table.unpack(buf, 1, m))
+  end
+  return k
+end
+
 --- The bytes `s` spells in `a`'s alphabet. `padded` says whether `s`
 --- must carry `=` padding to a multiple of four characters or must
 --- carry none.
@@ -140,23 +187,8 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
   end
   local value = a.value
   local out: {string} = {}
-  local k = 0
   local whole = n - n % 4
-  -- Bytes gather in `buf` and leave a batch at a time through one
-  -- `string.char`: a string per group would intern millions of them.
-  local buf: {integer} = {}
-  for first = 1, whole, BATCH do
-    local last = math.min(first + BATCH - 1, whole)
-    local m = 0
-    for i = first, last, 4 do
-      local c1, c2, c3, c4 = s:byte(i, i + 3)
-      local v = (value[c1] << 18) | (value[c2] << 12) | (value[c3] << 6) | value[c4]
-      buf[m + 1], buf[m + 2], buf[m + 3] = v >> 16, (v >> 8) & 255, v & 255
-      m = m + 3
-    end
-    k = k + 1
-    out[k] = string.char(table.unpack(buf, 1, m))
-  end
+  local k = expand(value, s, whole, out, 0)
   local left = n - whole
   if left == 2 then
     local c1, c2 = s:byte(n - 1, n)
@@ -213,6 +245,193 @@ end
 --- @return string Why the text was refused, or "" when it was not
 function Codec.unbase64url(s: string): string | nil, string
   return decode(URL, s, false, "base64url")
+end
+
+local function finished_error(): string
+  return "codec: coder is finished"
+end
+
+--- A coder whose `update` and `finish` are the given functions, each
+--- refused once `finish` has run.
+local function coder(
+    update: function(chunk: string): string, string,
+    finish: function(): string | nil, string): Codec.Coder
+  local done = false
+  local c: Codec.Coder = {}
+  c.update = function(_self: Codec.Coder, chunk: string): string | nil, string
+    if done then error(finished_error(), 2) end
+    return update(chunk)
+  end
+  c.finish = function(_self: Codec.Coder): string | nil, string
+    if done then error(finished_error(), 2) end
+    done = true
+    return finish()
+  end
+  return c
+end
+
+local function base64_encoder(a: Alphabet, pad: boolean): Codec.Coder
+  local carry = ""
+  return coder(
+    function(chunk: string): string, string
+      local data = carry .. chunk
+      local whole = #data - #data % 3
+      carry = data:sub(whole + 1)
+      if whole == 0 then return "", "" end
+      return encode(a, whole == #data and data or data:sub(1, whole), false), ""
+    end,
+    function(): string, string
+      return encode(a, carry, pad), ""
+    end)
+end
+
+local function hex_decoder(): Codec.Coder
+  local total = 0
+  local carry = ""
+  local bad_at: integer | nil
+  local bad_byte = 0
+  return coder(
+    function(chunk: string): string, string
+      local before = total - #carry
+      total = total + #chunk
+      if bad_at ~= nil then return "", "" end
+      local data = carry .. chunk
+      local at = data:find("[^0-9a-fA-F]")
+      if at ~= nil then
+        bad_at, bad_byte, carry = before + at, data:byte(at), ""
+        return "", ""
+      end
+      local even = #data - #data % 2
+      carry = data:sub(even + 1)
+      return (data:sub(1, even):gsub("..", byte_of_hex)), ""
+    end,
+    function(): string | nil, string
+      if total % 2 ~= 0 then
+        return nil, ("codec: hex text of odd length %d"):format(total)
+      end
+      if bad_at ~= nil then
+        return nil, ("codec: byte 0x%02x at %d is not a hex digit"):format(bad_byte, bad_at)
+      end
+      return "", ""
+    end)
+end
+
+--- A decoder for `a`, as `decode` is for a whole string: the same
+--- refusals in the same order, the same words, and offsets counted
+--- from the first character fed.
+local function base64_decoder(a: Alphabet, padded: boolean, name: string): Codec.Coder
+  local total = 0
+  -- Characters of the group in progress, all in the alphabet.
+  local carry = ""
+  -- The first character outside the alphabet, where it lies and what
+  -- it is; from there on, only how many characters follow and whether
+  -- all of them are `=`, which decides whether it is padding.
+  local bad_at: integer | nil
+  local bad_byte = 0
+  local run = 0
+  local run_pad = false
+  local value = a.value
+  return coder(
+    function(chunk: string): string, string
+      local before = total - #carry
+      total = total + #chunk
+      if bad_at ~= nil then
+        run = run + #chunk
+        if run_pad and chunk:find("[^=]") then run_pad = false end
+        return "", ""
+      end
+      local data = carry .. chunk
+      local at = data:find(a.class)
+      local usable = at ~= nil and at - 1 or #data
+      local whole = usable - usable % 4
+      carry = data:sub(whole + 1, usable)
+      if at ~= nil then
+        bad_at, bad_byte = before + at, data:byte(at)
+        run = #data - at + 1
+        run_pad = bad_byte == 61 and data:find("[^=]", at) == nil
+      end
+      if whole == 0 then return "", "" end
+      local out: {string} = {}
+      expand(value, data, whole, out, 0)
+      return table.concat(out), ""
+    end,
+    function(): string | nil, string
+      if padded then
+        if total % 4 ~= 0 then
+          return nil, ("codec: %s text of length %d, not a multiple of 4"):format(name, total)
+        end
+      elseif total % 4 == 1 then
+        return nil, ("codec: %s text of length %d leaves one character over"):format(name, total)
+      end
+      if bad_at ~= nil and not (padded and run_pad and run <= 2) then
+        if bad_byte == 61 then
+          return nil, ("codec: %s text has misplaced '=' padding at %d"):format(name, bad_at)
+        end
+        return nil, ("codec: byte 0x%02x at %d is outside the %s alphabet"):format(
+          bad_byte, bad_at, name)
+      end
+      if #carry == 2 then
+        local c1, c2 = carry:byte(1, 2)
+        local v = (value[c1] << 6) | value[c2]
+        if v & 15 ~= 0 then
+          return nil, ("codec: %s text ends in nonzero padding bits"):format(name)
+        end
+        return string.char(v >> 4), ""
+      elseif #carry == 3 then
+        local c1, c2, c3 = carry:byte(1, 3)
+        local v = (value[c1] << 12) | (value[c2] << 6) | value[c3]
+        if v & 3 ~= 0 then
+          return nil, ("codec: %s text ends in nonzero padding bits"):format(name)
+        end
+        return string.char(v >> 10, (v >> 2) & 255), ""
+      end
+      return "", ""
+    end)
+end
+
+--- An incremental encoder for `name`: feed it chunks of bytes with
+--- `update` and it returns the text they spell so far, holding back at
+--- most two bytes of an unfinished base64 group; `finish` returns the
+--- rest, with the padding `Codec.base64` writes. The text of all the
+--- chunks together is exactly the whole-string encoder's, whatever the
+--- chunking. Raises on a name it does not know.
+--- @param name hex, base64 or base64url
+--- @return Codec.Coder The encoder
+function Codec.encoder(name: Codec.Name): Codec.Coder
+  if name == "hex" then
+    return coder(
+      function(chunk: string): string, string
+        return (chunk:gsub(".", hex_of)), ""
+      end,
+      function(): string, string
+        return "", ""
+      end)
+  elseif name == "base64" then
+    return base64_encoder(STANDARD, true)
+  elseif name == "base64url" then
+    return base64_encoder(URL, false)
+  end
+  error("codec: no such encoding: " .. tostring(name), 2)
+end
+
+--- An incremental decoder for `name`, as strict as the whole-string
+--- one (`Codec.unhex`, `Codec.unbase64`, `Codec.unbase64url`) and
+--- refusing with the same reason, its offsets counted from the first
+--- character fed, whatever the chunking. `update` returns the bytes
+--- whole groups of text spell, holding back at most three characters;
+--- `finish` returns the last bytes, or `nil` and the reason.
+--- Raises on a name it does not know.
+--- @param name hex, base64 or base64url
+--- @return Codec.Coder The decoder
+function Codec.decoder(name: Codec.Name): Codec.Coder
+  if name == "hex" then
+    return hex_decoder()
+  elseif name == "base64" then
+    return base64_decoder(STANDARD, true, "base64")
+  elseif name == "base64url" then
+    return base64_decoder(URL, false, "base64url")
+  end
+  error("codec: no such encoding: " .. tostring(name), 2)
 end
 
 return Codec
