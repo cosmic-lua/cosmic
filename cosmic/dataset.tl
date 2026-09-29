@@ -57,8 +57,9 @@
 --- number and loads as the integer 0, and `-0.0` as the real 0.0: no sign
 --- shows through SQL or `_json`. The columns follow the header's order, so
 --- `SELECT *` reads the file's own columns left to right; the JSON
---- formats' rows carry no order and their columns are in byte order. A file whose header has no rows still has
---- its columns (all of them empty).
+--- formats' rows carry no order and their columns are in byte order.
+--- A file whose header has no rows still has its columns (all of them
+--- empty).
 ---
 --- The formats are a table kept here, one entry each -- a name, the
 --- file extensions it goes by, and a reader from text to rows -- so a

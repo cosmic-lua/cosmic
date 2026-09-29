@@ -275,8 +275,9 @@ local query_mt: metatable<Sqlite.Query> = {
 
 --- A query whose rows are read one at a time, as `rows` gives them but
 --- never all held at once: nil and why when the statement does not
---- prepare or bind (`values` follows `Sqlite.run`'s contract). The statement stays open, and the handle cannot
---- close, until the last row is read, a step fails, or the query is
+--- prepare or bind (`values` follows `Sqlite.run`'s contract). The
+--- statement stays open, and the handle cannot close, until the last
+--- row is read, a step fails, or the query is
 --- closed; hold it in a `<close>` variable to close it on a `break` or
 --- an error too.
 ---
