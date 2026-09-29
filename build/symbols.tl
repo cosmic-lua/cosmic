@@ -68,7 +68,7 @@ end
 --- docs rows may hold. Only a guide's own row is carried (its prose),
 --- not the helpers its generated test module declares, so this is a
 --- condition on `docs` rows alone.
-function symbols.public_docs(column: string, public: boolean): string
+local function public_docs(column: string, public: boolean): string
   if not public then
     return "1"
   end
@@ -93,7 +93,7 @@ function symbols.shown_docs(alias: string, public: boolean): string
   if not public then
     return "1"
   end
-  local module = symbols.public_docs(alias .. ".module", true)
+  local module = public_docs(alias .. ".module", true)
   local symbol = alias .. ".symbol"
   local dotted = "replace(" .. symbol .. ", ':', '.')"
   -- The declaration is found by where it is written, `source_symbol`: a
@@ -171,7 +171,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
     local rows, _ = Sqlite.text_rows(db,
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
       symbols.named_where("d") .. " AND " ..
-      symbols.public_docs("d.module", public[index] == true) ..
+      public_docs("d.module", public[index] == true) ..
       " ORDER BY module, symbol",
       { { text = query } })
     if rows ~= nil then
