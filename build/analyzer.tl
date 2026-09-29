@@ -329,26 +329,37 @@ local function function_signature(lines: {string}, tokens: {compiler.Token},
     return span_text(lines, stmt.y, stmt.x, body.y, body.x)
   end
   local last = tokens[start - 1]
-  local comment_at: {integer: integer} = {}
+  -- The head's own lines, each comment in it (a `--` one to its line's
+  -- end, a `--[[ ]]` one over its own text) blanked out, so it cannot
+  -- swallow the words after it once the lines are joined.
+  local head: {integer: string} = {}
+  for line_no = stmt.y, last.y do
+    head[line_no] = lines[line_no] or ""
+  end
   for at = first + 1, start - 1 do
     for _, comment in ipairs(tokens[at].comments or {}) do
-      if comment_at[comment.y] == nil then
-        comment_at[comment.y] = comment.x
+      local line_no, column = comment.y, comment.x
+      for piece in (comment.text .. "\n"):gmatch("(.-)\n") do
+        local line = head[line_no]
+        if line ~= nil then
+          head[line_no] = line:sub(1, column - 1) .. string.rep(" ", #piece) ..
+            line:sub(column + #piece)
+        end
+        line_no, column = line_no + 1, 1
       end
     end
   end
   local parts: {string} = {}
   for line_no = stmt.y, last.y do
-    local line = lines[line_no] or ""
+    local line = head[line_no]
     local from = line_no == stmt.y and stmt.x or 1
     local to = line_no == last.y and last.x + #last.tk - 1 or #line
-    local cut = comment_at[line_no]
-    if cut ~= nil and line_no ~= last.y and cut - 1 < to then
-      to = cut - 1
-    end
     parts[#parts + 1] = line:sub(from, to)
   end
-  return String.trim((table.concat(parts, " "):gsub("%s+", " ")))
+  -- A parameter list wrapped after its `(` or before its `)` reads as
+  -- if written tight.
+  local joined = String.trim((table.concat(parts, " "):gsub("%s+", " ")))
+  return (joined:gsub("%( ", "("):gsub(" %)", ")"))
 end
 
 --- Every node under a function declared inside `body` -- a nested
@@ -722,14 +733,14 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
     for _, reader in ipairs(entries) do
       if reader.exported and not searched[reader] and reader.signature ~= "" then
         searched[reader] = true
-        local words = " " .. reader.signature:gsub("[^%w_]", " ") .. " "
+        local words = " " .. reader.signature .. " "
         for _, entry in ipairs(entries) do
           local name = entry.source_symbol
           if not entry.exported and name:find(".", 1, true) == nil
              and (entry.kind == "record" or entry.kind == "enum"
                   or entry.kind == "interface" or entry.kind == "type")
              and entry.signature:sub(1, 6) == "local "
-             and words:find(" " .. name .. " ", 1, true) ~= nil then
+             and words:find("[^.%w_]" .. name .. "[^%w_]") ~= nil then
             for _, member in ipairs(entries) do
               if under(member, name) then
                 member.exported = true

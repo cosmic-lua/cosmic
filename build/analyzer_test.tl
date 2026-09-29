@@ -452,6 +452,12 @@ local function test_a_body_comment_is_not_part_of_the_signature()
     "  -- Second line.",
     "  return path, mode",
     "end",
+    "--- Wrapped.",
+    "local function wrapped(",
+    "  _opts: Options, --[[ block ]] _mode: Mode",
+    "): Inner",
+    "  return nil",
+    "end",
     "--- Bare.",
     "local function bare(): string",
     "  -- nothing yet",
@@ -460,6 +466,9 @@ local function test_a_body_comment_is_not_part_of_the_signature()
   assert(by_symbol["tail"].signature ==
     "local function tail(path: string, mode?: string): string | nil, string",
     by_symbol["tail"].signature)
+  assert(by_symbol["wrapped"].signature ==
+    "local function wrapped(_opts: Options, _mode: Mode): Inner",
+    by_symbol["wrapped"].signature)
   assert(by_symbol["bare"].signature == "local function bare(): string",
     by_symbol["bare"].signature)
 end
@@ -480,8 +489,10 @@ local function test_a_local_type_is_exported_only_when_reached()
     "local record Surface",
     "  name: string",
     "end",
+    "local record State",
+    "end",
     "local record Thing",
-    "  open: function(opts: Options): string",
+    "  open: function(opts: Options, other: Other.State): string",
     "end",
     "local thing: Thing = {}",
     "return thing",
@@ -491,6 +502,8 @@ local function test_a_local_type_is_exported_only_when_reached()
   assert(by_symbol["Options"].exported and by_symbol["Options.size"].exported)
   assert(by_symbol["Sizing"].exported and by_symbol["Sizing.wide"].exported)
   assert(not by_symbol["Surface"].exported)
+  -- `Other.State` is another module's, not this one's `State`.
+  assert(not by_symbol["State"].exported)
 end
 
 --- A function with no comment of its own is still a symbol, with an

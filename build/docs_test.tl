@@ -1503,3 +1503,33 @@ local function test_a_count_of_one_is_singular(dir: string)
   text = table.concat(assert(docs.render(looked, read[1])), "\n")
   assert(text:find("used in 1 place;", 1, true), text)
 end
+
+--- A module page cuts a field's note at a word near 100 characters; the
+--- record's own page keeps the sentence.
+local function test_a_module_page_truncates_a_long_field_note(dir: string)
+  local words = string.rep("word ", 30)
+  local db = built(dir, { ["cosmic/thing.tl"] = source(
+    "--- Things.",
+    "",
+    "local record Thing",
+    "  record Options",
+    "    --- " .. words .. "end.",
+    "    count: integer",
+    "  end",
+    "end",
+    "",
+    "function Thing.make(opts?: Thing.Options): string",
+    "  return \"\"",
+    "end",
+    "",
+    "return Thing") })
+  local looked = view({ db })
+  local page = assert(docs.lookup(looked, "cosmic.thing"))
+  local shown = table.concat(assert(docs.render(looked, page[1])), "\n")
+  local line = assert(shown:match("\n    (count: integer[^\n]*)"))
+  assert(#line < 130 and line:sub(-3) == "…", line)
+  assert(not line:find("end.", 1, true), line)
+  local options = assert(docs.lookup(looked, "Thing.Options"))
+  shown = table.concat(assert(docs.render(looked, options[1])), "\n")
+  assert(shown:find("word end.", 1, true), shown)
+end

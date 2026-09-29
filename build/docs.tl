@@ -268,9 +268,6 @@ end
 --- A `local` declaration is left out too, whichever source is read: it
 --- is not the module's surface, though `cosmic docs <name>` finds it in
 --- a source that answers for the module's internals.
---- A `local` declaration is left out too, whichever source is read: it
---- is not the module's surface, though `cosmic docs <name>` finds it in
---- a source that answers for the module's internals.
 --- A call the module's own record declares as a field of function type
 --- (`lstat: function(...)` in `cosmic.sys`'s syscall table) is listed
 --- too, as a function; a record's plain data field, and any field of a
@@ -988,10 +985,18 @@ end
 
 --- A record's field, or an enum's value, on one line: as declared, then
 --- the first sentence of what it says.
-local function member_line(member: docs.Entry): string
+local function member_line(member: docs.Entry, limit?: integer): string
   local note = first_sentence(member.text)
+  if limit ~= nil and #note > limit then
+    local cut = note:sub(1, limit):match("^(.*%S)%s+%S*$") or note:sub(1, limit)
+    note = cut:gsub("[,;:%-]+$", "") .. "…"
+  end
   return member.signature .. (note ~= "" and " -- " .. note or "")
 end
+
+--- How long a field's note runs on a module's page, where a record's
+--- fields are a glance; its own page keeps the whole sentence.
+local NOTE_LIMIT <const> = 100
 
 --- One declared symbol as a module's listing shows it: a function,
 --- method or metamethod by its signature (a function-typed field as
@@ -1101,7 +1106,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       index[#index + 1] = "  " .. listed(item)
       for _, member in ipairs(under[item.source_symbol] or {}) do
         if not listed_symbols[member.symbol] then
-          index[#index + 1] = "    " .. member_line(member)
+          index[#index + 1] = "    " .. member_line(member, NOTE_LIMIT)
         end
       end
     end
