@@ -83,7 +83,9 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "52aa9695f4dffc58d017a83027ef65807b8d22b794b6d286a82ab70009250e69",
 
-  ["build.shared_verdicts"] = "448e0a3791d587cf641b1a191930f929cd3aafbb285d13fbb953f91bbccba524",
+  ["build.shared_sqlite"] = "f79f892e6ad4225a5efafe3c76920aaf9282f4552e9d312ed4e0dad4969c3764",
+
+  ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
   ["build.test"] = "aaf9d45c7d1220b5e5f1c3c3a5a1349560decbf98f93426b490a343b45dfc48a",
 
@@ -133,9 +135,10 @@ harness_epoch.library = {
   ["cosmic.removed"] = "what a test that reaches for a removed global is told, which " ..
     "the core loads in any worker",
   -- TODO: take cosmic.sqlite out of the harness, and this entry out of
-  -- `library`, once the shared SQLite module of plan 4.3 lets
-  -- build.declared_key's `program`, build.shared_verdicts and build.bind
-  -- read and write through the raw binding.
+  -- `library`, once build.shared_sqlite gives build.declared_key's
+  -- `program`, build.shared_verdicts and build.bind what they read and
+  -- write through the raw binding (cosmic.internal.sqlite), and they
+  -- and it reach no cosmic.sqlite.
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
   ["cosmic.string"] = "the launcher's template, which a key holds, is split into lines " ..
