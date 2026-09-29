@@ -41,7 +41,7 @@ local function test_a_formatted_line_reads_back(tmp: string)
           local digest = Codec.hex(string.rep(string.char((i * 37) % 256), size))
           names[#names + 1], digests[#digests + 1] = fields[i], digest
           lines[#lines + 1] = hash.format_line(digest, fields[i])
-          Fuzz.label(fields[i]:find("[\\\n]") and "escaped name" or "plain name")
+          Fuzz.label(fields[i]:find("[\\\n\r]") and "escaped name" or "plain name")
         end
       end
       if #lines > 1 then Fuzz.label("several lines") end
@@ -109,7 +109,7 @@ local function test_parse_sums_is_total_on_any_bytes(tmp: string)
         if entry.name == "" then return false, "empty name at line " .. entry.line end
         if entry.line <= last then return false, "lines out of order" end
         last = entry.line
-        if entry.name:find("[\\\n]") then Fuzz.label("escaped name") end
+        if entry.name:find("[\\\n\r]") then Fuzz.label("escaped name") end
         -- Formatting an entry and reading it again gives the same entry.
         local again = hash.parse_sums(hash.format_line(entry.digest, entry.name), 32)
         local first = again.entries[1]

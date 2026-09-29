@@ -147,17 +147,24 @@ local record Cli
   --- `--sha3-512`: those `cosmic.hash` has. Every file streams in a
   --- chunk at a time, so its size does not matter to memory. A name with
   --- a backslash or a newline is written as GNU writes it: the line
-  --- begins `\` and the name has `\\` and `\n`. A file named `-` is
+  --- begins `\` and the name has `\\`, `\n` and `\r` (all three read back). A file named `-` is
   --- `./-`. `--json` prints an array of `{path, algorithm, digest}`
   --- instead. `--check <sums>` (or `-` for standard input) verifies a
   --- sums file in that format, with the text and `*` binary markers,
   --- escaped names, and blank and `#` lines skipped; the digest sizes
   --- follow the algorithm option, so name it for a non-SHA-256 file.
   --- Each file prints `name: OK`, `name: FAILED`, or `name: FAILED open
-  --- or read`; `--quiet` prints only the failures. `--hmac <key>` makes
+  --- or read`, its name escaped as above; `--quiet` prints only the
+  --- failures. BSD `SHA256 (file) = hex` lines and one-space separators
+  --- are refused as malformed, and a malformed line makes the exit 2
+  --- even when every entry is OK (GNU only warns, without `--strict`);
+  --- a CRLF sums file leaves the CR in each name. The listed paths are
+  --- opened as given, so `--check` refuses a path that is not a regular
+  --- file (`FAILED open or read`), and a sums file you do not trust can
+  --- still make it read any regular file you can. `--hmac <key>` makes
   --- each digest an HMAC under the key, and `--hmac-file <path>` reads
   --- the key from a file (its bytes exactly, a trailing newline
-  --- included: write it with `printf %s`). Prefer the file: a key on the
+  --- included, with a warning: write it with `printf %s`). Prefer the file: a key on the
   --- command line shows in `ps` and the shell's history. Every
   --- algorithm has an HMAC, and it streams too; `--json` names it
   --- `hmac-sha256` and the like, and `--check` verifies HMACs when

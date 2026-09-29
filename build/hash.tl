@@ -12,6 +12,15 @@
 --- use, or a failed write to standard output. Complaints go to standard
 --- error as `cosmic: hash: ...`. build/dispatch.tl's `bare` names it.
 ---
+--- `--check` differs from GNU's in three ways. A line it cannot read (a
+--- BSD `SHA256 (file) = hex` line, a one-space separator, a bad escape)
+--- makes it exit 2 even when every entry is OK, where GNU only warns
+--- without `--strict`. A CRLF sums file leaves the CR in each name, as
+--- GNU does. And it opens the paths a sums file lists as given, so an
+--- untrusted sums file can name any readable path; it refuses one that
+--- is not a regular file (a FIFO or /dev/zero would hang it), printing
+--- `FAILED open or read`. Names it prints are escaped as GNU's are.
+---
 --- An HMAC is made here rather than by `Hash.hmac`, which takes the whole
 --- message: RFC 2104's two passes over `Stream.hashing`, so a file of any
 --- size is still one pass. build/hash_test.tl holds it to `Hash.hmac`.
@@ -93,18 +102,23 @@ local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json]
   "[--hmac <key> | --hmac-file <path>] [<file>|-]...; " ..
   "cosmic hash --check <sums>|- [--quiet] [algorithm and HMAC options]"
 
---- `name` as a sums line writes it: with a leading `\` on the line, and
---- `\\` and `\n` in the name, when it holds a backslash or a newline.
+--- `name` as a sums line writes it, and whether it needed escaping: a
+--- backslash, newline or carriage return becomes `\\`, `\n` or `\r`, as GNU
+--- coreutils writes them, and the line then begins with `\`.
+local function escape_name(name: string): string, boolean
+  if not name:find("[\\\n\r]") then return name, false end
+  local escaped = name:gsub("[\\\n\r]", function(c: string): string
+    return c == "\n" and "\\n" or c == "\r" and "\\r" or "\\\\"
+  end)
+  return escaped, true
+end
+
+--- One sums line for `digest` and `name`.
 --- @param digest the hex digest
 --- @param name the file's name; `-` for standard input
 function verb.format_line(digest: string, name: string): string
-  if name:find("[\\\n]") then
-    local escaped = name:gsub("[\\\n]", function(c: string): string
-      return c == "\n" and "\\n" or "\\\\"
-    end)
-    return "\\" .. digest .. "  " .. escaped
-  end
-  return digest .. "  " .. name
+  local escaped, changed = escape_name(name)
+  return (changed and "\\" or "") .. digest .. "  " .. escaped
 end
 
 --- `text` with the escapes of `format_line` undone, or nil for any other.
@@ -119,6 +133,8 @@ local function unescape(text: string): string | nil
         parts[#parts + 1] = "\\"
       elseif escape == "n" then
         parts[#parts + 1] = "\n"
+      elseif escape == "r" then
+        parts[#parts + 1] = "\r"
       else
         return nil
       end
@@ -217,6 +233,8 @@ local record Request
   json: boolean
   --- The HMAC key; nil for a plain digest.
   key: string | nil
+  --- A complaint to make before running, or "".
+  warning: string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
@@ -237,7 +255,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
   local request: Request = {
     algorithm = chosen[1] or "sha256",
     files = parsed.words, check = parsed.values["--check"],
-    quiet = parsed.set["--quiet"] or false, json = parsed.set["--json"] or false,
+    warning = "", quiet = parsed.set["--quiet"] or false, json = parsed.set["--json"] or false,
   }
   if request.check == "" then return nil, "--check needs a sums file, or - for standard input" end
   if request.check ~= nil then
@@ -259,6 +277,10 @@ local function arguments(argv: {integer:string}): Request | nil, string
     local text, why = Fs.read(key_file)
     if text == nil then return nil, "--hmac-file: " .. why end
     request.key = text
+    if text:sub(-1) == "\n" then
+      request.warning = "--hmac-file: the key ends in a newline, which is part of it; " ..
+        "write the file with `printf %s` if that is not meant"
+    end
   end
   for _, name in ipairs(request.files) do
     if name == "" then return nil, "an empty file name" end
@@ -285,6 +307,13 @@ local standard: verb.Io = {
   end,
   stdin = open_stdin,
 }
+
+--- Whether `path` names a regular file, after links: what `--check` will
+--- open, so a sums file cannot make it read a FIFO or a device.
+local function is_regular(path: string): boolean
+  local st, _ = Fs.stat(path)
+  return st ~= nil and (st.mode & 0xF000) == 0x8000
+end
 
 --- The digest of the file `name`, or of standard input for `-`; nil and
 --- why when it cannot be read. The reader is closed either way.
@@ -321,6 +350,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     complain(trouble .. "; " .. usage)
     return 2
   end
+  if request.warning ~= "" then complain(request.warning) end
   local label = request.key ~= nil and "hmac-" .. request.algorithm or request.algorithm
   local code = 0
 
@@ -332,8 +362,13 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         complain(why)
         code = 2
       elseif request.json then
-        rows[#rows + 1] = "  " ..
-          assert(Json.encode({ path = name, algorithm = label, digest = digest }, { pretty = false }))
+        local row, refused = Json.encode({ path = name, algorithm = label, digest = digest }, { pretty = false })
+        if row == nil then
+          complain(Json.quote(name) .. ": --json cannot write this path: " .. refused)
+          code = 2
+        else
+          rows[#rows + 1] = "  " .. row
+        end
       else
         local ok, lost = to.out(verb.format_line(digest, name) .. "\n")
         if not ok then
@@ -387,8 +422,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   for _, entry in ipairs(sums.entries) do
     local digest: string | nil
     local why: string
+    local listed, changed = escape_name(entry.name)
+    local shown = (changed and "\\" or "") .. listed
     if entry.name == "-" and sums_name == "-" then
       why = "-: standard input holds the sums file"
+    elseif entry.name ~= "-" and not is_regular(entry.name) then
+      why = entry.name .. ": not a regular file, or not there"
     else
       digest, why = digest_named(to, request, entry.name)
     end
@@ -396,12 +435,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if digest == nil then
       complain(why)
       unread = unread + 1
-      line = entry.name .. ": FAILED open or read\n"
+      line = shown .. ": FAILED open or read\n"
     elseif digest ~= entry.digest then
       failed = failed + 1
-      line = entry.name .. ": FAILED\n"
+      line = shown .. ": FAILED\n"
     elseif not request.quiet then
-      line = entry.name .. ": OK\n"
+      line = shown .. ": OK\n"
     end
     if line ~= nil then
       local ok, lost = to.out(line)

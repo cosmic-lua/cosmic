@@ -116,7 +116,59 @@ local function test_names_with_a_backslash_or_newline_are_escaped_as_gnu_does(tm
   local sums = file(tmp, "sums", ran.out)
   local checked = run({ "--check", sums })
   assert(checked.code == 0 and checked.err == "", checked.err)
-  assert(checked.out == odd .. ": OK\n" .. slashed .. ": OK\n" .. plain .. ": OK\n", checked.out)
+  -- Names come back escaped, as GNU prints them.
+  assert(checked.out == "\\" .. prefix .. "/a\\nb: OK\n\\" .. prefix .. "/c\\\\d: OK\n" .. plain .. ": OK\n", checked.out)
+end
+
+local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp: string)
+  local cr = file(tmp, "a\rb", "abc")
+  local ran = run({ "--md5", cr })
+  local prefix = tmp:gsub("\\", "\\\\")
+  assert(ran.out == "\\" .. ABC["md5"] .. "  " .. prefix .. "/a\\rb\n", ran.out)
+  -- The bytes coreutils 9.4 writes for `a\rb`, `c\d`, and a newline in a name.
+  local gnu = file(tmp, "gnu", "\\" .. ABC["md5"] .. "  a\\rb\n" .. "\\" .. ABC["md5"] .. "  c\\\\d\n" ..
+    "\\" .. ABC["md5"] .. "  n\\nl\n")
+  assert(Fs.write(tmp .. "/a\rb", "abc") and Fs.write(tmp .. "/c\\d", "abc") and Fs.write(tmp .. "/n\nl", "abc"))
+  local checked = run({ "--md5", "--check", gnu }, nil)
+  -- Run in the directory the names are relative to.
+  assert(checked.code == 1 and checked.out:find("\\a\\rb: FAILED open or read", 1, true), checked.out)
+  local absolute = file(tmp, "abs", "\\" .. ABC["md5"] .. "  " .. prefix .. "/a\\rb\n")
+  local found = run({ "--md5", "--check", absolute })
+  assert(found.code == 0 and found.out == "\\" .. prefix .. "/a\\rb: OK\n", found.out .. found.err)
+  -- Any other escape is refused.
+  local bad = run({ "--md5", "--check", file(tmp, "bad", "\\" .. ABC["md5"] .. "  a\\tb\n") })
+  assert(bad.code == 2 and bad.err:find("bad escape", 1, true), bad.err)
+end
+
+local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
+  local good = file(tmp, "good", "abc")
+  local odd = file(tmp, "bad\255", "abc")
+  local ran = run({ "--json", odd, good })
+  assert(ran.code == 2, ran.code)
+  assert(ran.err:find("--json cannot write this path", 1, true), ran.err)
+  local rows = assert(Json.decode(ran.out)) as {{string:string}}
+  assert(#rows == 1 and rows[1].path == good)
+end
+
+local function test_check_refuses_a_path_that_is_not_a_regular_file(tmp: string)
+  local sums = file(tmp, "sums", ABC["sha256"] .. "  " .. tmp .. "\n" .. ABC["sha256"] .. "  /dev/zero\n")
+  local ran = run({ "--check", sums })
+  assert(ran.code == 1, ran.code)
+  assert(ran.out == tmp .. ": FAILED open or read\n/dev/zero: FAILED open or read\n", ran.out)
+  assert(ran.err:find("not a regular file", 1, true), ran.err)
+end
+
+local function test_a_crlf_sums_file_leaves_the_cr_in_the_name(tmp: string)
+  local a = file(tmp, "a", "abc")
+  local ran = run({ "--check", file(tmp, "crlf", ABC["sha256"] .. "  " .. a .. "\r\n") })
+  assert(ran.code == 1 and ran.out == "\\" .. a .. "\\r: FAILED open or read\n", ran.out)
+end
+
+local function test_a_key_file_ending_in_a_newline_warns_and_keeps_it(tmp: string)
+  local ran = run({ "--hmac-file", file(tmp, "k", "secret\n") }, "abc")
+  assert(ran.code == 0 and ran.err:find("ends in a newline", 1, true), ran.err)
+  assert(ran.out == Codec.hex(Hash.hmac("sha256", "secret\n", "abc")) .. "  -\n", ran.out)
+  assert(run({ "--hmac-file", file(tmp, "k2", "secret") }, "abc").err == "")
 end
 
 local function test_json_is_an_array_of_path_algorithm_digest(tmp: string)
@@ -217,7 +269,9 @@ local function test_hmac_sha256_matches_rfc_4231(tmp: string)
 end
 
 local function test_hmac_of_every_algorithm_agrees_with_hash_hmac(tmp: string)
-  local keys = { "", "k", string.rep("K", 64), string.rep("K", 72), string.rep("K", 200) }
+  local keys = { "", "k", string.rep("K", 64), string.rep("K", 65), string.rep("K", 72), string.rep("K", 73),
+    string.rep("K", 104), string.rep("K", 105), string.rep("K", 128), string.rep("K", 129),
+    string.rep("K", 136), string.rep("K", 137), string.rep("K", 144), string.rep("K", 145), string.rep("K", 200) }
   local messages = { "", "abc", string.rep("m", 300) }
   for _, algorithm in ipairs(ALGORITHMS) do
     for _, key in ipairs(keys) do

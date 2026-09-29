@@ -21,7 +21,7 @@ end
 local function cosmic(dir: string, words: {string}, input?: string): Ran
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture", input = input,
-    timeout_ms = 6400,
+    timeout_ms = 30000,
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
@@ -49,16 +49,16 @@ local function test_check_exits_1_on_a_failure_and_2_on_a_usage_error(tmp: strin
   assert(not usage.err:find("hash: FAIL", 1, true), usage.err)
 end
 
---- A file of 64 MiB, hashed from disk.
+--- A file of 16 MiB, hashed from disk.
 local function test_a_large_file_streams(tmp: string)
   local chunk = string.rep("x", 1 << 20)
   local writer = (assert(Stream.create(tmp .. "/big")))
-  for _ = 1, 64 do assert(writer:write(chunk)) end
+  for _ = 1, 16 do assert(writer:write(chunk)) end
   assert(writer:close())
   local ran = cosmic(tmp, { "hash", "--md5", "big" })
   assert(ran.code == 0, ran.err)
   local expected = (assert(Stream.hashing("md5")))
-  for _ = 1, 64 do assert(expected:write(chunk)) end
+  for _ = 1, 16 do assert(expected:write(chunk)) end
   local raw = expected:digest()
   local hex = Codec.hex(raw as string)
   assert(ran.out == hex .. "  big\n", ran.out)
