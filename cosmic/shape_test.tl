@@ -53,8 +53,9 @@ local function test_the_first_failure_is_the_same_every_run()
 end
 
 -- A map's values, and a list's elements, go in key order too: a map
--- built in any order reports its least failing key. Keys are added in
--- both orders, so `next` meets them both ways round.
+-- reports its least failing key, whichever `next` meets first. Forty
+-- keys, built in two orders, leave `next` little chance of meeting
+-- the least first in both.
 local function test_a_map_reports_its_least_failing_key()
   local spec = Shape.map(Shape.string)
   local forward: {string: integer} = {}

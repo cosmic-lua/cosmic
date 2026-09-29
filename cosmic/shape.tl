@@ -45,8 +45,9 @@
 --- - A failure names the first value that does not fit, by its path
 ---   from the root as `cosmic.json` names one, `$.rows[2].id`, with list
 ---   indices counted from 1: `$.rows[2].id: expected string, got
----   integer`. A record's fields are checked in byte order, so the same
----   value always reports the same failure. `failures` lists every
+---   integer`. A record's fields and a map's keys are checked in byte
+---   order, and a list's elements in index order, so the same value
+---   always reports the same failure. `failures` lists every
 ---   one, for a config file whose author wants all their mistakes at
 ---   once.
 --- - `into` never raises on a value, whatever it holds. A spec that was
@@ -333,6 +334,24 @@ local function is_name(k: any): boolean
   return k is string
 end
 
+--- 1 through `#t` when those are `t`'s keys, which a decoded JSON array's
+--- are, or nil: what `split_keys` would keep, without sorting anything.
+local function dense_keys(t: {any: any}): {any}
+  local n = rawlen(t)
+  local count = 0
+  for _ in next, t do
+    count = count + 1
+    if count > n then return nil end
+  end
+  if count ~= n then return nil end
+  local keys: {any} = {}
+  for i = 1, n do
+    if rawget(t, i) == nil then return nil end
+    keys[i] = i
+  end
+  return keys
+end
+
 --- A miss for each key in `bad`, the first of them.
 local function refuse_keys(bad: {any}, path: string, kind: string, all: {Miss}): Miss
   local first: Miss = nil
@@ -466,8 +485,12 @@ walk = function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
     elseif kind == "list" then
       -- A key the list refuses fails it where it stands, and no
       -- element is looked at; the elements go in index order.
-      local keys, refused = split_keys(t, is_index)
-      if #refused > 0 then return nil, refuse_keys(refused, path, "list", all) end
+      local keys = dense_keys(t)
+      if keys == nil then
+        local refused: {any}
+        keys, refused = split_keys(t, is_index)
+        if #refused > 0 then return nil, refuse_keys(refused, path, "list", all) end
+      end
       local out: {any} = {}
       local after = 0
       for _, k in ipairs(keys) do
