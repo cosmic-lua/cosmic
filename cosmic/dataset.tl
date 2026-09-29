@@ -14,7 +14,8 @@
 --- `Json.decode(text, { null_value = Json.null })` gives an object. The
 --- table `load` makes has:
 ---
---- - one column per key any row has, in byte order, with no declared
+--- - one column per key any row has, in byte order (or the order
+---   `LoadOptions.columns` gives), with no declared
 ---   type, so SQLite keeps each value as it was stored. A row without a
 ---   key holds NULL there.
 --- - a `_json` column last: the whole row as compact JSON text, keys
@@ -40,11 +41,29 @@
 --- Names are quoted (`"` doubled), so a space, a dot or a keyword in a key
 --- is no trouble in the statement either, written in double quotes.
 ---
+--- The `csv` and `tsv` formats (`cosmic.csv` reads them) make a row of each
+--- record after the header, its columns the header's names. A cell that is
+--- plainly a number is INTEGER or REAL: an optional `-`, digits and an
+--- optional fraction or exponent, with no `+`, no leading zeros (`0` and
+--- `0.5` only) and no spaces, so `007`, `+1`, ` 1`, `1e5x`, `.5` and `1.`
+--- stay text; a number past 64 bits is REAL, as in JSON, and one too large
+--- for a real (`1e999`) stays text. An empty cell is NULL, not `''`, as a
+--- file's missing value is: `WHERE x IS NULL` finds it and `x = ''` does
+--- not. With `raw` every cell is text as written, the empty one `''`. A
+--- row's `_json` holds the same values, an empty cell `null`, so a CSV
+--- row is the JSON object of the file's JSON twin. `-0` is a plain
+--- number and loads as the integer 0, and `-0.0` as the real 0.0: no sign shows
+--- through SQL or `_json`.
+--- The columns follow the header's order, so `SELECT *` reads the file's
+--- own columns left to right; the JSON formats' are in byte order. A file whose header has
+--- no rows still has its columns (all of them empty).
+---
 --- The formats are a table kept here, one entry each -- a name, the
 --- file extensions it goes by, and a reader from text to rows -- so a
 --- format is added as one entry and `cosmic sql --from` takes it by name
 --- and by extension with no other change.
 
+local Csv = require("cosmic.csv")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 
@@ -54,18 +73,32 @@ local record Dataset
   --- array, stored as JSON text).
   type Row = {string:any}
 
+  --- The rows a reader made, and the order of their keys when the format
+  --- has one (a CSV's header): what `load` is given as `opts.columns`.
+  record Rows is {Dataset.Row}
+    columns: {string}
+  end
+
   --- What a reader may be told.
   record ReadOptions
     --- Where in the document the rows are, as `Json.parse_path` gives
     --- it: the whole document when nil. Only a format that reads a
     --- document takes one (`json`); the others refuse it.
     at: {string | integer}
+    --- Keep every cell as the text it is: no number is read and an empty
+    --- cell is `''`, not NULL. Only a format of text cells (`csv`,
+    --- `tsv`) takes it; the JSON formats, typed by their syntax, refuse it.
+    raw: boolean
   end
 
   --- What `load` may be told.
   record LoadOptions
     --- Add the `_json` column (default true).
     json_column: boolean
+    --- The keys whose columns come first, in this order, even for a key
+    --- no row has; any other key follows, in byte order. Nil is byte
+    --- order throughout. A key listed twice counts once.
+    columns: {string}
   end
 
   --- A table `load` made.
@@ -90,7 +123,7 @@ local record Dataset
     extensions: {string}
     --- The rows text holds, and ""; nil and why when it is not the
     --- format or an option does not apply.
-    read: function(text: string, opts: Dataset.ReadOptions): {Dataset.Row} | nil, string
+    read: function(text: string, opts: Dataset.ReadOptions): Dataset.Rows | nil, string
   end
 end
 
@@ -106,8 +139,8 @@ end
 
 --- The rows of a JSON value: each element of an array is a row as
 --- `row_of` makes it; a value that is not an array is one row.
-local function rows_of(value: any): {Dataset.Row}
-  local rows: {Dataset.Row} = {}
+local function rows_of(value: any): Dataset.Rows
+  local rows: Dataset.Rows = {}
   local items, _ = Json.items(value)
   if items == nil then
     rows[1] = row_of(value)
@@ -119,12 +152,85 @@ local function rows_of(value: any): {Dataset.Row}
   return rows
 end
 
+--- The value of one CSV cell: an integer or a real when it is plainly a
+--- number (see the module comment), `Json.null` when empty, and the text
+--- otherwise.
+local function cell_of(text: string): any
+  if text == "" then
+    return Json.null
+  end
+  local at = text:byte(1) == 45 and 2 or 1
+  local first = text:byte(at)
+  if first == 48 then
+    at = at + 1
+  elseif first ~= nil and first >= 49 and first <= 57 then
+    at = text:find("%D", at) or #text + 1
+  else
+    return text
+  end
+  local plain = true
+  if text:byte(at) == 46 then
+    local digits = text:match("^%d+", at + 1)
+    if digits == nil then
+      return text
+    end
+    at = at + 1 + #digits
+    plain = false
+  end
+  local mark = text:byte(at)
+  if mark == 101 or mark == 69 then
+    local digits = text:match("^[+-]?%d+", at + 1)
+    if digits == nil then
+      return text
+    end
+    at = at + 1 + #digits
+    plain = false
+  end
+  if at <= #text then
+    return text
+  end
+  local value = tonumber(text)
+  if value == nil or value ~= value or value == math.huge or value == -math.huge then
+    return text
+  end
+  if plain and math.type(value) == "integer" then
+    return value
+  end
+  return value + 0.0
+end
+
+--- A reader of the delimited text `Csv` reads with `delimiter`.
+local function delimited(name: string, delimiter: string): function(text: string, opts: Dataset.ReadOptions): Dataset.Rows | nil, string
+  return function(text: string, opts: Dataset.ReadOptions): Dataset.Rows | nil, string
+    if opts.at ~= nil then
+      return nil, "the " .. name .. " format takes no path: each record is a row"
+    end
+    local made, trouble = Csv.table(text, { delimiter = delimiter })
+    if made == nil then
+      return nil, trouble
+    end
+    local rows: Dataset.Rows = {}
+    rows.columns = made.columns
+    for index, record in ipairs(made.rows) do
+      local row: Dataset.Row = {}
+      for key, cell in pairs(record) do
+        row[key] = opts.raw and cell or cell_of(cell)
+      end
+      rows[index] = row
+    end
+    return rows, ""
+  end
+end
+
 local formats: {string:Dataset.Format} = {
   json = {
     about = "one JSON document: an array of objects is a table of them, an array " ..
       "of anything else a `value` column, and any other value one row",
     extensions = { "json" },
-    read = function(text: string, opts: Dataset.ReadOptions): {Dataset.Row} | nil, string
+    read = function(text: string, opts: Dataset.ReadOptions): Dataset.Rows | nil, string
+      if opts.raw then
+        return nil, "the json format has no raw cells: its values are typed by JSON"
+      end
       local document, trouble = Json.decode(text, { null_value = Json.null })
       if trouble ~= "" then
         return nil, trouble
@@ -139,9 +245,12 @@ local formats: {string:Dataset.Format} = {
   ndjson = {
     about = "JSON Lines: one JSON value to a line, an object a row and anything else a `value`",
     extensions = { "ndjson", "jsonl" },
-    read = function(text: string, opts: Dataset.ReadOptions): {Dataset.Row} | nil, string
+    read = function(text: string, opts: Dataset.ReadOptions): Dataset.Rows | nil, string
       if opts.at ~= nil then
         return nil, "the ndjson format takes no path: each line is a row"
+      end
+      if opts.raw then
+        return nil, "the ndjson format has no raw cells: its values are typed by JSON"
       end
       local values, trouble = Json.decode_lines(text, { null_value = Json.null })
       if values == nil then
@@ -150,9 +259,19 @@ local formats: {string:Dataset.Format} = {
       return rows_of(values), ""
     end,
   },
+  csv = {
+    about = "comma-separated values: a header line names the columns, each later line is a row",
+    extensions = { "csv" },
+    read = delimited("csv", ","),
+  },
+  tsv = {
+    about = "tab-separated values: a header line names the columns, each later line is a row",
+    extensions = { "tsv", "tab" },
+    read = delimited("tsv", "\t"),
+  },
 }
 
---- The names of the formats there are, sorted: `json`, `ndjson`.
+--- The names of the formats there are, sorted: `csv`, `json`, `ndjson`, `tsv`.
 function Dataset.names(): {string}
   local names: {string} = {}
   for name in pairs(formats) do
@@ -169,7 +288,7 @@ function Dataset.about(name: string): string | nil
 end
 
 --- The format a file name's extension names, case aside -- `json` for
---- `a.json`, `ndjson` for `a.jsonl` and `a.ndjson` -- or nil and why
+--- `a.json`, `ndjson` for `a.jsonl` and `a.ndjson`, `tsv` for `a.tab` -- or nil and why
 --- (the extensions there are) when it has none or an unknown one.
 function Dataset.format_of(path: string): string | nil, string
   local extension = path:match("%.([^./]+)$")
@@ -189,8 +308,8 @@ end
 
 --- The rows `text` holds in the format `name`, and ""; nil and why when
 --- there is no such format (the ones there are), the text is not that
---- format, or `opts.at` is given to a format that takes none.
-function Dataset.read(name: string, text: string, opts?: Dataset.ReadOptions): {Dataset.Row} | nil, string
+--- format, or `opts.at` or `opts.raw` is given to a format that takes none.
+function Dataset.read(name: string, text: string, opts?: Dataset.ReadOptions): Dataset.Rows | nil, string
   local format = formats[name]
   if format == nil then
     return nil, "no format " .. name .. " (known: " .. table.concat(Dataset.names(), ", ") .. ")"
@@ -228,18 +347,28 @@ end
 --- The columns for `rows`' keys, in byte order, each named as the module
 --- comment says; the key each column holds; and the key each renamed
 --- column was.
-local function columns_of(rows: {Dataset.Row}, json_column: boolean): {string}, {string:string}, {string:string}
+local function columns_of(rows: {Dataset.Row}, json_column: boolean, first: {string} | nil): {string}, {string:string}, {string:string}
   local seen: {string:boolean} = {}
   local keys: {string} = {}
+  for _, key in ipairs(first or {}) do
+    if not seen[key] then
+      seen[key] = true
+      keys[#keys + 1] = key
+    end
+  end
+  local rest: {string} = {}
   for _, row in ipairs(rows) do
     for key in pairs(row) do
       if not seen[key] then
         seen[key] = true
-        keys[#keys + 1] = key
+        rest[#rest + 1] = key
       end
     end
   end
-  table.sort(keys)
+  table.sort(rest)
+  for _, key in ipairs(rest) do
+    keys[#keys + 1] = key
+  end
   local taken: {string:boolean} = { _json = json_column or nil, rowid = true, oid = true, _rowid_ = true }
   local names: {string} = {}
   local key_of: {string:string} = {}
@@ -282,7 +411,7 @@ function Dataset.load(handle: Sqlite.Handle, name: string, rows: {Dataset.Row},
     return nil, "a table name cannot hold a NUL byte"
   end
   local json_column = not (opts and opts.json_column == false)
-  local names, key_of, renamed = columns_of(rows, json_column)
+  local names, key_of, renamed = columns_of(rows, json_column, opts and opts.columns)
   if #names + (json_column and 1 or 0) > max_columns then
     return nil, "too many columns: " .. #names .. " distinct keys, and SQLite holds at most " ..
       max_columns .. " columns in a table" .. (json_column and " (one is `_json`)" or "")
