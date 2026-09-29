@@ -63,6 +63,15 @@ works. Numbers print as `Json.encode` writes them, so `1e2` reads
 `100.0`. It is only a lookup, with no filters: for more, write the
 script with `cosmic.json`. `cosmic help json` has the rest.
 
+## a random id, token or number
+
+`cosmic rand uuid` prints a UUID (`--v7` for a time-ordered one, `-n 5`
+for five); `cosmic rand token` a 32-byte base64url token; `cosmic rand int
+1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines. All
+of it comes from the operating system's entropy, unless you name `--seed`
+to replay `int`, `pick` or `shuffle`, which is not secret. `cosmic help
+rand` has the rest.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function

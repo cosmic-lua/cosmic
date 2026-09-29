@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, rand, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -139,6 +139,32 @@ local record Cli
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
   json: string
+  --- `cosmic rand <uuid|token|int|pick|shuffle> [options]`: an id, a
+  --- token, a number or a shuffled list, with no script to write.
+  --- `uuid [--v4|--v7] [-n N]` prints N UUIDs (default one, version 4);
+  --- version 7 (RFC 9562) leads with the millisecond clock, then a
+  --- 12-bit counter (the RFC's method 1: the clock's fraction of the
+  --- millisecond, bumped by one where a draw would not sort after the
+  --- last), then entropy, so one run's values sort as drawn. `token
+  --- [--bytes N] [--hex|--base64url]` prints N random bytes (default
+  --- 32, at most 1048576) as base64url without padding, or as hex.
+  --- `int [-n N] <lo> <hi>` prints N integers (default one) uniform over
+  --- lo..hi inclusive, drawn by rejection so no value is likelier;
+  --- bounds may be negative (`int -5 5`), and lo above hi is refused.
+  --- `pick [-n N] [file|-]` prints N distinct lines, and `shuffle
+  --- [file|-]` all of them, in an order drawn by Fisher-Yates; a line
+  --- ends at a newline, and an empty input has none. Asking `pick` for
+  --- more lines than there are is refused, exit 2, with nothing
+  --- printed. Everything secret-grade -- uuid, token, and the rest
+  --- without `--seed` -- comes from the operating system's entropy
+  --- source (`Rand.entropy`), never from a seeded generator. `--seed
+  --- N` (int, pick, shuffle only) draws from `Rand.new(N)` instead, so
+  --- a test or a script can replay it: that output is NOT secret, and
+  --- `--seed` is refused with uuid and token. Its standard output is
+  --- data and ends in no verdict line. Exits 0 when it printed,
+  --- 1 when the entropy source failed, 2 for a command line, a file or a
+  --- request it refuses, or a failed write to standard output
+  rand: string
   --- `cosmic docs [q]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
   --- or words to search the documentation for; a module lists the
@@ -202,7 +228,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -240,6 +266,15 @@ local module: Module = {
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
       ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
     },
+    rand = {
+      ["--v4"] = { about = "uuid: version 4, random (the default)" },
+      ["--v7"] = { about = "uuid: version 7, time-ordered within a run" },
+      ["-n"] = { value = "n", about = "uuid, int, pick: how many to draw (default 1)" },
+      ["--bytes"] = { value = "n", about = "token: bytes of entropy, 1 to 1048576 (default 32)" },
+      ["--hex"] = { about = "token: lowercase hex" },
+      ["--base64url"] = { about = "token: unpadded base64url (the default)" },
+      ["--seed"] = { value = "n", about = "int, pick, shuffle: replayable, NOT secret; refused for uuid and token" },
+    },
     bom = {
       ["--licenses"] = { about = "print each component's license notices" },
       ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
@@ -254,7 +289,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "rand", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 

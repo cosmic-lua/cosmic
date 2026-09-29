@@ -94,7 +94,7 @@ A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
 sources whose rows to count. `docs` takes words to search for instead,
-`sql` one statement, `json` a path and a file, `help` a verb, `refresh` the datasets to fetch,
+`sql` one statement, `json` a path and a file, `rand` a subcommand and its words, `help` a verb, `refresh` the datasets to fetch,
 and `bom` nothing.
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
@@ -116,7 +116,7 @@ copied out as the bytes it was read from. Lining those up is a
 judgement about a whole line, which is the author's here, not the
 tool's.
 
-Every verb but `json` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
+Every verb but `json` and `rand` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
 (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
 its command line was refused -- an option, an argument or a verb it
 does not know; 3 when the tool is older than the tree and did not
@@ -126,6 +126,7 @@ only what its program prints and exits with what it returns.
 `--version` is not one either: it prints its one line. `json` prints its
 value and nothing after, for a pipe, and exits 0 when it found the path, 1
 when the path is not there, 2 for a command line or a text it refused.
+`rand` prints what it draws and nothing after; 2 refuses its command line or a failed write.
 ]]
 
 --- The directory a path sits in, absolute.
@@ -493,12 +494,17 @@ local verbs: {string: function({integer:string}): integer} = {
   json = function(argv: {integer:string}): integer
     return require("build.json").run(argv)
   end,
+  -- Draws from the OS entropy source, or a seed on request; reads no
+  -- tree, so never stale-checked, and prints no verdict (`bare`).
+  rand = function(argv: {integer:string}): integer
+    return require("build.rand").run(argv)
+  end,
 }
 
 --- The verbs that end in no verdict line, their output being data for a
 --- pipe: their exit status is the verdict, and a usage error is
 --- complained about and nothing more. build/json.tl says why.
-local bare: {string:boolean} = { json = true }
+local bare: {string:boolean} = { json = true, rand = true }
 
 --- What a verdict line a verb did not give itself says of its exit code.
 local function detail_of(code: integer): string
