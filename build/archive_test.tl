@@ -22,8 +22,9 @@ local record Ran
 end
 
 --- One run: `words` after `cosmic archive`, `stdin` standing in for
---- standard input, and `out_ok` false for a standard output that fails.
-local function run(words: {string}, stdin?: string, out_ok?: boolean): Ran
+--- standard input (bytes, or a Reader for input that is not to be held
+--- whole), and `out_ok` false for a standard output that fails.
+local function run(words: {string}, stdin?: string | Stream.Reader, out_ok?: boolean): Ran
   local argv: {integer:string} = { [0] = "cosmic", [1] = "archive" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
@@ -34,9 +35,10 @@ local function run(words: {string}, stdin?: string, out_ok?: boolean): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): string | nil, string
+    stdin = function(): Stream.Reader | nil, string
       if stdin == nil then return nil, "no standard input in this test" end
-      return stdin, ""
+      if stdin is string then return Stream.from_string(stdin), "" end
+      return stdin as Stream.Reader, ""
     end,
   })
   return ran
@@ -175,6 +177,98 @@ local function test_list_reads_standard_input(tmp: string)
   assert(ran.out:find("proj/a.txt\t5\t", 1, true), ran.out)
   local json = run({ "list", "--json", "-" }, bytes)
   assert(json.code == 0 and json.out:find('"proj/a.txt"', 1, true), json.out)
+end
+
+local function test_list_and_extract_read_a_tgz_and_a_zip_from_standard_input(tmp: string)
+  local formats: {string:string} = {
+    zip = make_zip(tmp .. "/s.zip", SAMPLE),
+    tgz = make_tar(tmp .. "/s.tgz", SAMPLE, true),
+    tar = make_tar(tmp .. "/s.tar", SAMPLE),
+  }
+  for format, path in pairs(formats) do
+    local bytes = assert(Fs.read(path))
+    local listed = run({ "list", "-" }, bytes)
+    assert(listed.code == 0 and listed.err == "", format .. ": " .. listed.err)
+    assert(listed.out:find("proj/sub/b.txt\t6\t", 1, true), format .. ": " .. listed.out)
+    local dest = tmp .. "/from-" .. format
+    local ran = run({ "extract", "-", "-C", dest }, bytes)
+    assert(ran.code == 0 and ran.err == "", format .. ": " .. ran.err)
+    assert(Fs.read(dest .. "/proj/sub/b.txt") == "bravo!", format)
+    assert(Fs.read(dest .. "/top.txt") == "top", format)
+  end
+end
+
+local function test_list_spools_no_temporary_file_for_a_tar_stream_but_does_for_a_zip(tmp: string)
+  local made = 0
+  local real_mkdtemp = Fs.mkdtemp
+  local patched = Fs as {string:any}
+  patched.mkdtemp = function(prefix: string): string | nil, string
+    made = made + 1
+    return real_mkdtemp(prefix)
+  end
+  local ok, err = pcall(function(): string
+    for _, gzip in ipairs({ false, true }) do
+      local bytes = assert(Fs.read(make_tar(tmp .. "/t.tar", SAMPLE, gzip)))
+      local ran = run({ "list", "-" }, bytes)
+      assert(ran.code == 0 and ran.out:find("top.txt", 1, true), ran.err)
+    end
+    assert(made == 0, "a tar stream was written to a temporary file")
+    local zip = assert(Fs.read(make_zip(tmp .. "/z.zip", SAMPLE)))
+    local ran = run({ "list", "-" }, zip)
+    assert(ran.code == 0 and ran.out:find("top.txt", 1, true), ran.err)
+    assert(made == 1, "a zip needs its file")
+    return ""
+  end)
+  patched.mkdtemp = real_mkdtemp
+  assert(ok, err)
+end
+
+--- A file of `mib` MiB that deflate cannot shrink, so the .tar.gz
+--- holds about as many bytes as it has.
+local function write_big_tgz(path: string, mib: integer): integer
+  local block: {string} = {}
+  for i = 1, 1 << 16 do block[i] = string.char(math.random(0, 255)) end
+  local chunk = table.concat(block)
+  local rounds = mib * 16
+  local left = rounds
+  local body: Stream.Reader = {}
+  body.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    if left == 0 then return nil, "" end
+    left = left - 1
+    return chunk, ""
+  end
+  body.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local sink = assert(Stream.create(path))
+  local w = Tar.writer(Stream.transform_writer(sink, (assert(Compress.deflater("gzip")))))
+  assert(w:add_file("big.bin", body, { size = #chunk * rounds }))
+  assert(w:close())
+  return #chunk * rounds
+end
+
+local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: string)
+  local total = write_big_tgz(tmp .. "/big.tar.gz", 24)
+  collectgarbage()
+  collectgarbage()
+  local base = collectgarbage("count")
+  -- Every read of standard input is preceded by a full collection and a
+  -- sample of live memory: a run that held the input whole would show
+  -- all of it at once.
+  local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
+  local reads, peak = 0, 0.0
+  local piped: Stream.Reader = {}
+  piped.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    collectgarbage()
+    peak = math.max(peak, collectgarbage("count"))
+    reads = reads + 1
+    return inner:read(max)
+  end
+  piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
+  local ran = run({ "list", "-" }, piped)
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  assert(ran.out:find("big.bin\t" .. total .. "\t", 1, true), ran.out)
+  assert(reads >= 100, "standard input was read " .. tostring(reads) .. " times")
+  local grown = (peak - base) / 1024
+  assert(grown < 4, ("memory grew %.1f MiB listing %d MiB"):format(grown, total >> 20))
 end
 
 local function test_an_unknown_format_or_a_missing_file_is_refused(tmp: string)

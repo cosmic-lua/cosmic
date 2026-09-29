@@ -266,8 +266,7 @@ end
 --- nested record (its symbol is dotted), is not. Nor is a field typed
 --- `function` without parentheses, a generic one (`function<T>(...)`),
 --- or an alias of a function type: only the literal `name: function(`
---- form is. A field whose stored signature is cut off (see `listed`)
---- stays a `field` row.
+--- form is.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
@@ -873,13 +872,6 @@ local function first_sentence(documented: string): string
   return paragraph
 end
 
---- Whether `entry`'s comment opens its file: a record's, standing in
---- for the module's own row when a file's opening comment sits on it.
-local function opens_its_file(entry: docs.Entry): boolean
-  local _, breaks = entry.text:gsub("\n", "")
-  return entry.line - (breaks + 1) == 1
-end
-
 --- Every module `view` holds, by name, with the first sentence of its
 --- documentation ("" for one it does not document) -- no test or
 --- example, which a reader never calls: what `cosmic docs` lists when
@@ -889,11 +881,9 @@ function docs.index(view: docs.View): {docs.Summary} | nil, string
   if found == nil then
     return nil, trouble
   end
-  -- The module's own row when it has one, else the record its opening
-  -- comment sits on.
   local said: {string: string} = {}
   for _, entry in ipairs(found) do
-    if entry.symbol == "" or (said[entry.module] == nil and opens_its_file(entry)) then
+    if entry.symbol == "" then
       said[entry.module] = first_sentence(entry.text)
     end
   end
@@ -957,24 +947,11 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   return out
 end
 
---- Whether `signature`, which starts at a `(`, closes that parenthesis: a
---- multi-line field's signature is stored as its first line alone, and
---- printing that would look complete.
-local function closes(signature: string): boolean
-  local depth = 0
-  for char in signature:gmatch("[()]") do
-    depth = depth + (char == "(" and 1 or -1)
-    if depth == 0 then
-      return true
-    end
-  end
-  return false
-end
-
 --- One declared symbol as a module's listing shows it: a function or
 --- method by its signature (a function-typed field as `function` and its
---- name, then the signature's parameters and results), anything else (a record's signature spans
---- lines) by kind and name, then its uses and examples.
+--- name, then the signature's parameters and results), anything else (a
+--- record's signature spans lines) by kind and name, then its uses and
+--- examples.
 local function listed(item: docs.Entry): string
   local marks: {string} = {}
   if item.uses > 0 then
@@ -988,10 +965,9 @@ local function listed(item: docs.Entry): string
   if (item.kind == "function" or item.kind == "method") and
      item.signature ~= "" and not item.signature:find("\n", 1, true) then
     shown = item.signature
-  elseif item.kind == "field" and item.signature ~= "" and
-         not item.signature:find("\n", 1, true) then
+  elseif item.kind == "field" then
     local rest = item.signature:match("^[%w_]+: function(%(.*)$")
-    if rest ~= nil and closes(rest) then
+    if rest ~= nil then
       shown = "function " .. item.source_symbol .. rest
     end
   end

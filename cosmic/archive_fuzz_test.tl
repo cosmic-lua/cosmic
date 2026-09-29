@@ -270,3 +270,103 @@ local function test_opening_any_bytes_is_total(tmp: string)
     end,
   })
 end
+
+--- What walking `reader` yields: one line per entry, then "ok" or
+--- "trouble" for how the walk ended; closes it. A stream's entries
+--- before its trouble depend on how its bytes were chunked (a
+--- decompressor refuses a bad chunk whole), so `trouble` stands for
+--- the walk, not for what was read before it.
+local function walk_summary(reader: Archive.Reader): string
+  local lines: {string} = {}
+  local ended = "ok"
+  for _ = 1, 10000 do
+    local e, why = reader:next()
+    if e == nil then
+      if why ~= "" then
+        ended = "trouble"
+        lines = {}
+      end
+      break
+    end
+    local entry: Archive.Entry = e
+    lines[#lines + 1] = entry.kind .. " " .. entry.path .. " " .. tostring(entry.size)
+  end
+  reader:close()
+  lines[#lines + 1] = ended
+  return table.concat(lines, "\n")
+end
+
+--- A Reader over `bytes` that answers in chunks of the sizes `bytes`
+--- itself spells (1 to 300, cycling), so the sniff and the tar's header
+--- reads land across reads wherever the input puts them.
+local function chunked(bytes: string): Stream.Reader
+  local at, turn = 1, 0
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    if at > #bytes then return nil, "" end
+    turn = turn + 1
+    local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1
+    if max ~= nil and max < size then size = max end
+    local chunk = bytes:sub(at, at + size - 1)
+    at = at + #chunk
+    return chunk, ""
+  end
+  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  return r
+end
+
+--- `open_stream` answers as `open` does for the same bytes, however the
+--- stream splits them: the same entries and the same end, a tar or a
+--- compressed tar alike, and a zip refused rather than misread.
+local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: string)
+  local file = tmp .. "/input"
+  Fuzz.run({
+    name = "archive open_stream parity",
+    dir = tmp,
+    requires = { "walked" },
+    gen = function(src: Fuzz.Source): string
+      local magic = Fuzz.pick(src, { "", "\31\139", "\253" .. "7zXZ\0", "BZh9", "PK\3\4", "PK\5\6" })
+      local body = Fuzz.bytes(src, 600)
+      if src:int(0, 2) > 0 then
+        local out = Stream.collect()
+        local tw = Tar.writer(out, { deterministic = true })
+        tw:add_file("a", Fuzz.bytes(src, 40))
+        tw:add_file("b/c", Fuzz.bytes(src, 700))
+        tw:close()
+        local sample = out:result()
+        if src:int(0, 1) == 1 then
+          local enc = Compress.deflater("gzip")
+          if enc ~= nil then
+            local head = enc:update(sample) as string
+            local tail = enc:finish()
+            if tail ~= nil then sample = head .. tail end
+          end
+        end
+        body = Fuzz.mutate(src, sample, 3)
+        magic = ""
+      end
+      return magic .. body
+    end,
+    check = function(input: string): boolean, string
+      assert(Fs.write(file, input))
+      local streamed, why = Archive.open_stream(chunked(input))
+      local zip = input:sub(1, 4) == "PK\3\4" or input:sub(1, 4) == "PK\5\6"
+      if zip then
+        if streamed ~= nil then return false, "open_stream took a zip" end
+        if why:find("zip", 1, true) == nil then return false, "zip refusal: " .. why end
+        return true, ""
+      end
+      local opened = Archive.open(file)
+      if (opened == nil) ~= (streamed == nil) then
+        return false, "open " .. (opened == nil and "refused" or "took") .. " what open_stream " .. (streamed == nil and "refused" or "took")
+      end
+      if opened == nil or streamed == nil then return true, "" end
+      local from_file, from_stream = walk_summary(opened), walk_summary(streamed)
+      if from_file ~= from_stream then
+        return false, "file: " .. from_file .. "\nstream: " .. from_stream
+      end
+      Fuzz.label("walked")
+      return true, ""
+    end,
+  })
+end

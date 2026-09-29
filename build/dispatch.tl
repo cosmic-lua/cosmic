@@ -94,7 +94,7 @@ A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
 sources whose rows to count. `docs` takes words to search for instead,
-`sql` one statement, `json` a path and a file, `hash` the files to digest, `codec` an encoding and a file, `time` a subcommand and its times, `help` a verb, `refresh` the datasets to fetch,
+`sql` one statement, `json` a path and a file, `hash` the files to digest, `codec` an encoding and a file, `archive` a subcommand and its paths, `fetch` a URL, `time` a subcommand and its times, `rand` a subcommand and its words, `help` a verb, `refresh` the datasets to fetch,
 and `bom` nothing.
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
@@ -116,7 +116,7 @@ copied out as the bytes it was read from. Lining those up is a
 judgement about a whole line, which is the author's here, not the
 tool's.
 
-Every verb but `json`, `hash`, `codec`, `archive` and `time` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
+Every verb but `json`, `hash`, `codec`, `archive`, `time`, `rand` and `fetch` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
 (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
 its command line was refused -- an option, an argument or a verb it
 does not know; 3 when the tool is older than the tree and did not
@@ -130,6 +130,10 @@ and exits 1 when a `--check` fails. `codec`
 prints its text or bytes and nothing after, and exits 0 or 2. `archive` prints its
 listing or the paths it wrote, and exits 0, 1 or 2 as `json` does. `time` prints its answer
 likewise, exiting 1 when an `add` has none.
+`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its
+command line or a write fails.
+`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when
+the fetch failed, 2 for a command line or URL it refused.
 ]]
 
 --- The directory a path sits in, absolute.
@@ -497,6 +501,11 @@ local verbs: {string: function({integer:string}): integer} = {
   json = function(argv: {integer:string}): integer
     return require("build.json").run(argv)
   end,
+  -- Draws from the OS entropy source, or a seed on request; reads no
+  -- tree, so never stale-checked, and prints no verdict (`bare`).
+  rand = function(argv: {integer:string}): integer
+    return require("build.rand").run(argv)
+  end,
   -- Reads the files it is given, never the tree: never stale-checked,
   -- and prints no verdict (`bare`).
   hash = function(argv: {integer:string}): integer
@@ -506,6 +515,11 @@ local verbs: {string: function({integer:string}): integer} = {
   -- and no verdict (`bare`).
   archive = function(argv: {integer:string}): integer
     return require("build.archive").run(argv)
+  end,
+  -- Reads a URL it is given, never the tree: never stale-checked, and
+  -- prints no verdict (`bare`). build/fetch.tl says why.
+  fetch = function(argv: {integer:string}): integer
+    return require("build.fetch").run(argv)
   end,
   -- Reads the clock and the zones the binary carries, never the tree:
   -- never stale-checked, and no verdict line (`bare`).
@@ -521,7 +535,7 @@ local verbs: {string: function({integer:string}): integer} = {
 --- The verbs that end in no verdict line, their output being data for a
 --- pipe: their exit status is the verdict, and a usage error is
 --- complained about and nothing more. build/json.tl says why.
-local bare: {string:boolean} = { json = true, hash = true, codec = true, archive = true, time = true }
+local bare: {string:boolean} = { json = true, hash = true, codec = true, archive = true, time = true, rand = true, fetch = true }
 
 --- What a verdict line a verb did not give itself says of its exit code.
 local function detail_of(code: integer): string

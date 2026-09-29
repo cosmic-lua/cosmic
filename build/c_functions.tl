@@ -78,7 +78,7 @@ local exempt: {string: string} = {
   ["core/vfs_wrap.c:forward_randomness"] =
     "SQLite seeds its randomness through the default VFS, never a wrapping one",
   ["core/sqlite.c:observed_sector_size"] =
-    "the default VFS's files overwrite safely on power loss, so SQLite never asks their sector size; only a URI's psow=0 would, and no connection takes a URI",
+    "the default VFS's files overwrite safely on power loss, so SQLite never asks their sector size; only a URI's psow=0 would, and the only URI a connection takes is the immutable one, which sets no psow",
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
 }

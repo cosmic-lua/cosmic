@@ -571,21 +571,77 @@ static int sqlite_observed (lua_State *L) {
   return 1;
 }
 
+/* The `file:` URI that names `path` and nothing more, with SQLite told
+ * `immutable=1`: every byte but an unreserved one or a slash is
+ * percent-escaped, so no `?`, `#` or `%` of the path is read as URI
+ * syntax and no `vfs=`, `off=` or `len=` can be smuggled in. Leaves the
+ * URI on the stack and returns it. */
+static const char *immutable_uri (lua_State *L, const char *path,
+                                  size_t path_len) {
+  static const char hex[] = "0123456789ABCDEF";
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addstring(&b, "file:");
+  /* An absolute path takes the empty authority, so a leading "//" stays
+   * part of the path; a Windows drive letter needs the slash too. */
+  if (path_len > 0 && path[0] == '/') {
+    luaL_addstring(&b, "//");
+  }
+  /* TODO: check this branch on a Windows leg once CI runs core/sqlite_test.tl
+   * there with a drive-letter path: nothing here has run it, and SQLite may
+   * want "C:" left unescaped after the "///". */
+#ifdef _WIN32
+  else if (path_len > 0 && path[0] == '\\') {
+    luaL_addstring(&b, "//");
+  } else if (path_len > 1 && path[1] == ':') {
+    luaL_addstring(&b, "///");
+  }
+#endif
+  for (size_t i = 0; i < path_len; i++) {
+    unsigned char c = (unsigned char)path[i];
+#ifdef _WIN32
+    if (c == '\\') c = '/';
+#endif
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' ||
+        c == '~' || c == '/') {
+      luaL_addchar(&b, (char)c);
+    } else {
+      luaL_addchar(&b, '%');
+      luaL_addchar(&b, hex[c >> 4]);
+      luaL_addchar(&b, hex[c & 15]);
+    }
+  }
+  luaL_addstring(&b, "?immutable=1");
+  luaL_pushresult(&b);
+  return lua_tostring(L, -1);
+}
+
 static int sqlite_open (lua_State *L) {
   size_t path_len;
   const char *path = luaL_checklstring(L, 1, &path_len);
   int writable = lua_toboolean(L, 2);
+  int immutable = lua_toboolean(L, 3);
+  if (writable && immutable) {
+    return luaL_error(L, "a database cannot be both writable and immutable");
+  }
   /* SQLite takes a C string: a NUL would silently open a shorter path. */
   if (memchr(path, '\0', path_len) != NULL) {
     lua_pushnil(L);
     lua_pushstring(L, "the path contains an embedded NUL byte");
     return 2;
   }
-  /* No SQLITE_OPEN_URI: `path` is an ordinary filename, never a `file:`
-   * URI. No URI form is documented, so `vfs=`, `off=` and `len=` are
-   * never parsed out of a caller's path at all, not even refused. */
+  /* `path` is an ordinary filename, never a `file:` URI: SQLITE_OPEN_URI
+   * is set only for the one URI this file builds itself, from an escaped
+   * path and `immutable=1`, so `vfs=`, `off=` and `len=` are never parsed
+   * out of a caller's path at all, not even refused. */
   int flags = writable ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
                        : SQLITE_OPEN_READONLY;
+  const char *name = path;
+  if (immutable) {
+    name = immutable_uri(L, path, path_len); /* stays on the stack */
+    flags |= SQLITE_OPEN_URI;
+  }
 
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = NULL;
@@ -600,7 +656,7 @@ static int sqlite_open (lua_State *L) {
    * lies past that header, where only core/vfs.c's offset reaches it.
    * TODO: refuse it here too, through the same check, if a portable
    * artifact ever begins with its database. */
-  int rc = sqlite3_open_v2(path, &h->db, flags, COSMIC_SQLITE_OBSERVED_VFS);
+  int rc = sqlite3_open_v2(name, &h->db, flags, COSMIC_SQLITE_OBSERVED_VFS);
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
@@ -732,6 +788,38 @@ static int handle_changes (lua_State *L) {
   struct handle *h = checked_handle(L);
   lua_pushinteger(L, (lua_Integer)sqlite3_changes64(h->db));
   return 1;
+}
+
+static const struct {
+  const char *name;
+  int id;
+} limit_names[] = {
+  {"length", SQLITE_LIMIT_LENGTH},
+  {"sql_length", SQLITE_LIMIT_SQL_LENGTH},
+  {"column", SQLITE_LIMIT_COLUMN},
+  {"expr_depth", SQLITE_LIMIT_EXPR_DEPTH},
+  {"compound_select", SQLITE_LIMIT_COMPOUND_SELECT},
+  {"vdbe_op", SQLITE_LIMIT_VDBE_OP},
+  {"function_arg", SQLITE_LIMIT_FUNCTION_ARG},
+  {"attached", SQLITE_LIMIT_ATTACHED},
+  {"like_pattern_length", SQLITE_LIMIT_LIKE_PATTERN_LENGTH},
+  {"variable_number", SQLITE_LIMIT_VARIABLE_NUMBER},
+  {"trigger_depth", SQLITE_LIMIT_TRIGGER_DEPTH},
+  {"worker_threads", SQLITE_LIMIT_WORKER_THREADS},
+  {NULL, 0},
+};
+
+static int handle_limit (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  const char *name = luaL_checkstring(L, 2);
+  int value = cosmic_checkint(L, 3);
+  for (int i = 0; limit_names[i].name != NULL; i++) {
+    if (strcmp(name, limit_names[i].name) == 0) {
+      lua_pushinteger(L, sqlite3_limit(h->db, limit_names[i].id, value));
+      return 1;
+    }
+  }
+  return luaL_error(L, "no such limit: %s", name); /* a bug, not a failure */
 }
 
 static int handle_last_insert_rowid (lua_State *L) {
@@ -915,6 +1003,7 @@ static const luaL_Reg handle_methods[] = {
   {"exec", handle_exec},     {"prepare", handle_prepare},
   {"close", handle_close},   {"changes", handle_changes},
   {"last_insert_rowid", handle_last_insert_rowid},
+  {"limit", handle_limit},
   {NULL, NULL},
 };
 

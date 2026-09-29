@@ -66,9 +66,11 @@ local record sql
   end
 
   --- Where `run` writes: a row line, a complaint, and the verdict.
-  --- `out` and `err` take a line without its newline.
+  --- `out` and `err` take a line without its newline. `out` answers
+  --- false and why when it could not write the line (a closed pipe),
+  --- and the statement is stepped no further.
   record Output
-    out: function(line: string)
+    out: function(line: string): boolean, string
     err: function(line: string)
     verdict: function(passed: boolean, detail: string)
   end
@@ -146,7 +148,7 @@ end
 --- Nil and why when the file is missing, is not a regular file (after
 --- following symbolic links: SQLite would wait forever on a FIFO), or
 --- will not open.
-function sql.open(source: sql.Source): sql.Opened | nil, string
+function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, string
   local path = source.path
   if path == nil then
     local all = Store.databases()
@@ -170,20 +172,63 @@ function sql.open(source: sql.Source): sql.Opened | nil, string
   if st.kind ~= "file" then
     return nil, "not a regular file (its kind is " .. st.kind .. "), so not a database"
   end
-  -- TODO: open with the URI's immutable=1, or SQLITE_OPEN_READONLY with
-  -- nolock, once cosmic.sqlite.open takes a URI or open flags: a
-  -- read-only open of a WAL-mode database whose -wal file is missing
-  -- creates <db>-wal and <db>-shm beside it and leaves them there.
-  local db, open_trouble = Sqlite.open(path, false)
+  -- Immutable where nothing lives outside the file: no lock is taken, and
+  -- no -wal or -shm is made beside a WAL-mode database whose -wal file is
+  -- missing. SQLite never reads a -wal of an immutable database, so one
+  -- that holds frames -- commits not yet checkpointed, as a build's
+  -- database has while it runs -- is opened the ordinary read-only way,
+  -- which reads them, and takes the shared lock while a statement runs.
+  -- The -wal is looked at again once the immutable open is made, and a
+  -- frame that has come since sends it the ordinary way after all: what
+  -- is committed after that look is concurrent with the query.
+  -- Decided limit: a database with no -wal that a build checkpoints or
+  -- rewrites during the query may be read torn, which a one-shot query
+  -- accepts; only holding its lock would prevent that, and holding it
+  -- is what an immutable open exists to avoid.
+  local wal = path .. "-wal"
+  local function has_frames(): boolean | nil, string
+    local there, exists_trouble = Fs.exists(wal)
+    if there == nil then
+      return nil, exists_trouble
+    end
+    if not there then
+      return false, ""
+    end
+    local wal_stat, wal_stat_trouble = Fs.stat(wal)
+    if wal_stat == nil then
+      return nil, wal_stat_trouble
+    end
+    return wal_stat.size > 0, ""
+  end
+  local frames, wal_trouble = has_frames()
+  if frames == nil then
+    return nil, wal_trouble
+  end
+  if between ~= nil then
+    between()
+  end
+  local db, open_trouble = Sqlite.open(path, false, not frames)
   if db == nil then
     return nil, open_trouble
   end
-  -- TODO: refuse ATTACH and VACUUM INTO when they are prepared, with
-  -- sqlite3_limit(SQLITE_LIMIT_ATTACHED, 0), once cosmic.sqlite carries
-  -- sqlite3_limit. query_only refuses VACUUM INTO's write, but only after
-  -- SQLite has created the empty file it names; and ATTACH of an existing
-  -- file or ':memory:' answers PASS, inert only because the one statement
-  -- a call prepares leaves nothing after it to use the attachment.
+  if not frames then
+    local later, later_trouble = has_frames()
+    if later == nil then
+      local _, _ = db:close()
+      return nil, later_trouble
+    end
+    if later then
+      local _, _ = db:close()
+      db, open_trouble = Sqlite.open(path, false, false)
+      if db == nil then
+        return nil, open_trouble
+      end
+    end
+  end
+  -- No ATTACH, and so no VACUUM INTO, which attaches the file it names:
+  -- query_only refuses that write only after SQLite has created the
+  -- empty file, and ATTACH of an existing file or ':memory:' would pass.
+  local _ = db:limit("attached", 0)
   local ok, pragma_trouble = db:exec("PRAGMA query_only = 1")
   if not ok then
     local _, _ = db:close()
@@ -233,11 +278,16 @@ local function cell_text(cell: Sqlite.Cell): string
   return "\\N"
 end
 
---- Runs one statement on `db`, answering its column names as one line
---- -- none for a statement without columns -- then each row it yields
---- as one line. Nil and why when it takes a parameter, or SQLite's own
---- reason when it will not prepare or run -- a write among them.
-function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
+--- Runs one statement on `db`, giving `emit` its column names as one
+--- line -- none for a statement without columns -- then each row it
+--- yields as one line, the moment it is stepped. Answers how many rows
+--- it yielded, or nil and why when it takes a parameter, or SQLite's
+--- own reason when it will not prepare or run -- a write among them;
+--- the lines before a failure have been given by then. `emit` answers
+--- false and why when it could not write the line: the statement is
+--- stepped no further, and that is the failure answered.
+local function stream(db: Sqlite.Handle, statement: string,
+                      emit: function(string): boolean, string): integer | nil, string
   local prepared, prepare_trouble = db:prepare(statement)
   if prepared == nil then
     return nil, prepare_trouble
@@ -250,21 +300,18 @@ function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
       (wanted == 1 and " parameter" or " parameters") .. "; cosmic sql binds none"
   end
   local width = prepared:columns()
-  local lines: {string} = {}
   local cells: {string} = {}
   for index = 0, width - 1 do
     cells[index + 1] = (prepared:name(index):gsub("[\\%c]", escape))
   end
   if width > 0 then
-    lines[1] = table.concat(cells, "\t")
+    local written, write_trouble = emit(table.concat(cells, "\t"))
+    if not written then
+      prepared:finalize()
+      return nil, write_trouble
+    end
   end
-  -- TODO: write each row as it is stepped rather than holding them all
-  -- here, once `open` takes the database without locks (its immutable=1
-  -- TODO): until then a statement holds a shared lock until it is
-  -- finalized, so a reader of stdout that stalls (`| less`) would hold
-  -- off every build's write for as long as it waits, and past SQLite's
-  -- busy timeout fail it. `run` prints the rows once the statement is
-  -- done.
+  local rows = 0
   while true do
     local state, trouble = prepared:step()
     if state == nil then
@@ -277,9 +324,28 @@ function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
     for index = 0, width - 1 do
       cells[index + 1] = cell_text(Sqlite.cell(prepared, index))
     end
-    lines[#lines + 1] = table.concat(cells, "\t")
+    rows = rows + 1
+    local written, write_trouble = emit(table.concat(cells, "\t"))
+    if not written then
+      prepared:finalize()
+      return nil, write_trouble
+    end
   end
   prepared:finalize()
+  return rows, ""
+end
+
+--- `stream`'s lines held: the column names' line, if any, then a line
+--- per row; nil and why when it failed.
+function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
+  local lines: {string} = {}
+  local rows, trouble = stream(db, statement, function(line: string): boolean, string
+    lines[#lines + 1] = line
+    return true, ""
+  end)
+  if rows == nil then
+    return nil, trouble
+  end
   return lines, ""
 end
 
@@ -295,8 +361,8 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
 --- logger, which tells `build/dispatch.tl` one was given; complaints
 --- to stderr.
 local standard: sql.Output = {
-  out = function(line: string)
-    local _, _ = log:say(line)
+  out = function(line: string): boolean, string
+    return log:say(line)
   end,
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
@@ -592,34 +658,34 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     end
     tables[#tables + 1] = loaded
   end
-  -- The tables are the data's own, and the statement may not change them.
-  -- TODO: VACUUM INTO and ATTACH '<new file>' each leave the empty file
-  -- they name here, as they do in `open`; refuse both in the same
-  -- change as that TODO, once cosmic.sqlite carries sqlite3_limit.
+  -- The tables are the data's own, and the statement may not change them,
+  -- nor attach a file (which VACUUM INTO does too, creating it).
+  local _ = db:limit("attached", 0)
   local guarded, guard_trouble = db:exec("PRAGMA query_only = 1")
   if not guarded then
     return fail(guard_trouble)
   end
-  local lines: {string} | nil
-  local statement_trouble: string
   local counted: string
   if parsed.words[1] == nil then
-    lines, statement_trouble = describe(db, tables)
+    local lines, describe_trouble = describe(db, tables)
+    if lines == nil then
+      return fail(source .. ": " .. hinted(describe_trouble, tables))
+    end
+    for _, line in ipairs(lines) do
+      local written, write_trouble = to.out(line)
+      if not written then
+        return fail(source .. ": " .. write_trouble)
+      end
+    end
     counted = #tables .. (#tables == 1 and " table" or " tables")
   else
-    lines, statement_trouble = sql.query(db, parsed.words[1])
-  end
-  if lines == nil then
-    return fail(source .. ": " .. hinted(statement_trouble, tables))
-  end
-  local _, _ = db:close()
-  for _, line in ipairs(lines) do
-    to.out(line)
-  end
-  if counted == nil then
-    local rows = math.max(#lines - 1, 0)
+    local rows, statement_trouble = stream(db, parsed.words[1], to.out)
+    if rows == nil then
+      return fail(source .. ": " .. hinted(statement_trouble, tables))
+    end
     counted = rows .. (rows == 1 and " row" or " rows")
   end
+  local _, _ = db:close()
   verdict(true, counted .. " from " .. source)
   return 0
 end
@@ -682,11 +748,11 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
     verdict(false, source.name)
     return 1
   end
-  local lines, trouble = sql.query(opened.db, parsed.words[1])
+  local rows, trouble = stream(opened.db, parsed.words[1], to.out)
   if opened.owned then
     local _, _ = opened.db:close()
   end
-  if lines == nil then
+  if rows == nil then
     if source.path == nil then
       trouble = trouble .. store_hint
     end
@@ -694,10 +760,6 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
     verdict(false, source.name)
     return 1
   end
-  for _, line in ipairs(lines) do
-    to.out(line)
-  end
-  local rows = math.max(#lines - 1, 0)
   verdict(true, rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
   return 0
 end

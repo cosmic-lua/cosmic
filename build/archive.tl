@@ -36,8 +36,9 @@ local record verb
     out: function(text: string): boolean, string
     --- Writes one complaint line, without its newline.
     err: function(line: string)
-    --- The whole of standard input, or nil and why.
-    stdin: function(): string | nil, string
+    --- Standard input as a stream, or nil and why. Read as it comes,
+    --- never whole: an archive of any size passes through.
+    stdin: function(): Stream.Reader | nil, string
   end
 end
 
@@ -98,32 +99,114 @@ local function has_dotdot(path: string): boolean
   return false
 end
 
+--- The first `n` bytes of `source` (fewer at its end), read and not yet
+--- put back (`Stream.prepend` does that), or nil and why when a read
+--- failed, which closes `source`.
+local function peek(source: Stream.Reader, n: integer): string | nil, string
+  local parts: {string} = {}
+  local have = 0
+  while have < n do
+    local chunk, why = source:read(n - have)
+    if chunk == nil then
+      if why ~= "" then
+        local _, _ = source:close()
+        return nil, why
+      end
+      break
+    end
+    parts[#parts + 1] = chunk
+    have = have + #chunk
+  end
+  return table.concat(parts), ""
+end
+
+--- Writes `source` to a file in a temporary directory, a chunk at a
+--- time, and closes `source`: the directory and the path, or nil and
+--- why. The caller removes the directory.
+local function spool(source: Stream.Reader): string | nil, string
+  local dir, dir_why = Fs.mkdtemp("cosmic-archive-")
+  if dir == nil then
+    local _, _ = source:close()
+    return nil, dir_why
+  end
+  local path = dir .. "/stdin"
+  local sink, sink_why = Stream.create(path)
+  if sink == nil then
+    local _, _ = source:close()
+    local _, _ = Fs.remove_tree(dir)
+    return nil, sink_why
+  end
+  local copied, why = Stream.copy(source, sink)
+  local _, _ = source:close()
+  local closed, close_why = false, ""
+  if copied ~= nil then
+    closed, close_why = sink:close()
+  else
+    local _, _ = sink:abort()
+  end
+  if copied == nil or not closed then
+    local _, _ = Fs.remove_tree(dir)
+    return nil, why ~= "" and why or close_why
+  end
+  return dir, ""
+end
+
 --- Runs `body` on a file holding the archive to read: `file` itself, or
---- standard input written out to a temporary one, since the readers
---- want a file to detect a format from and to seek in. The temporary
---- directory is removed after.
--- TODO: stream standard input rather than holding it whole and writing
--- it out, once Archive.open can take a Stream.Reader (it opens a path,
--- and a zip needs positional reads of one).
+--- standard input written out, chunk by chunk, to a temporary one, for
+--- what has to read it twice or seek in it. The temporary directory is
+--- removed after.
+-- TODO: once Archive.extract can take a Stream.Reader (it opens a path),
+-- extract a tar from standard input in one pass instead of spooling it:
+-- `extract` looks the whole archive over first (a missing member, files
+-- it would overwrite) before it writes anything, which needs a second
+-- read of the input.
 local function with_archive(file: string, to: verb.Io, body: function(string): Outcome): Outcome
   if file ~= "-" then return body(file) end
-  if Proc.is_tty(Fs.stdin) then
-    return fail(2, "no file given and standard input is a terminal; give a file or pipe an archive in")
-  end
-  local text, why = to.stdin()
-  if text == nil then return fail(2, why) end
-  local dir, dir_why = Fs.mkdtemp("cosmic-archive-")
-  if dir == nil then return fail(2, dir_why) end
-  local path = dir .. "/stdin"
-  local written, write_why = Fs.write(path, text)
-  local outcome: Outcome
-  if written then
-    outcome = body(path)
-  else
-    outcome = fail(2, write_why)
-  end
+  local source, why = to.stdin()
+  if source == nil then return fail(2, why) end
+  local dir, spool_why = spool(source)
+  if dir == nil then return fail(2, spool_why) end
+  local outcome = body(dir .. "/stdin")
   local _, _ = Fs.remove_tree(dir)
   return outcome
+end
+
+--- The entries of `file`, for `body`. A tar on standard input is read as
+--- it arrives, with no file and memory that stays bounded; a zip there
+--- is spooled to a temporary file first, since it is read by seeking.
+local function with_entries(file: string, to: verb.Io,
+    body: function({Archive.Entry}): Outcome): Outcome
+  if file ~= "-" then
+    local entries, why = Archive.list(file)
+    if entries == nil then return fail(2, trouble_of(file, file, why)) end
+    return body(entries)
+  end
+  local source, why = to.stdin()
+  if source == nil then return fail(2, why) end
+  local head, peek_why = peek(source, 4)
+  if head == nil then return fail(2, trouble_of(file, file, peek_why)) end
+  local replay = Stream.prepend(head, source)
+  if head == "PK\3\4" or head == "PK\5\6" then
+    local dir, spool_why = spool(replay)
+    if dir == nil then return fail(2, spool_why) end
+    local entries, list_why = Archive.list(dir .. "/stdin")
+    local _, _ = Fs.remove_tree(dir)
+    if entries == nil then return fail(2, trouble_of(file, dir .. "/stdin", list_why)) end
+    return body(entries)
+  end
+  local reader, open_why = Archive.open_stream(replay)
+  if reader == nil then return fail(2, trouble_of(file, file, open_why)) end
+  local entries: {Archive.Entry} = {}
+  while true do
+    local entry, next_why = reader:next()
+    if entry == nil then
+      local _, _ = reader:close()
+      if next_why ~= "" then return fail(2, trouble_of(file, file, next_why)) end
+      break
+    end
+    entries[#entries + 1] = entry
+  end
+  return body(entries)
 end
 
 --- Text with a backslash, tab, newline or return as \\, \t, \n or \r
@@ -144,9 +227,7 @@ end
 ------------------------------------------------------------------
 
 local function list(file: string, as_json: boolean, to: verb.Io): Outcome
-  return with_archive(file, to, function(path: string): Outcome
-    local entries, why = Archive.list(path)
-    if entries == nil then return fail(2, trouble_of(file, path, why)) end
+  return with_entries(file, to, function(entries: {Archive.Entry}): Outcome
     local text: string
     if as_json then
       local rows = Json.array()
@@ -469,8 +550,14 @@ end
 -- the verb
 ------------------------------------------------------------------
 
-local function read_stdin(): string | nil, string
-  return Stream.read_all(Stream.from_fd(Fs.stdin))
+--- The Reader over standard input, refusing a terminal, where nothing
+--- would ever end the bytes.
+local function open_stdin(): Stream.Reader | nil, string
+  if Proc.is_tty(Fs.stdin) then
+    return nil, "no file given and standard input is a terminal; give a file or pipe an archive in"
+  end
+  -- `Stream.from_fd` borrows the descriptor, which stays open.
+  return Stream.from_fd(Fs.stdin), ""
 end
 
 local standard: verb.Io = {
@@ -480,7 +567,7 @@ local standard: verb.Io = {
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end,
-  stdin = read_stdin,
+  stdin = open_stdin,
 }
 
 --- `cosmic archive list|extract|create ...`: returns the exit code: 0
