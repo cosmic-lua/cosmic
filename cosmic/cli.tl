@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, codec, time, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, codec, archive, time, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -150,8 +150,23 @@ local record Cli
   --- `.key` or `["a key"]` and `[1]`, counted from 1 as `Json.get`
   --- counts (`$.users[1].name`); with a file after it, a first key
   --- needs no dot (`a.b`), and whitespace in a path is part of a key.
-  --- `*` and `..` are kept for wildcards and are refused. A key named
-  --- `*` is `["*"]`. Quote a path in single quotes in a shell
+  --- `*` (`.*` or `[*]`) is every member of an object or element of an
+  --- array, and `..key` or `..[n]` that key or index at any depth, the
+  --- current level included (`$..id`, `$.users[*].name`): such a path
+  --- prints each match as a `path = value` line, the value as compact
+  --- JSON (`$.users[1].name = "ann"`), in document order (arrays by
+  --- index, keys sorted); with `-r`, the raw values alone, one to a line
+  --- (a string prints as its text, so one with a newline in it spans
+  --- lines; without `-r`, or with `--flat`, every line is one JSON value);
+  --- with `--exists`, nothing, and 0 when at least one matches. A key
+  --- named `*` is `["*"]`. JSONPath's filters, slices and unions are
+  --- left out on purpose: this is a lookup, not a query language.
+  --- `--flat` prints every leaf under the path (the whole document with
+  --- none) as such lines, in the same order, an empty object or array
+  --- as `{}` or `[]`; the path of each line is exactly one this command
+  --- takes, so `cosmic json --flat export.json | grep -i email` finds a
+  --- leaf and its path pastes back into `cosmic json '$.users[2].email'
+  --- export.json`. Quote a path in single quotes in a shell
   --- (`'$.users[1]'`), which would expand `$` and `[1]`. With one word,
   --- it is the path when it begins `$`, `.` or `[` (and not `./` or
   --- `../`), else the file; a file named `.data.json` is `./.data.json`,
@@ -161,13 +176,45 @@ local record Cli
   --- precision. `--exists` prints
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
-  --- `--shape` prints `Json.describe` of the value. Only a lookup: no
+  --- `--shape` prints `Json.describe` of the value, and neither takes a
+  --- pattern, which can match many values. Only a lookup: no
   --- filter, no transform; to count or sum, use `cosmic sql --from`.
-  --- Exits 0 when the path is found, 1 when it is not, with the message `Json.get` gives on standard error (a
-  --- `null` value is found), 2 for a command line it cannot read or a
+  --- Exits 0 when the path is found (a pattern:
+  --- when something matches), 1 when it is not, with the message
+  --- `Json.get` gives on standard error (a pattern that matches nothing:
+  --- `<pattern>: no match`; a `null` value is found), 2 for a command line
+  --- it cannot read, a pattern too deep to walk, or a
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
   json: string
+  --- `cosmic archive list|extract|create`: the zip and tar files a
+  --- release ships, with no script. `list <file>|-` prints one entry
+  --- per line -- path (a symlink's `path -> target`), size, mode in
+  --- octal, and type, tab-separated, control bytes escaped -- or, with
+  --- `--json`, an array of objects (path, type, size, mode as the same
+  --- octal string, mtime and a symlink's linkpath) for `cosmic json`.
+  --- `extract <file>|- [-C dir] [member...]` unpacks into dir (the
+  --- working directory by default) and prints the paths written; a
+  --- member is a path in the archive and takes what is under it. The
+  --- format -- zip, tar, or tar under gzip, xz or bzip2 -- is read from
+  --- the file's first bytes, not its name. An absolute path, a `..`,
+  --- or a symlink out of the target is refused (`Archive.extract`), and
+  --- so is replacing an existing path unless `--force` is given. Only
+  --- that refusal and a member not in the archive write nothing: an
+  --- unsafe entry stops the extraction after the entries before it,
+  --- which stay written. `create <out> <path>...` packs the paths and what is under
+  --- them, sorted by name, as a zip or a gzip tar, by the extension of
+  --- out (`.zip`, `.tar.gz`, `.tgz`); `--reproducible` fixes every
+  --- modification time (tar 0, zip 1980) so the same tree packs to the
+  --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
+  --- encoder for either. Paths must be relative and stay under the
+  --- working directory; a symlink cannot go in a zip, and a fifo,
+  --- socket or device is refused, named, wherever it is found. Prints no verdict
+  --- line, its output being data for a pipe. Exits 0 when done, 1 for a
+  --- member or a path that is not there or files it would overwrite, 2
+  --- for a command line, an archive it cannot read or one it refuses
+  --- to unpack. See also `cosmic json`
+  archive: string
   --- `cosmic time <now|convert|between|add> ...`: the clock and calendar
   --- the same on every host, where GNU and BSD `date` differ. Zones are
   --- the IANA names of the tz database the binary carries. `now` prints
@@ -276,7 +323,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", codec = "codec", time = "time", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", codec = "codec", archive = "archive", time = "time", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -316,11 +363,18 @@ local module: Module = {
     },
     json = {
       ["--compact"] = { about = "print the value on one line" },
-      ["-r"] = { about = "print a string as its text, without quotes" },
-      ["--raw"] = { about = "print a string as its text, without quotes" },
+      ["-r"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+      ["--raw"] = { about = "print a string as its text, without quotes; a pattern's matches as bare values" },
+      ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
       ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
       ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
+    },
+    archive = {
+      ["--json"] = { about = "list: print an array of objects, not lines" },
+      ["-C"] = { value = "dir", about = "extract: unpack into dir (default: the working directory)" },
+      ["--force"] = { about = "extract: replace existing files" },
+      ["--reproducible"] = { about = "create: fix every modification time, so the same tree packs alike" },
     },
     codec = {
       ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
@@ -355,7 +409,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "time", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "archive", "time", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 

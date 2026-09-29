@@ -116,7 +116,7 @@ copied out as the bytes it was read from. Lining those up is a
 judgement about a whole line, which is the author's here, not the
 tool's.
 
-Every verb but `json`, `codec` and `time` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
+Every verb but `json`, `codec`, `archive` and `time` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
 (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
 its command line was refused -- an option, an argument or a verb it
 does not know; 3 when the tool is older than the tree and did not
@@ -126,7 +126,8 @@ only what its program prints and exits with what it returns.
 `--version` is not one either: it prints its one line. `json` prints its
 value and nothing after, for a pipe, and exits 0 when it found the path, 1
 when the path is not there, 2 for a command line or a text it refused. `codec`
-prints its text or bytes and nothing after, and exits 0 or 2. `time` prints its answer
+prints its text or bytes and nothing after, and exits 0 or 2. `archive` prints its
+listing or the paths it wrote, and exits 0, 1 or 2 as `json` does. `time` prints its answer
 likewise, exiting 1 when an `add` has none.
 ]]
 
@@ -495,6 +496,11 @@ local verbs: {string: function({integer:string}): integer} = {
   json = function(argv: {integer:string}): integer
     return require("build.json").run(argv)
   end,
+  -- Reads an archive it is given, never the tree: not stale-checked,
+  -- and no verdict (`bare`).
+  archive = function(argv: {integer:string}): integer
+    return require("build.archive").run(argv)
+  end,
   -- Reads the clock and the zones the binary carries, never the tree:
   -- never stale-checked, and no verdict line (`bare`).
   time = function(argv: {integer:string}): integer
@@ -509,7 +515,7 @@ local verbs: {string: function({integer:string}): integer} = {
 --- The verbs that end in no verdict line, their output being data for a
 --- pipe: their exit status is the verdict, and a usage error is
 --- complained about and nothing more. build/json.tl says why.
-local bare: {string:boolean} = { json = true, codec = true, time = true }
+local bare: {string:boolean} = { json = true, codec = true, archive = true, time = true }
 
 --- What a verdict line a verb did not give itself says of its exit code.
 local function detail_of(code: integer): string
