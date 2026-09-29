@@ -101,8 +101,8 @@ allowed["build.importer.analyzer_identity"] = "tested directly: the test names "
 allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
   "boot names its analyzer by to what the tool it writes names it by, around a " ..
   "derive run as a boot runs it, which no binary under the suite otherwise does"
-allowed["build.harness_epoch.acknowledged"] = "the digest of the harness a " ..
-  "person last acknowledged, which only its test reads: a record of a choice, " ..
+allowed["build.harness_epoch.acknowledged"] = "the digest of each module of the " ..
+  "harness a person last acknowledged, which only its test reads: a record of a choice, " ..
   "which the key leaves to `epoch`"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
