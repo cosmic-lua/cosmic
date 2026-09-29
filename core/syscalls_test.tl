@@ -1137,6 +1137,53 @@ local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
   assert(not ok and why ~= "" and errno == sys.EBADF, why)
 end
 
+--- A lock belongs to the open file: a second open of the same file is
+--- refused an exclusive lock the first holds, whether it asks once or
+--- waits, until the first unlocks or closes.
+local function test_flock_excludes_another_open_until_released(tmp: string)
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  local ok, why, errno = sys.flock(second, "exclusive")
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  ok, why, errno = sys.flock(second, "shared", 30)
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(sys.flock(first, "unlock"))
+  assert(sys.flock(second, "shared"))
+  assert(sys.flock(first, "shared"))
+  ok, why, errno = sys.flock(first, "exclusive")
+  assert(not ok and sys.errno_name(errno) == "ETIMEDOUT", why)
+  assert(sys.close(second))
+  assert(sys.flock(first, "exclusive", -1))
+  local third = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.close(first))
+  assert(sys.flock(third, "exclusive"))
+  assert(sys.close(third))
+  ok, why, errno = sys.flock(third, "exclusive")
+  assert(not ok and why ~= "" and errno == sys.EBADF, why)
+  raises(sys.flock, 0, "both")
+  raises(sys.flock, 0, "exclusive", -2)
+  raises(sys.flock, 0, "exclusive", 1 << 40)
+end
+
+--- A wait for a lock ends when a guard catches a signal, as every
+--- other wait in the tree does, however long it had left.
+local function test_flock_waiting_ends_on_a_caught_signal(tmp: string)
+  local path = tmp .. "/lock"
+  local first = assert(sys.open(path, sys.O_RDONLY | sys.O_CREAT, 0x180))
+  local second = assert(sys.open(path, sys.O_RDONLY, 0))
+  assert(sys.flock(first, "exclusive"))
+  assert(process.guard_child_signals())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local ok, why, errno = sys.flock(second, "exclusive", -1)
+  local caught = assert(process.unguard_child_signals())
+  assert(caught == sys.SIGINT, tostring(caught))
+  assert(not ok and errno == sys.EINTR, why)
+  assert(sys.close(first))
+  assert(sys.close(second))
+end
+
 --- A failure's message is the table's (core/errnos.c), not libc's: a
 --- symbolic link loop reads "Symbolic link loop" on every OS, where
 --- macOS's strerror says "Too many levels of symbolic links".
