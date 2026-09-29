@@ -97,12 +97,30 @@ local function test_named_escapes_spell_the_common_four()
   end
 end
 
-local function test_keep_tab_newline_leaves_only_the_tab()
+local function test_keep_tab_newline_leaves_the_tab_and_newline()
   local keep: bare.EscapeOptions = { keep_tab_newline = true }
   assert(bare.escape("a\tb", keep) == "a\tb")
   assert(bare.escape("a\nb\rc\27[31m\127\11\0", keep) == "a\nb\\x0Dc\\x1B[31m\\x7F\\x0B\\x00")
   assert(bare.escape("a\tb") == "a\\x09b")
   assert(bare.escape("a\nb") == "a\\x0Ab")
+end
+
+-- An oracle written out apart from `escape`'s patterns: each of the 256
+-- bytes, alone, in each spelling, is what the verbs' own escapes made of it
+-- before they shared this one.
+local function test_each_single_byte_escapes_as_it_always_did()
+  local common: {integer:string} = { [9] = "\\t", [10] = "\\n", [13] = "\\r" }
+  for code = 0, 255 do
+    local byte = string.char(code)
+    local control = code < 32 or code == 127
+    local hex = string.format("\\x%02X", code)
+    local plain = control and hex or byte
+    local named = code == 92 and "\\\\" or (control and (common[code] or hex) or byte)
+    local kept = (code == 9 or code == 10) and byte or plain
+    assert(bare.escape(byte) == plain, "plain " .. code)
+    assert(bare.escape(byte, { named = true }) == named, "named " .. code)
+    assert(bare.escape(byte, { keep_tab_newline = true }) == kept, "keep " .. code)
+  end
 end
 
 local function test_escaped_text_holds_no_control_byte()

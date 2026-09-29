@@ -17,7 +17,7 @@ local record bare
   record EscapeOptions
     --- Write a backslash as `\\`, and tab, newline and return as `\t`,
     --- `\n` and `\r`, so the escaped text can be read back; any other
-    --- control byte is `\xHH` either way.
+    --- control byte is `\xHH` either way. Overrides `keep_tab_newline`.
     named: boolean | nil
     --- Leave a tab and a newline as they are, escaping every other
     --- control byte (a header line, whose lines the caller joins with
@@ -29,11 +29,11 @@ local record bare
   --- The exit code of a run that did what was asked.
   ok: integer
   --- The exit code of a run that ran and found a fault in what it
-  --- read or looked for: a checksum that did not match, a path that is
-  --- not there, an input that could not be read.
+  --- looked for: a checksum that did not match, a path or a member that
+  --- is not there, a value that cannot be printed.
   failed: integer
-  --- The exit code of a command line it refused, or a write to standard
-  --- output that was lost.
+  --- The exit code of a command line or an input it refused, or a write
+  --- to standard output that was lost.
   refused: integer
   --- What every bare verb says of an empty file argument.
   empty_file: string
