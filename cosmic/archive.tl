@@ -82,6 +82,11 @@ local record Archive
     --- Fails once more than this many entries would be written.
     --- Unlimited by default; a negative limit raises.
     max_entries: integer
+    --- A directory whose real directories a symlink's target may also
+    --- pass through, for entries unpacked apart from where they will
+    --- be put: a staging directory that is later moved into this one.
+    --- Only read for links, and only to look; nothing is written there.
+    resolve_in: string
   end
 end
 
@@ -365,16 +370,11 @@ local record PendingLink
   mtime: integer
 end
 
---- Unpacks `path` into `dest`, as `tar -x` or `unzip` would. Refuses an
---- absolute entry path, one with a `..` component or a NUL byte, any
---- entry whose path runs through a symlink, and -- when `links` is
---- "create" -- a symlink whose target would land outside `dest`. Returns
---- the destination-relative paths actually written. A failure partway
---- leaves whatever was already written; a file that fails its own checks
---- (a CRC32, a size) is never put in place.
-function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
-    {string} | nil, string
-  opts = opts or {}
+--- The extraction `Archive.extract` and `Archive.extract_reader` share:
+--- `from` is a path to open or a Reader to walk to its end.
+local function extract_from(from: string | Archive.Reader, dest: string,
+    given: Archive.ExtractOptions | nil): {string} | nil, string
+  local opts: Archive.ExtractOptions = given or {}
   if opts.max_bytes ~= nil and opts.max_bytes < 0 then
     error("archive: max_bytes is negative", 2)
   end
@@ -392,9 +392,14 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   local restore_mtimes = opts.mtimes ~= false
   local bytes_left = opts.max_bytes
   local entries_left = opts.max_entries
-  local opened, trouble = Archive.open(path)
-  if opened == nil then return nil, trouble end
-  local reader: Archive.Reader = opened
+  local reader: Archive.Reader
+  if from is string then
+    local opened, trouble = Archive.open(from)
+    if opened == nil then return nil, trouble end
+    reader = opened
+  else
+    reader = from
+  end
   local dest_made, dest_trouble = Fs.mkdirs(dest)
   if not dest_made then
     local _, _ = reader:close()
@@ -500,6 +505,12 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
         local rel = table.concat(at, "/")
         if pending[rel] ~= nil then return true end
         local st, _ = sys.lstat(dest .. "/" .. rel)
+        if (st == nil or st.kind ~= "dir") and opts.resolve_in ~= nil and not pending[rel] then
+          -- Staged apart: a directory the real destination holds counts,
+          -- unless something staged took its place.
+          local there, _ = sys.lstat(opts.resolve_in .. "/" .. rel)
+          if st == nil and there ~= nil and there.kind == "dir" then st = there end
+        end
         if st == nil or st.kind ~= "dir" then return true end
       end
     end
@@ -629,6 +640,33 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   end
   local _, _ = reader:close()
   return written, ""
+end
+
+--- Unpacks `path` into `dest`, as `tar -x` or `unzip` would. Refuses an
+--- absolute entry path, one with a `..` component or a NUL byte, any
+--- entry whose path runs through a symlink, and -- when `links` is
+--- "create" -- a symlink whose target would land outside `dest`. Returns
+--- the destination-relative paths actually written. A failure partway
+--- leaves whatever was already written; a file that fails its own checks
+--- (a CRC32, a size) is never put in place.
+function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
+    {string} | nil, string
+  -- A tail call: `extract_from`'s argument errors, raised at level 2,
+  -- blame this function's caller.
+  return extract_from(path, dest, opts)
+end
+
+--- Like `extract`, for the entries `reader` yields (from `open_stream`,
+--- say) rather than a path: read once, to the end, as they arrive, so a
+--- stream is unpacked in one pass and bounded memory. Closes `reader`,
+--- on every path but a raised argument error (there it is left open, as
+--- `extract` has opened nothing yet). The same refusals apply, and a failure partway
+--- likewise leaves what was already written: unpack into a scratch
+--- directory and move it into place to have all or nothing.
+function Archive.extract_reader(reader: Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
+    {string} | nil, string
+  -- A tail call, as in `extract`.
+  return extract_from(reader, dest, opts)
 end
 
 return Archive

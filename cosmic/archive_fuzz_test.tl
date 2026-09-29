@@ -370,3 +370,80 @@ local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: str
     end,
   })
 end
+
+--- What `dir` holds, as lines: every path with its kind and its body or
+--- link target, sorted.
+local function snapshot(dir: string): string
+  local lines: {string} = {}
+  local function walk(at: string, prefix: string)
+    local entries = sys.readdir(at)
+    if entries == nil then return end
+    for name, kind in pairs(entries) do
+      local path = at .. "/" .. name
+      local line = prefix .. name .. " " .. kind
+      if kind == "link" then
+        local target = Fs.readlink(path)
+        line = line .. " " .. tostring(target)
+      elseif kind == "file" then
+        local body = Fs.read(path)
+        line = line .. " " .. tostring(body)
+      end
+      lines[#lines + 1] = line
+      if kind == "dir" then walk(path, prefix .. name .. "/") end
+    end
+  end
+  walk(dir, "")
+  table.sort(lines)
+  return table.concat(lines, "\n")
+end
+
+--- `extract_reader` over a stream, however it chunks its bytes, writes
+--- what `extract` of the same bytes as a file does, and refuses what it
+--- refuses with the same words: one code path, read two ways.
+-- TODO: fuzz the verb's staged extraction too (`resolve_in` and the
+-- move into a destination that already holds files) against a direct
+-- extract into the same destination; only its unit tests reach it now.
+local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tmp: string)
+  local base = Fs.absolute(tmp) or tmp
+  local case = base .. "/case"
+  Fuzz.run({
+    name = "archive extract_reader parity",
+    dir = tmp,
+    gen = gen_extraction,
+    requires = { "both wrote", "both refused" },
+    check = function(input: string): boolean, string
+      Fs.remove_tree(case)
+      local outside = case .. "/outside"
+      assert(Fs.mkdirs(outside))
+      local fields = Fuzz.unpack(input)
+      if fields[1] == "zip" then return true, "" end
+      local archive = build(fields, outside)
+      if archive == nil then return true, "" end
+      local file = case .. "/archive"
+      assert(Fs.write(file, archive))
+      local opts: Archive.ExtractOptions = {
+        links = fields[2] == "create" and "create" or "skip",
+        strip_prefix = fields[3] == "a" and "a" or nil,
+        strip_components = fields[3] == "1" and 1 or nil,
+        mtimes = false,
+      }
+      local from_file, file_why = Archive.extract(file, case .. "/by-file", opts)
+      local reader = Archive.open_stream(chunked(archive))
+      if reader == nil then return false, "open_stream refused what open took" end
+      local from_stream, stream_why = Archive.extract_reader(reader, case .. "/by-stream", opts)
+      if (from_file == nil) ~= (from_stream == nil) then
+        return false, "file: " .. tostring(file_why) .. "\nstream: " .. tostring(stream_why)
+      end
+      local file_words = file_why:gsub(case .. "/by%-file", "DEST")
+      local stream_words = stream_why:gsub(case .. "/by%-stream", "DEST")
+      if file_words ~= stream_words then return false, file_words .. "\n" .. stream_words end
+      if from_file ~= nil and from_stream ~= nil and table.concat(from_file, "\n") ~= table.concat(from_stream, "\n") then
+        return false, "wrote " .. table.concat(from_file, ",") .. " / " .. table.concat(from_stream, ",")
+      end
+      local by_file, by_stream = snapshot(case .. "/by-file"), snapshot(case .. "/by-stream")
+      if by_file ~= by_stream then return false, "file:\n" .. by_file .. "\nstream:\n" .. by_stream end
+      Fuzz.label(from_file ~= nil and "both wrote" or "both refused")
+      return true, ""
+    end,
+  })
+end
