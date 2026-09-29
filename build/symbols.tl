@@ -218,12 +218,18 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
     for _, lookup in ipairs({
       { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
           symbols.public_only("e.module", public[index] == true), name },
+      -- The phrase matches stemmed words, so `Fs.reads` finds `Fs.read`;
+      -- the GLOB says the name is there whole, as `docs` checks it.
       { "SELECT e.module FROM examples_fts JOIN examples e " ..
           "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
-          symbols.public_only("e.module", public[index] == true), phrase },
+          "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
+          symbols.public_only("e.module", public[index] == true), phrase,
+        "*" .. name .. "[^A-Za-z0-9_]*" },
     }) do
       -- A query that fails is no match.
-      local rows, _ = Sqlite.text_rows(db, lookup[1], { { text = lookup[2] } })
+      local binds: {Sqlite.Value} = { { text = lookup[2] } }
+      if lookup[3] ~= nil then binds[2] = { text = lookup[3] } end
+      local rows, _ = Sqlite.text_rows(db, lookup[1], binds)
       if rows ~= nil then
         for _, row in ipairs(rows) do
           if owners[row[1]] == index then return true end

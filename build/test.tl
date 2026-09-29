@@ -2061,13 +2061,16 @@ end
 --- The environment the workers of `m`'s tests are given, which a
 --- variable they read is keyed by: nil for every worker's own, where
 --- they run unsandboxed and unkeyed. Keyed, it is what a sandbox gives
---- one (`test_sandbox.environment`), TMPDIR its scratch directory, whether or not a
---- sandbox holds it (`launch`).
+--- one (`test_sandbox.environment`), TMPDIR its scratch directory; one
+--- keyed but unsandboxed has the host's cores cache in place of the
+--- sandbox's own (`test_sandbox.unenforced_view`), as it is given.
 local function view_of(rec: Recording, m: importer.Module): {string:string} | nil
   if not rec.keyed then return nil end
   local view = rec.views[m.path]
   if view == nil then
-    view = test_sandbox.environment(worker_view(), rec.effective[m.path])
+    local effective = rec.effective[m.path]
+    view = rec.sandbox and test_sandbox.environment(worker_view(), effective)
+      or test_sandbox.unenforced_view(worker_view(), effective)
     rec.views[m.path] = view
   end
   return view
@@ -2764,10 +2767,11 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     held = table.concat(plan.held, "\n")
   elseif rec.keyed then
     -- Keyed but unsandboxed (COSMIC_TEST_KEY=declared), the worker is
-    -- given the environment its key holds (the pinned variables and its
-    -- declared ones) with TMPDIR its scratch directory, as a sandbox
-    -- gives it at `test_sandbox.scratch`. The key names that, not this path, which is
-    -- new every run. Nothing holds it to the rest of what it declares.
+    -- given the environment its key holds (the pinned variables, its
+    -- declared ones and the host's cores cache: `view_of`) with TMPDIR
+    -- its scratch directory, as a sandbox gives it at
+    -- `test_sandbox.scratch`. The key names that, not this path, which
+    -- is new every run. Nothing holds it to the rest of what it declares.
     --
     -- It sees the tree where it is, not at /tree, so its key holds that
     -- path (`declared_of`, `declared_key.Spec`'s `tree`): a verdict
@@ -2798,9 +2802,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
       return false
     end
     attached = store
-    env = {}
-    for name, value in pairs(view_of(rec, job.m) or {}) do env[name] = value end
-    env.TMPDIR = scratch
+    env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
   end
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
