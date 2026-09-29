@@ -239,9 +239,9 @@ local function decode_with(text: string, opts: Json.DecodeOptions, record?: inte
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments)
 end
 
---- The value `text` holds, and "". nil and a message, naming the line
---- and column, when the text is not one JSON value or nests past
---- `max_depth`. The value is `any`: when the text is from outside,
+--- Parses JSON text into the value it holds, and "". nil and a message,
+--- naming the line and column, when the text is not one JSON value or
+--- nests past `max_depth`. The value is `any`: when the text is from outside,
 --- narrow it with `is` before trusting its shape, or use
 --- `decode_object` or `decode_array`, which check the outermost one.
 function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
@@ -288,9 +288,9 @@ function Json.decode_array(text: string, opts?: Json.DecodeOptions): {any} | nil
   return nil, "expected a JSON array, got " .. kind(value)
 end
 
---- `value` as JSON text, and "". nil and a message when it holds a
---- function, userdata other than `Json.null`, NaN or an infinity, a
---- string that is not UTF-8, a table whose keys are neither all strings
+--- Serializes `value` as JSON text, and "". nil and a message when it
+--- holds a function, userdata other than `Json.null`, NaN or an infinity,
+--- a string that is not UTF-8, a table whose keys are neither all strings
 --- nor all integers from 1 up, an array with a hole, or nesting past
 --- `max_depth`. The message says where, as a path from the value:
 --- `cannot encode a function at $.users[3].name`, with array indices

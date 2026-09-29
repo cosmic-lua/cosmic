@@ -350,7 +350,10 @@ input to the build, never to the runtime. one database holds:
   and where it sits. every function is here, documented or not, so
   `cosmic docs` can always say where one lives. an FTS5 index,
   `docs_fts`, answers `cosmic docs` when the query is words rather
-  than a name.
+  than a name. It stems its words (`porter`), weighs a word in a
+  symbol's name above one in its signature and that above one in its
+  prose, and a query that no member answers whole falls back to the
+  members that carry some of its words.
 - **uses**: one row per place a module refers to another module's
   symbol through a top-level require alias (`Fs.read(...)` under
   `local Fs = require("cosmic.fs")`), resolved against the name the

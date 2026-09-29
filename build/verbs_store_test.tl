@@ -102,7 +102,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   local named = verbs_fixture.expect(tmp, "docs", { "docs", "cli", "launcher" }, 0).stdout or ""
   assert(named:find("Cli.build", 1, true), named)
   -- A word neither holds finds no verb.
-  local none = verbs_fixture.expect(tmp, "docs", { "docs", "launcher", "zzzqqq" }, 1).stdout or ""
+  local none = verbs_fixture.expect(tmp, "docs", { "docs", "zzzqqq" }, 1).stdout or ""
   assert(not none:find("Cli.build", 1, true), none)
 end
 

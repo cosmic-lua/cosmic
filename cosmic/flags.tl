@@ -78,8 +78,9 @@ local function takes_value(entry: boolean | Flags.Option): boolean
   return entry.value ~= nil
 end
 
---- Reads `argv` from slot `from` on: 1 for a program's own `argv`, 2
---- for a verb's, whose slot 1 is the verb. `spec` maps each option,
+--- Parses command line options. Reads `argv` from slot `from` on: 1
+--- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
+--- `spec` maps each option,
 --- written as it is typed ("--check", "-v"), to whether it takes a
 --- value: `true` or `false`, or a `Flags.Option`, which takes one when
 --- it names its `value`. The value is the next word, or what follows

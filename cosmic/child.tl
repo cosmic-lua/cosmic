@@ -1342,8 +1342,8 @@ function Child.end_strays(): integer
   end
 end
 
---- Runs one executable path to completion and answers its `Result`; a
---- child that exits nonzero, or is ended by a signal or its timeout, is
+--- Runs a program to completion: executes one executable path as a command
+--- and answers its `Result`. A child that exits nonzero, or is ended by a signal or its timeout, is
 --- still a `Result`, with `ok` false. `argv[1]` is used exactly as given:
 --- there is no PATH search, and `Proc.find` finds a program by name. A nil
 --- environment inherits this process's environment; a table replaces it

@@ -470,40 +470,52 @@ local STANDS_IN_SQL =
   "(d.kind IN ('function', 'method') AND lower(d.text) GLOB ?2 AND NOT (d.signature GLOB '*(' || ?3 || '[?:]*' " ..
   "OR d.signature GLOB '*, ' || ?3 || '[?:]*'))"
 
---- The first word of `query` a search keeps (see `fts_query`).
-local function lead_word(query: string): string
-  local first = ""
+--- Words a search never requires: they join the words that name
+--- something and match nearly every sentence of prose.
+local STOP_WORDS: {string:boolean} = {
+  a = true, an = true, the = true, to = true, of = true, ["for"] = true,
+  ["in"] = true, on = true, with = true, ["and"] = true, ["or"] = true,
+  from = true, how = true, ["do"] = true,
+}
+
+--- The words of `query` a search matches. A word of one letter is left
+--- out when there are others: it is almost always a flag ("cp -r",
+--- "rm -f") that no documentation spells alone, and requiring it would
+--- find nothing. A stop word is left out the same way, so "read from the
+--- file" searches for "read" and "file".
+local function query_words(query: string): {string}
+  local words: {string} = {}
+  local short: {string} = {}
+  local stop: {string} = {}
   for word in query:gmatch("[%w_]+") do
-    if #word > 1 then
-      return word
-    end
-    if first == "" then
-      first = word
+    if STOP_WORDS[word:lower()] then
+      stop[#stop + 1] = word
+    elseif #word > 1 then
+      words[#words + 1] = word
+    else
+      short[#short + 1] = word
     end
   end
-  return first
+  -- A query of nothing else ("x", "the") still searches for what it has.
+  if #words > 0 then
+    return words
+  end
+  return #short > 0 and short or stop
+end
+
+--- The first word of `query` a search keeps (see `query_words`).
+local function lead_word(query: string): string
+  return query_words(query)[1] or ""
 end
 
 --- `query`'s words as an FTS5 query every one of them must match, each
---- quoted so it reads as a literal rather than as FTS5 syntax. A word of
---- one letter is left out when there are others: it is almost always a
---- flag ("cp -r", "rm -f") that no documentation spells alone, and
---- requiring it would find nothing.
+--- quoted so it reads as a literal rather than as FTS5 syntax.
 local function fts_query(query: string): string
-  local words: {string} = {}
-  local short: {string} = {}
-  for word in query:gmatch("[%w_]+") do
-    if #word > 1 then
-      words[#words + 1] = '"' .. word .. '"'
-    else
-      short[#short + 1] = '"' .. word .. '"'
-    end
+  local quoted: {string} = {}
+  for _, word in ipairs(query_words(query)) do
+    quoted[#quoted + 1] = '"' .. word .. '"'
   end
-  -- A query of nothing else ("x") still searches for what it has.
-  if #words == 0 then
-    words = short
-  end
-  return table.concat(words, " ")
+  return table.concat(quoted, " ")
 end
 
 --- The functions outside `cosmic.sys` whose documentation spells
@@ -560,18 +572,144 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
   return entries_of(rows)
 end
 
---- The rows whose symbol, signature or documentation carries every
---- word of `query`, best match first: those that spell its first word
---- as code, where it is not a parameter of theirs, then by relevance.
-local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string,
-                             lead: string): {docs.Entry} | nil, string
+--- How the columns of `docs_fts` count toward relevance: a word in a
+--- symbol's name says far more than one in its signature, and that more
+--- than one somewhere in its prose, which is the longest by far.
+local DOCS_WEIGHTS = "10.0, 3.0, 1.0"
+
+--- Fewer rows than this from the query every word must match, and a
+--- search also offers what carries only some of the words.
+local FEW = 3
+
+--- The most rows a search offers.
+local LIMIT = 20
+
+--- The rows whose symbol, signature or documentation carries any word of
+--- `words`, at most `limit` of them, those carrying more of the words
+--- first and, among equals, the better match by relevance. `skip` names
+--- ids (`docs.id`) already offered. Each row's last field is its id.
+local function partly_searched(db: Sqlite.Handle, public: boolean,
+                               words: {string}, skip: {integer:boolean},
+                               limit: integer): {{string}} | nil, string
+  local matched: {integer:integer} = {}
+  local score: {integer:number} = {}
+  for _, word in ipairs(words) do
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT d.id, bm25(docs_fts, " .. DOCS_WEIGHTS .. ") FROM docs_fts " ..
+      "JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ?1 AND " ..
+      symbols.shown_docs("d", public), { text('"' .. word .. '"') })
+    if rows == nil then
+      return nil, trouble
+    end
+    for _, row in ipairs(rows) do
+      local id = math.tointeger(tonumber(row[1])) or 0
+      matched[id] = (matched[id] or 0) + 1
+      score[id] = (score[id] or 0) + (tonumber(row[2]) or 0)
+    end
+  end
+  local ids: {integer} = {}
+  for id in pairs(matched) do
+    if not skip[id] then ids[#ids + 1] = id end
+  end
+  table.sort(ids, function(x: integer, y: integer): boolean
+    if matched[x] ~= matched[y] then return matched[x] > matched[y] end
+    if score[x] ~= score[y] then return score[x] < score[y] end
+    return x < y
+  end)
+  while #ids > limit do ids[#ids] = nil end
+  if #ids == 0 then
+    return {}
+  end
+  -- The ids are integers this function read, so they are safe to spell out.
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
-    "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_docs("d", public) ..
-    " ORDER BY " .. STANDS_IN_SQL .. " DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
-    { text(fts), text(spelled_as_code(lead)), text(lead:lower()) })
+    "SELECT " .. columns .. ", d.id FROM docs d WHERE d.id IN (" ..
+    table.concat(ids, ",") .. ")", {})
   if rows == nil then
     return nil, trouble
+  end
+  local by_id: {integer:{string}} = {}
+  for _, row in ipairs(rows) do
+    by_id[math.tointeger(tonumber(row[#row])) or 0] = row
+  end
+  local out: {{string}} = {}
+  for _, id in ipairs(ids) do
+    out[#out + 1] = by_id[id]
+  end
+  return out
+end
+
+--- `word` in lowercase without an ending that makes it a longer form of
+--- a name: "reading" is "read", "files" is "file". The index stems words
+--- exactly; this only lets a member named `read` count as named by
+--- "reading".
+local function plain(word: string): string
+  local lower = word:lower()
+  for _, ending in ipairs({ "ing", "ed", "es", "s" }) do
+    if #lower >= #ending + 3 and lower:sub(-#ending) == ending then
+      return lower:sub(1, -#ending - 1)
+    end
+  end
+  return lower
+end
+
+--- The rows whose symbol, signature or documentation carries every
+--- word of `query`, best match first: those that spell its first word
+--- as code, where it is not a parameter of theirs, then by relevance,
+--- weighing a word in the name above one in the prose. When fewer than
+--- `FEW` rows carry every word, rows carrying some of them follow, the
+--- more words the better.
+local function searched_docs(db: Sqlite.Handle, public: boolean,
+                             query: string): {docs.Entry} | nil, string
+  local lead = lead_word(query)
+  local words = query_words(query)
+  -- What a function stands in for is a question about one word: with
+  -- several, the words together say more than the first does.
+  local stands_in = ""
+  local binds = { text(fts_query(query)) }
+  if #words == 1 then
+    stands_in = STANDS_IN_SQL .. " DESC, "
+    binds[2] = text(spelled_as_code(lead))
+    binds[3] = text(lead:lower())
+  end
+  -- A member named for one of the words comes before any that only
+  -- carries it: `Fs.read` before `Unveil.reads` for "read a file".
+  local hits: {string} = {}
+  for _, word in ipairs(words) do
+    for _, form in ipairs({ word:lower(), plain(word) }) do
+      binds[#binds + 1] = text(form)
+      hits[#hits + 1] = "?" .. #binds
+    end
+  end
+  -- Then a comment that says the words together, as typed, and then a
+  -- member before a field: a field is a detail of a record, which is
+  -- likelier to be what was sought.
+  local phrase = ""
+  if #words > 1 then
+    local typed: {string} = {}
+    for word in query:gmatch("[%w_]+") do typed[#typed + 1] = word:lower() end
+    binds[#binds + 1] = text(table.concat(typed, " "))
+    phrase = "instr(replace(lower(d.text), char(10), ' '), ?" .. #binds .. ") > 0 DESC, "
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. ", d.id FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
+    "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_docs("d", public) ..
+    " ORDER BY " .. stands_in .. "lower(d.symbol) IN (" .. table.concat(hits, ", ") ..
+    ") DESC, " .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
+    "), d.module, d.id LIMIT " .. LIMIT,
+    binds)
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows < FEW and #words > 1 then
+    local skip: {integer:boolean} = {}
+    for _, row in ipairs(rows) do
+      skip[math.tointeger(tonumber(row[#row])) or 0] = true
+    end
+    local more, more_trouble = partly_searched(db, public, words, skip, LIMIT - #rows)
+    if more == nil then
+      return nil, more_trouble
+    end
+    for _, row in ipairs(more) do rows[#rows + 1] = row end
   end
   return entries_of(rows)
 end
@@ -621,7 +759,7 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
   if fts == "" then
     return {}
   end
-  local from_docs, docs_trouble = searched_docs(db, public, fts, lead_word(query))
+  local from_docs, docs_trouble = searched_docs(db, public, query)
   if from_docs == nil then
     return nil, docs_trouble
   end
