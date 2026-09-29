@@ -70,8 +70,16 @@ local function environment(): {string:string}
   return env
 end
 
+--- When the file an outside test reads was last written: `unready`
+--- fails it, and `ready` does not. A declared key holds what a file
+--- holds, not when it was written, so a checkout that failed and one
+--- that passed on it meet under one key, as a flaky test's runs do.
+local ready <const> = 1700000000
+local unready <const> = 1600000000
+
 --- A checkout of the suite at `root`, its data file holding `data`, its
---- outside test reading the directory beside `root` named outside.
+--- outside test reading the file f in the directory beside `root` named
+--- outside, and failing where f was last written at `unready` (below).
 local function checkout(root: string, data: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/data.txt", data))
@@ -107,11 +115,13 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.needs { reads = { "suite/marker.txt" }, host = { "]] .. Fs.dirname(root) ..
-    [[/outside/" }, env = { "OUTSIDE" } }
+    [[/outside/f" }, env = { "OUTSIDE" } }
 
 local function test_reads_outside()
   assert(Fs.stat("suite/marker.txt") ~= nil)
-  assert(Fs.read(assert(Env.get("OUTSIDE")) .. "/f") == "out\n")
+  local f = assert(Env.get("OUTSIDE")) .. "/f"
+  assert(assert(Fs.stat(f)).mtime ~= ]] .. unready .. [[)
+  assert(Fs.read(f) == "out\n")
 end
 ]]))
 end
@@ -648,33 +658,33 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   checkout(tmp .. "/first", "one\n")
   checkout(tmp .. "/second", "one\n")
   -- The second fails first: what it read outside is not what it wants.
-  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env,
     { "suite/outside_test.tl" }, true)
   assert(failed:find("1 of 1 failed", 1, true), failed)
   if not shares(failed) then return end
   -- The first passes, and shares it.
-  assert(Fs.write(tmp .. "/outside/f", "out\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", ready))
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/outside_test.tl" })
   assert(first:find("1 ran", 1, true), first)
   -- The second runs, its own failure standing against the shared pass
   -- though a file it stat'd was touched since, which moves its own key.
-  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   touch(tmp .. "/second/suite/marker.txt")
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
   assert(again:find("1 of 5 failed", 1, true), again)
   -- ...and the row it would have stood on is gone: a third checkout
   -- runs the test too.
-  assert(Fs.write(tmp .. "/outside/f", "out\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", ready))
   checkout(tmp .. "/third", "one\n")
   local third = run(tmp .. "/third", tmp .. "/third.out", env, {})
   assert(third:find("1 ran, 4 stood", 1, true), third)
 end
 
 --- Two checkouts, first and second, of a suite whose one test stops
---- at its first read -- of f in the directory OUTSIDE names -- unless
---- that holds "out", and the environment they run in, sharing through
---- a cache in `tmp`; and `tmp` resolved.
+--- at its first read -- of f in the directory OUTSIDE names -- where f
+--- was last written at `unready`, and the environment they run in,
+--- sharing through a cache in `tmp`; and `tmp` resolved.
 local function early_suite(tmp: string): {string:string}, string
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
@@ -684,6 +694,7 @@ local function early_suite(tmp: string): {string:string}, string
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
   assert(Fs.mkdirs(tmp .. "/outside"))
+  assert(Fs.write(tmp .. "/outside/f", "out\n"))
   env.OUTSIDE = tmp .. "/outside"
   for _, name in ipairs({ "first", "second" }) do
     local root = tmp .. "/" .. name
@@ -694,10 +705,10 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "suite/c.txt" }, host = { "]] .. tmp .. [[/outside/" }, env = { "OUTSIDE" } }
+Test.needs { reads = { "suite/c.txt" }, host = { "]] .. tmp .. [[/outside/f" }, env = { "OUTSIDE" } }
 
 local function test_stops_early()
-  assert(Fs.read(assert(Env.get("OUTSIDE")) .. "/f") == "out\n")
+  assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. unready .. [[)
   assert(Fs.read("suite/c.txt") == "c\n")
 end
 ]]))
@@ -711,14 +722,14 @@ end
 local function test_a_failure_that_read_less_is_not_answered_from_elsewhere(tmp: string)
   local env, resolved = early_suite(tmp)
   tmp = resolved
-  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
   assert(failed:find("1 of 1 failed", 1, true), failed)
   if not shares(failed) then return end
-  assert(Fs.write(tmp .. "/outside/f", "out\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", ready))
   local passed = run(tmp .. "/first", tmp .. "/passed.out", env, {})
   assert(passed:find("1 ran", 1, true), passed)
-  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local again = run(tmp .. "/second", tmp .. "/again.out", env, {}, true)
   assert(again:find("1 of 1 failed", 1, true), again)
 end
@@ -728,7 +739,7 @@ end
 local function test_a_failure_here_runs_again_without_the_cache(tmp: string)
   local env, resolved = early_suite(tmp)
   tmp = resolved
-  assert(Fs.write(tmp .. "/outside/f", "not yet\n"))
+  assert(Fs.set_mtime(tmp .. "/outside/f", unready))
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
   assert(failed:find("1 of 1 failed", 1, true), failed)
   if not shares(failed) then return end
