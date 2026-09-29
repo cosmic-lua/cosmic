@@ -31,8 +31,8 @@ local record compress
     metamethod __close: function(Stream, any)
   end
 
-  -- Raise on a format other than "raw", "zlib" or "gzip", and on a
-  -- level outside 0 to 10.
+  -- Both raise on a format other than "raw", "zlib" or "gzip"; the
+  -- deflater also on a level outside 0 to 10.
   inflater: function(format: string): Stream | nil, string
   deflater: function(format: string, level?: integer): Stream | nil, string
   -- Raises when `memlimit` is not positive.

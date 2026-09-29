@@ -360,7 +360,7 @@ end
       local result = invoke(root, output, { "suite/counts_test.tl" }, env)
       local text = assert(Fs.read(output))
       assert(result.ok, text)
-      tallies[run] = text:match("1 tests, 1 modules; (%d+ ran, %d+ stood)") or text
+      tallies[run] = text:match("1 test, 1 module; (%d+ ran, %d+ stood)") or text
     end
     assert(tallies[1] == "1 ran, 0 stood" and tallies[2] == "0 ran, 1 stood",
       spelled .. ": " .. tallies[1] .. " then " .. tallies[2])

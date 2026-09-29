@@ -37,6 +37,23 @@ local function test_a_pass_with_every_optional_count()
   assert(figures.parts == nil)
 end
 
+--- A count of one is written in the singular, so a summary holding a
+--- single test, module or infrastructure error is read as well.
+local function test_a_count_of_one_is_read_in_the_singular()
+  local passed = SuiteOutput.parse(
+    "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms; sandboxed)\n")
+  assert(passed.verdict == "pass" and passed.tests == 1 and passed.modules == 1)
+  assert(passed.ran == 1 and passed.stood == 0)
+  local failed = SuiteOutput.parse(
+    "test: FAIL (1 of 1 failed, 1 infrastructure error, 9 ms)\n")
+  assert(failed.verdict == "fail" and failed.tests == 1 and failed.errors == 1)
+  local unmatched = SuiteOutput.parse(
+    "test: shared verdicts: none of 1 test looked up stood, though x holds 1 row, " ..
+    "0 of them of those tests: no other run reached them (host features 0123456789abcdef, " ..
+    "host aaaaaaaaaaaa)\n")
+  assert(unmatched.parts and unmatched.parts.host == "aaaaaaaaaaaa")
+end
+
 --- A failing run says its failures, then a summary with no ran or stood
 --- count; the failures' own lines are not its summary.
 local function test_a_failing_run()
@@ -122,7 +139,7 @@ end
 --- said after: a summary there is a test's own nested run's.
 local function test_a_timed_out_suite_keeps_only_its_key_parts()
   local figures, status = SuiteOutput.read(key_parts .. "\n" ..
-    "test: PASS (1 tests, 1 modules; 1 ran, 0 stood, 3 ms)\n", 124)
+    "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms)\n", 124)
   assert(status == "timeout")
   assert(figures.verdict == nil and figures.tests == nil and figures.ran == nil)
   assert(figures.stood == nil and figures.elapsed_ms == nil)
@@ -150,7 +167,7 @@ end
 --- The last summary is the suite's: a test's own output may hold one.
 local function test_the_last_summary_is_the_suites()
   local figures = SuiteOutput.parse(
-    "test: PASS (1 tests, 1 modules; 1 ran, 0 stood, 3 ms)\r\n" ..
+    "test: PASS (1 test, 1 module; 1 ran, 0 stood, 3 ms)\r\n" ..
     "test: PASS (10 tests, 2 modules; 4 ran, 6 stood, 30 ms; sandboxed)\r\n")
   assert(figures.tests == 10 and figures.stood == 6 and figures.sandbox == "sandboxed")
 end

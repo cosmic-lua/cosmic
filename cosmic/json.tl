@@ -334,9 +334,9 @@ end
 --- The values of JSON Lines read from `reader` a line at a time, as
 --- `decode_lines` reads them from text: a blank line is skipped, a line
 --- may end in `\r\n`, and a line that is not JSON is named by its
---- number, as there. A `null` line
---- reads as `Json.null`, or as `opts.null_value` when that is given, so
---- a value is never taken for the end. A line longer than `max` bytes
+--- number, as there. A `null` line reads as `Json.null`, or as
+--- `opts.null_value` when that is given, so a value is never taken for
+--- the end. A line longer than `max` bytes
 --- (1 MiB by default) fails, as `Stream.lines` says, and a `max` that
 --- is no integer of at least 1 raises. `reader` is not closed.
 ---
@@ -938,16 +938,14 @@ local function walk_options(opts: Json.WalkOptions | nil): integer, string
 end
 
 --- What the container `v` is, by the rules `table_kind` applies ("array",
---- "object", "hole" or "mixed"), and for an object the string keys it has,
---- sorted, or for a hole the integer keys it has, sorted: the order
---- `flatten` and `select` visit its members in. An array's elements are
---- 1 to the third answer, its extent, so no list is made for one; the
---- extent of a marked array (a decoded one, which may hold holes where a
---- `null` was dropped, so that `rawlen` is any border of it) is its
---- highest integer key, found by a pass over the keys. The keys of a
---- hole are its elements' indexes, so a hole is not visited and its
---- neighbours keep theirs. One pass over the keys, where `table_kind` is
---- another.
+--- "object", "hole" or "mixed"), the keys `flatten` and `select` visit
+--- its members by, and its extent. An object's keys are its string keys,
+--- sorted; a hole's are its integer keys, sorted, so the elements around
+--- a gap keep their indexes. An array's elements are 1 to the extent, so
+--- no key list is made for one. A marked array (a decoded one) may hold
+--- holes where a `null` was dropped, so `rawlen` is only a border of it
+--- and its extent is its highest integer key. This is one pass over the
+--- keys, where `table_kind` is another.
 local function layout(v: {any:any}): string, {string | integer}, integer
   if raw.is_array(v) then
     local extent = 0
