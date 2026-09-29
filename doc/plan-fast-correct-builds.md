@@ -383,7 +383,11 @@ last.
     `core/syscalls_tool_test.tl`'s copy).
   - Shows: a root run says how many it skipped; a run held to the
     sandbox fails on any.
-- **Unprivileged runs before a push (process).** A change that drops
+- **Unprivileged runs before a push (process): dropped, #2427 made it
+  moot.** A root run's sandboxed workers now run as an unprivileged
+  mapped user, so a plain run as root checks what this step would (bar
+  modules that declare a host cache, which still run as root; a `TODO:`
+  in build/test_sandbox.tl). Was: A change that drops
   or narrows a declaration runs its changed modules as an unprivileged
   user (`COSMIC_SANDBOX=must`), with the tree copied to a directory
   that user owns. This goes in the ship skill
