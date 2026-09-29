@@ -11,7 +11,13 @@
 --- Each user guide's examples (`doc/guides`) are held the same way: a
 --- block that opens an example must compile alone, unless it is only a
 --- project's entry, which reads its `file=` companions through the
---- harness's `tmp` and is compiled with that one name in scope.
+--- harness's `tmp` and is compiled with that one name in scope. That
+--- exemption stays: the companions are the `file=` blocks the guide
+--- shows, which the generated test writes into `tmp` before the entry
+--- runs, so an entry that made its own directory would repeat each
+--- file's text a second time, in code, beside the block that shows it;
+--- doctest has no notion of a companion written into the current
+--- directory instead.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local doctest = require("build.doctest")
@@ -46,7 +52,12 @@ end
 --- Lines are kept, so a complaint's line is a line of the text shown,
 --- less the one `local Example` takes at the function.
 local function chunk(name: string, source: string): string
-  local at = source:find("function Example%.")
+  -- The function's `function` starts a line: a match inside a comment
+  -- or a string of a call carried above it is not the boundary.
+  local at = source:find("^function Example%.") or source:find("\nfunction Example%.")
+  if at ~= nil and source:sub(at, at) == "\n" then
+    at = at + 1
+  end
   local head = at ~= nil and source:sub(1, at - 1) or ""
   local rest = at ~= nil and source:sub(at) or source
   return head .. "local Example = {} " .. rest .. "\nExample." .. name .. "()\n"

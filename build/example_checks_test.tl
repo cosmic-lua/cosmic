@@ -42,7 +42,8 @@ end
 
 local function test_an_example_missing_a_require_is_refused(dir: string)
   local found = found_in(dir, (good:gsub('local Fs = require%("cosmic.fs"%)\n', "")))
-  assert(#found > 0 and found[1]:find("cosmic/thing_example.tl:", 1, true) ~= nil
+  -- The finding names the line the function sits at in the example file.
+  assert(#found > 0 and found[1]:find("^cosmic/thing_example%.tl:4: example read: ") ~= nil
     and found[1]:find("Fs", 1, true) ~= nil, table.concat(found, "\n"))
 end
 
@@ -89,4 +90,17 @@ local function test_a_guide_entry_with_companions_may_read_tmp(dir: string)
     "# Fixture", "", "```teal file=a.txt", "hi", "```", "",
     "```teal", "print(Fs.read(tmp .. \"/a.txt\"))", "```"))
   assert(#found > 0 and found[1]:find("Fs", 1, true) ~= nil, table.concat(found, "\n"))
+end
+
+--- The text shown is the one function, so a call of a sibling example
+--- (`Example.other`), which the reader has not copied, is refused.
+local function test_an_example_calling_a_sibling_is_refused(dir: string)
+  local found = found_in(dir, source(
+    "local Example = {}",
+    "function Example.other() end",
+    "function Example.first()",
+    "  Example.other()",
+    "end",
+    "return Example"))
+  assert(#found > 0 and found[1]:find("other", 1, true) ~= nil, table.concat(found, "\n"))
 end

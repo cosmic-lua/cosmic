@@ -38,7 +38,8 @@
 --- When it covers every Teal source of cosmic's own tree (`cosmic fix
 --- --check .`, as CI runs it), it also builds the tree's projection and
 --- holds it to the checks only the whole tree can answer
---- (`build.tree_checks`). A tree that does not build fails, since the
+--- (`build.tree_checks`), and that every public example and user-guide
+--- example compiles as shown, alone (`build.example_checks`). A tree that does not build fails, since the
 --- checks need its projection, and a note on the standard library
 --- fails the run instead of being a note. A run over some paths does
 --- none of this.
