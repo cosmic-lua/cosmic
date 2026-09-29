@@ -286,12 +286,17 @@ the merge queue to `--all` (M1's second measurement: 6 of 13 runs).
 - PRs, all acknowledged, none bumping the epoch (each keeps the same
   keys, and tests that):
   1. The worker off `declared_key`, `time`, `store` and `log`
-     (`build.key_parts`). After the stage 3 batch, which edits
-     `filesystem_observations.tl` and `declared_key.tl`.
-  2. `build.digest` as a raw module in `core/store.c` (moves the core).
+     (`build.key_parts`): landed (#2349). `worker.loads` 26 → 19.
+  2. `build.digest` as a raw module in `core/store.c`: landed (#2357).
+     Every key's hash runs through it, build.test's included;
+     `worker.loads` 19 → 18.
   3. The value-only walk, the sandbox probe out of `harness_own`,
-     `cosmic.test` off `cosmic.errors`, and the library-list test.
-     After stage 3.
+     `cosmic.test` off `cosmic.errors`, and the library-list test: in
+     review (#2359). The walk keeps an `imports` edge unless the
+     importer's bytecode lacks the name (a source regex missed
+     `require"x"` and split requires). `cosmic.child`, which turns a
+     worker's sandbox plan into spawn options, is digested alone
+     (`harness_alone`) rather than dropped. Set 45 → 28.
   - Later (2.7b): hold only the key part of `build.test`, the
     most-edited module left.
 - Expected: 45 modules to 27; of the last 40 main commits, the share
@@ -680,7 +685,7 @@ Items, in order:
    depth no longer varies. (Linking only `ci` and `.github` into a
    moved tree, with a `COSMIC_CI_ROOT` for the driver, is the fuller
    form, kept in reserve.)
-7. **A branch restores from its merge base (M): in review (#2356).** Main's saves also
+7. **A branch restores from its merge base (M): landed (#2356).** First branch run restored `…sha-<base>` exactly. Main's saves also
    take a key by SHA, kept a day or two; a branch run looks up
    `git merge-base HEAD origin/main`'s key first, then the newest.
    The base comes from the compare API (`contents: read`, no deeper
