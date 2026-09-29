@@ -13,6 +13,15 @@
 --- every test and names what each read that neither covers, with the
 --- `needs` call that would hold it.
 ---
+--- A test's verdict is keyed by what it declares, and stands until that
+--- changes. Where `cosmic test` sandboxes its workers (Linux), a test is
+--- given what it declares and nothing else, so a read it does not
+--- declare fails. Where it cannot (macOS, or COSMIC_TEST_SANDBOX=0), the
+--- run trusts the declaration: an undeclared read works, but its change
+--- moves no key, so the verdict stands stale on it. Declare it anyway,
+--- and run `cosmic test --audit` to find what is missing; a sandboxed
+--- run of the same test is what enforces it.
+---
 --- The closure is what the build finds `require`d by a literal name,
 --- anywhere in the module and in each it requires. Under `cosmic test`,
 --- a `require` of any other module of the tree -- a name computed, or

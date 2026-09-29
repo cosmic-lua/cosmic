@@ -408,20 +408,28 @@ end
 
 --- A fixture runtime's startup hooks pause one startup for a handshake;
 --- a worker inheriting them would pause too, with nobody to release it.
+--- The handshake's own variables never reach a run this program starts
+--- (build.this_program's `program` drops them, and the core clears any
+--- other of their prefix as it starts), so the filter's case for them
+--- is the second half's. The first holds the rest of the filter end to
+--- end: its suite declares the whole environment, so the run's own
+--- filter (`test.worker_environment`), not a declaration, is what drops
+--- how the run was started (OLDPWD, SHLVL).
 local function test_workers_start_without_the_startup_hooks(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/hooks_test.tl", [[
 local Env = require("cosmic.env")
 local Test = require("cosmic.test")
-Test.needs { env = { "KEPT_BY_THE_WORKER" } }
+Test.needs { env = { "*" } }
 local function test_no_hooks()
-  assert(Env.get("COSMIC_PORTABLE_STARTUP_TEST_READY") == nil)
+  assert(Env.get("OLDPWD") == nil and Env.get("SHLVL") == nil)
   assert(Env.get("KEPT_BY_THE_WORKER") == "yes")
 end
 ]]))
   local env = environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = tmp .. "/never"
+  env.OLDPWD = "/elsewhere"
+  env.SHLVL = "3"
   env.KEPT_BY_THE_WORKER = "yes"
   local output = tmp .. "/hooks.out"
   local result = invoke(root, output, { "suite/hooks_test.tl" }, env)

@@ -194,16 +194,14 @@
    Its verdicts are kept apart from sandboxed ones, and shared only
    through a file `COSMIC_VERDICT_CACHE` names (as CI's macOS leg
    does), and so only with a checkout at the same path; without one it
-   shares none, and the summary says so. A key holds of a stat of the
-   tree only its kind, size and mode across checkouts (the rule beside
-   `Test.needs` below).
+   shares none, and the summary says so.
    Only the sandbox's own tests nest one sandbox in another with
    build.confine's `confine`: where the kernel cannot confine a process,
    `confine` starts it unconfined; `must_confine` fails
    the spawn, and the test, instead, naming the part of the sandbox
    refused and its errno. `COSMIC_SANDBOX=must` (off by default) makes
-   every `confine` one, and fails `core/syscalls_test.tl`'s sandbox tests rather than counting
-   them skipped. Likewise a test nests the workers of a
+   every `confine` one, and fails `core/syscalls_test.tl`'s sandbox
+   tests rather than counting them skipped. Likewise a test nests the workers of a
    `cosmic test` it starts in its own sandbox only where its assertion
    is about their sandbox; every other run of `cosmic test` a test
    starts sets `COSMIC_TEST_SANDBOX=0`, so it means the same on every
