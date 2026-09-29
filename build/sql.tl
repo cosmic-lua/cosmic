@@ -22,7 +22,7 @@
 --- row is always one line, no stored escape sequence reaches the
 --- terminal, and undoing those escapes gives the stored bytes back. The
 --- verdict line comes last on stdout, as every verb's does (see
---- build/verbs_test.tl), so a pipe that wants only the rows drops the
+--- build/verbs_tool_test.tl), so a pipe that wants only the rows drops the
 --- first line and the last; complaints go to stderr.
 ---
 --- `--from <file|->` asks the same of a data file instead of a database:
