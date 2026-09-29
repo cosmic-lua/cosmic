@@ -559,16 +559,37 @@ local function test_lines_hold_a_line_to_the_limit()
 end
 
 --- A line spread over many small chunks is joined once, not re-copied
---- per chunk: a 256 KiB line a byte at a time finishes promptly, where
---- copying the partial line per byte would move some 32 GB.
+--- per chunk: one 128 KiB line a byte at a time takes about as long as
+--- eight 16 KiB lines do, where copying the partial line per byte would
+--- take eight times as long or more. The bound is on that ratio of two runs
+--- over the same bytes, alike in length, not on wall time, so it holds
+--- on a slow core and on a loaded host.
 local function test_a_long_line_in_small_chunks_costs_linear_time()
-  local long = string.rep("x", 1 << 18)
-  local started = Time.monotonic_ns()
-  local got, trouble = all_lines(trickle(long .. "\nend"))
-  local elapsed = Time.monotonic_ns() - started
-  assert(trouble == "" and #got == 2 and got[1] == long and got[2] == "end", trouble)
-  -- About a tenth of a second here; copying per byte takes some fifteen.
-  assert(elapsed < 5 * 1000 * 1000 * 1000, "took " .. tostring(elapsed // 1000000) .. " ms")
+  local short = string.rep("x", 1 << 14)
+  local long = string.rep(short, 8)
+  local shorts = string.rep(short .. "\n", 8)
+  -- The time to read `text` a byte at a time, checking its lines.
+  local function timed(text: string, want: {string}): integer
+    local started = Time.monotonic_ns()
+    local got, trouble = all_lines(trickle(text))
+    local elapsed = Time.monotonic_ns() - started
+    assert(trouble == "" and #got == #want, trouble)
+    for i, line in ipairs(want) do assert(got[i] == line) end
+    return elapsed
+  end
+  local eight: {string} = {}
+  for i = 1, 8 do eight[i] = short end
+  -- The least of three of each, taken in turn, so a pause elsewhere on
+  -- the host inflates neither.
+  local one_ns, eight_ns = math.maxinteger, math.maxinteger
+  for _ = 1, 3 do
+    one_ns = math.min(one_ns, timed(long .. "\n", { long }))
+    eight_ns = math.min(eight_ns, timed(shorts, eight))
+  end
+  local ratio = one_ns / math.max(eight_ns, 1)
+  -- About 1 here, on the checked core too; copying per byte gives 13 to 17.
+  assert(ratio < 3, string.format("one line took %d ms, eight %d ms: %.1fx",
+    one_ns // 1000000, eight_ns // 1000000, ratio))
 end
 
 --- A Reader's failure ends the lines with it, after the ones before.
