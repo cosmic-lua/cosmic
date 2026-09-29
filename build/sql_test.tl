@@ -259,8 +259,8 @@ local function test_as_and_at_belong_to_the_from_before_them()
   assert(code == 2 and written.err[1]:find("--at $.a[:", 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/nested.json", "--at", "$.zz", "SELECT 1" })
   assert(code == 1 and written.err[1]:find('no key "zz"', 1, true), written.err[1])
-  code, written = run(dir, { "--from", dir .. "/nested.json", "--as", "csv", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("no format csv (known: json, ndjson)", 1, true), written.err[1])
+  code, written = run(dir, { "--from", dir .. "/nested.json", "--as", "xml", "SELECT 1" })
+  assert(code == 2 and written.err[1]:find("no format xml (known: csv, json, ndjson, tsv)", 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/lines.dat", "--as", "ndjson", "--at", "$.a", "SELECT 1" })
   assert(code == 1 and written.err[1]:find("takes no path", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
@@ -351,7 +351,7 @@ end
 local function test_from_refuses_an_unknown_extension_invalid_json_and_a_missing_file()
   local dir = data()
   local code, written = run(dir, { "--from", dir .. "/notes.txt", "SELECT 1" })
-  assert(code == 2 and written.err[1]:find("unknown extension .txt (known: .json, .jsonl, .ndjson)", 1, true),
+  assert(code == 2 and written.err[1]:find("unknown extension .txt (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", 1, true),
     written.err[1])
   assert(written.err[1]:find("give --as", 1, true))
   code, written = run(dir, { "--from", dir .. "/notes.txt", "--as", "json", "SELECT 1" })
@@ -409,6 +409,86 @@ local function test_a_missing_file_names_its_path_once_and_usage_shows_as_and_at
   assert(code == 1 and count == 1, written.err[1])
   code, written = run(dir, { "--from" })
   assert(code == 2 and written.err[1]:find("--from needs a value", 1, true), written.err[1])
-  assert(written.err[1]:find("[--as json|ndjson] [--at '<path>']", 1, true), written.err[1])
+  assert(written.err[1]:find("[--as json|ndjson|csv|tsv] [--at '<path>'] [--raw]", 1, true), written.err[1])
+  assert(Fs.remove_tree(dir))
+end
+
+--- A directory holding a CSV, a TSV and a JSON file to join.
+local function delimited(): string
+  local dir = data()
+  assert(Fs.write(dir .. "/people.csv",
+    '\xEF\xBB\xBFid,name,zip,score\r\n1,"Ann, Jr.",02134,9.5\r\n2,"Bob ""B""",,7\r\n3,Cy,10001,\r\n'))
+  assert(Fs.write(dir .. "/scores.tsv", "id\tpoints\n1\t10\n2\t20\n"))
+  return dir
+end
+
+local function test_a_csv_joins_a_json_file()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", dir .. "/people.csv", "--from", dir .. "/accounts.json",
+    "SELECT name, balance FROM people JOIN accounts USING (id) ORDER BY id" })
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "|") == "name\tbalance|Ann, Jr.\t100.5|Bob \"B\"\t50|Cy\t20", table.concat(written.out, "|"))
+  code, written = run(dir, { "--from", dir .. "/people.csv", "--from", dir .. "/scores.tsv",
+    "SELECT sum(score + points), count(zip) FROM people JOIN scores USING (id)" })
+  assert(code == 0 and written.out[2] == "46.5\t1", table.concat(written.out, "|") .. table.concat(written.err))
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_raw_belongs_to_the_from_before_it_and_keeps_text()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", dir .. "/people.csv", "--raw", "--from", dir .. "/scores.tsv",
+    "SELECT typeof(p.score), p.zip = '', typeof(s.points) FROM people p JOIN scores s ON p.id = CAST(s.id AS text) WHERE p.id = '2'" })
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(written.out[2] == "text\t1\tinteger", table.concat(written.out, "|"))
+  code, written = run(dir, { "--raw", "--from", dir .. "/people.csv", "SELECT 1" })
+  assert(code == 2 and written.err[1]:find("--raw belongs to the --from before it", 1, true), written.err[1])
+  code, written = run(dir, { "--from", dir .. "/people.csv", "--raw", "--raw", "SELECT 1" })
+  assert(code == 2 and written.err[1]:find("--raw is given twice", 1, true), written.err[1])
+  code, written = run(dir, { "--from", dir .. "/accounts.json", "--raw", "SELECT 1" })
+  assert(code == 1 and written.err[1]:find("no raw cells", 1, true), written.err[1])
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_no_statement_prints_the_schema_of_a_csv()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", dir .. "/people.csv" })
+  assert(code == 0, table.concat(written.err, "|"))
+  assert(table.concat(written.out, "\n") == table.concat({
+    "people: 3 rows",
+    "  id     integer",
+    "  name   text",
+    "  score  integer|null|real",
+    "  zip    integer|null|text",
+    "  _json  text",
+    '  sample: {"id":1,"name":"Ann, Jr.","score":9.5,"zip":"02134"}',
+  }, "\n"), table.concat(written.out, "\n"))
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_standard_input_reads_csv_with_as()
+  local dir = delimited()
+  local code, written = run(dir, { "--from", "-", "--as", "csv", "SELECT sum(n), count(*) FROM stdin" },
+    "n,label\n1,a\n2,b\n")
+  assert(code == 0 and written.out[2] == "3\t2", table.concat(written.err, "|"))
+  code, written = run(dir, { "--from", "-", "--as", "tsv", "SELECT b FROM stdin" }, "a\tb\n1\tx\n")
+  assert(code == 0 and written.out[2] == "x", table.concat(written.err, "|"))
+  code, written = run(dir, { "--from", "-", "SELECT 1" }, "a\n1\n")
+  assert(code == 2 and written.err[1]:find("csv, json, ndjson, tsv", 1, true), written.err[1])
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_csv_faults_name_the_file_and_the_place_and_at_is_refused()
+  local dir = delimited()
+  assert(Fs.write(dir .. "/ragged.csv", "a,b\n1,2\n3\n"))
+  assert(Fs.write(dir .. "/open.csv", 'a,b\n1,"2\n'))
+  local code, written = run(dir, { "--from", dir .. "/ragged.csv", "SELECT 1" })
+  assert(code == 1 and written.err[1]:find("ragged.csv: line 3, column 1: the record has 1 field, the header 2", 1, true),
+    written.err[1])
+  code, written = run(dir, { "--from", dir .. "/open.csv", "SELECT 1" })
+  assert(code == 1 and written.err[1]:find("unclosed quote opened at line 2, column 3", 1, true), written.err[1])
+  code, written = run(dir, { "--from", dir .. "/people.csv", "--at", "$.a", "SELECT 1" })
+  assert(code == 1 and written.err[1]:find("the csv format takes no path", 1, true), written.err[1])
+  code, written = run(dir, { "--from", dir .. "/scores.tsv", "--at", "$.a", "SELECT 1" })
+  assert(code == 1 and written.err[1]:find("the tsv format takes no path", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
 end

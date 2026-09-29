@@ -30,7 +30,7 @@
 --- (`cosmic.dataset` says how: the columns, how a value is stored, the
 --- `_json` column), and the statement runs on that, under the same
 --- read-only guard, with the same rows and verdict. `--as <format>` and
---- `--at '<path>'` belong to the `--from` they follow. With no statement
+--- `--at '<path>'` and `--raw` belong to the `--from` they follow. With no statement
 --- the verb prints each table's name, row count, columns with the SQLite
 --- types seen, and a sample row. `no such column` and `no such table`
 --- are answered with the names that exist. The database is built from
@@ -85,6 +85,8 @@ local record sql
     format: string
     --- Where in the document the rows are; nil for all of it.
     at: {string | integer}
+    --- Keep every cell of a CSV or TSV as text.
+    raw: boolean
   end
 
   --- A database `open` made read-only.
@@ -305,7 +307,7 @@ local standard: sql.Output = {
 }
 
 --- The usage of `--from`, in a complaint about the line.
-local from_usage = "cosmic sql --from <file|-> [--as json|ndjson] [--at '<path>'] " ..
+local from_usage = "cosmic sql --from <file|-> [--as json|ndjson|csv|tsv] [--at '<path>'] [--raw] " ..
   "[--from ...] ['<statement>']"
 
 --- A table name from a file name: its stem (without the last
@@ -325,8 +327,8 @@ local function stem_of(path: string): string
   return stem
 end
 
---- The `--from`s a command line names, each with the `--as` and `--at`
---- that follow it and before the next `--from`: `--from a.json --at
+--- The `--from`s a command line names, each with the `--as`, `--at` and
+--- `--raw` that follow it and before the next `--from`: `--from a.json --at
 --- '$.rows' --from b.jsonl` reads a's rows from `$.rows` and b whole. A
 --- `--from` is `<file>`, `<name>=<file>` (a name of letters, digits and
 --- underscores before the first `=`, so a file with an `=` in its name
@@ -340,6 +342,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
   local inputs: {sql.Input} = {}
   local given_as: {integer:boolean} = {}
   local given_at: {integer:boolean} = {}
+  local given_raw: {integer:boolean} = {}
   local stdin_seen = false
   local seen: {string:integer} = {}
   local counts: {string:integer} = {}
@@ -376,6 +379,16 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
       end
       inputs[#inputs + 1] = input
       seen[input.table:lower()] = #inputs
+    elseif name == "--raw" then
+      local input = inputs[#inputs]
+      if input == nil then
+        return nil, "--raw belongs to the --from before it; give --from first"
+      end
+      if given_raw[#inputs] then
+        return nil, "--raw is given twice for " .. input.label
+      end
+      given_raw[#inputs] = true
+      input.raw = true
     elseif name == "--as" or name == "--at" then
       local input = inputs[#inputs]
       if input == nil then
@@ -404,7 +417,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
     if input.format == "" then
       if input.path == nil then
         return nil, "standard input has no extension to read a format from; " ..
-          "give --as (" .. table.concat(Dataset.names(), " or ") .. ") after its --from -"
+          "give --as (" .. table.concat(Dataset.names(), ", ") .. ") after its --from -"
       end
       local format, why = Dataset.format_of(input.path)
       if format == nil then
@@ -569,7 +582,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
       -- A file's failure already names the file; standard input's does not.
       return fail(input.path == nil and input.label .. ": " .. read_trouble or read_trouble)
     end
-    local rows, format_trouble = Dataset.read(input.format, text, { at = input.at })
+    local rows, format_trouble = Dataset.read(input.format, text, { at = input.at, raw = input.raw })
     if rows == nil then
       return fail(input.label .. ": " .. format_trouble)
     end
@@ -640,7 +653,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
     verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
-  if parsed.all["--from"] or parsed.all["--as"] or parsed.all["--at"] then
+  if parsed.all["--from"] or parsed.all["--as"] or parsed.all["--at"] or parsed.set["--raw"] then
     return run_from(parsed, to, verdict, complain, stdin or read_stdin)
   end
   if #parsed.words ~= 1 then

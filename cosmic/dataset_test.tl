@@ -143,15 +143,15 @@ local function test_ndjson_is_a_row_per_line()
 end
 
 local function test_formats_are_found_by_name_and_extension()
-  assert(table.concat(Dataset.names(), ",") == "json,ndjson")
+  assert(table.concat(Dataset.names(), ",") == "csv,json,ndjson,tsv")
   assert(Dataset.format_of("a/b.json") == "json" and Dataset.format_of("x.JSONL") == "ndjson")
   assert(Dataset.format_of("x.ndjson") == "ndjson")
-  local unknown, why = Dataset.format_of("data.csv")
-  assert(unknown == nil and why == "unknown extension .csv (known: .json, .jsonl, .ndjson)", why)
+  local unknown, why = Dataset.format_of("data.xml")
+  assert(unknown == nil and why == "unknown extension .xml (known: .csv, .json, .jsonl, .ndjson, .tab, .tsv)", why)
   local none, none_why = Dataset.format_of("README")
   assert(none == nil and none_why:find("^no extension"), none_why)
   local missing, missing_why = Dataset.read("yaml", "a: 1")
-  assert(missing == nil and missing_why == "no format yaml (known: json, ndjson)", missing_why)
+  assert(missing == nil and missing_why == "no format yaml (known: csv, json, ndjson, tsv)", missing_why)
   assert(Dataset.about("json") ~= nil and Dataset.about("yaml") == nil)
 end
 
@@ -203,4 +203,78 @@ local function test_too_many_columns_says_the_limit_and_the_count()
   row.extra = 1
   local over, over_why = Dataset.load(db, "v", { row }, { json_column = false })
   assert(over == nil and over_why:find("2001 distinct keys", 1, true), over_why)
+end
+
+--- The cells of one CSV row, typed: `typeof|value` per column, in order.
+local function csv_cells(text: string, raw?: boolean): string
+  local rows = assert(Dataset.read("csv", text, { raw = raw }))
+  local db = memory()
+  local made = assert(Dataset.load(db, "t", rows))
+  local picks: {string} = {}
+  for index = 1, #made.columns - 1 do
+    picks[index] = 'typeof("' .. made.columns[index] .. '") || \':\' || coalesce("' .. made.columns[index] .. '", \'NULL\')'
+  end
+  return grid(db, "SELECT " .. table.concat(picks, " || '|' || ") .. " FROM t")[1]
+end
+
+local function test_a_csv_cell_that_is_plainly_a_number_is_one()
+  -- Columns are in byte order: a b c d e f g h.
+  assert(csv_cells("a,b,c,d,e,f,g,h\n1,-2,0,3.5,-0.25,1e3,2E-2,12345678901234567890\n") ==
+    "integer:1|integer:-2|integer:0|real:3.5|real:-0.25|real:1000.0|real:0.02|real:1.2345678901234567e+19",
+    csv_cells("a,b,c,d,e,f,g,h\n1,-2,0,3.5,-0.25,1e3,2E-2,12345678901234567890\n"))
+end
+
+local function test_every_other_csv_cell_stays_text()
+  for _, cell in ipairs({ "007", "02134", "+1", " 1", "1 ", "1e5x", "1.", ".5", "-", "1e", "1e+", "0x10", "1,5",
+      "00", "-01", "0.", "1_000", "NaN", "inf", "1e999", "-1e999", "١٢" }) do
+    local got = csv_cells('a\n"' .. cell .. '"\n')
+    assert(got == "text:" .. cell, cell .. " read as " .. got)
+  end
+end
+
+local function test_an_empty_csv_cell_is_null_and_raw_keeps_it_text()
+  assert(csv_cells("a,b,c\n,x,\n") == "null:NULL|text:x|null:NULL")
+  assert(csv_cells("a,b\n1,\"\"\n") == "integer:1|null:NULL", "a quoted empty cell is empty too")
+  local raw = csv_cells("a,b,c\n,007,1\n", true)
+  assert(raw == "text:|text:007|text:1", raw)
+end
+
+local function test_a_csv_row_is_json_of_the_same_values()
+  local rows = assert(Dataset.read("csv", 'id,name,note,n\n1,"a ""b""",,2.5\n'))
+  local db = memory()
+  assert(Dataset.load(db, "t", rows))
+  local json = grid(db, "SELECT _json FROM t")[1]
+  assert(json == '{"id":1,"n":2.5,"name":"a \\"b\\"","note":null}', json)
+  local raw = assert(Dataset.read("csv", "id\n1\n", { raw = true }))
+  local db2 = memory()
+  assert(Dataset.load(db2, "t", raw))
+  assert(grid(db2, "SELECT _json FROM t")[1] == '{"id":"1"}')
+end
+
+local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
+  local rows = assert(Dataset.read("tsv", "a\tb\n1,5\t2\n"))
+  assert(rows[1].a == "1,5" and rows[1].b == 2)
+  assert(Dataset.format_of("x.tab") == "tsv" and Dataset.format_of("X.TSV") == "tsv")
+  assert(Dataset.format_of("x.csv") == "csv")
+  for _, name in ipairs({ "csv", "tsv" }) do
+    local none, why = Dataset.read(name, "a\n1\n", { at = { "a" } })
+    assert(none == nil and why == "the " .. name .. " format takes no path: each record is a row", why)
+  end
+  local bad, why = Dataset.read("csv", "a,b\n1\n")
+  assert(bad == nil and why:find("line 2, column 1", 1, true), why)
+end
+
+local function test_duplicate_and_empty_csv_headers_are_renamed_like_json_keys()
+  local rows = assert(Dataset.read("csv", "a,A,,a,_json\n1,2,3,4,5\n"))
+  local db = memory()
+  local made = assert(Dataset.load(db, "t", rows))
+  assert(table.concat(made.columns, ",") == "A_2,_,_json_2,a,a_3,_json", table.concat(made.columns, ","))
+  assert(grid(db, "SELECT a, A_2, a_3, _, _json_2 FROM t")[1] == "i1|i2|i4|i3|i5")
+end
+
+local function test_json_formats_refuse_raw()
+  for _, name in ipairs({ "json", "ndjson" }) do
+    local none, why = Dataset.read(name, "[]", { raw = true })
+    assert(none == nil and why:find("no raw cells", 1, true), why)
+  end
 end
