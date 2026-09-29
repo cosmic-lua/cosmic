@@ -193,26 +193,17 @@ local function waited(fd: integer, writable: boolean, timeout_ms: integer | nil)
   return false, said(trouble, errno)
 end
 
+-- A connection or a listener dropped unclosed needs no __gc: its
+-- socket, which only its closures hold, is closed by the collector.
 local conn_mt: metatable<Net.Conn> = {
   __close = function(self: Net.Conn)
     local _, _ = self:close()
   end,
-  __gc = function(self: Net.Conn)
-    local _, _ = self:close()
-  end,
 }
 
---- The connection over `fd`, which it owns from here on.
--- TODO: a descriptor `raw.accept`, `raw.connect` or `raw.listen`
--- answers is a bare integer until `new_conn` or `new_listener` wraps
--- it, so running out of memory in between -- `listen`'s `raw.bound`
--- and address table, its lstat of the file it made, or the wrap's own
--- table and closures -- leaks the descriptor and, for a unix listener,
--- leaves its socket file behind. Have core/socket.c answer a userdata
--- that owns the descriptor (and a unix listener's path, to unlink),
--- releasing both at collection until `new_conn` or `new_listener`
--- takes it over.
-local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
+--- The connection over `socket`.
+local function new_conn(socket: raw_socket.Socket, timeout_ms: integer | nil): Net.Conn
+  local fd = socket:fd()
   local open = true
   -- Each direction's sticky failure: once a read or a write fails for
   -- good, every later one of it says so.
@@ -289,7 +280,7 @@ local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
     close = function(_self: Net.Conn): boolean, string
       if not open then return true, "" end
       open = false
-      local ok, why = sys.close(fd)
+      local ok, why = socket:close()
       if not ok then return false, why end
       return true, ""
     end,
@@ -300,21 +291,25 @@ local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
   return setmetatable(conn, conn_mt)
 end
 
+--- What `address` is called in a failure: its path, or its host and
+--- port, an IPv6 host in brackets.
+local function named(address: Net.Address): string
+  if address.kind ~= "tcp" then return address.path end
+  local host = address.host
+  if host:find(":", 1, true) then host = "[" .. host .. "]" end
+  return host .. ":" .. tostring(address.port)
+end
+
 local listener_mt: metatable<Net.Listener> = {
   __close = function(self: Net.Listener)
     local _, _ = self:close()
   end,
-  __gc = function(self: Net.Listener)
-    local _, _ = self:close()
-  end,
 }
 
---- The listener over `fd`, which it owns from here on, at `address`.
---- `made` is the socket file a unix one made there, at `absolute` --
---- its path whatever directory the process moves to -- which `close`
---- removes only while the name is still that file; nil for a TCP one.
-local function new_listener(fd: integer, address: Net.Address, absolute: string | nil,
-    made: sys.Stat | nil, timeout_ms: integer | nil): Net.Listener
+--- The listener over `socket`, at `address`.
+local function new_listener(socket: raw_socket.Socket, address: Net.Address,
+    timeout_ms: integer | nil): Net.Listener
+  local fd = socket:fd()
   local open = true
   local listener: Net.Listener
   listener = {
@@ -334,28 +329,12 @@ local function new_listener(fd: integer, address: Net.Address, absolute: string 
     close = function(_self: Net.Listener): boolean, string
       if not open then return true, "" end
       open = false
-      local ok, why = sys.close(fd)
-      if absolute ~= nil and made ~= nil then
-        local now, _ = sys.lstat(absolute)
-        if now ~= nil and now.ino == made.ino and now.dev == made.dev then
-          local removed, trouble = sys.unlink(absolute)
-          if not removed and ok then return false, address.path .. ": " .. trouble end
-        end
-      end
-      if not ok then return false, why end
+      local ok, why = socket:close()
+      if not ok then return false, named(address) .. ": " .. why end
       return true, ""
     end,
   }
   return setmetatable(listener, listener_mt)
-end
-
---- What `address` is called in a failure: its path, or its host and
---- port, an IPv6 host in brackets.
-local function named(address: Net.Address): string
-  if address.kind ~= "tcp" then return address.path end
-  local host = address.host
-  if host:find(":", 1, true) then host = "[" .. host .. "]" end
-  return host .. ":" .. tostring(address.port)
 end
 
 --- `address` as the raw table reads one.
@@ -372,21 +351,22 @@ local PROBE_MS <const> = 1000
 --- on Linux and macOS.
 local SOCKET_TYPE <const> = 0xC000
 
---- What `reclaim` finds at `absolute`, which a bind found taken:
---- "refused", a socket file connecting to which (`address`) is refused,
---- to take over; "gone", nothing there any longer, to bind again; or
---- "", anything else, to leave alone.
+--- What `reclaim` finds at `address`'s path, which a bind found taken,
+--- read from the working directory the bind was: "refused", a socket
+--- file connecting to which is refused, to take over; "gone", nothing
+--- there any longer, to bind again; or "", anything else, to leave
+--- alone.
 -- TODO: take a lock beside the path (a file of its own, held while
 -- the check, the removal and the bind run) so two `reclaim`s starting
 -- at once cannot each take the other's socket for one left behind,
 -- once cosmic.sys carries flock.
-local function left_behind(address: Net.Address, absolute: string): string
-  local st, _, lstat_errno = sys.lstat(absolute)
+local function left_behind(address: Net.Address): string
+  local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
   if st.mode & 0xF000 ~= SOCKET_TYPE then return "" end
-  local fd, _, errno = raw.connect(raw_address(address), PROBE_MS)
-  if fd ~= nil then
-    local _, _ = sys.close(fd)
+  local probe, _, errno = raw.connect(raw_address(address), PROBE_MS)
+  if probe ~= nil then
+    local _, _ = probe:close()
     return ""
   end
   if errno == raw.ECONNREFUSED then return "refused" end
@@ -405,50 +385,28 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
   assert(backlog >= 1, "backlog must be at least 1")
   milliseconds(opts.timeout_ms)
   if address.kind == "tcp" then
-    local fd, trouble, errno = raw.listen(raw_address(address), backlog)
-    if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
-    local bound, why = raw.bound(fd)
+    local socket, trouble, errno = raw.listen(raw_address(address), backlog)
+    if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
+    local bound, why = raw.bound(socket:fd())
     if bound == nil then
-      local _, _ = sys.close(fd)
+      local _, _ = socket:close()
       return nil, named(address) .. ": " .. why
     end
-    return new_listener(fd, Net.tcp(bound.host, bound.port), nil, nil, opts.timeout_ms), ""
+    return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ms), ""
   end
-  local absolute = address.path
-  if absolute:sub(1, 1) ~= "/" then
-    local cwd, cwd_trouble = sys.getcwd()
-    if cwd == nil then return nil, named(address) .. ": " .. cwd_trouble end
-    absolute = cwd .. "/" .. absolute
-  end
-  local fd, trouble, errno = raw.listen(raw_address(address), backlog)
-  if fd == nil and errno == raw.EADDRINUSE and opts.reclaim then
-    local found = left_behind(address, absolute)
+  local socket, trouble, errno = raw.listen(raw_address(address), backlog)
+  if socket == nil and errno == raw.EADDRINUSE and opts.reclaim then
+    local found = left_behind(address)
     if found == "refused" then
-      local removed, why, number = sys.unlink(absolute)
+      local removed, why, number = sys.unlink(address.path)
       if not removed and number ~= sys.ENOENT then
         return nil, named(address) .. ": " .. why
       end
     end
-    if found ~= "" then fd, trouble, errno = raw.listen(raw_address(address), backlog) end
+    if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
   end
-  if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
-  -- The socket file the bind made, to remove at close. A process that
-  -- replaced the name in the moment since would have its file taken
-  -- for this one's, and removed at close; that stays, since only one
-  -- that may remove this file from its directory can put another in
-  -- its place (none can in a sticky one, /tmp, but its owner), and it
-  -- could remove it any time. Binding at another name and linking it
-  -- into place would close the moment, but the kernel keeps the name a
-  -- socket was bound at: `ss`, `lsof` and a peer's `getpeername` would
-  -- name the other one.
-  local made, why = sys.lstat(absolute)
-  if made == nil or made.kind ~= "other" then
-    local _, _ = sys.close(fd)
-    return nil, named(address) .. ": " ..
-      (made == nil and why or "the socket file made was replaced")
-  end
-  return new_listener(fd, { kind = address.kind, path = address.path }, absolute, made,
-    opts.timeout_ms), ""
+  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
+  return new_listener(socket, { kind = address.kind, path = address.path }, opts.timeout_ms), ""
 end
 
 --- Connects to `address`. A unix one fails "No such file or directory"
@@ -459,9 +417,9 @@ end
 --- nothing listens at the port.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
   local timeout_ms = opts ~= nil and opts.timeout_ms or nil
-  local fd, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ms))
-  if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
-  return new_conn(fd, timeout_ms), ""
+  local socket, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ms))
+  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
+  return new_conn(socket, timeout_ms), ""
 end
 
 return Net
