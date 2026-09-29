@@ -638,6 +638,44 @@ COSMIC_SYSCALL(chmod, 2) {
 #endif
 }
 
+/* `chown`'s id argument `arg`: -1, which leaves the id as it is, or
+ * an id, 0 to one short of -1 as a 32-bit id. A value outside them
+ * raises. */
+static unsigned owner_id (lua_State *L, int arg) {
+  lua_Integer value = luaL_checkinteger(L, arg);
+  if (value == -1) return (unsigned)-1;
+  if (value < 0 || value >= (lua_Integer)UINT32_MAX)
+    return (unsigned)luaL_argerror(L, arg, "an id is -1 or 0 to 4294967294");
+  return (unsigned)value;
+}
+
+COSMIC_SYSCALL(chown, 3) {
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  uid_t user = (uid_t)owner_id(L, 2);
+  gid_t group = (gid_t)owner_id(L, 3);
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+#if defined(__linux__)
+  /* On the file the check held (`probe_file`), as `chmod` is. */
+  if (artifact == NULL) {
+    if (chown(path, user, group) != 0) return cosmic_fail_effect(L, errno);
+    return cosmic_ok(L);
+  }
+  int probe = -1;
+  int refused = probe_file(path, true, artifact, &probe);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  int number = fchownat(probe, "", user, group, AT_EMPTY_PATH) == 0 ? 0 : errno;
+  close(probe);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+#else
+  int refused = artifact_through_descriptor(path, true, artifact, NULL);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  if (chown(path, user, group) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+#endif
+}
+
 static void release_dir (void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {

@@ -263,6 +263,17 @@ COSMIC_SYSCALL(rename, 2);
 COSMIC_SYSCALL(chmod, 2);
 
 /*
+ * --- Sets a path's owner and group, following a link at its last part. The program's own file named through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>) is refused, EACCES.
+ * ---@param path string the path to change
+ * ---@param uid integer the user to own it, or -1 to leave its owner
+ * ---@param gid integer the group to own it, or -1 to leave its group
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(chown, 3);
+
+/*
  * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it: "dir", "file", "link" for a symbolic link (never followed), or "other".
  * ---@param path string the directory to list
  * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure
@@ -373,6 +384,15 @@ COSMIC_SYSCALL(getpgid, 1);
  * ---@return integer uid the user identifier
  */
 COSMIC_SYSCALL(getuid, 0);
+
+/*
+ * --- Whether this process may be dumped, and its /proc files are its own user's to read and write (prctl's PR_GET_DUMPABLE): 1 where so, 0 where they are root's, 2 where a core dump would be root's alone. With `set`, 0 or 1, it is made so first. ENOSYS off Linux.
+ * ---@param set? integer 0 or 1 to make it so, or nil to only ask
+ * ---@return integer|nil dumpable 0, 1 or 2, or nil on failure
+ * ---@return string error what went wrong, when dumpable is nil
+ * ---@return integer errno the error number, when dumpable is nil
+ */
+COSMIC_SYSCALL(dumpable, 1);
 
 /*
  * --- Sets the file mode creation mask, the permission bits a new file or

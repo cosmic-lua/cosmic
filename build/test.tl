@@ -2031,6 +2031,9 @@ local record Recording
   --- (`declared_key.system_identity`), and why each module whose tests
   --- have no key has none, but for the network, by module path.
   host: string
+  --- The host's identity with a worker run as a user of its own in
+  --- place of the runner's (`test_sandbox.worker_user`), else `host`.
+  worker_host: string
   system: string
   --- The harness's epoch (build/harness_epoch.tl), which every key
   --- holds in place of the harness's code, and the timeout each worker
@@ -2252,7 +2255,9 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   local effective = rec.effective[m.path]
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
-    compiler = reads_compiler(rec, m) and rec.compiler or "", host = rec.host,
+    compiler = reads_compiler(rec, m) and rec.compiler or "",
+    host = rec.sandbox and test_sandbox.worker_user(effective) ~= nil and rec.worker_host or
+      rec.host,
     system = rec.system,
     epoch = rec.epoch, timeout_ms = rec.timeout_ms, program = rec.program,
     launcher = rec.launcher,
@@ -2889,7 +2894,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     env = given
   end
   local command = worker.invocation({
-    start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
+    start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), held = held,
     hold = hold,
     open = declared ~= nil and declared.store, store = attached,
@@ -3588,6 +3593,14 @@ local function run(argv: {integer:string}): integer
     end
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
+    rec.worker_host = rec.host
+    if rec.sandbox then
+      local worker_user, _ = test_sandbox.runs_as()
+      if worker_user ~= nil then
+        rec.worker_host = declared_key.host_identity(rec.digests,
+          { worker_uid = worker_user.uid, worker_gid = worker_user.gid })
+      end
+    end
     -- What the system's paths hold is walked only for a run that holds
     -- a module given them, whose key alone holds it: half a second of
     -- /usr's entries otherwise spent for nothing.

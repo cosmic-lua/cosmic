@@ -64,7 +64,8 @@ end
   env.COSMIC_SANDBOX = nil
   -- Unsandboxed: the tables are keyed in the runtime of a run sandboxed
   -- or not, and a sandbox nested in this test's own is one a host may
-  -- refuse (root nests one only two deep), so the runs mean the same
+  -- refuse (root nests one only two deep, where its runner cannot run
+  -- its workers as a user of their own), so the runs mean the same
   -- everywhere.
   env.COSMIC_TEST_SANDBOX = "0"
   local function run(binary: string, name: string): boolean, string

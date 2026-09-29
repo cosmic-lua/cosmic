@@ -72,6 +72,14 @@ port but not a remote address. old's `cosmic/quicksand/` is a reference for a
 network namespace, guarded proxy, and declarative child runner; it should not
 be folded into the portable sandbox contract.
 
+Add a CI leg that runs the suite as root. Every leg's runner is
+unprivileged, so the path a root runner takes -- each sandboxed worker run
+as a user of its own, mapped from outside (build/test_sandbox.tl's
+`runs_as`, spawn's `user`), and its fallback to root where the host refuses
+that user a user namespace -- runs only on developers' and agents' hosts,
+and core/syscalls_tool_test.tl checks the drop itself only in a run as root
+unsandboxed.
+
 ## surface
 
 design.md's core tier names modules the tree does not have yet. the ones the
