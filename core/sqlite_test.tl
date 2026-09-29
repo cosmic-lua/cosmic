@@ -9,6 +9,7 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 
 --- Asserts `value, message` is the failure shape SQLite's methods use:
 --- `nil` or `false`, then a non-empty message. SQLite has no errno, so
@@ -366,6 +367,47 @@ local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp:
   failed(Sqlite.open(tmp .. "/absent.db", false, true))
   assert(Fs.exists(tmp .. "/absent.db") == false)
   raises(Sqlite.open, path, true, true)
+end
+
+--- The URI is built for every kind of name, relative or not, and a path
+--- is never read as URI syntax or as a Windows drive.
+local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
+  local names = { "rel.db", "a:b.db", "\\back.db", "file:x.db", "sp ace.db",
+    "caf\xc3\xa9.db", "q?vfs=memdb.db", "h#.db" }
+  for _, name in ipairs(names) do
+    local path = tmp .. "/" .. name
+    local made = assert(Sqlite.open(path, true))
+    assert(made:exec("CREATE TABLE t (v); INSERT INTO t VALUES ('" .. name:gsub("'", "") .. "')"))
+    assert(made:close())
+    local read = assert(Sqlite.open(path, false, true), name)
+    local rows = assert(Sqlite.text_rows(read, "SELECT v FROM t"))
+    assert(rows[1][1] == name, name)
+    assert(read:close())
+  end
+  -- The same names as relative paths, from the working directory, and one
+  -- through "..".
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(tmp))
+  local trouble: string | nil
+  for _, name in ipairs(names) do
+    local read, why = Sqlite.open(name, false, true)
+    if read == nil then
+      trouble = name .. ": " .. why
+      break
+    end
+    local rows = Sqlite.text_rows(read, "SELECT v FROM t")
+    if rows == nil or rows[1][1] ~= name then
+      trouble = name .. " read another file"
+    end
+    read:close()
+  end
+  local dotted = Sqlite.open("../" .. (tmp:match("[^/]*$")) .. "/rel.db", false, true)
+  assert(sys.chdir(here))
+  assert(trouble == nil, trouble)
+  assert(dotted ~= nil and #assert(Sqlite.text_rows(dotted, "SELECT v FROM t")) == 1)
+  assert(dotted:close())
+  local embedded, why = Sqlite.open("a\0b.db", false, true)
+  failed(embedded, why)
 end
 
 local function test_limit_sets_a_named_limit_and_answers_the_old_one()

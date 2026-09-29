@@ -109,7 +109,8 @@ end
 --- read-only and takes no lock: no `-wal`, `-shm` or journal file is
 --- made beside it, even for a WAL-mode database whose `-wal` is gone,
 --- and a running statement holds nothing a writer waits on. Giving it
---- with `writable` raises. `handle:limit(name, value)` sets one of the
+--- with `writable` raises. A `-wal` is never read: commits still in one
+--- do not show, so a database being written is opened without it. `handle:limit(name, value)` sets one of the
 --- connection's limits, `"attached"` among them, and answers the old one.
 function Sqlite.open(path: string, writable?: boolean, immutable?: boolean): Sqlite.Handle | nil, string
   return sqlite.open(path, writable, immutable)

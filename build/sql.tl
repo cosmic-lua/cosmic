@@ -66,9 +66,11 @@ local record sql
   end
 
   --- Where `run` writes: a row line, a complaint, and the verdict.
-  --- `out` and `err` take a line without its newline.
+  --- `out` and `err` take a line without its newline. `out` answers
+  --- false and why when it could not write the line (a closed pipe),
+  --- and the statement is stepped no further.
   record Output
-    out: function(line: string)
+    out: function(line: string): boolean, string
     err: function(line: string)
     verdict: function(passed: boolean, detail: string)
   end
@@ -170,10 +172,28 @@ function sql.open(source: sql.Source): sql.Opened | nil, string
   if st.kind ~= "file" then
     return nil, "not a regular file (its kind is " .. st.kind .. "), so not a database"
   end
-  -- Immutable: no lock is taken, and no -wal or -shm is made beside a
-  -- WAL-mode database whose -wal file is missing. A database a build
-  -- writes meanwhile may be read torn, which a one-shot query accepts.
-  local db, open_trouble = Sqlite.open(path, false, true)
+  -- Immutable where nothing lives outside the file: no lock is taken, and
+  -- no -wal or -shm is made beside a WAL-mode database whose -wal file is
+  -- missing. SQLite never reads a -wal of an immutable database, so one
+  -- that holds frames -- commits not yet checkpointed, as a build's
+  -- database has while it runs -- is opened the ordinary read-only way,
+  -- which reads them, and takes the shared lock while a statement runs.
+  -- A file a build rewrites meanwhile may still be read torn, which a
+  -- one-shot query accepts.
+  local wal = path .. "-wal"
+  local wal_present, wal_trouble = Fs.exists(wal)
+  if wal_present == nil then
+    return nil, wal_trouble
+  end
+  local frames = false
+  if wal_present then
+    local wal_stat, wal_stat_trouble = Fs.stat(wal)
+    if wal_stat == nil then
+      return nil, wal_stat_trouble
+    end
+    frames = wal_stat.size > 0
+  end
+  local db, open_trouble = Sqlite.open(path, false, not frames)
   if db == nil then
     return nil, open_trouble
   end
@@ -235,9 +255,11 @@ end
 --- yields as one line, the moment it is stepped. Answers how many rows
 --- it yielded, or nil and why when it takes a parameter, or SQLite's
 --- own reason when it will not prepare or run -- a write among them;
---- the lines before a failure have been given by then.
+--- the lines before a failure have been given by then. `emit` answers
+--- false and why when it could not write the line: the statement is
+--- stepped no further, and that is the failure answered.
 local function stream(db: Sqlite.Handle, statement: string,
-                      emit: function(string)): integer | nil, string
+                      emit: function(string): boolean, string): integer | nil, string
   local prepared, prepare_trouble = db:prepare(statement)
   if prepared == nil then
     return nil, prepare_trouble
@@ -255,7 +277,11 @@ local function stream(db: Sqlite.Handle, statement: string,
     cells[index + 1] = (prepared:name(index):gsub("[\\%c]", escape))
   end
   if width > 0 then
-    emit(table.concat(cells, "\t"))
+    local written, write_trouble = emit(table.concat(cells, "\t"))
+    if not written then
+      prepared:finalize()
+      return nil, write_trouble
+    end
   end
   local rows = 0
   while true do
@@ -271,7 +297,11 @@ local function stream(db: Sqlite.Handle, statement: string,
       cells[index + 1] = cell_text(Sqlite.cell(prepared, index))
     end
     rows = rows + 1
-    emit(table.concat(cells, "\t"))
+    local written, write_trouble = emit(table.concat(cells, "\t"))
+    if not written then
+      prepared:finalize()
+      return nil, write_trouble
+    end
   end
   prepared:finalize()
   return rows, ""
@@ -281,8 +311,9 @@ end
 --- per row; nil and why when it failed.
 function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
   local lines: {string} = {}
-  local rows, trouble = stream(db, statement, function(line: string)
+  local rows, trouble = stream(db, statement, function(line: string): boolean, string
     lines[#lines + 1] = line
+    return true, ""
   end)
   if rows == nil then
     return nil, trouble
@@ -302,8 +333,8 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
 --- logger, which tells `build/dispatch.tl` one was given; complaints
 --- to stderr.
 local standard: sql.Output = {
-  out = function(line: string)
-    local _, _ = log:say(line)
+  out = function(line: string): boolean, string
+    return log:say(line)
   end,
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
@@ -613,7 +644,10 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
       return fail(source .. ": " .. hinted(describe_trouble, tables))
     end
     for _, line in ipairs(lines) do
-      to.out(line)
+      local written, write_trouble = to.out(line)
+      if not written then
+        return fail(source .. ": " .. write_trouble)
+      end
     end
     counted = #tables .. (#tables == 1 and " table" or " tables")
   else

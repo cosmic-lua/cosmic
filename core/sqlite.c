@@ -584,11 +584,16 @@ static const char *immutable_uri (lua_State *L, const char *path,
   luaL_addstring(&b, "file:");
   /* An absolute path takes the empty authority, so a leading "//" stays
    * part of the path; a Windows drive letter needs the slash too. */
-  if (path_len > 0 && (path[0] == '/' || path[0] == '\\')) {
+  if (path_len > 0 && path[0] == '/') {
+    luaL_addstring(&b, "//");
+  }
+#ifdef _WIN32
+  else if (path_len > 0 && path[0] == '\\') {
     luaL_addstring(&b, "//");
   } else if (path_len > 1 && path[1] == ':') {
     luaL_addstring(&b, "///");
   }
+#endif
   for (size_t i = 0; i < path_len; i++) {
     unsigned char c = (unsigned char)path[i];
 #ifdef _WIN32

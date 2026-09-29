@@ -32,7 +32,10 @@ end
 local function run(root: string, words: {string}, input?: string): integer, Written
   local written: Written = { out = {}, err = {}, verdict = "" }
   local code = sql.run(argv_of(words), root, {
-    out = function(line: string) written.out[#written.out + 1] = line end,
+    out = function(line: string): boolean, string
+      written.out[#written.out + 1] = line
+      return true, ""
+    end,
     err = function(line: string) written.err[#written.err + 1] = line end,
     verdict = function(passed: boolean, detail: string)
       assert(written.verdict == "", "a second verdict: " .. written.verdict)
@@ -147,6 +150,52 @@ local function test_a_query_leaves_no_wal_or_shm_beside_the_database()
   assert(opened.db:close())
   assert(Fs.exists(path .. "-wal") == false, "a query made a -wal")
   assert(Fs.exists(path .. "-shm") == false, "a query made a -shm")
+  assert(Fs.remove_tree(root))
+end
+
+--- An immutable open never reads a -wal, so `open` gives it only a
+--- database with no frames outside the file: a build's database, mid-run,
+--- holds commits only in its -wal, and a query must see them.
+local function test_a_query_sees_commits_that_live_only_in_the_wal()
+  local root = assert(Fs.mkdtemp("cosmic-sql-wal-frames-test-"))
+  local path = root .. "/wal.db"
+  local writer = assert(Sqlite.open(path, true))
+  assert(writer:exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; " ..
+    "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
+  assert(writer:exec("PRAGMA wal_checkpoint(TRUNCATE); INSERT INTO t VALUES (2)"))
+  local wal = assert(Fs.stat(path .. "-wal"))
+  assert(wal.size > 0, "the commit is not in the -wal")
+  local opened = assert(sql.open({ name = path, path = path }))
+  local lines = assert(sql.query(opened.db, "SELECT count(*) FROM t"))
+  assert(lines[2] == "2", "a query missed a commit that lives in the -wal: " .. lines[2])
+  assert(opened.db:close())
+  assert(writer:close())
+  assert(Fs.remove_tree(root))
+end
+
+--- A row that cannot be written stops the statement there.
+local function test_a_failed_write_stops_the_statement()
+  local root = project()
+  local endless = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c"
+  local lines: {string} = {}
+  local complaints: {string} = {}
+  local passed: boolean | nil
+  local code = sql.run(argv_of({ endless }), root, {
+    out = function(line: string): boolean, string
+      lines[#lines + 1] = line
+      if #lines == 3 then
+        return false, "Broken pipe"
+      end
+      return true, ""
+    end,
+    err = function(line: string) complaints[#complaints + 1] = line end,
+    verdict = function(ok: boolean, _: string) passed = ok end,
+  })
+  assert(code == 1, code)
+  assert(#lines == 3, #lines)
+  assert(#complaints == 1 and complaints[1]:find("Broken pipe", 1, true) ~= nil,
+    table.concat(complaints, "|"))
+  assert(passed == false)
   assert(Fs.remove_tree(root))
 end
 

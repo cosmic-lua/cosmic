@@ -92,8 +92,10 @@ local record sqlite
   --- `immutable=1`): no lock is taken and no `-wal`, `-shm` or journal
   --- file is made or read, so a WAL-mode database with its `-wal` gone
   --- opens without leaving either beside it, and a statement holds
-  --- nothing another process's write waits on. Giving it with `writable`
-  --- raises.
+  --- nothing another process's write waits on. A `-wal` is never read,
+  --- so a database with commits still in its `-wal` shows without them:
+  --- open it the ordinary read-only way instead. Giving it with
+  --- `writable` raises.
   open: function(path: string, writable?: boolean, immutable?: boolean): Handle | nil, string
   --- Turns on or off recording the files SQLite opens or asks after,
   --- while it is on, through a connection `open` made -- the database,
