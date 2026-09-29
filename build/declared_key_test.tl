@@ -17,7 +17,8 @@ local Test = require("cosmic.test")
 
 --- What the host's identity reads (`declared_key.host_identity`), on
 --- whichever system this is, what the host says of itself, and a file a
---- link leads out of the tree to.
+--- link leads out of the tree to. The package databases are a copy of
+--- build/declared_key.tl's `package_databases`.
 Test.needs{
   host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc",
     "/usr/lib/os-release", "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/dpkg/status",
