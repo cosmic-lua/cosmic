@@ -120,6 +120,10 @@ objects and arrays are JSON text, so `json_extract(owner, '$.name')`
 reaches into them; a boolean is 0 or 1. A column or table that does not
 exist is answered with the ones that do. `cosmic help sql` has the rest.
 
+## the digest of a file
+
+`cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
+
 ## bytes to text and back
 
 `cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
