@@ -75,13 +75,21 @@ local record Net
     --- control socket does. The path is taken over only where it is a
     --- socket file and connecting to it is refused: a live listener's
     --- file, or any other file, is left alone, and a live listener sees
-    --- the connection that asked, which sends nothing. Refused is not
-    --- always gone: macOS refuses a live listener whose backlog is full
-    --- as it refuses a dead one, and every platform refuses a socket
-    --- bound but not yet listening -- another `listen` in its moment
-    --- between the two, as when two start at once -- so theirs is taken
-    --- over too; and one that binds there between the check and the
-    --- removal loses its file.
+    --- the connection that asked, which sends nothing. Listens that
+    --- reclaim take turns: each holds a lock on the file
+    --- `path .. ".lock"` from its first bind to its last, so of two
+    --- starting at once the second finds the first listening. A listen
+    --- without `reclaim` takes no turn, and refused is not always gone:
+    --- macOS refuses a live listener whose backlog is full as it refuses
+    --- a dead one, and every platform refuses a socket bound but not yet
+    --- listening -- a listen without `reclaim` in its moment between the
+    --- two -- so theirs is taken over too; and one that binds there
+    --- between the check and the removal loses its file. The lock file
+    --- stays after the listener closes. Where it cannot be made or
+    --- locked -- a directory or a link at its name, a directory not
+    --- writable here, another's lock held for 10 seconds, a signal a
+    --- `Child.guard` caught -- the listen fails, naming the lock file,
+    --- rather than reclaim without it.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
@@ -352,15 +360,32 @@ local PROBE_MS <const> = 1000
 --- on Linux and macOS.
 local SOCKET_TYPE <const> = 0xC000
 
+--- How long `reclaim` waits for another's lock, which each holds for
+--- a probe and two binds: far past that, the holder is stuck.
+local LOCK_MS <const> = 10 * PROBE_MS
+
+--- The descriptor holding the lock `reclaim` takes beside `address`'s
+--- path; nil and why not, the lock file named. The lock file is never
+--- removed: a reclaim waiting on one removed would then lock a file no
+--- longer at the name, while the next reclaim makes and locks another.
+local function reclaim_lock(address: Net.Address): integer | nil, string
+  local name = address.path .. ".lock"
+  local fd, why = sys.open(name,
+    sys.O_RDONLY | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
+  if fd == nil then return nil, name .. ": " .. why end
+  local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
+  if not ok then
+    local _, _ = sys.close(fd)
+    return nil, name .. ": " .. said(trouble, errno)
+  end
+  return fd, ""
+end
+
 --- What `reclaim` finds at `address`'s path, which a bind found taken,
 --- read from the working directory the bind was: "refused", a socket
 --- file connecting to which is refused, to take over; "gone", nothing
 --- there any longer, to bind again; or "", anything else, to leave
 --- alone.
--- TODO: take a lock beside the path (a file of its own, held while
--- the check, the removal and the bind run) so two `reclaim`s starting
--- at once cannot each take the other's socket for one left behind,
--- once cosmic.sys carries flock.
 local function left_behind(address: Net.Address): string
   local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
@@ -395,17 +420,25 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     end
     return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ms), ""
   end
+  local lock: integer | nil = nil
+  if opts.reclaim then
+    local locking: string
+    lock, locking = reclaim_lock(address)
+    if lock == nil then return nil, locking end
+  end
   local socket, trouble, errno = raw.listen(raw_address(address), backlog)
-  if socket == nil and errno == raw.EADDRINUSE and opts.reclaim then
+  if socket == nil and errno == raw.EADDRINUSE and lock ~= nil then
     local found = left_behind(address)
     if found == "refused" then
       local removed, why, number = sys.unlink(address.path)
       if not removed and number ~= sys.ENOENT then
-        return nil, named(address) .. ": " .. why
+        trouble, errno = why, number
+        found = ""
       end
     end
     if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
   end
+  if lock ~= nil then local _, _ = sys.close(lock) end
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
   return new_listener(socket, { kind = address.kind, path = address.path }, opts.timeout_ms), ""
 end

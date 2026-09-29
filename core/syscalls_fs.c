@@ -15,9 +15,11 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -46,6 +48,7 @@
 #include "guard.h"
 #include "lauxlib.h"
 #include "observed.h"
+#include "process.h"
 #include "portable.h"
 #include "psa/crypto.h"
 #include "store.h"
@@ -893,6 +896,47 @@ COSMIC_SYSCALL(ftruncate, 2) {
     return cosmic_fail_effect(L, errno);
   }
   return cosmic_ok(L);
+}
+
+/* The longest a lock wait sleeps before it asks again whether a guard
+ * caught a signal, as core/socket.c's waits do: a signal that lands
+ * between the question and the sleep only sets the guard's flag. */
+#define LOCK_SLICE_MS 100
+
+static int64_t lock_clock_ms (void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+COSMIC_SYSCALL(flock, 3) {
+  int fd = cosmic_checkfd(L, 1);
+  static const char *const names[] = {"exclusive", "shared", "unlock", NULL};
+  static const int operations[] = {LOCK_EX, LOCK_SH, LOCK_UN};
+  int operation = operations[luaL_checkoption(L, 2, NULL, names)];
+  int timeout = cosmic_optint(L, 3, 0);
+  luaL_argcheck(L, timeout >= -1, 3, "timeout is out of range");
+  /* Asked without waiting, and again after each sleep, so the wait
+   * can end at a deadline or a caught signal, which a blocking
+   * flock could not. */
+  int64_t deadline = timeout < 0 ? -1 : lock_clock_ms() + timeout;
+  int64_t pause = 1;
+  for (;;) {
+    if (flock(fd, operation | LOCK_NB) == 0) return cosmic_ok(L);
+    if (errno == EINTR) continue;
+    if (errno != EWOULDBLOCK) return cosmic_fail_effect(L, errno);
+    if (cosmic_signal_caught()) return cosmic_fail_effect(L, EINTR);
+    int64_t most = LOCK_SLICE_MS;
+    if (deadline >= 0) {
+      int64_t remaining = deadline - lock_clock_ms();
+      if (remaining <= 0) return cosmic_fail_effect(L, ETIMEDOUT);
+      if (remaining < most) most = remaining;
+    }
+    int64_t ms = pause < most ? pause : most;
+    pause = pause * 2 < LOCK_SLICE_MS ? pause * 2 : LOCK_SLICE_MS;
+    struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000L };
+    nanosleep(&ts, NULL);
+  }
 }
 
 COSMIC_SYSCALL(access, 2) {

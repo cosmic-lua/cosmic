@@ -348,6 +348,54 @@ local function test_reclaim_leaves_a_full_live_listener_alone(tmp: string)
   for _, conn in ipairs(held) do assert(conn:close()) end
 end
 
+--- A socket file at `path` with nothing listening, as a killed
+--- listener leaves one: moved aside while it listened, and back once it
+--- closed. Answers its inode.
+local function left_behind(tmp: string, path: string): integer
+  local moved = tmp .. "/moved.sock"
+  do
+    local _gone <close> = assert(Net.listen(Net.unix(path)))
+    assert(sys.rename(path, moved))
+  end
+  assert(sys.rename(moved, path))
+  return assert(sys.lstat(path)).ino
+end
+
+--- A reclaim waits its turn while another holds the lock beside the
+--- path, taking nothing: without it, two reclaims starting at once
+--- could each find the other's socket refused and remove it.
+local function test_reclaim_waits_for_another_s_lock_before_it_looks(tmp: string)
+  local path = tmp .. "/s.sock"
+  local ino = left_behind(tmp, path)
+  local held = assert(sys.open(path .. ".lock", sys.O_RDONLY | sys.O_CREAT, 0x180))
+  assert(sys.flock(held, "exclusive"))
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local server, why = Net.listen(Net.unix(path), { reclaim = true })
+  local caught = assert(guard:release())
+  assert(caught == sys.SIGINT, tostring(caught))
+  assert(server == nil and why == path .. ".lock: interrupted", why)
+  assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken under another's lock")
+  assert(sys.close(held))
+  do
+    local _taken <close> = assert(Net.listen(Net.unix(path), { reclaim = true }))
+    local _client <close> = assert(Net.connect(Net.unix(path), { timeout_ms = 5000 }))
+  end
+  assert(Fs.stat(path) == nil, "the socket file was left")
+  assert(assert(Fs.stat(path .. ".lock")).kind == "file", "the lock file was removed")
+end
+
+--- Where the lock file cannot be made, a reclaim fails naming it and
+--- leaves the socket file alone rather than reclaim without the lock.
+local function test_reclaim_without_its_lock_file_fails_and_takes_nothing(tmp: string)
+  local path = tmp .. "/s.sock"
+  local ino = left_behind(tmp, path)
+  assert(sys.mkdir(path .. ".lock", 0x1c0))
+  local server, why = Net.listen(Net.unix(path), { reclaim = true })
+  assert(server == nil and why == path .. ".lock: Is a directory", why)
+  assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken without the lock")
+end
+
 local DEEP_PART <const> = string.rep("d", 200)
 local DEEP_LEVELS <const> = 24
 
