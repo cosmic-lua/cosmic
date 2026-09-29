@@ -1,0 +1,95 @@
+--- `build.tree_root`: a tree verb started below an established tree's
+--- root runs at the root, its paths read from where it was started.
+
+local Fs = require("cosmic.fs")
+local invoke = require("build.invoke")
+local sys = require("cosmic.sys")
+local tree_root = require("build.tree_root")
+
+--- A project at `tmp` with a build's database, and `tmp/a/b` below it.
+local function project(dir: string): string
+  local tmp = assert(sys.realpath(dir))
+  assert(Fs.mkdirs(tmp .. "/proj/o"))
+  assert(Fs.write(tmp .. "/proj/o/cosmic.db", ""))
+  assert(Fs.mkdirs(tmp .. "/proj/a/b"))
+  return tmp .. "/proj"
+end
+
+--- The root `cosmic todos` would run at from `dir`, or nil where it runs
+--- in `dir` itself.
+local function rooted(dir: string, home: string | nil): string | nil
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(dir))
+  local moved = tree_root.move({ [0] = "cosmic", "todos" }, {}, home)
+  assert(sys.chdir(here))
+  if moved == nil then return nil end
+  return moved.root
+end
+
+--- The nearest ancestor a build established is the tree; the directory
+--- holding the database is its own.
+local function test_an_ancestor_with_a_built_database_is_the_tree(tmp: string)
+  local root = project(tmp)
+  assert(rooted(root .. "/a/b", nil) == root)
+  assert(rooted(root .. "/a", nil) == root)
+  assert(rooted(root, nil) == nil)
+end
+
+--- `o/build.db` alone is what a failed run leaves anywhere, so it makes
+--- no directory a tree; a directory that holds a built database is its
+--- own tree, nested or not.
+local function test_only_a_built_database_establishes_a_tree(tmp: string)
+  local root = project(tmp)
+  assert(Fs.mkdirs(root .. "/a/o"))
+  assert(Fs.write(root .. "/a/o/build.db", ""))
+  assert(rooted(root .. "/a", nil) == root)
+  assert(Fs.write(root .. "/a/o/cosmic.db", ""))
+  assert(rooted(root .. "/a", nil) == nil)
+  assert(rooted(root .. "/a/b", nil) == root .. "/a")
+end
+
+--- No ancestor built, no move; and the home directory is not a tree
+--- however it came by a database.
+local function test_the_climb_stops_at_home_and_at_nothing_built(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/x/y"))
+  assert(rooted(tmp .. "/x/y", nil) == nil)
+  local root = project(tmp)
+  assert(rooted(root .. "/a/b", root) == nil)
+  assert(rooted(root .. "/a/b", nil) == root)
+end
+
+--- A path a verb names is read from where it was started, and the
+--- options' values and module names are left as they are.
+local function test_paths_are_read_from_where_the_verb_started(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/a/b/x_test.tl", ""))
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(root .. "/a/b"))
+  local fix = tree_root.move({ [0] = "cosmic", "fix", "--check", "x_test.tl", "." }, { ["--check"] = {} }, nil)
+  local test = tree_root.move({ [0] = "cosmic", "test", "--jobs", "2", "x_test.tl:test_a", "some.module" },
+    { ["--jobs"] = { value = "n" } }, nil)
+  local uses = tree_root.move({ [0] = "cosmic", "uses", "Fs.read", "x_test.tl" }, {}, nil)
+  local docs = tree_root.move({ [0] = "cosmic", "docs", "x_test.tl" }, {}, nil)
+  local json = tree_root.move({ [0] = "cosmic", "json", "x" }, {}, nil)
+  assert(sys.chdir(here))
+  assert(fix ~= nil and fix.root == root and fix.from == root .. "/a/b")
+  assert(table.concat(fix.argv, " ") == "fix --check a/b/x_test.tl a/b", table.concat(fix.argv, " "))
+  assert(test ~= nil)
+  assert(table.concat(test.argv, " ") == "test --jobs 2 a/b/x_test.tl:test_a some.module",
+    table.concat(test.argv, " "))
+  assert(uses ~= nil and table.concat(uses.argv, " ") == "uses Fs.read a/b/x_test.tl")
+  assert(docs ~= nil and docs.root == root and table.concat(docs.argv, " ") == "docs x_test.tl")
+  assert(json == nil)
+end
+
+--- A verb started in a subdirectory answers for the tree, says which
+--- root it used on stderr, and reads a path from the subdirectory.
+local function test_a_verb_below_the_root_runs_at_the_root(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/a/b/note.tl", "-- TODO: once the root is found\nreturn 1\n"))
+  local result = invoke.run({ "todos", "note.tl" }, { cwd = root .. "/a/b" })
+  assert(result.code == 0, result.stderr .. result.stdout)
+  assert(result.stderr:find("todos runs in " .. root, 1, true), result.stderr)
+  assert(result.stdout:find("a/b/note.tl:1", 1, true), result.stdout)
+  assert(not Fs.exists(root .. "/a/b/o"))
+end
