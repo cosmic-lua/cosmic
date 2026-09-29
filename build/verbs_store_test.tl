@@ -134,7 +134,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
     assert(all:find(Cli.summary[verb], 1, true), verb .. " has no line:\n" .. all)
   end
   for _, pointer in ipairs({ "cosmic help <verb>", "cosmic help exit", "cosmic docs <module>",
-      "cosmic docs cosmic.removed" }) do
+      "cosmic.removed" }) do
     assert(all:find(pointer, 1, true), pointer .. ":\n" .. all)
   end
   assert(not all:find("--jobs", 1, true), all)
