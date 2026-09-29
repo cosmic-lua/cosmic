@@ -173,6 +173,27 @@ local function test_a_query_sees_commits_that_live_only_in_the_wal()
   assert(Fs.remove_tree(root))
 end
 
+--- The -wal gains frames after `open` has looked and before its immutable
+--- open is made (`between` stands for that gap): the second look sends it
+--- the ordinary way, so the query still sees the commit.
+local function test_a_commit_that_reaches_the_wal_during_the_open_is_seen()
+  local root = assert(Fs.mkdtemp("cosmic-sql-wal-race-test-"))
+  local path = root .. "/wal.db"
+  local writer = assert(Sqlite.open(path, true))
+  assert(writer:exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; " ..
+    "CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
+  assert(writer:exec("PRAGMA wal_checkpoint(TRUNCATE)"))
+  assert(assert(Fs.stat(path .. "-wal")).size == 0)
+  local opened = assert(sql.open({ name = path, path = path }, function()
+    assert(writer:exec("INSERT INTO t VALUES (2)"))
+  end))
+  local lines = assert(sql.query(opened.db, "SELECT count(*) FROM t"))
+  assert(lines[2] == "2", "a commit that reached the -wal during the open was missed: " .. lines[2])
+  assert(opened.db:close())
+  assert(writer:close())
+  assert(Fs.remove_tree(root))
+end
+
 --- A row that cannot be written stops the statement there.
 local function test_a_failed_write_stops_the_statement()
   local root = project()

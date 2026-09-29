@@ -587,6 +587,9 @@ static const char *immutable_uri (lua_State *L, const char *path,
   if (path_len > 0 && path[0] == '/') {
     luaL_addstring(&b, "//");
   }
+  /* TODO: check this branch on a Windows leg once CI runs core/sqlite_test.tl
+   * there with a drive-letter path: nothing here has run it, and SQLite may
+   * want "C:" left unescaped after the "///". */
 #ifdef _WIN32
   else if (path_len > 0 && path[0] == '\\') {
     luaL_addstring(&b, "//");

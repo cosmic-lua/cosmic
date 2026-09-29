@@ -148,7 +148,7 @@ end
 --- Nil and why when the file is missing, is not a regular file (after
 --- following symbolic links: SQLite would wait forever on a FIFO), or
 --- will not open.
-function sql.open(source: sql.Source): sql.Opened | nil, string
+function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, string
   local path = source.path
   if path == nil then
     local all = Store.databases()
@@ -178,24 +178,52 @@ function sql.open(source: sql.Source): sql.Opened | nil, string
   -- that holds frames -- commits not yet checkpointed, as a build's
   -- database has while it runs -- is opened the ordinary read-only way,
   -- which reads them, and takes the shared lock while a statement runs.
-  -- A file a build rewrites meanwhile may still be read torn, which a
-  -- one-shot query accepts.
+  -- The -wal is looked at again once the immutable open is made, and a
+  -- frame that has come since sends it the ordinary way after all: what
+  -- is committed after that look is concurrent with the query.
+  -- Decided limit: a database with no -wal that a build checkpoints or
+  -- rewrites during the query may be read torn, which a one-shot query
+  -- accepts; only holding its lock would prevent that, and holding it
+  -- is what an immutable open exists to avoid.
   local wal = path .. "-wal"
-  local wal_present, wal_trouble = Fs.exists(wal)
-  if wal_present == nil then
-    return nil, wal_trouble
-  end
-  local frames = false
-  if wal_present then
+  local function has_frames(): boolean | nil, string
+    local there, exists_trouble = Fs.exists(wal)
+    if there == nil then
+      return nil, exists_trouble
+    end
+    if not there then
+      return false, ""
+    end
     local wal_stat, wal_stat_trouble = Fs.stat(wal)
     if wal_stat == nil then
       return nil, wal_stat_trouble
     end
-    frames = wal_stat.size > 0
+    return wal_stat.size > 0, ""
+  end
+  local frames, wal_trouble = has_frames()
+  if frames == nil then
+    return nil, wal_trouble
+  end
+  if between ~= nil then
+    between()
   end
   local db, open_trouble = Sqlite.open(path, false, not frames)
   if db == nil then
     return nil, open_trouble
+  end
+  if not frames then
+    local later, later_trouble = has_frames()
+    if later == nil then
+      local _, _ = db:close()
+      return nil, later_trouble
+    end
+    if later then
+      local _, _ = db:close()
+      db, open_trouble = Sqlite.open(path, false, false)
+      if db == nil then
+        return nil, open_trouble
+      end
+    end
   end
   -- No ATTACH, and so no VACUUM INTO, which attaches the file it names:
   -- query_only refuses that write only after SQLite has created the
