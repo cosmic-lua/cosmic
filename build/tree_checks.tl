@@ -54,6 +54,10 @@ for _, name in ipairs({ "docs", "fix", "test" }) do
     "which its own module holds; kept a member because ci/fixtures/self_rebuild_test.tl " ..
     "rewrites the line that declares it"
 end
+-- TODO: let an exported `spec` count as a module's entry point in
+-- `unearned`, as `run` and `main` do; then these four `run`s, and the
+-- three above once the fixture rewrites another line, can be local and
+-- their entries here go.
 for _, name in ipairs({ "bom", "embed", "refresh", "todos" }) do
   allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
     "which its own module holds; kept a member because a module that exports `run` is a " ..

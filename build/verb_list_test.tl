@@ -25,6 +25,11 @@ local function test_every_listed_module_has_its_spec()
   end
 end
 
+-- TODO: a build module that exports a `spec` but is missing from
+-- build/verb_list.tl goes unnoticed: no verb dispatches to it and nothing
+-- fails. Check it over the whole tree in build/tree_checks.tl, with the
+-- rest of each verb's registration (help prose, a quickstart section, a
+-- test module), once specs name their guide and tests (P4).
 local function test_a_name_is_listed_once()
   local seen: {string:boolean} = {}
   for _, spec in ipairs(verb_list.specs()) do
