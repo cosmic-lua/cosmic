@@ -34,6 +34,7 @@ verb_cases.passthrough = {
   time = "its output is data for a pipe, so its exit status is the verdict (build/time_test.tl)",
   hash = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
   archive = "its output is data for a pipe, so its exit status is the verdict (build/archive_test.tl)",
+  rand = "its output is data for a pipe, so its exit status is the verdict (build/rand_test.tl)",
   codec = "its output is data for a pipe, so its exit status is the verdict (build/codec_test.tl)",
 }
 

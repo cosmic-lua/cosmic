@@ -80,6 +80,15 @@ over `--flat` covers the simple cases. To count or sum, use `cosmic sql
 `cosmic.json`, whose `Json.flatten` and `Json.select` are these two.
 `cosmic help json` has the rest.
 
+## a random id, token or number
+
+`cosmic rand uuid` prints a UUID (`--v7` for a time-ordered one, by RFC 9562's
+method 3 clock precision, `-n 5` for five, at most ten million); `cosmic rand token` a 32-byte base64url token; `cosmic rand int
+1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines. All
+of it comes from the operating system's entropy, unless you name `--seed`
+to replay `int`, `pick` or `shuffle`, which is not secret. `cosmic help
+rand` has the rest.
+
 ## questions about a data file
 
 A question about a data file -- what is in it, how many of these it
