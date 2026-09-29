@@ -328,14 +328,20 @@ asks the API for the run ahead (`queue-seed.sh ahead`): the
 `merge_group` run on a `gh-readonly-queue/main/` branch whose
 `head_sha` is its base. Where that run holds the leg's artifact, the
 leg downloads it and merges it into what it restored (`verdicts-merge`,
-above). While the run ahead is in progress and its leg has not
-completed, it asks again every 15 s, up to two minutes (three for the
-checked job, whose suite runs later); a run, or its leg, that completed
-without the artifact, a base that heads no queue run (main's already,
-whose verdicts the restore took) and a failed step are all none, and
-the suite stands on what was restored. Only verdicts pass so, never
-compiles or the driver check's marker, and only from a suite that
-passed.
+above), between its boot (`platform boot`) and its native suite
+(`platform local-suite`, the `build` phase's suite, which run-local
+still runs with its boot as `build`). While the run ahead is in
+progress and its leg has not completed, it asks again every 15 s, for
+two and a half minutes at most. The checked job waits a minute and a
+half at most, and not at all for a checked job ahead that will not
+have kept its verdicts by then, some seven minutes after it started.
+A run, or its leg, that completed without the artifact, a base that
+heads no queue run (main's already, whose verdicts the restore took; a
+restore of the base's own entry skips the lookup), a change that moves
+build/harness_epoch.tl (every test runs, standing on none) and a
+failed step are all none, and the suite stands on what was restored.
+Only verdicts pass so, never compiles or the driver check's marker,
+and only from a suite that passed.
 
 ### the checked job
 

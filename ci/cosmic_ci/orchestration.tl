@@ -871,10 +871,20 @@ local function boot(p: PlatformContext): integer
   return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
 end
 
+--- The native suite, on the tree `boot` built: the `build` phase
+--- without its boot, which ci.yml's legs run apart so that what comes
+--- between (the verdicts of the merge queue's run ahead) waits on
+--- nothing the boot does.
+local function phase_local_suite(p: PlatformContext): integer
+  return suite(p.operation, "local", p.root .. "/o/bin/cosmic", p.local_diagnostics)
+end
+
+--- `boot`, then the native suite (`local-suite`): ci/run-local's first
+--- phase.
 local function phase_build(p: PlatformContext): integer
   local s = boot(p)
   if s ~= 0 then return s end
-  return suite(p.operation, "local", p.root .. "/o/bin/cosmic", p.local_diagnostics)
+  return phase_local_suite(p)
 end
 
 --- What the `checked` phase reads, on a booted tree, where assemble
@@ -1171,6 +1181,7 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   assert(targets[p.target], "unsupported target"); mkdir(p.work)
   if phase == "build" then return phase_build(p)
   elseif phase == "boot" then return boot(p)
+  elseif phase == "local-suite" then return phase_local_suite(p)
   elseif phase == "local-boundary" then return phase_local_boundary(p)
   elseif phase == "format" then return format_check(p)
   elseif phase == "checked-build" then return phase_checked_build(p)

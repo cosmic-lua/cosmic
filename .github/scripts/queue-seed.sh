@@ -48,14 +48,21 @@
 # unexpired ARTIFACT, the verdicts its job JOB keeps once its suite
 # passes, for this run to take (ci.yml's `verdicts-ahead`); `run=`
 # where it does not. While that run is in progress and JOB in it has
-# not completed, or while the API fails, it asks again, every
-# WAIT_SECONDS, up to TRIES times, each call cut off as `find`'s are
-# and at most three a round: TRIES * (WAIT_SECONDS + 3 * CALL_SECONDS)
-# at most, which ci.yml's settings hold under the step's timeout
-# (build/workflows_test.tl). A BASE no queue run has for its head --
-# main's already, whose verdicts the restore took -- is none at once, as
-# is a run, or its JOB, that completed without ARTIFACT. Either way it
-# exits 0: none costs time, never a result.
+# not completed, or while the API fails, it asks again every
+# WAIT_SECONDS until WITHIN_SECONDS have passed since it started; a
+# round makes at most three calls, each cut off as `find`'s are, so it
+# ends within WITHIN_SECONDS + 3 * CALL_SECONDS, which ci.yml holds
+# under the step's timeout (build/workflows_test.tl). Where READY_SECONDS
+# is set, JOB is taken to keep ARTIFACT that long after it started: one
+# not started yet, or that would keep it only after the wait ends, is
+# not waited for. None is found at once where the checkout's change
+# moves build/harness_epoch.tl from BASE's, when every suite runs every
+# test (--all) and stands on no verdict; where BASE heads no queue run
+# (it is main's already: ci.yml skips the step where the restore took
+# BASE's own entry, and a base that landed after the restore finds its
+# run, whose verdicts merge as rows mostly held already); and where
+# the run, or JOB, completed without ARTIFACT. Either way it exits 0:
+# none costs time, never a result.
 set -eu
 
 usage="usage: queue-seed.sh find|stage|ahead"
@@ -133,15 +140,25 @@ is_commit() {
 ahead() {
   { [ -n "${ARTIFACT-}" ] && [ -n "${JOB-}" ]; } ||
     { echo "queue-seed.sh ahead: no ARTIFACT or JOB" >&2; exit 2; }
-  base=${BASE-} round=0 found= said=
-  is_commit "$base" || said="no base to find the run ahead by: the restore's verdicts alone."
+  base=${BASE-} found= said=
+  deadline=$(($(date +%s) + ${WITHIN_SECONDS:-150}))
+  if ! is_commit "$base"; then
+    said="no base to find the run ahead by: the restore's verdicts alone."
+  elif git cat-file -e "$base^{commit}" 2>/dev/null; then
+    # 1 where the file differs; anything else (no git, a refusal) is
+    # no sign it moved.
+    moved=0
+    git diff --quiet "$base" HEAD -- build/harness_epoch.tl 2>/dev/null || moved=$?
+    [ "$moved" -ne 1 ] ||
+      said="build/harness_epoch.tl moved from $base's: every test runs (--all), and stands on no verdict."
+  fi
   while [ -z "$said" ]; do
-    round=$((round + 1))
+    # At most three calls a round, each cut off at CALL_SECONDS.
     pending= run= status=
     if runs=$(api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$base&per_page=20" \
-        --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "none") \(.head_sha) \(.head_branch) \(.html_url)"'); then
+        --jq '.workflow_runs[] | select(.event == "merge_group") | "\(.id) \(.status) \(.head_sha) \(.head_branch)"'); then
       # The newest, where a run was retried.
-      while read -r id state _ sha branch _; do
+      while read -r id state sha branch; do
         [ "$sha" = "$base" ] && [ -z "$run" ] || continue
         case $branch in gh-readonly-queue/main/*) run=$id status=$state ;; esac
       done <<EOF
@@ -159,12 +176,26 @@ EOF
         elif [ "$status" = completed ]; then
           said="the run ahead, $run, completed without $ARTIFACT: the restore's verdicts alone."
         elif jobs=$(api "repos/$REPOSITORY/actions/runs/$run/jobs?per_page=100" \
-            --jq '.jobs[] | "\(.status) \(.name)"'); then
-          if printf '%s\n' "$jobs" | grep -qxF "completed $JOB"; then
-            said="$JOB of the run ahead, $run, completed without $ARTIFACT: the restore's verdicts alone."
-          else
-            pending=1
-          fi
+            --jq '.jobs[] | "\(.status) \(.started_at // "" | if . == "" then "none" else fromdateiso8601 end) \(.name)"'); then
+          job=$(printf '%s\n' "$jobs" | while read -r state started name; do
+            [ "$name" != "$JOB" ] || { echo "$state $started"; break; }
+          done)
+          case $job in
+            "completed "*)
+              said="$JOB of the run ahead, $run, completed without $ARTIFACT: the restore's verdicts alone." ;;
+            *)
+              pending=1
+              if [ -n "${READY_SECONDS-}" ]; then
+                started=${job#* }
+                case $started in
+                  "" | none | *[!0-9]*)
+                    said="$JOB of the run ahead, $run, has not started: the restore's verdicts alone." ;;
+                  *)
+                    [ $((started + READY_SECONDS)) -le "$deadline" ] ||
+                      said="$JOB of the run ahead, $run, keeps $ARTIFACT only after the wait: the restore's verdicts alone." ;;
+                esac
+              fi ;;
+          esac
         else
           pending=1
         fi
@@ -172,7 +203,8 @@ EOF
         pending=1
       fi
     fi
-    if [ -n "$found" ] || [ -n "$said" ] || [ -z "$pending" ] || [ "$round" -ge "$tries" ]; then break; fi
+    if [ -n "$found" ] || [ -n "$said" ] || [ -z "$pending" ] ||
+        [ $(($(date +%s) + wait)) -gt "$deadline" ]; then break; fi
     sleep "$wait"
   done
   echo "run=$found" >> "$out"

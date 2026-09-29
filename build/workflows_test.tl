@@ -627,9 +627,11 @@ local function test_every_leg_keeps_its_verdicts()
   local back: integer
   for i, step in ipairs(steps) do
     if step.name == "move the tree back to where it was checked out" then back = i end
-    if step.id == "release-suite" or step.id == "portable-suite" then at[step.id as string] = i end
+    if step.id == "boot" or step.id == "release-suite" or step.id == "portable-suite" then
+      at[step.id as string] = i
+    end
   end
-  local order = { "host-id", "merge-base", "verdicts-restore", "release-suite", "portable-suite",
+  local order = { "host-id", "merge-base", "verdicts-restore", "boot", "release-suite", "portable-suite",
     "trim", "back", "save" }
   at.back = back
   for n, name in ipairs(order) do
@@ -1439,13 +1441,16 @@ end
 --- which tests its base and whose verdicts main has not saved yet: each
 --- leg and the checked job keeps its suite's verdicts, on a queue run,
 --- the moment the suite passes, as `verdicts-<job>`, a name no other
---- job's shares; and each, between its restore and its suite, finds
---- that run by its base (queue-seed.sh ahead), with the job's own name
---- and artifact, downloads what it kept from that run, and merges it
---- into what it restored (driver.tl verdicts-merge), with the driver
---- bootstrapped. None of it fails the job, it needs `actions: read`,
---- and the lookup's budget is under its step's timeout, which is under
---- the job's, its wait at most three minutes.
+--- job's shares, replacing a retried attempt's; and each, between its
+--- boot and its suite, finds that run by its base (queue-seed.sh ahead),
+--- with the job's own name and artifact, unless the restore took the
+--- base's own entry, downloads what it kept from that run, and merges
+--- it into what it restored (driver.tl verdicts-merge). None of it
+--- fails the job, it needs `actions: read`, and the lookup's wait is at
+--- most two and a half minutes, which with its last round's calls is
+--- under its step's timeout; the checked job's, whose job ahead keeps
+--- them later, is shorter still and skips a job ahead that cannot keep
+--- them in time (READY_SECONDS).
 local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
@@ -1455,8 +1460,10 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   local QUEUE <const> = "github.event_name == 'merge_group'"
   local names: {string: string} = {}
   for _, case in ipairs({
-      { job = "platform", suite = "release-suite", file = "verdicts.db", name = "${{ matrix.name }}" },
-      { job = "checked", suite = "checked-suite", file = "checked.db", name = "linux-x86_64-checked" } }) do
+      { job = "platform", suite = "release-suite", file = "verdicts.db", name = "${{ matrix.name }}",
+        within = 150, ready = "" },
+      { job = "checked", suite = "checked-suite", file = "checked.db", name = "linux-x86_64-checked",
+        within = 90, ready = "420" } }) do
     local job = jobs[case.job]
     local where = case.job
     assert(job.name == case.name, where .. "'s name: " .. tostring(job.name))
@@ -1475,16 +1482,17 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
       end
     end
     assert(keep ~= nil, where .. " keeps no verdicts for the run behind it")
-    local order = { "verdicts-restore", "ahead", "ahead-download", "verdicts-ahead", case.suite, "keep" }
+    local order = { "verdicts-restore", "boot", "ahead", "ahead-download", "verdicts-ahead", case.suite, "keep" }
     for n = 2, #order do
       assert(at[order[n - 1]] ~= nil and at[order[n]] ~= nil and at[order[n - 1]] < at[order[n]],
         where .. ": " .. order[n - 1] .. " does not come before " .. order[n])
     end
-    assert(at.driver < at["verdicts-ahead"], where .. " merges before its driver is there")
+    assert(at.driver < at.boot and (steps[at.boot].run as string):find("platform boot", 1, true),
+      where .. " takes the verdicts ahead before its boot")
     local artifact = "verdicts-" .. case.name
     local kept = keep.with as {string: any}
     assert(kept.name == artifact and kept.path == "${{ runner.temp }}/verdicts/" .. case.file .. "*" and
-      kept["retention-days"] == 1, where .. " keeps other verdicts, or for long: " .. tostring(kept.name))
+      kept["retention-days"] == 1 and kept.overwrite == true, where .. " keeps other verdicts, or for long: " .. tostring(kept.name))
     local condition = keep["if"] as string
     assert(condition:find(QUEUE, 1, true) and
       condition:find("steps." .. case.suite .. ".outcome == 'success'", 1, true) and
@@ -1495,15 +1503,19 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     local env = find.env as {string: string}
     assert(find.run == "sh .github/scripts/queue-seed.sh ahead" and find.shell == "sh" and
       find["working-directory"] == "." and find["continue-on-error"] == true and
-      (find["if"] as string):sub(-#QUEUE) == QUEUE, where .. " looks for the run ahead elsewhere, or fails for it")
+      (find["if"] as string):find(QUEUE .. " && steps.verdicts-restore.outputs.cache-matched-key != " ..
+        "format('{0}sha-{1}', steps.host-id.outputs.verdicts, github.event.merge_group.base_sha)", 1, true),
+      where .. " looks for the run ahead elsewhere, where the base's verdicts were restored, or fails for it")
     assert(env.BASE == "${{ github.event.merge_group.base_sha }}" and env.JOB == case.name and
       env.ARTIFACT == artifact and env.GH_TOKEN == "${{ github.token }}" and
       env.REPOSITORY == "${{ github.repository }}", where .. " looks for another run's or job's verdicts")
-    local tries, wait = math.tointeger(tonumber(env.TRIES)), math.tointeger(tonumber(env.WAIT_SECONDS))
-    assert(tries ~= nil and wait ~= nil and (tries - 1) * wait <= 180, where .. " waits too long for the run ahead")
-    local budget = tries * (wait + 3 * call)
+    local within, wait = math.tointeger(tonumber(env.WITHIN_SECONDS)), math.tointeger(tonumber(env.WAIT_SECONDS))
+    assert(within ~= nil and wait ~= nil and wait < within and within <= case.within,
+      where .. " waits too long for the run ahead: " .. tostring(env.WITHIN_SECONDS))
+    assert((env.READY_SECONDS or "") == case.ready, where .. " takes its job ahead to keep them at another time")
+    local budget = within + 3 * call
     local minutes = find["timeout-minutes"] as integer
-    assert(budget <= minutes * 60 and minutes < (job["timeout-minutes"] as integer),
+    assert(budget + 30 <= minutes * 60 and minutes < (job["timeout-minutes"] as integer),
       where .. "'s lookup outlasts its step, or its step the job: " .. budget .. " s")
 
     local download = steps[at["ahead-download"]]

@@ -12,6 +12,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local Time = require("cosmic.time")
 
 --- The script, and the system's `sh`, jq and tools, which run it.
 Test.needs{ reads = { ".github/scripts/queue-seed.sh" }, system = true }
@@ -25,7 +26,8 @@ local QUEUE <const> = "gh-readonly-queue/main/pr-7-fedcba"
 --- The filters the script hands `gh api --jq`, as it writes them.
 local RUNS_FILTER <const> = [[.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "none") \(.head_sha) \(.head_branch) \(.html_url)"]]
 local ARTIFACTS_FILTER <const> = ".artifacts[] | select(.expired | not) | .name"
-local JOBS_FILTER <const> = [[.jobs[] | "\(.status) \(.name)"]]
+local AHEAD_RUNS_FILTER <const> = [[.workflow_runs[] | select(.event == "merge_group") | "\(.id) \(.status) \(.head_sha) \(.head_branch)"]]
+local JOBS_FILTER <const> = [[.jobs[] | "\(.status) \(.started_at // "" | if . == "" then "none" else fromdateiso8601 end) \(.name)"]]
 
 --- A fake `gh api URL --jq FILTER`: each lookup of the runs answers the
 --- next of the lookups written (one "FAIL" fails), the last again once
@@ -62,9 +64,10 @@ local function has_jq(): boolean
   return result ~= nil and result.code == 0
 end
 
---- A run, as the API lists it.
-local function run(id: string, status: string, conclusion: string | nil, sha: string, branch: string): string
-  return '{"id":' .. id .. ',"status":"' .. status .. '","conclusion":' ..
+--- A run, as the API lists it: of `event`, else merge_group.
+local function run(id: string, status: string, conclusion: string | nil, sha: string, branch: string,
+    event?: string): string
+  return '{"id":' .. id .. ',"event":"' .. (event or "merge_group") .. '","status":"' .. status .. '","conclusion":' ..
     (conclusion and ('"' .. conclusion .. '"') or "null") .. ',"head_sha":"' .. sha ..
     '","head_branch":"' .. branch .. '","html_url":"https://github.com/o/r/actions/runs/' .. id .. '"}'
 end
@@ -132,6 +135,7 @@ local function test_the_filters_are_the_scripts()
   assert(text:find("--jq '" .. RUNS_FILTER .. "'", 1, true), "the runs' filter moved")
   assert(text:find("--jq '" .. ARTIFACTS_FILTER .. "'", 1, true), "the artifacts' filter moved")
   assert(text:find("--jq '" .. JOBS_FILTER .. "'", 1, true), "the jobs' filter moved")
+  assert(text:find("--jq '" .. AHEAD_RUNS_FILTER .. "'", 1, true), "the run ahead's filter moved")
 end
 
 --- The queue's passing run of this commit is found, by the commit and
@@ -280,12 +284,16 @@ local function test_stage_keeps_the_verdicts_under_the_commit(tmp: string)
   assert(keys == "" and not Fs.exists(seed .. "/verdicts"), keys)
 end
 
---- A run's jobs, as the API lists them: each `status name`.
+--- A run's jobs, as the API lists them: each `status name`, or
+--- `status name started` with `started` seconds ago.
 local function jobs(...: string): string
   local items: {string} = {}
   for _, job in ipairs({ ... }) do
-    local status, name = job:match("^(%S+) (.+)$")
-    items[#items + 1] = '{"name":"' .. name .. '","status":"' .. status .. '"}'
+    local status, name, ago = job:match("^(%S+) (%S+) ?(%d*)$")
+    local started = ago ~= "" and ('"' .. Time.format_rfc3339(Time.now_ns() - math.tointeger(tonumber(ago)) * 1000000000,
+      { digits = 0 }) .. '"')
+      or "null"
+    items[#items + 1] = '{"name":"' .. name .. '","status":"' .. status .. '","started_at":' .. started .. "}"
   end
   return '{"total_count":' .. #items .. ',"jobs":[' .. table.concat(items, ",") .. "]}"
 end
@@ -293,10 +301,12 @@ end
 --- What `ahead` writes to $GITHUB_OUTPUT for job `a`'s artifact
 --- `verdicts-a`, with BASE `base`, the calls it made to `gh`, its status
 --- and what it said; `answers` are the runs' lookups, as `find`'s are,
---- `listing` names each run's artifacts (`<id>`, or
---- `<id>-<k>` for the k-th lookup), and `listed_jobs` its jobs.
+--- `listing` names each run's artifacts (`<id>`, or `<id>-<k>` for the
+--- k-th lookup), `listed_jobs` its jobs, and `extra` sets more of the
+--- environment, in `cwd` where given. It waits a second between rounds
+--- and asks for five.
 local function ahead(tmp: string, base: string, answers: {string}, listing: {string: string},
-    listed_jobs?: {string: string}): string, string, integer, string
+    listed_jobs?: {string: string}, extra?: {string: string}, cwd?: string): string, string, integer, string
   runs = runs + 1
   local dir = tmp .. "/ahead-" .. runs
   assert(Fs.mkdirs(dir .. "/bin"))
@@ -312,9 +322,11 @@ local function ahead(tmp: string, base: string, answers: {string}, listing: {str
   local env: {string: string} = {
     PATH = dir .. "/bin:" .. (Env.get("PATH") or "/usr/bin:/bin"), FAKE = dir,
     GITHUB_OUTPUT = dir .. "/output", GITHUB_STEP_SUMMARY = dir .. "/summary",
-    REPOSITORY = "o/r", BASE = base, JOB = "a", ARTIFACT = "verdicts-a", WAIT_SECONDS = "0", TRIES = "3",
+    REPOSITORY = "o/r", BASE = base, JOB = "a", ARTIFACT = "verdicts-a", WAIT_SECONDS = "1",
+    WITHIN_SECONDS = "5",
   }
-  local result = assert(Child.run({ "/bin/sh", SCRIPT, "ahead" }, { env = env, cwd = dir,
+  for name, value in pairs(extra or {}) do env[name] = value end
+  local result = assert(Child.run({ "/bin/sh", SCRIPT, "ahead" }, { env = env, cwd = cwd or dir,
     stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
   return Fs.read(dir .. "/output") or "", Fs.read(dir .. "/calls") or "", result.code,
     (result.stdout or "") .. (result.stderr or "")
@@ -332,7 +344,7 @@ local function test_the_run_ahead_is_found_with_its_verdicts(tmp: string)
       run("41", "completed", "cancelled", SHA, QUEUE)) }, { ["42"] = KEPT })
     assert(code == 0 and output == "run=42\n", output .. said)
     assert(calls:find("api repos/o/r/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" .. SHA ..
-      "&per_page=20 --jq " .. RUNS_FILTER, 1, true), calls)
+      "&per_page=20 --jq " .. AHEAD_RUNS_FILTER, 1, true), calls)
     assert(calls:find("api repos/o/r/actions/runs/42/artifacts?per_page=100 --jq " .. ARTIFACTS_FILTER, 1, true),
       calls)
     assert(lookups(calls) == 1 and not calls:find("/jobs", 1, true), calls)
@@ -352,10 +364,11 @@ local function test_the_run_ahead_is_waited_for(tmp: string)
   assert(lookups(calls) == 3, calls)
   assert(calls:find("api repos/o/r/actions/runs/42/jobs?per_page=100 --jq " .. JOBS_FILTER, 1, true), calls)
   -- One that never keeps them, or an API that keeps failing, is given
-  -- up on after TRIES lookups, and fails nothing.
+  -- up on when the time given has passed, and fails nothing.
   for _, stuck in ipairs({ running, "FAIL" }) do
-    output, calls, code, said = ahead(tmp, SHA, { stuck }, {}, { ["42"] = jobs("in_progress a") })
-    assert(code == 0 and output == "run=\n" and lookups(calls) == 3, output .. calls)
+    output, calls, code, said = ahead(tmp, SHA, { stuck }, {}, { ["42"] = jobs("in_progress a") },
+      { WITHIN_SECONDS = "2" })
+    assert(code == 0 and output == "run=\n" and lookups(calls) >= 2 and lookups(calls) <= 4, output .. calls)
     assert(said:find("left no verdicts-a in time", 1, true), said)
   end
 end
@@ -380,6 +393,25 @@ local function test_a_run_ahead_done_without_its_verdicts_is_none_at_once(tmp: s
   end
 end
 
+--- Where the job ahead is taken to keep its verdicts some time after it
+--- starts (READY_SECONDS, the checked job's), one that will not have
+--- kept them before the wait ends, or has not started, is not waited
+--- for; one that will is.
+local function test_a_job_ahead_that_cannot_keep_them_in_time_is_not_waited_for(tmp: string)
+  if not has_jq() then return end
+  local running = listed(run("42", "in_progress", nil, SHA, QUEUE))
+  local ready: {string: string} = { READY_SECONDS = "420", WITHIN_SECONDS = "90" }
+  for _, case in ipairs({ { job = "in_progress a 60", why = "only after the wait" },
+      { job = "queued a", why = "has not started" }, { job = "queued b", why = "has not started" } }) do
+    local output, calls, code, said = ahead(tmp, SHA, { running }, {}, { ["42"] = jobs(case.job) }, ready)
+    assert(code == 0 and output == "run=\n" and lookups(calls) == 1, case.job .. ": " .. output .. calls)
+    assert(said:find(case.why, 1, true), case.job .. ": " .. said)
+  end
+  local output, calls, code, said = ahead(tmp, SHA, { running },
+    { ["42-1"] = artifacts({}, {}), ["42"] = KEPT }, { ["42"] = jobs("in_progress a 400") }, ready)
+  assert(code == 0 and output == "run=42\n" and lookups(calls) == 2, output .. calls .. said)
+end
+
 --- A base no queue run has for its head -- main's already, whose
 --- verdicts the restore took -- is none at once, as is another
 --- commit's, another queue's, and a push's run; with no base at all
@@ -388,7 +420,8 @@ local function test_a_base_that_heads_no_queue_run_is_none(tmp: string)
   if not has_jq() then return end
   for _, runs_listed in ipairs({ listed(), listed(run("42", "in_progress", nil, "f" .. SHA:sub(2), QUEUE)),
       listed(run("42", "in_progress", nil, SHA, "gh-readonly-queue/other/pr-7-x")),
-      listed(run("42", "in_progress", nil, SHA, "main")) }) do
+      listed(run("42", "in_progress", nil, SHA, "main")),
+      listed(run("42", "in_progress", nil, SHA, QUEUE, "push")) }) do
     local output, calls, code, said = ahead(tmp, SHA, { runs_listed }, { ["42"] = KEPT })
     assert(code == 0 and output == "run=\n" and lookups(calls) == 1, output .. calls .. said)
     assert(not calls:find("/artifacts", 1, true), calls)
@@ -399,4 +432,38 @@ local function test_a_base_that_heads_no_queue_run_is_none(tmp: string)
       { ["42"] = KEPT })
     assert(code == 0 and output == "run=\n" and calls == "", base .. ": " .. output .. calls)
   end
+end
+
+--- A checkout whose change moves build/harness_epoch.tl from the base's
+--- runs every test (--all), standing on no verdict: nothing is asked.
+--- One that leaves it, or whose base it lacks, asks as ever.
+local function test_a_change_that_moves_the_harness_takes_nothing(tmp: string)
+  local has_git = Child.run({ "/bin/sh", "-c", "command -v git" }, { stdout = "capture", stderr = "capture",
+    timeout_ms = 30000 })
+  if not has_jq() or has_git == nil or has_git.code ~= 0 then return end
+  local repo = tmp .. "/repo"
+  assert(Fs.mkdirs(repo .. "/build"))
+  local function git(...: string): string
+    local result = assert(Child.run({ "/usr/bin/env", "git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", repo, ... },
+      { stdout = "capture", stderr = "capture", timeout_ms = 30000,
+        env = { PATH = Env.get("PATH") or "/usr/bin:/bin", HOME = tmp, GIT_CONFIG_NOSYSTEM = "1" } }))
+    assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
+    return ((result.stdout or ""):gsub("%s+$", ""))
+  end
+  git("init", "-q")
+  assert(Fs.write(repo .. "/build/harness_epoch.tl", "epoch 1\n"))
+  assert(Fs.write(repo .. "/other.tl", "a\n"))
+  git("add", "-A")
+  git("commit", "-q", "-m", "base")
+  local base = git("rev-parse", "HEAD")
+  assert(Fs.write(repo .. "/other.tl", "b\n"))
+  git("commit", "-q", "-am", "change")
+  local running = listed(run("42", "in_progress", nil, base, QUEUE))
+  local output, calls, code, said = ahead(tmp, base, { running }, { ["42"] = KEPT }, nil, nil, repo)
+  assert(code == 0 and output == "run=42\n", output .. calls .. said)
+  assert(Fs.write(repo .. "/build/harness_epoch.tl", "epoch 2\n"))
+  git("commit", "-q", "-am", "harness")
+  output, calls, code, said = ahead(tmp, base, { running }, { ["42"] = KEPT }, nil, nil, repo)
+  assert(code == 0 and output == "run=\n" and calls == "", output .. calls)
+  assert(said:find("every test runs (--all)", 1, true), said)
 end
