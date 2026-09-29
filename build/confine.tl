@@ -104,6 +104,21 @@ local record confine
     unkeyed: function(why: any)
   end
 
+  --- What hears of each start a stand-in (see `enter`) saw refused:
+  --- in a sandboxed worker, a program its sandbox does not give it, or
+  --- one whose interpreter or loader it does not, is refused there, and
+  --- the worker's record of what its sandbox refused
+  --- (build.refusals) names it for the audit. Each function hears one
+  --- start.
+  record Refused
+    --- `program`, found from `cwd` -- this process's working directory
+    --- where nil -- when relative, did not start: the spawn failed
+    --- with `errno`.
+    start: function(program: string, cwd: string | nil, errno: integer)
+    --- `program` was refused a root of its own (`refuse_nesting`).
+    nests: function(program: string)
+  end
+
   --- The most paths a sandbox unveils, its reads and writes together.
   unveil_max: integer
 
@@ -840,6 +855,24 @@ local function refuse(must: string, program: string, part: string, why: string,
   return message
 end
 
+--- Whatever hears of a refused start now (`confine.hear`), in the order
+--- each began.
+local hearers: {confine.Refused} = {}
+
+--- Has `refused` hear of each start a running stand-in saw refused
+--- (`confine.Refused`), until the function this answers is called. It
+--- hears nothing of a process started past the stand-in, nor while none
+--- stands in: only a capture's stand-in, which a test worker's test runs
+--- under, sees a start.
+function confine.hear(refused: confine.Refused): function()
+  hearers[#hearers + 1] = refused
+  return function()
+    for at = #hearers, 1, -1 do
+      if hearers[at] == refused then table.remove(hearers, at) break end
+    end
+  end
+end
+
 --- Refuses a start of `program` in a root of its own -- a sandbox that
 --- unveils, its own or `confine`'s -- where the worker of `module` is
 --- held by a Landlock ruleset (`held_by`), which would refuse its
@@ -849,6 +882,7 @@ end
 --- the message the spawn fails with.
 local function refuse_nesting(program: string, module: string): string
   local message = nests_refusal(program, module)
+  for _, each in ipairs(hearers) do each.nests(program) end
   for _, each in ipairs(entered) do
     local observer = each.observer
     if observer ~= nil then observer.unkeyed(confine.nests_note .. program) end
@@ -1095,6 +1129,22 @@ function confine.enter(own: string | nil, observer?: confine.Observer): function
     if observer ~= nil then observer.unconfined(path) end
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
       sandbox)
+  end
+  -- Whatever hears of a refused start hears of each the stand-in saw
+  -- fail, however it failed: what it makes of one is its own.
+  local standing = process.spawn
+  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
+                           cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                           stderr: integer | nil, process_group: boolean,
+                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
+                           integer | nil, string, integer
+    local pid, trouble, errno = standing(path, argv, environment, cwd, stdin, stdout, stderr,
+      process_group, fds, sandbox)
+    local program: any = path
+    if pid == nil and not ended and program is string then
+      for _, each in ipairs(hearers) do each.start(path, cwd, errno) end
+    end
+    return pid, trouble, errno
   end
   entered[#entered + 1] = entry
   return function(): string | nil
