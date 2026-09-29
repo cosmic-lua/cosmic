@@ -66,3 +66,12 @@ local function test_call_with_descriptors_refuses_a_missing_path(tmp: string)
     tostring(failure))
   assert(not Fs.stat(tmp .. "/logs/missing.out"), "a child started anyway")
 end
+
+--- A child a fixture starts compiles cold, whatever cache the fixture's
+--- own run shares, unless the fixture says otherwise.
+local function test_a_fixtures_children_take_no_shared_compiles()
+  assert(Fixture.environment().COSMIC_BUILD_CACHE == "0",
+    "a fixture's child takes the fixture's shared compiles")
+  assert(Fixture.environment({ COSMIC_BUILD_CACHE = "/elsewhere.db" }).COSMIC_BUILD_CACHE ==
+    "/elsewhere.db", "a fixture cannot give its child a cache")
+end

@@ -20,7 +20,7 @@ local record Orchestration
   harness_moved: function(root: string, base: string): boolean, string
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string})
-  fixture: function(env: {string:string}, tmpdir: string): {string:string}
+  fixture: function(env: {string:string}, tmpdir: string, compiles: string): {string:string}
   forget_run: function(env: {string:string})
   suite_run: function(extra?: {string:string}): {string}, {string:string}
   suite_verdicts: function(env: {string:string}, name: string): string
@@ -508,12 +508,19 @@ end
 --- neither reads nor writes the shared verdicts, whatever the event.
 --- Nor can a verdict of its own stand: its project, and the o/ under
 --- it, is made afresh for each run (`fixture_project`), and it names the
---- file it runs, so none is assumed. Nor does it share the compiles
---- and parses every checkout keeps (COSMIC_BUILD_CACHE): a fixture that
---- checks what a fresh tree compiles, and what the tool built from it
---- compiles again (fixed_point_test, self_rebuild_test), must compile
---- and parse it, not take the boot's work back.
-function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:string}
+--- file it runs, so none is assumed. Its compiles and parses
+--- (COSMIC_BUILD_CACHE) are the file `compiles` names, which the leg's
+--- fixtures share with one another and with nothing else: each is a
+--- project made afresh of the same sources, so the first to run
+--- compiles it and the rest take that work back, rather than each
+--- compiling it cold. It is not the leg's cache, which ci.yml restores
+--- and saves (cosmic_ci/compiles.tl), so no fixture's rows are kept from
+--- one run to the next, nor the boot's work taken back. A child a
+--- fixture starts takes none (`Fixture.environment`): what a fresh tree
+--- compiles, and what the tool built from it compiles again
+--- (fixed_point_test, self_rebuild_test), it must compile and parse.
+function Orchestration.fixture(env: {string:string}, tmpdir: string,
+    compiles: string): {string:string}
   env.TMPDIR = tmpdir
   -- Unsandboxed: a fixture reads and runs the candidate and its
   -- products where the host has them, which its environment names
@@ -527,7 +534,7 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string): {string:st
   -- sandboxed worker is given none of them otherwise.
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_BUILD_CACHE = "0"
+  env.COSMIC_BUILD_CACHE = compiles
   env.COSMIC_TEST_NO_SHARED = "1"
   -- Nor is it keyed by what it declares, on a leg whose suites are
   -- (COSMIC_CI_DECLARED_KEYS): it shares no verdict for a key to name,
@@ -549,7 +556,8 @@ local function fixture_test(c: Context, work: string, name: string,
   local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
-    Orchestration.fixture(environment(extra), diagnostics .. "/tmp"))
+    Orchestration.fixture(environment(extra), diagnostics .. "/tmp",
+      work .. "/fixture-compiles.db"))
   record_suite(c, "fixture " .. name, status, out)
   return status
 end
