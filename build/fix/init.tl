@@ -56,7 +56,6 @@ local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local flow = require("build.flow")
 local near = require("build.fix.near")
-local plural = require("build.plural")
 local analyzer = require("build.analyzer")
 local reboot = require("build.reboot")
 local render_mod = require("build.fix.render")
@@ -71,6 +70,7 @@ local type Sqlite = require("cosmic.sqlite")
 
 local log = require("build.verdict").log
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 local record fix
   --- The verb's registration: see build/verb_spec.tl.
@@ -628,7 +628,7 @@ local function run(argv: {integer:string}): integer
     rounds = rounds + 1
     if checking or not wrapped then break end
     if rounds >= 50 then
-      failures[#failures + 1] = "wrapping asserts did not settle after " .. rounds .. " builds"
+      failures[#failures + 1] = "wrapping asserts did not settle after " .. plural.count(rounds, "build")
       break
     end
   end
@@ -646,7 +646,7 @@ local function run(argv: {integer:string}): integer
       if guide == nil then
         findings[#findings + 1] = "tree checks: " .. guide_trouble
       end
-      local found = tree_checks.run(db, guide)
+      local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root))
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
       end

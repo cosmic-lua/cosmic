@@ -46,6 +46,7 @@ local work = require("build.work")
 
 local log = require("build.verdict").log
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 local record refresh
   --- The verb's registration: see build/verb_spec.tl.
@@ -418,7 +419,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
     return nil, made_trouble
   end
   local change = sha256 == was[3] and version .. " (as it was)" or was[1] .. " -> " .. version
-  local line = ("%s %s, %d rows"):format(dataset.name, change, release.count)
+  local line = ("%s %s, %s"):format(dataset.name, change, plural.count(release.count, "row"))
   for _, why in ipairs(release.left_out) do
     line = line .. "\n  left out " .. why
   end

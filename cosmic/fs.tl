@@ -642,6 +642,11 @@ local function copy_bytes(from: string, to: string): boolean, string
   return true, ""
 end
 
+-- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
+-- ino, dev and nlink; it needs a map from (dev, ino) to the first copy
+-- and a binding for link(2)), and the owner when run as root (once
+-- cosmic.sys carries lchown).
+
 --- Copies the tree at `from` to a new `to`, as `cp -Rp` does: each
 --- regular file's bytes, each directory, and each symbolic link as a link to the
 --- same target, never followed. Every permission bit is kept, the umask
@@ -653,10 +658,6 @@ end
 --- else in the tree (a device, a socket, a named pipe) stops the copy
 --- with its path, and a copy that stops leaves what it made so far in
 --- place.
--- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
--- ino, dev and nlink; it needs a map from (dev, ino) to the first copy
--- and a binding for link(2)), and the owner when run as root (once
--- cosmic.sys carries lchown).
 function Fs.copy_tree(from: string, to: string): boolean, string
   local present, present_trouble, number = sys.lstat(to)
   if present ~= nil then
