@@ -38,6 +38,10 @@ local function test_a_lost_write_complains_once_and_answers_false()
   assert(#lines == 1 and lines[1] == "cosmic: hash: standard output: Broken pipe", lines[1])
 end
 
+local function test_the_lost_write_message_names_standard_output()
+  assert(bare.lost("Bad file descriptor") == "standard output: Bad file descriptor")
+end
+
 local function test_written_is_zero_or_two()
   local lines: {string} = {}
   local complain = bare.complainer("rand", function(line: string) lines[#lines + 1] = line end)
