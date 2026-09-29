@@ -75,9 +75,39 @@ newline in it takes more than one line), and `cosmic json
 --exists '$..error' export.json` asks whether any `error` key is there.
 `--keys` and `--shape` take one path, not a pattern. There are no
 JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
-over `--flat` covers the simple cases. For more, write the script with
+over `--flat` covers the simple cases. To count or sum, use `cosmic sql
+--from` (next section); for anything else write the script with
 `cosmic.json`, whose `Json.flatten` and `Json.select` are these two.
 `cosmic help json` has the rest.
+
+## questions about a data file
+
+A question about a data file -- what is in it, how many of these it
+holds -- takes three steps, and none is a script. Stop at the first that
+answers:
+
+1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
+   what is in the file, and `cosmic json '.users[1]' export.json` prints
+   one value.
+2. Find where something is with `cosmic json --flat export.json | grep
+   needle`, and paste the path it prints back into `cosmic json`.
+3. Count, filter, join and sum with `cosmic sql --from`, which loads the
+   file as a table of an in-memory SQLite database and runs one
+   read-only statement on it:
+
+    cosmic sql --from accounts.json
+    cosmic sql --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP BY type'
+    cosmic sql --from accounts.json --from owners.jsonl 'SELECT who, balance FROM accounts JOIN owners USING (id)'
+    curl ... | cosmic sql --from - --as ndjson 'SELECT count(*) FROM stdin'
+
+With no statement, `--from` prints each table's row count, its columns
+with the types stored in them, and one sample row, which is how to find
+what to query. A table is named for its file's stem (`--from
+name=file` names it), a `.jsonl` or `.ndjson` file is one row per line,
+and `--at '$.data.rows'` takes the rows from the array at a path. Nested
+objects and arrays are JSON text, so `json_extract(owner, '$.name')`
+reaches into them; a boolean is 0 or 1. A column or table that does not
+exist is answered with the ones that do. `cosmic help sql` has the rest.
 
 ## below cosmic.fs
 

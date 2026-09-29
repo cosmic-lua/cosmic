@@ -499,7 +499,9 @@ end
 --- searches. A module found in an earlier one hides the same module in
 --- a later one, so a project's build answers for its own modules and
 --- the binary answers for the standard library.
-function docs.databases(): docs.Sources
+--- @param store the store's databases, `Store.databases()` unless the
+--- caller hands it others, as a test of databases of its own does
+function docs.databases(store?: {Sqlite.Handle}): docs.Sources
   local out: {Sqlite.Handle} = {}
   local public: {boolean} = {}
   local own_exists, own_trouble = Fs.exists("o/cosmic.db")
@@ -528,7 +530,7 @@ function docs.databases(): docs.Sources
   local own_tree, tree_trouble = tree.is_own(root)
   assert(own_tree ~= nil, tree_trouble)
   local outside = not own_tree
-  for _, db in ipairs(Store.databases()) do
+  for _, db in ipairs(store or Store.databases()) do
     out[#out + 1] = db
     public[#out] = outside
   end
