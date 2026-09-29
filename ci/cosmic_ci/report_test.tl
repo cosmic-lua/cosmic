@@ -53,14 +53,24 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
   }
   Report.qualify(runs, 4)
   assert(runs[1].qualifies, runs[1].why)
-  assert(runs[1].why == "runtime and harness epoch and timeout among the restored cache's",
-    runs[1].why)
+  assert(runs[1].why == "runtime and harness epoch and timeout among the restored cache's " ..
+    "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", runs[1].why)
   assert(not runs[2].qualifies and runs[2].why == "linux-x86_64 checked: runtime or harness " ..
     "not among the restored cache's (12 rows); linux-x86_64 local: runtime or harness not " ..
     "among the restored cache's (12 rows)", runs[2].why)
   assert(not runs[3].qualifies and
     runs[3].why:find("linux-x86_64 local: the restored cache held no rows", 1, true), runs[3].why)
   assert(not runs[4].qualifies and runs[4].why:find("harness moved", 1, true), runs[4].why)
+  -- Restored rows that name no parts, kept before rows named them, as
+  -- on the first run after they did, tell nothing: the earlier run
+  -- decides, and the reason says so.
+  local unnamed = "7 rows under no parts named"
+  runs = { run("70", "h1", unnamed), run("60", "h1"), run("55", "h1", unnamed), run("50", "h0") }
+  Report.qualify(runs, 3)
+  assert(runs[1].qualifies and runs[1].why == "restored rows name no parts; runtime and " ..
+    "harness epoch and timeout held since run 60", runs[1].why)
+  assert(not runs[3].qualifies and runs[3].why:find("linux-x86_64 local: restored rows name " ..
+    "no parts, harness moved", 1, true), runs[3].why)
 end
 
 --- A fake GitHub: a gh on PATH answering from `state` (testdata/report/gh.tl).

@@ -3440,10 +3440,13 @@ function test.run(argv: {integer:string}): integer
       end
     end
   end
-  -- The digests every key of the run holds, which each row it keeps
-  -- in the shared cache is stamped with (`shared_verdicts.settle`).
+  -- The digests the run's keys hold, which each row it keeps in the
+  -- shared cache is stamped with (`shared_verdicts.settle`): made only
+  -- where there is a cache to stamp or a census to say, since
+  -- `host_features` reads the processor's whole description.
+  local census_asked = parsed.set["--census"] == true
   local parts: {{string}} = {}
-  if keyed then
+  if keyed and (rec.shared ~= nil or census_asked) then
     parts = {
       -- As .github/scripts/host-features.sh names CI's verdict cache.
       { "host features", declared_key.host_features() },
@@ -3475,7 +3478,6 @@ function test.run(argv: {integer:string}): integer
   -- parts the cache's rows name, as this run found them, so a report
   -- tells whether its own were among what CI restored
   -- (ci/cosmic_ci/report.tl's `qualify`).
-  local census_asked = parsed.set["--census"] == true
   if keyed and (census_asked or (rec.shared ~= nil and looked_count > 0 and
       looked_count == keyed_count and ran_here == 0 and found_count == 0)) then
     local line: string = nil

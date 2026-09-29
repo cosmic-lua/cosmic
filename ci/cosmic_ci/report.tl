@@ -13,10 +13,10 @@
 -- - whether it qualifies: its checked and native suites' runtime and
 --   harness key parts are among those the verdict cache it restored
 --   held, as `cosmic test --census` says them (or, for a row from before
---   the census, those of the run listed before it), so it moved neither
---   the core nor what every key holds of the harness: its epoch and the
---   workers' timeout, which `cosmic test` says as
---   `harness e<epoch>t<timeout ms>` (build/test.tl).
+--   the census or whose restored rows name no parts, those of the run
+--   listed before it), so it moved neither the core nor what every key
+--   holds of the harness: its epoch and the workers' timeout, which
+--   `cosmic test` says as `harness e<epoch>t<timeout ms>` (build/test.tl).
 --
 -- then the medians over the qualifying runs that succeeded. A run
 -- older than `suite_runs`, or whose artifacts have expired, is reported
@@ -251,20 +251,26 @@ local function deciding_rows(run: Report.Run): {string:State.SuiteRun}
   return rows
 end
 
---- Whether `now`, the key parts a suite's row says, has its runtime
---- and harness among `held`'s, what its restored cache held (a census
---- line's list, `SuiteOutput.held`), and why not where it has not.
-local function matched_restored(now: {string:string}, held: string): boolean, string
+--- What `held`, a suite row's census of its restored cache (a census
+--- line's list, `SuiteOutput.held`), says of `now`, the key parts the
+--- row says: "matched", with the share of the cache's rows under its
+--- runtime and harness; "unnamed" where every row it held names no
+--- parts -- kept before rows named them, as on the first run after
+--- they did -- which tells nothing; else "moved", with why.
+local function matched_restored(now: {string:string}, held: string): string, string
   local groups = SuiteOutput.held(held)
-  if #groups == 0 then return false, "the restored cache held no rows" end
-  local rows = 0
-  for _, group in ipairs(groups) do rows = rows + group.rows end
+  if #groups == 0 then return "moved", "the restored cache held no rows" end
+  local rows, matched, named = 0, 0, false
   for _, group in ipairs(groups) do
+    rows = rows + group.rows
+    if next(group.parts) ~= nil then named = true end
     if group.parts.runtime == now.runtime and group.parts.harness == now.harness then
-      return true, ""
+      matched = matched + group.rows
     end
   end
-  return false, string.format("runtime or harness not among the restored cache's " ..
+  if not named then return "unnamed", "" end
+  if matched > 0 then return "matched", string.format("%d of %d rows", matched, rows) end
+  return "moved", string.format("runtime or harness not among the restored cache's " ..
     "(%d rows)", rows)
 end
 
@@ -275,12 +281,13 @@ end
 --- restored were keyed by too, as its census said them
 --- (`cosmic test --census`, build/test.tl): it moved neither the core
 --- nor the harness from what the cache held. A row from before the
---- census, which says none, is compared instead with the same leg's
---- same suite in the next older run of `runs` that has such rows and
---- was not cancelled -- one that stopped short, or kept no artifact,
---- tells nothing of what the cache held -- only the likeliest to have
---- saved the cache this one restored, not surely it. Runs past `shown`
---- are only compared against.
+--- census, which says none, or whose restored rows name no parts, is
+--- compared instead with the same leg's same suite in the next older
+--- run of `runs` that has such rows and was not cancelled -- one that
+--- stopped short, or kept no artifact, tells nothing of what the cache
+--- held -- only the likeliest to have saved the cache this one
+--- restored, not surely it. Runs past `shown` are only compared
+--- against.
 function Report.qualify(runs: {Report.Run}, shown?: integer)
   for i = 1, math.min(shown or #runs, #runs) do
     local run = runs[i]
@@ -295,31 +302,40 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
     local keys: {string} = {}
     for key in pairs(rows) do keys[#keys + 1] = key end
     table.sort(keys)
-    local by_census, by_earlier = 0, 0
+    local by_census: {string} = {}
+    local by_earlier, unnamed_held = 0, false
     local moved: {string} = {}
     for _, key in ipairs(keys) do
       local now = rows[key].parts or {}
       local held = rows[key].held
+      local verdict, detail = "none", ""
+      if held ~= nil then verdict, detail = matched_restored(now, held) end
+      -- Said of a row compared with the earlier run for want of a census.
+      local unnamed = verdict == "unnamed" and "restored rows name no parts, " or ""
       if (now.runtime or "") == "" or (now.harness or "") == "" then
         moved[#moved + 1] = key .. ": no key parts"
-      elseif held ~= nil then
-        local matched, why = matched_restored(now, held)
-        if matched then by_census = by_census + 1 else moved[#moved + 1] = key .. ": " .. why end
+      elseif verdict == "matched" then
+        by_census[#by_census + 1] = key .. ": " .. detail
+      elseif verdict == "moved" then
+        moved[#moved + 1] = key .. ": " .. detail
       elseif earlier == nil then
-        moved[#moved + 1] = key .. ": no census, and no earlier run with suite rows " ..
-          "listed to compare"
+        moved[#moved + 1] = key .. ": " .. (unnamed ~= "" and unnamed or "no census, ") ..
+          "and no earlier run with suite rows listed to compare"
       else
         local was = deciding_rows(earlier)[key]
         if was == nil then
-          moved[#moved + 1] = key .. ": not in run " .. earlier.id
+          moved[#moved + 1] = key .. ": " .. unnamed .. "not in run " .. earlier.id
         else
           local held_since = true
           for _, part in ipairs({ "runtime", "harness" }) do
             if now[part] ~= (was.parts or {})[part] then
-              moved[#moved + 1] = key .. ": " .. part .. " moved"; held_since = false
+              moved[#moved + 1] = key .. ": " .. unnamed .. part .. " moved"; held_since = false
             end
           end
-          if held_since then by_earlier = by_earlier + 1 end
+          if held_since then
+            by_earlier = by_earlier + 1
+            unnamed_held = unnamed_held or unnamed ~= ""
+          end
         end
       end
     end
@@ -330,12 +346,13 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
     else
       run.qualifies = true
       local said: {string} = {}
-      if by_census > 0 then
-        said[#said + 1] = "runtime and harness epoch and timeout among the restored cache's"
+      if #by_census > 0 then
+        said[#said + 1] = "runtime and harness epoch and timeout among the restored cache's (" ..
+          table.concat(by_census, "; ") .. ")"
       end
       if by_earlier > 0 then
-        said[#said + 1] = "runtime and harness epoch and timeout held since run " ..
-          (earlier as Report.Run).id
+        said[#said + 1] = (unnamed_held and "restored rows name no parts; " or "") ..
+          "runtime and harness epoch and timeout held since run " .. (earlier as Report.Run).id
       end
       run.why = table.concat(said, "; ")
     end

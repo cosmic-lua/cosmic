@@ -70,8 +70,10 @@ local record shared_verdicts
 
   --- What a run owes the cache when it ends.
   record Owed
-    --- The key parts every key of the run holds (`named`), which each
-    --- row it keeps, or stands on unnamed, is stamped with; nil for none.
+    --- The key parts the run's keys hold (`named`): those every key
+    --- holds, and the system, compiler and program that only some do.
+    --- Each row it keeps, or stands on unnamed, is stamped with them;
+    --- nil for none.
     parts: string
     kept: {Kept}
     --- Keys the run relied on, which stay the longer for it.
@@ -309,8 +311,11 @@ function shared_verdicts.census(cache: shared_verdicts.Cache,
   return out, ""
 end
 
---- `parts`, the digests every key of a run holds (a name and a digest
---- each, in order), as the run says them: "name digest, name digest".
+--- `parts`, the digests a run's keys hold (a name and a digest each,
+--- in order: some, as the runtime's and the harness's, every key holds,
+--- and others, as the system's, the compiler's and the program's, only
+--- the keys of modules given them), as the run says them:
+--- "name digest, name digest".
 function shared_verdicts.named(parts: {{string}}): string
   local named: {string} = {}
   for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
@@ -319,7 +324,7 @@ end
 
 --- The line a run asked for its key parts (`cosmic test --census`)
 --- says where it says no `unmatched` line: the digests (a name and a
---- digest each, as given, in order) that every key of the run holds.
+--- digest each, as given, in order) the run's keys hold (`named`).
 function shared_verdicts.key_parts(parts: {{string}}): string
   return "test: key parts: " .. shared_verdicts.named(parts)
 end
