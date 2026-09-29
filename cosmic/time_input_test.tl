@@ -64,6 +64,28 @@ local function test_an_input_reads_every_form()
   assert((assert(Time.parse_input("2026-03-08T12:00:30.25", utc))).ns == (1772971230 * NS + 250000000))
 end
 
+local function test_seconds_are_optional_in_rfc_3339_as_in_local_text()
+  local utc = assert(Time.zone("UTC"))
+  local full = assert(Time.parse_input("2026-03-08T12:00:00Z", utc))
+  local short = assert(Time.parse_input("2026-03-08T12:00Z", utc))
+  assert(short.ns == full.ns and short.zone == Time.UTC)
+  local offset = assert(Time.parse_input("2026-03-08T12:00+05:30", utc))
+  assert(offset.ns == (1772971200 - 19800) * NS and offset.zone.name == "+05:30")
+  local named = assert(Time.parse_input("2026-03-08T08:00-04:00[America/New_York]", utc))
+  assert(named.ns == full.ns and named.zone.name == "America/New_York")
+  assert(assert(Time.parse_input("2026-03-08t12:00z", utc)).ns == full.ns)
+  local none, why = Time.parse_input("2026-03-08T12:00+5", utc)
+  assert(none == nil and why:find("RFC 3339", 1, true) and why:find("offset", 1, true), why)
+end
+
+local function test_every_failure_names_the_forms_then_the_fault()
+  for _, text in ipairs({ "2026-02-30", "2026-03-08T25:00", "2026-03-08T12:00:00.1234567890",
+      "2026-03-08T12:00:60", "@x", "@12345678901", "2026-03-08T12:00x", "2026-13-01T00:00" }) do
+    local none, why = Time.parse_input(text)
+    assert(none == nil and why:sub(1, 12) == "expected RFC", ("%q: %s"):format(text, why))
+  end
+end
+
 local function test_a_gap_and_an_overlap_are_resolved_as_asked()
   local ny = assert(Time.zone("America/New_York"))
   local function read(text: string, how?: Time.Disambiguation): integer | nil, string

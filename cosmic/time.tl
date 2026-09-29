@@ -1796,20 +1796,8 @@ end
 local INPUT_FORMS <const> = "expected RFC 3339 (2026-09-25T04:09:21Z), a date (2026-09-25), " ..
   "a local time (2026-09-25T04:09[:21]) or @<epoch seconds>"
 
---- The moment a user's text names, in whichever form they wrote it, or
---- nil and why: RFC 3339 as `parse_rfc3339_zoned` reads it, whose zone is
---- the suffix's, or else the text's own offset (`Z` is UTC); a date
---- `2026-09-25`, its first moment on the calendar of `zone` (UTC's when
---- nil), as `parse_date` has it; a local time `2026-09-25T04:09` or
---- `2026-09-25T04:09:21.5`, without `Z` or an offset, on the calendar of
---- `zone`, resolved as `opts.disambiguation` says ("compatible" when
---- absent, as a wall clock would: a time in a gap lands after the gap,
---- and a time passed twice is the earlier); and `@` and seconds since
---- 1970, an integer with an optional sign and fraction, `@1700000000`,
---- `@-1.5`. The zone returned is nil for the last three, which name none.
---- Any text answers a moment or a failure. Raises for a `disambiguation`
---- that is none of its type's or a `zone` no function here made.
-function Time.parse_input(text: string, zone?: Time.Zone,
+-- `parse_input` less the forms' names in its failures.
+local function read_input(text: string, zone?: Time.Zone,
     opts?: Time.CivilOptions): Time.Zoned | nil, string
   local how = opts ~= nil and opts.disambiguation or "compatible"
   if not DISAMBIGUATIONS[how] then
@@ -1818,9 +1806,9 @@ function Time.parse_input(text: string, zone?: Time.Zone,
   end
   if text:sub(1, 1) == "@" then
     local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
-    if whole == nil or #whole > 12 or #frac > 9 or (dot == "." and frac == "") then
-      return nil, "expected @ and seconds since 1970, as @1700000000 or @-1.5, " ..
-        "at most 12 digits and 9 of fraction"
+    if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
+      return nil, "@ and seconds since 1970, as @1700000000 or @-1.5, at most 10 digits " ..
+        "(the calendar ends in 2262) and 9 of fraction"
     end
     local start = sign == "" and 2 or 3
     local s = digits_at(text, start, #whole)
@@ -1864,8 +1852,15 @@ function Time.parse_input(text: string, zone?: Time.Zone,
     if ns == nil then return nil, from_why end
     return { ns = ns }, ""
   end
-  local zoned, why = parse(text)
-  if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
+  -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
+  local zoned, why: Time.Zoned | nil, string
+  local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
+  if minutes ~= nil then
+    zoned, why = parse(minutes .. ":00" .. rest)
+  else
+    zoned, why = parse(text)
+  end
+  if zoned == nil then return nil, why end
   if zoned.zone == nil then
     local head = text:match("^[^%[]*")
     local sign, hh, mm = head:match("([+-])(%d%d):(%d%d)$")
@@ -1876,6 +1871,28 @@ function Time.parse_input(text: string, zone?: Time.Zone,
       zoned.zone = Time.UTC
     end
   end
+  return zoned, ""
+end
+
+--- The moment a user's text names, in whichever form they wrote it, or
+--- nil and why: RFC 3339 as `parse_rfc3339_zoned` reads it, whose zone is
+--- the suffix's, or else the text's own offset (`Z` is UTC); a date
+--- `2026-09-25`, its first moment on the calendar of `zone` (UTC's when
+--- nil), as `parse_date` has it; a local time `2026-09-25T04:09` or
+--- `2026-09-25T04:09:21.5`, without `Z` or an offset, on the calendar of
+--- `zone`, resolved as `opts.disambiguation` says ("compatible" when
+--- absent, as a wall clock would: a time in a gap lands after the gap,
+--- and a time passed twice is the earlier); and `@` and seconds since
+--- 1970, an integer with an optional sign and fraction, `@1700000000`,
+--- `@-1.5`. Seconds are optional in the clock of RFC 3339 text as in
+--- local text (`2026-09-25T04:09Z`), and a failure names the forms, then
+--- the fault. The zone returned is nil for the last three, which name none.
+--- Any text answers a moment or a failure. Raises for a `disambiguation`
+--- that is none of its type's or a `zone` no function here made.
+function Time.parse_input(text: string, zone?: Time.Zone,
+    opts?: Time.CivilOptions): Time.Zoned | nil, string
+  local zoned, why = read_input(text, zone, opts)
+  if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
   return zoned, ""
 end
 

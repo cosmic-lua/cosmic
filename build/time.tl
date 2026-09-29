@@ -9,9 +9,11 @@
 --- Like `cosmic json` it ends in no verdict line: its standard output is
 --- data for a pipe or a `$(...)`. Its exit status is the verdict: 0 done,
 --- 1 an `add` whose answer does not exist (the day its month lacks, a
---- moment outside what the calendar holds, a local time a zone skipped,
---- under `--disambiguate reject`), 2 a command line, a time, a duration or
---- a zone it cannot read. Complaints go to standard error. build/dispatch.tl's
+--- moment outside what the calendar holds, a result in a gap a zone
+--- skipped, under `--disambiguate reject`), 2 a command line, a time, a
+--- duration or a zone it cannot read. So a local time a zone skipped or
+--- repeated that the user TYPED, read under `reject`, is bad input (2),
+--- while one an `add` LANDS in is an answer that does not exist (1). Complaints go to standard error. build/dispatch.tl's
 --- `bare` names it.
 ---
 --- Local times a zone skips or repeats: `YYYY-MM-DDTHH:MM[:SS]` read in a
@@ -21,6 +23,21 @@
 --- is 03:30, the offset before the change applied), and a time in an
 --- overlap is the earlier of its two moments. "earlier" and "later" take
 --- the moment before or after in both cases; "reject" refuses it.
+---
+--- `--json` prints one object. `now`, `convert` and `add` print the moment:
+--- `epoch` (whole seconds, floored), `rfc3339`, `zone` (the IANA name,
+--- "UTC", or an offset like "+05:30"), `offset` (seconds east of UTC),
+--- `abbreviation`, `dst`, and the civil fields `year`, `month`, `day`,
+--- `hour`, `minute`, `second`, `nanosecond`, `weekday` (1 Monday) and
+--- `yday`. `between` prints `unit` ("days", "months", "seconds" or
+--- "duration"), `value` (a number, or the duration text) and the moments
+--- `from` and `to` as above.
+---
+--- `between` counts calendar days and months on the calendar of `--zone`,
+--- else of the first time's own zone (else the host's); `--seconds` is
+--- elapsed time and ignores the calendar. Its default duration reads
+--- months as `--clamp` does (a day the month lacks is its last), so
+--- feeding it back to `add` may need `--clamp`.
 ---
 --- `add` moves years and months first, keeping the day of the month and
 --- the local time of day, then days along the calendar, then the exact
@@ -54,9 +71,11 @@ local NS <const> = 1000000000
 
 local spec = Cli.options.time
 
-local usage = "cosmic time now [--zone Z] [--format F] | convert <time> [--from Z] [--to Z] | " ..
-  "between <a> <b> [--days|--months|--seconds] | add <time> <duration> [--zone Z] [--clamp]; " ..
-  "all take --json, and a negative duration follows its time, as `add 2026-01-31 -1d`"
+local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
+  "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..
+  "between <a> <b> [--zone Z] [--days|--months|--seconds] [--json] [--disambiguate H] | " ..
+  "add <time> <duration> [--zone Z] [--format F] [--json] [--clamp] [--disambiguate H]; " ..
+  "a negative duration follows its time, as `add 2026-01-31 -1d`"
 
 --- The options each subcommand takes: any other is a usage error.
 local takes: {string:{string}} = {
@@ -80,7 +99,11 @@ local function protect(argv: {integer:string}): {integer:string}, {string:string
   while argv[slot] ~= nil do
     local word = argv[slot]
     if word == "--" then ended = true end
-    if not ended and slot > 2 and word:match("^%-%d") ~= nil then
+    local before = slot > 1 and argv[slot - 1] or ""
+    local option = spec[before]
+    local is_value = false
+    if option is Flags.Option then is_value = option.value ~= nil end
+    if not ended and slot > 2 and not is_value and word:match("^%-%d") ~= nil then
       local name = "\1kept" .. slot
       kept[name] = word
       word = name
@@ -115,7 +138,7 @@ local function record_of(seen: Seen): {string:any}
   return {
     epoch = seen.ns // NS,
     rfc3339 = Time.format_rfc3339(seen.ns, { zone = seen.zone }),
-    zone = seen.zone.name,
+    zone = seen.zone.name == "Etc/UTC" and "UTC" or seen.zone.name,
     offset = c.offset,
     abbreviation = c.abbreviation,
     dst = c.dst,
@@ -301,8 +324,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     local exact = moved + duration.nanoseconds
     if (duration.nanoseconds > 0 and exact < moved) or (duration.nanoseconds < 0 and exact > moved) then
-      complain(("the result is outside what the calendar holds, %s"):format(
-        "1677-09-21T00:12:43Z through 2262-04-11T23:47:16Z"))
+      complain("outside 1677-09-21T00:12:43.145224192Z through 2262-04-11T23:47:16.854775807Z, " ..
+        "what an integer of nanoseconds holds")
       return 1
     end
     return print_seen({ ns = exact, zone = calendar })

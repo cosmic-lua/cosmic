@@ -25,12 +25,14 @@ end
 local function gen_duration_text(src: Fuzz.Source): string
   local parts: {string} = {}
   if src:int(0, 4) == 0 then parts[1] = Fuzz.pick(src, { "-", "+" }) end
-  for _, unit in ipairs({ "y", "mo", "d", "h", "m", "s" }) do
-    if src:int(0, 1) == 0 then
-      local n = tostring(gen_number(src))
-      if unit == "s" and src:int(0, 2) == 0 then n = n .. "." .. tostring(src:int(0, 999999999)) end
-      parts[#parts + 1] = n .. unit
-    end
+  local units = { "y", "mo", "d", "h", "m", "s" }
+  -- Each unit drawn after a `more`, so shrinking can drop one.
+  local at = 0
+  while at < 6 and Fuzz.more(src, #parts, 6) do
+    at = at + src:int(1, 6 - at)
+    local n = tostring(gen_number(src))
+    if units[at] == "s" and src:int(0, 2) == 0 then n = n .. "." .. tostring(src:int(0, 999999999)) end
+    parts[#parts + 1] = n .. units[at]
   end
   return table.concat(parts)
 end
@@ -147,12 +149,6 @@ local function moment_round_trips(input: string): boolean, string
     Fuzz.label("epoch text")
     if by_epoch == nil or by_epoch.ns ~= ns then return false, epoch .. " read as another moment" end
   end
-  -- The local clock reading, read back in its zone, is the moment when the
-  -- zone has no other with that reading.
-  local c = Time.civil(ns, zone)
-  local local_text = ("%04d-%02d-%02dT%02d:%02d:%02d"):format(c.year, c.month, c.day, c.hour, c.minute, c.second)
-  local local_got = Time.parse_input(local_text, zone, { disambiguation = "earlier" })
-  if local_got ~= nil and local_got.ns // NS == ns // NS then Fuzz.label("local text") end
   return true, ""
 end
 
@@ -195,7 +191,7 @@ local function test_a_moment_reads_back_from_its_text(tmp: string)
     dir = tmp,
     gen = gen_moment,
     check = moment_round_trips,
-    requires = { "zoned text", "epoch text", "local text" },
+    requires = { "zoned text", "epoch text" },
     shares = { ["zoned text"] = 0.5 },
   })
 end

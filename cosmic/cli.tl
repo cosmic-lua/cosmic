@@ -147,7 +147,7 @@ local record Cli
   --- `--to`'s zone; `between <a> <b>` is `1y2mo3d4h5m6s` from a to b, or
   --- with `--days`, `--months` or `--seconds` one number; `add <time>
   --- <duration>` moves a time by `1y2mo3d4h5m6s` (negative with a leading
-  --- `-`, which follows the time: `add 2026-03-31 -1mo`). A time is RFC 3339
+  --- `-`, which follows the time: `add 2026-03-31 -1d`). A time is RFC 3339
   --- (`2026-09-25T04:09:21Z`, with an optional `[Zone]` suffix), a date,
   --- a local `2026-09-25T04:09[:21]` read in `--from` (or `--zone`), or
   --- `@<epoch seconds>`. A local time a zone skipped (a spring-forward
@@ -157,7 +157,9 @@ local record Cli
   --- choose otherwise. `add` moves years and months first, keeping the
   --- day of the month, then days on the calendar, then hours, minutes and
   --- seconds exactly; a day the month lacks (January 31 plus 1mo) is an
-  --- error, exit 1, unless `--clamp` takes the month's last day.
+  --- error, exit 1, unless `--clamp` takes the month's last day. `between`'s
+  --- duration reads months as `--clamp` does, on `--zone`'s calendar or the
+  --- first time's own; `--seconds` is elapsed time.
   --- `--json` prints one record: epoch, rfc3339, zone, offset and the
   --- civil fields. It prints no verdict line, as `json` does: exit 0
   --- done, 1 an `add` with no answer, 2 a command line, time, duration

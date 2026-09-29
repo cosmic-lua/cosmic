@@ -253,3 +253,36 @@ local function test_a_failed_write_exits_2()
   assert(ran.err == "cosmic: time: standard output: No space left on device\n", ran.err)
   assert(run({ "between", "@0", "@1", "--days" }, false).code == 2)
 end
+
+local function test_rfc_3339_without_seconds_converts()
+  assert(said({ "convert", "2026-03-08T12:00Z", "--to", "America/New_York" }) == "2026-03-08T08:00:00-04:00\n")
+  assert(said({ "convert", "2026-03-08T12:00+05:30", "--to", "UTC" }) == "2026-03-08T06:30:00+00:00\n")
+end
+
+local function test_a_dash_digit_option_value_is_the_users_own_word()
+  for _, words in ipairs({ { "now", "--zone", "-3" }, { "convert", "@0", "--to", "-1" },
+      { "convert", "@0", "--from", "-2" }, { "now", "--format", "-1" } }) do
+    local ran = run(words)
+    assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
+    assert(ran.err:find(" -", 1, true) and not ran.err:find("\1", 1, true), ran.err)
+    assert(ran.err:find(words[#words], 1, true), ran.err)
+  end
+end
+
+local function test_the_two_overflow_messages_agree_and_json_names_utc_plainly()
+  local a = run({ "add", "2262-01-01", "1y", "--zone", "UTC" })
+  local b = run({ "add", "2262-04-11T00:00:00Z", "999h" })
+  assert(a.code == 1 and b.code == 1)
+  assert(a.err:find("2262-04-11T23:47:16.854775807Z", 1, true), a.err)
+  assert(b.err:find("2262-04-11T23:47:16.854775807Z", 1, true), b.err)
+  assert(said({ "now", "--json", "--zone", "Etc/UTC" }):find('"zone": "UTC"', 1, true))
+end
+
+local function test_the_usage_lists_every_option_of_each_subcommand()
+  local ran = run({})
+  assert(ran.code == 2)
+  for _, name in ipairs({ "--zone", "--format", "--json", "--from", "--to", "--disambiguate", "--days",
+      "--months", "--seconds", "--clamp" }) do
+    assert(ran.err:find(name, 1, true), name)
+  end
+end
