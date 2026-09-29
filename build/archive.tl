@@ -602,10 +602,11 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local moved = apply_steps(tree, dest, stage .. "/aside", steps)
   if moved.why ~= "" then
     if not moved.whole then
-      return fail(bare.refused, trouble_of(file, file, moved.why .. "; the paths it had moved could not all be put back, " ..
+      return fail(bare.refused, why_of(moved.why .. "; the paths it had moved could not all be put back, " ..
         "and are under " .. stage))
     end
-    return give_up(fail(bare.refused, trouble_of(file, file, moved.why)))
+    -- A rename names the staged path it moved from: read as `dest`'s.
+    return give_up(fail(bare.refused, why_of(moved.why)))
   end
   local _, _ = Fs.remove_tree(stage)
   return print_written(written, to)

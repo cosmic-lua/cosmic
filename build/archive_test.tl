@@ -832,7 +832,7 @@ end
 
 local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouched(tmp: string)
   local hostile: {{string}} = {
-    { "unsafe", "dots" }, { "escape", "link" }, { "hard", "hard" },
+    { "unsafe" }, { "escape" }, { "thru" },
   }
   local archives: {string:{Member}} = {
     unsafe = { file_member("first.txt", "1"), file_member("../evil.txt", "2"), file_member("last.txt", "3") },
@@ -952,9 +952,9 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
   local patched = Fs as {string:any}
   local into = 0
   patched.rename = function(from: string, to: string): boolean, string
-    if to:find(dest .. "/", 1, true) == 1 then
+    if to:find(dest .. "/", 1, true) == 1 and from:find("/tree/", 1, true) then
       into = into + 1
-      if into == 3 then return false, to .. ": injected failure" end
+      if into == 3 then return false, from .. ": injected failure" end
     end
     return real(from, to)
   end
@@ -963,11 +963,33 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
   assert(ok, ran)
   local result = ran as Ran
   assert(result.code == 2 and result.err:find("injected failure", 1, true), result.err)
+  -- The rename names the path it moved from, in the staging directory.
+  assert(result.err:find(dest .. "/", 1, true) and not result.err:find("cosmic-extract", 1, true), result.err)
   for _, name in ipairs({ "a", "b", "c" }) do
     assert(Fs.read(dest .. "/" .. name .. ".txt") == "old " .. name, name .. " not restored")
   end
   assert(table.concat(tree_of(tmp), ",") == "dest,dest/a.txt,dest/b.txt,dest/c.txt,f.tar",
     table.concat(tree_of(tmp), ","))
+end
+
+--- A move that really fails (a directory the destination holds that
+--- cannot be written to), not one injected: what it replaced comes back
+--- and the complaint names the destination, not the staging directory.
+local function test_a_real_failure_in_the_move_restores_and_names_the_destination(tmp: string)
+  if sys.getuid() == 0 then return end -- root writes anywhere
+  local bytes = assert(Fs.read(make_tar(tmp .. "/r.tar", { file_member("a.txt", "new a"),
+    dir_member("sub"), file_member("sub/x.txt", "new x"), file_member("z.txt", "new z") })))
+  local dest = tmp .. "/dest"
+  assert(Fs.mkdirs(dest .. "/sub"))
+  assert(Fs.write(dest .. "/a.txt", "old a"))
+  assert(Fs.write(dest .. "/z.txt", "old z"))
+  assert(Fs.chmod(dest .. "/sub", 0x16d))
+  local ran = run({ "extract", "--force", "-", "-C", dest }, bytes)
+  assert(Fs.chmod(dest .. "/sub", 0x1ed))
+  assert(ran.code == 2 and ran.err:find(dest .. "/sub/x.txt", 1, true), ran.err)
+  assert(not ran.err:find("cosmic-extract", 1, true), ran.err)
+  assert(Fs.read(dest .. "/a.txt") == "old a" and Fs.read(dest .. "/z.txt") == "old z")
+  assert(table.concat(tree_of(tmp), ",") == "dest,dest/a.txt,dest/sub,dest/z.txt,r.tar", table.concat(tree_of(tmp), ","))
 end
 
 local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: string)

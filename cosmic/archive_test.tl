@@ -759,3 +759,18 @@ local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_
   written, why = unpack(tmp .. "/s3", { links = "create", resolve_in = tmp .. "/real2" })
   assert(written == nil and why:find("missing directory", 1, true), why)
 end
+
+--- A bad option is blamed on the caller's line, through either entry.
+local function test_extract_argument_errors_name_the_callers_line(tmp: string)
+  local _, first = pcall(function(): boolean
+    Archive.extract(tmp .. "/none", tmp .. "/o1", { max_bytes = -1 })
+    return true
+  end)
+  local _, second = pcall(function(): boolean
+    Archive.extract_reader({} as Archive.Reader, tmp .. "/o2", { strip_components = -1 })
+    return true
+  end)
+  for _, why in ipairs({ tostring(first), tostring(second) }) do
+    assert(why:find("archive_test:%d+: archive: "), why)
+  end
+end

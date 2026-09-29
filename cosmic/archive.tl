@@ -376,16 +376,16 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     given: Archive.ExtractOptions | nil): {string} | nil, string
   local opts: Archive.ExtractOptions = given or {}
   if opts.max_bytes ~= nil and opts.max_bytes < 0 then
-    error("archive: max_bytes is negative", 3)
+    error("archive: max_bytes is negative", 2)
   end
   if opts.max_entries ~= nil and opts.max_entries < 0 then
-    error("archive: max_entries is negative", 3)
+    error("archive: max_entries is negative", 2)
   end
   local count = opts.strip_components
   if count ~= nil and math.tointeger(count) == nil then
-    error("archive: strip_components is not a whole number of components", 3)
+    error("archive: strip_components is not a whole number of components", 2)
   elseif count ~= nil and count < 0 then
-    error("archive: strip_components is negative", 3)
+    error("archive: strip_components is negative", 2)
   end
   local links_mode = opts.links or "skip"
   local skip_unsupported = opts.unsupported == "skip"
@@ -651,17 +651,21 @@ end
 --- (a CRC32, a size) is never put in place.
 function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
+  -- A tail call: `extract_from`'s argument errors, raised at level 2,
+  -- blame this function's caller.
   return extract_from(path, dest, opts)
 end
 
 --- Like `extract`, for the entries `reader` yields (from `open_stream`,
 --- say) rather than a path: read once, to the end, as they arrive, so a
 --- stream is unpacked in one pass and bounded memory. Closes `reader`,
---- on every path. The same refusals apply, and a failure partway
+--- on every path but a raised argument error (there it is left open, as
+--- `extract` has opened nothing yet). The same refusals apply, and a failure partway
 --- likewise leaves what was already written: unpack into a scratch
 --- directory and move it into place to have all or nothing.
 function Archive.extract_reader(reader: Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
+  -- A tail call, as in `extract`.
   return extract_from(reader, dest, opts)
 end
 

@@ -407,7 +407,7 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
     name = "archive extract_reader parity",
     dir = tmp,
     gen = gen_extraction,
-    requires = { "streamed" },
+    requires = { "both wrote", "both refused" },
     check = function(input: string): boolean, string
       Fs.remove_tree(case)
       local outside = case .. "/outside"
@@ -439,7 +439,7 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
       end
       local by_file, by_stream = snapshot(case .. "/by-file"), snapshot(case .. "/by-stream")
       if by_file ~= by_stream then return false, "file:\n" .. by_file .. "\nstream:\n" .. by_stream end
-      Fuzz.label("streamed")
+      Fuzz.label(from_file ~= nil and "both wrote" or "both refused")
       return true, ""
     end,
   })
