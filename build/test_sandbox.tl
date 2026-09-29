@@ -219,11 +219,14 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- where the module does not declare `store`, and the whole projection
   -- where it does. Either is held for a process the worker starts,
   -- which reads what the worker could.
-  -- TODO: hide from a worker where the host keeps what it is given:
+  -- A worker can still learn where the host keeps what it is given:
   -- /proc/self/mountinfo names each bind's source, the tree's location,
-  -- the scratch directory's and the program's among them. Wants a
-  -- procfs that shows a mount's source as its target (none does), or
-  -- mountinfo refused to a test (a Landlock rule on /proc files).
+  -- the scratch directory's and the program's among them. That stays:
+  -- only a test that goes looking reads it, which the rule that no test
+  -- depends on where the tree is already forbids (and CI's moved
+  -- checkout catches), no procfs shows a mount's source as its target,
+  -- and refusing mountinfo would take a Landlock rule on /proc files,
+  -- which a program a test starts reads for honest reasons.
   local given_store = store
   if closure_store ~= nil and not effective.store then given_store = closure_store end
   for _, path in ipairs(base.reads) do
