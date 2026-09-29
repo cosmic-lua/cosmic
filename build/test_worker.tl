@@ -98,6 +98,10 @@ local record worker
     declared: {string}
     --- The worker's sandbox, or nil where it runs unsandboxed.
     sandbox: Child.Sandbox
+    --- The name the worker is to have its program by, in place of the
+    --- artifact path `start` names (build.test_sandbox's
+    --- `Plan.program`), or nil to keep that.
+    program: string | nil
   end
 
   --- How a worker starts (`invocation`): its command line and its
@@ -583,6 +587,11 @@ local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = 
 function worker.invocation(given: worker.Invocation): worker.Command
   local argv: {string} = {}
   for i, value in ipairs(given.start.argv) do argv[i] = value end
+  -- A relaunch's argv is the core, `--artifact` and the artifact's path,
+  -- which the worker's startup takes as it is given.
+  if given.program ~= nil and argv[2] == "--artifact" and argv[3] ~= nil then
+    argv[3] = given.program
+  end
   for _, value in ipairs({ "test", hold_flag[given.hold] or "--worker",
                            given.root, given.module_path, given.name, given.scratch .. "/tmp",
                            given.scratch .. "/children", given.needs, given.held }) do
