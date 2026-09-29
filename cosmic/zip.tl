@@ -13,6 +13,12 @@ local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
 
+-- TODO: share one plural helper with build.plural once the library has an
+-- internal Teal module to hold it: cosmic.* cannot require build.plural.
+local function counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+end
+
 local record Zip
   enum Kind
     "file"
@@ -28,12 +34,13 @@ local record Zip
     --- The uncompressed size.
     size: integer
     compressed_size: integer
-    --- 0 for stored, 8 for deflated; nothing else is understood.
     -- TODO: EntryOptions.method is a Zip.Method name and this is zip's
     -- number, so a reader cannot hand an entry's method back to
     -- add_file. Answer a Zip.Method here too once the enum can say
     -- "a method this reader cannot open" (listing such an entry works
     -- today; only opening it fails), keeping the number beside it.
+
+    --- 0 for stored, 8 for deflated; nothing else is understood.
     method: integer
     crc32: integer
     --- The permission bits from the entry's external attributes, when
@@ -368,7 +375,7 @@ Checked_methods.read = function(self: Checked, max: integer): string | nil, stri
     if trouble ~= "" then
       self.failed = trouble
     elseif self.seen ~= self.size then
-      self.failed = "zip: size mismatch: " .. tostring(self.seen) .. " bytes, recorded " ..
+      self.failed = "zip: size mismatch: " .. counted(self.seen, "byte") .. ", recorded " ..
         tostring(self.size)
     elseif (self.state or 0) ~= self.crc then
       self.failed = "zip: crc32 mismatch"
@@ -380,8 +387,7 @@ Checked_methods.read = function(self: Checked, max: integer): string | nil, stri
   local seen = self.seen + #chunk
   self.seen = seen
   if seen > self.size then
-    self.failed = "zip: entry is larger than its recorded size of " .. tostring(self.size) ..
-      " bytes"
+    self.failed = "zip: entry is larger than its recorded size of " .. counted(self.size, "byte")
     return nil, self.failed
   end
   self.state = Compress.crc32(chunk, self.state)
@@ -621,10 +627,10 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   if cd_offset < 0 or cd_size < 0 or cd_offset + cd_size > cd_limit or
       cd_offset + cd_size < cd_offset then
     return nil, "zip: central directory (offset " .. tostring(cd_offset) .. ", " ..
-      tostring(cd_size) .. " bytes) lies outside the file"
+      counted(cd_size, "byte") .. ") lies outside the file"
   end
   if total < 0 or total > cd_size // 46 then
-    return nil, "zip: " .. tostring(total) .. " entries cannot fit a " .. tostring(cd_size) ..
+    return nil, "zip: " .. counted(total, "entry", "entries") .. " cannot fit a " .. tostring(cd_size) ..
       "-byte central directory"
   end
 
@@ -660,8 +666,8 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     end
   end
   if count ~= total then
-    return nil, "zip: central directory holds " .. tostring(count) ..
-      " entries, but the end record says " .. tostring(total)
+    return nil, "zip: central directory holds " .. counted(count, "entry", "entries") ..
+      ", but the end record says " .. tostring(total)
   end
 
   local closed = false
@@ -945,7 +951,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
       if not ok then return false, trouble end
     end
     if hint ~= nil and hint ~= usize then
-      return sink:fail("zip: " .. path .. ": body is " .. tostring(usize) .. " bytes, not " ..
+      return sink:fail("zip: " .. path .. ": body is " .. counted(usize, "byte") .. ", not " ..
         tostring(hint))
     end
     if wide then

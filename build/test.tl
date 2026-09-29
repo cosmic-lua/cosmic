@@ -2741,8 +2741,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
       store)
     if plan.over > 0 then
-      finish(rec, job, nil, string.format("its sandbox would give it %d paths more than " ..
-        "the most one holds", plan.over), limits)
+      finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
+        " more than the most one holds", limits)
       return false
     end
     if plan.trouble ~= "" then
@@ -3764,8 +3764,8 @@ local function run(argv: {integer:string}): integer
       for _, line in ipairs(lines) do log:say(line) end
     end
     if undeclared > 0 then
-      log:say(string.format("audit: %d of %d tests, in %s, read what they do not " ..
-        "declare; see cosmic.test", undeclared, audited_tests,
+      log:say(string.format("audit: %d of %d %s, in %s, read what they do not " ..
+        "declare; see cosmic.test", undeclared, audited_tests, plural.noun(audited_tests, "test"),
         plural.count(modules_undeclared, "module")))
     else
       log:say(string.format("audit: %s read only %s inputs",
@@ -3774,8 +3774,8 @@ local function run(argv: {integer:string}): integer
   end
 
   local cov_pct = cov_total > 0 and (cov_hit * 100.0 / cov_total) or 0.0
-  local cov_line = string.format("test: coverage %.1f%% (%d/%d lines; informational, never a failure)",
-    cov_pct, cov_hit, cov_total)
+  local cov_line = string.format("test: coverage %.1f%% (%d/%d %s; informational, never a failure)",
+    cov_pct, cov_hit, cov_total, plural.noun(cov_total, "line"))
 
   if #failures == 0 and #errors == 0 then
     if total == 0 then

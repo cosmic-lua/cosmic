@@ -78,6 +78,7 @@ local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
+local plural = require("build.plural")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
@@ -231,7 +232,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if flags == nil then return refuse(trouble) end
   local parsed: Flags.Parsed = flags
   if #parsed.words ~= 1 then
-    return refuse("give one URL, not " .. #parsed.words .. " words")
+    return refuse("give one URL, not " .. plural.count(#parsed.words, "word"))
   end
   -- The fragment never reaches a request, a redirect or a message: it
   -- is taken off first, and only the digests it names are kept.

@@ -385,6 +385,117 @@ local function test_a_run_names_each_check(dir: string)
   end
 end
 
+--- A public `---` doc that carries a TODO or cites the build, the C or an
+--- internal module is refused with the rule and the fix; a `--` comment
+--- may hold both, a private symbol's doc is not shown, and an
+--- exemption whose doc no longer breaks the rule is stale.
+local function test_a_public_doc_naming_internals_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local record thing",
+      "end",
+      "--- Does it, as build/thing.tl does.",
+      "function thing.a() end",
+      "--- Does it. TODO: do more.",
+      "function thing.b() end",
+      "--- Does it through core/thing.c and cosmic.internal.thing.",
+      "function thing.c() end",
+      "--- Does it as build.thing does, or vendor/thing.",
+      "function thing.d() end",
+      "--- Does it plainly (127.a.b.c, e.g. `o/build.db`).",
+      "function thing.e() end",
+      "-- TODO: do more, as build/thing.tl does.",
+      "",
+      "function thing.f() end",
+      "--- Private, in core/thing.c.",
+      "local function g() end",
+      "return thing"),
+  })
+  local found = tree_checks.public_docs(db, {})
+  local text = table.concat(found, "\n")
+  assert(#found == 4, text)
+  assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl` %(path rule%) %-%- say what a caller needs")
+    ~= nil, text)
+  assert(found[2]:find("^cosmic/thing%.tl:7: .*`TODO:` %(todo rule%).*`%-%-` comment") ~= nil, text)
+  assert(found[3]:find("^cosmic/thing%.tl:9: .*`core/thing%.c`") ~= nil, text)
+  assert(found[4]:find("^cosmic/thing%.tl:11: .*`build%.thing`") ~= nil, text)
+  local excused = {
+    ["cosmic.thing a path"] = "a",
+    ["cosmic.thing b todo"] = "b",
+    ["cosmic.thing c path"] = "c",
+    ["cosmic.thing d path"] = "d",
+    ["cosmic.thing e path"] = "unneeded",
+  }
+  found = tree_checks.public_docs(db, excused)
+  assert(#found == 1 and found[1]:find("^cosmic.thing e path: exempt, but") ~= nil,
+    table.concat(found, "\n"))
+  local clean = fixture.database(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local record thing",
+      "end",
+      "--- Does it, and says what a caller needs.",
+      "function thing.a() end",
+      "return thing"),
+    ["build/internal.tl"] = source(
+      "--- Cites core/thing.c, TODO: freely.",
+      "local record internal",
+      "end",
+      "return internal"),
+  })
+  found = tree_checks.public_docs(clean, {})
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- A literal plural after a number is refused -- joined by `..` to a
+--- length, `tostring(...)` or a literal, or after a `%d` -- with the fix;
+--- `plural.count`, a verb after a number, a label (`at byte %d`), a
+--- comment and a test source pass, and an exemption nothing needs is stale.
+local function test_a_literal_plural_after_a_number_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["build/count.tl"] = source(
+      "local record count",
+      "end",
+      "function count.a(rows: {string}): string",
+      "  return #rows .. \" tests\"",
+      "end",
+      "function count.b(n: integer): string",
+      "  return \"has \" .. tostring(n) ..",
+      "    \" files in it\"",
+      "end",
+      "function count.c(n: integer): string",
+      "  return (\"%d of %d tests\"):format(n, n)",
+      "end",
+      "return count"),
+    ["build/fine.tl"] = source(
+      "local plural = { count = function(n: integer, s: string): string return s end }",
+      "local record fine",
+      "end",
+      "function fine.a(rows: {string}, at: integer, name: string): string",
+      "  -- #rows .. \" tests\" in a comment",
+      "  return plural.count(#rows, \"test\") .. name .. \" tests\" ..",
+      "    (\"at byte %d needs\"):format(at) .. (\"%d of %s\"):format(at, name) ..",
+      "    (\"iters=%d\"):format(at) .. #rows .. \" is the count\"",
+      "end",
+      "return fine"),
+    ["build/fine_test.tl"] = source(
+      "local function test_x(rows: {string})",
+      "  local _ = #rows .. \" tests\"",
+      "end"),
+  })
+  local found = tree_checks.plurals(db, {})
+  local text = table.concat(found, "\n")
+  assert(#found == 3, text)
+  assert(found[1]:find("^build/count%.tl:4: .*`tests`.*plural%.count") ~= nil, text)
+  assert(found[2]:find("^build/count%.tl:7: .*`files`") ~= nil, text)
+  assert(found[3]:find("^build/count%.tl:11: .*`tests`.*plural%.noun") ~= nil, text)
+  found = tree_checks.plurals(db, { ["build/count.tl:tests"] = "always many",
+    ["build/count.tl:files"] = "always many", ["build/fine.tl:tests"] = "unneeded" })
+  assert(#found == 1 and found[1]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil,
+    table.concat(found, "\n"))
+end
+
 --- A guide under doc/guides that is neither a user guide nor named
 --- internal would silently not ship: the check names it.
 local function test_a_guide_in_neither_list_is_refused()

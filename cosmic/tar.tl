@@ -12,6 +12,12 @@
 local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
 
+-- TODO: share one plural helper with build.plural once the library has an
+-- internal Teal module to hold it: cosmic.* cannot require build.plural.
+local function counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+end
+
 local record Tar
   enum Kind
     "file"
@@ -214,8 +220,8 @@ end
 --- block boundary, for an `L`/`K`/`x`/`g` special entry's own body.
 local function read_special_body(raw: Stream.Reader, size: integer): string | nil, string
   if size < 0 or size > SPECIAL_BODY_LIMIT then
-    return nil, "tar: a long-name or pax header body of " .. tostring(size) ..
-      " bytes is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit"
+    return nil, "tar: a long-name or pax header body of " .. counted(size, "byte") ..
+      " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit"
   end
   local data, trouble = Stream.read_exact(raw, size)
   if data == nil then return nil, trouble end
@@ -699,7 +705,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     if not ok then return false, trouble end
     if data is string then
       if #data ~= size then
-        return sink:fail("tar: add_file: body is " .. tostring(#data) .. " bytes, not " .. tostring(size))
+        return sink:fail("tar: add_file: body is " .. counted(#data, "byte") .. ", not " .. tostring(size))
       end
       ok, trouble = sink:put(data)
       if not ok then return false, trouble end

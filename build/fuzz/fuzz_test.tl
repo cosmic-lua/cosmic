@@ -41,7 +41,7 @@ local function test_a_failure_is_shrunk_to_its_simplest_input()
     end,
   })
   assert(err:find("fuzz no high bytes: seed=1 iteration=%d+: a high byte"), err)
-  assert(err:find("draws and 1 bytes;", 1, true), err)
+  assert(err:find("draws and 1 byte;", 1, true), err)
   assert(err:find("input (hex): c8\n", 1, true), err)
   assert(err:find("reproduce: FUZZ_CASE=no-high-bytes:", 1, true), err)
   assert(err:find("or FUZZ_SEED=1 FUZZ_ITERS=", 1, true), err)
@@ -71,7 +71,7 @@ local function test_a_raise_fails_the_property_and_names_what_it_raised()
     end,
   })
   assert(err:find("raised: the parser gave up", 1, true), err)
-  assert(err:find("to 1 draws and 0 bytes;", 1, true), err)
+  assert(err:find("to 1 draw and 0 bytes;", 1, true), err)
 end
 
 -- The budget shares the VM's one hook with coverage, which `cosmic test`
