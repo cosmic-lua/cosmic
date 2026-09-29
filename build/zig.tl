@@ -3,14 +3,14 @@
 ---
 ---     cosmic --standalone build/zig.tl [args...]
 ---
---- This file runs standalone -- against the bootstrap binary's own
---- embedded standard library, never against the tree it sits in -- so
---- it requires `cosmic.*` modules only. Before a build it runs one more
---- file the same way, `build/patch.tl`, which patches the vendored
---- trees (`patch`); nothing else of the tree is loaded. A bootstrap
---- older or newer than the tree, a core edit nobody has booted yet, or
---- a syntax error elsewhere in the tree cannot stop zig from running,
---- which is what rebuilds all of those; one in either file can.
+--- This file runs standalone, against the bootstrap binary's own
+--- embedded standard library and never the tree it sits in, so it
+--- requires `cosmic.*` modules only. Before a build it runs one more
+--- file the same way, `build/patch.tl`, which patches the vendored trees
+--- (`patch`); nothing else of the tree is loaded. So a bootstrap older or
+--- newer than the tree, a core edit nobody has booted yet, or a syntax
+--- error elsewhere in the tree cannot stop zig from running, which is
+--- what rebuilds all of those. A syntax error in either file can.
 ---
 --- The pin is `bin/zig.pin`: a `version` line, then one line per host
 --- naming that host's release tarball's sha256. `COSMIC_ZIG` names an
@@ -18,54 +18,52 @@
 --- is looked up on `PATH`, as a shell would.
 ---
 --- Otherwise the release is cached at
---- `$XDG_CACHE_HOME/cosmic/zig/<version>-<host>-<sha>`, `<sha>` the
---- first 16 hex digits of the host's sha256 (`Zig.install_name`; default
+--- `$XDG_CACHE_HOME/cosmic/zig/<version>-<host>-<sha>` (default
 --- `$HOME/.cache/cosmic/zig/...`, and no fallback when neither is set;
---- see `Fs.cache_dir`, which also refuses a cache directory someone
---- else could write to): if `<install>/zig` is already there
---- it is used as is; otherwise the tarball `zig-<host>-<version>.tar.xz`
---- is downloaded with `Http.download`'s own `sha256` check -- from a few
---- of zig's community mirrors, then
+--- see `Fs.cache_dir`, which also refuses a cache directory someone else
+--- could write to). `<sha>` is the first 16 hex digits of the host's
+--- sha256 (`Zig.install_name`). If `<install>/zig` is already there it
+--- is used as is. Otherwise the tarball `zig-<host>-<version>.tar.xz` is
+--- downloaded, checked by `Http.download`'s `sha256` option, from a few
+--- of zig's community mirrors and then
 --- `https://ziglang.org/download/<version>/`, retried in rounds
---- (`Zig.sources`, `Zig.fetch`) -- into a
---- scratch `.work.<pid>` directory under the cache, extracted with
---- `cosmic.archive`, and renamed into place -- tolerating a concurrent
---- winner, whose copy is the same bytes. The scratch directory is
---- removed on every path out, and one a dead process left behind is
---- removed by the next install.
+--- (`Zig.sources`, `Zig.fetch`). It goes into a scratch `.work.<pid>`
+--- directory under the cache, is extracted with `cosmic.archive`, and is
+--- renamed into place, tolerating a concurrent winner, whose copy is the
+--- same bytes. The scratch directory is removed on every path out, and
+--- one a dead process left behind is removed by the next install.
 ---
 --- `build` gets a prefix flag naming the repository's `o/` (the root is
 --- found from this script's own path) and flags naming zig's two caches.
---- The global cache holds what zig builds of its own -- libc,
---- compiler-rt, the standard library; the project cache holds what this
---- build compiles. Both are keyed by content, and every checkout shares
---- them: `COSMIC_ZIG_GLOBAL_CACHE` and `COSMIC_ZIG_CACHE` when set, else
+--- The global cache holds what zig builds of its own (libc, compiler-rt,
+--- the standard library); the project cache holds what this build
+--- compiles. Both are keyed by content, and every checkout shares them:
+--- `COSMIC_ZIG_GLOBAL_CACHE` and `COSMIC_ZIG_CACHE` when set, else
 --- `zig-global` and `zig-project` in this user's cosmic cache directory,
 --- else (no cache directory at all) `o/zig-global` and `o/zig-cache`.
 --- zig keys a C object by its source's path, and a file in a checkout
---- has an absolute path of its own; build.zig compiles every C file,
---- vendor/'s and the tree's own, from copies in the project cache, so a
---- fresh worktree compiles none of it again. Every other subcommand
---- passes through unchanged. zig runs in the caller's own working
---- directory.
+--- has an absolute path of its own, so build.zig compiles every C file,
+--- vendor/'s and the tree's own, from copies in the project cache, and a
+--- fresh worktree compiles none of it again. zig runs in the caller's
+--- own working directory.
 ---
---- Every other subcommand replaces this process with zig. `build` runs
---- zig as a child instead, between two snapshots of what the build
---- reads (`Zig.snapshot`): a source edited while zig compiles can land
---- in one of a step's inputs and not another's -- two links of one
---- core, say -- and the failure that follows names neither. When the
---- snapshots differ this says which files moved and exits 1, even
---- when zig succeeded, since what it wrote may mix the two versions.
---- The child stays in this terminal's process group, so a Ctrl-C
---- reaches zig itself; this process catches SIGINT and SIGTERM while
---- zig runs, passes on one zig has not answered, and waits for zig to
---- exit before it answers as zig did (`Zig.run`): dying of the signal
---- that ended zig, or of a SIGTERM zig never got, and otherwise
---- exiting with zig's status.
+--- Every other subcommand replaces this process with zig, its two caches
+--- set in the environment (`Zig.passthrough_environment`). `build` runs
+--- zig as a child instead, between two snapshots of what the build reads
+--- (`Zig.snapshot`): a source edited while zig compiles can land in one
+--- of a step's inputs and not another's (two links of one core, say),
+--- and the failure that follows names neither. When the snapshots differ
+--- this says which files moved and exits 1, even when zig succeeded,
+--- since what it wrote may mix the two versions. The child stays in this
+--- terminal's process group, so a Ctrl-C reaches zig itself. This
+--- process catches SIGINT and SIGTERM while zig runs, passes on one zig
+--- has not answered, and waits for zig to exit before it answers as zig
+--- did (`Zig.run`): dying of the signal that ended zig, or of a SIGTERM
+--- zig never got, and otherwise exiting with zig's status.
 ---
---- Exit codes follow the shell's: 127 when zig cannot be found, 126
---- when it is found but cannot be run, 1 for anything else that stops
---- it from starting.
+--- Exit codes follow the shell's: 127 when zig cannot be found, 126 when
+--- it is found but cannot be run, 1 for anything else that stops it from
+--- starting.
 
 local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
@@ -168,10 +166,11 @@ end
 
 --- How many steps `zig build` runs at once on `cpus` processors, unless
 --- the caller says (`-j<n>`). zig's own default is one fewer than the
---- processors, which in practice kept about two compiles going: the three
---- targets' vendored libraries, each bound by one long SQLite compile,
---- then ran one after another while most processors sat idle. `-j` bounds
---- steps only; each compile still spreads its files over every processor.
+--- processors, which kept about two compiles going in practice: the
+--- three targets' vendored libraries, each bound by one long SQLite
+--- compile, ran one after another while most processors sat idle. `-j`
+--- bounds steps only; each compile still spreads its files over every
+--- processor.
 function Zig.build_jobs(cpus: integer): integer
   return math.max(8, 2 * cpus)
 end
@@ -240,16 +239,15 @@ function Zig.sweep(cache: string)
   end
 end
 
---- zig's community mirrors of `https://ziglang.org/download/`, as
---- https://ziglang.org/download/community-mirrors.txt listed them on
---- 2026-09-24. Refresh this list by copying that file's lines here;
---- three of them already failed for 0.16.0 that day (zigmirror.hryx.net
---- 502, zig.linus.dev 404, zig.tilok.dev 500), which costs an attempt
---- each when drawn, ziglang.org still ending every round. A
---- mirror serves a release's files flat, at `<mirror>/<name>`. No mirror
---- is trusted: each download is held to `bin/zig.pin`'s sha256, so a
---- stale, broken or hostile one costs an attempt and nothing more, and
---- the minisign signature zig publishes beside each file is not needed.
+--- zig's community mirrors of `https://ziglang.org/download/`, copied
+--- from https://ziglang.org/download/community-mirrors.txt on
+--- 2026-09-24. Refresh this list by copying that file's lines here. A
+--- mirror may be down or lack a release, which costs an attempt each
+--- when drawn, ziglang.org still ending every round. A mirror serves a
+--- release's files flat, at `<mirror>/<name>`. No mirror is trusted:
+--- each download is held to `bin/zig.pin`'s sha256, so a stale, broken
+--- or hostile one costs an attempt and nothing more, and the minisign
+--- signature zig publishes beside each file is not needed.
 -- TODO: check this list against community-mirrors.txt from ci/ (a
 -- scheduled job that fails on a difference) rather than by hand.
 local MIRRORS <const>: {string} = {
@@ -306,13 +304,15 @@ local BUDGET_MS <const> = 12 * 60 * 1000
 --- The URLs to fetch `name`, zig `version`'s release tarball, from, in
 --- the order to try them: `MIRRORS_TRIED` of `mirrors` in a random order
 --- (`random(n)` picks from 1 to n, `math.random` by default), then
---- ziglang.org. zig asks automated downloaders -- CI above all -- to
---- use the community mirrors and keep ziglang.org, which is served on a
---- budget, for last; shuffling spreads that load and keeps one dead
---- mirror from being every run's first attempt. ziglang.org comes last
---- rather than never, so a list gone stale still installs. Each mirror
---- URL carries `?source=cosmic`, which zig asks for so mirror operators
---- can tell who fetches.
+--- ziglang.org.
+---
+--- zig asks automated downloaders, CI above all, to use the community
+--- mirrors and keep ziglang.org, which is served on a budget, for last.
+--- Shuffling spreads that load and keeps one dead mirror from being
+--- every run's first attempt. ziglang.org comes last rather than never,
+--- so a list gone stale still installs. Each mirror URL carries
+--- `?source=cosmic`, which zig asks for so mirror operators can tell who
+--- fetches.
 function Zig.sources(version: string, name: string, mirrors: {string},
     random?: function(integer): integer): {string}
   local pick = random or math.random
@@ -344,17 +344,18 @@ end
 --- of `urls` that serves it, going over them up to `ROUNDS` times with a
 --- growing pause between rounds. Every url but the last is a mirror,
 --- held to the mirror limits and the budget; the last is the fallback
---- (ziglang.org), held only to a stall guard, as `BUDGET_MS` says. Once
---- the budget is spent the mirrors are skipped and the fallback is tried
---- one last time. Each attempt starts from no file at `path`
---- (`Http.download` writes a fresh temporary file and renames it into
---- place only once the digest matches). A mirror that served the wrong
---- bytes is not asked again; one that failed any other way is, in the
---- next round. The fallback is never barred: a transfer cut short
---- without an error reads as a mismatch too, and giving up the one
---- source every list ends with on that would make it fatal. When every
---- attempt fails, the message names each source, its last trouble and
---- how long that attempt ran.
+--- (ziglang.org), held only to a stall guard (see the limits above
+--- `CONNECT_TIMEOUT_MS`). Once the budget is spent the mirrors are
+--- skipped and the fallback is tried one last time.
+---
+--- Each attempt starts from no file at `path` (`Http.download` writes a
+--- fresh temporary file and renames it into place only once the digest
+--- matches). A mirror that served the wrong bytes is not asked again;
+--- one that failed any other way is, in the next round. The fallback is
+--- never barred: a transfer cut short without an error reads as a
+--- mismatch too, and giving up the one source every list ends with on
+--- that would make it fatal. When every attempt fails, the message names
+--- each source, its last trouble and how long that attempt ran.
 function Zig.fetch(urls: {string}, path: string, sha256: string,
     via?: Zig.Fetcher): boolean, string
   local download = via ~= nil and via.download or Http.download
@@ -533,14 +534,14 @@ local function status_of(why: string): integer
 end
 
 --- How many of a pin's sha256 hex digits name its install. The name
---- only has to tell apart the pins one cache sees over time -- a
+--- only has to tell apart the pins one cache sees over time (a
 --- re-released tarball under an unchanged version, a pin edited by
---- hand -- since what gets installed is still held to the whole sha256
+--- hand), since what gets installed is still held to the whole sha256
 --- as it downloads, and the cache is this user's alone
 --- (`Fs.cache_dir`). 64 bits of a sha256 never collide by chance among
 --- those, and a pin chosen to collide gains its author nothing: they
 --- write the whole sha256 anyway. The whole digest would work as well;
---- 16 keeps a path a person reads and types short.
+--- 16 keeps a path short enough to read and type.
 local INSTALL_SHA_DIGITS <const> = 16
 
 --- The directory name `pin`'s release for `host` installs under:
@@ -549,12 +550,12 @@ local INSTALL_SHA_DIGITS <const> = 16
 --- does not names a new install rather than finding the old one in
 --- place. Nil and why when the pin names no sha256 for `host`, or one
 --- that is not 64 hex digits.
--- TODO: remove installs no pin names any more: each stays until it is
--- removed by hand, one per version and sha a cache has seen, and one
--- per version named `<version>-<host>` with no sha, as they were before
--- the sha was part of the name; that wants a way to tell an install
--- another checkout's pin still names (a last-used stamp touched on each
--- run, say) from one none does.
+-- TODO: remove installs no pin names any more. Each stays until it is
+-- removed by hand: one per version and sha a cache has seen, and any
+-- `<version>-<host>` directory with no sha, from a naming this no longer
+-- uses. That wants a way to tell an install another checkout's pin
+-- still names (a last-used stamp touched on each run, say) from one
+-- none does.
 function Zig.install_name(pin: Zig.Pin, host: string): string | nil, string
   local sha256 = pin.shas[host]
   if sha256 == nil then
@@ -795,21 +796,23 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
+---
 --- SIGINT and SIGTERM are held by a `Child.guard` meanwhile, so this
 --- process outlives the child whatever it is sent. A terminal's Ctrl-C
---- reaches the child directly, since it shares this group; a signal
---- sent to this process alone does not, so one the child has not
---- answered by exiting within a quarter second is passed on to it --
---- late enough that a child the terminal already interrupted is not
---- interrupted twice. A child SIGINT or SIGTERM ended ends this process
---- with the same signal, as a shell expects of an interrupted command,
---- and so does a SIGTERM the child never got: one it exited before
---- being passed, or one that came after it ended. A SIGINT the child
---- never got is answered by the child's status instead, as bash
---- answers a Ctrl-C its command caught and exited from: a terminal's
---- Ctrl-C reaches the child too, and one it caught cleanly within the
---- quarter second looks here just like a SIGINT sent to this process
---- alone. A terminal never sends SIGTERM.
+--- reaches the child directly, since it shares this group. A signal sent
+--- to this process alone does not, so one the child has not answered by
+--- exiting within a quarter second is passed on to it; the delay keeps a
+--- child the terminal already interrupted from being interrupted twice.
+---
+--- A child ended by SIGINT or SIGTERM ends this process with the same
+--- signal, as a shell expects of an interrupted command, and so does a
+--- SIGTERM the child never got: one it exited before being passed, or
+--- one that came after it ended. A SIGINT the child never got is
+--- answered by the child's status instead, as bash answers a Ctrl-C its
+--- command caught and exited from: a terminal's Ctrl-C reaches the child
+--- too, and one it caught cleanly within the quarter second looks here
+--- just like a SIGINT sent to this process alone. A terminal never sends
+--- SIGTERM.
 function Zig.run(argv: {string}): integer
   local opened, guard_trouble = Child.guard()
   if opened == nil then
@@ -872,9 +875,9 @@ function Zig.run(argv: {string}): integer
   if caught == nil then
     log:complain("signal guard: " .. release_trouble)
   end
-  -- A signal the child never got: re-raised only when it is SIGTERM,
-  -- which a terminal never sends, so a child's own Ctrl-C it caught and
-  -- exited from cleanly is answered by its status, as bash answers it.
+  -- A signal the child never got is re-raised only when it is SIGTERM,
+  -- which a terminal never sends. A Ctrl-C the child caught and exited
+  -- from cleanly is answered by its status, as bash answers it.
   -- TODO: re-raise a never-passed SIGINT too, once ci/cosmic-driver.pin
   -- names a cosmic whose guard reports whether a signal came from kill()
   -- or from the terminal (the siginfo's si_code, which core/syscalls.c's

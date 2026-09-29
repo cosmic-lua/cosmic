@@ -2,21 +2,23 @@
 --- make: every export earned, no two doc anchors sharing a name, every
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
---- answered, and every quieted method one a module declares. Each asks
---- the tree's projection, `o/cosmic.db`, which holds every module's
---- docs, uses, imports, examples and source.
+--- answered, every quieted method one a module declares, every
+--- declaration's requires declared, and every verb's spec listed and
+--- readable. Each asks the tree's projection, `o/cosmic.db`, which holds
+--- every module's docs, uses, imports, examples and source.
 ---
 --- A test reads its own module's closure and no more (the rule the
---- suite's `store` declaration is kept to), so these are not tests:
+--- suite's `store` declaration is kept to), so these are not tests.
 --- `cosmic fix` runs them when it covers all of cosmic's own tree
 --- (`cosmic fix --check .`, which CI runs), after building the
 --- projection afresh (`projection`), and each line a check answers
 --- fails the run. A `cosmic fix` of some paths does not run them, and a
 --- tree that does not build fails them all.
 ---
---- Each check takes the projection and what it holds the tree to, by
---- default the tree's own (`allowed`, the anchors expected, ...), so its
---- test hands it a fixture database and a list of its own.
+--- Each check takes the projection and, optionally, what it holds the
+--- tree to (`allowed`, the anchors expected, ...), which defaults to the
+--- tree's own, so its test can hand it a fixture database and a list of
+--- its own.
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -272,8 +274,8 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 --- `X.read`, by design -- so a real member that shares an anchor's name
 --- (`Proc.Relaunch.argv` beside `Entrypoint.argv`) is listed beside it
 --- as any two members are. What is refused is two anchors sharing one:
---- a reader asking for the verb `test` was also shown the layout rule
---- for test files.
+--- a reader asking for the verb `test` would also be shown the layout
+--- rule for test files.
 ---
 --- A doc anchor is a record of a public `cosmic/` module that exists to
 --- be looked up, not passed around: every field of it is a documented
@@ -568,10 +570,10 @@ end
 
 --- Builds the tree at `root`, cosmic's own, into its projection,
 --- `o/cosmic.db`, as `cosmic test` does before any test reads it, and
---- opens it: `cosmic fix` rebuilds the tool it runs as when that is
---- stale, but not the projection of what the tool does not carry, its
---- tests and examples among it. A module the build refuses is a
---- failure: the checks would read a projection without it.
+--- opens it. `cosmic fix` rebuilds the tool it runs as when that is
+--- stale, but not the projection, which holds what the tool does not
+--- carry (its tests and examples among it). A module the build refuses
+--- is a failure: the checks would read a projection without it.
 function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | nil, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
@@ -730,14 +732,17 @@ local function spec_fields(text: string, start: integer): Fields
 end
 
 --- Each verb's registration (build/verb_spec.tl) that its module leaves
---- short: a module of `db` that assigns a `spec` but that
---- build/verb_list.tl does not require, so nothing dispatches to it; a
---- listed verb whose module has no spec assigned as a table literal to
---- `<x>.spec` or `<x>.<y>_spec` at the start of a line, which nothing
---- here could then read; a `guide` that names no `## ` heading of
---- `quickstart` (the text of doc/guides/quickstart.md) whose section
---- mentions `cosmic <name>`, nor gives a reason ("none: ..."); and
---- `tests` that is empty or names a module that is no test of `db`.
+--- short:
+---
+--- - a module of `db` that assigns a `spec` but that build/verb_list.tl
+---   does not require, so nothing dispatches to it;
+--- - a listed verb whose module has no spec assigned as a table literal
+---   to `<x>.spec` or `<x>.<y>_spec` at the start of a line, which
+---   nothing here could then read;
+--- - a `guide` that names no `## ` heading of `quickstart` (the text of
+---   doc/guides/quickstart.md) whose section mentions `cosmic <name>`,
+---   nor gives a reason ("none: ...");
+--- - `tests` that is empty or names a module that is no test of `db`.
 ---
 --- A spec is read from its module's source, where `name`, `guide` and
 --- `tests` must be literals (`spec_fields`): the listing module cannot be

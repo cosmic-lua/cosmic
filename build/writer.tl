@@ -1,13 +1,12 @@
 --- Writing a compiled tree out as the shipped database.
 ---
---- `o/cosmic.db` is a projection of the working database: a fresh
---- schema attached in memory, filled in one transaction by queries
---- over rows the build already holds -- this run's plan joined to the inputs
---- and compiles it names, the
---- declarations a checker needs to build a tree against this one, the
---- time zones the working database holds (cosmic's own tree's only) --
---- and produced by `VACUUM INTO`, so a second build of the same tree
---- is byte-identical.
+--- `o/cosmic.db` is a projection of the working database: a fresh schema
+--- attached in memory and filled in one transaction by queries over rows
+--- the build already holds, then written by `VACUUM INTO`, so a second
+--- build of the same tree is byte-identical. The rows are this run's plan
+--- joined to the inputs and compiles it names, the declarations a checker
+--- needs to build a tree against this one, and the time zones the
+--- working database holds (cosmic's own tree's only).
 ---
 --- The store of a test module's import closure a sandboxed worker is
 --- given in the projection's place is derived from the projection by
@@ -31,12 +30,11 @@ end
 
 local text = bind.text
 
---- The signature already recorded inside the projection at `path`, or
---- `""` when there is none to trust: no file there, a file that is not
---- a database, or a database with no `projected` row. Read straight
---- from the file itself rather than from any record kept elsewhere, so
---- a file that drifted from that other record is never mistaken for
---- what it describes.
+--- The signature recorded inside the projection at `path`, or `""` when
+--- there is none to trust: no file there, a file that is not a database,
+--- or a database with no `projected` row. It is read from the file
+--- itself, not from a record kept elsewhere, so a file that drifted from
+--- that record is never mistaken for what it describes.
 local function projected_signature(path: string): string
   local handle, _ = Sqlite.open(path, false)
   if handle == nil then
@@ -78,11 +76,12 @@ local insert_imports =
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- The documented symbols (`build.analyzer.DocEntry`) found while parsing
---- each planned module and each declaration -- `cosmic.sys`'s only
---- source is the C header it is generated from -- in module order and
---- then source order. Which of them a reader sees is `build.docs`'s
---- to decide: it answers a project only for the public standard library. `id` is left for SQLite to assign in
---- that order, so it is the same on every build of the same tree.
+--- each planned module and each declaration (`cosmic.sys`'s only source
+--- is the C header it is generated from), in module order and then
+--- source order. Which of them a reader sees is `build.docs`'s to
+--- decide: it answers a project only for the public standard library.
+--- `id` is left for SQLite to assign in that order, so it is the same on
+--- every build of the same tree.
 local insert_docs =
   "INSERT INTO out.docs (module, symbol, source_symbol, exported, kind, " ..
   "signature, text, file, line) " ..
@@ -118,25 +117,25 @@ local insert_typed_uses =
 
 --- The worked examples (`build.analyzer.ExampleEntry`) found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
---- against the module its file name pairs with, which is a planned
---- module or a declaration, as `cosmic.sys` is, but never a test or
---- another example. The name less `_example` pairs with the longest
---- such module it is or starts with followed by `_`, so a module's examples can be split by topic into files of their
---- own: `cosmic/json_yaml_example.tl` pairs with `cosmic.json` beside
---- `cosmic/json_example.tl` -- or with `cosmic.json_yaml`, were there
---- one -- and `cosmic/jsonx_example.tl` with neither. Nothing here
---- decides which symbol an example is FOR.
---- `build.docs` answers that at read time, by matching an example's
---- own text and source against a symbol's name through
---- `examples_fts`: an example calls the real function it demonstrates,
---- so the symbol's own name is already in its code, and a query never
---- needs `<name>` to encode an association a build-time join would
---- only have to guess at anyway once more than one example can be FOR
---- one symbol. `OR IGNORE` guards `examples`'s `UNIQUE (file, name)`
---- against a literal duplicate declaration; `<name>` is otherwise free
---- -- there is no convention left for it to hold to, and two topics'
---- files may each use one. `k` and `c` are materialized once, since
---- `inputs` is an unindexed view each example's lookup would scan again.
+--- against the module its file name pairs with. That is a planned module
+--- or a declaration (as `cosmic.sys` is), never a test or another
+--- example.
+---
+--- The file name less `_example` pairs with the longest such module it
+--- equals or starts with followed by `_`, so a module's examples can be
+--- split by topic: `cosmic/json_yaml_example.tl` pairs with `cosmic.json`
+--- beside `cosmic/json_example.tl` (or with `cosmic.json_yaml`, were
+--- there one), and `cosmic/jsonx_example.tl` with neither.
+---
+--- Nothing here decides which symbol an example is for. `build.docs`
+--- decides at read time, by matching an example's text and source
+--- against a symbol's name through `examples_fts`: an example calls the
+--- real function it demonstrates, so the symbol's name is already in its
+--- code. `<name>` is therefore free, and two topics' files may each use
+--- one; `OR IGNORE` guards `examples`'s `UNIQUE (file, name)` against a
+--- literal duplicate declaration. `k` and `c` are materialized once,
+--- since `inputs` is an unindexed view that each example's lookup would
+--- scan again.
 local insert_examples =
   "WITH k AS MATERIALIZED (SELECT path, kind, file, source_hash FROM inputs " ..
   "WHERE path IN (SELECT path FROM plan) OR kind = 'decl'), " ..
@@ -171,24 +170,26 @@ local insert_catalog_extracted =
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
 
---- What the shipped database is a function of: this run's plan with
---- each module's file, the declarations, fingerprints, host-independent
---- identities, the zones it carries, the main module, and the identity
---- of the writer writing it (`running`), as one hash. The last is
---- the writer itself: a stale tool rebuilding itself writes this file
---- with its own code before the new tool re-enters, and the tree's
---- fingerprints alone would let the new tool take that file for its
---- own projection when its writer is not the same code. A writer that is
+--- What the shipped database is a function of, as one hash: this run's
+--- plan with each module's file, the declarations, fingerprints,
+--- host-independent identities, the zones it carries, the main module,
+--- and the identity of the writer writing it (`running`). When the hash
+--- matches the one the last write left in `meta` and the file is still
+--- there, the file already is the projection of these rows, and nothing
+--- is written.
+---
+--- The writer is included because a stale tool rebuilding itself writes
+--- this file with its own code before the new tool re-enters. The tree's
+--- fingerprints alone would let the new tool take that file for its own
+--- projection though its writer is not the same code. A writer that is
 --- the same code signs the same bytes, so a self-rebuild whose writer did
 --- not move lands on the tool a boot writes.
---- When it matches the one the last write left in `meta` and the file
---- is still there, the file already is the projection of these rows,
---- and nothing is written. The catalog, docs, examples and references
---- add nothing here: an extracted row changes only with the source it
---- was parsed from, which moves that module's key. A record-field use
---- rides on a compile instead, which a change to the code finding it
---- redoes under the same key, so that code's identity (`receivers`
---- in `meta`) is signed too.
+---
+--- The catalog, docs, examples and references add nothing: an extracted
+--- row changes only with the source it was parsed from, which moves that
+--- module's key. A record-field use rides on a compile instead, which a
+--- change to the code finding it redoes under the same key, so that
+--- code's identity (`receivers` in `meta`) is signed too.
 local function signature_sql(): string
   local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'receivers')"
   return "SELECT lower(hex(sha256(" ..
@@ -311,14 +312,14 @@ end
 
 --- The identity of the writer this process runs, which signs what it
 --- writes (`signature_sql`) and is recorded beside it as `written_by`.
---- A boot, which carries no database, and a tool fresh against the tree
+--- A boot (which carries no database) and a tool fresh against the tree
 --- in `handle` both run the tree's own code, so it is the tree's
---- (`identities.writer`), as is one its caller has found carries the
---- tree's code though it is stale by its own (`tree_code`, from
+--- (`identities.writer`); so is a binary its caller has found to carry
+--- the tree's code though it is stale by its own (`tree_code`, from
 --- `build.reboot`'s `carries_tree_code`). Any other binary names the
---- `writer` it carries, or, from before binaries carried one, its whole
---- boot hash, so a tool it rebuilt is never taken for one the tree's
---- writer wrote (`build.reboot`).
+--- `writer` it carries or, when it carries none, its whole boot hash, so
+--- a tool it rebuilt is never taken for one the tree's writer wrote
+--- (`build.reboot`).
 local function running(handle: work.Handle, identities: work.Identities,
                        tree_code: boolean): string | nil, string
   local boot_hash = Store.meta("boot_hash")
@@ -369,9 +370,9 @@ function writer.write_result(handle: work.Handle, out: string,
   end
   -- TODO: write aside under a name of this run's own, not `out`'s
   -- `.building`, which another run's write_result in this checkout
-  -- (projecting the same edit after this one's commit, before this
-  -- one's rename) removes and vacuums into under this one; the sweep
-  -- a unique name needs, of names no live run holds, is the fix.
+  -- removes and vacuums into under this one (projecting the same edit
+  -- after this one's commit, before this one's rename). The fix is a
+  -- unique name, with a sweep of names no live run holds.
   local projected, trouble = project(handle, out, result, signature, by)
   local _, _ = db:exec("DETACH out")
   if not projected then
@@ -380,11 +381,11 @@ function writer.write_result(handle: work.Handle, out: string,
   return Fs.rename(out .. ".building", out)
 end
 
---- The modules a projection holds that the tool built from it does
---- not carry: its tests and examples. One a carried module requires is
---- carried anyway, since the tool could not load without it; a
---- module's kind is only its file name. Each statement below names
---- `dropped` from this, so a row is left out only for being about one.
+--- The modules a projection holds that the tool built from it does not
+--- carry: its tests and examples. A module a carried one requires is
+--- carried anyway, since the tool could not load without it. A module's
+--- kind is only its file name. Each statement below names `dropped` from
+--- this, so a row is left out only for being about one.
 local dropped_modules <const> =
   "WITH RECURSIVE carried(path) AS (" ..
   "SELECT path FROM whole.modules WHERE kind NOT IN ('test', 'example') " ..
@@ -393,10 +394,10 @@ local dropped_modules <const> =
   "dropped(path) AS (SELECT path FROM whole.modules " ..
   "EXCEPT SELECT path FROM carried) "
 
---- Copies a projection's rows into a fresh schema of the same shape --
---- both come from `build.schema`, so `*` names the same columns in the
---- same order -- leaving out each row `dropped_modules` names. A
---- rowid table's `id` is assigned again, in the projection's own order.
+--- Copies a projection's rows into a fresh schema of the same shape,
+--- leaving out each row `dropped_modules` names. Both schemas come from
+--- `build.schema`, so `*` names the same columns in the same order. A
+--- rowid table's `id` is assigned again, in the projection's order.
 local carry: {string} = {
   "INSERT INTO main.meta SELECT * FROM whole.meta ORDER BY key",
   dropped_modules .. "INSERT INTO main.modules SELECT * FROM whole.modules " ..
@@ -413,11 +414,11 @@ local carry: {string} = {
   "INSERT INTO main.ca_roots SELECT * FROM whole.ca_roots ORDER BY sha256",
   -- Outside cosmic's own tree, `cosmic docs`, `cosmic uses` and a
   -- compile's hints read the tool's rows only for the public standard
-  -- library (`symbols.public_only`), and inside it they read the tree's
-  -- own projection first (and find nothing for `build.*` until a build
-  -- has written one): so a doc row about any other module is
-  -- carried only for the catalog, whose guidance is the doc comment of
-  -- the function an error came from (core/main.c, `build.embed`).
+  -- library (`symbols.public_only`). Inside it they read the tree's own
+  -- projection first, and find nothing for `build.*` until a build has
+  -- written one. So a doc row about any other module is carried only for
+  -- the catalog, whose guidance is the doc comment of the function an
+  -- error came from (core/main.c, `build.embed`).
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
     "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
     "source_symbol, exported, kind, signature, text, file, line " ..
