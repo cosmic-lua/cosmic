@@ -30,9 +30,11 @@ local record closure_store
   --- the digests of its bytecode, of its source as stored (deflated, by
   --- `build.writer`), and of the rows a store carries of it -- its
   --- imports, docs, uses, catalog and examples, each in the order the
-  --- store takes them within the module (or file) -- and a digest of
-  --- what every store holds alike: the `meta` rows it keeps
-  --- (`closure_meta`), the declarations and their docs. What the
+  --- store takes them within the module (or file) -- each declaration
+  --- as a line naming its path and the digests of its source as stored
+  --- and of its docs, with the declarations it requires, and a digest
+  --- of what every store holds alike: the `meta` rows it keeps
+  --- (`closure_meta`). What the
   --- compiler made of a module is so held by what it made, not by the
   --- compiler's identity (`build.work`'s `Identities`), which moves with
   --- every edit to any module a compile or a parse runs, most of which
@@ -46,6 +48,11 @@ local record closure_store
     --- The modules an example can be paired with -- neither tests nor
     --- examples -- sorted (see `build.writer`'s `insert_examples`).
     pairable: {string}
+    --- Each declaration's line, by path.
+    decls: {string:string}
+    --- The declarations each declaration requires, by path
+    --- (`required_by`).
+    decl_requires: {string:{string}}
   end
 end
 
@@ -69,6 +76,23 @@ end
 --- a test whose closure reads the compiler's identity is keyed by the
 --- tool's (`build.declared_key`'s `compiler_readers`).
 local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
+
+--- The names `source`, a declaration's, requires: each literal name
+--- handed to `require` -- `local type t = require("name")`, as a
+--- declaration requires another's types -- spelled `require("name")`,
+--- `require "name"` or with single quotes. It reads more than a parse
+--- would, a name written so in a comment among them, which only makes a
+--- store carry, and its address hold, a declaration more; a
+--- declaration cannot require a computed name, since the checker types
+--- only a literal one. Scanned here rather than taken from the
+--- importer's parse, which the projection does not keep of a
+--- declaration: a require of build.analyzer would salt every store's
+--- address with it (`build.test`'s `store_writer`).
+local function required_by(source: string): {string}
+  local out: {string} = {}
+  for name in source:gmatch("require%s*%(?%s*[\"']([%w_%.]+)[\"']") do out[#out + 1] = name end
+  return out
+end
 
 --- The digest of the rows of `from`, the table of a projection `db`
 --- holds, by each value of its column `of`: of each row's `columns`,
@@ -125,23 +149,21 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     end
     local shared, shared_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
-      "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '') || char(10) || " ..
-      "coalesce((SELECT group_concat(path || ' ' || lower(hex(sha256(source))), char(10) " ..
-      "ORDER BY path) FROM decls), '')")
+      "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, shared_trouble end
+    local decl_rows, decl_trouble = Sqlite.text_rows(db,
+      "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
+      "ORDER BY path")
+    if decl_rows == nil then return nil, decl_trouble end
     local declared, declared_trouble = grouped(db, "module",
       { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },
       "docs WHERE module IN (SELECT path FROM decls)", "id")
     if declared == nil then return nil, declared_trouble end
-    local decl_docs: {string} = {}
-    for module, digest in pairs(declared) do
-      decl_docs[#decl_docs + 1] = module .. " " .. digest
-    end
-    table.sort(decl_docs)
     local names, names_trouble = Sqlite.text_rows(db,
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
-    local basis: closure_store.Basis = { modules = {}, kinds = {}, pairable = {} }
+    local basis: closure_store.Basis = { modules = {}, kinds = {}, pairable = {}, decls = {},
+      decl_requires = {} }
     for _, row in ipairs(rows) do
       local line: {string} = { row[2] }
       for i, digests in ipairs(carried) do
@@ -151,8 +173,11 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
       basis.kinds[row[1]] = row[2]:match("^[^\t]*\t([^\t]*)")
     end
     for i, row in ipairs(names) do basis.pairable[i] = row[1] end
-    basis.shared = Hash.hex_sha256("closure-store-4\n" .. shared[1][1] .. "\n" ..
-      table.concat(decl_docs, "\n"))
+    for _, row in ipairs(decl_rows) do
+      basis.decls[row[1]] = "decl " .. row[1] .. " " .. row[2] .. " " .. (declared[row[1]] or "")
+      basis.decl_requires[row[1]] = required_by(row[3])
+    end
+    basis.shared = Hash.hex_sha256("closure-store-5\n" .. shared[1][1])
     return basis, ""
   end
   local basis, read_trouble = read()
@@ -170,7 +195,7 @@ local loaded_beside: {string:{string}} = { ["build.teal"] = { "vendor.tl" } }
 --- closure's module names (`test_inputs.modules`) -- holds, sorted: each
 --- that the projection holds, and what each loads beside
 --- (`loaded_beside`). A name only a declaration answers for is none:
---- every declaration is carried whole.
+--- `declared` answers those.
 local function stored(basis: closure_store.Basis, names: {string}): {string}
   local seen: {string:boolean} = {}
   local out: {string} = {}
@@ -182,6 +207,42 @@ local function stored(basis: closure_store.Basis, names: {string}): {string}
   for _, name in ipairs(names) do
     add(name)
     for _, beside in ipairs(loaded_beside[name] or {}) do add(beside) end
+  end
+  table.sort(out)
+  return out
+end
+
+--- The declarations of `basis` a closure store for `names` holds,
+--- sorted: each that `names` holds -- an import closure holds each
+--- declaration a module of it requires, by `require` or by `local
+--- type ... = require` (`test_inputs.modules`) -- and each that one of
+--- them requires, directly or not, so a declaration the checker reads
+--- to type another's is carried beside it and its edit moves the
+--- address too. The core's raw modules (`cosmic.internal.*`) and
+--- `cosmic.sys` are so carried only by the closures whose wrappers
+--- require them, and an edit to one moves only those stores.
+-- TODO: have `test_inputs.modules` follow a declaration's requires
+-- too, as this does, so the store's hold (`build.test_worker`'s
+-- `hold_store`) lets a held test read the declarations carried here
+-- beyond its closure's names (`cosmic.sys` beside
+-- cosmic.internal.observations, which requires it): today it refuses
+-- them, which fails a test that types one rather than standing on it.
+-- TODO: follow a module of the tree a declaration requires, and its
+-- import closure, once one does (none does today): `stored` holds only
+-- the closure's names, so such a module would be neither carried nor
+-- in the address.
+local function declared(basis: closure_store.Basis, names: {string}): {string}
+  local seen: {string:boolean} = {}
+  local out: {string} = {}
+  local stack: {string} = {}
+  for _, name in ipairs(names) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not seen[name] and basis.decls[name] ~= nil then
+      seen[name] = true
+      out[#out + 1] = name
+      for _, required in ipairs(basis.decl_requires[name]) do stack[#stack + 1] = required end
+    end
   end
   table.sort(out)
   return out
@@ -203,14 +264,15 @@ end
 --- The address of the closure store for `names` over `basis`: the
 --- digest of everything its bytes follow from -- its modules' lines,
 --- the modules each example module among them could be paired with
---- (`candidates`), the basis's shared digest, and `salt`, which names
+--- (`candidates`), its declarations' lines (`declared`), the basis's
+--- shared digest, and `salt`, which names
 --- the code that writes it (`build.test` passes a digest of this
 --- module's and build.schema's sources and bytecode, and nothing of
 --- the projection's writer, whose edits leave a store's bytes alone).
---- An edit to a module outside the closure moves none of them, and
---- neither does adding or removing one, but for one an example of the
---- closure could be paired with: so neither the address nor the store
---- moves.
+--- An edit to a module or a declaration outside the closure moves none
+--- of them, and neither does adding or removing one, but for one an
+--- example of the closure could be paired with: so neither the address
+--- nor the store moves.
 function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string): string
   local lines: {string} = { basis.shared, salt }
@@ -220,14 +282,15 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
       lines[#lines + 1] = "pairs " .. name .. " " .. table.concat(candidates(basis, name), " ")
     end
   end
+  for _, name in ipairs(declared(basis, names)) do lines[#lines + 1] = basis.decls[name] end
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
 --- Fills a closure store's fresh schema from the projection attached
 --- as `whole`, for the modules `temp.wanted` names: their rows, the
 --- edges among them, their docs, uses (those they make), catalog, and
---- the examples of the example files among them; every declaration and
---- its docs; and the `meta` rows `closure_meta` keeps. The zones, CA
+--- the examples of the example files among them; the declarations
+--- `temp.declared` names (`declared`) and their docs; and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, `cosmic.time`
 --- and `build.bom` read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -246,11 +309,12 @@ local closed: {string} = {
     "WHERE path IN temp.wanted ORDER BY path",
   "INSERT INTO main.imports SELECT * FROM whole.imports " ..
     "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
-  "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
+  "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
+    "ORDER BY path",
   "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
     "text, file, line) SELECT module, symbol, source_symbol, exported, kind, signature, " ..
     "text, file, line FROM whole.docs WHERE module IN temp.wanted " ..
-    "OR module IN (SELECT path FROM whole.decls) ORDER BY module, id",
+    "OR module IN temp.declared ORDER BY module, id",
   "INSERT INTO main.uses SELECT * FROM whole.uses WHERE from_module IN temp.wanted " ..
     "ORDER BY module, symbol, from_module, line",
   "INSERT INTO main.examples (module, name, text, file, line, source) " ..
@@ -290,12 +354,18 @@ function closure_store.write(whole: string, out: string, names: {string},
     for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
     for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
     statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"
+    statements[#statements + 1] = "CREATE TEMP TABLE declared (path TEXT PRIMARY KEY)"
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then return false, failure end
     end
     for _, name in ipairs(stored(basis, names)) do
       local ok, failure = Sqlite.run(db, "INSERT INTO temp.wanted (path) VALUES (?1)",
+        { text(name) })
+      if not ok then return false, failure end
+    end
+    for _, name in ipairs(declared(basis, names)) do
+      local ok, failure = Sqlite.run(db, "INSERT INTO temp.declared (path) VALUES (?1)",
         { text(name) })
       if not ok then return false, failure end
     end

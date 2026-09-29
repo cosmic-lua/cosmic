@@ -9,6 +9,7 @@ local Sqlite = require("cosmic.sqlite")
 local closure_store = require("build.closure_store")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local test_inputs = require("build.test_inputs")
 local work = require("build.work")
 local writer = require("build.writer")
 
@@ -54,10 +55,11 @@ local function build_and_write(root: string, whom: string, out: string,
 end
 
 --- The store of an import closure holds that closure's modules alone,
---- with every declaration, and nothing that moves with a module outside
---- it: an edit there, or a module added, leaves its address and its
---- bytes as they were; one inside moves both, and so do a declaration
---- and the code that writes it (the salt).
+--- with the declarations it holds, and nothing that moves with a module
+--- or a declaration outside it: an edit there, or a module or a
+--- declaration added, leaves its address and its bytes as they were;
+--- one inside moves both, and so do a declaration the closure holds, one
+--- that declaration requires, and the code that writes it (the salt).
 local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local root = tmp .. "/a"
   assert(Fs.mkdirs(root))
@@ -82,12 +84,13 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   end
   other("one")
   local names = { "greet", "greet_test" }
+  local closure = names
   local function store(whom: string, out: string, salt?: string): string
     local handle = build_and_write(root, whom, tmp .. "/whole.db")
     assert(work.close(handle))
     local basis = assert(closure_store.basis(tmp .. "/whole.db"))
-    local address = closure_store.address(basis, names, salt or "salt")
-    assert(closure_store.write(tmp .. "/whole.db", out, names, basis, address))
+    local address = closure_store.address(basis, closure, salt or "salt")
+    assert(closure_store.write(tmp .. "/whole.db", out, closure, basis, address))
     return address
   end
   local first = store("world", tmp .. "/first.db")
@@ -105,10 +108,40 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "a module added outside the closure moved its store")
   assert(store("world", tmp .. "/salted.db", "another writer") ~= first,
     "the code that writes it left its address")
-  assert(Fs.write(root .. "/extra.d.tl", "local record extra\nend\nreturn extra\n"))
+  local function extra(field: string)
+    assert(Fs.write(root .. "/extra.d.tl", "local type base = require(\"base\")\n" ..
+      "local record extra\n  " .. field .. ": base\nend\nreturn extra\n"))
+  end
+  local function base(field: string)
+    assert(Fs.write(root .. "/base.d.tl", "local record base\n  " .. field ..
+      ": integer\nend\nreturn base\n"))
+  end
+  base("x")
+  extra("a")
   local declared = store("world", tmp .. "/declared.db")
-  assert(declared ~= first, "a declaration left its address")
+  assert(declared == first, "a declaration outside the closure moved its address")
+  assert(Fs.read(tmp .. "/declared.db") == Fs.read(tmp .. "/first.db"),
+    "a declaration outside the closure moved its store")
+  closure = { "extra", "greet", "greet_test" }
+  local holding = store("world", tmp .. "/holding.db")
+  assert(holding ~= first, "a declaration the closure holds left its address")
+  extra("b")
+  local edited = store("world", tmp .. "/edited.db")
+  assert(edited ~= holding, "an edit to a declaration the closure holds left its address")
+  base("y")
+  local required = store("world", tmp .. "/required.db")
+  assert(required ~= edited,
+    "an edit to a declaration one the closure holds requires left its address")
+  local held_db = assert(Sqlite.open(tmp .. "/required.db", false))
+  local held_rows = assert(Sqlite.text_rows(held_db,
+    "SELECT group_concat(path, ' ') FROM (SELECT path FROM decls ORDER BY path)"))
+  assert(held_db:close())
+  assert(held_rows[1][1] == "base extra", held_rows[1][1])
+  closure = names
+  assert(store("world", tmp .. "/unheld.db") == first,
+    "a declaration's edit moved the address of a closure that does not hold it")
   assert(Fs.remove(root .. "/extra.d.tl"))
+  assert(Fs.remove(root .. "/base.d.tl"))
   local inside = store("there", tmp .. "/inside.db")
   assert(inside ~= first, "an edit inside the closure left its address")
   assert(Fs.read(tmp .. "/inside.db") ~= Fs.read(tmp .. "/first.db"),
@@ -119,13 +152,14 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
     "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
     "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
-    "(SELECT value FROM meta WHERE key = 'closure')"))
+    "(SELECT value FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
   assert(db:close())
   local row = rows[1]
   assert(row[1] == "greet greet_test", row[1])
   assert(row[2] == "0", "a doc of a module outside the closure is in its store")
   assert(row[3] == "0", "a meta row that moves with the whole tree is in the store")
   assert(row[4] == first, row[4])
+  assert(row[5] == "0", "a declaration outside the closure is in its store")
 end
 
 --- The store of an import closure holds what the compiler made of it,
@@ -235,11 +269,89 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
     "('greet', 'a', 'A.', 'greet.tl', 1, 'a()'), " ..
     "('greet_test', 'b', 'B.', 'greet_test.tl', 1, 'b()')")
   held("the examples' order across modules", examples_again, examples_rows)
-  moved("a declaration's doc", doc .. "('extra', 'extra.y', 'extra.y', 1, 'function', '', " ..
-    "'Y.', 'extra.d.tl', 1)", "INSERT INTO decls (path, source) VALUES ('extra', X'')")
+  local extra_doc = doc .. "('extra', 'extra.y', 'extra.y', 1, 'function', '', " ..
+    "'Y.', 'extra.d.tl', 1)"
+  local extra_decl = "INSERT INTO decls (path, source) VALUES ('extra', deflate('return {}'))"
+  held("a doc of a declaration outside the closure", extra_doc, extra_decl)
+  names = { "extra", "greet", "greet_test" }
+  moved("a declaration's doc", extra_doc, extra_decl)
+  names = { "greet", "greet_test" }
   -- quote() ends a text at its first NUL: what follows it moves the
   -- address too.
   moved("a doc's text past a NUL", "UPDATE docs SET text = 'a' || char(0) || 'c' " ..
     "WHERE symbol = 'greet.z'", doc .. "('greet', 'greet.z', 'greet.z', 1, 'function', '', " ..
     "'a' || char(0) || 'b', 'greet.tl', 1)")
+end
+
+--- #2327: an edit to a declaration of one of the core's raw modules --
+--- here `raw`, as cosmic.internal.store is to cosmic.store -- moves the
+--- store, and so the key, of each test whose import closure holds the
+--- wrapper that requires it (`test_inputs.modules`), and of no other.
+local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  local function raw(parameter: string)
+    assert(Fs.write(root .. "/raw.d.tl", table.concat({
+      "local record raw",
+      "  meta: function(" .. parameter .. ": string): string | nil",
+      "end",
+      "return raw",
+      "",
+    }, "\n")))
+  end
+  raw("key")
+  assert(Fs.write(root .. "/wrap.tl", table.concat({
+    'local type raw_store = require("raw")',
+    "local record wrap",
+    "  raw: raw_store",
+    "end",
+    "return wrap",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/wrap_test.tl", table.concat({
+    'local wrap = require("wrap")',
+    "local function test_wrap()",
+    "  assert(wrap ~= nil)",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    "local function test_hello()",
+    '  assert(greet.hello() ~= "")',
+    "end",
+    "",
+  }, "\n")))
+  local function addresses(): {string:string}
+    write_project(root, "world")
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, false))
+    local result = assert(importer.compile(handle, built, "closure-store-test"))
+    assert(writer.write_result(handle, tmp .. "/whole.db", result))
+    local by_path: {string:importer.Module} = {}
+    for _, m in ipairs(result.modules) do by_path[m.path] = m end
+    local declarations: {string:string} = {}
+    local rows = assert(Sqlite.text_rows(handle.db,
+      "SELECT path, file FROM inputs WHERE kind = 'decl'"))
+    for _, row in ipairs(rows) do
+      declarations[row[1]] = row[2]
+    end
+    assert(work.close(handle))
+    local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+    local out: {string:string} = {}
+    for _, path in ipairs({ "wrap_test", "greet_test" }) do
+      local names = test_inputs.modules(assert(by_path[path]), by_path, declarations)
+      out[path] = closure_store.address(basis, names, "salt")
+      out[path .. " names"] = table.concat(names, " ")
+    end
+    return out
+  end
+  local before = addresses()
+  assert(before["wrap_test names"] == "raw wrap wrap_test", before["wrap_test names"])
+  raw("name")
+  local after = addresses()
+  assert(after["wrap_test"] ~= before["wrap_test"],
+    "an edit to a declaration left the store of a closure that holds it")
+  assert(after["greet_test"] == before["greet_test"],
+    "an edit to a declaration moved the store of a closure that does not hold it")
 end
