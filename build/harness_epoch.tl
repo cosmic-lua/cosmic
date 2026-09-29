@@ -56,7 +56,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = 6
+harness_epoch.epoch = 7
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
@@ -89,7 +89,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
-  ["build.test"] = "a2a0bfca2ecc5bb3094f07270a6f4b00f0dc7fbe80667451a2867d40c303e349",
+  ["build.test"] = "bac4d1355e0a74924e91526a377aa251057a454626866a04844158c001e2e058",
 
   ["build.test_inputs"] = "73600e0ad4cc72061f59bb556723015e07bc6f76345f6e405f4a8d4510b960aa",
 
@@ -103,7 +103,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "7e1aeb6507bc43ed66bff90de92beb0dcc983087452924d87f08be72ddc9e7a8",
 
-  ["cosmic.child"] = "31f3cf2a0276d4b2e459753cb67e18b183f801ec327b243db2dad89a363c9efb",
+  ["cosmic.child"] = "5c0f7a989026e03619684487477e998f48f7b28dd62a348d103039c199d282e4",
 
   ["cosmic.coverage"] = "c35155708d621fa76ddcaf1799f79d16ccc28cdfba385c8d5501ce33f3da9c79",
 

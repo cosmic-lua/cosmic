@@ -2959,6 +2959,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- its own behind, outside the group its end reached. This process
       -- adopted them, and ends them before the next test starts and, on
       -- Linux, before what they could still write into is removed.
+      -- A worker still running may have left some here too, orphaned
+      -- when the process that started them ended, which its test may
+      -- still be waiting on: those in the group it leads are spared,
+      -- until its end ends them with its group. An orphan in a group
+      -- the worker itself started is its own to adopt: starting one made
+      -- it a subreaper (`Child.start`).
       -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
       -- of its own, whose init ends when it does, ending everything
       -- left there, before `wait` answers for it. Nothing adopts them
@@ -2969,13 +2975,17 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
-      -- TODO: spare a stray in the process group of a worker still
-      -- running, which a test of its own may be waiting on (an orphan it
-      -- left to outlive a process it started, as build/stand_in_test.tl's
-      -- test_what_start_and_run_leave_running_runs_on does), rather than
-      -- end it the moment any other worker ends; that test then drops
-      -- the grouped run it makes to adopt its orphans itself.
-      if not rec.sandbox then Child.end_strays() end
+      -- TODO: spare an orphan of a running worker that is outside its
+      -- group too -- in a group a descendant started, a `Child.start`
+      -- in a process that ended first, or a session it began (setsid)
+      -- -- by the worker's session, once a worker can be started in a
+      -- session of its own (`Child.Options` taking one); setsid's
+      -- orphan would still escape.
+      if not rec.sandbox then
+        local groups: {integer} = {}
+        for _, job in ipairs(still) do groups[#groups + 1] = job.handle.pid end
+        Child.end_strays(groups)
+      end
       sweep(rec, running)
     end
     running = still
