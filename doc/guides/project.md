@@ -6,8 +6,9 @@ A cosmic project is a directory of modules, tests, examples and
 programs. They are Teal files: typed Lua, documented at
 <https://teal-language.org>. This guide builds a small project,
 `tally`, that counts the words in a file, and shows where each kind of
-file goes. Every verb runs from the project's
-root, the directory that holds the files below.
+file goes. Run the first build or test at the project's root, the
+directory that holds the files below. After that, a verb run from any
+directory inside the project uses the root's tree.
 
 ## the files
 
@@ -127,7 +128,8 @@ hello big world
 
 ## the verbs
 
-Each verb takes the project's directory as its tree.
+Each verb builds the project's tree, the root's, wherever inside it
+you run the verb.
 
 ```text
 cosmic fix                          format every file, and check it parses
@@ -161,11 +163,14 @@ local relaunch = assert(Proc.relaunch())
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 env["COSMIC_TEST_SANDBOX"] = "0"
-local function cosmic(...: string): Child.Result
+local function cosmic_in(dir: string, ...: string): Child.Result
   local argv = { table.unpack(relaunch.argv) }
   for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
-  return (assert(Child.run(argv, { env = env, fds = relaunch.fds, cwd = tmp,
+  return (assert(Child.run(argv, { env = env, fds = relaunch.fds, cwd = dir,
     stdout = "capture", stderr = "capture", timeout_ms = 120000 })))
+end
+local function cosmic(...: string): Child.Result
+  return cosmic_in(tmp, ...)
 end
 local function verdict(said: Child.Result, verb: string)
   print(((said.stderr or "") .. (said.stdout or "")):match(verb .. ": [A-Z]+"))
@@ -180,6 +185,7 @@ verdict(cosmic("build", "--host"), "build")
 local built = assert(Child.run({ tmp .. "/o/bin/tally", "words.txt" },
   { cwd = tmp, stdout = "capture", timeout_ms = 60000 }))
 print(((built.stdout or ""):gsub("\n$", "")))
+verdict(cosmic_in(tmp .. "/cmd/tally", "test"), "test")
 print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))
 ```
 
@@ -190,5 +196,6 @@ test: PASS
 2	tally: no such option: --nope
 build: PASS
 3
+test: PASS
 tally (tally.tl)
 ```
