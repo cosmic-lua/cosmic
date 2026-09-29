@@ -22,6 +22,7 @@ local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local narrow = require("build.narrow")
+local plural = require("build.plural")
 local reboot = require("build.reboot")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -634,8 +635,8 @@ local function run(argv: {integer:string}): integer
       file_count = file_count + 1
     end
   end
-  log:verdict("todos", true, #listed .. " todos in " .. file_count .. " files, " ..
-    tostring(blamed) .. " files blamed, " .. clock.took(started))
+  log:verdict("todos", true, plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
+    ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
   return 0
 end
 

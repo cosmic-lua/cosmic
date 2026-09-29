@@ -135,7 +135,7 @@ end
 
 local function expect_tally(capture: Fixture.Capture, ran: integer,
     stood: integer)
-  Fixture.contains(capture.out, "test: PASS (1 tests, 1 modules; " ..
+  Fixture.contains(capture.out, "test: PASS (1 test, 1 module; " ..
     tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
 end
 
@@ -261,7 +261,7 @@ local function test_identity_focused_embed(tmp: string)
     cases = cases + 1
   end
   assert(cases > 0, "build/embed_test.tl holds no tests")
-  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. " tests, 1 modules; " ..
+  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. (cases == 1 and " test" or " tests") .. ", 1 module; " ..
     cases .. " ran, 0 stood")
 end
 

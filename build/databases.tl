@@ -10,6 +10,7 @@ local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local narrow = require("build.narrow")
+local plural = require("build.plural")
 local reboot = require("build.reboot")
 
 local log = require("build.verdict").log
@@ -337,11 +338,11 @@ local function run(argv: {integer:string}): integer
         clock.took(started))
       return 1
     end
-    log:verdict("db", true, rows .. " rows about " .. under .. " in " .. seen ..
-      " databases, " .. clock.took(started))
+    log:verdict("db", true, plural.count(rows, "row") .. " about " .. under .. " in " ..
+      plural.count(seen, "database") .. ", " .. clock.took(started))
     return 0
   end
-  log:verdict("db", true, tables .. " tables in " .. seen .. " databases, " ..
+  log:verdict("db", true, plural.count(tables, "table") .. " in " .. plural.count(seen, "database") .. ", " ..
     clock.took(started))
   return 0
 end

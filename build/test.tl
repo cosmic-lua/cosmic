@@ -118,6 +118,7 @@ local clock = require("build.clock")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
+local plural = require("build.plural")
 local reboot = require("build.reboot")
 local schema = require("build.schema")
 local teal = require("build.teal")
@@ -3210,13 +3211,13 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local parses = result.parses
-  log:say("build: " .. #result.modules .. " modules (" .. result.compiled ..
+  log:say("build: " .. plural.count(#result.modules, "module") .. " (" .. result.compiled ..
     " compiled, " .. result.cached .. " cached" ..
     (result.shared > 0 and ", " .. result.shared .. " of them taken from another checkout" or "") ..
-    ((parses.parsed > 0 or parses.shared > 0) and "; " .. parses.parsed .. " sources parsed" ..
+    ((parses.parsed > 0 or parses.shared > 0) and "; " ..
+      plural.count(parses.parsed, "source") .. " parsed" ..
       (parses.shared > 0 and ", " .. parses.shared .. " taken from another checkout" or "") or "") ..
-    "; " .. staged.files ..
-    " files staged, " .. staged.read .. " read) in " ..
+    "; " .. plural.count(staged.files, "file") .. " staged, " .. staged.read .. " read) in " ..
     clock.took(started))
 
   -- Each selector must match a test module on its own: one mistyped
@@ -3587,8 +3588,9 @@ local function run(argv: {integer:string}): integer
     declared_key.thaw(rec.digests)
     local tests = 0
     for _, m in ipairs(selected_modules) do tests = tests + #selected_tests[m.path] end
-    log:say(string.format(keying .. "%d tests keyed by their declared inputs in %.1f ms " ..
-      "(%d files read)", tests, rec.digests.spent_ns / 1e6, rec.digests.read))
+    log:say(string.format(keying .. "%s keyed by their declared inputs in %.1f ms (%s read)",
+      plural.count(tests, "test"), rec.digests.spent_ns / 1e6,
+      plural.count(rec.digests.read, "file")))
     local unkeyed: {string} = {}
     for path in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = path end
     table.sort(unkeyed)
@@ -3623,8 +3625,9 @@ local function run(argv: {integer:string}): integer
     end
   end
   if sandboxed and rec.written > 0 then
-    log:say(string.format("test: sandbox: %d closure stores written (%d bytes) in %.1f ms",
-      rec.written, rec.written_bytes, rec.writing_ns / 1e6))
+    log:say(string.format("test: sandbox: %s written (%s) in %.1f ms",
+      plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
+      rec.writing_ns / 1e6))
   end
   local total = tally.ran + tally.cached + tally.assumed
 
@@ -3730,10 +3733,12 @@ local function run(argv: {integer:string}): integer
       for _, line in ipairs(lines) do log:say(line) end
     end
     if undeclared > 0 then
-      log:say(string.format("audit: %d of %d tests, in %d modules, read what they do not " ..
-        "declare; see cosmic.test", undeclared, audited_tests, modules_undeclared))
+      log:say(string.format("audit: %d of %d tests, in %s, read what they do not " ..
+        "declare; see cosmic.test", undeclared, audited_tests,
+        plural.count(modules_undeclared, "module")))
     else
-      log:say(string.format("audit: %d tests read only their inputs", audited_tests))
+      log:say(string.format("audit: %s read only %s inputs",
+        plural.count(audited_tests, "test"), audited_tests == 1 and "its" or "their"))
     end
   end
 
@@ -3749,7 +3754,8 @@ local function run(argv: {integer:string}): integer
     end
     log:say(cov_line)
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
-    log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
+    log:verdict("test", true, plural.count(total, "test") .. ", " ..
+      plural.count(modules_run, "module") .. "; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
       (tally.every > 0 and (tally.every .. " run every time (no key holds them), ") or "") ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
@@ -3766,7 +3772,7 @@ local function run(argv: {integer:string}): integer
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
   end
   log:verdict("test", false, #failures .. " of " ..
-    (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
+    (total + #result.refused) .. " failed, " .. plural.count(#errors, "infrastructure error") .. ", " ..
     clock.took(started) .. sandbox_summary)
   return 1
 end
