@@ -10,14 +10,14 @@
 --- slices are left out on purpose: the verb is a lookup and no query
 --- language, and `grep` over `--flat` does what they would.
 ---
---- Unlike every other verb it ends in no verdict line. Its standard
---- output is data for a pipe or a `$(...)`, and a line of its own after
---- the value would be in that data; `cosmic sql` puts its verdict last,
---- for a reader to drop, but a JSON value has no line to drop. Its exit
---- status is the verdict: 0 found, 1 the path is not there, 2 a command
---- line, a file or a text it cannot read. Complaints go to standard
---- error, as every verb's do. Its `spec` (build/verb_spec.tl) is `bare`, and
---- build/verbs_test.tl says why the rest of the tree may not.
+--- Like the other bare verbs (build/bare.tl) it ends in no verdict line.
+--- Its standard output is data for a pipe or a `$(...)`, and a line of
+--- its own after the value would be in that data; `cosmic sql` puts its
+--- verdict last, for a reader to drop, but a JSON value has no line to
+--- drop. Its exit status is the verdict: 0 found, 1 the path is not
+--- there, 2 a command line, a file or a text it cannot read. Complaints
+--- go to standard error, as every verb's do. Its `spec`
+--- (build/verb_spec.tl) is `bare`.
 ---
 --- A JSON `null` is a value here, not an absence: `--exists` is true of a
 --- key whose value is `null`, and a path through one fails for what it

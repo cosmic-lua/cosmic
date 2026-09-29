@@ -49,9 +49,7 @@ local record Class
   line: integer
 end
 
---- Everything one read of the header found: two lists, together, so a
---- fallible read stays two slots -- the pair, and an error -- rather
---- than smuggling a third.
+--- Everything one read of the header found: its calls and its classes.
 local record Declarations
   calls: {Call}
   classes: {Class}
