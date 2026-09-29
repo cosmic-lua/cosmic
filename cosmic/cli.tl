@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, rand, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, codec, rand, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -188,6 +188,25 @@ local record Cli
   --- 1 when the entropy source failed, 2 for a command line, a file or a
   --- request it refuses, or a failed write to standard output
   rand: string
+  --- `cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [file|-]`:
+  --- bytes to text and back, for a token or a checksum, with no script
+  --- to write. It reads the file, or standard input when the file is `-`
+  --- or absent, and writes the encoding on one line and a newline; with
+  --- `-d` it writes the bytes the text spells, and no newline. The
+  --- encodings are those of `cosmic.codec` and no others; `-d` is the
+  --- one spelling of decode, `base64 -d` and `-D` differing between
+  --- platforms. Encoding does not wrap unless `--wrap N` gives the
+  --- columns, unlike GNU base64, which wraps at 76. Decoding ignores
+  --- ASCII whitespace, and is otherwise strict: an invalid character,
+  --- misplaced padding, a bad length or nonzero trailing bits exits 2
+  --- and names the byte offset, from 0, in the input as given. base64
+  --- must be padded with `=` and base64url must not be, as each is
+  --- written; `--lenient` accepts the other spelling (missing padding on
+  --- base64, `=` padding on base64url) and is refused for hex. The whole
+  --- input is read at once. It prints no verdict line, which would be in
+  --- the data a pipe reads; exits 0 when done, 2 for a command line, an
+  --- input or a write it cannot honor
+  codec: string
   --- `cosmic docs [q]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
   --- or words to search the documentation for; a module lists the
@@ -251,7 +270,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", codec = "codec", rand = "rand", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -304,6 +323,12 @@ local module: Module = {
       ["--base64url"] = { about = "token: unpadded base64url (the default)" },
       ["--seed"] = { value = "n", about = "int, pick, shuffle: replayable, NOT secret; refused for uuid and token" },
     },
+    codec = {
+      ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
+      ["--decode"] = { about = "decode text to bytes, ignoring whitespace" },
+      ["--wrap"] = { value = "n", about = "wrap encoded text at n columns; no wrapping by default" },
+      ["--lenient"] = { about = "with -d, accept missing base64 padding, or base64url padding" },
+    },
     bom = {
       ["--licenses"] = { about = "print each component's license notices" },
       ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
@@ -318,7 +343,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "rand", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "rand", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 
