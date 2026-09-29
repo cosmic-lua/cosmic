@@ -78,6 +78,13 @@ local record Zip
     mtime: integer
     --- "deflate" (the default) or "store".
     method: Method
+    --- The body's uncompressed size, for a body given as a
+    --- `Stream.Reader`; ignored for a string, whose length is its size.
+    --- Optional: a streamed entry whose size is known to reach 2 GiB
+    --- must say so, since its local header has to announce zip64
+    --- before any of the body is read. When given, the body must turn
+    --- out exactly this long, or the write fails.
+    size: integer
   end
 
   record WriterOptions
@@ -95,7 +102,15 @@ local record Zip
   --- `close` fails too.
   record Writer
     --- Refuses a path ending in `/`, which zip reads as a directory.
-    add_file: function(Writer, string, string, opts?: EntryOptions): boolean, string
+    --- A `Stream.Reader` body is read in chunks through the deflater
+    --- and a running CRC32, so memory stays bounded however long it
+    --- is: its sizes and CRC32 follow the data in a data descriptor
+    --- (general-purpose bit 3) rather than the local header, so the
+    --- output needs no seeking. Without `opts.size`, a streamed entry
+    --- fails once it, or its compressed form, reaches 4 GiB; with
+    --- `opts.size` of 2 GiB or more, it is written as zip64. The
+    --- reader is read to its end but not closed.
+    add_file: function(Writer, string, string | Stream.Reader, opts?: EntryOptions): boolean, string
     add_dir: function(Writer, string, opts?: EntryOptions): boolean, string
     close: function(Writer): boolean, string
     --- Abandons the archive: aborts the underlying Stream.Writer.
@@ -110,6 +125,12 @@ local EOCD_SIG <const> = "PK\5\6"
 local Z64_EOCD_SIG <const> = "PK\6\6"
 local Z64_LOC_SIG <const> = "PK\6\7"
 local U32_MAX <const> = 0xFFFFFFFF
+local DESCRIPTOR_SIG <const> = "PK\7\8"
+--- General-purpose bit 3: the CRC32 and sizes follow the data.
+local FLAG_DESCRIPTOR <const> = 8
+--- A streamed entry of at least this many bytes (as `opts.size` says)
+--- is written as zip64 from its local header on.
+local STREAM_ZIP64_AT <const> = 1 << 31
 --- The longest symlink target read out of an entry body.
 local LINK_LIMIT <const> = 4096
 
@@ -739,14 +760,15 @@ end
 --- 0xFFFFFFFF sentinel, with both real sizes in a zip64 extra field
 --- (a local header's zip64 field always holds both).
 local function local_header(name: string, method: integer, dos_time: integer, dos_date: integer,
-    crc: integer, csize: integer, usize: integer): string
+    crc: integer, csize: integer, usize: integer, flags?: integer, wide?: boolean): string
   local extra = ""
   local version = 20
-  if usize >= U32_MAX or csize >= U32_MAX then
+  if wide or usize >= U32_MAX or csize >= U32_MAX then
     extra = zip64_extra({ usize, csize })
-    usize, csize, version = U32_MAX, U32_MAX, 45
+    if usize >= U32_MAX or csize >= U32_MAX then usize, csize = U32_MAX, U32_MAX end
+    version = 45
   end
-  return LFH_SIG .. le16(version) .. le16(0) .. le16(method) .. le16(dos_time) ..
+  return LFH_SIG .. le16(version) .. le16(flags or 0) .. le16(method) .. le16(dos_time) ..
     le16(dos_date) .. le32(crc) .. le32(csize) .. le32(usize) .. le16(#name) ..
     le16(#extra) .. name .. extra
 end
@@ -756,7 +778,8 @@ end
 --- bits becomes the sentinel, with its real value in the zip64 extra
 --- field, in that order.
 local function central_header(name: string, method: integer, dos_time: integer, dos_date: integer,
-    crc: integer, csize: integer, usize: integer, ext_attrs: integer, local_offset: integer): string
+    crc: integer, csize: integer, usize: integer, ext_attrs: integer, local_offset: integer,
+    flags?: integer): string
   local wide: {integer} = {}
   if usize >= U32_MAX then wide[#wide + 1] = usize; usize = U32_MAX end
   if csize >= U32_MAX then wide[#wide + 1] = csize; csize = U32_MAX end
@@ -766,16 +789,17 @@ local function central_header(name: string, method: integer, dos_time: integer, 
   end
   local extra = zip64_extra(wide)
   local version = #wide > 0 and 45 or 20
-  return CDFH_SIG .. le16(UNIX_MADE_BY) .. le16(version) .. le16(0) .. le16(method) ..
+  return CDFH_SIG .. le16(UNIX_MADE_BY) .. le16(version) .. le16(flags or 0) .. le16(method) ..
     le16(dos_time) .. le16(dos_date) .. le32(crc) .. le32(csize) .. le32(usize) ..
     le16(#name) .. le16(#extra) .. le16(0) .. le16(0) .. le16(0) .. le32(ext_attrs) ..
     le32(local_offset) .. name .. extra
 end
 
---- A streaming writer over `w`. Every body is given whole (this format
---- states each entry's size before its data, same as tar, but does not
---- offer tar's Reader-with-known-size escape hatch), so add_file takes
---- a plain string.
+--- A streaming writer over `w`. A string body is written with its CRC32
+--- and sizes in its local header; a `Stream.Reader` body, whose CRC32
+--- and sizes are known only once it is read, with them in a data
+--- descriptor after it (the central directory, which the reader goes by,
+--- has them either way).
 function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   opts = opts or {}
   local deterministic = opts.deterministic or false
@@ -837,7 +861,91 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     return true, ""
   end
 
-  zw.add_file = function(_self: Zip.Writer, path: string, data: string,
+  local function write_streamed(path: string, body: Stream.Reader, method_name: Zip.Method,
+      mode: integer, mtime: integer, hint: integer | nil): boolean, string
+    local usable, why = sink:usable()
+    if not usable then return false, why end
+    if path:find("\0", 1, true) ~= nil then return false, "zip: NUL byte in a path" end
+    if #path > 0xFFFF then return false, "zip: path longer than 65535 bytes" end
+    if hint ~= nil and (math.type(hint) ~= "integer" or hint < 0) then
+      return false, "zip: opts.size must be a non-negative integer"
+    end
+    local deflater: Compress.Stream
+    local method: integer
+    if method_name == "store" then
+      method = 0
+    elseif method_name == "deflate" then
+      local made, dtrouble = Compress.deflater("raw")
+      if made == nil then return false, dtrouble end
+      deflater, method = made, 8
+    else
+      return false, "zip: unknown method '" .. method_name .. "'"
+    end
+    local dos_date: integer
+    local dos_time: integer
+    if deterministic then
+      dos_date, dos_time = 0x21, 0
+    else
+      dos_date, dos_time = unix_to_dos(mtime)
+    end
+    local wide = hint ~= nil and hint >= STREAM_ZIP64_AT
+    local local_offset = offset
+    local ok, trouble = put(local_header(path, method, dos_time, dos_date, 0, 0, 0,
+      FLAG_DESCRIPTOR, wide))
+    if not ok then return false, trouble end
+    local crc, usize, csize = 0, 0, 0
+    local function emit(data: string): boolean, string
+      if data == "" then return true, "" end
+      csize = csize + #data
+      if not wide and csize >= U32_MAX then
+        return sink:fail("zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size")
+      end
+      return put(data)
+    end
+    while true do
+      local chunk, rtrouble = body:read(chunk_size)
+      if chunk == nil then
+        if rtrouble ~= "" then return sink:fail(rtrouble) end
+        break
+      end
+      usize = usize + #chunk
+      if not wide and usize >= U32_MAX then
+        return sink:fail("zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size")
+      end
+      crc = Compress.crc32(chunk, crc)
+      if deflater ~= nil then
+        local out, etrouble = deflater:update(chunk)
+        if out == nil then return sink:fail(etrouble) end
+        ok, trouble = emit(out)
+      else
+        ok, trouble = emit(chunk)
+      end
+      if not ok then return false, trouble end
+    end
+    if deflater ~= nil then
+      local tail, ftrouble = deflater:finish()
+      if tail == nil then return sink:fail(ftrouble) end
+      ok, trouble = emit(tail)
+      if not ok then return false, trouble end
+    end
+    if hint ~= nil and hint ~= usize then
+      return sink:fail("zip: " .. path .. ": body is " .. tostring(usize) .. " bytes, not " ..
+        tostring(hint))
+    end
+    if wide then
+      ok, trouble = put(DESCRIPTOR_SIG .. le32(crc) .. le64(csize) .. le64(usize))
+    else
+      ok, trouble = put(DESCRIPTOR_SIG .. le32(crc) .. le32(csize) .. le32(usize))
+    end
+    if not ok then return false, trouble end
+    local ext_attrs = (S_IFREG | (mode & 0xFFF)) << 16
+    cd_parts[#cd_parts + 1] = central_header(path, method, dos_time, dos_date, crc, csize, usize,
+      ext_attrs, local_offset, FLAG_DESCRIPTOR)
+    count = count + 1
+    return true, ""
+  end
+
+  zw.add_file = function(_self: Zip.Writer, path: string, data: string | Stream.Reader,
       fopts?: Zip.EntryOptions): boolean, string
     -- A trailing `/` is what marks a directory: a file of that name
     -- would read back as one.
@@ -846,7 +954,10 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     local mode = fopts.mode or 0x1a4
     local mtime = fopts.mtime or 0
     local method_name = fopts.method or "deflate"
-    return write_entry(path, data, method_name, mode, mtime, false)
+    if data is string then
+      return write_entry(path, data, method_name, mode, mtime, false)
+    end
+    return write_streamed(path, data, method_name, mode, mtime, fopts.size)
   end
 
   zw.add_dir = function(_self: Zip.Writer, path: string, fopts?: Zip.EntryOptions): boolean, string

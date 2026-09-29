@@ -355,6 +355,66 @@ local function test_create_a_zip_sorts_its_entries_and_round_trips(tmp: string)
   assert(Fs.is_dir(tmp .. "/back/tree/empty"))
 end
 
+local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp: string)
+  local src = tmp .. "/src"
+  assert(Fs.mkdirs(src))
+  local line = "streamed into the archive a chunk at a time\n"
+  local chunk = string.rep(line, 65536 // #line + 1)
+  local rounds = 320 -- about 20 MiB
+  local sink = assert(Stream.create(src .. "/big.txt"))
+  for _ = 1, rounds do assert(sink:write(chunk)) end
+  assert(sink:close())
+  local total = #chunk * rounds
+  collectgarbage()
+  collectgarbage()
+  local base = collectgarbage("count")
+  -- Every read the run makes of a source file is preceded by a full
+  -- collection and a sample of live memory: a run that read the file
+  -- whole would hold all of it at once, and one that never opened it
+  -- as a Stream would make no read at all.
+  local real_open = Stream.open
+  local reads, peak = 0, 0.0
+  local patched = Stream as {string:any}
+  patched.open = function(path: string): Stream.Reader | nil, string
+    local opened, why = real_open(path)
+    if opened == nil or path:sub(-7) ~= "big.txt" then return opened, why end
+    local inner: Stream.Reader = opened
+    local wrapped: Stream.Reader = {}
+    wrapped.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+      collectgarbage()
+      peak = math.max(peak, collectgarbage("count"))
+      reads = reads + 1
+      return inner:read(max)
+    end
+    wrapped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
+    return wrapped, ""
+  end
+  local ok, ran = pcall(in_dir, src, { "create", tmp .. "/out.zip", "big.txt" })
+  patched.open = real_open
+  assert(ok, ran)
+  local made = ran as Ran
+  assert(made.code == 0 and made.err == "", made.err)
+  assert(reads >= rounds // 2, "the file was read " .. tostring(reads) .. " times")
+  -- Reading the file whole would hold all of it, and its deflated copy.
+  local grown = (peak - base) / 1024
+  assert(grown < 4, ("memory grew %.1f MiB packing %d MiB"):format(grown, total >> 20))
+  local r = assert(Zip.open(tmp .. "/out.zip"))
+  local entries = r:entries()
+  assert(#entries == 1 and entries[1].size == total)
+  local body = assert(entries[1]:open())
+  local seen = 0
+  while true do
+    local got, why = body:read(1 << 16)
+    if got == nil then
+      assert(why == "", why)
+      break
+    end
+    seen = seen + #got
+  end
+  assert(seen == total)
+  assert(r:close())
+end
+
 local function test_create_a_gzip_tar_round_trips_with_a_symlink(tmp: string)
   local src = make_tree(tmp)
   assert(Fs.symlink("a.txt", src .. "/tree/link"))
