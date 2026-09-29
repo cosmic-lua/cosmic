@@ -75,10 +75,12 @@ local record TypeNode
   fields: {string: TypeNode} | nil
   field_order: {string} | nil
   field_comments: {string: {{compiler.Comment}}} | nil
-  --- A `"record"`'s metamethods by name and in source order, and
-  --- whether its values are userdata.
+  --- A `"record"`'s metamethods by name and in source order, the
+  --- comments tl attached to each (as `field_comments` holds a field's),
+  --- and whether its values are userdata.
   meta_fields: {string: TypeNode} | nil
   meta_field_order: {string} | nil
+  meta_field_comments: {string: {{compiler.Comment}}} | nil
   is_userdata: boolean | nil
   --- An `"enum"`: its values, and the comments attached to each.
   enumset: {string: boolean} | nil

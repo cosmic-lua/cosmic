@@ -38,7 +38,7 @@ local record analyzer
     --- Whether `symbol` is reachable through the returned module value.
     exported: boolean
     --- `"module"`, `"function"`, `"method"`, `"record"`, `"interface"`,
-    --- `"enum"`, `"type"`, `"field"`, `"value"`.
+    --- `"enum"`, `"type"`, `"field"`, `"metamethod"`, `"value"`.
     kind: string
     --- The declaration as the source wrote it, one line.
     signature: string
@@ -142,14 +142,34 @@ local function comment_body(c: compiler.Comment): string
   return c.text:match("^%-%-%-?%s?(.*)$") or c.text
 end
 
+--- Whether a comment trails code on its own line (`s: string -- why`)
+--- rather than standing on lines of its own. A trailing comment is a note
+--- on what it follows, never the documentation of the declaration below:
+--- as everywhere in this tree, a doc comment is the run above.
+local function trails_code(lines: {string}, c: compiler.Comment): boolean
+  local line = lines[c.y]
+  return line ~= nil and String.trim(line:sub(1, c.x - 1)) ~= ""
+end
+
 --- The doc comment that ends on the line before `line`, out of the
 --- comments tl attached to the token there: the last run of
 --- consecutive comment lines, when it is adjacent. Comments separated
 --- from a declaration by a blank line belong to something else (the
---- module, most often) and are not its documentation. One line per
---- comment line, leaders stripped, so a paragraph break survives.
-local function doc_before(comments: {compiler.Comment}, line: integer): string
-  if comments == nil or #comments == 0 then
+--- module, most often) and are not its documentation, and a comment
+--- trailing the code before it (`trails_code`) is not part of the run
+--- it starts. One line per comment line, leaders stripped, so a
+--- paragraph break survives.
+local function doc_before(lines: {string}, all: {compiler.Comment}, line: integer): string
+  if all == nil or #all == 0 then
+    return ""
+  end
+  local comments: {compiler.Comment} = {}
+  for _, c in ipairs(all) do
+    if not trails_code(lines, c) then
+      comments[#comments + 1] = c
+    end
+  end
+  if #comments == 0 then
     return ""
   end
   local last = comments[#comments]
@@ -179,17 +199,22 @@ end
 
 --- The module's own documentation: the run of comment lines that opens
 --- the file, read off the first token, which carries every comment
---- before it (a statement is handed only the run adjacent to it). A
---- run that ends right above a function declaration is that function's,
---- not the module's; above a record or a type it is both's.
-local function module_doc(parsed: ast.Parsed): string
-  local first_token = parsed.tokens[1]
+--- before it (a statement is handed only the run adjacent to it), and
+--- the line it starts on. A leading `#!` line is no token of the code
+--- (the lexer keeps it as one of its own), so the run is read off the
+--- token after it; blank lines before the run do not end it. A run that
+--- ends right above a function declaration is that function's, not the
+--- module's; above a record or a type it is both's.
+local function module_doc(parsed: ast.Parsed): string, integer
+  local at = 1
+  local shebang = parsed.tokens[1]
+  if shebang ~= nil and shebang.tk:sub(1, 2) == "#!" then
+    at = 2
+  end
+  local first_token = parsed.tokens[at]
   local comments = first_token ~= nil and first_token.comments or nil
-  -- TODO: read the run after a leading shebang line or blank lines as
-  -- the module's too: a script opening with `#!` and a comment lists
-  -- blank in `cosmic docs`, and its record or function keeps the run alone.
-  if comments == nil or #comments == 0 or comments[1].y ~= 1 then
-    return ""
+  if comments == nil or #comments == 0 then
+    return "", 1
   end
   local last = 1
   while last < #comments and comments[last + 1].y == comments[last].y + 1 do
@@ -198,13 +223,13 @@ local function module_doc(parsed: ast.Parsed): string
   local first_stmt = parsed.node[1]
   if first_stmt ~= nil and takes_a_doc_comment(first_stmt)
      and comments[last].y == first_stmt.y - 1 then
-    return ""
+    return "", 1
   end
   local parts: {string} = {}
   for index = 1, last do
     parts[#parts + 1] = comment_body(comments[index])
   end
-  return table.concat(parts, "\n")
+  return table.concat(parts, "\n"), comments[1].y
 end
 
 --- `source` split into its lines, once per analysis.
@@ -451,41 +476,18 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
   return String.trim((table.concat(parts, " "):gsub("%s+", " ")))
 end
 
---- Adds the entries for one record, interface, or enum body under
---- `symbol`: one per field, in declaration order, with a nested
---- record or enum recursing under its own name.
-local function record_docs(lines: {string}, tokens: {compiler.Token}, symbol: string,
+--- Adds the entries for one group of a record's or interface's fields
+--- under `symbol`, in the order given, with a nested record or enum
+--- recursing under its own name. `metamethod` marks the group the
+--- `metamethod` declarations are: their kind is `"metamethod"`, and
+--- their signature keeps the keyword, as the source spells it.
+local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: string,
                            def: ast.TypeNode, out: {analyzer.DocEntry})
-  if def.typename == "enum" then
-    local value_comments = def.value_comments
-    for _, value in ipairs(enum_values(def)) do
-      local text = ""
-      if value_comments ~= nil then
-        local comments = value_comments[value]
-        if comments ~= nil and #comments > 0 then
-          text = doc_before(comments, comments[#comments].y + 1)
-        end
-      end
-      local full = symbol .. "." .. value
-      out[#out + 1] = { symbol = full, source_symbol = full, exported = false,
-        kind = "value",
-        signature = string.format("%q", value), text = text, line = def.y }
-    end
-    return
-  end
-  -- TODO: a comment trailing a field on its own line (`s: string -- why`)
-  -- becomes the doc text of the next field, since `field_comments` holds
-  -- every comment run above a field; keep a run that starts on the line
-  -- of the field before it out of this one's text.
-  -- TODO: a record's `metamethod` fields (`def.meta_fields`) have no row
-  -- here, so `cosmic docs` never lists a documented `__call` or `__index`;
-  -- walk them as the fields are walked.
-  local order = def.field_order
-  local fields = def.fields
-  local field_comments = def.field_comments
-  if order == nil or fields == nil then
-    return
-  end
+
+local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: string,
+                           order: {string}, fields: {string: ast.TypeNode},
+                           field_comments: {string: {{compiler.Comment}}},
+                           metamethod: boolean, out: {analyzer.DocEntry})
   for _, name in ipairs(order) do
     local field = fields[name]
     if field ~= nil then
@@ -500,21 +502,67 @@ local function record_docs(lines: {string}, tokens: {compiler.Token}, symbol: st
       if field.typename == "generic" and field.t ~= nil then
         field = field.t
       end
+      local start = token_at(tokens, field.y, field.x)
       local nested = field.typename == "typedecl" and definition_of(field) or nil
-      if nested ~= nil and (nested.typename == "record"
+      if metamethod then
+        -- The `__is` a `where` clause makes up has no line of its own: its
+        -- type sits at the `where`.
+        if start == nil or tokens[start].tk ~= "where" then
+          out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
+            exported = false, kind = "metamethod",
+            signature = field_signature(lines, tokens, field),
+            text = doc_before(lines, comments, field.y), line = field.y }
+        end
+      elseif nested ~= nil and (nested.typename == "record"
          or nested.typename == "interface" or nested.typename == "enum") then
         out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
           exported = false, kind = nested.typename,
           signature = line_at(lines, field.y),
-          text = doc_before(comments, field.y), line = field.y }
+          text = doc_before(lines, comments, field.y), line = field.y }
         record_docs(lines, tokens, field_symbol, nested, out)
       else
         out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
           exported = false, kind = "field",
           signature = field_signature(lines, tokens, field),
-          text = doc_before(comments, field.y), line = field.y }
+          text = doc_before(lines, comments, field.y), line = field.y }
       end
     end
+  end
+end
+
+--- Adds the entries for one record, interface, or enum body under
+--- `symbol`: one per field, in declaration order, with a nested
+--- record or enum recursing under its own name, then one per
+--- `metamethod` field, in its own order.
+record_docs = function(lines: {string}, tokens: {compiler.Token}, symbol: string,
+                       def: ast.TypeNode, out: {analyzer.DocEntry})
+  if def.typename == "enum" then
+    local value_comments = def.value_comments
+    for _, value in ipairs(enum_values(def)) do
+      local text = ""
+      if value_comments ~= nil then
+        local comments = value_comments[value]
+        if comments ~= nil and #comments > 0 then
+          text = doc_before(lines, comments, comments[#comments].y + 1)
+        end
+      end
+      local full = symbol .. "." .. value
+      out[#out + 1] = { symbol = full, source_symbol = full, exported = false,
+        kind = "value",
+        signature = string.format("%q", value), text = text, line = def.y }
+    end
+    return
+  end
+  local order = def.field_order
+  local fields = def.fields
+  if order ~= nil and fields ~= nil then
+    fields_docs(lines, tokens, symbol, order, fields, def.field_comments, false, out)
+  end
+  local meta_order = def.meta_field_order
+  local meta_fields = def.meta_fields
+  if meta_order ~= nil and meta_fields ~= nil then
+    fields_docs(lines, tokens, symbol, meta_order, meta_fields,
+      def.meta_field_comments, true, out)
   end
 end
 
@@ -538,10 +586,10 @@ end
 --- symbol, not this one's.
 local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
   local out: {analyzer.DocEntry} = {}
-  local opening = module_doc(parsed)
+  local opening, opening_line = module_doc(parsed)
   if #opening > 0 then
     out[#out + 1] = { symbol = "", source_symbol = "", exported = true,
-      kind = "module", signature = "", text = opening, line = 1 }
+      kind = "module", signature = "", text = opening, line = opening_line }
   end
   for _, stmt in ipairs(parsed.node) do
     if (stmt.kind == "local_function" or stmt.kind == "record_function"
@@ -550,7 +598,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
       out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
         kind = stmt.is_method and "method" or "function",
         signature = function_signature(lines, stmt),
-        text = doc_before(stmt.comments, stmt.y), line = stmt.y }
+        text = doc_before(lines, stmt.comments, stmt.y), line = stmt.y }
     elseif stmt.kind == "local_type" or stmt.kind == "global_type" then
       local var = stmt.var
       local value = stmt.value
@@ -566,14 +614,14 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
         out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
           kind = kind,
           signature = line_at(lines, stmt.y),
-          text = doc_before(stmt.comments, stmt.y), line = stmt.y }
+          text = doc_before(lines, stmt.comments, stmt.y), line = stmt.y }
         if kind ~= "type" and def ~= nil then
           record_docs(lines, parsed.tokens, symbol, def, out)
         end
       end
     elseif stmt.kind == "local_declaration" and stmt.vars ~= nil
            and stmt.vars[1] ~= nil then
-      local text = doc_before(stmt.comments, stmt.y)
+      local text = doc_before(lines, stmt.comments, stmt.y)
       -- The run above the file's first `local` is the module's (see
       -- `module_doc`), never that value's.
       if stmt == parsed.node[1] and #opening > 0 then
@@ -765,7 +813,7 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.Examp
         local until_y = after ~= nil and after.y or (#lines + 1)
         local until_x = after ~= nil and after.x or 1
         out[#out + 1] = { name = tk,
-          text = doc_before(stmt.comments, stmt.y),
+          text = doc_before(lines, stmt.comments, stmt.y),
           source = block_text(lines, stmt.y, stmt.x, until_y, until_x),
           line = stmt.y }
       end

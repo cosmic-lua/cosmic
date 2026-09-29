@@ -270,11 +270,15 @@ end
 --- nested record (its symbol is dotted), is not. Nor is a field typed
 --- `function` without parentheses, a generic one (`function<T>(...)`),
 --- or an alias of a function type: only the literal `name: function(`
---- form is.
+--- form is. A `metamethod` of the module's own record (`__call` of a
+--- module that is itself callable) is listed too, by its signature; one
+--- of a nested record (its `__close`) is that record's, as its other
+--- fields are.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
-    "AND d.symbol <> '' AND (d.kind NOT IN ('field', 'value') OR " ..
+    "AND d.symbol <> '' AND (d.kind NOT IN ('field', 'value', 'metamethod') OR " ..
+    "(d.kind = 'metamethod' AND d.symbol NOT LIKE '%.%') OR " ..
     "(d.kind = 'field' AND d.symbol NOT LIKE '%.%' AND " ..
     "d.signature GLOB d.symbol || ': function(*')) AND " ..
     "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
@@ -951,11 +955,11 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   return out
 end
 
---- One declared symbol as a module's listing shows it: a function or
---- method by its signature (a function-typed field as `function` and its
---- name, then the signature's parameters and results), anything else (a
---- record's signature spans lines) by kind and name, then its uses and
---- examples.
+--- One declared symbol as a module's listing shows it: a function,
+--- method or metamethod by its signature (a function-typed field as
+--- `function` and its name, then the signature's parameters and
+--- results), anything else (a record's signature spans lines) by kind
+--- and name, then its uses and examples.
 local function listed(item: docs.Entry): string
   local marks: {string} = {}
   if item.uses > 0 then
@@ -966,7 +970,8 @@ local function listed(item: docs.Entry): string
       (item.examples == 1 and "" or "s")
   end
   local shown = item.kind .. " " .. item.source_symbol
-  if (item.kind == "function" or item.kind == "method") and
+  if (item.kind == "function" or item.kind == "method"
+      or item.kind == "metamethod") and
      item.signature ~= "" and not item.signature:find("\n", 1, true) then
     shown = item.signature
   elseif item.kind == "field" then
