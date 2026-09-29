@@ -560,8 +560,12 @@ moves.
 ### 4.1 Fixtures sandboxed, sharing verdicts: landed (#2417; pin #2420)
 
 Product, runtime, launcher and identity run sandboxed into `fixtures.db`;
-the pin move (#2420) keys their `system` and macOS path. Standing on a
-new commit is still to be seen on CI.
+the pin move (#2420) keys their `system` and macOS path. Every key holds
+the product's bytes, so they stand only on a commit that moves neither
+the product nor a fixture (docs, ci/-only, the plan): the first four
+queue runs after #2417 all moved the product and ran every fixture
+(0 stood, fixtures step 2 to 3 min a leg). The 25 to 40 s target holds
+for those commits only; still to be seen on one.
 
 
 The `fixtures-sandboxed` branch never reached origin, so this starts
