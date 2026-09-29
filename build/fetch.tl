@@ -92,6 +92,12 @@ local function is_url(url: string): boolean
   return host:match("^[^:]*") ~= ""
 end
 
+-- TODO: move onto build/bare.tl once #2342 merges: `redact` is
+-- `bare.redact_url`, `escaped` is `bare.escape(text, { keep_tab_newline = true })`,
+-- and `standard`, `complain`'s prefix and the write-failure complaint are
+-- `bare.out`, `bare.err`, `bare.complainer` and `bare.delivered`. Left
+-- as it is now so that change, which rewrites this file, merges cleanly.
+
 --- `url` with any userinfo replaced by `***`, for every place the verb
 --- prints one: a password in a URL must not reach a log.
 local function redact(url: string): string

@@ -27,8 +27,7 @@ local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
-local Stream = require("cosmic.stream")
+local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic json` verb: `run` is what `build/dispatch.tl` calls.
@@ -123,7 +122,7 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
   elseif #words > 2 then
     return nil, "give a path and a file at most, not " .. #words .. " words"
   end
-  if request.file == "" then return nil, "an empty file name" end
+  if request.file == "" then return nil, bare.empty_file end
   if request.file == "-" then request.file = nil end
   if path ~= nil then
     local steps, _ = Json.parse_path(path)
@@ -172,21 +171,13 @@ end
 --- The bytes of standard input, refusing a terminal, where nothing
 --- would ever end them.
 local function read_stdin(): string | nil, string
-  if Proc.is_tty(Fs.stdin) then
-    return nil, "no file given and standard input is a terminal; give a file " ..
-      "(written ./name, or after --, when its name begins with . $ or [), or pipe JSON in"
-  end
-  -- `Stream.from_fd` borrows the descriptor, which stays open.
-  return Stream.read_all(Stream.from_fd(Fs.stdin))
+  return bare.stdin_text("no file given and standard input is a terminal; give a file " ..
+    "(written ./name, or after --, when its name begins with . $ or [), or pipe JSON in")
 end
 
 local standard: verb.Io = {
-  out = function(text: string): boolean, string
-    return Fs.put(Fs.stdout, text)
-  end,
-  err = function(line: string)
-    local _, _ = Fs.put(Fs.stderr, line .. "\n")
-  end,
+  out = bare.out,
+  err = bare.err,
   stdin = read_stdin,
 }
 
@@ -198,20 +189,14 @@ local standard: verb.Io = {
 --- @param io where the text is read and written; the process's own when nil
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
-  local function complain(line: string)
-    to.err("cosmic: json: " .. line)
-  end
-  -- What a write to standard output answers: 0, or 2 and a complaint,
-  -- since a value lost to a full disk or a closed pipe is no success.
+  local complain = bare.complainer("json", to.err)
   local function written(ok: boolean, why: string): integer
-    if ok then return 0 end
-    complain("standard output: " .. why)
-    return 2
+    return bare.written(complain, ok, why)
   end
   local parsed, trouble = arguments(argv)
   if parsed == nil then
     complain(trouble .. "; " .. usage)
-    return 2
+    return bare.refused
   end
   local request: verb.Request = parsed
   local text: string | nil
@@ -223,25 +208,25 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   if text == nil then
     complain(read_trouble)
-    return 2
+    return bare.refused
   end
   local document, decode_trouble = Json.decode(text, { null_value = Json.null })
   if decode_trouble ~= "" then
     complain((request.file or "standard input") .. ": " .. decode_trouble)
-    return 2
+    return bare.refused
   end
   -- What `--flat` and a pattern print: one `path = value` line per leaf
   -- or match; `-r` prints a pattern's matches as their text, one to a line.
   local walk: Json.WalkOptions = { max_depth = Json.depth_limit }
-  local function print_lines(found: {Json.Located}, bare: boolean): integer
+  local function print_lines(found: {Json.Located}, as_text: boolean): integer
     local lines: {string} = {}
     for _, item in ipairs(found) do
       local line: string | nil
       local why: string
       local leaf = item.value
-      if bare and leaf is string then
+      if as_text and leaf is string then
         line = leaf
-      elseif bare then
+      elseif as_text then
         line, why = Json.encode(leaf)
         if line == nil then why = item.path .. ": " .. why end
       else
@@ -249,7 +234,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       end
       if line == nil then
         complain(why)
-        return 1
+        return bare.failed
       end
       lines[#lines + 1] = line
     end
@@ -260,11 +245,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local matches, why = Json.select(document, request.pattern, walk)
     if matches == nil then
       complain(why)
-      return 2
+      return bare.refused
     end
     if #matches == 0 then
       if request.mode ~= "exists" then complain(request.spelled .. ": no match") end
-      return 1
+      return bare.failed
     end
     if request.mode == "exists" then return 0 end
     if request.mode ~= "flat" then return print_lines(matches, request.raw) end
@@ -282,7 +267,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       local under, flat_why = Json.flatten(match.value, { max_depth = walk.max_depth, root = match.path })
       if under == nil then
         complain(flat_why)
-        return 2
+        return bare.refused
       end
       for _, leaf in ipairs(under) do leaves[#leaves + 1] = leaf end
       ::next_match::
@@ -292,14 +277,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local value, missing = Json.get(document, request.path)
   if missing ~= "" then
     if request.mode ~= "exists" then complain(missing) end
-    return 1
+    return bare.failed
   end
   if request.mode == "exists" then return 0 end
   if request.mode == "flat" then
     local leaves, why = Json.flatten(value, { max_depth = walk.max_depth, root = request.spelled })
     if leaves == nil then
       complain(why)
-      return 2
+      return bare.refused
     end
     return print_lines(leaves, false)
   end
@@ -310,7 +295,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local listed, why = keys_of(value)
     if listed == nil then
       complain(request.spelled .. ": " .. why)
-      return 1
+      return bare.failed
     end
     return written(to.out(listed))
   end
@@ -320,7 +305,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local encoded, encode_trouble = Json.encode(value, { pretty = not request.compact })
   if encoded == nil then
     complain(request.spelled .. ": " .. encode_trouble)
-    return 1
+    return bare.failed
   end
   return written(to.out(encoded .. "\n"))
 end

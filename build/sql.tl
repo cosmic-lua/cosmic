@@ -41,11 +41,10 @@ local Dataset = require("cosmic.dataset")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
+local bare = require("build.bare")
 local clock = require("build.clock")
 local verdicts = require("build.verdict")
 local verb_spec = require("build.verb_spec")
@@ -258,11 +257,10 @@ local function real(x: number): string
   return text
 end
 
-local escapes: {string:string} = { ["\\"] = "\\\\", ["\t"] = "\\t", ["\n"] = "\\n", ["\r"] = "\\r" }
-
---- A backslash or control byte inside text, as its escape.
-local function escape(byte: string): string
-  return escapes[byte] or string.format("\\x%02X", byte:byte())
+--- A backslash or control byte inside a cell or a column name, as
+--- `bare.escape` writes it with `named`.
+local function escape(text: string): string
+  return bare.escape(text, { named = true })
 end
 
 --- One cell as the text a row line carries.
@@ -272,7 +270,7 @@ local function cell_text(cell: Sqlite.Cell): string
   elseif cell.kind == "number" then
     return real(cell.number)
   elseif cell.kind == "text" then
-    return (cell.text:gsub("[\\%c]", escape))
+    return escape(cell.text)
   elseif cell.kind == "blob" then
     return "X'" .. (cell.blob:gsub(".", function(byte: string): string
       return string.format("%02X", byte:byte())
@@ -305,7 +303,7 @@ local function stream(db: Sqlite.Handle, statement: string,
   local width = prepared:columns()
   local cells: {string} = {}
   for index = 0, width - 1 do
-    cells[index + 1] = (prepared:name(index):gsub("[\\%c]", escape))
+    cells[index + 1] = escape(prepared:name(index))
   end
   if width > 0 then
     local written, write_trouble = emit(table.concat(cells, "\t"))
@@ -501,9 +499,7 @@ end
 --- `text` with a control byte as `\xHH`, so a name or a sample never
 --- moves the terminal.
 local function plain(text: string): string
-  return (text:gsub("%c", function(byte: string): string
-    return string.format("\\x%02X", byte:byte())
-  end))
+  return bare.escape(text)
 end
 
 --- Loaded tables' names of columns, for a hint: one table's columns as
@@ -585,11 +581,7 @@ end
 --- The bytes of standard input, refusing a terminal, where nothing
 --- would ever end them.
 local function read_stdin(): string | nil, string
-  if Proc.is_tty(Fs.stdin) then
-    return nil, "standard input is a terminal; pipe the data in"
-  end
-  -- `Stream.from_fd` borrows the descriptor, which stays open.
-  return Stream.read_all(Stream.from_fd(Fs.stdin))
+  return bare.stdin_text("standard input is a terminal; pipe the data in")
 end
 
 --- `cosmic sql --from ...`, after `run` has parsed the line: loads each
