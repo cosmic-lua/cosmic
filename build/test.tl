@@ -42,9 +42,11 @@
 --- Its run records what it was compiled from and ran under instead, and
 --- while that is unchanged and it last passed, it is assumed to pass
 --- again rather than run, unless the run is `--all` (or
---- `COSMIC_TEST_ALL=1`, or `COSMIC_SANDBOX=must`) or names it. All of
---- this is an unsandboxed run's; a sandboxed one's keys are its tests'
---- declared inputs, below.
+--- `COSMIC_TEST_ALL=1`, or `COSMIC_SANDBOX=must`) or names it. `--all`
+--- (or `COSMIC_TEST_ALL=1`, or an audit) runs every test the run
+--- chooses, one a key holds too, whatever stands. All of this is an
+--- unsandboxed run's; a sandboxed one's keys are its tests' declared
+--- inputs, below.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -3539,8 +3541,10 @@ local function run(argv: {integer:string}): integer
         -- than build.filesystem_observations' log (a sandbox that logs
         -- what it refuses): today a run not given it is keyed by what it
         -- was seen to read, and shares no verdict.
+        -- Forced (--all, COSMIC_TEST_ALL or an audit), it runs whatever
+        -- stands, as a keyed test does.
         local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
-        if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
+        if not forced then stood, reads, key = standing(rec, previous, verdicts, m, id) end
         local assumed: Assumed = nil
         local asked = everything
         for _, selector in ipairs(naming) do
