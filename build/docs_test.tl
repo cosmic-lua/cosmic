@@ -192,7 +192,8 @@ local function test_a_module_listing_shows_signatures(dir: string)
     1, true), text)
   assert(not text:find("function Fs.read (", 1, true), text)
   assert(text:find("  record Fs\n", 1, true), text)
-  assert(not text:find("record Fs {", 1, true) and not text:find("mode: integer", 1, true), text)
+  assert(not text:find("record Fs {", 1, true), text)
+  assert(text:find("  record Fs.Opts\n    mode: integer\n", 1, true), text)
   local listing = text:find("  function Fs.read(", 1, true)
   local prose = text:find("Long prose after", 1, true)
   assert(listing ~= nil and prose ~= nil and listing < prose, text)
@@ -231,8 +232,10 @@ local function test_a_module_listing_shows_function_typed_fields(dir: string)
   local prose = text:find("Long prose after", 1, true)
   assert(listing ~= nil and prose ~= nil and listing < prose, text)
   -- A function-typed field of a nested record is that record's, not
-  -- the module's call.
-  assert(not text:find("visit", 1, true), text)
+  -- the module's call: listed under it, as a field.
+  assert(not text:find("function calls.visit", 1, true), text)
+  assert(text:find("\n  record calls.Stat\n    size: integer\n    visit: function", 1, true),
+    text)
 end
 
 --- A function-typed field written over several lines is listed with its
@@ -258,12 +261,14 @@ local function test_a_module_listing_shows_a_multi_line_field_signature(dir: str
 end
 
 --- A record's plain data field is not a function: only a field whose
---- type is a function is listed as one.
-local function test_a_module_listing_leaves_out_data_fields(dir: string)
+--- type is a function is listed as one. The data fields go under their
+--- record instead, one line each with its first sentence.
+local function test_a_module_listing_lists_data_fields_under_their_record(dir: string)
   local db = built(dir, { ["cosmic/calls.tl"] = source(
     "--- A table of calls.",
     "",
     "local record calls",
+    "  --- The most it takes. More words.",
     "  limit: integer",
     "  name: string",
     "  callbacks: {function(): boolean}",
@@ -275,9 +280,11 @@ local function test_a_module_listing_leaves_out_data_fields(dir: string)
   local lines = assert(docs.render(view({ db }), found[1]))
   local text = table.concat(lines, "\n")
   assert(text:find("  function calls.exists(path: string): boolean", 1, true), text)
-  assert(not text:find("limit", 1, true) and not text:find("name: string", 1, true), text)
-  assert(not text:find("calls.limit", 1, true) and not text:find("calls.name", 1, true), text)
-  assert(not text:find("callbacks", 1, true), text)
+  assert(not text:find("function calls.limit", 1, true) and
+    not text:find("function calls.name", 1, true), text)
+  assert(text:find("\n  record calls\n    limit: integer -- The most it takes.\n" ..
+    "    name: string\n    callbacks: {function(): boolean}\n", 1, true), text)
+  assert(not text:find("More words", 1, true), text)
 end
 
 --- A callable module's own `metamethod` is listed with its signature,
@@ -447,13 +454,17 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
 end
 
 --- A module's listing leaves out the functions its returned value never
---- reaches, but keeps the types it declares; a private function is still
---- found by its own name.
+--- reaches, and the `local` types no signature of it names, but keeps the
+--- types its signatures use; a private function is still found by its
+--- own name.
 local function test_a_module_listing_leaves_out_private_functions(dir: string)
   local db = built(dir, { ["cosmic/fs.tl"] = source(
     "--- Files and directories.",
     "",
     "local record Stat",
+    "end",
+    "",
+    "local record Cursor",
     "end",
     "",
     "local record Fs",
@@ -462,7 +473,7 @@ local function test_a_module_listing_leaves_out_private_functions(dir: string)
     "local function write_all(fd: integer)",
     "end",
     "",
-    "function Fs.read(path: string): string",
+    "function Fs.stat(path: string): Stat",
     "  return path",
     "end",
     "",
@@ -471,7 +482,7 @@ local function test_a_module_listing_leaves_out_private_functions(dir: string)
   local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[4] == "  record Stat", lines[4])
   assert(lines[5] == "  record Fs", lines[5])
-  assert(lines[6] == "  function Fs.read(path: string): string", lines[6])
+  assert(lines[6] == "  function Fs.stat(path: string): Stat", lines[6])
   assert(lines[7] == nil, lines[7])
   local helper = assert(docs.lookup(view({ db }), "write_all"))
   assert(#helper == 1 and helper[1].symbol == "write_all", tostring(#helper))
@@ -1362,6 +1373,165 @@ local function test_an_unreadable_own_database_is_left_out(dir: string)
   local looked = assert(docs.view(sources.handles, sources.public))
   local found = assert(docs.lookup(looked, "Fs.read"))
   assert(#found > 0 and found.exact)
+end
+
+--- A record's page lists each field with its type and the first
+--- sentence of what it says, and an enum's page its values.
+local function test_a_record_page_lists_its_fields_and_an_enum_its_values(dir: string)
+  local db = built(dir, { ["cosmic/thing.tl"] = source(
+    "--- Things.",
+    "",
+    "local record Thing",
+    "  --- What `make` may be told. Every field is optional.",
+    "  record Options",
+    "    --- How many to make. It defaults to one.",
+    "    count: integer",
+    "    label: string",
+    "  end",
+    "  --- The shapes there are.",
+    "  enum Shape",
+    "    \"round\"",
+    "    \"flat\"",
+    "  end",
+    "end",
+    "",
+    "function Thing.make(opts?: Thing.Options): Thing.Shape",
+    "  return \"round\"",
+    "end",
+    "",
+    "return Thing") })
+  local looked = view({ db })
+  local options = assert(docs.lookup(looked, "Thing.Options"))
+  local shown = table.concat(assert(docs.render(looked, options[1])), "\n")
+  assert(shown:find("  fields:\n    count: integer -- How many to make.\n    label: string",
+    1, true), shown)
+  local shape = assert(docs.lookup(looked, "Thing.Shape"))
+  shown = table.concat(assert(docs.render(looked, shape[1])), "\n")
+  assert(shown:find("  values:\n    \"flat\"\n    \"round\"", 1, true), shown)
+  local page = assert(docs.lookup(looked, "cosmic.thing"))
+  shown = table.concat(assert(docs.render(looked, page[1])), "\n")
+  assert(shown:find("\n  record Thing.Options\n    count: integer -- How many to make.\n" ..
+    "    label: string", 1, true), shown)
+end
+
+--- A public source shows none of a module's own: a `local` record and
+--- its fields, a `local` function, a `_` field. Another source shows them
+--- by name, but a module's listing never does.
+local function test_a_public_source_hides_a_modules_own_symbols(dir: string)
+  local db = built(dir, { ["cosmic/thing.tl"] = source(
+    "--- Things.",
+    "",
+    "local record Cursor",
+    "  at: integer",
+    "end",
+    "",
+    "local record Thing",
+    "  record Options",
+    "    count: integer",
+    "    _cache: string",
+    "  end",
+    "end",
+    "",
+    "local function step(cursor: Cursor)",
+    "end",
+    "",
+    "local function walk()",
+    "end",
+    "",
+    "function Thing.walk(): string",
+    "  walk()",
+    "  return \"\"",
+    "end",
+    "",
+    "function Thing.make(opts?: Thing.Options): string",
+    "  step({ at = 1 })",
+    "  return \"\"",
+    "end",
+    "",
+    "return Thing") })
+  local public = assert(docs.view({ db }, { true }))
+  for _, name in ipairs({ "Cursor", "Cursor.at", "step", "Options._cache" }) do
+    local found = assert(docs.lookup(public, name))
+    assert(#found == 0 or found[1].source_symbol ~= name, name)
+  end
+  local options = assert(docs.lookup(public, "Thing.Options"))
+  local shown = table.concat(assert(docs.render(public, options[1])), "\n")
+  assert(shown:find("    count: integer", 1, true) and not shown:find("_cache", 1, true), shown)
+  local page = assert(docs.lookup(public, "cosmic.thing"))
+  shown = table.concat(assert(docs.render(public, page[1])), "\n")
+  assert(not shown:find("Cursor", 1, true) and not shown:find("_cache", 1, true), shown)
+  -- A public function is not hidden by a private one of the same name.
+  assert(shown:find("function Thing.walk(): string", 1, true), shown)
+  local walked = assert(docs.lookup(public, "walk"))
+  assert(#walked == 1 and walked[1].source_symbol == "Thing.walk", tostring(#walked))
+
+  local own = view({ db })
+  assert(#assert(docs.lookup(own, "Cursor")) == 1)
+  assert(#assert(docs.lookup(own, "step")) == 1)
+  page = assert(docs.lookup(own, "cosmic.thing"))
+  shown = table.concat(assert(docs.render(own, page[1])), "\n")
+  assert(not shown:find("Cursor", 1, true), shown)
+end
+
+--- A count of one is written in the singular, in a listing and on a
+--- symbol's page.
+local function test_a_count_of_one_is_singular(dir: string)
+  local db = built(dir, {
+    ["cosmic/fs.tl"] = source(
+      "--- Files.",
+      "",
+      "local record Fs",
+      "end",
+      "",
+      "--- The whole of a file.",
+      "function Fs.read(path: string): string",
+      "  return path",
+      "end",
+      "",
+      "return Fs"),
+    ["build/boot.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local text = Fs.read(\"boot\")",
+      "return text"),
+  })
+  local looked = view({ db })
+  local page = assert(docs.lookup(looked, "cosmic.fs"))
+  local text = table.concat(assert(docs.render(looked, page[1])), "\n")
+  assert(text:find("(1 use)", 1, true) and not text:find("1 uses", 1, true), text)
+  local read = assert(docs.lookup(looked, "Fs.read"))
+  text = table.concat(assert(docs.render(looked, read[1])), "\n")
+  assert(text:find("used in 1 place;", 1, true), text)
+end
+
+--- A module page cuts a field's note at a word near 100 characters; the
+--- record's own page keeps the sentence.
+local function test_a_module_page_truncates_a_long_field_note(dir: string)
+  local words = string.rep("word ", 30)
+  local db = built(dir, { ["cosmic/thing.tl"] = source(
+    "--- Things.",
+    "",
+    "local record Thing",
+    "  record Options",
+    "    --- " .. words .. "end.",
+    "    count: integer",
+    "  end",
+    "end",
+    "",
+    "function Thing.make(opts?: Thing.Options): string",
+    "  return \"\"",
+    "end",
+    "",
+    "return Thing") })
+  local looked = view({ db })
+  local page = assert(docs.lookup(looked, "cosmic.thing"))
+  local shown = table.concat(assert(docs.render(looked, page[1])), "\n")
+  local line = assert(shown:match("\n    (count: integer[^\n]*)"))
+  assert(#line < 130 and line:sub(-3) == "…", line)
+  assert(not line:find("end.", 1, true), line)
+  local options = assert(docs.lookup(looked, "Thing.Options"))
+  shown = table.concat(assert(docs.render(looked, options[1])), "\n")
+  assert(shown:find("word end.", 1, true), shown)
 end
 
 --- A binary carries a user guide as its own doc row, with no module

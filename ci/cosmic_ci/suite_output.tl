@@ -69,8 +69,8 @@ end
 
 local function pass_figures(detail: string, into: SuiteOutput.Figures)
   into.verdict = "pass"
-  into.tests = number(detail:match("^(%d+) tests,"))
-  into.modules = number(detail:match("^%d+ tests, (%d+) modules;"))
+  into.tests = number(detail:match("^(%d+) tests?,"))
+  into.modules = number(detail:match("^%d+ tests?, (%d+) modules?;"))
   into.ran = number(detail:match("; (%d+) ran, "))
   into.stood = number(detail:match(" (%d+) stood, "))
   into.every = number(detail:match(", (%d+) run every time ")) or 0
@@ -83,7 +83,7 @@ end
 
 local function fail_figures(detail: string, into: SuiteOutput.Figures): boolean
   local failed, total, errors, ms, rest =
-    detail:match("^(%d+) of (%d+) failed, (%d+) infrastructure errors, (%d+) ms(.*)$")
+    detail:match("^(%d+) of (%d+) failed, (%d+) infrastructure errors?, (%d+) ms(.*)$")
   if not failed then return false end
   into.verdict = "fail"
   into.failed, into.tests = number(failed), number(total)
@@ -116,7 +116,7 @@ function SuiteOutput.parse(text: string): SuiteOutput.Figures
     local passed = line:match("^test: PASS %((.*)%)$")
     local failed = line:match("^test: FAIL %((.*)%)$")
     local listed = line:match("^test: key parts: (.*)$") or
-      line:match("^test: shared verdicts: none of %d+ tests looked up stood, .* %(([^()]*)%)$")
+      line:match("^test: shared verdicts: none of %d+ tests? looked up stood, .* %(([^()]*)%)$")
     local census = line:match("^test: census: (.*)$")
     if passed then
       local parts, held = figures.parts, figures.held

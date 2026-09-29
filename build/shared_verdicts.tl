@@ -33,6 +33,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
+local plural = require("build.plural")
 
 local record shared_verdicts
   --- An open cache.
@@ -356,7 +357,7 @@ function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   local groups: {string} = {}
   for _, group in ipairs(held) do
     groups[#groups + 1] = string.format("%d %s under %s", group.rows,
-      group.rows == 1 and "row" or "rows",
+      plural.noun(group.rows, "row"),
       group.parts ~= "" and group.parts or "no parts named")
   end
   return "test: census: " .. table.concat(groups, "; ")
@@ -373,9 +374,10 @@ function shared_verdicts.unmatched(path: string, looked: integer,
   if looked == 0 or census.rows == 0 then return nil end
   local why = census.of_tests > 0 and "none under the keys this run reached" or
     "no other run reached them"
-  return string.format("test: shared verdicts: none of %d tests looked up stood, " ..
-    "though %s holds %d rows, %d of them of those tests: %s (%s)",
-    looked, path, census.rows, census.of_tests, why, shared_verdicts.named(parts))
+  return string.format("test: shared verdicts: none of %s looked up stood, " ..
+    "though %s holds %s, %d of them of those tests: %s (%s)",
+    plural.count(looked, "test"), path, plural.count(census.rows, "row"), census.of_tests,
+    why, shared_verdicts.named(parts))
 end
 
 --- Writes what a run owes the cache, at `now_ns`, and drops what it no

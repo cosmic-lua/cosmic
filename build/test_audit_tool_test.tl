@@ -68,7 +68,7 @@ local function test_an_undeclared_read_fails_the_audit_until_it_is_declared(tmp:
   project(root, true)
   ok, text = audit(root, tmp .. "/second.out")
   assert(ok, text)
-  assert(text:find("audit: 1 tests read only their inputs\n", 1, true), text)
+  assert(text:find("audit: 1 test read only its inputs\n", 1, true), text)
 end
 
 --- A `needs` call the build did not read from the source -- reached

@@ -104,7 +104,7 @@ end
     local result = invoke(root, output, "./suite/selected_test.tl:test_selected")
     local text = assert(Fs.read(output))
     assert(result.ok, text)
-    assert(text:find("1 tests, 1 modules; " .. expected, 1, true), text)
+    assert(text:find("1 test, 1 module; " .. expected, 1, true), text)
     assert(not text:find("executed", 1, true), text)
   end
   local output = tmp .. "/module.out"
@@ -146,12 +146,12 @@ return Example
   local result = invoke(root, output, "suite/answer_example.tl:answer")
   local text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 tests, 1 modules; 1 ran", 1, true), text)
+  assert(text:find("1 test, 1 module; 1 ran", 1, true), text)
   output = tmp .. "/prefixed.out"
   result = invoke(root, output, "suite/answer_example.tl:Example.answer")
   text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("1 tests, 1 modules; 0 ran, 1 stood", 1, true), text)
+  assert(text:find("1 test, 1 module; 0 ran, 1 stood", 1, true), text)
 end
 
 --- A failing test's report names the selector that reruns it, quoted

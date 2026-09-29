@@ -18,6 +18,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local narrow = require("build.narrow")
+local plural = require("build.plural")
 local reboot = require("build.reboot")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
@@ -226,7 +227,7 @@ end
 local function named(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
-    " AND " .. symbols.public_docs("d.module", public) .. " ORDER BY d.module, d.id",
+    " AND " .. symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id",
     { text(query) })
   if rows == nil then
     return nil, trouble
@@ -249,7 +250,7 @@ local function named_all(db: Sqlite.Handle, public: boolean,
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.symbol IN (" ..
     table.concat(placeholders, ", ") .. ") AND " ..
-    symbols.public_docs("d.module", public) .. " ORDER BY d.module, d.id",
+    symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id",
     args)
   if rows == nil then
     return nil, trouble
@@ -263,6 +264,9 @@ end
 --- in. A private helper function is left out -- a reader scanning the
 --- module wants what they can call -- but `cosmic docs <name>` still
 --- finds it.
+--- A `local` declaration is left out too, whichever source is read: it
+--- is not the module's surface, though `cosmic docs <name>` finds it in
+--- a source that answers for the module's internals.
 --- A call the module's own record declares as a field of function type
 --- (`lstat: function(...)` in `cosmic.sys`'s syscall table) is listed
 --- too, as a function; a record's plain data field, and any field of a
@@ -281,7 +285,25 @@ local function declared_in(db: Sqlite.Handle, public: boolean, module: string): 
     "(d.kind = 'field' AND d.symbol NOT LIKE '%.%' AND " ..
     "d.signature GLOB d.symbol || ': function(*')) AND " ..
     "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
-    symbols.public_docs("d.module", public) .. " ORDER BY d.id",
+    "NOT " .. symbols.local_declaration("d") .. " AND " ..
+    symbols.shown_docs("d", public) .. " ORDER BY d.id",
+    { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
+--- The fields of every record and interface in `module`, and the values
+--- of every enum, in declaration order: what a page lists under each.
+--- A field of a `local` record, or one named `_...`, is left out of a
+--- public source, as it is from every other view of it.
+local function members_of(db: Sqlite.Handle, public: boolean,
+                          module: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+    "d.kind IN ('field', 'value') AND " .. symbols.shown_docs("d", public) ..
+    " ORDER BY d.id",
     { text(module) })
   if rows == nil then
     return nil, trouble
@@ -296,7 +318,7 @@ local function modules_of(db: Sqlite.Handle, public: boolean): {docs.Entry} | ni
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE (d.symbol = '' OR " ..
     "(d.kind = 'record' AND d.symbol NOT LIKE '%.%' AND d.text <> '')) AND " ..
-    symbols.public_docs("d.module", public) .. " ORDER BY d.module, d.line",
+    symbols.shown_docs("d", public) .. " ORDER BY d.module, d.line",
     {})
   if rows == nil then
     return nil, trouble
@@ -363,7 +385,7 @@ local function stand_ins(db: Sqlite.Handle, public: boolean,
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module <> 'cosmic.sys' " ..
     "AND d.kind IN ('function', 'method') AND d.exported = 1 AND lower(d.text) GLOB ?1 AND " ..
-    symbols.public_docs("d.module", public) .. " ORDER BY d.module, d.id LIMIT 20",
+    symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id LIMIT 20",
     { text(spelled_as_code(name)) })
   if rows == nil then
     return nil, trouble
@@ -387,7 +409,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
       "WHERE docs_fts MATCH ?1 AND d.source_symbol GLOB ?4 AND d.exported = 1 AND " ..
-      symbols.public_docs("d.module", public) ..
+      symbols.shown_docs("d", public) ..
       " ORDER BY " .. STANDS_IN_SQL .. " DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
       { text(fts), text(spelled_as_code(lead_word(name))), text(lead_word(name):lower()),
         text(member) })
@@ -401,7 +423,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol GLOB ?1 " ..
     "AND d.kind IN ('function', 'method') AND d.exported = 1 AND " ..
-    symbols.public_docs("d.module", public) .. " ORDER BY d.module, d.id",
+    symbols.shown_docs("d", public) .. " ORDER BY d.module, d.id",
     { text(member) })
   if rows == nil then
     return nil, trouble
@@ -416,7 +438,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string,
                              lead: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
-    "WHERE docs_fts MATCH ?1 AND " .. symbols.public_docs("d.module", public) ..
+    "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_docs("d", public) ..
     " ORDER BY " .. STANDS_IN_SQL .. " DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
     { text(fts), text(spelled_as_code(lead)), text(lead:lower()) })
   if rows == nil then
@@ -959,6 +981,27 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   return out
 end
 
+--- The declaring record or enum of a member's source symbol:
+--- `Child.Options.fds` is under `Child.Options`.
+local function parent_of(symbol: string): string
+  return symbol:match("^(.*)%.[^.]*$") or ""
+end
+
+--- A record's field, or an enum's value, on one line: as declared, then
+--- the first sentence of what it says.
+local function member_line(member: docs.Entry, limit?: integer): string
+  local note = first_sentence(member.text)
+  if limit ~= nil and #note > limit then
+    local cut = note:sub(1, limit):match("^(.*%S)%s+%S*$") or note:sub(1, limit)
+    note = cut:gsub("[,;:%-]+$", "") .. "…"
+  end
+  return member.signature .. (note ~= "" and " -- " .. note or "")
+end
+
+--- How long a field's note runs on a module's page, where a record's
+--- fields are a glance; its own page keeps the whole sentence.
+local NOTE_LIMIT <const> = 100
+
 --- One declared symbol as a module's listing shows it: a function,
 --- method or metamethod by its signature (a function-typed field as
 --- `function` and its name, then the signature's parameters and
@@ -967,11 +1010,10 @@ end
 local function listed(item: docs.Entry): string
   local marks: {string} = {}
   if item.uses > 0 then
-    marks[#marks + 1] = item.uses .. " uses"
+    marks[#marks + 1] = plural.count(item.uses, "use")
   end
   if item.examples > 0 then
-    marks[#marks + 1] = item.examples .. " example" ..
-      (item.examples == 1 and "" or "s")
+    marks[#marks + 1] = plural.count(item.examples, "example")
   end
   local shown = item.kind .. " " .. item.source_symbol
   if (item.kind == "function" or item.kind == "method"
@@ -1011,7 +1053,10 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     local at = entry.line > 0 and ":" .. entry.line or ""
     lines[#lines + 1] = entry.module .. " " .. entry.source_symbol .. " (" ..
       entry.file .. at .. ")"
-    lines[#lines + 1] = "  " .. entry.signature
+    -- `local` says only how the module spelled a declaration it hands
+    -- out; a caller reads it as a record like any other.
+    lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "")
+      or entry.signature)
   end
   if #entry.related > 0 then
     lines[#lines + 1] = "  related search examples:"
@@ -1042,8 +1087,32 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     if not counted then
       return nil, count_trouble
     end
+    local members, members_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+        return members_of(db, public, entry.module)
+      end, entry_module)
+    if members == nil then
+      return nil, members_trouble
+    end
+    local under: {string: {docs.Entry}} = {}
+    for _, member in ipairs(members) do
+      local parent = parent_of(member.source_symbol)
+      under[parent] = under[parent] or {}
+      table.insert(under[parent], member)
+    end
+    -- A call the module's own record declares is listed as a function
+    -- already, so it is not a field under that record as well.
+    local listed_symbols: {string: boolean} = {}
+    for _, item in ipairs(declared) do
+      listed_symbols[item.symbol] = true
+    end
     for _, item in ipairs(declared) do
       index[#index + 1] = "  " .. listed(item)
+      for _, member in ipairs(under[item.source_symbol] or {}) do
+        if not listed_symbols[member.symbol] then
+          index[#index + 1] = "    " .. member_line(member, NOTE_LIMIT)
+        end
+      end
     end
   end
   -- The listing goes after the first paragraph, or, when that ends in
@@ -1081,6 +1150,29 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     if entry.text ~= "" then lines[#lines + 1] = "" end
     for _, row in ipairs(index) do lines[#lines + 1] = row end
   end
+  if entry.symbol ~= "" and (entry.kind == "record" or entry.kind == "interface"
+      or entry.kind == "enum") then
+    local members, members_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+        return members_of(db, public, entry.module)
+      end, entry_module)
+    if members == nil then
+      return nil, members_trouble
+    end
+    local first = true
+    for _, member in ipairs(members) do
+      if parent_of(member.source_symbol) == entry.source_symbol then
+        if first then
+          if lines[#lines] ~= "" then
+            lines[#lines + 1] = ""
+          end
+          lines[#lines + 1] = "  " .. (entry.kind == "enum" and "values:" or "fields:")
+          first = false
+        end
+        lines[#lines + 1] = "    " .. member_line(member)
+      end
+    end
+  end
   -- A verb's options are data, `Cli.options`, not prose: shown under
   -- its field as `cosmic help <verb>` shows them, and searched by
   -- `by_options`.
@@ -1093,8 +1185,8 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   end
   if entry.symbol ~= "" then
     if entry.uses > 0 then
-      lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
-        (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.source_symbol
+      lines[#lines + 1] = "  used in " .. plural.count(entry.uses, "place") ..
+        "; cosmic uses " .. entry.source_symbol
     end
     local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string
@@ -1158,8 +1250,8 @@ local function run(argv: {integer:string}): integer
     log:say("")
     log:say("`cosmic docs <module>` shows one, with what it offers; " ..
       "`cosmic docs <words>` searches them all.")
-    log:verdict("docs", true, #index .. " modules, " .. #view.databases ..
-      " databases, " .. clock.took(started))
+    log:verdict("docs", true, plural.count(#index, "module") .. ", " ..
+      plural.count(#view.databases, "database") .. ", " .. clock.took(started))
     return 0
   end
   local found, trouble = docs.lookup(view, query)
@@ -1195,7 +1287,7 @@ local function run(argv: {integer:string}): integer
     counted = counted .. ", " .. (#found - found.named) .. " standing in"
   end
   log:verdict("docs", true, counted ..
-    ", " .. #view.databases .. " databases, " .. clock.took(started))
+    ", " .. plural.count(#view.databases, "database") .. ", " .. clock.took(started))
   return 0
 end
 
@@ -1250,7 +1342,7 @@ local function run_uses(argv: {integer:string}): integer
       clock.took(started))
     return 1
   end
-  log:verdict("uses", true, shown .. " places, " .. clock.took(started))
+  log:verdict("uses", true, plural.count(shown, "place") .. ", " .. clock.took(started))
   return 0
 end
 

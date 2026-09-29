@@ -152,5 +152,5 @@ local function test_a_finalizer_a_test_leaves_reads_nothing_outside_its_closure(
   }, "\n") .. "\n"))
   local ok, text = run(root, tmp .. "/run.out")
   assert(ok, text)
-  assert(text:find("(1 tests, 1 modules; 1 ran", 1, true), text)
+  assert(text:find("(1 test, 1 module; 1 ran", 1, true), text)
 end

@@ -12,6 +12,7 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local compiler = require("build.compiler")
 local importer = require("build.importer")
+local plural = require("build.plural")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -238,12 +239,13 @@ local function boot(root: string, argv: {integer:string},
     return 1
   end
 
-  log:verdict("boot", true, #targets .. " targets, " .. staged.files ..
-    " files staged, " .. derived.parsed + result.parses.parsed .. " sources parsed, " ..
+  log:verdict("boot", true, plural.count(#targets, "target") .. ", " ..
+    plural.count(staged.files, "file") .. " staged, " ..
+    plural.count(derived.parsed + result.parses.parsed, "source") .. " parsed, " ..
     derived.shared + result.parses.shared .. " taken from another checkout, " ..
-    result.compiled .. " modules compiled, " ..
+    plural.count(result.compiled, "module") .. " compiled, " ..
     result.shared .. " taken from another checkout, " ..
-    #database .. " database bytes, " .. clock.took(started))
+    plural.count(#database, "database byte") .. ", " .. clock.took(started))
   return 0
 end
 

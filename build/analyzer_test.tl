@@ -429,6 +429,71 @@ local function test_documents_a_function()
   assert(entry.line == 4, tostring(entry.line))
 end
 
+--- A comment that opens a function's body is not part of its signature,
+--- nor is one between its parameters.
+local function test_a_body_comment_is_not_part_of_the_signature()
+  local by_symbol = docs(lines({
+    "--- Ends in a tail call.",
+    "local function tail(path: string,  -- where",
+    "                    mode?: string): string | nil, string",
+    "  -- A tail call: the caller is blamed.",
+    "  -- Second line.",
+    "  return path, mode",
+    "end",
+    "--- Wrapped.",
+    "local function wrapped(",
+    "  _opts: Options, --[[ block ]] _mode: Mode",
+    "): Inner",
+    "  return nil",
+    "end",
+    "--- Bare.",
+    "local function bare(): string",
+    "  -- nothing yet",
+    "end",
+  }))
+  assert(by_symbol["tail"].signature ==
+    "local function tail(path: string, mode?: string): string | nil, string",
+    by_symbol["tail"].signature)
+  assert(by_symbol["wrapped"].signature ==
+    "local function wrapped(_opts: Options, _mode: Mode): Inner",
+    by_symbol["wrapped"].signature)
+  assert(by_symbol["bare"].signature == "local function bare(): string",
+    by_symbol["bare"].signature)
+end
+
+--- A `local` type is the module's own unless a signature the module
+--- hands out names it, or the returned variable is typed as it.
+local function test_a_local_type_is_exported_only_when_reached()
+  local by_symbol = docs(lines({
+    "local record Cursor",
+    "  at: integer",
+    "end",
+    "local record Options",
+    "  size: Sizing",
+    "end",
+    "local record Sizing",
+    "  wide: boolean",
+    "end",
+    "local record Surface",
+    "  name: string",
+    "end",
+    "local record State",
+    "end",
+    "local record Thing",
+    "  open: function(opts: Options, other: Other.State): string",
+    "end",
+    "local thing: Thing = {}",
+    "return thing",
+  }))
+  assert(not by_symbol["Cursor"].exported and not by_symbol["Cursor.at"].exported)
+  assert(by_symbol["Thing"].exported and by_symbol["Thing.open"].exported)
+  assert(by_symbol["Options"].exported and by_symbol["Options.size"].exported)
+  assert(by_symbol["Sizing"].exported and by_symbol["Sizing.wide"].exported)
+  assert(not by_symbol["Surface"].exported)
+  -- `Other.State` is another module's, not this one's `State`.
+  assert(not by_symbol["State"].exported)
+end
+
 --- A function with no comment of its own is still a symbol, with an
 --- empty text: `cosmic docs` can still say where it lives.
 local function test_an_undocumented_function_is_still_a_symbol()

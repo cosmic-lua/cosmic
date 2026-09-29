@@ -292,14 +292,72 @@ local function symbol_of(stmt: ast.Node): string
   return owner_name(stmt.fn_owner) .. sep .. (tk or "")
 end
 
+--- The tokens' index of the one at `y`, `x`, or nil when none starts there.
+local function token_at(tokens: {compiler.Token}, y: integer, x: integer): integer | nil
+  local low, high = 1, #tokens
+  while low <= high do
+    local mid = (low + high) // 2
+    local token = tokens[mid]
+    if token.y == y and token.x == x then
+      return mid
+    elseif token.y < y or (token.y == y and token.x < x) then
+      low = mid + 1
+    else
+      high = mid - 1
+    end
+  end
+  return nil
+end
+
 --- A function declaration's head, from its first token to just before
---- its body: `function Fs.read(path: string): string | nil, string`.
-local function function_signature(lines: {string}, stmt: ast.Node): string
+--- its body: `function Fs.read(path: string): string | nil, string`. It
+--- ends at the head's own last token, not at the body's first statement,
+--- so a comment that opens the body (`-- A tail call: ...`) is not read
+--- as part of the head; a comment inside the head is left out too, as it
+--- would swallow the words after it once the lines are joined.
+local function function_signature(lines: {string}, tokens: {compiler.Token},
+                                  stmt: ast.Node): string
   local body = stmt.body
   if body == nil then
     return line_at(lines, stmt.y)
   end
-  return span_text(lines, stmt.y, stmt.x, body.y, body.x)
+  local first = token_at(tokens, stmt.y, stmt.x)
+  local start = token_at(tokens, body.y, body.x)
+  if first == nil or start == nil or start <= first then
+    return span_text(lines, stmt.y, stmt.x, body.y, body.x)
+  end
+  local last = tokens[start - 1]
+  -- The head's own lines, each comment in it (a `--` one to its line's
+  -- end, a `--[[ ]]` one over its own text) blanked out, so it cannot
+  -- swallow the words after it once the lines are joined.
+  local head: {integer: string} = {}
+  for line_no = stmt.y, last.y do
+    head[line_no] = lines[line_no] or ""
+  end
+  for at = first + 1, start - 1 do
+    for _, comment in ipairs(tokens[at].comments or {}) do
+      local line_no, column = comment.y, comment.x
+      for piece in (comment.text .. "\n"):gmatch("(.-)\n") do
+        local line = head[line_no]
+        if line ~= nil then
+          head[line_no] = line:sub(1, column - 1) .. string.rep(" ", #piece) ..
+            line:sub(column + #piece)
+        end
+        line_no, column = line_no + 1, 1
+      end
+    end
+  end
+  local parts: {string} = {}
+  for line_no = stmt.y, last.y do
+    local line = head[line_no]
+    local from = line_no == stmt.y and stmt.x or 1
+    local to = line_no == last.y and last.x + #last.tk - 1 or #line
+    parts[#parts + 1] = line:sub(from, to)
+  end
+  -- A parameter list wrapped after its `(` or before its `)` reads as
+  -- if written tight.
+  local joined = String.trim((table.concat(parts, " "):gsub("%s+", " ")))
+  return (joined:gsub("%( ", "("):gsub(" %)", ")"))
 end
 
 --- Every node under a function declared inside `body` -- a nested
@@ -397,23 +455,6 @@ local function definition_of(typedecl: ast.TypeNode): ast.TypeNode
     return def.t
   end
   return def
-end
-
---- The tokens' index of the one at `y`, `x`, or nil when none starts there.
-local function token_at(tokens: {compiler.Token}, y: integer, x: integer): integer | nil
-  local low, high = 1, #tokens
-  while low <= high do
-    local mid = (low + high) // 2
-    local token = tokens[mid]
-    if token.y == y and token.x == x then
-      return mid
-    elseif token.y < y or (token.y == y and token.x < x) then
-      low = mid + 1
-    else
-      high = mid - 1
-    end
-  end
-  return nil
 end
 
 --- A record field's declaration on one line, however many the source
@@ -596,7 +637,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
       local symbol = symbol_of(stmt)
       out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
         kind = stmt.is_method and "method" or "function",
-        signature = function_signature(lines, stmt),
+        signature = function_signature(lines, parsed.tokens, stmt),
         text = doc_before(lines, stmt.comments, stmt.y), line = stmt.y }
     elseif stmt.kind == "local_type" or stmt.kind == "global_type" then
       local var = stmt.var
@@ -635,6 +676,81 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
     end
   end
   return out
+end
+
+--- The record the module's returned value is typed as. A module that
+--- returns a variable declared `local x: Thing = ...` hands out `Thing`'s
+--- fields, so `Thing` and what is declared under it are the module's
+--- surface, though the returned name is `x`; otherwise the returned
+--- name itself. Its rows stay under their own names: the fields are
+--- still `Thing.f`, as a caller reading the source sees them.
+local function surface_of(parsed: ast.Parsed, export: string,
+                          entries: {analyzer.DocEntry}): string
+  if export == "" then
+    return ""
+  end
+  for _, stmt in ipairs(parsed.node) do
+    local vars = stmt.vars or {}
+    local declared = stmt.decltuple ~= nil and stmt.decltuple.tuple or nil
+    local written = declared ~= nil and declared[1] or nil
+    local names = written ~= nil and written.typename == "nominal" and written.names or nil
+    if stmt.kind == "local_declaration" and #vars == 1 and vars[1].tk == export
+       and names ~= nil and #names == 1 then
+      for _, entry in ipairs(entries) do
+        if entry.source_symbol == names[1] and entry.kind == "record" then
+          return names[1]
+        end
+      end
+    end
+  end
+  return export
+end
+
+--- Marks as exported what a module hands out without naming it in its
+--- returned value: the record its returned variable is typed as (see
+--- `surface_of`), and every `local` record, enum, interface or type
+--- an exported row's signature names, again for each one that joins,
+--- since a caller meets those names in the signatures it reads. A
+--- `local` type no exported signature reaches stays private.
+local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: string,
+                                    export: string)
+  local function under(entry: analyzer.DocEntry, root: string): boolean
+    return entry.source_symbol == root
+      or entry.source_symbol:sub(1, #root + 1) == root .. "."
+  end
+  if surface ~= export then
+    for _, entry in ipairs(entries) do
+      if under(entry, surface) then
+        entry.exported = true
+      end
+    end
+  end
+  local searched: {analyzer.DocEntry: boolean} = {}
+  local joined = true
+  while joined do
+    joined = false
+    for _, reader in ipairs(entries) do
+      if reader.exported and not searched[reader] and reader.signature ~= "" then
+        searched[reader] = true
+        local words = " " .. reader.signature .. " "
+        for _, entry in ipairs(entries) do
+          local name = entry.source_symbol
+          if not entry.exported and name:find(".", 1, true) == nil
+             and (entry.kind == "record" or entry.kind == "enum"
+                  or entry.kind == "interface" or entry.kind == "type")
+             and entry.signature:sub(1, 6) == "local "
+             and words:find("[^.%w_]" .. name .. "[^%w_]") ~= nil then
+            for _, member in ipairs(entries) do
+              if under(member, name) then
+                member.exported = true
+              end
+            end
+            joined = true
+          end
+        end
+      end
+    end
+  end
 end
 
 --- Gives every declaration its stable address within the value returned by
@@ -1330,6 +1446,7 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   local lines = lines_of(source)
   local doc_entries = docs_of(lines, parsed)
   canonicalize_docs(doc_entries, parsed, export, returned)
+  mark_reachable_types(doc_entries, surface_of(parsed, export, doc_entries), export)
   return {
     tests = names, inputs = declared,
     has_top_level_return = has_return, export = export,
