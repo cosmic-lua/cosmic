@@ -119,7 +119,9 @@ runs, which this container cannot run (no `gh`). Its targets:
 ## Stage 2: an edit reruns what it implicates (two weeks)
 
 2.1 (#2285), 2.2 (#2295), 2.3 (#2296) and 2.5 (#2294) have
-landed; 2.4 is under way, and 2.6 is next.
+landed, and 2.4 (#2298, #2299, #2301, #2305, #2308) with them: the
+floor is about 257. 2.6's census landed (#2311); M1 is measured once
+4.5's item 2 lands, since it changes what a main push costs.
 
 What stage 2 showed, beyond its numbers:
 
@@ -182,11 +184,10 @@ old target of about 355 was already met. The new target is at most
   - D, landed (#2301): `standalone`, `refresh` and `embed`, 17 tests.
     `embed` freed only 3 of 13: writing an executable copies the
     store's rows.
-  - B, in the queue (#2305): store seams (`errors`, `fix.notes`,
-    `invoke`, `core/declarations`), 10 tests. The floor is then 279.
-  - F, in progress: the modules the census marked as needing neither
-    (`verbs`, `test_isolation`, `log`, `store` and five more), to
-    close the last 4.
+  - B, landed (#2305): store seams (`errors`, `fix.notes`,
+    `invoke`, `core/declarations`), 10 tests.
+  - F, landed (#2308): ten more modules split, 22 tests. The floor is
+    about 257, under the target.
   - E, deferred: the store's lookup through attached databases
     (`core/store.c:809`). It needs a binding, an export and an epoch
     bump to free one test.
@@ -261,7 +262,7 @@ last.
   user (`COSMIC_SANDBOX=must`), with the tree copied to a directory
   that user owns. This goes in the ship skill
   (`.claude/skills/ship/SKILL.md`).
-- **`acknowledged` per module (S).** `build/harness_epoch.tl` holds one
+- **`acknowledged` per module (S): in review.** `build/harness_epoch.tl` holds one
   digest over every harness module, so two PRs that each touch one
   conflict on the same line (it happened twice in stage 2). Holding a
   digest per module lets them merge. The guard's message and the
@@ -530,7 +531,7 @@ alongside stage 3; the items touch `ci.yml` and
 
 Items, in order:
 
-1. **ci.yml cleanup (S; no time saved).** One expression for "this run
+1. **ci.yml cleanup (S; no time saved): landed (#2309).** One expression for "this run
    saves" and one for the scope, in place of the three copies
    (`ci.yml:750`, `:763`, `:943`, `:959`, and `:142`, `:987`). History
    and measurement comments move out, leaving one or two lines a step:
@@ -538,7 +539,7 @@ Items, in order:
    driver uploads.
    - Shows: `build/workflows_test.tl` passes, and a main run saves as
      before.
-2. **Main reuses the queue's result (M).** The queue uploads each leg's
+2. **Main reuses the queue's result (M): in the queue (#2320).** The queue uploads each leg's
    trimmed verdicts and compiles, with the keys it computed, as
    `seed-<leg>`. A main push first looks for a successful `merge_group`
    run of `ci.yml` with the same `head_sha`. Finding one, it skips
