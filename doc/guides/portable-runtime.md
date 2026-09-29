@@ -71,7 +71,6 @@ local Store = require("cosmic.store")
 
 assert(Store.meta("compiler") ~= nil)
 assert(Store.meta("runtime_basis") ~= nil)
-assert(Store.meta("projected") ~= nil)
 print("projection identities: present")
 ```
 

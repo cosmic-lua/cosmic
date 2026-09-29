@@ -843,14 +843,24 @@ local function name_problem(name: string): string
   return nil
 end
 
---- Whether RFC 9557 can write `name` in a suffix: a zone name each of
---- whose parts begins with a letter, `.` or `_` (its `time-zone-initial`).
-local function writable(name: string): boolean
-  if name_problem(name) ~= nil then return false end
+--- Why RFC 9557 cannot write `name` in a suffix, or nil when it can: a
+--- zone name each of whose parts begins with a letter, `.` or `_` (its
+--- `time-zone-initial`).
+local function writable_problem(name: string): string
+  local problem = name_problem(name)
+  if problem ~= nil then return problem end
   for part in (name .. "/"):gmatch("([^/]*)/") do
-    if part:find("^[A-Za-z._]") == nil then return false end
+    if part:find("^[A-Za-z._]") == nil then
+      return ("zone name %q has a part that does not begin with a letter, \".\" or \"_\""):format(
+        name)
+    end
   end
-  return true
+  return nil
+end
+
+--- Whether RFC 9557 can write `name` in a suffix (`writable_problem`).
+local function writable(name: string): boolean
+  return writable_problem(name) == nil
 end
 
 --- Every zone `zone` has loaded, by name.
@@ -995,14 +1005,12 @@ end
 --- UTC in silence: `local_zone` answers no reason on this path today;
 --- a warning, or a way to ask why, would carry `NEWER_ZONES`.
 local function host_zone(localtime: string, timezone: string): Time.Zone
-  for _, find in ipairs({ linked_name, written_name }) do
-    local name = find(find == linked_name and localtime or timezone)
-    if name ~= nil then
-      local zone, _ = Time.zone(name)
-      if zone ~= nil then return zone end
-    end
+  local function carried(name: string): Time.Zone
+    if name == nil then return nil end
+    local zone, _ = Time.zone(name)
+    return zone
   end
-  return Time.UTC
+  return carried(linked_name(localtime)) or carried(written_name(timezone)) or Time.UTC
 end
 
 --- The zone name a `TZ` of `:name` or `:/path` gives: a name as it is,
@@ -1500,11 +1508,7 @@ local function parse(text: string): Time.Zoned | nil, string
       end
       zoned.zone = fixed_zone(annotated)
     else
-      local problem = name_problem(body)
-      if problem == nil and not writable(body) then
-        problem = ("zone name %q has a part that does not begin with a letter, \".\" or \"_\""):format(
-          body)
-      end
+      local problem = writable_problem(body)
       if problem ~= nil then return nil, ("suffix at byte %d: %s"):format(at, problem) end
       local zone, zone_why = Time.zone(body)
       if zone == nil then return nil, ("suffix at byte %d: %s"):format(at, zone_why) end
