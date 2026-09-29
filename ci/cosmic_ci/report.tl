@@ -10,13 +10,14 @@
 -- - the wall time of its slowest platform job (started_at..completed_at,
 --   which leaves out queueing), each leg's time and its slowest steps;
 -- - each suite's row: ran, stood, the share that stood, elapsed;
--- - whether it qualifies: its checked and native suites' runtime and
---   harness key parts are among those the verdict cache it restored
---   held, as `cosmic test --census` says them (or, for a row from before
---   the census or whose restored rows name no parts, those of the run
---   listed before it), so it moved neither the core nor what every key
---   holds of the harness: its epoch and the workers' timeout, which
---   `cosmic test` says as `harness e<epoch>t<timeout ms>` (build/test.tl).
+-- - whether it qualifies: it moved neither the core nor what every key
+--   holds of the harness (its epoch and the workers' timeout, which
+--   `cosmic test` says as `harness e<epoch>t<timeout ms>`, build/test.tl).
+--   Its checked and native suites show that when their runtime and
+--   harness key parts are among those the verdict cache it restored held,
+--   as `cosmic test --census` says them. For a row from before the census
+--   or whose restored rows name no parts, those of the run listed before
+--   it stand in.
 --
 -- then the medians over the qualifying runs that succeeded. A run
 -- older than `suite_runs`, or whose artifacts have expired, is reported
@@ -263,10 +264,10 @@ end
 
 --- What `held`, a suite row's census of its restored cache (a census
 --- line's list, `SuiteOutput.held`), says of `now`, the key parts the
---- row says: "matched", with the share of the cache's rows under its
---- runtime and harness; "unnamed" where every row it held names no
---- parts -- kept before rows named them, as on the first run after
---- they did -- which tells nothing; else "moved", with why.
+--- row says. "matched", with the share of the cache's rows under its
+--- runtime and harness; "unnamed", which tells nothing, where every row
+--- held names no parts (a cache kept from before rows named them); else
+--- "moved", with why.
 local function matched_restored(now: {string:string}, held: string): string, string
   local groups = SuiteOutput.held(held)
   if #groups == 0 then return "moved", "the restored cache held no rows" end
@@ -285,7 +286,7 @@ local function matched_restored(now: {string:string}, held: string): string, str
 end
 
 --- Sets `qualifies` and `why` of each of the first `shown` of `runs`,
---- newest first: a run qualifies when each of its checked and native
+--- newest first. A run qualifies when each of its checked and native
 --- suites keyed its tests by a runtime and harness part (the harness's
 --- epoch and the workers' timeout) that rows of the verdict cache it
 --- restored were keyed by too, as its census said them
@@ -293,10 +294,10 @@ end
 --- nor the harness from what the cache held. A row from before the
 --- census, which says none, or whose restored rows name no parts, is
 --- compared instead with the same leg's same suite in the next older
---- run of `runs` that has such rows and was not cancelled -- one that
+--- run of `runs` that has such rows and was not cancelled (a run that
 --- stopped short, or kept no artifact, tells nothing of what the cache
---- held -- only the likeliest to have saved the cache this one
---- restored, not surely it. Runs past `shown` are only compared
+--- held). That run is only the likeliest to have saved the cache this
+--- one restored, not surely it. Runs past `shown` are only compared
 --- against.
 function Report.qualify(runs: {Report.Run}, shown?: integer)
   for i = 1, math.min(shown or #runs, #runs) do
@@ -542,10 +543,10 @@ local function database_of(zip: string): string | nil, string
   return found, ""
 end
 
---- A run's suite rows, read from each of its `ci-driver-` artifacts --
---- its latest attempt's (`driver_artifacts`), fetched by id through the
---- API and written under `scratch`; each one that cannot be had is
---- named in its `missing` instead.
+--- A run's suite rows, read from each of its `ci-driver-` artifacts
+--- (its latest attempt's, `driver_artifacts`), fetched by id through the
+--- API and written under `scratch`. Each one that cannot be had is named
+--- in the run's `missing` instead.
 local function read_suites(o: Report.Options, run: Report.Run, scratch: string)
   local listed = api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id .. "/artifacts?per_page=100")
   for _, artifact in ipairs(Report.driver_artifacts(listed)) do

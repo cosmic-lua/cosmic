@@ -14,7 +14,8 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 
 local record Prerelease
-  --- The platform legs, in the order `sort` lists their products.
+  --- The platform legs, in the byte order of their products'
+  --- directories' names, the order `stage` expects them in.
   lanes: {string}
   --- The assets a published prerelease holds, and the order a resumed
   --- draft uploads the missing ones in.
@@ -64,8 +65,8 @@ local function substituted(text: string): string
   return (text:gsub("\n+$", ""))
 end
 
---- Whether an expected-platforms file says 4, as `test "$(cat f)" = 4`
---- held it.
+--- Whether an expected-platforms file says 4: its text, trailing newlines
+--- aside, is exactly "4", as `test "$(cat f)" = 4` would test it.
 function Prerelease.expects_four(text: string): boolean
   return substituted(text) == "4"
 end
@@ -87,8 +88,8 @@ function Prerelease.sums(digest: string): string
   return digest .. "  cosmic\n"
 end
 
---- source.json for the staged release: the object `jq -n` wrote, laid
---- out as jq lays it out, keys in byte order.
+--- source.json for the staged release: the object laid out as `jq -n`
+--- lays it out, keys in byte order.
 function Prerelease.source_json(commit: string, digest: string, run_url: string): string
   local text = assert(Json.encode({ commit = commit, digest = digest, run_url = run_url },
     { pretty = true }))
@@ -125,7 +126,7 @@ end
 
 --- The HTTP status `gh api --include` printed: the second field of the
 --- last line that begins `HTTP/<version> <digits>`, as
---- `awk '/^HTTP\/[0-9.]+ [0-9]+/ { code=$2 }'` found it. nil when no
+--- `awk '/^HTTP\/[0-9.]+ [0-9]+/ { code=$2 }'` finds it. nil when no
 --- line does, as when the request never reached the API.
 function Prerelease.http_status(output: string): string | nil
   local code: string | nil = nil
@@ -310,8 +311,7 @@ end
 --- The tag names the commit being published. It is resolved as a tag,
 --- through git/ref/tags/, and not by commits/<name>, which would also
 --- take a branch of that name; an annotated tag is peeled to the commit
---- it tags. A deliberate change from the shell script, which checked
---- commits/<tag>: a branch named for the tag passed it.
+--- it tags.
 local function verify_tag(p: Prerelease.Publish)
   local tag = tag_of(p)
   local ref = gh_object(p, { "api", "repos/" .. p.repository .. "/git/ref/tags/" .. tag })
@@ -345,18 +345,16 @@ local function workflows_moved(p: Prerelease.Publish): boolean
   return false
 end
 
---- The tag exists, naming the commit: made when the API says it is
---- absent. False, with nothing made, when GitHub refuses the tag as it
---- refuses a GITHUB_TOKEN, which holds no `workflows` permission, some
---- refs across a workflow change: an HTTP 403 "Resource not accessible
---- by integration" where the default branch's workflows differ from the
---- commit's. Run 36333356031's tag for 525e6f1, which itself changes
---- ci.yml, was refused once #2244, which added and deleted workflows,
---- had landed on main. GitHub documents no rule: 5d8993a was tagged
---- while main's actionlint.yml differed from its own, so a differing
---- workflow is only a necessary condition, and the skip asks no more.
---- Any other refusal raises, as does a compare that lists no workflow
---- (past its 300 files, too).
+--- Whether the tag exists, naming the commit: made when the API says it
+--- is absent. False, with nothing made, when GitHub refuses the tag as
+--- it refuses a GITHUB_TOKEN, which holds no `workflows` permission,
+--- some refs across a workflow change: an HTTP 403 "Resource not
+--- accessible by integration" where the default branch's workflows
+--- differ from the commit's. GitHub documents no rule for it: a commit
+--- has been tagged while main's actionlint.yml differed from its own, so
+--- a differing workflow is only a necessary condition, and the skip asks
+--- no more. Any other refusal raises, as does a compare that lists no
+--- workflow (past its 300 files, too).
 -- TODO: publish with a token that holds the `workflows` permission (a
 -- GitHub App's installation token, kept as a secret) rather than
 -- GITHUB_TOKEN, so such a commit is tagged too, and drop the skip.

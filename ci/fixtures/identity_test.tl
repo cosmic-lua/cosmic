@@ -7,7 +7,8 @@ local start, finish, supervised = Process.start, Process.finish, Process.supervi
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 local chmod, host_uname = Process.chmod, Process.host_uname
 
--- Both inputs must contain the entire prefix; neither must end at its boundary.
+-- Compares the first `length` bytes of two files, each of which must hold at
+-- least that many.
 local function compare_file_prefixes(left: string, right: string,
     length: integer)
   assert(#left >= length,
@@ -51,11 +52,11 @@ local function drop_other_tests(directory: string, keep: string)
   walk(directory, true)
 end
 
--- Counts the plain files directly inside `directory`. The portable cache is
--- assumed flat, the same assumption launcher_test.tl's `only_core` and
--- `no_private_entries` make about a cache directory.
--- The cores a cache holds: its public entries. A name beginning with "."
--- is the launcher's or startup's own (a verified stamp, a repair lock).
+-- Counts the cores a cache holds: the plain files directly inside
+-- `directory`, its public entries. A name beginning with "." is the
+-- launcher's or startup's own (a verified stamp, a repair lock). The
+-- portable cache is assumed flat, as launcher_test.tl's `only_core` and
+-- `no_private_entries` assume of a cache directory.
 local function count_cache_files(directory: string): integer
   local count = 0
   for _, name in ipairs((assert(Fs.list(directory)))) do
@@ -156,10 +157,8 @@ local function run_sanitized(fixture_dir: string, root: string,
     "/cosmic-core"
 
   local entry_cache = work .. "/entry-cache"
-  -- tool.tl's own require("build.artifact")/require("test.portable")
-  -- resolve relative to the process cwd, so this must
-  -- run from `root`, matching identity test's own unwrapped invocation
-  -- (no `cd`, so it inherited the whole script's cwd, which is `root`).
+  -- tool.tl's own require("build.artifact") and require("test.portable")
+  -- resolve relative to the process cwd, so this runs from `root`.
   local entry_out = Fixture.run("sanitized-entry",
     { fixture_dir .. "/runtime.old", root .. "/test/portable/tool.tl",
       "entry", artifact, target_id, "2" }, root, diagnostics,
@@ -236,9 +235,9 @@ end
 -- cover the portable database, the retained prefix, and host programs
 -- made from the running core; every one of them must run, none answered
 -- from a verdict, however many the file holds. It is a test of its own,
--- apart from the primary project's, which reads nothing it writes: the
--- one run took 21 s on a slow macOS runner (run 36345675442), most of the
--- 30 s the two once had together.
+-- apart from the primary project's, which reads nothing it writes. Alone
+-- it takes 21 s on a slow macOS runner, most of the 30 s the two take
+-- together.
 local function test_identity_focused_embed(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
@@ -368,11 +367,10 @@ local function test_identity_primary(tmp: string)
   -- A project database is searched ahead of the binary after attachment. Its
   -- rows must not override validated portable context or the binary's
   -- basis.
-  -- Both tool.tl calls below run from `root`, matching identity test's
-  -- own unwrapped invocations (no `cd "$project"`, unlike most of this
-  -- function): tool.tl's require("build.artifact")/require("test.portable")
-  -- resolve relative to the process cwd, and `project`
-  -- has no build/ or test/ tree for them to find.
+  -- Both tool.tl calls below run from `root`, not `project`: tool.tl's
+  -- require("build.artifact") and require("test.portable") resolve
+  -- relative to the process cwd, and `project` has no build/ or test/
+  -- tree for them to find.
   Fixture.run("spoof-database", { fixture_dir .. "/runtime.old",
     root .. "/test/portable/tool.tl", "spoof-database",
     project .. "/o/cosmic.db" }, root, diagnostics,

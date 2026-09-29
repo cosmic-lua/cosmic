@@ -39,11 +39,12 @@
 --- they seem, and padding it would answer a query wrongly without a
 --- word. It names the line the record began on.
 ---
---- `table` (and `rows`) names a column for each header field so that a row can be a
---- table: the empty name is `_`, a NUL byte in a name is `_`, and a name
---- whose lower case an earlier one has (SQLite folds ASCII case) gets
---- `_2` after it (`a`, `A` are `a`, `A_2`), or `_3` and on (so the empty name twice is `_`, `__2`), the rule
---- `cosmic.dataset` names its columns by.
+--- `table` and `rows` give each header field a column name, so a row can
+--- be a table keyed by them. The empty name and a NUL byte in a name
+--- become `_`. A name whose lower case an earlier one already has
+--- (SQLite folds ASCII case) gets `_2` after it, then `_3` and on: `a`,
+--- `A` become `a`, `A_2`, and the empty name twice becomes `_`, `__2`.
+--- `cosmic.dataset` names its columns by the same rule.
 
 local record Csv
   --- What a reader or the writer may be told.

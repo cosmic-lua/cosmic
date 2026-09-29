@@ -109,8 +109,8 @@ local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
 end
 
---- A build that passes but no longer writes notes (cmd/notes renamed
---- away) vouches for nothing: the earlier o/bin/notes is not run, and
+--- A build that passes without writing notes (cmd/notes renamed away)
+--- vouches for nothing: the earlier o/bin/notes is not run, and
 --- the grade fails for want of one.
 local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one(dir: string)
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))

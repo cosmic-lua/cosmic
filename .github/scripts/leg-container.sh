@@ -3,8 +3,8 @@
 # started by a step rather than by the job's `container:`, which the
 # runner creates before any step can set up its host (see the platform
 # job's comment on the sandbox): the host's actions (checkout, caches,
-# uploads) run on the host as before, and every `run` step runs in the
-# container, through the shell this installs.
+# uploads) run on the host, and every `run` step runs in the container,
+# through the shell this installs.
 #
 #     sh .github/scripts/leg-container.sh start IMAGE
 #     leg-shell [--root] SCRIPT

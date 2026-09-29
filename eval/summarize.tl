@@ -4,8 +4,9 @@
 --- the tool call at which `cosmic test` first passed, and how many times
 --- the journal was written (one write at the end is a retelling, not a
 --- log). Last, every absolute path a tool call named outside the arena,
---- and any mention of this repository or a skills directory: those are
---- contamination or boundary breaches to check before trusting the run.
+--- and any mention of this repository or a skills or plugins directory:
+--- those are contamination or boundary breaches to check before
+--- trusting the run.
 --- Another agent's transcript needs its own reader.
 ---
 ---     cosmic --standalone eval/summarize.tl <arena>/transcript.jsonl

@@ -1,13 +1,13 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, hash, codec, archive, fetch, time, rand, docs, uses, todos, bom, refresh, help, run, standalone, eval,
---- version) answers
---- with what that verb does, ahead of the module of the same name (and
---- the other symbols) when there is one. This is not an argument parser for a
---- project's own command line: a project's cmd/<name>/main.tl gets its
---- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
---- cosmic.flags reads its options, or `Flags.dispatch(argv, 1,
---- commands)` its commands -- see argv.
+--- fix, db, sql, json, hash, codec, archive, fetch, time, rand, docs,
+--- uses, todos, bom, refresh, help, run, standalone, eval, version)
+--- answers with what that verb does, ahead of the module of the same
+--- name (and the other symbols) when there is one. This is not an
+--- argument parser for a project's own command line: a project's
+--- cmd/<name>/main.tl gets its arguments as a plain array, and
+--- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options,
+--- or `Flags.dispatch(argv, 1, commands)` its commands -- see argv.
 ---
 --- `cosmic help` is generated from these fields (`build/dispatch.tl`'s
 --- `verb_help`), in the order `order` gives, rather than keeping a
@@ -423,9 +423,8 @@ local record Module
   --- lists beneath its prose, so the two cannot drift apart. A verb
   --- that is absent takes none.
   options: {string: {string:boolean | Flags.Option}}
-  --- The order `verb_help` prints these in, matching `cosmic help`'s
-  --- own historical layout -- record field declaration order is not
-  --- itself queryable at runtime, so this is spelled out once more.
+  --- The order `verb_help` prints these in. A record's field order is
+  --- not queryable at runtime, so it is spelled out here.
   order: {string}
 end
 

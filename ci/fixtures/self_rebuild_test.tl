@@ -14,9 +14,9 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 local rebuild_timeout_ms <const> = 90000
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
--- which must itself be exactly `length` bytes: a length mismatch on either
--- side, or a byte difference within the compared range, is a failure with a
--- message; a program longer than `length` still passes, since only its
+-- which must itself be exactly `length` bytes. A length mismatch on either
+-- side, or a byte difference within the compared range, fails with a
+-- message. A program longer than `length` still passes, since only its
 -- prefix matters.
 local function compare_prefix(expected: string, program: string,
     length: integer): boolean, string
@@ -34,11 +34,10 @@ local function compare_prefix(expected: string, program: string,
   return true, ""
 end
 
--- Splits text into lines without dropping empty ones (unlike
--- `gmatch("[^\n]+")`, which every other fixture-test's line-oriented parsing
--- uses on inputs that are known not to contain blank lines). Assumes the
--- text ends with a trailing newline, as every source file in the tree does;
--- joining the result with "\n" and appending one final "\n" reproduces it.
+-- Splits text into lines without dropping empty ones, as
+-- `gmatch("[^\n]+")` does. Assumes the text ends with a trailing newline,
+-- as every source file in the tree does: joining the result with "\n" and
+-- appending one final "\n" reproduces it.
 local function split_lines(text: string): {string}
   local lines: {string} = {}
   local at = 1
@@ -353,10 +352,11 @@ end
 
 -- `cosmic docs` never compiles the tree itself, unlike `test`, so it relies
 -- entirely on `build.reboot.stale_exit` to notice a stale embedded copy of
--- `build.docs` and rebuild before running -- the case `AGENTS.md`'s "an
--- edit to Teal needs no boot" promise depends on for a verb other than
--- `test`. A first call against an edited tree rebuilds once and shows the
--- edit; a second, now-fresh call shows it again without rebuilding again.
+-- `build.docs` and rebuild before running. That is the case AGENTS.md's
+-- promise that a tool older than the tree rebuilds itself depends on for
+-- a verb other than `test`. A first call against an edited tree rebuilds
+-- once and shows the edit; a second, now-fresh call shows it again without
+-- rebuilding again.
 local function test_self_rebuild_docs_verb(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
@@ -397,8 +397,8 @@ end
 -- a watcher's and a terminal's -- rebuild it one at a time: each either
 -- rebuilds it or waits for the run that is and re-enters on the tool that
 -- run wrote, and every one shows the edit. Unserialized, their rebuilds
--- wrote o/cosmic.db, o/carried.db and the tool under one another, and
--- ended in "disk I/O error" or "portable program database has no SQLite
+-- would write o/cosmic.db, o/carried.db and the tool under one another,
+-- and end in "disk I/O error" or "portable program database has no SQLite
 -- header" and a spurious "(the tool is stale)" failure.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
@@ -532,12 +532,13 @@ local function test_self_rebuild_fix_verb(tmp: string)
     "fix: second invocation reported staleness though the tool is fresh")
 end
 
--- A stale cosmic that is not the tree's own tool -- one outside `o/`, as a
--- release, the bootstrap cache's or one on PATH is -- refuses rather than
+-- A stale cosmic that is not the tree's own tool (one outside `o/`, as a
+-- release, the bootstrap cache's or one on PATH is) refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
--- file. `docs` meets it in `build.reboot.stale_exit`, `test` and a file run in `build.reboot.guard`,
--- and `db` with an option it lacks in the check build/dispatch.tl makes
--- before it calls a refused command line a usage error.
+-- file. `docs` meets the refusal in `build.reboot.stale_exit`, `test` and
+-- a file run in `build.reboot.guard`, and `db` with an option it lacks in
+-- the check build/dispatch.tl makes before it calls a refused command
+-- line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")

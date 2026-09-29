@@ -6,7 +6,7 @@
 # push, and the repository's 10 GB cache, once full, evicts the least
 # recently used entries, the zig outputs and the fuzz corpora among them
 # (ci/README.md's "the caches"). A branch based on a commit older than
-# that restores main's newest verdicts, as every branch once did.
+# that restores main's newest verdicts.
 #
 #     sh .github/scripts/prune-commit-verdicts.sh
 #

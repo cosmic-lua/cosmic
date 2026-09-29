@@ -76,8 +76,7 @@ local function test_provenance_failures_are_durable(tmp: string)
   end
 
   -- Each scenario gets its own RUNNER_TEMP: the operations database and
-  -- the products directory both live under it now, so a distinct scenario
-  -- needs a distinct RUNNER_TEMP the way it used to need a distinct DB path.
+  -- the products directory both live under it.
   local function seeded_runner_temp(name: string): string
     local runner_temp = tmp .. "/" .. name .. "-runner-temp"
     assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
@@ -157,13 +156,12 @@ INNER
 chmod 755 o/bin/cosmic
 ]], 493)
 
-  -- The work directory is derived from RUNNER_TEMP rather than typed as a
-  -- CLI argument now, so pointing RUNNER_TEMP inside the candidate exercises
-  -- the same "work directory inside the candidate is refused" protection.
-  -- RUNNER_TEMP itself always exists in CI, so the test creates it too, and
-  -- the refusal must leave it exactly as empty as it found it: nothing --
-  -- not even the scratch directory -- gets created before the boundary
-  -- check runs.
+  -- The work directory is derived from RUNNER_TEMP, so pointing
+  -- RUNNER_TEMP inside the candidate exercises the "work directory inside
+  -- the candidate is refused" protection. RUNNER_TEMP itself always
+  -- exists in CI, so the test creates it too. The refusal must leave it
+  -- exactly as empty as it found it: nothing, not even the scratch
+  -- directory, is created before the boundary check runs.
   local protected_runner_temp = fake .. "/inside-runner-temp"
   assert(Fs.mkdirs(protected_runner_temp))
   local protected = append(base, { "platform", "build" })
@@ -449,13 +447,13 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
   end
 end
 
---- Every leg verifies its checked artifact -- the manifest entry of its
+--- Every leg verifies its checked artifact (the manifest entry of its
 --- checked core, as the contract's decoder reads it, and that the
---- artifact runs that core -- and runs no release cosmic to do it: the
+--- artifact runs that core) without running a release cosmic: the
 --- checked build leaves the tree's database as the tools find it, so
 --- there is no rebuild to pay. Only the leg that runs the checked suite
 --- (COSMIC_CI_CHECKED_SUITE) runs the checked cosmic on a file in the
---- tree, whose entry must agree with the decoder's. One that skips it
+--- tree, whose entry must agree with the decoder's. A leg that skips it
 --- keeps none of its verdicts: a `checked.db` beside the leg's verdict
 --- cache is the checked job's, and goes.
 local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosmic_in_the_tree(tmp: string)
@@ -652,9 +650,10 @@ end
 
 --- The checked core's suite runs on no leg of ci.yml's platform job
 --- (COSMIC_CI_CHECKED_SUITE=skip) but in its `checked` job, which runs
---- the phases that build what it reads and then it, beside the legs:
---- after a leg's own suites it made that leg the run's longest. The
---- format check, which answers the same on every leg, runs on one.
+--- the phases that build what it reads and then the suite, beside the
+--- legs: run after a leg's own suites, it would make that leg the run's
+--- longest. The format check, which answers the same on every leg, runs
+--- on one.
 local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_on_one_leg()
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
@@ -939,8 +938,8 @@ end
 --- what each test declares (COSMIC_TEST_KEY=declared): an unsandboxed
 --- run keyed by what it read shares none, so without the switch the
 --- leg would run every test there. Its scheduled run runs every test
---- and stands on none, and a fixture, which shares no verdict, is keyed
---- as it always was. A Linux leg is given no switch: sandboxed, it keys
+--- and stands on none, and a fixture, which shares no verdict, is not
+--- keyed by declarations. A Linux leg is given no switch: sandboxed, it keys
 --- by declarations already.
 local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
