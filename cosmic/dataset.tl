@@ -52,7 +52,8 @@
 --- not. With `raw` every cell is text as written, the empty one `''`. A
 --- row's `_json` holds the same values, an empty cell `null`, so a CSV
 --- row is the JSON object of the file's JSON twin. `-0` is a plain
---- number and loads as the integer 0, its sign gone, and `-0.0` as a real.
+--- number and loads as the integer 0, and `-0.0` as the real 0.0: no sign shows
+--- through SQL or `_json`.
 --- The columns follow the header's order, so `SELECT *` reads the file's
 --- own columns left to right; the JSON formats' are in byte order. A file whose header has
 --- no rows still has its columns (all of them empty).

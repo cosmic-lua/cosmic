@@ -23,7 +23,8 @@
 ---   skipped, but a one-column file writes an empty cell as an empty
 ---   line (as pandas and spreadsheets do), so there an interior blank
 ---   line is a row of one empty field, and only the blank lines at the
----   end of the file are dropped (`a\n1\n\n3\n\n` has rows 1, "", 3).
+---   end of the file are dropped (`a\n1\n\n3\n\n` has rows 1, "", 3), so
+---   a final empty cell must be written `""` to be kept.
 ---   Blank lines before the header are skipped either way. A record of
 ---   one empty field is written `""`, which `encode` does, and `parse`
 ---   reads back.

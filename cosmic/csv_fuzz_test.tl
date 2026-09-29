@@ -219,3 +219,80 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
     end,
   })
 end
+
+--- One-column records, as packed strings: each field empty or drawn.
+local function gen_column(src: Fuzz.Source): string
+  local parts: {string} = {}
+  while Fuzz.more(src, #parts, 8) do
+    parts[#parts + 1] = src:int(0, 2) == 0 and "" or field(src)
+  end
+  return Fuzz.pack(parts)
+end
+
+-- A one-column file the writer wrote gives back exactly the records after
+-- the header, in order, an empty one included, `""` keeping a last one.
+local function test_a_one_column_file_reads_back_its_rows(tmp: string)
+  Fuzz.run({
+    name = "csv one column",
+    dir = tmp,
+    gen = gen_column,
+    requires = { "empty row", "last empty", "rows", "no rows" },
+    shares = { ["empty row"] = 0.2, ["last empty"] = 0.05 },
+    check = function(input: string): boolean, string
+      local values = Fuzz.unpack(input)
+      local records: {{string}} = { { "h" } }
+      for _, value in ipairs(values) do records[#records + 1] = { value } end
+      local text = assert(Csv.encode(records))
+      local rows, why = Csv.rows(text)
+      if rows == nil then return false, "rows refused its own text: " .. why end
+      if #rows ~= #values then return false, #rows .. " rows for " .. #values .. " in " .. text end
+      for index, value in ipairs(values) do
+        if rows[index].h ~= value then return false, "row " .. index .. " differs in " .. text end
+        if value == "" then Fuzz.label("empty row") end
+      end
+      if #values == 0 then Fuzz.label("no rows") else Fuzz.label("rows") end
+      if values[#values] == "" then Fuzz.label("last empty") end
+      return true, ""
+    end,
+  })
+end
+
+--- Raw one-column lines, each blank or `x`, packed after the header.
+local function gen_lines(src: Fuzz.Source): string
+  local parts: {string} = {}
+  while Fuzz.more(src, #parts, 12) do
+    parts[#parts + 1] = src:int(0, 1) == 0 and "" or "x"
+  end
+  return Fuzz.pack(parts)
+end
+
+-- Interior and trailing blank lines: the rows are the lines up to the last
+-- nonblank one, blanks among them empty; a two-column header skips them.
+local function test_blank_lines_count_by_the_headers_width(tmp: string)
+  Fuzz.run({
+    name = "csv blank lines",
+    dir = tmp,
+    gen = gen_lines,
+    requires = { "interior", "trailing", "wide" },
+    shares = { interior = 0.2, trailing = 0.2 },
+    check = function(input: string): boolean, string
+      local lines = Fuzz.unpack(input)
+      local last = 0
+      local blanks = 0
+      for index, line in ipairs(lines) do
+        if line ~= "" then last = index else blanks = blanks + 1 end
+      end
+      local text = "h\n" .. table.concat(lines, "\n") .. (#lines > 0 and "\n" or "")
+      local rows = Csv.rows(text)
+      if rows == nil or #rows ~= last then return false, "one column: " .. (rows ~= nil and tostring(#rows) or "refused") .. " rows, not " .. last end
+      if last > 0 and blanks - (#lines - last) > 0 then Fuzz.label("interior") end
+      if #lines > last then Fuzz.label("trailing") end
+      local wide: {string} = {}
+      for index, line in ipairs(lines) do wide[index] = line == "" and "" or "x,y" end
+      local two = Csv.rows("h,g\n" .. table.concat(wide, "\n") .. (#lines > 0 and "\n" or ""))
+      if two == nil or #two ~= #lines - blanks then return false, "two columns did not skip the blanks" end
+      Fuzz.label("wide")
+      return true, ""
+    end,
+  })
+end

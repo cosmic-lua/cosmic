@@ -191,3 +191,17 @@ local function test_a_lone_carriage_return_at_the_end_is_data()
   assert(rows[1].b == "2\r")
   assert(parsed("1,2\r\n") == "1|2")
 end
+
+local function test_a_blank_line_inside_quotes_is_data_in_a_one_column_file()
+  local rows = assert(Csv.rows('a\n"x\n\ny"\n1\n'))
+  assert(#rows == 2 and rows[1].a == "x\n\ny" and rows[2].a == "1")
+  -- A final empty cell written "" is kept; a bare blank line there is not.
+  assert(#assert(Csv.rows('a\n1\n""\n')) == 2)
+  assert(#assert(Csv.rows("a\n1\n\n")) == 1)
+end
+
+local function test_a_lone_delimiter_is_a_record_of_two_empty_fields()
+  local rows = assert(Csv.rows("a,b\n,\n1,2\n"))
+  assert(#rows == 2 and rows[1].a == "" and rows[1].b == "" and rows[2].a == "1")
+  assert(parsed(",\n") == "|")
+end
