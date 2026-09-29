@@ -554,3 +554,62 @@ local function test_each_reads_every_line_and_leaves_no_failure()
   for line in lines:each() do seen[#seen + 1] = line end
   assert(table.concat(seen, "|") == "x|y" and lines:failure() == "")
 end
+
+--- A Writer whose writes fail from the `fails_at`th on, counting its
+--- aborts and closes.
+local record Failing is Stream.Writer
+  aborts: integer
+  closes: integer
+end
+
+local function failing(fails_at: integer): Failing
+  local writes = 0
+  local f: Failing = { aborts = 0, closes = 0 }
+  f.write = function(_self: Stream.Writer, _data: string): boolean, string
+    writes = writes + 1
+    if writes >= fails_at then return false, "disk full" end
+    return true, ""
+  end
+  f.close = function(_self: Stream.Writer): boolean, string
+    f.closes = f.closes + 1
+    return true, ""
+  end
+  f.abort = function(_self: Stream.Writer): boolean, string
+    f.aborts = f.aborts + 1
+    return true, ""
+  end
+  return f
+end
+
+local function test_sticky_keeps_the_first_failure_and_aborts_once()
+  local w = failing(2)
+  local sink = Stream.sticky(w, "fmt")
+  assert(sink:put("a"))
+  local ok, trouble = sink:put("b")
+  assert(not ok and trouble == "disk full", trouble)
+  ok, trouble = sink:put("c")
+  assert(not ok and trouble == "disk full", trouble)
+  ok, trouble = sink:close("trailer")
+  assert(not ok and trouble == "disk full", trouble)
+  assert(w.aborts == 1 and w.closes == 0)
+end
+
+local function test_sticky_names_its_own_failures()
+  local sink = Stream.sticky(failing(99), "fmt")
+  local ok, trouble = sink:fail("")
+  assert(not ok and trouble == "fmt: write failed", trouble)
+  sink = Stream.sticky(failing(99), "fmt")
+  assert(sink:close(""))
+  ok, trouble = sink:usable()
+  assert(not ok and trouble == "fmt: writer is closed", trouble)
+end
+
+local function test_sticky_closes_once_with_its_trailer()
+  local c = Stream.collect()
+  local sink = Stream.sticky(c, "fmt")
+  assert(sink:put("body."))
+  assert(sink:close("end"))
+  assert(sink:close("again"))
+  assert(sink:abort())
+  assert(c:result() == "body.end", c:result())
+end
