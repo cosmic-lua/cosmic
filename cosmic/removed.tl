@@ -42,8 +42,8 @@ local record Module
   --- has no entry for.
   names: {string:string}
   --- What to write instead of a member a `cosmic.*` module no longer
-  --- has, by the module's name and the member's (`cosmic.hash.hex`):
-  --- The compiler says it after its `invalid key` for it, or,
+  --- has, by the module's name and the member's (`cosmic.hash.hex`).
+  --- The compiler says it after its `invalid key` for the member, or,
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
   -- TODO: a field removed from a record a caller builds as a table

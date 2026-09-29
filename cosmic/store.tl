@@ -65,8 +65,9 @@ end
 
 --- The names the binary's own `imports` table records the module
 --- `name` requiring, sorted: none for a name it holds no row of. Nil
---- and why when the test may not read `name`, or the query failed. What walks the binary's module graph without a handle
---- on every module's rows (`databases`).
+--- and why when the test may not read `name`, or the query failed.
+--- This walks the binary's module graph without a handle on every
+--- module's rows (`databases`).
 function Store.requires(name: string): {string} | nil, string
   return store.requires(name)
 end

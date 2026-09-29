@@ -136,8 +136,9 @@ end
 --- A streaming decoder for the .xz container: multi-stream and stream
 --- padding are handled. The filters are LZMA2, delta, x86 BCJ and
 --- ARM64 BCJ, and the checks are CRC32, CRC64 and SHA-256. The decoder
---- refuses, with "xz memory limit exceeded", a stream whose headers ask for more than `memlimit`
---- bytes of decoder memory (default 256 MiB; `xz -9` needs 65 MiB).
+--- refuses, with "xz memory limit exceeded", a stream whose headers
+--- ask for more than `memlimit` bytes of decoder memory (default 256
+--- MiB; `xz -9` needs 65 MiB).
 --- Raises when `memlimit` is not positive.
 function Compress.xz_decoder(memlimit?: integer): Compress.Stream | nil, string
   return raw.xz_decoder(memlimit)
