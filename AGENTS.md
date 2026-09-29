@@ -112,10 +112,13 @@
    merge-queue run whose change moves that file runs every test
    (`--all`). `COSMIC_TEST_HARNESS_EPOCH` stands in for a bump in the
    tests of the runner alone (`build/sandboxed_verdicts_test.tl`);
-   never set it to run a suite. A test whose module declares the network has no
-   key: it runs every time, and the summary counts it so -- unless it
-   declares only loopback hosts (`localhost`, `::1`, `127.a.b.c`), whose
-   worker runs offline, on a loopback of its own, and is keyed. A
+   never set it to run a suite. A test reaches no network but loopback,
+   and loopback is 127/8: `Test.needs` takes `network` as a list of
+   addresses `127.a.b.c`, whose worker, like every sandboxed one, runs
+   offline on a loopback of its own and is keyed; `network = true`, any
+   other host, `::1` and `localhost` are refused, for this tree and
+   every project, naming the rule. A test that needs a service starts
+   its own on 127.0.0.1. A
    worker, and every process it starts, is given at o/cosmic.db the
    store of its module's import closure alone, keyed by its address.
    Sandboxed or not, a worker whose module does not declare `store`

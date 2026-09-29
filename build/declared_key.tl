@@ -123,10 +123,11 @@
 --- COSMIC_COVERAGE_STARTUP): they name where the core is and which
 --- descriptors it is handed, which the runtime identity holds already,
 --- and would name where this host keeps its cache in every key. A test
---- that declares `network` beyond loopback hosts has no key that holds
---- what it reached, and always runs; nor does one that reads a declared
---- directory holding a link that leads out of the tree, which a sandbox
---- follows to what the key would not hold.
+--- that reads a declared directory holding a link that leads out of the
+--- tree has no key, and always runs: a sandbox follows the link to what
+--- the key would not hold. One that declares `network` names loopback
+--- addresses alone (`cosmic.test`), which its worker's own loopback
+--- answers offline: they are keyed with the declaration.
 ---
 --- Nothing in a key names where the tree is -- a path of it is keyed by
 --- its name there, and a variable's value, each of its `:`-separated
@@ -1060,12 +1061,6 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 -- string whole, once the core reports what it found (a `cosmic.sys`
 -- table of the probes' answers): today every kernel update splits
 -- every verdict, though almost none turns on it.
--- TODO: key whether a new network namespace gets IPv6 -- /proc/sys/net/ipv6
--- there at all (ipv6.disable=1 at boot), net.ipv6.conf.all.disable_ipv6
--- and net.core.devconf_inherit_init_net -- which the kernel's release
--- alone does not say: a test that declares `::1` runs offline
--- (`test_inputs.offline`), where `::1` is there or not by them. No test
--- declares `::1` today, so no verdict stands on it yet.
 -- TODO: key the groups this process runs with where there is no
 -- /proc/self/status (macOS), once cosmic.sys carries getgid and
 -- getgroups: today a macOS key holds the uid alone, so a verdict
@@ -1259,16 +1254,6 @@ function declared_key.reads_compiler(closure: {string}): boolean
     if readers[name] then return true end
   end
   return false
-end
-
---- Whether a test of `effective` has a key at all: one that reaches the
---- network does not, whatever it reached being no input a key holds --
---- but for one that declares only loopback hosts, whose worker the
---- sandbox keeps offline, where they reach nothing past it: the answer
---- is `test_inputs.offline`'s, which `build.test_sandbox`'s `plan`
---- takes too.
-function declared_key.keyable(effective: test_inputs.Effective): boolean
-  return test_inputs.offline(effective)
 end
 
 return declared_key

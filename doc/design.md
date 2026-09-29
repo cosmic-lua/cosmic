@@ -607,10 +607,11 @@ user, and what it has installed only where the test declares the system's own
 paths, which no worker is given otherwise -- digested
 before the test runs, none of it naming where the tree is, and shared by that
 key alone through a database under the cosmic cache directory, so a fresh
-worktree runs only what no checkout has already run. a test that declares the
-network beyond loopback hosts (those run offline, on a loopback of their own,
-and are keyed), or starts a process that could read what no key holds, runs
-every time. an unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) is keyed
+worktree runs only what no checkout has already run. a test reaches no network
+but loopback addresses of 127/8, which it declares and its worker answers
+offline, on a loopback of its own, keyed like any input: `Test.needs` refuses
+any other host, `::1` and `localhost` among them. one that reads a link out of
+the tree, which no key holds, runs every time. an unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) is keyed
 instead by the module and runtime keys plus observed file contents, stat
 results, directory listings and environment reads; a test that spawns a process
 or makes an unsupported observation outside the tree is only assumed to pass as

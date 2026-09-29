@@ -96,9 +96,9 @@
 --- verdict, of this checkout or, by that key alone, of another
 --- (`build.shared_verdicts`), stands; any other runs, and its verdict is
 --- kept only when its inputs still digest to the same key once it has
---- run. A test that declares a network beyond loopback hosts has no
---- key, and always runs; one that declares only loopback hosts runs
---- offline and is keyed (`test_inputs.offline`).
+--- run. A test that declares loopback addresses, the only network it may
+--- (`cosmic.test`), runs offline, as every sandboxed test does, and is
+--- keyed.
 --- None is assumed, and `--all` (or `COSMIC_TEST_ALL=1`, or an audit)
 --- runs every test the run chooses, whatever stands.
 
@@ -207,8 +207,7 @@ local record test
     --- another checkout reached (`build.shared_verdicts`).
     shared: integer
     --- Of those that ran sandboxed, how many no key holds, which run
-    --- every time: one whose module declares the network beyond loopback
-    --- hosts, or reads a link out of the tree.
+    --- every time: one whose module reads a link out of the tree.
     every: integer
   end
 
@@ -2157,12 +2156,10 @@ local function reads_compiler(rec: Recording, m: importer.Module): boolean
 end
 
 --- A sandboxed test's key, over its declared inputs as they are now
---- (`build.declared_key`): nil for one that reaches a network beyond
---- loopback, or reads a link out of the tree, which no key holds -- the
---- second said once in `rec.unkeyed`.
+--- (`build.declared_key`): nil for one that reads a link out of the
+--- tree, which no key holds, said once in `rec.unkeyed`.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
-  if not declared_key.keyable(effective) then return nil end
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "", host = rec.host,
@@ -2702,11 +2699,10 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- sandbox gives it at /tmp; the key names that /tmp, not this path,
     -- which is new every run. Nothing holds it to the rest of what it
     -- declares.
-    -- A test that declares only loopback hosts is keyed as offline
-    -- (`declared_key.keyable`, `test_inputs.offline`), but here runs
-    -- online, in the host's network namespace: a reach past loopback
-    -- goes unnoticed here, and a Linux leg's sandbox, which runs it
-    -- offline, is what fails it.
+    -- A test that declares loopback addresses is keyed as offline, as
+    -- a sandbox runs it, but here runs online, in the host's network
+    -- namespace: a reach past loopback goes unnoticed here, and a Linux
+    -- leg's sandbox, which runs it offline, is what fails it.
     -- TODO: give an unenforced worker the tree at a path no checkout
     -- moves, as a sandbox gives it /tree -- a chdir into a link or a
     -- bind mount of the tree at a fixed name where the host allows one,

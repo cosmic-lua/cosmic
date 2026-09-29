@@ -36,8 +36,9 @@
 ---   one a variable names (`$NAME/path`) where the variable says, as
 ---   `test_inputs.resolve` put it, refused where that is the tree's,
 ---   the scratch directory's, or above either;
---- - no network but a loopback, unless the module declares `network`
----   beyond loopback hosts (`test_inputs.offline`);
+--- - no network but a loopback of its own, which answers the loopback
+---   addresses a module may declare (`cosmic.test`'s `network`), as the
+---   host's would;
 --- - the pinned environment and the variables it declares, `"*"` for
 ---   all of the runner's (`environment`).
 ---
@@ -365,12 +366,22 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   end
   table.sort(made_dirs)
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
-  -- Offline, too, where every host declared is a loopback one, which
-  -- the worker's own loopback answers as the host's would: the answer
-  -- `declared_key.keyable` takes, which must be this one.
-  local offline = test_inputs.offline(effective)
+  -- Offline, always: a module declares only loopback addresses, which
+  -- the worker's own loopback answers as the host's would. Keying it is
+  -- sound so:
+  --
+  -- - a new network namespace reaches only the worker's own processes,
+  --   and an abstract unix socket is its namespace's alone
+  --   (core/process.h's `Sandbox`), so what a test reaches there is
+  --   what it started; and
+  -- - its `lo` carries 127/8, so a connection to a closed port there
+  --   (127.0.0.1:1, 127.0.0.2:1) is refused as on the host's, and a bind
+  --   finds no host listener or socket in TIME_WAIT in its way.
+  --
+  -- A test that needed a service of the host's on its loopback fails,
+  -- rather than standing on a verdict that service gave.
   return {
-    sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
+    sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
     env = test_sandbox.environment(environment, effective),
     over = over,
     trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,

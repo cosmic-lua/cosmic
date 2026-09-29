@@ -43,6 +43,8 @@ local Errors = require("cosmic.errors")
 local record Test
   --- What each field of `Needs` takes; see below.
   fields: {string:string}
+  --- What `network_trouble` says of `network = true`.
+  any_host_refusal: string
 
   --- What the tests of one module read beyond their default inputs.
   --- Every field is optional.
@@ -70,11 +72,17 @@ local record Test
     --- whole environment, which a process started without an `env` of
     --- its own inherits.
     env: {string}
-    --- Requests over the network: `true` for any host, or the hosts.
-    --- Only loopback hosts (`localhost`, `::1`, `127.a.b.c`) run
-    --- sandboxed offline, on a loopback of the worker's own, and are
-    --- keyed like any other input; any other host runs every time.
-    network: boolean | {string}
+    --- The loopback addresses the tests reach, each a dotted quad of
+    --- 127/8, `127.a.b.c`, as a request names it: a sandboxed worker
+    --- runs offline, with a loopback of its own that answers them, and
+    --- is keyed like any other. No test reaches another host: what one
+    --- answered, no key could hold, so a test that needs a service
+    --- starts its own on 127.0.0.1. `true`, any other name or address
+    --- -- `::1` and `localhost` among them, whose answer turns on how
+    --- the host sets up IPv6 -- and a spelling no request's host is
+    --- (a port, brackets, a leading zero) are refused, naming this
+    --- rule (`network_trouble`).
+    network: {string}
     --- Whether the tests hand a process they start what no observation
     --- accounts for: a descriptor, a path of /proc. Starting one needs no
     --- declaration: a sandboxed worker holds every process it starts to
@@ -158,11 +166,11 @@ local record Test
   end
 end
 
---- What each field of `Needs` takes: a list of strings ("list"), a
---- boolean ("flag"), or either ("either"). The build holds a declaration
---- in the source to the same table (`build.analyzer`).
+--- What each field of `Needs` takes: a list of strings ("list") or a
+--- boolean ("flag"). The build holds a declaration in the source to the
+--- same table (`build.analyzer`).
 Test.fields = {
-  reads = "list", host = "list", env = "list", network = "either",
+  reads = "list", host = "list", env = "list", network = "list",
   processes = "flag", tool = "flag", nests = "flag", store = "flag", system = "flag",
   caches = "list",
 }
@@ -181,6 +189,31 @@ local function runner_in(module: any): {string:any}
   return nil
 end
 
+--- The rule a `network` declaration is held to, as a refusal names it.
+local LOOPBACK_ONLY <const> = "network takes loopback addresses 127.a.b.c only: no test " ..
+  "reaches another host, whose answer no key holds (::1 and localhost included), so one " ..
+  "that needs a service starts its own on 127.0.0.1"
+
+Test.any_host_refusal = "network = true: " .. LOOPBACK_ONLY
+
+--- Why `host` may not be declared in `network`, or "" when it may: a
+--- dotted quad of 127/8, `127.a.b.c`, each part decimal, 0 to 255,
+--- with no leading zero. Strict: a name a lookup might answer
+--- elsewhere, `localhost` or `::1`, a shortened or octal spelling,
+--- `0.0.0.0`, a range or `*` is none; nor is a spelling no request's
+--- host is (`127.0.0.1:8080`, whose port a request's host leaves out).
+function Test.network_trouble(host: string): string
+  local refused = string.format("network %q: %s", host, LOOPBACK_ONLY)
+  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+  if a ~= "127" then return refused end
+  for _, part in ipairs({ b, c, d }) do
+    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+      return refused
+    end
+  end
+  return ""
+end
+
 --- Where the one `needs` call came from, once it has come.
 local called_at: string = nil
 
@@ -194,8 +227,8 @@ local function trouble_of(value: any): string
     if takes == nil then
       return "has no field " .. tostring(key)
     end
-    local wanted = takes == "list" and "a list of strings" or
-      takes == "flag" and "true or false" or "true, false or a list of hosts"
+    if key == "network" and field_value == true then return Test.any_host_refusal end
+    local wanted = takes == "list" and "a list of strings" or "true or false"
     local is_flag = field_value is boolean
     if (is_flag and takes == "list") or (not is_flag and takes == "flag") or
         (not is_flag and not field_value is {any:any}) then
@@ -205,6 +238,10 @@ local function trouble_of(value: any): string
       for i, item in pairs(field_value) do
         if not (math.type(i) == "integer" and item is string) then
           return tostring(key) .. " takes " .. wanted
+        end
+        if key == "network" and item is string then
+          local refused = Test.network_trouble(item)
+          if refused ~= "" then return refused end
         end
       end
     end

@@ -1023,8 +1023,8 @@ local function declared(source: string): analyzer.Declared | nil, string
 end
 
 --- A top-level `Test.needs { ... }` is read as data, field by field,
---- with `network = true` as any host and the line it starts on, whatever
---- the local is named and in either call form.
+--- with the line it starts on, whatever the local is named and in either
+--- call form.
 local function test_a_needs_call_is_read_as_data()
   local got, trouble = declared(lines({
     'local Test = require("cosmic.test")',
@@ -1033,7 +1033,7 @@ local function test_a_needs_call_is_read_as_data()
     '  reads = { "vendor/cacert/", "bin/zig.pin" },',
     '  host = { "/etc/localtime" },',
     '  env = { "PATH" },',
-    "  network = true,",
+    '  network = { "127.0.0.1", "127.0.0.2" },',
     "  processes = true, tool = false, nests = true, store = true,",
     "}",
   }))
@@ -1042,7 +1042,7 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.reads == 2 and got.reads[1] == "vendor/cacert/" and got.reads[2] == "bin/zig.pin")
   assert(#got.host == 1 and got.host[1] == "/etc/localtime")
   assert(#got.env == 1 and got.env[1] == "PATH")
-  assert(#got.network == 1 and got.network[1] == "*")
+  assert(#got.network == 2 and got.network[1] == "127.0.0.1" and got.network[2] == "127.0.0.2")
   assert(got.processes and not got.tool and got.nests and got.store)
   -- A host path a variable names, whole or beneath it.
   local named = assert(declared(lines({
@@ -1097,6 +1097,15 @@ end
 local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
     { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, nests, network" },
+    -- No test reaches beyond loopback, which is 127/8 (R1, R2).
+    { 'Test.needs { network = true }', "fixture_test.tl:3: test.needs: network = true: " ..
+      "network takes loopback addresses 127.a.b.c only: no test reaches another host" },
+    { 'Test.needs { network = { "127.0.0.1", "example.com" } }', 'test.needs: network ' ..
+      '"example.com": network takes loopback addresses 127.a.b.c only' },
+    { 'Test.needs { network = { "::1" } }', 'network "::1": network takes loopback addresses' },
+    { 'Test.needs { network = { "localhost" } }',
+      'network "localhost": network takes loopback addresses' },
+    { 'Test.needs { network = false }', "network takes a list of string literals, written out" },
     { 'Test.needs { reads = { "x\\ty" } }',
       'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
     { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },

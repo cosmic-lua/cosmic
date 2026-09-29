@@ -336,8 +336,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     function(): declared_key.Spec return full_spec(hostdir) end,
     function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
       env = declaration .. ", and `environment` by what the worker is given",
-      network = declaration .. ": a test that reaches beyond loopback has no key " ..
-        "(`declared_key.keyable`)",
+      network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
+        "offline worker's own loopback answers",
       processes = declaration, variables = declaration,
       nests = declaration .. ", and, where the module does not declare `tool`, " ..
         "`runs_tool` (build.test's `tool_use`)",
@@ -394,23 +394,6 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   }
   each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
     function(s: declared_key.HostSources): any return s end, key, changes, {})
-end
-
---- A test that declares the network has no key; one that declares none
---- does, and so does one that declares only loopback hosts, which its
---- worker, offline, reaches on a loopback of its own.
-local function test_a_test_that_reaches_the_network_has_no_key()
-  local s = spec()
-  assert(declared_key.keyable(s.effective))
-  s.effective.network = { ["example.com"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["*"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["127.0.0.1"] = true, ["example.com"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["127.0.0.1"] = true, ["127.0.0.2"] = true, ["::1"] = true,
-    ["localhost"] = true }
-  assert(declared_key.keyable(s.effective))
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,

@@ -17,7 +17,6 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
-local declared_key = require("build.declared_key")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
@@ -187,24 +186,19 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
     linked.trouble)
   inputs.host, inputs.spelled = { host .. "/" }, {}
   assert(test_sandbox.plan(root, scratch, inputs, {}).trouble == "")
-  -- Only loopback hosts: offline, its own loopback answering for them.
-  -- Keyed exactly when offline: a worker keyed but online would stand
-  -- on what the host's network answered.
-  local offline_for: {string:boolean} = { [""] = true, ["127.0.0.1 ::1 localhost"] = true,
-    ["127.0.0.1 example.com"] = false, ["example.com"] = false, ["*"] = false }
-  for hosts, offline in pairs(offline_for) do
+  -- Offline, whatever it declares: the loopback addresses it may
+  -- declare, its own loopback answers.
+  for _, hosts in ipairs({ "", "127.0.0.1 127.0.0.2" }) do
     inputs.network = {}
     for name in hosts:gmatch("%S+") do inputs.network[name] = true end
     local planned = test_sandbox.plan(root, scratch, inputs, {})
-    assert(planned.sandbox.offline == offline, hosts)
-    assert(declared_key.keyable(inputs) == offline, hosts)
+    assert(planned.sandbox.offline == true, hosts)
   end
-  inputs.network = { ["example.com"] = true }
+  inputs.network = {}
   inputs.tool = true
-  local online = test_sandbox.plan(root, scratch, inputs, {})
-  assert(online.sandbox.offline == false)
+  local tooled = test_sandbox.plan(root, scratch, inputs, {})
   -- No o/bin here to give.
-  assert(not holds(online.sandbox.unveil.reads, root .. "/o/bin"))
+  assert(not holds(tooled.sandbox.unveil.reads, root .. "/o/bin"))
 end
 
 --- Whether a run that printed `text`, its workers sandboxed where they
@@ -440,11 +434,9 @@ end
 --- module declares. Run again, the test stands; a change to a file of
 --- the tree it does not declare leaves it standing; a change to one it
 --- declares runs it again, and so does making one it declares that was
---- not there when it last ran. A module that declares a host of the
---- network, not a loopback one, has no verdict a key holds: it runs
---- every time, and none is assumed. One that does not declare `store`
---- stands too: what it starts can read only the store of its closure,
---- which its key holds.
+--- not there when it last ran; none is assumed, and none runs every
+--- time. One that does not declare `store` stands too: what it starts
+--- can read only the store of its closure, which its key holds.
 local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)
@@ -474,16 +466,6 @@ local function test_child_reads_the_closure_store()
   assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
 end
 ]]))
-  assert(Fs.write(root .. "/suite/online_test.tl", [[
-local Child = require("cosmic.child")
-local Test = require("cosmic.test")
-
-Test.needs { network = { "example.com" }, store = true, reads = { "bin/probe" } }
-
-local function test_child_could_reach_the_network()
-  assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
-end
-]]))
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
@@ -498,16 +480,16 @@ end
     assert(text:find(wanted, 1, true), step .. ": " .. text)
     return text
   end
-  local first = said("3 ran, 0 stood")
+  local first = said("2 ran, 0 stood")
   if unsandboxed(first) then return end
   assert(first:find("; sandboxed)", 1, true), first)
-  local again = said("1 ran, 2 stood, 1 run every time (no key holds them)")
-  assert(not again:find("assumed", 1, true), again)
+  local again = said("0 ran, 2 stood")
+  assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
   assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
-  said("1 ran, 2 stood, 1 run every time")
+  said("0 ran, 2 stood")
   assert(Fs.write(root .. "/suite/data.txt", "two"))
-  said("2 ran, 1 stood, 1 run every time")
-  said("1 ran, 2 stood, 1 run every time")
+  said("1 ran, 1 stood")
+  said("0 ran, 2 stood")
   -- Made since, what the child reads is there, and the test fails.
   assert(Fs.write(root .. "/suite/later.txt", "made"))
   said("FAIL  suite.child_test test_child_reads: ", false)
