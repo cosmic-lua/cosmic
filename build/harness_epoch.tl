@@ -99,7 +99,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.child"] = "ecd4c76c90a129eb07feb3c5ba868e4c44deab1eb2648df0e94e2ae2f39fa464",
 
-  ["cosmic.coverage"] = "93d5838bf518d59450cb8fa7d6f11f8a2113c0c6692047d2d066fa54bdfcb0b4",
+  ["cosmic.coverage"] = "f8ac6e5ad6dc4eb2207c546b69ce80725d51d69c7587bfc895c6f23cbbdc9ebd",
 
   ["cosmic.env"] = "9ae16736e69ff2305de1aff7db0f15db90993e1e61ef786d7bf6f33528ef0057",
 
@@ -107,7 +107,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.proc"] = "74575ab0114ec38c9b65838f3ce981f3ec66f1216b5abc77b4679a649f5dbbaa",
 
-  ["cosmic.removed"] = "33abed453c4fc39fd8c80bcd388f84749b6b28f59047f24a97a94cd0d6d97442",
+  ["cosmic.removed"] = "561c454617e4c48515e32e585f62b152c400c1bc0ea0224cab22a75381db5ed0",
 
   ["cosmic.sqlite"] = "56405fb541a52aa0c77136c018efc833aa775e016d8b899976e38b9b34b69166",
 
