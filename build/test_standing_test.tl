@@ -14,13 +14,14 @@ local Test = require("cosmic.test")
 --- The program itself, which its tests start.
 Test.needs{ tool = true }
 
---- Runs `cosmic test` on `root` with `words` after it -- `--all`, so a
---- test no key holds runs, unless others are given.
+--- Runs `cosmic test` on `root` with `words` after it -- `suite`, which
+--- names every test there, so a test no key holds runs while one a key
+--- holds may stand, unless others are given.
 local function run(root: string, output: string, env: {string:string}, fails?: boolean,
                    words?: {string}): string
   local fd = assert(Fs.open_write(output))
   local args: {string} = { "test" }
-  for _, word in ipairs(words or { "--all" }) do args[#args + 1] = word end
+  for _, word in ipairs(words or { "suite" }) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ms = 60000,
@@ -115,7 +116,8 @@ end
 --- its reads a key can hold (a file of the tree, a variable) changes, or
 --- it is asked for: by --all, by COSMIC_TEST_ALL=1, by COSMIC_SANDBOX=must,
 --- or by name. One that
---- failed is never assumed.
+--- failed is never assumed. `--all` and COSMIC_TEST_ALL=1 run the test a
+--- key holds too, whatever stands, as AGENTS.md says of them.
 local function test_a_test_no_key_holds_is_assumed_until_asked_for(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -150,10 +152,10 @@ end
   end
   said("first", {}, "2 ran, 0 stood")
   said("second", {}, "0 ran, 1 stood, 1 assumed")
-  said("all", { "--all" }, "1 ran, 1 stood")
+  said("all", { "--all" }, "2 ran, 0 stood")
   said("named", { "suite/outside_test.tl" }, "1 ran, 1 stood")
   env.COSMIC_TEST_ALL = "1"
-  said("variable", {}, "1 ran, 1 stood")
+  said("variable", {}, "2 ran, 0 stood")
   env.COSMIC_TEST_ALL = nil
   -- COSMIC_SANDBOX=must runs it too: it may have passed on a process
   -- that fell back to running unconfined.

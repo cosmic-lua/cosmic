@@ -42,9 +42,11 @@
 --- Its run records what it was compiled from and ran under instead, and
 --- while that is unchanged and it last passed, it is assumed to pass
 --- again rather than run, unless the run is `--all` (or
---- `COSMIC_TEST_ALL=1`, or `COSMIC_SANDBOX=must`) or names it. All of
---- this is an unsandboxed run's; a sandboxed one's keys are its tests'
---- declared inputs, below.
+--- `COSMIC_TEST_ALL=1`, or `COSMIC_SANDBOX=must`) or names it. `--all`
+--- (or `COSMIC_TEST_ALL=1`, or an audit) runs every test the run
+--- chooses, one a key holds too, whatever stands. All of this is an
+--- unsandboxed run's; a sandboxed one's keys are its tests' declared
+--- inputs, below.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -90,7 +92,9 @@
 --- `COSMIC_TEST_SANDBOX=1` it fails there instead. With
 --- `COSMIC_TEST_KEY=declared` (`key_mode`), such a run keys, stands and
 --- shares as a sandboxed one does, by declared inputs, and gives each
---- worker the environment a sandbox would. Nothing holds a worker to
+--- worker the environment a sandbox would; its worker sees the tree
+--- where it is, so its key holds that path too, and it shares only
+--- with a checkout at the same path. Nothing holds a worker to
 --- the rest of what it declares: the run trusts the declaration, which a
 --- sandboxed run of the same test on another host (CI's Linux legs)
 --- enforces. Its verdicts are kept apart from sandboxed ones by a
@@ -2225,6 +2229,8 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     environment = view_of(rec, m), runs_tool = tool_use(rec, m) == "allowed",
     closure_store = rec.stores[m.path],
+    -- Unsandboxed, its worker sees the tree where it is (`launch`).
+    tree = not rec.sandbox and rec.root or nil,
   })
   if key == nil then rec.unkeyed[m.path] = why end
   return key
@@ -2735,6 +2741,9 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   -- What a process the worker starts is keyed by, where its sandbox
   -- holds one: "" for none.
   local held = ""
+  -- The store of its closure an unsandboxed worker attaches in place
+  -- of the projection (`worker.Invocation`'s `store`): nil for none.
+  local attached: string = nil
   if rec.sandbox then
     local store, store_trouble = given_store(rec, job.m)
     if store == nil and store_trouble ~= "" then
@@ -2764,24 +2773,35 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- `test_sandbox.scratch`. The key names that, not this path, which
     -- is new every run. Nothing holds it to the rest of what it declares.
     --
+    -- It sees the tree where it is, not at /tree, so its key holds that
+    -- path (`declared_of`, `declared_key.Spec`'s `tree`): a verdict
+    -- that turns on it stands only in a checkout at the same path. No
+    -- host this runs on can give it the tree at a fixed path instead:
+    -- a bind mount needs the user namespace a sandbox would have had,
+    -- and a link at a fixed name is resolved by `getcwd` and `realpath`
+    -- to the tree's own path.
+    --
     -- A test that declares loopback addresses is keyed as offline, as
     -- a sandbox runs it, but here runs online, in the host's network
     -- namespace: a reach past loopback goes unnoticed here, and a Linux
     -- leg's sandbox, which runs it offline, is what fails it.
-    -- TODO: give an unenforced worker the tree at a path no checkout
-    -- moves, as a sandbox gives it /tree -- a chdir into a link or a
-    -- bind mount of the tree at a fixed name where the host allows one,
-    -- or else the tree's path in its key: today it runs in the
-    -- checkout where it is, which no key holds, so a test whose verdict
-    -- turns on that path stands in another checkout, and a Linux leg,
-    -- where every worker sees /tree, cannot catch it.
-    -- TODO: give an unsandboxed keyed worker the store of its closure
-    -- at o/cosmic.db, as a sandbox does (`given_store`), once `cosmic
-    -- test --worker` takes a `--store` path, and hands it on to what the
-    -- test starts: today it reads the whole projection, which its key
-    -- holds only by the closure store's address, and only a lookup
-    -- through `Store` is held to its closure (build.test_worker's
-    -- `hold_store`); a Linux leg's sandbox enforces what macOS trusts.
+    --
+    -- It attaches the store of its closure, as a sandbox gives it at
+    -- o/cosmic.db (`given_store`), held as a sandboxed worker's is
+    -- (build.test_worker's `hold_store`).
+    -- TODO: hand that store on to what the test starts, once a cosmic
+    -- run can be told which store to read in place of its tree's
+    -- o/cosmic.db (a variable build.tree_root reads): today a process
+    -- the test starts, which a sandbox would give the closure store at
+    -- o/cosmic.db, reads the whole projection there, which its key holds
+    -- only by the closure store's address; a Linux leg's sandbox
+    -- enforces what macOS trusts.
+    local store, store_trouble = given_store(rec, job.m)
+    if store == nil and store_trouble ~= "" then
+      finish(rec, job, nil, store_trouble, limits)
+      return false
+    end
+    attached = store
     env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
   end
   job.started_ns = Time.monotonic_ns()
@@ -2807,7 +2827,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), held = held,
     hold = hold,
-    open = declared ~= nil and declared.store,
+    open = declared ~= nil and declared.store, store = attached,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
     sandbox = sandbox, program = job.plan ~= nil and job.plan.program or nil,
   })
@@ -2899,6 +2919,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
+      -- TODO: spare a stray in the process group of a worker still
+      -- running, which a test of its own may be waiting on (an orphan it
+      -- left to outlive a process it started, as build/stand_in_test.tl's
+      -- test_what_start_and_run_leave_running_runs_on does), rather than
+      -- end it the moment any other worker ends; that test then drops
+      -- the grouped run it makes to adopt its orphans itself.
       if not rec.sandbox then Child.end_strays() end
       sweep(rec, running)
     end
@@ -3458,10 +3484,7 @@ local function run(argv: {integer:string}): integer
       log:complain("test: the stores of the test modules' closures: " .. address_trouble)
       return 1
     end
-    -- Unsandboxed, the stores are only addressed, for their keys: no
-    -- worker is given one (the TODO in `launch`), so none is written,
-    -- and those a sandboxed run wrote stay for the next.
-    if sandboxed then sweep_stores(rec) end
+    sweep_stores(rec)
     rec.digests = declared_key.digests(root, remembered)
     -- A core that carries debug information, as the checked core does,
     -- is keyed by its image (build.core_image): its DWARF names the
@@ -3541,8 +3564,10 @@ local function run(argv: {integer:string}): integer
         -- than build.filesystem_observations' log (a sandbox that logs
         -- what it refuses): today a run not given it is keyed by what it
         -- was seen to read, and shares no verdict.
+        -- Forced (--all, COSMIC_TEST_ALL or an audit), it runs whatever
+        -- stands, as a keyed test does.
         local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil
-        if not audit then stood, reads, key = standing(rec, previous, verdicts, m, id) end
+        if not forced then stood, reads, key = standing(rec, previous, verdicts, m, id) end
         local assumed: Assumed = nil
         local asked = everything
         for _, selector in ipairs(naming) do
@@ -3580,6 +3605,7 @@ local function run(argv: {integer:string}): integer
       { "harness", string.format("e%dt%d", rec.epoch, rec.timeout_ms) },
     }
     if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
+    if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(root):sub(1, 12) } end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do
       if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end
@@ -3657,8 +3683,8 @@ local function run(argv: {integer:string}): integer
       end
     end
   end
-  if sandboxed and rec.written > 0 then
-    log:say(string.format("test: sandbox: %s written (%s) in %.1f ms",
+  if keyed and rec.written > 0 then
+    log:say(string.format("%s%s written (%s) in %.1f ms", keying,
       plural.count(rec.written, "closure store"), plural.count(rec.written_bytes, "byte"),
       rec.writing_ns / 1e6))
   end
