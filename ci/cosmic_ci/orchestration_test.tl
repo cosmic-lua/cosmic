@@ -993,22 +993,19 @@ local function test_the_darwin_list_names_test_modules_of_the_tree()
   assert(#parsed == 1 and parsed[1] == "a_test.tl", table.concat(parsed, ","))
 end
 
---- Only the macOS leg runs the darwin list, and only where its native
---- suite stands on verdicts: there `--all` over the listed modules, so
---- none of them stands on one. A run of every test already (the
---- scheduled run's `--all`) runs them, and so does no other leg.
-local function test_only_the_macos_leg_runs_the_darwin_list_where_its_suite_stands()
+--- The darwin list runs where the native suite stands on verdicts:
+--- `--all` over the listed modules, so none of them stands on one. A
+--- run of every test already (the scheduled run's `--all`) runs them.
+local function test_the_darwin_list_runs_where_the_native_suite_stands()
   local Orchestration = require("cosmic_ci.orchestration")
   local modules = { "core/a_test.tl", "build/b_test.tl" }
-  local words = Orchestration.darwin_words({ "test" }, "aarch64-macos", modules)
+  local words = Orchestration.darwin_words({ "test" }, modules)
   assert(words ~= nil and table.concat(words, " ") ==
     "test --all --census core/a_test.tl build/b_test.tl", tostring(words and
     table.concat(words, " ")))
-  assert(Orchestration.darwin_words({ "test", "--all" }, "aarch64-macos", modules) == nil,
+  assert(Orchestration.darwin_words({ "test", "--all" }, modules) == nil,
     "a run of every test ran the darwin list again")
-  assert(Orchestration.darwin_words({ "test" }, "x86_64-linux-musl", modules) == nil)
-  assert(Orchestration.darwin_words({ "test" }, "aarch64-linux-musl", modules) == nil)
-  assert(Orchestration.darwin_words({ "test" }, "aarch64-macos", {}) == nil)
+  assert(Orchestration.darwin_words({ "test" }, {}) == nil)
 end
 
 --- A listed module does not stand in the darwin suite: in a project
@@ -1034,25 +1031,28 @@ local function test_a_listed_module_runs_where_it_would_stand(tmp: string)
   run("darwin-first", { "test" })
   local again = run("darwin-again", { "test" })
   assert(again:find("0 ran, 2 stood", 1, true), "the tests did not stand: " .. again)
-  local words = assert(Orchestration.darwin_words({ "test" }, "aarch64-macos", { "a_test.tl" }))
+  local words = assert(Orchestration.darwin_words({ "test" }, { "a_test.tl" }))
   local listed = run("darwin-listed", words)
   assert(listed:find("1 ran, 0 stood", 1, true), "the listed module stood: " .. listed)
 end
 
---- On the macOS leg, the native suite is followed by the darwin suite,
---- with a row of its own that says what ran, where the leg stands on
---- verdicts; the scheduled run's native suite, `--all`, runs alone, and
---- so does a Linux leg's.
-local function test_the_macos_legs_native_suite_is_followed_by_the_darwin_suite(tmp: string)
+--- The darwin suite is a phase of its own (`darwin-suite`, after
+--- `local-boundary`), which on the macOS leg, where it stands on
+--- verdicts, runs the listed modules with a row of its own, "darwin",
+--- and fails where they fail. The scheduled run's native suite, `--all`,
+--- runs them already, and a Linux leg has none: there it does nothing.
+local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tmp: string)
   local base, project = command(tmp)
+  local darwin = "test --all --census core/a_test.tl build/b_test.tl"
   local cases = {
     { name = "macos-push", target = "aarch64-macos", event = "push", sandbox = "0",
-      ran = "test --census\ntest --all --census core/a_test.tl build/b_test.tl\n",
-      suites = "local darwin" },
+      ran = "test --census\n" .. darwin .. "\n", suites = "local darwin", ok = true },
+    { name = "macos-failing", target = "aarch64-macos", event = "push", sandbox = "0",
+      ran = "test --census\n" .. darwin .. "\n", suites = "local darwin", ok = false },
     { name = "macos-schedule", target = "aarch64-macos", event = "schedule", sandbox = "0",
-      ran = "test --census --all\n", suites = "local" },
+      ran = "test --census --all\n", suites = "local", ok = true },
     { name = "linux-push", target = "x86_64-linux-musl", event = "push", sandbox = "1",
-      ran = "test --census\n", suites = "local" },
+      ran = "test --census\n", suites = "local", ok = true },
   }
   for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
@@ -1064,26 +1064,38 @@ local function test_the_macos_legs_native_suite_is_followed_by_the_darwin_suite(
     assert(Fs.write(fake .. "/ci/darwin-tests.txt",
       "# why\ncore/a_test.tl\n\nbuild/b_test.tl # and why\n"))
     -- bin/zig's boot leaves a cosmic that logs each command line and
-    -- says a suite's figures.
+    -- says a suite's figures: a failure, in the failing case, for the
+    -- darwin suite's line.
+    local failing = case.ok and "" or
+      "if [ \"$*\" = '" .. darwin .. "' ]; then printf '%s\\n' " ..
+      "'test: FAIL (1 of 2 failed, 0 infrastructure errors, 5 ms; unsandboxed)'; exit 1; fi\n"
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
       "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
-      "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; printf '%s\\n' " ..
+      "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..
+      "if [ \"$1\" = test ]; then printf '%s\\n' " ..
       "'test: PASS (2 tests, 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed)'; fi\nexit 0\nEOF\n" ..
       "chmod 755 o/bin/cosmic\n", 493)
-    local outcome = Fixture.call("darwin-" .. case.name, append(base, { "platform", "build" }),
-      project, tmp .. "/logs", context(fake, runner_temp, { TARGET = case.target,
-        TMPDIR = tmp, COSMIC_CI_EVENT = case.event, COSMIC_CI_HARNESS_MOVED = "0",
-        COSMIC_CI_REQUIRE_SANDBOX = case.sandbox,
-        COSMIC_CI_DECLARED_KEYS = case.sandbox == "1" and "0" or "1" }))
-    local err = Fixture.read(outcome.err)
-    assert(outcome.result.ok, case.name .. ": the build phase failed: " .. err)
+    local env = context(fake, runner_temp, { TARGET = case.target,
+      TMPDIR = tmp, COSMIC_CI_EVENT = case.event, COSMIC_CI_HARNESS_MOVED = "0",
+      COSMIC_CI_REQUIRE_SANDBOX = case.sandbox,
+      COSMIC_CI_DECLARED_KEYS = case.sandbox == "1" and "0" or "1" })
+    for _, phase in ipairs({ "build", "local-boundary", "darwin-suite" }) do
+      local outcome = Fixture.call("darwin-" .. case.name .. "-" .. phase,
+        append(base, { "platform", phase }), project, tmp .. "/logs", env)
+      local err = Fixture.read(outcome.err)
+      local ok = case.ok or phase ~= "darwin-suite"
+      assert(outcome.result.ok == ok, case.name .. ": " .. phase .. ": " .. err)
+    end
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case.ran, case.name .. ": " .. tostring(ran))
     local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
     local names: {string} = {}
     for _, row in ipairs(State.suite_rows(db)) do
       names[#names + 1] = row.suite
-      assert(row.status == "pass" and row.ran == 2 and row.stood == 0, case.name)
+      local passed = case.ok or row.suite ~= "darwin"
+      assert(row.status == (passed and "pass" or "fail"), case.name .. ": " .. row.suite ..
+        ": " .. tostring(row.status))
+      assert(not passed or (row.ran == 2 and row.stood == 0), case.name .. ": " .. row.suite)
     end
     assert(db:close())
     assert(table.concat(names, " ") == case.suites, case.name .. ": " .. table.concat(names, " "))

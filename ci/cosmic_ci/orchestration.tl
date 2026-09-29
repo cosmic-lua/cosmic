@@ -25,7 +25,7 @@ local record Orchestration
   suite_run: function(extra?: {string:string}): {string}, {string:string}
   suite_verdicts: function(env: {string:string}, name: string): string
   darwin_modules: function(text: string): {string}
-  darwin_words: function(words: {string}, target: string, modules: {string}): {string} | nil
+  darwin_words: function(words: {string}, modules: {string}): {string} | nil
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -890,16 +890,14 @@ function Orchestration.darwin_modules(text: string): {string}
 end
 
 --- The `cosmic test` words of the darwin suite, given `words`, the
---- native suite's (`test_words`), the leg's `target`, and `modules`,
---- the darwin list's (`darwin_modules`): `--all` over those modules on
---- the macOS leg where its native suite stands on verdicts, so none of
---- them stands on one. A verdict keyed by declarations stands on macOS
---- for the key a Linux leg reached, whose run never took the macOS
---- branch its code has. Nil on every other leg, and on a run of every
---- test already (the scheduled run, the backstop).
-function Orchestration.darwin_words(words: {string}, target: string,
-    modules: {string}): {string} | nil
-  if target ~= "aarch64-macos" or #modules == 0 then return nil end
+--- native suite's (`test_words`), and `modules`, the darwin list's
+--- (`darwin_modules`): `--all` over those modules where the native
+--- suite stands on verdicts, so none of them stands on one. A verdict
+--- keyed by declarations stands on macOS for the key a Linux leg
+--- reached, whose run never took the macOS branch its code has. Nil on
+--- a run of every test already (the scheduled run, the backstop).
+function Orchestration.darwin_words(words: {string}, modules: {string}): {string} | nil
+  if #modules == 0 then return nil end
   for _, word in ipairs(words) do
     if word == "--all" then return nil end
   end
@@ -908,12 +906,16 @@ function Orchestration.darwin_words(words: {string}, target: string,
   return out
 end
 
---- The darwin suite of `c`'s candidate (`darwin_words`), run by
---- `executable` on the macOS leg after its native suite, in the same
---- environment, with a row of its own, "darwin", which says they ran.
-local function darwin_suite(c: Context, target: string, executable: string,
-    diagnostics: string): integer
-  if target ~= "aarch64-macos" then return 0 end
+--- The darwin suite (`darwin_words`), on the macOS leg alone, on the
+--- tree `boot` built, in the native suite's environment, with a row of
+--- its own, "darwin", which says the listed modules ran. A phase of its
+--- own, after `local-boundary`: it writes the working database, which
+--- the boundary holds unchanged since the native suite, and ci.yml
+--- keeps the native suite's verdicts for the run behind in the queue
+--- before it, so that run waits on none of this.
+local function phase_darwin_suite(p: PlatformContext): integer
+  if p.target ~= "aarch64-macos" then return 0 end
+  local c = p.operation
   local listed, trouble = Fs.read(c.root .. "/" .. darwin_list)
   if listed == nil then
     Fs.put(Fs.stderr, "darwin suite: cannot read " .. darwin_list .. ": " ..
@@ -921,15 +923,15 @@ local function darwin_suite(c: Context, target: string, executable: string,
     return 1
   end
   local suite_words, values = Orchestration.suite_run()
-  local words = Orchestration.darwin_words(suite_words, target,
-    Orchestration.darwin_modules(listed))
+  local words = Orchestration.darwin_words(suite_words, Orchestration.darwin_modules(listed))
   if words == nil then return 0 end
   values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
-  local argv: {string} = { executable }
+  local argv: {string} = { p.root .. "/o/bin/cosmic" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local out = diagnostics .. "/darwin-test.out"
-  local status = logged(c, "darwin suite", argv, out, diagnostics .. "/darwin-test.err",
-    suite_timeout_ms, c.root, values)
+  mkdir(p.local_diagnostics)
+  local out = p.local_diagnostics .. "/darwin-test.out"
+  local status = logged(c, "darwin suite", argv, out,
+    p.local_diagnostics .. "/darwin-test.err", suite_timeout_ms, c.root, values)
   record_suite(c, "darwin", status, out)
   if status ~= 0 then
     Fs.put(Fs.stderr, "darwin suite: failed (status " .. status .. ")\n")
@@ -940,12 +942,9 @@ end
 --- The native suite, on the tree `boot` built: the `build` phase
 --- without its boot, which ci.yml's legs run apart so that what comes
 --- between (the verdicts of the merge queue's run ahead) waits on
---- nothing the boot does. On the macOS leg, the darwin suite follows.
+--- nothing the boot does.
 local function phase_local_suite(p: PlatformContext): integer
-  local executable = p.root .. "/o/bin/cosmic"
-  local s = suite(p.operation, "local", executable, p.local_diagnostics)
-  if s ~= 0 then return s end
-  return darwin_suite(p.operation, p.target, executable, p.local_diagnostics)
+  return suite(p.operation, "local", p.root .. "/o/bin/cosmic", p.local_diagnostics)
 end
 
 --- `boot`, then the native suite (`local-suite`): ci/run-local's first
@@ -1253,6 +1252,7 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   elseif phase == "boot" then return boot(p)
   elseif phase == "local-suite" then return phase_local_suite(p)
   elseif phase == "local-boundary" then return phase_local_boundary(p)
+  elseif phase == "darwin-suite" then return phase_darwin_suite(p)
   elseif phase == "format" then return format_check(p)
   elseif phase == "checked-build" then return phase_checked_build(p)
   -- Assemble's checked core, verified and (COSMIC_CI_CHECKED_SUITE) its
