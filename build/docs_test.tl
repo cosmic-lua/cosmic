@@ -235,9 +235,9 @@ local function test_a_module_listing_shows_function_typed_fields(dir: string)
   assert(not text:find("visit", 1, true), text)
 end
 
---- A function-typed field written over several lines is stored as its
---- first line alone; the listing does not print that as a signature.
-local function test_a_module_listing_skips_a_truncated_field_signature(dir: string)
+--- A function-typed field written over several lines is listed with its
+--- whole signature.
+local function test_a_module_listing_shows_a_multi_line_field_signature(dir: string)
   local db = built(dir, { ["cosmic/calls.tl"] = source(
     "--- A table of calls.",
     "",
@@ -252,9 +252,9 @@ local function test_a_module_listing_skips_a_truncated_field_signature(dir: stri
   local lines = assert(docs.render(view({ db }), found[1]))
   local text = table.concat(lines, "\n")
   assert(text:find("  function calls.exists(path: string): boolean", 1, true), text)
-  assert(text:find("\n  field calls.gen", 1, true), text)
-  assert(not text:find("function calls.gen", 1, true), text)
-  assert(not text:find("env: string,", 1, true), text)
+  assert(text:find("\n  function calls.gen(input: string, env: string, options: any): string",
+    1, true), text)
+  assert(not text:find("field calls.gen", 1, true), text)
 end
 
 --- A record's plain data field is not a function: only a field whose
@@ -372,6 +372,11 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
       "--- Reads, e.g. a file, with `a. b` inside. Then more.",
       "",
       "return {}"),
+    ["lib/ontype.tl"] = source(
+      "--- Said on a type. More.",
+      "local type Fs = require(\"cosmic.fs\")",
+      "",
+      "return {}"),
     ["lib/onrecord.tl"] = source(
       "--- Said on the record. More.",
       "local record onrecord",
@@ -390,6 +395,7 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
   assert(all == "build.boot|\nbuild.test|\nbuild.tree|The tree, read by position.\n" ..
     "cosmic.fs|Files and directories.\n" ..
     "cosmic.hash|Digests.\nlib.bare|\nlib.onrecord|Said on the record.\n" ..
+    "lib.ontype|Said on a type.\n" ..
     "lib.sentence|Reads, e.g. a file, with `a. b` inside.\nlib.tworec|", all)
   local public = assert(docs.index((assert(docs.view({ db }, { true })))))
   assert(#public == 2 and public[1].module == "cosmic.fs" and
