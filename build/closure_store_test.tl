@@ -109,7 +109,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(store("world", tmp .. "/salted.db", "another writer") ~= first,
     "the code that writes it left its address")
   local function extra(field: string)
-    assert(Fs.write(root .. "/extra.d.tl", "local type base = require(\"base\")\n" ..
+    assert(Fs.write(root .. "/extra.d.tl", "local type base = require 'base'\n" ..
       "local record extra\n  " .. field .. ": base\nend\nreturn extra\n"))
   end
   local function base(field: string)

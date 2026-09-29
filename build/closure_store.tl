@@ -80,17 +80,29 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 --- The names `source`, a declaration's, requires: each literal name
 --- handed to `require` -- `local type t = require("name")`, as a
 --- declaration requires another's types -- spelled `require("name")`,
---- `require "name"` or with single quotes. It reads more than a parse
---- would, a name written so in a comment among them, which only makes a
---- store carry, and its address hold, a declaration more; a
---- declaration cannot require a computed name, since the checker types
---- only a literal one. Scanned here rather than taken from the
+--- `require "name"`, with single quotes, or as a long string
+--- (`require [[name]]`). It reads more than a parse would, a name
+--- written so in a comment among them, which only makes a store carry,
+--- and its address hold, a declaration more; a declaration cannot
+--- require a computed name, since the checker types only a literal one.
+--- A spelling it misses fails closed: the store's hold
+--- (`build.test_worker`'s `hold_store`) refuses a held test any
+--- declaration outside its closure's names, so one this leaves out of a
+--- store is one no held test can read, and a test that types it fails
+--- rather than standing. Scanned here rather than taken from the
 --- importer's parse, which the projection does not keep of a
 --- declaration: a require of build.analyzer would salt every store's
---- address with it (`build.test`'s `store_writer`).
-local function required_by(source: string): {string}
+--- address with it (`build.test`'s `store_writer`). `build.tree_checks`
+--- holds the tree to declarations that require only declarations
+--- (`declared`).
+function closure_store.required_by(source: string): {string}
   local out: {string} = {}
-  for name in source:gmatch("require%s*%(?%s*[\"']([%w_%.]+)[\"']") do out[#out + 1] = name end
+  for _, pattern in ipairs({ "require%s*%(?%s*[\"']([%w_%.]+)[\"']",
+                             "require%s*%(?%s*%[(=*)%[([%w_%.]+)%]%1%]" }) do
+    for first, second in source:gmatch(pattern) do
+      out[#out + 1] = second or first
+    end
+  end
   return out
 end
 
@@ -175,7 +187,7 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
     for i, row in ipairs(names) do basis.pairable[i] = row[1] end
     for _, row in ipairs(decl_rows) do
       basis.decls[row[1]] = "decl " .. row[1] .. " " .. row[2] .. " " .. (declared[row[1]] or "")
-      basis.decl_requires[row[1]] = required_by(row[3])
+      basis.decl_requires[row[1]] = closure_store.required_by(row[3])
     end
     basis.shared = Hash.hex_sha256("closure-store-5\n" .. shared[1][1])
     return basis, ""
@@ -221,16 +233,24 @@ end
 --- address too. The core's raw modules (`cosmic.internal.*`) and
 --- `cosmic.sys` are so carried only by the closures whose wrappers
 --- require them, and an edit to one moves only those stores.
+---
+--- What it carries beyond the closure's names over-approximates the
+--- address: the store's hold (`build.test_worker`'s `hold_store`)
+--- refuses a held test every declaration outside its closure's names,
+--- so a checker under it cannot read a declaration carried only this
+--- way, and an edit to one moves an address no held test's verdict
+--- turns on. The hold, not this walk, is what keeps a verdict sound; the
+--- walk keeps a store whole for a worker the hold does not cover.
+--- It follows declarations alone: a module of the tree one required
+--- would be neither carried nor in the address, so `build.tree_checks`
+--- (`declarations`) refuses a declaration that requires anything but
+--- a declaration.
 -- TODO: have `test_inputs.modules` follow a declaration's requires
--- too, as this does, so the store's hold (`build.test_worker`'s
--- `hold_store`) lets a held test read the declarations carried here
--- beyond its closure's names (`cosmic.sys` beside
--- cosmic.internal.observations, which requires it): today it refuses
--- them, which fails a test that types one rather than standing on it.
--- TODO: follow a module of the tree a declaration requires, and its
--- import closure, once one does (none does today): `stored` holds only
--- the closure's names, so such a module would be neither carried nor
--- in the address.
+-- too, as this does, so the store's hold lets a held test read the
+-- declarations carried here beyond its closure's names (`cosmic.sys`
+-- beside cosmic.internal.observations, which requires it): today it
+-- refuses them, which fails a test that types one rather than
+-- standing on it.
 local function declared(basis: closure_store.Basis, names: {string}): {string}
   local seen: {string:boolean} = {}
   local out: {string} = {}
