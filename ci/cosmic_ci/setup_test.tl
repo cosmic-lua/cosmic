@@ -1,3 +1,4 @@
+local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
@@ -65,4 +66,40 @@ local function test_a_product_file_changed_after_setup_is_named(tmp: string)
   assert(Fs.write(product .. "/hashes.sha256", "0  cosmic\n"))
   changed = ProductSetup.changed(product, recorded)
   assert(changed == "hashes.sha256", "record: " .. tostring(changed))
+end
+
+--- A sandboxed fixture reads what the runtime setup packs for it as one
+--- file whose bytes key its verdict (runtime_setup.tl's `pack`): the
+--- closure of the module it names, followed through the tree's modules
+--- but not the runtime's own, and the same files packed twice make the
+--- same bytes, which unpack to what they were.
+local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/test/portable") and Fs.mkdirs(root .. "/build") and
+    Fs.mkdirs(root .. "/cosmic"))
+  assert(Fs.write(root .. "/test/portable/tool.tl",
+    'local Fs = require("cosmic.fs")\nlocal fixture = require("test.portable")\n' ..
+    'local a = require( "build.a" )\nlocal gone = require("build.gone")\n'))
+  assert(Fs.write(root .. "/test/portable/init.tl", 'local a = require("build.a")\n'))
+  assert(Fs.write(root .. "/build/a.tl", 'local b = require("build.b")\n', 0x1ed))
+  assert(Fs.write(root .. "/build/b.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/b_test.tl", "local _ = 1\n"))
+  assert(Fs.write(root .. "/build/c_test.tl", "local _ = 2\n"))
+  assert(Fs.write(root .. "/cosmic/fs.tl", "return {}\n"))
+  local closure = RuntimeSetup.closure(root, "test/portable/tool.tl")
+  assert(table.concat(closure, " ") ==
+    "build/a.tl build/b.tl test/portable/init.tl test/portable/tool.tl",
+    table.concat(closure, " "))
+  local files = RuntimeSetup.files_but_tests(root, "build", "build/c_test.tl")
+  assert(table.concat(files, " ") == "build/a.tl build/b.tl build/c_test.tl",
+    table.concat(files, " "))
+  RuntimeSetup.pack(root, closure, tmp .. "/one.tar")
+  RuntimeSetup.pack(root, closure, tmp .. "/two.tar")
+  local one = assert(Fs.read(tmp .. "/one.tar"))
+  assert(one == assert(Fs.read(tmp .. "/two.tar")), "the same files packed differently")
+  local out = Fixture.unpack(tmp .. "/one.tar", tmp .. "/out")
+  for _, relative in ipairs(closure) do
+    assert(Fs.read(out .. "/" .. relative) == Fs.read(root .. "/" .. relative), relative)
+  end
+  assert(assert(Fs.stat(out .. "/build/a.tl")).mode & 0x1ff == 0x1ed, "a mode was not kept")
 end
