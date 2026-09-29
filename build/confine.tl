@@ -108,6 +108,9 @@ local record confine
   unveil_max: integer
 
   --- See below.
+  system_paths: {string}
+
+  --- See below.
   held_variable: string
   nests_note: string
 end
@@ -157,6 +160,8 @@ end
 --- host program, or the dynamic loader that starts one, reads.
 local system_paths: {string} = { "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32",
   "/etc" }
+
+confine.system_paths = system_paths
 
 --- Whether `path`, absolute, is one of `system_paths` or beneath one.
 function confine.in_system(path: string): boolean
