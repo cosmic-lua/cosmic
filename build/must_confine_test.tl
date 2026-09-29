@@ -6,7 +6,6 @@
 --- from the run that reports it.
 
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local stand_in = require("build.stand_in")
@@ -57,14 +56,15 @@ end
 --- where that is allowed. The workers, and what they confine, nest in
 --- this test's own sandbox, which a host may refuse (the kernel lets
 --- root nest one only two deep: core/syscalls.c's `map_ids`); a case of a
---- confined process then has only the refusal to check. A run held to
---- sandboxing fails instead (COSMIC_TEST_SANDBOX=1, as CI's suites set
---- it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
---- unprivileged runners nest them.
+--- confined process then has only the refusal to check, and says it is
+--- skipped (`Test.skip`), which a run held to sandboxing fails
+--- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
+--- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  assert(not confine.held_to_sandbox(),
-    "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  Test.skip("the run it started sandboxed no worker: " ..
+    (text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
+      text:match("[^\n]*unsandboxed[^\n]*") or text))
   return true
 end
 
@@ -282,7 +282,7 @@ end
   assert(why ~= nil and why:find("^must_confine: %S*bin/probe could not start confined: .+ could " ..
     "not be applied: .+ %(E[A-Z0-9]+%)$"), text)
   if unsandboxed(text) then return end
-  assert(Env.get("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. why)
+  Test.skip("a sandboxed worker could not confine what it started: " .. why)
 end
 
 --- COSMIC_SANDBOX=must makes every `confine` a `must_confine`, and runs

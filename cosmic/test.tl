@@ -30,6 +30,10 @@
 --- process, whichever module makes it: a test module never requires
 --- another test module that calls `needs`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
+---
+--- A test that finds this host cannot check what it exists to check
+--- says so with `skip`, as it returns early: the run counts it skipped
+--- rather than passed.
 -- TODO: take `environment` and `program` from build.this_program, which
 -- a test calls to say what a process of this program it starts needs
 -- and how to start one past its launcher, once each can be read from the
@@ -182,8 +186,9 @@ Test.fields = {
 --- -- no part of its type -- to learn what `needs` is handed as the
 --- module it runs loads, and to have a call once
 --- that module has loaded refused: a table whose `handed` is called with
---- what `needs` was handed, and whose `loaded` the runner sets once the
---- module has loaded. Nil when none is installed.
+--- what `needs` was handed, whose `loaded` the runner sets once the
+--- module has loaded, and whose `skipped` is called with the reason
+--- each `skip` is given. Nil when none is installed.
 local function runner_in(module: any): {string:any}
   if module is {string:any} then
     local installed = module.__runner
@@ -282,6 +287,40 @@ function Test.needs(needs: Test.Needs)
   called_at = caller()
   local handed = installed ~= nil and installed.handed or nil
   if handed is function(Test.Needs) then handed(needs) end
+end
+
+--- Says the running test is skipped: this host cannot check what it
+--- exists to check -- a kernel that refuses the sandbox it is about,
+--- say -- for `reason`, which the run prints beside its name. It does
+--- not end the test: the test goes on, and returns where it would, as
+--- in
+---
+---     if ruleset == nil then
+---       Test.skip("no Landlock: " .. trouble)
+---       return
+---     end
+---
+--- A test that called it and then passed is counted skipped, not
+--- passed, in the run's summary (`N skipped`), and no verdict is kept
+--- of it, so it runs again on the next run and stands on no host; one
+--- that failed is a failure like any other. A run held to sandboxing
+--- (COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must or
+--- COSMIC_CI_REQUIRE_SANDBOX=1, as CI's Linux legs are) fails a
+--- skipped test, naming its reason: such a run proves the host checked
+--- everything. Raises for a reason that is not a non-empty string and,
+--- under a runner, for a call as the module loads rather than from a
+--- test. Outside a runner it does nothing.
+function Test.skip(reason: string)
+  if not (reason is string) or reason == "" then
+    error("cosmic.test: skip takes a reason, a non-empty string", 2)
+  end
+  local installed = runner_in(Test)
+  if installed == nil then return end
+  if installed.loaded ~= true then
+    error("cosmic.test: skip is called from a test as it runs, not as its module loads", 2)
+  end
+  local skipped = installed.skipped
+  if skipped is function(string) then skipped(reason) end
 end
 
 return Test

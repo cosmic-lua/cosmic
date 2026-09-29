@@ -643,13 +643,14 @@ end
 
 --- Whether this run is held to sandboxing: `COSMIC_TEST_SANDBOX=1`, as
 --- CI's suites set it, `COSMIC_SANDBOX=must`, or CI's
---- `COSMIC_CI_REQUIRE_SANDBOX=1`. A test whose assertion is about the
---- sandboxed workers of a `cosmic test` it starts -- nested in its own
---- sandbox, which the kernel lets root nest only two deep
---- (core/syscalls.c's `map_ids`) -- returns unchecked where they were
---- refused one, and fails instead where this answers true, so a run
---- held to sandboxing proves they had one. Read through the log, so an
---- unsandboxed verdict is keyed by them; a sandboxed test declares
+--- `COSMIC_CI_REQUIRE_SANDBOX=1`. A test whose assertion is about a
+--- sandbox the host refuses it -- the sandboxed workers of a `cosmic
+--- test` it starts, nested in its own sandbox, which the kernel lets root
+--- nest only two deep (core/syscalls.c's `map_ids`) -- says it is
+--- skipped (`Test.skip`) and returns unchecked, and `cosmic test` fails
+--- a skipped test where this answers true, so a run held to sandboxing
+--- proves the host checked it. Read through the log, so an unsandboxed
+--- verdict is keyed by them; a sandboxed test that reads it declares
 --- `COSMIC_CI_REQUIRE_SANDBOX` (the other two are pinned).
 function confine.held_to_sandbox(): boolean
   return sys.getenv("COSMIC_TEST_SANDBOX") == "1" or sys.getenv(SANDBOX_MODE) == "must" or

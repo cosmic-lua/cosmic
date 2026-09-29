@@ -12,7 +12,6 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
-local confine = require("build.confine")
 local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
@@ -47,14 +46,16 @@ end
 --- Whether the run that printed `text` shared its verdicts. Only a run
 --- whose workers are sandboxed shares any. The workers nest in this
 --- test's own sandbox, which a host may refuse (the kernel lets root nest
---- one only two deep: core/syscalls.c's `map_ids`); the case then returns
---- unchecked. A run held to sandboxing fails it instead (COSMIC_TEST_SANDBOX=1,
---- as CI's suites set it, COSMIC_SANDBOX=must or
---- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
+--- one only two deep: core/syscalls.c's `map_ids`); the case then says
+--- it is skipped (`Test.skip`) and returns, which a run held to
+--- sandboxing fails (COSMIC_TEST_SANDBOX=1, as CI's suites set it,
+--- COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
+--- unprivileged runners nest them.
 local function shares(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return true end
-  assert(not confine.held_to_sandbox(),
-    "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  Test.skip("the run it started sandboxed no worker: " ..
+    (text:match("no worker can be sandboxed here[^\n(]*[^\n( ]") or
+      text:match("[^\n]*unsandboxed[^\n]*") or text))
   return false
 end
 

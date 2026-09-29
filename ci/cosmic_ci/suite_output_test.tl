@@ -25,9 +25,11 @@ local function test_a_passing_sandboxed_run()
   assert(SuiteOutput.status(figures, 0) == "pass")
 end
 
+--- Every optional count goes after `stood`, so a figure the summary adds
+--- there -- `skipped`, which no row keeps -- leaves the rest read by place.
 local function test_a_pass_with_every_optional_count()
   local figures = SuiteOutput.parse("test: PASS (40 tests, 3 modules; 12 ran, 28 stood, " ..
-    "2 run every time (no key holds them), 5 assumed (--all runs them), " ..
+    "3 skipped (this host could not check them), 2 run every time (no key holds them), 5 assumed (--all runs them), " ..
     "20 of them on another checkout's verdict, 901 ms; unsandboxed (COSMIC_TEST_SANDBOX=0), " ..
     "sharing no verdicts)\n")
   assert(figures.ran == 12 and figures.stood == 28 and figures.every == 2)
