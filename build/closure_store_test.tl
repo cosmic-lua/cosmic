@@ -283,7 +283,7 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
     "'a' || char(0) || 'b', 'greet.tl', 1)")
 end
 
---- #2327: an edit to a declaration of one of the core's raw modules --
+--- An edit to a declaration of one of the core's raw modules --
 --- here `raw`, as cosmic.internal.store is to cosmic.store -- moves the
 --- store, and so the key, of each test whose import closure holds the
 --- wrapper that requires it (`test_inputs.modules`), and of no other.

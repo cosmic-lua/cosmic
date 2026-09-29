@@ -1,9 +1,7 @@
 --- Conformance probes for `build.ast.node`'s `Node` record: parse small
---- fixtures against the tree's own pinned compiler and assert the
---- fields this module names actually appear with the expected shape,
---- for every kind `Node` covers. A `tl` pin bump that reshapes one of
---- these fails loudly here rather than silently downstream, in
---- whichever consumer reads it next.
+--- fixtures against the tree's pinned compiler and assert that the
+--- fields `Node` names appear with the expected shape. A `tl` pin bump
+--- that reshapes one fails here rather than in a consumer.
 local teal = require("build.teal")
 local node_mod = require("build.ast.node")
 
@@ -94,8 +92,8 @@ end
 
 --- `local function test_foo() end`, reached as `root[1]`: a
 --- "local_function" whose own `name` is an "identifier" node carrying
---- the declared name -- what `build.analyzer.analyze` reads to
---- find a file's own top-level tests without a text pattern.
+--- the declared name, which `build.analyzer.analysis_of` reads to find
+--- a file's top-level tests.
 local function test_local_function_name()
   local root = parse_ok("local function test_foo()\nend\n", "local_function.tl")
   local fn = root[1]
@@ -105,10 +103,9 @@ local function test_local_function_name()
     "fn.name: " .. tostring(fn.name.kind) .. " " .. tostring(fn.name.tk))
 end
 
---- `Parsed` carries the token stream from the SAME parse, not a
---- second one -- checked directly (not through `parse_ok`, which
---- discards it) so a `parse()` that drops or mismatches `tokens` fails
---- here instead of silently short-changing a later two-birds caller.
+--- `Parsed` carries the token stream from the same parse. This checks
+--- it directly, since `parse_ok` discards it, so a `parse()` that drops
+--- or mismatches `tokens` fails here.
 local function test_parse_returns_matching_tokens()
   local parsed, err = node_mod.parse(built, 'print("hi")', "tokens.tl")
   assert(parsed ~= nil, "parse failed: " .. tostring(err))
@@ -118,10 +115,9 @@ local function test_parse_returns_matching_tokens()
   assert(parsed.node.kind == "statements", "node.kind: " .. tostring(parsed.node.kind))
 end
 
---- A parse failure returns nil plus a message naming the file -- the
---- fallible half of the contract, exercised so a change that starts
---- swallowing parse errors (or returning a half-built Parsed on
---- failure) fails here instead of surfacing as a downstream mystery.
+--- A parse failure returns nil plus a message naming the file. A
+--- change that swallows parse errors, or returns a half-built `Parsed`
+--- on failure, fails here.
 local function test_parse_failure_reports_nil_and_message()
   local parsed, err = node_mod.parse(built, "if x then", "unclosed.tl")
   assert(parsed == nil, "expected nil Parsed on a syntax error")

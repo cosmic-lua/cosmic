@@ -21,9 +21,9 @@
 --- than followed. A call the build cannot read so -- a field it does
 --- not know, a value computed, a path that climbs, a second call, one
 --- inside a function or in a module no test's -- fails the build,
---- naming its line; the `local _inputs = { ... }` this replaced is
---- refused with a pointer to `needs`. A module's declaration holds for
---- each of its tests.
+--- naming its line. The `local _inputs = { ... }` form is refused with a
+--- pointer to `needs`. A module's declaration holds for each of its
+--- tests.
 ---
 --- When the module runs, the worker holds what the call was handed to
 --- what the build read (`build.test_worker`), so a declaration the

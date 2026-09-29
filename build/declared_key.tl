@@ -513,9 +513,9 @@ end
 --- (`build.test_worker`'s `held_meta`), while one that declares it has
 --- these same rows in reach, which its key holds by the projection's
 --- contents, but for these.
--- Remembered under "program-v2", as `launcher_identity` under
--- "launcher-v2", since a core carrying DWARF came to be keyed by its
--- image: what either remembered by the earlier formula is not read.
+-- The names "program-v2" and "launcher-v2" version the formulas below:
+-- a change to either takes a new name, so what the old one remembered
+-- is not read.
 local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
   return remembered(digests, "program-v2\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
@@ -1077,16 +1077,16 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- `pmull`); xz's crc_x86_clmul.h (`pclmulqdq`, `ssse3`, `sse4_1`) and
   -- crc32_arm64.h (`crc32`). No Linux core links a libm that
   -- dispatches: every one, the checked core too, is static musl, and
-  -- the libm zig and musl carry chooses no code by the processor. A
-  -- checked core that linked a glibc host's libm keyed `fma`, `avx2`
-  -- and `fma4`, which chose its pow, asin, acos and atan2's variants;
-  -- none of its verdicts can stand for another core, since every key
-  -- holds the core's digest (`runtime`). Nothing else the core carries
-  -- dispatches, nor does its build, so the
-  -- processor's model and microcode, which choose no code, are not
-  -- keyed either. The whole list split GitHub's hosted runners of one
-  -- leg on flags nothing reads (avx512*, a hypervisor's bits,
-  -- md_clear), each split a verdict not shared. A vendored library that
+  -- the libm zig and musl carry chooses no code by the processor. (A
+  -- glibc host's libm would choose the variants of pow, asin, acos and
+  -- atan2 by `fma`, `avx2` and `fma4`; no verdict of such a core could
+  -- stand for another, since every key holds the core's digest
+  -- (`runtime`).) Nothing else the core carries dispatches, nor does
+  -- its build, so the processor's model and microcode, which choose no
+  -- code, are not keyed either. The whole list would split GitHub's
+  -- hosted runners of one leg on flags nothing reads (avx512*, a
+  -- hypervisor's bits, md_clear), and each split is a verdict not
+  -- shared. A vendored library that
   -- comes to dispatch on another feature adds it to `dispatched` and to
   -- .github/scripts/host-features.sh alike.
   lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo, from.machine), " ")
@@ -1116,7 +1116,7 @@ end
 --- with it -- a user added (every CI leg adds one as it starts), the
 --- clock's drift saved -- so walking it would run every `system` module
 --- again on every host, every time; what of it a key needs, the system
---- it says it is, is read by name. That stays.
+--- it says it is, is read by name.
 local function walked_paths(paths: {string}): {string}
   local out: {string} = {}
   for _, path in ipairs(paths) do
@@ -1239,8 +1239,9 @@ end
 --- such a module asks for once, what the system's paths hold beneath
 --- them but /etc (`walk_system`, remembered by `remembered_walk`),
 --- which a package database does not say: a file under /usr or /lib
---- changed by hand or by a tool other than the package manager, a package installed from source into /usr/local, a
---- container image's own layers. `sources` moves where it looks
+--- changed by hand or by a tool other than the package manager, a
+--- package installed from source into /usr/local, a container image's
+--- own layers. `sources` moves where it looks
 --- (`packages`, `system`'s first path, `system_id`, `walked`), for a
 --- test.
 ---

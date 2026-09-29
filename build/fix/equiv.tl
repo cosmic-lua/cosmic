@@ -1,37 +1,33 @@
 --- Whether two parses mean the same thing.
 ---
---- A renderer that only ever checked its own output against a golden
---- string, or against itself run twice, would be checking that it is
---- CONSISTENT, not that it is right: `local x <const> = 5` re-emitted
---- as `local x < const > = 5` is stable, idempotent, and wrong. So
---- `cosmic fix` reparses what it wrote and compares the two trees here,
---- field by field, ignoring only what a rewrite is allowed to move.
+--- A renderer checked only against a golden string, or against itself
+--- run twice, would be shown consistent, not right: `local x <const> = 5`
+--- re-emitted as `local x < const > = 5` is stable, idempotent and
+--- wrong. So `cosmic fix` reparses what it wrote and compares the two
+--- trees here, field by field, ignoring only what a rewrite may move.
 ---
---- What is ignored: a node's own position (`y`, `x`, `yend`, `xend`),
---- the filename stamped on it, the type identifier tl hands out from a
---- counter, and the comments the parser attached to statements -- those
---- are compared separately, off the token stream, where every comment
---- in the file appears exactly once. What is compared: everything else,
---- including the fields a type object carries, so a record body that
---- lost a field or a `<const>` that became something else is a
---- difference.
+--- Ignored: a node's position (`y`, `x`, `yend`, `xend`), the filename
+--- stamped on it, the type identifier tl hands out from a counter, and
+--- the comments the parser attached to statements. Comments are
+--- compared separately, off the token stream, where each appears
+--- exactly once. Everything else is compared, including the fields a
+--- type object carries, so a record body that lost a field or a
+--- `<const>` that became something else is a difference.
 ---
 --- `if_parent` is skipped rather than followed: an "if_block" node
---- points back at its own enclosing "if" statement, a real cycle. The
---- enclosing statement is compared anyway, from the top.
+--- points back at its enclosing "if" statement, a cycle. That statement
+--- is compared anyway, from the top.
 ---
---- What stops the walk is a set of PAIRS -- one before-side table
---- together with the after-side table it is being compared against --
---- and not of before-side tables alone. A cycle still terminates, since
---- coming back around brings the same pair with it, but a table reached
---- twice by two DIFFERENT routes is compared twice, once against each
---- of the two things the other tree holds there. tl's parser output is
---- not a tree: `local record Node is {Node}` in this tree's own
---- `build/ast/node.tl` hands the same type object back as both the
---- record's element type and its interface list's, so the second route
---- to it is real. Keyed on the before side alone, whatever the after
---- tree held at the end of that second route would never be looked at,
---- and a renderer that changed it would be waved through.
+--- The walk keeps a set of pairs, one before-side table with the
+--- after-side table it is compared against, not a set of before-side
+--- tables. A cycle still terminates, since coming back around brings
+--- the same pair, but a table reached by two different routes is
+--- compared once against each thing the other tree holds there. tl's
+--- parser output is not a tree: `local record Node is {Node}` in
+--- `build/ast/node.tl` yields the same type object as the record's
+--- element type and as its interface list's. Keyed on the before side
+--- alone, what the after tree held at the end of the second route would
+--- go unchecked, and a renderer that changed it would pass.
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")

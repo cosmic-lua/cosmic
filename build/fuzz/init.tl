@@ -172,8 +172,8 @@ local function recording(rng: Rand.Source, draws: {Draw}): Fuzz.Source
 end
 
 --- An integer from the environment, or `otherwise` when it is unset.
---- Raises when it is set to anything but a positive integer, so a typo
---- is never a silent default.
+--- Raises when it is set to anything but a non-negative integer, so a
+--- typo is never a silent default.
 local function nonnegative_env(name: string, otherwise: integer): integer
   local raw = Env.get(name)
   if raw == nil or raw == "" then return otherwise end
@@ -424,7 +424,7 @@ local function run(p: Fuzz.Property): integer
   if whole and iters > 0 then
     for _, name in ipairs(p.requires or {}) do
       if counts[name] == nil then
-        -- What is kept held; it is no failing input to keep.
+        -- The kept input held, so it is no failing input to keep.
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: no input of %d reached %q, which the property requires: " ..
           "its inputs do not exercise what it is meant to"):format(p.name, seed, iters, name), 0)
@@ -445,7 +445,7 @@ end
 
 --- Checks every `.input` file in the property's corpus, then draws
 --- `p.iters` (or `FUZZ_ITERS`) inputs from `FUZZ_SEED` and checks each,
---- raising a report on the first that fails, after shrinking it, when
+--- raising a report on the first that fails (after shrinking it), when
 --- no drawn input reached a label the property requires, or when fewer
 --- than a label's share in `p.shares` did. Raises at once on a share
 --- outside (0, 1]. Returns how many drawn inputs were checked.
@@ -484,7 +484,8 @@ end
 --- each, cutting an element is cutting two adjacent draws, and lowering
 --- one to its low end cuts every element after it -- both of which
 --- shrinking tries. The count is geometric: before the cap its mean is
---- `max` / 2 (at least 1), and the cap takes it lower (17 of 40).
+--- `max` / 2 (at least 1), and the cap takes it lower (17 for a `max` of
+--- 40).
 --- @param src Source The source
 --- @param have integer How many elements the collection holds so far
 --- @param max integer The most it may hold

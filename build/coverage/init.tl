@@ -1,9 +1,8 @@
---- Turning one run's collected line hits into one module's own
---- hit-or-not line map. `build.test` opens one coverage window per
---- test (plus one for each module's own one-time load code) and merges
---- every window's hits into a single whole-run accumulator before
---- calling this; this module only ever sees that one flat `hits` table
---- and does not care how many separate windows fed into it.
+--- Turns one run's collected line hits into one module's own map of
+--- executable lines, hit or not. `build.test` opens one coverage window
+--- per test, plus one for each module's one-time load code, and merges
+--- every window's hits into one whole-run table before calling this
+--- module, which sees only that table.
 
 local Coverage = require("cosmic.coverage")
 local Sqlite = require("cosmic.sqlite")
@@ -18,17 +17,15 @@ local record coverage
   type LineHits = {integer: boolean}
 end
 
---- Every executable line of `m`'s own source, hit or not -- the form a
---- caller writes into `o/build.db`'s `coverage` table one row per
---- line, so a specific never-hit line can be pointed at directly
---- rather than only counted, and a percentage is a plain count over
---- the result (`hit`/`#total`). A module whose source no longer parses
---- here, which should not happen since `m` only ever holds source that
---- already compiled once earlier in the same run, reports the parse
---- failure rather than a fabricated count. The executable-line set
---- itself comes from `lines.executable_cached`, keyed by `m.source_hash`
---- in `db`'s `executable` table, so a module whose source has not
---- changed since a previous run is not reparsed here.
+--- Every executable line of `m`'s own source, hit or not: the form a
+--- caller writes into `o/build.db`'s `coverage` table, one row per line,
+--- so a line never hit can be named and a percentage is a plain count
+--- over the result (`hit`/`#total`). The lines come from
+--- `lines.executable_cached`, keyed by `m.source_hash` in `db`'s
+--- `executable` table, so a module whose source has not changed since a
+--- previous run is not reparsed. A source that fails to parse, which
+--- should not happen since `m` holds only source that compiled earlier in
+--- the run, returns the parse failure rather than a made-up count.
 --- @param db Sqlite.Handle The working database (`work.open`'s `.db`)
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param m Module The module to compute lines for

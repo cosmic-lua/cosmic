@@ -12,14 +12,12 @@
 --- and record bodies are rendered at all.
 ---
 --- `shift` is the difference between the column a statement is written
---- at and the column it was read from. A statement's own indentation is
---- the renderer's -- two columns per level of block -- so a file
---- indented some other way moves, and every line that CONTINUES that
---- statement has to move with it by the same amount. That is what
---- `shift` is for, and `indent` is where it is applied: a continuation
---- line keeps its column relative to the statement it belongs to
---- without the renderer having to decide where to wrap, which it never
---- does.
+--- at and the column it was read from. The renderer sets a statement's
+--- indentation (two columns per level of block), so a file indented
+--- another way moves, and every line that continues the statement moves
+--- by the same amount. `indent` applies it: a continuation line keeps
+--- its column relative to its statement, and the renderer never decides
+--- where to wrap.
 
 local ast = require("build.ast")
 local emit = require("build.fix.emit")

@@ -178,11 +178,11 @@ local function test_split_refuses_a_trailer_that_does_not_fit()
 end
 
 --- A head is keyed whole where no core carries DWARF, as every release
---- artifact's is; where one does, as the checked artifact's checked core
---- does, by the core's image, so a rebuild whose DWARF named another
---- directory -- another length of it, which moves the cores behind it,
---- the manifest's offsets and the launcher's arm -- keys the same, and
---- one whose code or launcher moved does not.
+--- artifact's is. Where one does, as the checked artifact's checked core
+--- does, the head is keyed by the core's image. A rebuild whose DWARF
+--- names another directory (of another length, which moves the cores
+--- behind it, the manifest's offsets and the launcher's arm) keys the
+--- same; a rebuild whose code or launcher moved does not.
 local function test_a_head_is_keyed_by_its_cores_images()
   local database = "SQLite format 3\0db"
   local function head(checked: string, arm?: string): string

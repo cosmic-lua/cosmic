@@ -2,18 +2,14 @@
 --- produce one.
 ---
 --- `tl.parse_program` returns its AST erased to `any`; this module is
---- the one cast that turns it into a real shape, covering the fields
---- tl's parser actually sets across the "op"/"variable"/"identifier"/
---- "string"/"if"/"if_block"/"statements"/"return"/"expression_list"/
---- "local_function" kinds.
+--- the one cast that gives it a shape, covering the fields tl's parser
+--- sets on the kinds this tree reads.
 ---
 --- tl's AST has real cycles: an "if_block" node's `if_parent` points
---- back at its own enclosing "if" statement, not a copy. Array-shaped
---- nodes ("statements", a block; "expression_list", a bare list) carry
---- their elements in the table's own array part rather than a named
---- field, which `Node is {Node}` models directly instead of needing a
---- second, generic array type alongside it.
----
+--- back at its enclosing "if" statement, not a copy. Array-shaped nodes
+--- ("statements", a block; "expression_list", a bare list) carry their
+--- elements in the table's own array part, which `Node is {Node}`
+--- models directly.
 local type compiler = require("build.compiler")
 
 --- The operator payload of an "op" node. The live parser also sets
@@ -90,9 +86,9 @@ end
 --- One node of a real (post-lex, post-parse) tl AST.
 ---
 --- Every field but `kind`/`f`/`y`/`x` is optional: which ones are set
---- depends on `kind`, and this record only names the fields the nine
---- kinds above actually carry. A field absent for a given kind reads
---- as `nil`, exactly as tl leaves it.
+--- depends on `kind`, and this record names only the fields of the
+--- kinds this tree reads. A field absent for a kind reads as `nil`,
+--- as tl leaves it.
 local record Node is {Node}
   --- The node's shape discriminator, e.g. `"op"`, `"if"`, `"statements"`.
   kind: string
@@ -153,9 +149,8 @@ local record Node is {Node}
   exps: Node | nil
 
   --- "local_function": the declared name, an "identifier" node whose
-  --- own `tk` is the function's name -- `build.analyzer.analyze` reads
-  --- this to find every top-level `test_*` function without falling
-  --- back to a text pattern over the raw source.
+  --- own `tk` is the function's name. `build.analyzer.analysis_of` reads
+  --- it to find every top-level `test_*` function.
   name: Node | nil
 
   --- "identifier": the Lua 5.4 variable attribute this name was
@@ -226,10 +221,8 @@ end
 --- from, together -- a later comment-loss check needs both from one
 --- parse, not two separate ones that could drift out of sync.
 ---
---- Bundled into one record rather than returned as separate slots:
---- `parse`'s first return admits nil (source that fails to lex or
---- parse), and a fallible return may declare at most two slots -- the
---- extras ride on the value's record instead.
+--- Bundled into one record because `parse` is fallible and a fallible
+--- return may declare at most two slots.
 local record Parsed
   --- The AST root: tl's own top-level "statements" node.
   node: Node
@@ -239,9 +232,7 @@ end
 
 --- Lex and parse `source` into a `Node` tree and its token stream.
 ---
---- Casts `parse_program`'s erased `any` result to `Node` the same way
---- every current consumer already casts it to its own narrower view at
---- its own call site.
+--- Casts `parse_program`'s erased `any` result to `Node`.
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string Source text to lex and parse
 --- @param name string Filename used in diagnostics and stamped onto every Node's `f`

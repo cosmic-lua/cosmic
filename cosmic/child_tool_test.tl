@@ -18,12 +18,11 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 
---- The processes Child starts, which inherit the environment unless given
---- one, and what a sandboxed one is given of the host, and /proc, where
---- a test finds a child's processes; and the program itself, which its
---- tests start, past its launcher, for every child: nothing of the host's
---- own programs is read; and `nests`, for a child sandboxed in a root of
---- its own.
+--- What the tests read: the environment, which a child inherits unless
+--- given one; /proc, where a test finds a child's processes; the program
+--- itself (`tool`), which every child is, started past its launcher so
+--- that no host program is read; and `nests`, for a child sandboxed in a
+--- root of its own.
 Test.needs{ host = { "/proc" }, env = { "*" }, processes = true, tool = true, nests = true }
 
 local function path_exists(path: string): boolean
@@ -33,12 +32,11 @@ local function path_exists(path: string): boolean
 end
 
 --- The pid, in this process's pid namespace, of the process that `pid`
---- names in the pid namespace of `within`, a live child of this
---- process: the same number, unless `within` was started in a pid
---- namespace of its own (a `sandbox` that unveils), where it is found
---- by the namespace's own pid, the last of its NSpid; nil where none is
---- found. A process this test starts with none is in this worker's own,
---- sandboxed or not: only `Child` ends the group it leads.
+--- names in the pid namespace of `within`, a live child of this process.
+--- It is `pid` unless `within` was started in a pid namespace of its own
+--- (a `sandbox` that unveils); then the process is found by the last
+--- number of its NSpid, and the result is nil if none matches. A process
+--- started without one is in the worker's namespace, sandboxed or not.
 local function host_pid(within: integer, pid: integer): integer | nil
   local own, _ = sys.readlink("/proc/self/ns/pid")
   local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")

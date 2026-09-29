@@ -71,8 +71,8 @@ end
 --- How many distinct significant words of `message` are whole words of
 --- `candidate`, case aside: the check on the one row the query ranked
 --- first, since bm25 alone does not tell a real match from one shared
---- ordinary word ("files", found by hand). Distinct and whole, because a
---- word said three times is one word, and "os" is not in "cosmic".
+--- ordinary word such as "files". Distinct and whole, because a word
+--- said three times is one word, and "os" is not in "cosmic".
 local function shared_words(message: string, candidate: string): integer
   local present: {string:boolean} = {}
   for word in candidate:gmatch("[%w]+") do

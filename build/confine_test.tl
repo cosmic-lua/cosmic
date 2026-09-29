@@ -49,13 +49,13 @@ local function raw_process_table(): raw_process
   error("build.confine is handed no raw table")
 end
 
---- What a sandboxed worker's chunk says: whether its /proc is a procfs
---- of its own pid namespace (which has no /proc/sys) or the host's;
---- whether its core found the stamp beside it in the cache that spares
---- hashing it again; and what the grandchild it confines to `...`'s
---- first path -- the stand-in that is the third, with /proc, where it
---- finds itself -- read of that path and of the second, which it was
---- not given.
+--- What a sandboxed worker's chunk says: whether its
+--- /proc is a procfs of its own pid namespace (which has no /proc/sys)
+--- or the host's; whether its core found the stamp beside it in the
+--- cache that spares hashing it again; and what a grandchild it
+--- confines to the first path `...` names reads of that path and of the
+--- second, which it was not given. The grandchild is the stand-in named
+--- third, and it also gets /proc to find itself.
 local worker_chunk <const> = [==[
 local sys = require("cosmic.sys")
 local given, hidden, probe = ...
@@ -148,20 +148,20 @@ local function sandboxed_worker(tmp: string): {string} | nil
   return lines
 end
 
---- A worker of this very program sandboxed to `worker_unveil`'s paths,
---- and no more, starts, finds the stamp that says its core was verified
---- (where the cache has one), so hashes nothing again, and, having a
---- procfs of its own, can confine a process of its own in turn to a part
---- of what it was given: that process reads its part and has nothing
---- else -- run by root too, whose worker, having given up the CAP_SETFCAP
---- that mapping root takes, starts it unmapped. Where the kernel refuses
---- it a procfs of its own (a container masking parts of its /proc), its
---- /proc is the host's, read-only whole, so the uid_map its process
---- writes is too, and that process is refused. So is it where this test
---- runs as root without CAP_SETFCAP, as in a sandbox already (a
---- sandboxed `cosmic test` worker's, build/test_sandbox.tl): the worker
---- it starts is root unmapped, whom the kernel refuses a user namespace
---- (core/syscalls.c's `map_ids`).
+--- A worker of this very program, sandboxed to `worker_unveil`'s paths
+--- and no more, starts and finds the stamp that says its core was
+--- verified (where the cache has one), so it hashes nothing again.
+--- Having a procfs of its own, it can confine a process of its own to a
+--- part of what it was given: that process reads its part and nothing
+--- else.
+---
+--- Two cases end in a refusal instead. Where the kernel denies the
+--- worker a procfs of its own (a container masking parts of /proc), its
+--- /proc is the host's, read-only, so the process's uid_map write fails.
+--- And a test run as root without CAP_SETFCAP, as in a sandboxed `cosmic
+--- test` worker (build/test_sandbox.tl), starts the process as root
+--- unmapped, which the kernel refuses a user namespace (core/syscalls.c's
+--- `map_ids`).
 local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
   local lines = sandboxed_worker(tmp)
   if lines == nil then return end

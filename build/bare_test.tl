@@ -106,9 +106,8 @@ local function test_keep_tab_newline_leaves_the_tab_and_newline()
 end
 
 -- An oracle written out apart from `escape`'s patterns: each of the 256
--- bytes, alone, in each spelling, is what the verbs' own escapes made of it
--- before they shared this one.
-local function test_each_single_byte_escapes_as_it_always_did()
+-- bytes, alone, in each spelling.
+local function test_each_single_byte_escapes_as_the_oracle_says()
   local common: {integer:string} = { [9] = "\\t", [10] = "\\n", [13] = "\\r" }
   for code = 0, 255 do
     local byte = string.char(code)

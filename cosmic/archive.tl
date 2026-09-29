@@ -320,8 +320,8 @@ local function apply_strip(path: string, prefix: string | nil, count: integer | 
       rest = rest:gsub("^/+", "")
     end
   end
-  -- A float that is a whole number (2.0) counts as one; extract has
-  -- refused any other.
+  -- A float that is a whole number (2.0) counts as one; `extract_from`
+  -- has already refused any other.
   for _ = 1, math.tointeger(count) or 0 do
     local slash = rest:find("/", 1, true)
     if slash == nil then return nil end
@@ -659,10 +659,10 @@ end
 --- Like `extract`, for the entries `reader` yields (from `open_stream`,
 --- say) rather than a path: read once, to the end, as they arrive, so a
 --- stream is unpacked in one pass and bounded memory. Closes `reader`,
---- on every path but a raised argument error (there it is left open, as
---- `extract` has opened nothing yet). The same refusals apply, and a failure partway
---- likewise leaves what was already written: unpack into a scratch
---- directory and move it into place to have all or nothing.
+--- on every path but a raised argument error, which leaves it open. The
+--- same refusals apply, and a failure partway likewise leaves what was
+--- already written: unpack into a scratch directory and move it into
+--- place to have all or nothing.
 function Archive.extract_reader(reader: Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
   -- A tail call, as in `extract`.

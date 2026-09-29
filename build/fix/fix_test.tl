@@ -1,23 +1,20 @@
 --- The properties `cosmic fix` has to hold whatever it is given.
 ---
---- Three of them, and the reason each is here. Idempotency, because a
---- fix that keeps finding something to fix never converges, and one run
---- of the verb has to be enough. Determinism, because the renderer
---- walks tables whose key order Lua does not fix, so a traversal that
---- leaked into the output would show up as two different files from one
---- input. And a semantic round-trip, because neither of the first two
---- can tell a consistently wrong renderer from a right one.
+--- Three of them, each for a reason. Idempotency, because a fix that
+--- keeps finding something to fix never converges, and one run of the
+--- verb has to be enough. Determinism, because the renderer walks
+--- tables whose key order Lua does not fix, so a traversal that leaked
+--- into the output would give two different files from one input. And
+--- a semantic round-trip, because neither of the first two can tell a
+--- consistently wrong renderer from a right one.
 ---
---- A fourth property, self-hosting -- every Teal source this tree holds
---- renders, is already canonical, and stays at the fixed point on a
---- second pass -- used to be checked here too, over every file in the
---- tree. It no longer is: `fix.source` now runs that second pass itself
---- (see `build.fix.init`) and refuses a file it is not a fixed point
---- for, so `cosmic fix --check .`, which CI already runs over the whole
---- tree as its format-check step, holds this tree to it without a
---- second copy of the walk. That whole-tree pass, run twice per file
---- under this suite's own coverage hook, was on its own about half the
---- suite's wall time.
+--- Self-hosting is not checked here: that every Teal source in the tree
+--- renders, is canonical, and stays at the fixed point on a second
+--- pass. `fix.source` runs the second pass itself (`build.fix.init`)
+--- and refuses a file that is not a fixed point, so `cosmic fix
+--- --check .`, which CI runs over the whole tree as its format-check
+--- step, holds the tree to it. A copy of that walk here would cost
+--- about half the suite's wall time.
 
 local Fs = require("cosmic.fs")
 local ast = require("build.ast")
@@ -113,7 +110,7 @@ local function test_a_canonical_source_is_left_alone()
 end
 
 --- The same input gives the same bytes, run after run: nothing in the
---- renderer reads a table in whatever order Lua felt like.
+--- renderer depends on the order Lua visits a table's keys.
 local function test_the_same_input_renders_the_same_bytes_every_time()
   local first = fixed(fixture, "fixture.tl")
   for round = 2, 8 do
@@ -123,9 +120,9 @@ local function test_the_same_input_renders_the_same_bytes_every_time()
 end
 
 --- What was rendered parses to the same tree, and carries the same
---- comments, as what it was rendered from -- checked here directly as
---- well as inside the verb, because this is the property the golden
---- strings alone cannot establish.
+--- comments, as what it was rendered from. The verb checks this too;
+--- it is checked here directly because golden strings alone cannot
+--- establish it.
 local function test_rendering_keeps_the_tree_and_the_comments()
   local before, before_trouble = ast.parse(built, fixture, "fixture.tl")
   assert(before ~= nil, "parse failed: " .. tostring(before_trouble))
@@ -140,9 +137,8 @@ local function test_rendering_keeps_the_tree_and_the_comments()
 end
 
 --- Mangled spacing and indentation come back canonical, and still mean
---- the same thing: the properties above would all hold for a renderer
---- that refused to change anything at all, and this is what says it
---- does.
+--- the same thing. The properties above would all hold for a renderer
+--- that changed nothing, and this shows that it does change things.
 local function test_mangled_spacing_and_indentation_are_repaired()
   local mangled = "local   x <const>   = 5\nlocal t = {1,2}\nif  x  then\n" ..
                   "        print( x )\nend\n"
@@ -154,13 +150,13 @@ end
 
 --- A named path the verb will not take is a refusal among the files the
 --- run covers, not an end to the run: it comes back in `refused` with
---- the others still listed, which is what lets `fix.run` report it and
---- still finish in its own verdict line.
+--- the others still listed, so the verb can report it and still end in
+--- its verdict line.
 ---
---- And what a path IS is decided before what it is NAMED. A path with
---- nothing at it is missing, whatever its suffix -- answering `nope`
---- with a remark about Teal says the wrong thing about it, and says it
---- about a file the caller may only have mistyped.
+--- What a path is decided before what it is named. A path with nothing
+--- at it is missing, whatever its suffix: answering `nope` with a
+--- remark about Teal would say the wrong thing about a file the caller
+--- may only have mistyped.
 local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp: string)
   assert(Fs.write(tmp .. "/real.tl", "local x = 1\nprint(x)\n"))
   assert(Fs.write(tmp .. "/notes.txt", "not Teal at all\n"))

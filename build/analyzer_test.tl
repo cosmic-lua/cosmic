@@ -7,16 +7,11 @@ if built == nil then
 end
 
 --- Joins lines the way a real source file would read. Fixtures are
---- built from a table of plain string literals, assembled at run time,
---- rather than as a long-bracket literal sitting directly in THIS
---- file's own source: this file is itself a `_test.tl` module the real
---- importer discovers and parses, and a fixture string embedded here
---- as literal `[[...]]` text would put its own `local function
---- test_*` sample right into this file's real AST for the discovery
---- pass under test to find -- exactly the ambiguity `analyze`
---- no longer has to resolve, since a string built this way is never
---- anything but a "string" node's `conststr`, whichever implementation
---- reads it.
+--- tables of plain string literals joined at run time, not long-bracket
+--- literals: this file is itself a `_test.tl` module that the importer
+--- parses, and a `[[...]]` fixture holding `local function test_*` text
+--- would sit in this file's own source for discovery to weigh. A joined
+--- fixture is only ever a "string" node's `conststr`.
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end
@@ -94,11 +89,10 @@ local function test_discovers_nothing_when_there_is_no_test()
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- A source SAMPLE held as a `[[...]]` long-bracket string parses to a
---- single "string" node, never a chunk-level statement of its own kind
---- -- its own `local function test_something()` text is never a
---- candidate for `analyze` to find at all, structurally, rather
---- than excluded by tracking where the bracket opens and closes.
+--- A source sample held as a `[[...]]` long-bracket string parses to a
+--- single "string" node, so its `local function test_something()` text
+--- is never a candidate for `analyze`: no tracking of where the bracket
+--- opens and closes is needed.
 local function test_ignores_a_fake_test_inside_a_plain_long_bracket()
   local source = lines({
     "local sample = [[",
@@ -123,9 +117,8 @@ local function test_ignores_a_fake_test_inside_a_leveled_long_bracket()
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- A long COMMENT parses to no statement at all -- tl's lexer consumes
---- it as a comment attached to the following token, so it never
---- reaches the parser as source text in the first place.
+--- A long comment parses to no statement: tl's lexer attaches it to the
+--- following token, so it never reaches the parser as source text.
 local function test_ignores_a_fake_test_inside_a_long_comment()
   local source = lines({
     "--[[",
@@ -171,9 +164,8 @@ local function test_discovers_a_real_test_before_a_bracket_region()
   assert(found[1] == "test_real")
 end
 
---- An ordinary quoted string holding the same text as a plain literal,
---- on one line, parses to a "string" node either way; confirm this
---- still is not one.
+--- A quoted string on one line holding the same text is a "string" node
+--- too, and no test.
 local function test_ignores_a_quoted_string_naming_a_test()
   local source = lines({
     'local x = "local function test_x()"',
@@ -227,26 +219,23 @@ local function test_has_top_level_return_false_inside_a_bracket()
   assert(not has_return(source))
 end
 
---- A table constructor return is still a genuine top-level return:
---- `has_top_level_return` checks the statement's own `kind`, so what
---- the return's own expression happens to be shaped like never
---- matters, unlike a text pattern that has to special-case it.
+--- A table constructor return is a genuine top-level return:
+--- `has_top_level_return` checks the statement's `kind`, whatever shape
+--- its expression has.
 local function test_has_top_level_return_true_for_a_table_constructor()
   local source = lines({ "return { 1, 2, 3 }" })
   assert(has_return(source))
 end
 
---- A `return` immediately followed by a comment, with no value, is
---- still the chunk's genuine top-level return.
+--- A `return` with no value, followed by a comment, is a top-level
+--- return.
 local function test_has_top_level_return_true_with_a_trailing_comment()
   local source = lines({ "return -- nothing to give back" })
   assert(has_return(source))
 end
 
---- An ordinary snake_case identifier assignment that happens to start
---- with the six letters `return` parses to an `"assignment"` node, not
---- `"return"` -- there is no shared text prefix for a checker to get
---- wrong, unlike `%f[^%w_]` over raw source.
+--- An assignment to an identifier that starts with the letters `return`
+--- parses to an `"assignment"` node, not `"return"`.
 local function test_has_top_level_return_false_for_return_prefixed_assignment()
   local source = lines({
     "local function test_one()",
@@ -264,9 +253,8 @@ local function test_has_top_level_return_false_for_return_prefixed_call()
   assert(not has_return(source))
 end
 
---- `return(x)`, a genuine return of a parenthesized expression with no
---- space before the `(`, must still be flagged: the two cases above
---- must not overcorrect and swallow this legitimate one.
+--- `return(x)`, a return of a parenthesized expression with no space
+--- before the `(`, is still a top-level return.
 local function test_has_top_level_return_true_for_a_parenthesized_return()
   local source = lines({ "return(x)" })
   assert(has_return(source))

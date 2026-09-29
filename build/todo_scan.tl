@@ -59,9 +59,9 @@ local function comment_of(line: string): string, string, string
   return indent, marker, rest
 end
 
---- The marker a line carrying a comment on is written with: a block
---- comment's lines go on with `*`, a column in or not, every other
---- comment with its own.
+--- The marker the lines that carry on a comment opened with `marker`
+--- are written with: `*` for a block comment, whether or not it sits in
+--- a column, else the opener's own.
 local function continued(marker: string): string
   if marker:sub(1, 1) == "/" and marker:sub(2, 2) == "*" then
     return "*"

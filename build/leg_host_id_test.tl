@@ -51,7 +51,7 @@ local function outputs(leg: string, id: string): string
 end
 
 --- A Linux leg is named by its container: the image, the hash of how it
---- is started, and the engine's version, as ci.yml named it inline.
+--- is started, and the engine's version.
 local function test_a_linux_leg_is_named_by_its_container(tmp: string)
   local env, output, code, said = named(tmp, { "linux-x86_64", "ghcr.io/c/i@sha256:ab",
     "ubuntu-24.04", "cafe", FEATURES }, { ImageOS = "ubuntu24", ImageVersion = "1" })

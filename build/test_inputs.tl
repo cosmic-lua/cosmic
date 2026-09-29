@@ -18,15 +18,16 @@
 --- host (`host`), environment variables (`env`), the network
 --- (`network`), processes no sandbox holds (`processes`), the tool
 --- itself (`tool`), the tree's projection opened directly (`store`),
---- and the system's own programs and files (`system`). Of them, the
---- closure's modules are always enforced: a worker lets a test
---- `require` no other module of the tree (`build.test_worker`'s
---- `refusal`). A sandboxed worker is held to
---- all of them (`build.test_sandbox`), and its verdict keyed by them
---- (`build.declared_key`); an unsandboxed one is held to nothing else,
---- and keyed by what it was seen to read, and the audit compares them
---- with what observation saw (`build.filesystem_observations`), test
---- by test.
+--- and the system's own programs and files (`system`).
+---
+--- Whatever it declares, a worker lets a test `require` no module of the
+--- tree outside the closure (`build.test_worker`'s `refusal`). A
+--- sandboxed worker is held to all the declared inputs
+--- (`build.test_sandbox`), and its verdict keyed by them
+--- (`build.declared_key`). An unsandboxed one is held to nothing more,
+--- and keyed by what it was seen to read. The audit compares the two,
+--- test by test, with what observation saw
+--- (`build.filesystem_observations`).
 
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
@@ -259,12 +260,12 @@ local function beneath(path: string, prefix: string): boolean
   return path == prefix or path:sub(1, #prefix + 1) == prefix .. "/"
 end
 
---- Why `declared`, a `host` path as a module declares it, cannot be
---- given, resolved from `environment` -- the worker's, as the runner
---- sees it -- to `path`: a variable it names that is unset, empty,
---- relative or not spelled plainly (a ".", ".." or empty name), or a path that is the tree, beneath it or above it, where
---- the tree is at each of `roots` (its path and where that resolves).
---- The path, or nil and why.
+--- The path a `host` path `declared` by a module resolves to, or nil and
+--- why it cannot be given. `environment` is the worker's, as the runner
+--- sees it, and `roots` are where the tree is (its path and where that
+--- resolves). A path cannot be given when it names a variable that is
+--- unset, empty, relative or not spelled plainly (a ".", ".." or empty
+--- name), or when it is the tree, beneath it or above it.
 function test_inputs.resolved(declared: string, environment: {string:string},
                               roots: {string}): string | nil, string
   local path = declared
@@ -306,11 +307,11 @@ function test_inputs.resolved(declared: string, environment: {string:string},
   return path, ""
 end
 
---- Puts each `host` path of `effective` a variable names where the
+--- Puts each `host` path of `effective` that a variable names where the
 --- variable's value in `environment` says (`resolved`), spelling it as
---- declared in `spelled`, notes where each variable it declares is
---- (`located`), and says why one cannot be given in `unresolved`: see
---- `resolved`, whose `roots` this takes -- or a directory there, but for
+--- declared in `spelled`, and notes where each variable it declares is
+--- in `located`. `unresolved` says why a path cannot be given: see
+--- `resolved`, whose `roots` this takes, or it is a directory, but for
 --- /proc, which `cosmic.test`'s `host` never names.
 function test_inputs.resolve(effective: test_inputs.Effective, environment: {string:string},
                              roots: {string})
@@ -516,10 +517,9 @@ local field_order: {string} = {
 
 --- The audit of one test module, as lines to print: what its tests read
 --- that its effective inputs do not hold, field by field with the tests
---- that read it, and the `needs` call that would hold it --
---- what `m` declares already, with what it lacks added. `found` is each
---- of its tests' findings, by test name. Nothing when every test's are
---- none.
+--- that read it, and the `needs` call that would hold it: what `m`
+--- declares already, with what it lacks added. `found` is each of its
+--- tests' findings, by test name. Nothing when no test has any.
 function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {string}
   local by_field: {string:{string:{string:boolean}}} = {}
   local names: {string} = {}
@@ -656,10 +656,10 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
 end
 
 --- One declaration as text two can be compared by, and one text for
---- each declaration: each field's values in the literal's order,
---- duplicates kept, each quoted (`%q`, which marks where it ends),
---- a flag set as `true`, one line each; ""
---- for none. `line` plays no part.
+--- each declaration: one line for each value of a field, in the
+--- literal's order, duplicates kept, quoted (`%q`, which marks where it
+--- ends), and for each flag set, as `true`; "" for none. `line` plays no
+--- part.
 function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if maybe == nil then return "" end
   local declared: analyzer.Declared = maybe

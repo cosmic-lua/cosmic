@@ -36,10 +36,10 @@ end
 
 --- $SSL_CERT_FILE naming what holds no certificates -- a directory, a
 --- named pipe, or a file of anything else -- adds none and refuses
---- nothing: a request fails as it would without it. A directory's size,
---- as seeking to its end tells it, once asked for more memory than there
---- was, refusing every request; a pipe, opened without O_NONBLOCK, waited
---- for a writer forever.
+--- nothing: a request fails as it would without it. Reading a directory
+--- by the size that seeking to its end gives would ask for more memory
+--- than there is, and opening a pipe without O_NONBLOCK would wait for a
+--- writer forever.
 local function test_a_cert_file_holding_no_certificates_is_passed_over(tmp: string)
   local junk = tmp .. "/junk.pem"
   assert(Fs.write(junk, "no certificate here\n"))

@@ -1,45 +1,45 @@
 --- One parsed file, written back out as source.
 ---
 --- This is the second half of `cosmic fix`: parse, apply the structural
---- rules, render. Rendering is what makes the result canonical text
---- rather than a splice, and it is deliberately the ONLY way a rewrite
---- reaches the file -- a rule changes nodes, never bytes.
+--- rules, render. Rendering makes the result canonical text rather than
+--- a splice, and it is the only way a rewrite reaches the file: a rule
+--- changes nodes, never bytes.
 ---
---- The line between what the renderer decides and what it carries over
---- is worth stating plainly, because it is the whole design:
+--- The renderer decides everything a line holds:
+--- - every keyword, operator, separator and bracket, and the spacing
+---   around each;
+--- - a variable attribute (`x <const>`) as one unit attached to the
+---   name;
+--- - a type annotation as `: ` and then the type's own bytes;
+--- - a statement's indentation, two columns per level of block, with a
+---   block's closing keyword lined up with the statement that opened it;
+--- - one space before a trailing comment;
+--- - a comma after the last entry of a table that closes on a line of
+---   its own, and none on one that does not;
+--- - a run of blank lines collapsed to one, no trailing whitespace, and
+---   exactly one newline at the end.
+--- None of these depends on which two tokens ended up adjacent, so none
+--- can go wrong the way `<const>` did in a token re-emitter.
 ---
---- The renderer decides everything a line HOLDS. Every keyword,
---- operator, separator and bracket, and the spacing around each. A
---- variable attribute (`x <const>`) as one unit attached to the name. A
---- type annotation as `: ` and then the type's own bytes. A statement's
---- indentation: two columns per level of block, and a block's closing
---- keyword lined up with the statement that opened it. One space before
---- a trailing comment. A comma after the last entry of a table that
---- closes on a line of its own, and none on one that does not. A run of
---- blank lines collapsed to one. No trailing whitespace anywhere, and
---- exactly one newline at the end. None of these is a question about
---- which two tokens ended up adjacent, which is why none of them can go
---- the way `<const>` went in a token re-emitter.
+--- It carries over where the lines break, and where they do not. It
+--- never adds or removes a break: `if x then return end` written on one
+--- line stays on one line, a call spread over five stays spread over
+--- five, and an operator at the end of a line stays there. Wrapping is
+--- a judgement about a whole line that no rule here can make, so it is
+--- left to the author. A line that continues a statement keeps its
+--- column relative to that statement.
 ---
---- The renderer carries over where the lines BREAK, and where they do
---- not. It never adds a break and never removes one: `if x then return
---- end` written on one line stays on one line, a call spread over five
---- stays spread over five, and an operator written at the end of a line
---- rather than the start of the next stays there. Wrapping is a
---- judgement about a whole line that no rule here is in a position to
---- make, so it is left to the author, and a line that continues a
---- statement keeps its column relative to that statement.
----
---- One thing is added rather than decided or carried: where tl's own
---- parser inserted a `;` to settle which of two readings a `f()`
---- followed by a `(` had, that `;` is written out, so the source says
---- what the compiler had already decided.
+--- One thing is added rather than decided or carried: where tl's parser
+--- inserted a `;` to settle which of two readings a `f()` followed by
+--- `(` had, the `;` is written out, so the source says what the
+--- compiler had already decided.
 ---
 --- Type syntax is written as original bytes throughout. tl's parser
---- keeps a type's MEANING, not its text: a type object has a start
---- position, no end, and, for a record body, no trace of the comments
---- between its fields. Copying the bytes is the only rendering of a
---- type that cannot lose something.
+--- keeps a type's meaning, not its text: a type object has a start
+--- position, an end only where its syntax closes with a bracket, and,
+--- for a record body, no trace of the comments between its fields.
+--- Copying the bytes is the only rendering of a type that cannot lose
+--- something.
 
 local ast = require("build.ast")
 local ctx_mod = require("build.fix.ctx")

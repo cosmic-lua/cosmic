@@ -12,25 +12,31 @@
 --- host, so a header is the pinned zig's own rather than the host's.
 ---
 --- Each compiler starts under build.confine's `declaring`, given what it
---- runs from and what it compiles and nothing else: the scripts and pins
---- that name the one zig `bin/zig` runs, the bootstrap cosmic that runs
---- build/zig.tl and the cores its launcher runs it on, that zig's own
---- install, the include directories and each file's own, and a
---- directory of the check's own for its caches and dependency files,
---- beside the system's paths. In a test's sandboxed worker, whose
---- sandbox every process it starts inherits, that sandbox holds it, as
---- the test's `Test.needs` declares; in an unsandboxed one, a root of its
---- own holding those paths alone, where the kernel gives one, so what it
---- read is keyed by what it was given (a path outside the tree by what
---- `lstat` says of everything beneath it), and where the kernel gives
---- none it runs unconfined: a run keyed by what was seen never stands,
---- and one keyed by what was declared (COSMIC_TEST_KEY=declared, CI's
---- macOS leg) stands on that alone. After it, every header its dependency file
---- names outside that zig's own install is read, so a test that checks
---- C is keyed by what the compiler read of the tree. The compiler is
---- given only the environment `passed` names, each read here. An
---- override naming another zig or bootstrap cosmic declares nothing:
---- its compilers start as any process a test starts does.
+--- runs from and what it compiles, plus the system's paths:
+---
+--- - the scripts and pins that name the one zig `bin/zig` runs;
+--- - the bootstrap cosmic that runs build/zig.tl, and the cores its
+---   launcher runs it on;
+--- - that zig's own install;
+--- - the include directories and each file's own;
+--- - a directory of the check's own for caches and dependency files.
+---
+--- In a test's sandboxed worker, the sandbox every process it starts
+--- inherits holds the compiler, as the test's `Test.needs` declares. In
+--- an unsandboxed worker the compiler gets a root of its own holding
+--- those paths alone, where the kernel gives one, so what it read is
+--- keyed by what it was given (a path outside the tree by what `lstat`
+--- says of everything beneath it). Where the kernel gives none, it runs
+--- unconfined: a run keyed by what was seen never stands, and one keyed
+--- by what was declared (COSMIC_TEST_KEY=declared, CI's macOS leg) stands
+--- on that alone.
+---
+--- After a compile, every header its dependency file names outside that
+--- zig's own install is read, so a test that checks C is keyed by what
+--- the compiler read of the tree. The compiler is given only the
+--- environment `passed` names, each read here. An override naming
+--- another zig or bootstrap cosmic declares nothing: its compilers start
+--- as any process a test starts does.
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -68,12 +74,9 @@ local crypto_include_dirs: {string} = {
   "dispatch", "utilities", "platform", "extras",
 }
 
---- The compiler's command line for `file`. Includes are relative to the
---- root when the compiler runs there, so the tree's own headers are named
---- as its own (`core/guard.h`) and checked with the file.
---- Where the compiler looks for an included header, in its order: relative
---- to the root when the compiler runs there, so the tree's own headers are
---- named as its own (`core/guard.h`).
+--- Where the compiler looks for an included header, in its order. The
+--- paths are relative to the root when the compiler runs there, so the
+--- tree's own headers are named as its own (`core/guard.h`).
 local function include_dirs(root: string, cwd: string): {string}
   local prefix = cwd == root and "" or root .. "/"
   local out: {string} = {}
@@ -90,6 +93,7 @@ local function include_dirs(root: string, cwd: string): {string}
   return out
 end
 
+--- The compiler's command line for `file`.
 local function command(root: string, file: string, cwd: string, depfile: string): {string}
   -- TODO: check the core for each of its targets, not the first alone:
   -- the code under `__APPLE__` (core/executable.c's, core/syscalls.c's)
@@ -146,15 +150,15 @@ end
 --- in and what outside the tree the compiler runs from, or nil when an
 --- override names a zig or a bootstrap cosmic the pins do not.
 ---
---- What the scripts run from the host -- `sh`, the `dirname`, `sed`,
---- `wc` and `tr` `PATH` finds, and the launcher's `uname` and `stat` --
---- a compiler runs only from what its sandbox gives it: the system's
---- paths, the tree's and the test's own. A test's sandboxed worker is
---- given the system's only where its module declares `system`, whose
---- key holds what they hold, walked (`declared_key.system_identity`); a
---- compiler confined in an unsandboxed one is given them as every
---- confined process is, and keyed by what `lstat` says of everything
---- beneath each. A `PATH` directory outside those is not there for it.
+--- The host programs the scripts run (`sh`, the `dirname`, `sed`, `wc`
+--- and `tr` that `PATH` finds, and the launcher's `uname` and `stat`)
+--- come only from the sandbox: the system's paths, the tree's and the
+--- test's own. A test's sandboxed worker is given the system's paths only
+--- where its module declares `system`, and its key holds what they hold,
+--- walked (`declared_key.system_identity`). A compiler confined in an
+--- unsandboxed worker is given them as every confined process is, keyed
+--- by what `lstat` says of everything beneath each. A `PATH` directory
+--- outside those is not there for it.
 local function toolchain(root: string, variables: {string:string}):
     string | nil, {string}
   for _, name in ipairs({ "COSMIC_ZIG", "COSMIC_BOOTSTRAP" }) do

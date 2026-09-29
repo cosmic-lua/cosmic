@@ -1,25 +1,24 @@
 --- Where a type ENDS, in the token stream tl already lexed.
 ---
---- tl's AST carries a type annotation as a semantic type OBJECT rather
---- than as a node: it has a start position and no end, no memory of how
---- the source spelled it, and -- for a record or enum body -- no trace
---- of the comments written between its fields. Re-rendering one from
---- that object would mean reinventing the whole type grammar and losing
---- those comments, so `build.fix` writes type syntax out as the
---- original bytes instead. This module is what says where those bytes
---- stop.
+--- tl's AST carries a type annotation as a semantic type object, not a
+--- node. It has a start position, an end only where its syntax closes
+--- with a bracket, no memory of how the source spelled it, and, for a
+--- record or enum body, no trace of the comments between its fields.
+--- Rendering one from that object would mean reinventing the type
+--- grammar and losing those comments, so `build.fix` writes type syntax
+--- as the original bytes. This module says where those bytes stop.
 ---
---- Two ways to find the end, and the renderer prefers the first
---- wherever it has one: a BOUND, some later position the AST already
---- knows (the next argument's own name, the `)` an argument list
---- records as its `xend`, the first token of a function's body), which
---- makes the answer "the last token before that"; or, where the AST
---- knows no such position -- a cast's type, a declaration's type list
---- with no initialiser after it -- a walk over the tokens themselves
---- following the shape of Teal's type syntax. The walk only has to find
---- the closing token, never to understand the type, so it tracks
---- brackets and the handful of tokens that continue a type rather than
---- parsing one.
+--- There are two ways to find the end, and the renderer prefers the
+--- first where it has one:
+--- - a bound, a later position the AST already knows (the next
+---   argument's name, the `)` an argument list records as its `xend`,
+---   the first token of a function's body). The end is the last token
+---   before it.
+--- - where the AST knows no such position (a cast's type, a
+---   declaration's type list with no initialiser after it), a walk over
+---   the tokens following the shape of Teal's type syntax. The walk
+---   only finds the closing token, so it tracks brackets and the few
+---   tokens that continue a type and does not parse one.
 
 local type compiler = require("build.compiler")
 
@@ -42,7 +41,7 @@ local function new(tokens: {compiler.Token}): Scan
 end
 
 --- The index of the token that starts at exactly (`y`, `x`), or nil
---- when no token does -- a type object whose position the parser
+--- when none does, as for a type object whose position the parser
 --- synthesized rather than read off the source.
 --- @param s Scan
 --- @param y integer
@@ -121,8 +120,7 @@ local function closing(s: Scan, i: integer): integer
 end
 
 --- The index of the `>` closing the type-argument list token `i` opens.
---- `>>` closes two at once, which is how tl's own lexer hands back a
---- nested `T<U<V>>`.
+--- `>>` closes two at once, as tl's lexer lexes a nested `T<U<V>>`.
 local function closing_angle(s: Scan, i: integer): integer
   local depth = 0
   local j = i
@@ -213,10 +211,10 @@ rets_end = function(s: Scan, i: integer): integer
 end
 
 --- The index of the first token spelled `word` at or after `i`, outside
---- any bracket opened after `i`. Used for the keywords the AST records
---- no position for at all -- the `then` closing a condition, the `do`
---- opening a loop's body -- so a source that put one on a line of its
---- own keeps it there.
+--- any bracket opened after `i`. It finds the keywords the AST records
+--- no position for (the `then` after a condition, the `do` opening a
+--- loop's body), so a source that put one on a line of its own keeps
+--- it there.
 --- @param s Scan
 --- @param i integer
 --- @param word string
@@ -239,8 +237,8 @@ local function word_after(s: Scan, i: integer, word: string): integer
 end
 
 --- The last token of a type region that ends before (`y`, `x`), with
---- any separator the bound left behind trimmed off. Used wherever the
---- AST already knows what follows the type.
+--- any separator before the bound trimmed off. For use where the AST
+--- knows what follows the type.
 --- @param s Scan
 --- @param y integer The bounding position's line
 --- @param x integer The bounding position's column
