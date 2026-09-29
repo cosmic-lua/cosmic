@@ -338,9 +338,11 @@ end
 
 --- Whether this process may start a child as `id`: root, holding
 --- CAP_SETGID, CAP_SETUID and CAP_SETFCAP in effect, in a namespace
---- that maps root and `id` (core/process.h's `Sandbox.user`).
+--- that maps root and `id` (core/process.h's `Sandbox.user`). A host
+--- with no /proc (macOS) has no user namespace to map it in: never.
 local function may_run_as(id: integer): boolean
-  local fd = assert(sys.open("/proc/self/status", sys.O_RDONLY))
+  local fd = sys.open("/proc/self/status", sys.O_RDONLY)
+  if fd == nil then return false end
   local status = assert(sys.read(fd, 65536))
   sys.close(fd)
   local caps = status:match("\nCapEff:%s+(%x+)") or "0"
