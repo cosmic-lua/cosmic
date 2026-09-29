@@ -185,7 +185,7 @@ local function test_the_command_names_the_rows_it_keeps_by_a_digest(tmp: string)
       { COSMIC_VERDICT_CACHE = dir .. "/verdicts.db", GITHUB_OUTPUT = file })
     digests[i] = outputs(file).digest
     assert(code == 0 and digests[i] ~= nil and #digests[i] == 64, out)
-    assert(out:find("digest " .. digests[i] .. " of 1 caches", 1, true) ~= nil, out)
+    assert(out:find("digest " .. digests[i] .. " of 1 cache", 1, true) ~= nil, out)
   end
   -- Each keeps k2 and k3, and the table it cannot trim.
   assert(digests[1] == digests[2], "the same rows named two digests")
@@ -267,7 +267,7 @@ local function test_a_merge_adds_the_rows_ahead_as_a_union(tmp: string)
   local env = { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" }
   local code, out, err = Verdicts.merge({ ahead }, env)
   assert(code == 0 and err == "", err)
-  assert(out:find("added 1 rows to declared_v1, 1 rows to declared_v9, 0 rows to verdicts_v3; ", 1, true) ~= nil, out)
+  assert(out:find("added 1 row to declared_v1, 1 row to declared_v9, 0 rows to verdicts_v3; ", 1, true) ~= nil, out)
   local want = "k1 t.tl test_1 500\nk2 t.tl test_2 600\nk3 t.tl test_3 0"
   assert(rows(ours .. "/verdicts.db") == want, rows(ours .. "/verdicts.db"))
   code, out, err = Verdicts.merge({ ahead }, env)

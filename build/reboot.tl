@@ -33,6 +33,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local log = require("build.verdict").log
 local type compiler = require("build.compiler")
+local plural = require("build.plural")
 
 local record reboot
   --- How the tree stands against the running binary.
@@ -552,7 +553,7 @@ local function serialize(handle: work.Handle, root: string,
   end
   if waited == "busy" then
     log:complain(other .. " held the tool's rebuild lock past " ..
-      tostring(lock_wait_ms // 60000) .. " minutes; stop it, or wait " ..
+      plural.count(lock_wait_ms // 60000, "minute") .. "; stop it, or wait " ..
       "for it, and run this again")
     return 3
   end

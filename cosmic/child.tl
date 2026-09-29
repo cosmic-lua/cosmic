@@ -1256,16 +1256,17 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   return start(argv, opts)
 end
 
+-- TODO: carry a settled group's lingering members on Child.Result, a
+-- field beside the exit status, and answer the handle with "" here:
+-- build/test.tl reads the trouble beside the handle's result today, and
+-- build.contracts exempts this pair from the error-slot rules until then.
+
 --- Waits for the first of several handles to finish, servicing every
 --- one's streams meanwhile, and returns it settled: its `wait()` answers
 --- at once. Nil and "" when `timeout_ms` passes first -- no handle
 --- finished, and nothing failed -- and the handles are left running:
 --- a timeout is `done == nil and trouble == ""`, so test `done` itself.
 --- `assert` on this answer raises at a timeout, with an empty message.
--- TODO: carry a settled group's lingering members on Child.Result, a
--- field beside the exit status, and answer the handle with "" here:
--- build/test.tl reads the trouble beside the handle's result today, and
--- build.contracts exempts this pair from the error-slot rules until then.
 function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, string
   if #handles == 0 then error("no handles to wait for", 2) end
   if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end

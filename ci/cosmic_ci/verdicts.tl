@@ -31,6 +31,7 @@ local CacheTrim = require("cosmic_ci.cache_trim")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Plural = require("cosmic_ci.plural")
 
 local record Verdicts
 end
@@ -101,7 +102,7 @@ function Verdicts.command(argv: {string}, env: {string:string}): integer, string
   if #kept > 0 then
     local digest, trouble = CacheTrim.digest(kept)
     if trouble ~= "" then errs[#errs + 1] = "verdicts-trim: " .. trouble .. "\n" end
-    outs[#outs + 1] = "verdicts-trim: digest " .. digest .. " of " .. #kept .. " caches\n"
+    outs[#outs + 1] = "verdicts-trim: digest " .. digest .. " of " .. Plural.count(#kept, "cache") .. "\n"
     local unsaid = CacheTrim.output(env, "digest", digest)
     if unsaid ~= "" then errs[#errs + 1] = "verdicts-trim: " .. unsaid .. "\n" end
   end
@@ -231,7 +232,7 @@ local function merge_file(from: string, into: string): string, string
         if not inserted then return false, insert_trouble end
         local after, after_trouble = counted(db, "SELECT count(*) FROM main." .. q)
         if after == nil then return false, after_trouble end
-        added[#added + 1] = (after - before) .. " rows to " .. name
+        added[#added + 1] = Plural.count(after - before, "row") .. " to " .. name
       end
     end
     local committed, commit_trouble = db:exec("COMMIT")
