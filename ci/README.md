@@ -210,8 +210,10 @@ The workflow decides two things once, in its top-level `env`:
 `COSMIC_CI_SCOPE` is `full` for the merge queue, main (a push, the
 scheduled run) and a manual run, and `light` for a branch push;
 `COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled
-run, the only runs that save a cache. The driver reads neither (both
-are `COSMIC_CI_*`, which a suite's workers are never given).
+run, the only runs whose platform legs save a cache (a push to main
+that reuses the queue's run saves through `seed`, below). The driver
+reads neither (both are `COSMIC_CI_*`, which a suite's workers are
+never given).
 
 A newer push supersedes a branch's run, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
@@ -220,7 +222,8 @@ land in commit order and a restore's newest entry is never an older
 commit's saved late. GitHub keeps one pending run per group and cancels
 it when a third arrives, so a commit that lands while main is busy and
 another run waits gets no run and no prerelease; a pin moves to a later
-one. The scheduled run has a group of its own: pending behind a push,
+one. A push that reuses the queue's run takes a minute or two, so that
+needs three landings that close together. The scheduled run has a group of its own: pending behind a push,
 the next push would cancel it. Running beside main's pushes its saves
 can land after a newer commit's, which costs the next run only the rows
 that commit moved, never a wrong one. A manual run has a group per ref:
@@ -228,6 +231,56 @@ it saves nothing, so in main's group it could cancel a pending push, or
 be cancelled by one. Pushes to the merge queue's `gh-readonly-queue/`
 branches are ignored: they run as `merge_group`, and a push run there
 would share its group and cancel it, which the queue reads as a failure.
+
+### the queue's result
+
+main takes changes only through the merge queue, whose `merge_group`
+run tests the very commit the push to main then names, with the same
+full scope. A push to main reuses that run rather than test it again.
+Only a main ref's run can save what branches and the queue restore (an
+entry saved under `gh-readonly-queue/` is that ref's alone), and
+prerelease.yml publishes a main run's products, so the push still
+saves and still carries the products, both taken from the queue's run:
+
+- Each leg of a queue run that passed keeps what main would save
+  (`queue-seed.sh stage`): its trimmed verdicts and compiles, where
+  they differ from the entry it restored, and the driver check's marker,
+  where the check ran, with `seed.keys` naming the key each is saved
+  under, the key main's own save would compute. It uploads them as
+  `seed-<leg>`, kept a day.
+- A push to main first runs `reuse` (`queue-seed.sh find`), which asks
+  the API for a `merge_group` run of ci.yml on a
+  `gh-readonly-queue/main/` branch whose `head_sha` is the push's, that
+  completed with success and uploaded a seed. The queue lands the merge
+  as its `ci` check passes, a moment before its run completes, so a run
+  still in progress is asked after again, for up to three minutes.
+- Where it finds one, the platform legs are skipped, and `seed`, on
+  each leg's own runner (an entry's version hashes its path, the
+  runner's), saves that leg's seed under the keys it names and uploads
+  the queue's `portable-product-<leg>` as this run's. The `ci` join
+  compares those products as it does a platform run's, reading `seed`'s
+  result in place of the legs', and prerelease.yml publishes them
+  unchanged. The prerelease's `source.json` names this run, whose
+  `reuse` summary names the queue's run that built and tested the
+  product (the `TODO:` on `seed`'s relay).
+- Where it finds none (a direct push, or a lookup that failed), and on
+  the scheduled and a manual run, which skip `reuse`, the legs run the
+  full scope and save as before. A branch push runs `reuse` with its
+  steps skipped, so it shows as a check run rather than skipped, at
+  the cost of a few seconds before the legs start; the queue skips it.
+  `seed`, though, shows as a skipped check on a branch push (a `TODO:`).
+
+What the push gives up is a second run of the same commit: a flake the
+queue's run missed is no longer caught on main, where the nightly run
+still runs every test. A seed decides only how many tests stand: every
+row is keyed by its own inputs. The zig build outputs are not seeded:
+main saved them only on the first run after a vendor change, which the
+nightly's cold build and save now does alone. Until then a branch or a
+queue run restores the leg's newest entry of another vendor part (the
+second restore) and recompiles only what moved, and main has no run
+that builds but a direct push's or a manual one's. Seeding them too
+would move some 130 MB a leg through an artifact for the few hours
+before the nightly.
 
 ### the Linux legs' container
 
@@ -281,7 +334,8 @@ ci.yml does not, so the stale name waits for its next real change.
 ### the caches
 
 An entry is keyed by its content, saved from one place and restored
-everywhere else. Only `COSMIC_CI_SAVES` runs save the verdicts, the
+everywhere else. Only `COSMIC_CI_SAVES` runs (and `seed`, for a push
+that reuses the queue's run) save the verdicts, the
 compiles and parses, the zig build outputs and the driver check's
 marker (the pinned zig and the driver's bootstrap are saved by any run
 that misses their exact key, which names only the pin). A branch or the
@@ -327,7 +381,8 @@ would win over main's.
 
 Main saves an entry only where assemble passed and it had nothing
 `full` for this vendor part, so once per vendor part and leg, not once
-per core change. The scheduled run restores nothing, compiles cold and
+per core change; a push that reuses the queue's run builds nothing and
+saves none, so that is now the nightly's (the queue's result, above). The scheduled run restores nothing, compiles cold and
 saves a compact entry. An entry saved per core change would be past the
 repository's 10 GB cache at main's rate: a whole entry is about 0.5 GB
 for the four legs, and it grows with each save, since zig never prunes

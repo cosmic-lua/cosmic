@@ -832,9 +832,12 @@ end
 local sets_what_it_reads: {string:{string:boolean}} = {
   ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
   ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true },
-  -- As the platform job's env sets it, and the workflow's.
+  ["build/queue_seed_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_STEP_SUMMARY = true,
+    RUNNER_TEMP = true },
+  -- As the platform job's env sets it, and the workflow's; RUNNER_TEMP
+  -- as a step's `run` names it.
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
-    COSMIC_CI_SCOPE = true },
+    COSMIC_CI_SCOPE = true, RUNNER_TEMP = true },
 }
 
 --- No tree source names a variable a gating suite's workers are not
