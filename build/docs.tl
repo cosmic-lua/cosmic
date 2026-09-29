@@ -1248,6 +1248,9 @@ end
 --- The `docs` verb as `build/verb_list.tl` lists it.
 docs.spec = {
   name = "docs",
+  -- TODO: give `cosmic docs` a quickstart section of its own (looking a
+  -- symbol up, then `cosmic uses` it) and name it here: "below cosmic.fs"
+  -- mentions it only as the way to list cosmic.sys's calls.
   guide = "below cosmic.fs",
   tests = { "build.docs_test" },
   run = function(argv: {integer:string}): integer return docs.run(argv) end,
