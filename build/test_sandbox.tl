@@ -57,6 +57,7 @@
 local type Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
@@ -111,6 +112,14 @@ local record test_sandbox
     --- worker sees it by, which it holds only part of the host's (see
     --- `to_host`).
     made: {string}
+    --- The name the worker has the program by -- the artifact path its
+    --- relaunch names (`--artifact`), which `Proc.executable()` answers
+    --- -- where the program is the tree's own o/bin/cosmic:
+    --- /tree/o/bin/cosmic, as the rest of the tree is; where it is the
+    --- runner's own beneath /tree, /program/<its name> (`program_name`);
+    --- nil where it keeps the runner's, as a worker whose module does
+    --- not declare `tool` does.
+    program: string | nil
   end
 end
 
@@ -127,6 +136,11 @@ end
 test_sandbox.scratch = test_sandbox.padded("/tmp/cosmic-test-padded-to-a-macos-length",
   test_sandbox.scratch_length)
 test_sandbox.switch = "COSMIC_TEST_SANDBOX"
+
+--- Where a sandboxed worker has the program that runs it, when that is
+--- neither the tree's own nor to be had at its own name
+--- (`Plan.program`).
+local program_place <const> = "/program"
 
 --- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).
 local UNVEIL_MAX <const> = confine.unveil_max
@@ -192,6 +206,63 @@ function test_sandbox.cache_writes(effective: test_inputs.Effective,
   return out
 end
 
+--- What of `path` lies beneath `dir` -- "" for `dir` itself, else the
+--- rest from its "/" on -- or nil for a path not beneath it.
+local function beneath(path: string, dir: string): string | nil
+  if path == dir then return "" end
+  if dir == "/" then return path:sub(1, 1) == "/" and path or nil end
+  if path:sub(1, #dir + 1) == dir .. "/" then return path:sub(#dir + 1) end
+  return nil
+end
+
+--- Whether a bind of another path of `reads` shows `path` already,
+--- as its own bind would: each given where `at` places it, or at its
+--- own name, with `path` beneath the other on the host, beneath its
+--- place in the sandbox by the same rest, and resolving beneath where
+--- the other resolves by that rest too -- no link on the way between
+--- them, which the bind of the other would leave a link, to be followed
+--- in the sandbox, where the bind of `path` resolves it.
+local function shown_by(path: string, reads: {string}, at: {string:string}): boolean
+  local placed = at[path] or path
+  for _, other in ipairs(reads) do
+    local rest = other ~= path and beneath(path, other) or nil
+    if rest ~= nil and rest ~= "" and beneath(placed, at[other] or other) == rest then
+      local real, other_real = confine.resolution(path), confine.resolution(other)
+      if real ~= "" and other_real ~= "" and beneath(real, other_real) == rest then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- The name a sandboxed worker of the tree at `root` has this program
+--- by, where the program is a portable artifact (`Proc.relaunch` names
+--- its artifact's path, which the worker's startup takes as it is
+--- given: core/startup.c's `cosmic_startup_adopt`), and whether that is
+--- the tree's own, by where each resolves. The tree's own o/bin/cosmic
+--- is /tree/o/bin/cosmic, where a worker whose module declares `tool`
+--- has it, as it has the rest of o/bin. Another program keeps its own
+--- name -- a release run on the tree -- but for one beneath /tree
+--- itself, a run started in a sandboxed worker of another tree, whose
+--- worker has a tree of its own there: it is given at
+--- /program/<its name> instead (`program_place`). Nil where it
+--- keeps its own name.
+local function program_name(root: string): string | nil, boolean
+  local relaunch, _ = Proc.relaunch()
+  if relaunch == nil or relaunch.argv[2] ~= "--artifact" then return nil, false end
+  local program, _ = Proc.executable()
+  if program == nil then return nil, false end
+  local real = confine.resolution(program)
+  if real ~= "" and real == confine.resolution(root .. "/o/bin/cosmic") then
+    return test_sandbox.tree .. "/o/bin/cosmic", true
+  end
+  if Fs.within(program, test_sandbox.tree) then
+    return program_place .. "/" .. Fs.basename(program), false
+  end
+  return nil, false
+end
+
 --- `path` with no "/" after it but for "/" itself.
 local function trimmed(path: string): string
   local out = path:gsub("/+$", "")
@@ -209,7 +280,15 @@ end
 --- store of its closure, keyed by its address.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string): test_sandbox.Plan
-  local base = confine.worker_unveil(root, nil, scratch, effective.system, effective.tool)
+  -- The program is given at its own name only where the worker does
+  -- not have it as the tree's own, at /tree/o/bin/cosmic. A worker
+  -- whose module does not declare `tool` has no name to read it by, so
+  -- it keeps the runner's, which it cannot open either.
+  local program, own_program: string | nil, boolean = nil, false
+  if effective.tool then program, own_program = program_name(root) end
+  local executable, _ = Proc.executable()
+  local base = confine.worker_unveil(root, nil, scratch, effective.system,
+    effective.tool and not own_program)
   local reads: {string} = {}
   local at: {string:string} = {}
   local seen: {string:boolean} = {}
@@ -232,11 +311,6 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if inside ~= nil then at[path] = inside end
   end
   local store = root .. "/o/cosmic.db"
-  -- TODO: bind the program at /tree/o/bin/cosmic where it is the tree's
-  -- own, as the rest of the tree is, once the relaunch contract lets the
-  -- runner name the artifact's path to the worker (core/startup.c):
-  -- today it is given at its own name, which `Proc.executable()` answers,
-  -- so a worker still sees where the host keeps the checkout there.
   -- The store at o/cosmic.db is the one its worker attaches to load
   -- every module of the closure (`build.test_worker`): `closure_store`
   -- where the module does not declare `store`, and the whole projection
@@ -255,6 +329,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   for _, path in ipairs(base.reads) do
     if path == store then
       give(given_store, test_sandbox.tree .. "/o/cosmic.db", true)
+    elseif path == executable and program ~= nil and not own_program then
+      give(path, program, true)
     else
       give(path, nil, true)
     end
@@ -273,9 +349,11 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- The closure's files, which the module's key holds already.
   for _, file in ipairs(files) do of_tree(file, false) end
   for _, relative in ipairs(effective.reads) do of_tree(relative, true) end
-  -- The tool is o/bin/cosmic, given as the directory it is in: the
-  -- program itself is given at its own name already (`worker_unveil`'s
-  -- `with_program`), which a test that starts `Proc.executable()` needs.
+  -- The tool is o/bin/cosmic, given as the directory it is in: where
+  -- it is the program, the worker has it there alone (`program_name`),
+  -- and a test that starts `Proc.executable()` starts it there; another
+  -- program is given at its own name too (`worker_unveil`'s
+  -- `with_program`).
   if effective.tool then of_tree("o/bin", true) end
   -- Why a `host` path cannot be given: where a variable names it, one
   -- `test_inputs.resolve` could not put anywhere, or one that is where
@@ -335,13 +413,17 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- so if the cores directory were a cache given to write, since each
   -- start writes the stamp until one holds. The key still holds the
   -- path (`held`), and the cache gives it.
-  -- TODO: bind each path given inside another at a mount point of the
-  -- sandbox's own (core/syscalls.c's build_root: the file bound first at
-  -- a name in its tmpfs, then moved into place), so no mount point is the
-  -- host's dentry: a file given inside a directory given to read -- a
-  -- closure's source beneath a declared directory of the tree -- would
-  -- meet the same ENOENT were the host to rename another over it as a
-  -- worker starts, which nothing in a run does today.
+  -- So too a path given to read inside another given to read, where
+  -- the other's bind shows it already, at the same place and the same
+  -- file (`shown_by`): a closure's source beneath a declared directory
+  -- of the tree, a `host` path beneath the system's.
+  -- TODO: bind a path given to write inside one given to read at a
+  -- mount point of the sandbox's own (core/syscalls.c's build_root: the
+  -- path bound first at a name in its tmpfs, then moved into place), so
+  -- no mount point is the host's dentry: a cache declared beneath a
+  -- `host` directory would meet the same ENOENT were the host to rename
+  -- another over it as a worker starts, which nothing in a run does
+  -- today.
   local given_reads: {string} = {}
   for _, path in ipairs(reads) do
     local held_by_cache = false
@@ -357,7 +439,14 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     end
     if not held_by_cache then given_reads[#given_reads + 1] = path end
   end
-  reads = given_reads
+  reads = {}
+  for _, path in ipairs(given_reads) do
+    if shown_by(path, given_reads, at) then
+      at[path] = nil
+    else
+      reads[#reads + 1] = path
+    end
+  end
   local kept: {string} = {}
   for _, list in ipairs({ reads, writes }) do
     for _, path in ipairs(list) do
@@ -413,6 +502,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     kept = kept,
     held = held,
     made = made_dirs,
+    program = program,
   }
 end
 
