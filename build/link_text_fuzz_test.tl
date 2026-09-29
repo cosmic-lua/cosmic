@@ -1,11 +1,11 @@
---- Fuzz properties for `build.links`' parser: `parse` is total over any
+--- Fuzz properties for `build.link_text`'s parser: `parse` is total over any
 --- text, and each link it finds lies inside that text -- on one of its
 --- lines, its `[` at the column it names -- with a target unless it is
 --- a reference nothing defines.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local links = require("build.links")
+local link_text = require("build.link_text")
 
 --- Pieces of text that reach each part of the parser: every form a
 --- link takes, and what hides or breaks one.
@@ -32,7 +32,7 @@ local FORMS <const>: {string: boolean} = {
 }
 
 local function parse_holds(input: string): boolean, string
-  local found = links.parse(input)
+  local found = link_text.parse(input)
   local lines: {string} = {}
   for line in (input .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
   if #found == 0 then
@@ -51,7 +51,7 @@ local function parse_holds(input: string): boolean, string
     end
     if link.target == "" then return false, "an empty target" end
   end
-  local again = links.parse(input)
+  local again = link_text.parse(input)
   if #again ~= #found then return false, "a second parse differs" end
   return true, ""
 end

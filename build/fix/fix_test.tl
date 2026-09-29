@@ -20,7 +20,7 @@ local Fs = require("cosmic.fs")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
-local type links = require("build.links")
+local link_resolve = require("build.link_resolve")
 local type docs = require("build.docs")
 local render_mod = require("build.fix.render")
 local teal = require("build.teal")
@@ -366,30 +366,15 @@ local function test_markdown_and_zig_are_taken_to_be_checked(tmp: string)
 end
 
 --- A world on disk under `root`, where no symbol is known but `known`.
-local function on_disk(root: string, known: {string: {string}}): links.Context
-  return {
-    root = root,
-    kind = function(path: string): string | nil
-      local st, _ = Fs.stat(path)
-      if st == nil then return nil end
-      return st.kind == "dir" and "dir" or "file"
-    end,
-    read = function(path: string): string | nil
-      local text, _ = Fs.read(path)
-      return text
-    end,
-    symbols = function(query: string): {string} | nil, string
+local function on_disk(root: string, known: {string: {link_resolve.Symbol}}): link_resolve.Context
+  return link_resolve.on_disk(root,
+    function(query: string): {link_resolve.Symbol} | nil, string
       return known[query] or {}, ""
     end,
-    member = function(_: string, _: string): {string} | nil, string
+    function(_: string, _: string): {link_resolve.Symbol} | nil, string
       return {}, ""
     end,
-    real = function(path: string): string | nil
-      local real, _ = Fs.absolute(path)
-      return real
-    end,
-    unbuilt = function(): string | nil return nil end,
-  }
+    function(): string | nil return nil end)
 end
 
 --- A link that resolves passes and one that does not fails, naming its
@@ -428,7 +413,7 @@ local function test_a_broken_link_fails_in_each_kind_of_file(tmp: string)
     "// But [`no_step`].",
     "",
   }, "\n")))
-  local context = on_disk(root, { ["Known.thing"] = { "known.Known.thing" } })
+  local context = on_disk(root, { ["Known.thing"] = { { module = "known", symbol = "Known.thing" } } })
   local files = { root .. "/doc/guide.md", root .. "/a.tl", root .. "/b.c", root .. "/build.zig" }
   local found = table.concat(fix.links(context, built, files).broken, "\n")
   local want = table.concat({
