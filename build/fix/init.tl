@@ -63,6 +63,7 @@ local rule = require("build.fix.rule")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
 local tree = require("build.tree")
+local example_checks = require("build.example_checks")
 local tree_checks = require("build.tree_checks")
 local type compiler = require("build.compiler")
 local type Sqlite = require("cosmic.sqlite")
@@ -647,6 +648,16 @@ local function run(argv: {integer:string}): integer
       local found = tree_checks.run(db, guide)
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
+      end
+      -- A compiler of its own: the check points its search at this
+      -- binary's sources, which the tree's build must not inherit.
+      local shown, shown_trouble = teal.load()
+      if shown == nil then
+        findings[#findings + 1] = "examples as shown: " .. shown_trouble
+      else
+        for _, line in ipairs(example_checks.run(db, root, shown)) do
+          findings[#findings + 1] = "examples as shown: " .. line
+        end
       end
       local closed, close_trouble = db:close()
       if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
