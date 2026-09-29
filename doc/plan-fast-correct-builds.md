@@ -379,7 +379,7 @@ last.
   user (`COSMIC_SANDBOX=must`), with the tree copied to a directory
   that user owns. This goes in the ship skill
   (`.claude/skills/ship/SKILL.md`).
-- **`acknowledged` per module (S): in review.** `build/harness_epoch.tl` holds one
+- **`acknowledged` per module (S): landed (#2326).** `build/harness_epoch.tl` holds one
   digest over every harness module, so two PRs that each touch one
   conflict on the same line (it happened twice in stage 2). Holding a
   digest per module lets them merge. The guard's message and the
@@ -418,7 +418,7 @@ that is cheap.
     The unkeyed path for such tests goes: they no longer run every time
     or get counted as unkeyed. The harness tests that used
     `example.com` test the refusal instead.
-- **R2. Loopback is `127.0.0.1`.** `::1` is refused as a declared host.
+- **R2. Loopback is `127.a.b.c` (landed).** `::1` is refused as a declared host.
   This replaces the IPv6 item: nothing keys the host's IPv6 sysctls.
 - **R3. Host files, not host directories, except `/proc`.** A declared
   host path names a file, or `/proc`, which no key can hold by contents
@@ -538,12 +538,35 @@ Accepted or out of scope:
 - Shows: the list exists and is held by its test. A macOS gating run's
   row shows those modules ran.
 
-### Milestone M3
+### Milestone M3: met (2026-09-29, main at 47e9cebb)
 
-- Every item in 3.1 has either landed, with a test that tries the
-  hole, or is written up above as accepted.
-- Each fix that moved no key part bumped the epoch.
-- 3.2's list and its two worker changes have landed.
+- Every item in 3.1 has landed, each but item 1 with a test that tries
+  the hole:
+  - items 1 and 5 in #2344;
+  - items 2 and 3 in #2361;
+  - items 4, 8 and 9 in #2364;
+  - items 6 and 7 in #2396.
+- Item 1 landed as a rule, stated in AGENTS.md. Holding a stat of the tree
+  to fixed times under a worker's hold is left as a TODO at `held_stat`
+  (C and a boot).
+- The accepted items are written up:
+  - `access` and mountinfo, in plain comments (#2364);
+  - the rest above, each still a TODO where it waits on 4.2 or is out of
+    scope.
+- Each fix that moved no key part bumped the epoch: #2344 (1 to 2) and
+  #2364 (2 to 3). #2361 moved the program and compile keys, #2396 the core,
+  and #2403 the unenforced key's `tree` part.
+- 3.2's list landed (#2397), and so did its two worker changes (#2403).
+
+Left over from stage 3, and not part of M3:
+
+- R4 (one run per checkout). The scratch-name races it removes are still
+  TODOs in build/closure_store.tl and build/writer.tl.
+- The root-as-mapped-user work (#2427, in review).
+- The unprivileged-run step in the ship skill.
+- A raw spawn in a held worker refused by name (build/confine.tl's TODO
+  over `held_variable`).
+- macOS strays (build/test.tl's `end_strays` TODO).
 
 ## Stage 4: fewer paths, less code (two to three weeks)
 
