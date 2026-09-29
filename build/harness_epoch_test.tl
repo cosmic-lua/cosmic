@@ -141,20 +141,16 @@ local function test_the_harness_holds_what_it_runs_requires()
   local named: {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
   named["build.harness_epoch"] = true
+  local by_value = assert(test.value_imports(db))
+  local tree: {string:boolean} = {}
+  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path FROM modules")))) do
+    tree[row[1]] = true
+  end
   local missing: {string} = {}
   for _, name in ipairs(found.runs) do
-    local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
-      { { text = name } }))
-    assert(#rows == 1, name .. " is no module of the tree")
-    local source = assert(Compress.inflate("raw", rows[1][1].blob))
-    local required = assert(Sqlite.text_rows(db,
-      "SELECT requires FROM imports i WHERE path = ?1 AND EXISTS " ..
-      "(SELECT 1 FROM modules m WHERE m.path = i.requires)", { { text = name } }))
-    local by_value = test.value_requires(source)
-    for _, row in ipairs(required) do
-      local wanted = row[1]
-      if by_value[wanted] and not named[wanted] and
-          not (unfollowed[name] or {})[wanted] then
+    assert(tree[name], name .. " is no module of the tree")
+    for _, wanted in ipairs(by_value[name] or {}) do
+      if tree[wanted] and not named[wanted] and not (unfollowed[name] or {})[wanted] then
         missing[#missing + 1] = name .. " requires " .. wanted
       end
     end
@@ -200,17 +196,32 @@ local function test_the_harness_names_its_library()
     "delete its entry")
 end
 
---- A `local type` require, which Teal erases, and one in a comment are
---- no value requires; a lazy one inside a function is.
-local function test_value_requires_skips_type_only_and_commented_requires()
-  local found = test.value_requires(table.concat({
-    'local type Child = require("cosmic.child")',
-    '-- local Time = require("cosmic.time")',
-    'local Fs = require("cosmic.fs")',
-    'local function later(): any',
-    "  return require('cosmic.sqlite')",
-    'end',
-  }, "\n"))
-  assert(found["cosmic.fs"] and found["cosmic.sqlite"])
-  assert(not found["cosmic.child"] and not found["cosmic.time"])
+--- An edge of `imports` is followed unless the importer's bytecode
+--- lacks the name it requires: a require spelt `require"x"`, or split
+--- across lines, keeps the name there and is followed; a `local type`
+--- one, which Teal erases, leaves none and is not.
+local function test_value_imports_follows_every_spelling_of_a_require()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
+    "CREATE TABLE imports (path TEXT, requires TEXT)"))
+  local compiled = string.dump(assert(load(table.concat({
+    'local a = require"cosmic.fs"',
+    'local b = require(',
+    '  "cosmic.env")',
+    'return a, b',
+  }, "\n"))), true)
+  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', ?1)",
+    { { blob = compiled } }))
+  for _, wanted in ipairs({ "cosmic.fs", "cosmic.env", "cosmic.child" }) do
+    assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.x', ?1)", { { text = wanted } }))
+  end
+  -- An importer the table holds no bytecode of is followed as it is.
+  assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.y', 'cosmic.time')"))
+  local by_value = assert(test.value_imports(db))
+  db:close()
+  local kept: {string:boolean} = {}
+  for _, name in ipairs(by_value["build.x"] or {}) do kept[name] = true end
+  assert(kept["cosmic.fs"] and kept["cosmic.env"], "a require's spelling dropped its edge")
+  assert(not kept["cosmic.child"], "an edge the bytecode does not name was followed")
+  assert((by_value["build.y"] or {})[1] == "cosmic.time")
 end

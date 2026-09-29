@@ -100,7 +100,7 @@ allowed["build.harness_epoch.acknowledged"] = "the digest of each module of the 
 allowed["build.harness_epoch.library"] = "the standard-library modules the harness " ..
   "may reach, each with its reason, which only its test reads: a rule the test holds " ..
   "the harness's digests to, not code the harness runs"
-allowed["build.test.value_requires"] = "tested directly: the harness's test reads, " ..
+allowed["build.test.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..

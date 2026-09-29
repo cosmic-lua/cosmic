@@ -30,8 +30,10 @@
 --- The rule the harness keeps, which `library` and its test hold it
 --- to: its modules are what every worker loads (`worker.loads`, which
 --- `worker.judge` holds each worker to), the sandbox's maker
---- (`harness_own`), build.test itself, and the closure of the key's
---- roots (`key_roots`) over the requires each makes by value; a
+--- (`harness_own`), build.test itself and cosmic.child, which applies
+--- a worker's sandbox (`harness_alone`), each held alone, and the
+--- closure of the key's roots (`key_roots`) over the requires each
+--- makes by value, as its bytecode names them (`test.value_imports`); a
 --- `local type` require is not followed, since Teal erases it and what
 --- the imported type does at run time is compiled into the importer's
 --- bytecode, which the digests hold. A module of the harness reaches
@@ -39,9 +41,9 @@
 --- identity keys, and through the standard-library modules `library`
 --- names, each with its reason, and no other `cosmic.*` module. What
 --- else of the tree the runner calls is its plumbing -- the probe of
---- whether to sandbox (`build.test_sandbox_probe`), the start of each
---- worker -- which must fail loudly, as a failure or a refusal, never
---- as a pass. What a module of the harness calls through a library
+--- whether to sandbox (`build.test_sandbox_probe`), and what
+--- cosmic.child requires to start a worker -- which must fail loudly,
+--- as a failure or a refusal, never as a pass. What a module of the harness calls through a library
 --- table a test can replace, it takes as a local when it loads.
 local record harness_epoch
   epoch: integer
@@ -78,7 +80,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "8ecbc0fe94947133dc8ddb0bec2869bcbfe9bbdf3269fd21d455677436ed2178",
 
-  ["build.test"] = "354b84e013ef2ef81940226c8b3846fb87ed95d9debff190051cd1e4c22a08f7",
+  ["build.test"] = "73ee83716b2aac56b1f81dbea1546f3f2440fef93cbc76630634cb8059bec7b3",
 
   ["build.test_inputs"] = "b380668f9c8195a51131864e8bdbe6fc3a8c769324a8198db0720ffd47e288a5",
 
@@ -91,6 +93,8 @@ harness_epoch.acknowledged = {
   ["build.zig_caches"] = "a09afd64fec41a72a2b350879f9d8aefc59482dc6d8938564124b893e1840c07",
 
   ["cmd.cosmic.main"] = "7e1aeb6507bc43ed66bff90de92beb0dcc983087452924d87f08be72ddc9e7a8",
+
+  ["cosmic.child"] = "6e673e6f3be3cc9cf6d74223c4924271e57b4cfb5d34b4a95590dad08206dfb7",
 
   ["cosmic.coverage"] = "93d5838bf518d59450cb8fa7d6f11f8a2113c0c6692047d2d066fa54bdfcb0b4",
 
@@ -111,6 +115,8 @@ harness_epoch.acknowledged = {
 }
 
 harness_epoch.library = {
+  ["cosmic.child"] = "its `start` turns a worker's plan into the unveils, binds and " ..
+    "offline spawn holds it to; held alone, what it requires is not walked",
   ["cosmic.coverage"] = "the worker starts and stops the coverage a test's lines are " ..
     "counted by, whose session a test that imports it shares",
   ["cosmic.env"] = "the worker's environment, which its key holds, is read and built " ..
