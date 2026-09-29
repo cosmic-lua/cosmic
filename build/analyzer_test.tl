@@ -1400,3 +1400,31 @@ local function test_an_example_carries_the_requires_it_uses()
     "end",
   }):gsub("\n$", ""), found[2].source)
 end
+
+--- A comment that leads the statement after a `require` or a call is
+--- that statement's, not the text of the one above it, even when the
+--- next statement is a `local`, whose own position skips its keyword.
+local function test_a_comment_before_the_next_local_is_not_carried()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "-- TODO: something about the next one.",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "-- A note on the record.",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+    "-- trailing",
+    "local later = 1",
+    "",
+    "return Example",
+  }))
+  assert(#found == 1, tostring(#found))
+  assert(not found[1].source:find("--", 1, true), found[1].source)
+  assert(found[1].source:find("Fs.setup{ key = 1 }\n\nfunction Example.read()", 1, true),
+    found[1].source)
+end

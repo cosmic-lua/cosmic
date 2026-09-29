@@ -204,12 +204,25 @@ end
 --- named in one line after them.
 local EXAMPLES_SHOWN <const> = 2
 
---- How many times `code` calls `symbol`, spelled `.` or `:` before its
---- last name, and where the first call is.
+--- Whether `at` in `code` starts a name: nothing before it continues an
+--- identifier, so `MyFs.read` is no `Fs.read`.
+local function starts_name(code: string, at: integer): boolean
+  return at == 1 or code:sub(at - 1, at - 1):match("[%w_]") == nil
+end
+
+--- How many times `code` calls `symbol`, and where the first call is.
+--- A call is spelled with `.` or `:` before the last name; a method
+--- (a symbol two records deep, `Sqlite.Handle.exec`, or one written
+--- with `:`) is also called through any value, `db:exec(`.
 local function calls_of(code: string, symbol: string): integer, integer
   local spellings = { symbol }
   local colon = symbol:gsub("%.([%w_]+)$", ":%1")
   if colon ~= symbol then spellings[2] = colon end
+  local last = symbol:match("([%w_]+)$")
+  local _, dots = symbol:gsub("%.", "")
+  if last ~= nil and (symbol:find(":", 1, true) ~= nil or dots >= 2) then
+    spellings[#spellings + 1] = ":" .. last
+  end
   local count, first = 0, math.maxinteger
   for _, spelled in ipairs(spellings) do
     local from = 1
@@ -217,7 +230,7 @@ local function calls_of(code: string, symbol: string): integer, integer
       local at, to = code:find(spelled, from, true)
       if at == nil then break end
       local after = code:sub(to + 1, to + 1)
-      if after:match("[%w_]") == nil then
+      if after:match("[%w_]") == nil and (spelled:sub(1, 1) == ":" or starts_name(code, at)) then
         count = count + 1
         first = math.min(first, at)
       end
@@ -225,6 +238,52 @@ local function calls_of(code: string, symbol: string): integer, integer
     end
   end
   return count, first
+end
+
+--- The function of an example's source, without the `require` lines and
+--- top-level calls the analyzer put above it.
+local function example_body(source: string): string
+  return source:match("function Example%..*$") or source
+end
+
+--- An example's source as its page for `symbol` shows it. The analyzer
+--- puts above the function the `require` lines it needs and, for a
+--- file's first example, the file's top-level calls (`Test.needs{...}`).
+--- Those calls are shown only on the page of a symbol they call; any
+--- other page gets the function and the `require` lines its body names.
+local function shown_source(source: string, symbol: string): string
+  local body = example_body(source)
+  local head = source:sub(1, #source - #body)
+  local requires: {string} = {}
+  local calls: {string} = {}
+  for line in head:gmatch("[^\n]+") do
+    if line:match("^local [%w_]+ = require%(") ~= nil then
+      requires[#requires + 1] = line
+    else
+      calls[#calls + 1] = line
+    end
+  end
+  if #calls == 0 then
+    return source
+  end
+  local call_text = table.concat(calls, "\n")
+  if calls_of(call_text, symbol) > 0 then
+    return source
+  end
+  local kept: {string} = {}
+  for _, line in ipairs(requires) do
+    local name = line:match("^local ([%w_]+)")
+    local found = false
+    local from = 1
+    while name ~= nil and not found do
+      local at, to = body:find(name, from, true)
+      if at == nil then break end
+      found = starts_name(body, at) and body:sub(to + 1, to + 1):match("[%w_]") == nil
+      from = to + 1
+    end
+    if found then kept[#kept + 1] = line end
+  end
+  return (#kept > 0 and table.concat(kept, "\n") .. "\n\n" or "") .. body
 end
 
 --- `found` in the order a reader wants them: an example named for the
@@ -237,8 +296,9 @@ local function ranked_examples(found: {docs.Example}, symbol: string): {docs.Exa
   local last = symbol:match("([%w_]+)$") or symbol
   local keys: {docs.Example: {integer}} = {}
   for _, ex in ipairs(found) do
-    local calls, first = calls_of(ex.source:match("function Example%..*$") or ex.source, symbol)
-    keys[ex] = { ex.name == last and 0 or 1, -calls, first, #ex.source }
+    local body = example_body(ex.source)
+    local calls, first = calls_of(body, symbol)
+    keys[ex] = { ex.name == last and 0 or 1, -calls, first, #body }
   end
   local out: {docs.Example} = {}
   for _, ex in ipairs(found) do out[#out + 1] = ex end
@@ -1507,7 +1567,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
         for line in String.lines(ex.text) do
           lines[#lines + 1] = #line > 0 and "  " .. line or ""
         end
-        for line in String.lines(ex.source) do
+        for line in String.lines(shown_source(ex.source, entry.source_symbol)) do
           lines[#lines + 1] = #line > 0 and "    " .. line or ""
         end
       end

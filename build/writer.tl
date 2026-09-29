@@ -396,14 +396,27 @@ local dropped_modules <const> =
 
 --- The condition under which a doc row `d` of a `cosmic.internal.*`
 --- module is a nested type -- `sqlite.Handle` -- or a member of one
---- (`Handle.exec`): what a public alias (`Sqlite.Handle`) or base
---- (`Http.Options`) stands for, whose page lists them. `symbols.public_docs`
+--- (`Handle.exec`) that a public declaration reaches: an alias
+--- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
+--- raw_http.Options`), whose page lists them. `symbols.public_docs`
 --- still hides these rows from every public query; only that page's
 --- resolution (`build.docs`) reads them.
 local carried_internal_types =
   "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
-  "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)))"
+  "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
+  "EXISTS (SELECT 1 FROM whole.docs p WHERE " ..
+  symbols.public_only("p.module", true) .. " AND " ..
+  "(p.signature GLOB 'type * = *' OR p.signature GLOB '*record * is *' OR " ..
+  "p.signature GLOB '*interface * is *') AND " ..
+  "(p.signature GLOB '*[ _]' || substr(d.module, 17) || '.' || " ..
+  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
+  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
+  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END) OR " ..
+  "p.signature GLOB '*[ _]' || substr(d.module, 17) || '.' || " ..
+  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
+  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
+  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END) || ',*')))"
 
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from

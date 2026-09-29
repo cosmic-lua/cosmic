@@ -934,6 +934,21 @@ local record Preamble
   calls: {string}
 end
 
+--- `code`, a statement's text cut at the next statement's start, less
+--- what belongs to that next statement: the `local` its position skips
+--- and the comment lines above it.
+local function own_text(code: string): string
+  local kept: {string} = {}
+  for line in (code:gsub("%s*local%s*$", "") .. "\n"):gmatch("(.-)\n") do
+    kept[#kept + 1] = line
+  end
+  while #kept > 0 and (kept[#kept]:match("^%s*$") ~= nil
+      or kept[#kept]:match("^%s*%-%-") ~= nil) do
+    kept[#kept] = nil
+  end
+  return table.concat(kept, "\n")
+end
+
 --- The node a statement's text begins at: a call node sits at its
 --- arguments, so this is the leftmost name of what it calls.
 local function leftmost(stmt: ast.Node): ast.Node
@@ -956,7 +971,7 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
       -- The statement's position is its first name, past `local`, and
       -- a following `local` statement's, so the `local` that begins the
       -- next one ends this text.
-      code = code:gsub("%s*local%s*$", "")
+      code = own_text(code)
       local name = code:match("^([%w_]+)%s*=%s*require%s*%(")
       if name ~= nil then
         code = "local " .. code
@@ -969,7 +984,7 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
     elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" then
       local start = leftmost(stmt)
       local code = block_text(lines, start.y, start.x, until_y, until_x)
-      out.calls[#out.calls + 1] = code:gsub("%s*local%s*$", "")
+      out.calls[#out.calls + 1] = own_text(code)
     end
   end
   return out
@@ -1027,7 +1042,7 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.Examp
         local after = nodes[index + 1]
         local until_y = after ~= nil and after.y or (#lines + 1)
         local until_x = after ~= nil and after.x or 1
-        local body = block_text(lines, stmt.y, stmt.x, until_y, until_x)
+        local body = own_text(block_text(lines, stmt.y, stmt.x, until_y, until_x))
         out[#out + 1] = { name = tk,
           text = doc_before(lines, stmt.comments, stmt.y),
           source = preamble_text(pre, body, #out == 0) .. body,

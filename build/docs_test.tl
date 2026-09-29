@@ -1604,6 +1604,10 @@ local function test_a_top_level_call_is_carried_by_the_first_example(dir: string
       "function Thing.declare(value: string)",
       "end",
       "",
+      "--- Does another thing.",
+      "function Thing.other()",
+      "end",
+      "",
       "return Thing"),
     ["cosmic/thing_example.tl"] = source(
       "local Thing = require(\"cosmic.thing\")",
@@ -1617,6 +1621,7 @@ local function test_a_top_level_call_is_carried_by_the_first_example(dir: string
       "--- The call at the top.",
       "function Example.first()",
       "  print(Fs)",
+      "  Thing.other()",
       "end",
       "",
       "function Example.second()",
@@ -1633,6 +1638,42 @@ local function test_a_top_level_call_is_carried_by_the_first_example(dir: string
   assert(page:find("    local Thing = require(\"cosmic.thing\")\n", 1, true), page)
   assert(page:find("    local Fs = require", 1, true), page)
   assert(not page:find("example second", 1, true), page)
+  -- Another symbol the same first example shows is not one the call is about.
+  local other = table.concat(assert(docs.render(looked,
+    assert(docs.lookup(looked, "Thing.other"))[1])), "\n")
+  assert(other:find("example first", 1, true) and not other:find("Thing.declare", 1, true), other)
+  assert(other:find("local Thing = require", 1, true) and other:find("local Fs = require", 1, true), other)
+end
+
+--- A name that only ends in the symbol's is no call of it, and a method
+--- is a call through any value: `MyFs.read` does not lead `Fs.read`'s
+--- page, and `db:exec` counts for `Handle.exec`.
+local function test_example_ranking_reads_whole_names_and_method_calls(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "function Example.alpha()",
+      "  print(MyFs.read(1))",
+      "  print(MyFs.read(2))",
+      "end",
+      "",
+      "function Example.beta()",
+      "  print(Fs.read(3))",
+      "end",
+      "",
+      "return Example"),
+  }))
+  local looked = view({ db })
+  local shown = assert(docs.render(looked, assert(docs.lookup(looked, "Fs.read"))[1]))
+  local headers: {string} = {}
+  for _, line in ipairs(shown) do
+    if line:match("^  example ") then headers[#headers + 1] = line end
+  end
+  assert(headers[1] and headers[1]:match("^  example beta "), table.concat(headers, " | "))
 end
 
 --- Methods and fields a public type takes from an internal record, by

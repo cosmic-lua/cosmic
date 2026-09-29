@@ -329,6 +329,9 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
       "('cosmic.internal.fs', 'Stat', 'raw.Stat', 1, 'record', '', 'A stat.', 'f', 1), " ..
       "('cosmic.internal.fs', 'Stat.size', 'raw.Stat.size', 1, 'field', '', 'Its size.', 'f', 1), " ..
       "('cosmic.internal.fs', 'open', 'raw.open', 1, 'field', '', 'Opens.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'Other', 'raw.Other', 1, 'record', '', 'Unreached.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'Other.n', 'raw.Other.n', 1, 'field', '', 'Unreached.', 'f', 1), " ..
+      "('cosmic.fs', 'Fs.Stat', 'Fs.Stat', 1, 'field', 'type Stat = raw_fs.Stat', 'A stat.', 'f', 1), " ..
       "('cosmic.fs_example', 'Example.read', 'Example.read', 1, 'function', '', " ..
       "'Shows it.', 'f', 1), " ..
       "('build.work', 'work.open', 'work.open', 1, 'function', '', " ..
@@ -365,7 +368,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   assert(out:close())
   -- The internal rows carried are the nested type and its member, which a
   -- public alias's page lists, not the module's own function or field.
-  assert(docs == "cosmic.fs cosmic.internal.fs cosmic.internal.fs build.work",
+  assert(docs == "cosmic.fs cosmic.internal.fs cosmic.internal.fs cosmic.fs build.work",
     "the docs carried: " .. docs)
   assert(uses == "cosmic.fs>cosmic.fs", "the uses carried: " .. uses)
   assert(examples == "cosmic.fs", "the examples carried: " .. examples)
