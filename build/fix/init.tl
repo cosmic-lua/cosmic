@@ -1,45 +1,46 @@
 --- `cosmic fix`: rewrite Teal source structurally, then write it back
 --- out as canonical text.
 ---
---- One pipeline, always in one order: parse, apply the structural rules
---- (`build.fix.rule`), render (`build.fix.render`), compare. The order
---- is the point. Then one fix only the type checker can place
---- (`build.fix.spill`): the tree is built, and every `assert(...)` the
---- checker names as passing on values it should not is parenthesized,
---- until it names none. A fix is a change to the parsed tree and never a patch
---- over bytes, and whatever a rule produces is rendered rather than
---- spliced, so the result of a fix reads the same as source that was
---- never fixed at all.
+--- The pipeline runs in one order: parse, apply the structural rules
+--- (`build.fix.rule`), render (`build.fix.render`), compare. A fix
+--- changes the parsed tree and never patches bytes, and whatever a
+--- rule produces is rendered rather than spliced, so a fixed file
+--- reads like one that was never fixed.
+---
+--- One fix only the type checker can place (`build.fix.spill`) follows:
+--- the tree is built, and every `assert(...)` the checker names as
+--- passing on values it should not is parenthesized, until it names
+--- none.
 ---
 --- The verb takes paths to narrow it, defaults to the whole tree in the
 --- working directory, and writes what it fixes. `--check` writes
---- nothing and reports what it would have changed instead, which is
---- what a gate runs.
+--- nothing and reports what it would have changed, which is what a
+--- gate runs.
 ---
---- Running it twice changes nothing the first run did not: the verb
---- itself renders its own output once more and refuses a file whose
---- second pass would change it, rather than writing something that has
---- not reached a fixed point. `cosmic fix --check .` over the whole
---- tree is how that is checked here, in CI's own format-check step.
+--- A second run changes nothing the first did not. The verb renders its
+--- own output once more and refuses a file whose second pass would
+--- change it, rather than write something that is not a fixed point.
+--- CI's format-check step runs `cosmic fix --check .` over the whole
+--- tree.
 ---
---- It also lays out a YAML file in flow style (`build.flow`) it is named,
---- and, in cosmic's own tree, those under `.github/` -- the workflows
---- and actions -- as a directory holding it is covered: one written in
---- block style is refused when named and passed over otherwise, and one
---- that cannot be read ends the run.
+--- It also lays out YAML in flow style (`build.flow`): a file it is
+--- named, and, in cosmic's own tree, the files under `.github/` (the
+--- workflows and actions) when a directory covering them is named. A
+--- file in block style is refused when named and passed over
+--- otherwise. A file that cannot be read ends the run.
 ---
---- In cosmic's own tree it also covers the tree's C: every C file it
---- covers is written back in the layout `build.c` holds, and every
---- `.c` file is then compiled to its syntax tree and held to the rules
---- `build.c` holds, where a finding is a file refused and is fixed by
---- hand. A header is held to them through the files that include it.
+--- In cosmic's own tree it also covers the tree's C. Every C file is
+--- written back in the layout `build.c` holds. Every `.c` file is then
+--- compiled to its syntax tree and held to the rules `build.c` holds;
+--- a finding refuses the file and is fixed by hand. A header is held
+--- to the rules through the files that include it.
 ---
 --- When it covers every Teal source of cosmic's own tree (`cosmic fix
 --- --check .`, as CI runs it), it also builds the tree's projection and
 --- holds it to the checks only the whole tree can answer
---- (`build.tree_checks`), and a note on the standard library fails the
---- run rather than being a note; a tree that does not build fails it
---- too, as the checks need its projection. A run over some paths does
+--- (`build.tree_checks`). A tree that does not build fails, since the
+--- checks need its projection, and a note on the standard library
+--- fails the run instead of being a note. A run over some paths does
 --- none of this.
 
 local Cli = require("cosmic.cli")
@@ -81,11 +82,10 @@ local record fix
   end
 
   --- The files one invocation covers, and the named paths it will not
-  --- take: one that is not there at all, and one that is there but is
-  --- not Teal source. A refused path rides here rather than ending the
-  --- verb on the spot, so it is reported and counted like any other
-  --- refused file and the run still finishes in the verb's own verdict
-  --- line.
+  --- take: one that is not there, and one that is not a source the verb
+  --- handles. A refused path is carried here rather than ending the verb,
+  --- so it is reported and counted like any other refused file and the
+  --- run still ends in the verb's verdict line.
   record Chosen
     files: {string}
     --- The C files, which only cosmic's own tree has checked.
@@ -120,9 +120,8 @@ local function skip(entry: string): boolean
 end
 
 --- Every Teal source under `root`, as paths relative to it. Declaration
---- files count: they are source in the tree the same as any other, and
---- a renderer that cannot write one back out unchanged has a hole in
---- it.
+--- files count, since the renderer must write them back unchanged like
+--- any other source.
 --- @param root string
 --- @return {string}|nil
 --- @return string Error message on failure
@@ -162,12 +161,12 @@ local function is_yaml(file: string): boolean
   return String.ends_with(file, ".yml") or String.ends_with(file, ".yaml")
 end
 
---- The YAML files in flow style `dir` covers, as paths relative to it:
---- for the tree's root, those under its `.github/`, and for that
---- `.github/` or a directory under it, those under it; none for any
---- other directory, as the walk of the tree passes over a `.github/`
---- anywhere else.
---- A file there that cannot be read is a failure, not one passed over.
+--- The flow-style YAML files `dir` covers, as paths relative to it. For
+--- the tree's root these are the files under its `.github/`. For that
+--- `.github/` or a directory under it, they are the files under `dir`.
+--- For any other directory there are none, since the walk of the tree
+--- passes over a `.github/` anywhere else. A file that cannot be read
+--- is a failure, not passed over.
 local function workflow_sources(dir: string, root: string): {string} | nil, string
   dir = dir:gsub("/+$", "")
   if dir == "" then dir = "/" end
@@ -217,19 +216,19 @@ end
 --- and check that rendering still says the same thing and has reached a
 --- fixed point.
 ---
---- Neither check is a test, both are part of the verb. A renderer that
---- is merely self-consistent can be consistently wrong -- `local x
---- <const> = 5` re-emitted as `local x < const > = 5` is stable and
---- idempotent -- so changed rendered text is parsed again and compared,
---- tree and comments, against the tree it came from. Identical bytes
---- already preserve both and need no second parse. A file that fails
---- the comparison is reported and left exactly as it was.
+--- Both checks are part of the verb, not tests. A renderer that is
+--- only self-consistent can be consistently wrong: `local x <const> = 5`
+--- re-emitted as `local x < const > = 5` is stable and idempotent. So
+--- rendered text that differs from its input is parsed again and
+--- compared, tree and comments, with the tree it came from. Identical
+--- bytes preserve both and need no second parse. A file that fails the
+--- comparison is reported and left as it was.
 ---
---- What comes out is then rendered once more, from the tree already in
---- hand, and required to come back byte for byte: a fix that a second
---- pass would still change is not done fixing. When the render left the
---- text untouched this reuses the tree already parsed from it, so the
---- common case pays for one extra render and no extra parse.
+--- The output is then rendered once more from the tree in hand and must
+--- come back byte for byte, since a fix that a second pass would still
+--- change is not done. When the first render left the text untouched,
+--- this reuses the tree already parsed, so the common case costs one
+--- extra render and no extra parse.
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string
 --- @param name string Filename used in diagnostics
@@ -278,17 +277,16 @@ end
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
 ---
---- What a named path IS comes first, in one stat: a path with nothing
---- at it is said to be missing rather than judged on its suffix, which
---- would answer `nosuchdir/` with a remark about Teal. A directory is
---- walked, which picks out the Teal sources in it and nothing else. A
---- named FILE is taken at its word, so one that is not Teal source at
---- all is said so here -- it would otherwise reach the parser and come
---- back as a syntax error in a file nobody ever claimed was Teal.
+--- One stat says what a named path is first: a path with nothing at it
+--- is reported missing rather than judged on its suffix, which would
+--- answer `nosuchdir/` with a remark about Teal. A directory is walked
+--- for its Teal sources (and, in cosmic's own tree, C and flow-style
+--- YAML). A named file is taken at its word by its suffix, so one that
+--- is none of those is refused here, not sent to the parser to come
+--- back as a syntax error.
 ---
---- Only a failure to walk a directory fails outright. A path the verb
---- will not take is one refusal among however many were named, and is
---- reported as one.
+--- Only a failure to walk a directory fails outright. Any other path
+--- the verb will not take is one refusal among those named.
 --- @param root string The tree to cover when no path was named
 --- @param paths {string} The paths named on the command line
 --- @return fix.Chosen|nil The files to fix and the paths refused
