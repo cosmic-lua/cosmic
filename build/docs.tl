@@ -1080,7 +1080,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     for _, row in ipairs(index) do lines[#lines + 1] = row end
   end
   -- A verb's options are data, `Cli.options`, not prose: shown under
-  -- its field as `cosmic help` shows them, and searched by
+  -- its field as `cosmic help <verb>` shows them, and searched by
   -- `by_options`.
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
   if verb ~= nil and Cli.options[verb] ~= nil then

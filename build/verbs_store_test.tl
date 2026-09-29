@@ -139,6 +139,10 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   end
   assert(not all:find("--jobs", 1, true), all)
   local bare = verbs_fixture.expect(tmp, "help", {}, 0).stdout or ""
+  assert(all:find("\nhelp: PASS %(22 verbs") or all:find("\nhelp: PASS (", 1, true), all)
+  assert(all:find("(print stays)", 1, true), all)
+  local asked = verbs_fixture.expect(tmp, "help", { "help", "--help" }, 0).stdout or ""
+  assert(asked:find("\nMore:\n", 1, true), asked)
   assert(bare:find("\nMore:\n", 1, true) and bare:find("\nQuick tools:\n", 1, true), bare)
 end
 

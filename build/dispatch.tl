@@ -215,8 +215,8 @@ local function index_help(): string
     "  cosmic docs              every module of the standard library",
     "  cosmic docs <module>     a module, or a symbol such as Fs.read",
     "",
-    "Lua's io, os and debug are absent: `cosmic docs cosmic.removed` names",
-    "what replaces each.",
+    "Lua's io, os and debug are absent (print stays): `cosmic docs",
+    "cosmic.removed` names what replaces each.",
   }) do
     lines[#lines + 1] = line
   end
@@ -495,7 +495,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       for slot, word in pairs(argv) do line[slot] = word end
       line[2] = spelled
     end
-    local parsed, parse_trouble = Flags.parse(line, 2, {})
+    local parsed, parse_trouble = Flags.parse(line, 2, { ["--help"] = true, ["-h"] = true })
     if parsed == nil then
       log:complain("help: " .. parse_trouble)
       log:verdict("help", false, parse_trouble)
@@ -548,7 +548,7 @@ help_spec = {
     return help(argv, nil)
   end,
   bare = false,
-  takes = "a verb",
+  takes = "a verb, or `exit`",
 }
 
 --- The spec of the verb a command line's first word names, loading the
