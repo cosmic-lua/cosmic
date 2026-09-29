@@ -199,8 +199,8 @@
    the spawn, and the test, instead, naming the part of the sandbox
    refused and its errno. `COSMIC_SANDBOX=must` (off by default) makes
    every `confine` one, runs every assumed test as `--all` does, and
-   fails `core/syscalls_test.tl`'s sandbox tests rather than letting
-   them return unchecked. Likewise a test nests the workers of a
+   fails `core/syscalls_test.tl`'s sandbox tests rather than counting
+   them skipped. Likewise a test nests the workers of a
    `cosmic test` it starts in its own sandbox only where its assertion
    is about their sandbox; every other run of `cosmic test` a test
    starts sets `COSMIC_TEST_SANDBOX=0`, so it means the same on every
@@ -210,11 +210,22 @@
    `runs_as`, spawn's `user`), whose sandbox nests at any depth as on
    CI's unprivileged runners, with no setup; its key holds that user.
    A worker whose module declares a host cache, which it writes as
-   root, runs as root still. Where the kernel refuses a sandbox that
-   deep, those tests return before asserting, or fail where the run is
-   held to sandboxing (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`
-   or `COSMIC_CI_REQUIRE_SANDBOX=1`: build.confine's
-   `held_to_sandbox`).
+   root, runs as root still, as every worker does where the host
+   refuses the drop. Where the kernel refuses a sandbox that deep,
+   those tests call `Test.skip` and
+   return before asserting: the summary counts them skipped, beside ran
+   and stood, and lists each with its reason (`test: SKIP`); no verdict
+   is kept of one, so it runs again every run. A run held to sandboxing
+   (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
+   `COSMIC_CI_REQUIRE_SANDBOX=1`: build.confine's `held_to_sandbox`)
+   fails any skipped test instead. A test that returns early because
+   this host cannot be given the sandbox it is about calls `Test.skip`
+   too (`build.sandbox_skip`'s `refused`), never passing as though it
+   had checked -- but only where the platform could give it: off Linux
+   (no user namespaces, Landlock or subreaper) it returns silently, a
+   pass the key's kernel part pins to that platform. A test that
+   returns early for a host tool or artifact it lacks (jq, a portable
+   artifact) does not skip: a held run would fail it.
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see

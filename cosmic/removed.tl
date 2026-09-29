@@ -30,6 +30,7 @@ local record Removed
 end
 
 local record Module
+  --- One field per removed global, named for it: what to write instead.
   fields: Removed
   --- The removed globals, the same five `fields` names. Each fails to
   --- resolve at compile time rather than when a running program reaches

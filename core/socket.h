@@ -3,8 +3,10 @@
  * and sends with, registered as the raw `cosmic.internal.socket`
  * module, which only that wrapper is handed. Every socket it makes is
  * closed on exec and nonblocking, so a wait is always `wait`'s, which
- * a deadline and a `Child.guard` end; reading is `cosmic.sys`'s `read`
- * and closing its `close`.
+ * a deadline and a `Child.guard` end; reading is `cosmic.sys`'s `read`.
+ * Each is answered as a `Socket` that owns its descriptor from the
+ * moment it is made, so a raise before the caller has wrapped it --
+ * memory running out -- leaks nothing: the collector closes it.
  *
  * An address is a table whose `kind` says how the rest of it is read,
  * so a kind of socket is one more branch where an address becomes a
@@ -46,19 +48,27 @@ int cosmic_open_socket (lua_State *L);
  */
 
 /*
- * --- Makes a stream socket listening at an address. A unix one is a new socket file: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and the file made is left for the caller to remove. A TCP one fails with EADDRINUSE on a port a listener holds; on Linux it takes one left in TIME_WAIT (SO_REUSEADDR), where macOS refuses it until TIME_WAIT ends.
+ * --- A socket this table made, which owns its descriptor, and a unix listener's socket file: `close`, `<close>` or the collector closes the descriptor and then removes the file while its name is still the file the listener made, so one that has taken the name since is left alone. A unix listener holds a second descriptor for its life, of the file's directory, which it removes the file from wherever the process has moved to and whatever the length of its path; the directory cannot be unmounted while it is held.
+ * ---@class Socket: userdata
+ * ---@field fd fun(self:Socket):integer the descriptor, for the calls that take one; raises once the socket is closed
+ * ---@field close fun(self:Socket):boolean,string,integer closes it: true, or false, what went wrong and the error number, the descriptor closed even so; true again once closed
+ * ---@field __close fun(self:Socket) closes it as `close` does, its failure ignored
+ */
+
+/*
+ * --- Makes a stream socket listening at an address. A unix one is a new socket file, the socket's to remove: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and one whose name another file has taken before it could be read back fails with EEXIST and is left to that file. A TCP one fails with EADDRINUSE on a port a listener holds; on Linux it takes one left in TIME_WAIT (SO_REUSEADDR), where macOS refuses it until TIME_WAIT ends.
  * ---@param address Address where to listen
  * ---@param backlog integer how many connections may wait to be accepted, from 1
- * ---@return integer|nil fd the listening descriptor, or nil on failure
- * ---@return string error what went wrong, when fd is nil
- * ---@return integer errno the error number, when fd is nil
+ * ---@return Socket|nil socket the listening socket, or nil on failure
+ * ---@return string error what went wrong, when socket is nil
+ * ---@return integer errno the error number, when socket is nil
  */
 COSMIC_SYSCALL(listen, 2);
 
 /*
- * --- Takes the next connection waiting on a listening descriptor, as a descriptor of its own, closed on exec and nonblocking.
+ * --- Takes the next connection waiting on a listening descriptor, as a socket of its own, closed on exec and nonblocking.
  * ---@param fd integer the listening descriptor
- * ---@return integer|nil connection the connection's descriptor, or nil on failure: EAGAIN when none is waiting
+ * ---@return Socket|nil connection the connection's socket, or nil on failure: EAGAIN when none is waiting
  * ---@return string error what went wrong, when connection is nil
  * ---@return integer errno the error number, when connection is nil
  */
@@ -68,9 +78,9 @@ COSMIC_SYSCALL(accept, 1);
  * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, Linux's waits for room, while macOS's fails ECONNREFUSED at once, as though nothing listened. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal.
  * ---@param address Address where to connect
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit
- * ---@return integer|nil fd the connected descriptor, closed on exec and nonblocking, or nil on failure
- * ---@return string error what went wrong, when fd is nil
- * ---@return integer errno the error number, when fd is nil
+ * ---@return Socket|nil socket the connected socket, closed on exec and nonblocking, or nil on failure
+ * ---@return string error what went wrong, when socket is nil
+ * ---@return integer errno the error number, when socket is nil
  */
 COSMIC_SYSCALL(connect, 2);
 

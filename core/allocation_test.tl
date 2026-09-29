@@ -31,6 +31,7 @@ local Observations = require("build.filesystem_observations")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local Json = require("cosmic.json")
+local Net = require("cosmic.net")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -264,6 +265,28 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   assert(made >= 1, "the run with nothing refused makes a pipe")
   local after = next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
+--- A socket owns its descriptor, and a unix listener's socket file,
+--- from the call that makes it: a refusal anywhere after -- before
+--- `cosmic.net` has wrapped it, or while it builds the wrap -- leaves
+--- neither to the process, and the next listener takes the same path.
+local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocation_fails(
+    tmp: string)
+  if not checked then return end
+  local path = tmp .. "/s.sock"
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ms = 5000 }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    local accepted <close> = assert(server:accept())
+    assert(client:write("hello"))
+    assert(accepted:read() == "hello")
+  end)
+  assert(ended > 0, "listening, connecting and accepting allocate")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+  assert(sys.lstat(path) == nil, "a refused allocation left the socket file behind")
 end
 
 --- Asserts the core's own C heap holds what it held when `c_heap`

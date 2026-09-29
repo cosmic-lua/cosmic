@@ -6,10 +6,10 @@
 
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local confine = require("build.confine")
+local sandbox_skip = require("build.sandbox_skip")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
@@ -143,12 +143,12 @@ end
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stderr))
   local said = assert(r.stdout)
-  if said:find("^host%-proc ") then return end
-  -- A kernel that confines nothing (no user namespaces for this user, or
-  -- no Linux: ENOSYS), as the sandbox's other tests take it: a failure
-  -- only under COSMIC_SANDBOX=must.
-  if said:find("^unconfinable ") then
-    assert(Env.get("COSMIC_SANDBOX") ~= "must", "COSMIC_SANDBOX=must, but: " .. said)
+  -- A /proc the host's container keeps read-only, or a kernel that
+  -- confines nothing (no user namespaces for this user, or no Linux:
+  -- ENOSYS), as the sandbox's other tests take it: skipped where the
+  -- platform could confine (build.sandbox_skip).
+  if said:find("^host%-proc ") or said:find("^unconfinable ") then
+    sandbox_skip.refused("the parent could not confine its child: " .. said)
     return
   end
   assert(said == "exited 0\n", said)

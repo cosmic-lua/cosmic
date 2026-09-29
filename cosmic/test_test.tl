@@ -44,3 +44,14 @@ local function test_network_takes_loopback_addresses_alone()
   end
   assert(Test.any_host_refusal:find("^network = true: network takes loopback addresses"))
 end
+
+--- `skip` takes a reason: none, or an empty one, raises before the test
+--- is counted skipped, so this test, which passes, is not.
+local function test_skip_takes_a_reason()
+  for _, reason in ipairs({ "", 1, false, nil } as {any}) do
+    local ok, trouble: boolean, any = pcall(Test.skip as function(any), reason)
+    assert(not ok and tostring(trouble):find("skip takes a reason", 1, true), tostring(trouble))
+  end
+  local ok, trouble: boolean, any = pcall(Test.skip as function(any), nil)
+  assert(not ok and tostring(trouble):find("skip takes a reason", 1, true), tostring(trouble))
+end

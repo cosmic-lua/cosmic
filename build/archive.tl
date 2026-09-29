@@ -360,10 +360,10 @@ end
 --- refusal a direct extraction would have made at that path: through a
 --- symlink the destination holds, onto a directory or over a file.
 --- `rel` is the directory of `tree` looked at, "" for the top.
--- Checked, then moved: a file that appears at a path between this look
--- and `apply_steps`' rename of it is replaced without a refusal. That
--- stays -- only another process racing the extraction reaches it, and
--- holding the destination still would need a lock no reader honours.
+--- Checked, then moved: a file that appears at a path between this look
+--- and `apply_steps`' rename of it is replaced without a refusal. That
+--- stays -- only another process racing the extraction reaches it, and
+--- holding the destination still would need a lock no reader honours.
 local function plan_move(tree: string, dest: string, force: boolean, rel: string,
     steps: {Step}, why_of: function(string): string): Outcome | nil
   local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel))
@@ -479,15 +479,15 @@ end
 --- check passed. A failure removes the staging directory and leaves
 --- `dest` as it was, the directories above a `dest` it would have made
 --- included.
---
--- What stays non-atomic: the move is one rename per path (one for the
--- whole tree when `dest` does not exist, which is all or nothing), and
--- a move that fails partway is undone, but a process killed in the
--- middle of one leaves the paths moved so far, and a staging directory
--- named `.cosmic-extract-*` to remove. The kernel has no rename of many
--- paths at once, and journalling the move would cost more than a kill
--- at that instant is worth. A kill before the move leaves only the
--- staging directory.
+---
+--- What stays non-atomic: the move is one rename per path (one for the
+--- whole tree when `dest` does not exist, which is all or nothing), and
+--- a move that fails partway is undone, but a process killed in the
+--- middle of one leaves the paths moved so far, and a staging directory
+--- named `.cosmic-extract-*` to remove. The kernel has no rename of many
+--- paths at once, and journalling the move would cost more than a kill
+--- at that instant is worth. A kill before the move leaves only the
+--- staging directory.
 local function extract_streamed(file: string, source: Stream.Reader, dest: string, force: boolean,
     wanted: {string}, selected: function(string): boolean, to: verb.Io): Outcome
   local reader, open_why = Archive.open_stream(source)

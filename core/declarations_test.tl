@@ -216,13 +216,13 @@ local function reply(): string
 end
 
 --- One of each userdata a raw module makes, by record name, and what
---- releases them.
+--- releases them, made in `tmp` where a file is made.
 local record Made
   instances: {string: any}
   release: function()
 end
 
-local makers: {string: function(raw: {string: any}): Made} = {
+local makers: {string: function(raw: {string: any}, tmp: string): Made} = {
   compress = function(raw: {string: any}): Made
     local stream = assert(call(raw.inflater, "raw"))
     return { instances = { Stream = stream }, release = nothing }
@@ -236,6 +236,11 @@ local makers: {string: function(raw: {string: any}): Made} = {
       { script = { reply() } }))
     return { instances = { Handle = handle },
       release = function() call(members(handle).close, handle) end }
+  end,
+  socket = function(raw: {string: any}, tmp: string): Made
+    local socket = assert(call(raw.listen, { kind = "unix", path = tmp .. "/s.sock" }, 1))
+    return { instances = { Socket = socket },
+      release = function() call(members(socket).close, socket) end }
   end,
   sqlite = function(raw: {string: any}): Made
     local handle = assert(call(raw.open, ":memory:", true))
@@ -311,7 +316,7 @@ end
 
 --- Every declaration under cosmic/internal, and each the build derives
 --- from a header, is what the running core registers.
-local function test_every_declaration_is_what_the_core_registers()
+local function test_every_declaration_is_what_the_core_registers(tmp: string)
   local problems: {string} = {}
   local names: {string} = {}
   for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
@@ -324,7 +329,7 @@ local function test_every_declaration_is_what_the_core_registers()
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
-    local made: Made = maker ~= nil and maker(members(raw))
+    local made: Made = maker ~= nil and maker(members(raw), tmp)
       or { instances = {}, release = nothing }
     local source = declaration_of(name)
     for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do

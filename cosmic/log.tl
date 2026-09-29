@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local record Log
   --- Where one program's lines go, and the name its complaints carry.
   record Logger
+    --- The name `complain` prefixes to a line, as `name: line`.
     name: string
 
     --- `line` on stdout, as it is. False and why when the write fails,
