@@ -20,6 +20,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local closure_store = require("build.closure_store")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
@@ -525,6 +526,33 @@ function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
   return out
 end
 
+--- Each declaration of `db` that requires a name no declaration of `db`
+--- answers for, as `<declaration> requires <name>`: a closure store
+--- follows a declaration's requires among declarations alone
+--- (`build.closure_store`'s `declared`), so a module one required would
+--- be neither carried nor in the store's address.
+function tree_checks.declarations(db: Sqlite.Handle): {string}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, CAST(inflate(source) AS TEXT) FROM decls ORDER BY path")
+  if rows == nil then
+    return { "reading the declarations: " .. trouble }
+  end
+  local declared: {string:boolean} = {}
+  for _, row in ipairs(rows) do declared[row[1]] = true end
+  local out: {string} = {}
+  for _, row in ipairs(rows) do
+    for _, name in ipairs(closure_store.required_by(row[2])) do
+      if not declared[name] then
+        out[#out + 1] = row[1] .. " requires " .. name .. ", which is no declaration: " ..
+          "a closure store follows a declaration's requires among declarations alone " ..
+          "(build/closure_store.tl's `declared`), so declare what it needs of " .. name ..
+          " in a declaration, or teach the store to follow a module"
+      end
+    end
+  end
+  return out
+end
+
 --- Whether `path`, relative to the tree's root, is a source of the
 --- public standard library: `cosmic/` outside `cosmic/internal/`. A
 --- note `build.fix.near` makes on one fails the whole tree's check: the
@@ -584,6 +612,7 @@ function tree_checks.run(db: Sqlite.Handle): {string}
     { name = "stand-ins", lines = tree_checks.stand_ins(db) },
     { name = "docs queries", lines = tree_checks.queries(db) },
     { name = "quieted", lines = tree_checks.quieted(db) },
+    { name = "declarations", lines = tree_checks.declarations(db) },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line
