@@ -570,6 +570,27 @@ COSMIC_SYSCALL(fsync, 1);
 COSMIC_SYSCALL(ftruncate, 2);
 
 /*
+ * --- Locks the file a descriptor is open on, as `flock(2)` does: the
+ * --- lock belongs to the open file, so another open of the same file,
+ * --- in this process or another, is refused a lock that conflicts with
+ * --- it, and it is released when every descriptor of that open is
+ * --- closed -- when the process ends, too. "exclusive" conflicts with
+ * --- every other lock, "shared" only with an exclusive one, and
+ * --- "unlock" releases what this open holds. A conflicting lock is
+ * --- waited for until `timeout_ms` has passed, "Operation timed out",
+ * --- or a `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
+ * --- call", each seen within a tenth of a second. Over NFS or SMB, an
+ * --- exclusive lock needs a descriptor open for writing.
+ * ---@param fd integer the descriptor, open on the file to lock
+ * ---@param how string "exclusive", "shared" or "unlock"
+ * ---@param timeout_ms? integer how long to wait, in milliseconds, from 0 (the default: ask once); -1 for no limit
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(flock, 3);
+
+/*
  * --- Whether this process may reach `path` as `mode` asks: 0 for only
  * --- that it exists, else R_OK, W_OK and X_OK or'd together. It is
  * --- asked with the effective ids, as `execvp` and `open` ask, and
