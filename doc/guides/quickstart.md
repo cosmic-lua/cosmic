@@ -206,10 +206,10 @@ as `lstat`, is there. A failure returns nil, the error, and the errno.
 `cosmic docs cosmic.sys` lists every call.
 
 ```teal
-local syscalls = require("cosmic.sys")
+local sys = require("cosmic.sys")
 
-assert(syscalls.mkdir(tmp .. "/made"))
-local stat = assert(syscalls.lstat(tmp .. "/made"))
+assert(sys.mkdir(tmp .. "/made"))
+local stat = assert(sys.lstat(tmp .. "/made"))
 print(stat.kind)
 ```
 

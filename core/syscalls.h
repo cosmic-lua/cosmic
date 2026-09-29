@@ -105,7 +105,7 @@ int cosmic_open_syscalls (lua_State *L);
  * --- through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>, a link to
  * --- one) is refused, EACCES, before anything is opened.
  * ---@param path string the path to open
- * ---@param flags integer the O_* flags, from `syscalls.O`
+ * ---@param flags integer the O_* flags, such as `sys.O_RDONLY`
  * ---@param mode? integer the mode for a newly created file, default 0o644
  * ---@return integer|nil fd the descriptor, or nil on failure
  * ---@return string error what went wrong, when fd is nil

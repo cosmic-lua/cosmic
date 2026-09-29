@@ -78,6 +78,16 @@ local function test_classes_and_fields_carry_their_prose()
     "and on macOS. Derived from core/syscalls.h.", module)
 end
 
+--- The table is documented under the name every caller gives it,
+--- `local sys = require("cosmic.sys")`, so `cosmic docs sys.open` and
+--- the module page say `sys.open`, as a caller writes it.
+local function test_the_table_is_documented_as_sys()
+  local source = assert(gen_syscalls.declaration(header))
+  assert(source:find("\nlocal record sys\n", 1, true), source)
+  assert(source:find("\nreturn sys\n", 1, true), source)
+  assert(not source:find("record syscalls", 1, true), source)
+end
+
 --- The generated source names, for each declaration, its line in the
 --- header -- what the build shows in place of the generated source's
 --- own lines.
