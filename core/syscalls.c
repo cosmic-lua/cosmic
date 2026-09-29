@@ -389,10 +389,10 @@ static void close_child_descriptors (int from, long limit) {
  * out a right the ruleset otherwise handles -- truncate below ABI 3,
  * TCP below 4, device ioctls below 5, abstract unix sockets and signals
  * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
- * child to a ruleset under build.filesystem_observations'
- * `must_confine`: today it handles what the kernel knows and says
- * nothing of the rest, so a child on an older kernel may truncate a
- * file it was given only to read. */
+ * child to a ruleset under build.confine's `must_confine`: today it
+ * handles what the kernel knows and says nothing of the rest, so a
+ * child on an older kernel may truncate a file it was given only to
+ * read. */
 COSMIC_SYSCALL(landlock_ruleset, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -733,11 +733,12 @@ static int open_unlinked_directory (int dir, const char *name) {
   return openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 }
 
-/* Makes the place a path is bound at, `target`, `skip` bytes into it the
- * root being built: each directory on the way made where it is missing,
- * with the mode of the one it stands for (`mirrored_mode`), and its last
- * name a directory, with `directory`, or else an empty file, where it is
- * not there -- going through no link. A link on the way or at its end
+/* Makes the place a path is bound at: `target`, a path in the root being
+ * built, of which the first `skip` bytes name the root. Each directory
+ * on the way is made where it is missing, with the mode of the one it
+ * stands for (`mirrored_mode`), and its last name a directory, with
+ * `directory`, or else an empty file, where it is not there -- going
+ * through no link. A link on the way or at its end
  * is refused with ELOOP: a name placed beneath a path bound from the
  * host (`at`) could otherwise lead out through a link there, and make
  * a file where the host has the link's target. `target` is written
@@ -932,8 +933,8 @@ static int drop_capabilities (void) {
  * path -- or on setting it from here to the parent's own, which the
  * kernel only lets a process holding CAP_AUDIT_CONTROL do.
  * TODO: refuse the sandbox where the kernel refuses a procfs of its
- * own (EPERM, which build.filesystem_observations' `unconfinable` falls
- * back on and `must_confine` fails), rather than bind the host's, once
+ * own (EPERM, which build.confine's `unconfinable` falls back on and
+ * `must_confine` fails), rather than bind the host's, once
  * no container the tree is tested in masks /proc: CI's Linux legs run
  * with systempaths=unconfined (.github/scripts/leg-container.sh), but a
  * developer's docker may not. Meanwhile a child with the host's /proc
@@ -1662,7 +1663,7 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
 }
 
 /* Noted before it starts anything: the process table's own `spawn`,
- * called past build.filesystem_observations' stand-in for it -- through
+ * called past build.confine's stand-in for it -- through
  * a reference taken before a capture began -- starts a process the
  * observer never judged. */
 COSMIC_SYSCALL(spawn, 10) {
@@ -2192,8 +2193,8 @@ int cosmic_spawn_unobserved (lua_State *L) {
     /* Room was made before the child started, but a finalizer the Lua
      * calls since then ran could have spawned into it: where there is
      * none left and no more to be had, the init is ended at once, and
-     * its program with it, rather than left for `end_strays` to take
-     * for a stray. */
+     * its program with it, rather than left unrecorded, where nothing
+     * would ever reap it. */
     if (init > 0 && (pair_count < pair_room || sandbox_room())) {
       pairs[pair_count++] = (struct sandbox_pair){ init, program };
       if (program < 0) end_sandbox_init(pair_count - 1);

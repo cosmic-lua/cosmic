@@ -28,8 +28,8 @@ function Images.name(repository: string, image: string): string
   return (("ghcr.io/" .. repository .. "-ci-" .. image):lower())
 end
 
---- The words after `docker` that build `image` for `arch`, from the
---- checkout's root. --provenance=false keeps it a plain image, so the
+--- The words after `docker` that build the IMAGE for the ARCH `env` names,
+--- from the checkout's root. --provenance=false keeps it a plain image, so the
 --- index publish joins holds the platforms and nothing else.
 function Images.build_argv(env: {string:string}): {string}
   local repository = required(env, "GITHUB_REPOSITORY")

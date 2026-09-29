@@ -26,14 +26,16 @@ end
 -- FIFO pause/release and process supervision.
 --------------------------------------------------------------------------
 
--- `hook == "after_validation"`
--- pauses through the native `COSMIC_PORTABLE_STARTUP_TEST_READY`/`_GO` hook
+-- Starts `program` paused at `hook`, and answers the child and the pipe
+-- that releases it. The hook "after_validation" pauses through the native
+-- `COSMIC_PORTABLE_STARTUP_TEST_READY`/`_GO` hook
 -- (test/portable/startup_hook.c), which fires at one fixed point in real
--- startup regardless of a hook name, and runs `tool.tl retained-prefix-probe`
--- from `root`. Every other hook name (e.g. "after_select") instead goes
--- through the named `COSMIC_PORTABLE_TEST_HOOK`/`_READY`/`_GO` mechanism
--- (the same one launcher_test.tl's `hook_environment` drives), running
--- the copied `probe.tl` fixture script from `work/run space`.
+-- startup whatever the hook's name, and runs `tool.tl
+-- retained-prefix-probe` from `root`. Every other hook name (e.g.
+-- "after_select") goes through the named
+-- `COSMIC_PORTABLE_TEST_HOOK`/`_READY`/`_GO` mechanism (the one
+-- launcher_test.tl's `hook_environment` drives), running the copied
+-- `probe.tl` fixture script from `work/run space`.
 local function run_paused(root: string, work: string, diagnostics: string,
     hook: string, program: string, cache: string, expected_hash: string,
     expected_marker: string): Running, string
@@ -80,9 +82,8 @@ local function host_identifier(work: string, diagnostics: string): string
 end
 
 -- The manifest header is a run of human-readable lines within the first
--- 16384 bytes, each beginning "  HOST" for the target it selects. This
--- mirrors launcher_test.tl's own already-proven header scan (same
--- `"  " .. host` prefix check).
+-- 16384 bytes, each beginning "  HOST" for the target it selects, as
+-- launcher_test.tl's header scan checks (the same `"  " .. host` prefix).
 local function selected_header_line(artifact_bytes: string, host: string):
     string
   local header = artifact_bytes:sub(1, 16384)
@@ -186,9 +187,9 @@ local function test_runtime_logical_paths(tmp: string)
     { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(help_absolute.out, "cosmic -- a runtime")
 
-  -- Occupied 8 and 9 no longer conflict with the portable contract: the
-  -- shell chooses another pair and the real runtime adopts the exported
-  -- numbers.
+  -- Occupied descriptors 8 and 9 do not conflict with the portable
+  -- contract: the shell chooses another pair and the real runtime adopts
+  -- the exported numbers.
   local occupied = run_with_descriptors("help-occupied-descriptors",
     fixture_dir .. "/runtime.release", fixture_dir .. "/runtime.release",
     { work .. "/bin/cosmic-runtime", "help" }, work, diagnostics,
@@ -259,9 +260,9 @@ local function test_runtime_environment_scrubbing(tmp: string)
     root .. "/test/portable/tool.tl", "environment-clean", cache }
   for _, name in ipairs(names) do argv[#argv + 1] = name end
 
-  -- tool.tl's own require("build.artifact")/require("test.portable")
-  -- resolve relative to the process cwd, so this (like
-  -- every other tool.tl invocation here) must run from `root`, not `work`.
+  -- tool.tl's require("build.artifact") and require("test.portable")
+  -- resolve relative to the process cwd, so this (like every other tool.tl
+  -- invocation here) runs from `root`, not `work`.
   local outcome = Fixture.run("environment-clean", argv, root, diagnostics,
     values)
   Fixture.contains(outcome.out, "portable environment: clean")
@@ -332,11 +333,11 @@ local function test_runtime_private_contract(tmp: string)
     configuration_id, offset, length, digest, "unrepresentable",
     "2147483648", "9", "portable artifact descriptor field is invalid")
 
-  -- A different build of the same target/configuration is the executing
-  -- inode and FD9, but differs from the manifest's exact core bytes and is
-  -- rejected, as "executing core length differs from manifest" or the same
-  -- for its digest; Fixture.contains is a plain substring match, so this
-  -- uses a Lua pattern for the alternation.
+  -- A different build of the same target and configuration, run as the
+  -- executing inode on FD 9, differs from the manifest's exact core bytes
+  -- and is rejected: "executing core length differs from manifest", or the
+  -- same for its digest. Fixture.contains is a plain substring match, so
+  -- this uses a Lua pattern for the alternation.
   local wrong_core_run = run_with_descriptors("wrong-core",
     fixture_dir .. "/runtime.release", wrong_core,
     { wrong_core, "--artifact", fixture_dir .. "/runtime.release", "help" },
@@ -556,11 +557,11 @@ local function test_runtime_unlink_while_paused(tmp: string)
 end
 
 -- Replacement after shell selection but before open cannot pair old
--- launcher claims with an incompatible complete artifact and never reaches
--- boot mode. This is the one race that uses the "after_select" hook rather
--- than "after_validation" (an earlier point in startup), so it runs the
--- copied `probe.tl` fixture script from `work/run space` via the bare
--- `COSMIC_PORTABLE_TEST_HOOK` mechanism instead of `tool.tl
+-- launcher claims with an incompatible complete artifact, and never reaches
+-- boot mode. This is the one race that uses the "after_select" hook, an
+-- earlier point in startup than "after_validation", so it runs the copied
+-- `probe.tl` fixture script from `work/run space` via the bare
+-- `COSMIC_PORTABLE_TEST_HOOK` mechanism, not `tool.tl
 -- retained-prefix-probe` from `root`.
 local function test_runtime_mismatch_after_select(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
@@ -592,8 +593,8 @@ local function test_runtime_mismatch_after_select(tmp: string)
     local err = Fixture.read(child.err)
     assert(err:find("extracted core digest differs", 1, true) ~= nil,
       "mismatch-after-select: expected failure message not found")
-    -- A hard bug (startup falling all the way back to treating this as no
-    -- tree to boot at all) rather than the expected rejection; surfaced
+    -- Startup falling all the way back to treating this as no tree to
+    -- boot is a hard bug, not the expected rejection, so it is surfaced
     -- loudly.
     assert(err:find("no tree to boot", 1, true) == nil,
       "mismatch-after-select: startup fell back to \"no tree to boot\" " ..
@@ -605,7 +606,7 @@ end
 -- 7. Timing observations.
 --------------------------------------------------------------------------
 
--- Record real runtime.release entry cost independently of the tiny launcher
+-- Records the real runtime.release entry cost, apart from the tiny launcher
 -- payload timings. These observations are informational and set no
 -- threshold.
 local function test_runtime_timing(tmp: string)

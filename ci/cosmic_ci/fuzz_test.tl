@@ -42,12 +42,11 @@ local function pieces(text: string, size: integer): function(): string
   end
 end
 
---- What the shell pipelines the fuzz commands replaced made of the `n`th
---- of `outputs()`, kind "failure" or "tail": kept in testdata/fuzz/ as
---- GNU grep, cut, head and tail wrote them (coreutils 9.4, under
---- LC_ALL=C), since fuzz.yml ran them on ubuntu, and a host's own tools
---- may differ (BSD cut, on macOS, leaves a last line unended). They
---- were written by
+--- What GNU grep, cut, head and tail (coreutils 9.4, under LC_ALL=C)
+--- make of the `n`th of `outputs()`, for kind "failure" or "tail", kept
+--- in testdata/fuzz/. It is the reference the driver's Teal must match;
+--- a host's own tools may differ (BSD cut, on macOS, leaves a last line
+--- unended). It was written by
 ---
 ---     failure: grep '^test: FAIL' "$OUT" | cut -c1-300 | head -30 || true
 ---              echo

@@ -29,10 +29,9 @@
 # again from an empty .part file, with a growing pause between tries, up
 # to COSMIC_BOOTSTRAP_ATTEMPTS times (default 5).
 #
-# A cache this script did not fill -- CI restores its
-# from actions/cache -- is checked again when COSMIC_BOOTSTRAP_VERIFY is set:
-# a cached file whose sha256 is not the pin's is removed and fetched
-# afresh, as if it had never been there.
+# A cache this script did not fill (CI restores one from actions/cache)
+# is checked again when COSMIC_BOOTSTRAP_VERIFY is set: a cached file
+# whose sha256 is not the pin's is removed and fetched afresh.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -125,9 +124,8 @@ if [ ! -x "$cached" ]; then
         --output "$partial" "$url"
     }
   elif command -v wget >/dev/null 2>&1; then
-    # wget has no minimum speed: 30 s of silence ends an attempt, its
-    # stall guard, and it makes one try (its default is 20), the loop
-    # below the rest.
+    # wget has no minimum speed, so 30 s of silence ends an attempt. It
+    # makes one try (its default is 20); the loop below makes the rest.
     fetch() { wget -q --timeout=30 --tries=1 -O "$partial" "$url"; }
   else
     die "need curl or wget to fetch $url"

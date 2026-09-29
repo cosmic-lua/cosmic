@@ -47,10 +47,9 @@
  * the caller did not write (an archive entry, say), so every call that
  * takes one refuses such a path as a runtime failure, EINVAL, rather
  * than raising. A non-string still raises, as any argument-shape error
- * does. `spawn` (core/process.h), whose path and cwd refused a NUL by
- * raising before this rule, still does: `cosmic.child` depends on it,
- * and neither way truncates. `execve` and `landlock_ruleset` raise on
- * one too. */
+ * does. `spawn` (core/process.h) raises on a NUL in its path or cwd
+ * instead, which `cosmic.child` depends on; neither way truncates.
+ * `execve` and `landlock_ruleset` raise on one too. */
 const char *cosmic_path (lua_State *L, int index);
 
 /* Opens the table as the `cosmic.sys` module. */

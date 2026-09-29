@@ -163,11 +163,11 @@ end
 end
 
 --- A process reports only to a directory named by a core of its own
---- build: the variable carries the naming core's signature, and one
---- another build's core named -- or one with none, as a release before
---- the signature names it -- is passed on but never reported to, since
---- that core's lines are another build's C (bin/zig's pinned release,
---- started by a test, is such a core).
+--- build: the variable carries the naming core's signature. A directory
+--- named by another build's core, or by one that carries no signature
+--- (an older release), is passed on but never reported to, since that
+--- core's lines are another build's C (bin/zig's pinned release, started
+--- by a test, is such a core).
 local function test_a_process_of_another_build_does_not_report(tmp: string)
   if next(Coverage.native_lines()) == nil then return end
   for index, value in ipairs({ "0000000000000000:" .. tmp .. "/foreign",

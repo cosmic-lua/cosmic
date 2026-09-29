@@ -40,48 +40,53 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- main's scheduled one are the backstop, running every test.
 local standing_events: {string:boolean} = { push = true, merge_group = true }
 
---- Whether a suite stands on the verdicts its tests' declared inputs
---- key (build/declared_key.tl), main's earlier runs' of this leg among
---- them (COSMIC_VERDICT_CACHE, which ci.yml restores per leg), in `env`: on a
---- leg whose workers are sandboxed, and required to be
---- (COSMIC_CI_REQUIRE_SANDBOX=1) -- the Linux legs -- or keyed by what
---- they declare without a sandbox (COSMIC_CI_DECLARED_KEYS=1, which
---- `environment` makes COSMIC_TEST_KEY=declared) -- the macOS leg --
---- in a run of an event of `standing_events` (COSMIC_CI_EVENT): a push,
---- main's as much as another branch's, or the merge queue's; each
+--- Whether a suite in `env` stands on verdicts other runs reached, keyed
+--- by what its tests declare (build/declared_key.tl) and shared through
+--- COSMIC_VERDICT_CACHE, which ci.yml restores per leg. It does when
+--- both hold:
+---
+--- The leg keys by declaration. Its workers are sandboxed and required
+--- to be (COSMIC_CI_REQUIRE_SANDBOX=1, the Linux legs), or they are keyed
+--- by what they declare without a sandbox (COSMIC_CI_DECLARED_KEYS=1,
+--- which `environment` makes COSMIC_TEST_KEY=declared, the macOS leg).
+--- Nothing holds a macOS worker to its declaration, but a Linux leg's
+--- sandbox holds the same test under the same declaration and closure,
+--- so a declaration that lies fails there before it merges. Only what
+--- reads something only on macOS is the gap (build/test.tl's `launch`).
+---
+--- The run's event (COSMIC_CI_EVENT) is in `standing_events`: a push,
+--- main's as much as another branch's, or the merge queue's. Each
 --- restores the newest cache main saved of its leg, host and host
---- features (ci.yml's "name the leg's host"). Nothing holds a macOS worker to
---- its declaration, but a Linux leg's sandbox holds the same test,
---- under the same declaration and closure, which its key holds, so a
---- declaration that lies fails there before it merges; what reads
---- something only on macOS is the gap (build/test.tl's `launch`). A
---- manual run and main's scheduled one run every test (`--all`) and
---- stand on nothing another run reached (COSMIC_TEST_NO_SHARED=1). So
---- no gating run runs every test: a pass a key does not answer for --
---- a test that turns on the clock, or a flaky one -- is caught only by
---- main's scheduled run, the next day, whose failure GitHub tells only
---- whoever last edited its cron line (the TODO on ci.yml's
+--- features (ci.yml's "name the leg's host").
+---
+--- A manual run and main's scheduled one run every test (`--all`) and
+--- stand on nothing another run reached (COSMIC_TEST_NO_SHARED=1). So no
+--- gating run runs every test: a pass a key does not answer for, such as
+--- a test that turns on the clock or a flaky one, is caught only by
+--- main's scheduled run the next day. When that run fails, GitHub tells
+--- only whoever last edited its cron line (the TODO on ci.yml's
 --- `schedule`).
 -- TODO: share a Linux leg's verdicts across its runners only once the
 -- key holds what a host's package database does not say (the TODO on
--- build/declared_key.tl's `system_identity`): today they are keyed by
+-- build/declared_key.tl's `system_identity`). Today they are keyed by
 -- the leg's container as ci.yml names it (COSMIC_HOST_ID: the image
 -- reference, a hash of .github/scripts/leg-container.sh and the seccomp
 -- profile, which hold every option and host setting it starts with, and
--- the engine's version), but a change inside an image under the same
--- reference, or on the runner beneath it, is not. The macOS leg's
+-- the engine's version). A change inside an image under the same
+-- reference, or on the runner beneath it, is not keyed. The macOS leg's
 -- image names itself (COSMIC_SYSTEM_ID, .github/scripts/leg-host-id.sh),
 -- which every module given the system's paths is keyed by.
 ---
---- Nor does a merge-queue run whose change moves build/harness_epoch.tl
---- from the queue's base (COSMIC_CI_HARNESS_MOVED, which `environment`
---- sets by `harness_moved` where the driver's environment does not):
---- no key holds the harness's code, only the epoch that file records
---- (build/declared_key.tl), and a harness change marked there as one
---- that moves no verdict would otherwise land on verdicts it may have
---- moved. It runs every test, as main's scheduled run does, so the
---- change is gated on a run that stands on nothing; where the driver
---- cannot tell whether the file moved, it takes it as moved.
+--- A merge-queue run does not stand either where its change moves
+--- build/harness_epoch.tl from the queue's base (COSMIC_CI_HARNESS_MOVED,
+--- which `environment` sets by `harness_moved` where the driver's
+--- environment does not). No key holds the harness's code, only the
+--- epoch that file records (build/declared_key.tl), so a harness change
+--- marked there as one that moves no verdict would otherwise land on
+--- verdicts it may have moved. Such a run runs every test, as main's
+--- scheduled run does, so the change is gated on a run that stands on
+--- nothing. Where the driver cannot tell whether the file moved, it takes
+--- it as moved.
 function Orchestration.stands(env: {string:string}): boolean
   if env.COSMIC_CI_EVENT == "merge_group" and env.COSMIC_CI_HARNESS_MOVED ~= "0" then
     return false
@@ -135,10 +140,10 @@ end
 --- Whether build/harness_epoch.tl differs between the commit `base`
 --- names and HEAD in the checkout at `root`, and why: the merge queue's
 --- base commit (ci.yml's COSMIC_CI_BASE_SHA) and the merge it checks. A
---- checkout that lacks the base -- a shallow one -- fetches that one
---- commit. True where either cannot be read -- no base named, no git,
---- a fetch refused or timed out, a file added -- which runs every
---- test: the safe side; the why says what failed.
+--- checkout that lacks the base, a shallow one, fetches that one commit.
+--- True where either cannot be read (no base named, no git, a fetch
+--- refused or timed out, a file added), which runs every test: the safe
+--- side. The why says what failed.
 function Orchestration.harness_moved(root: string, base: string): boolean, string
   if root == "" then return true, "no checkout named (GITHUB_WORKSPACE)" end
   if not base:match("^%x+$") then
@@ -200,8 +205,8 @@ end
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
 --- night with a seed of its own: a check that gates a change answers the
 --- same on every run, and one that searches runs where a find blocks
---- nobody's merge. A gating suite's is then rid of what names the run
---- (`suite_run`, `forget_run`).
+--- nobody's merge. `suite_run` then removes what names the run from a
+--- gating suite's copy (`forget_run`).
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
   all.FUZZ_ITERS = "0"
@@ -217,13 +222,12 @@ local function environment(extra?: {string:string}): {string:string}
   -- Where the leg is given what spawn's sandbox needs, every suite runs
   -- each worker sandboxed (build/test_sandbox.tl), as `cosmic test`
   -- does by default wherever it can, and fails where it cannot rather
-  -- than run them unsandboxed; and every build.confine `confine` of a
-  -- test is a `must_confine` there (COSMIC_SANDBOX=must,
-  -- build/confine.tl), so a process a test confines
-  -- runs confined or fails the test, never unconfined, and the sandbox
-  -- tests of core/syscalls_test.tl cannot pass unchecked. The mode
-  -- also runs every test no key can hold, as --all does; a sandboxed
-  -- run has none.
+  -- than run them unsandboxed. Every build.confine `confine` of a test
+  -- is a `must_confine` there (COSMIC_SANDBOX=must, build/confine.tl),
+  -- so a process a test confines runs confined or fails the test, and
+  -- the sandbox tests of core/syscalls_test.tl cannot pass unchecked.
+  -- The mode also runs every test no key can hold, as --all does; a
+  -- sandboxed run has none.
   if all.COSMIC_CI_REQUIRE_SANDBOX == "1" then
     all.COSMIC_TEST_SANDBOX = "1"
     all.COSMIC_SANDBOX = "must"
@@ -289,25 +293,26 @@ end
 
 --- The shared verdict cache (COSMIC_VERDICT_CACHE) the suite `name`
 --- keeps and stands on, given `env`, the driver's: `<name>.db` beside
---- the one `env` names -- in the directory ci.yml's verdict cache saves
---- and restores, so it rides along -- or "0", none, where `env` names
---- no absolute path or turns the cache off.
+--- the one `env` names, in the directory ci.yml's verdict cache saves
+--- and restores, so it rides along. "0", none, where `env` names no
+--- absolute path or turns the cache off.
 ---
---- Not the other suites' file: the portable artifact carries the cores
---- o/bin/cosmic does, from o/core (`ProductSetup`), so a test that does
---- not run the program (`tool`) may key the same under either -- the
---- same runtime identity, and what runs that core
---- (build/declared_key.tl's `launcher_identity`) the same wherever the
---- two artifacts' launchers and manifests are -- and the portable suite
---- would stand on the local suite's verdicts of minutes earlier,
---- running nothing under the portable build. Apart, it runs each such
+--- It is not the other suites' file. The portable artifact carries the
+--- cores o/bin/cosmic does, from o/core (`ProductSetup`), so a test that
+--- does not run the program (`tool`) may key the same under either: the
+--- same runtime identity, and the same identity of what runs that core
+--- (build/declared_key.tl's `launcher_identity`) wherever the two
+--- artifacts' launchers and manifests are. In one file, the portable
+--- suite would stand on the local suite's verdicts of minutes earlier
+--- and run nothing under the portable build. Apart, it runs each such
 --- test itself and stands only on earlier portable runs', whose keys
 --- move with its launcher, cores and manifest as with anything else a
 --- test is given.
 ---
---- Nor the checked suite's (`checked`), which the local suite's rows
---- would otherwise crowd toward the file's bound, and whose census
---- (`--census`) then counts its own suite's rows alone.
+--- Nor is it the checked suite's (`checked`): the local suite's rows
+--- would crowd the checked suite's toward the file's bound, and the
+--- checked suite's census (`--census`) counts only its own suite's rows
+--- when the file is its own.
 function Orchestration.suite_verdicts(env: {string:string}, name: string): string
   local shared = env.COSMIC_VERDICT_CACHE or ""
   if shared:sub(1, 1) ~= "/" then return "0" end
@@ -448,17 +453,17 @@ local runtime_test_timeout_ms <const> = 180000
 -- tree's own load, which a booted tree has already paid.
 local sandbox_probe_timeout_ms <const> = 60000
 local identity_test_timeout_ms <const> = 120000
--- The identity suite took 21-30 s whole on macOS, and 35 s once, when its
--- one test then ran past the runner's default 30 s per test (run
--- 36345675442); its focused-embed step took 21 s of that alone, and is a
--- test of its own now. The two run at once on a runner of two or more
--- processors, so both near this bound still end inside the whole file's.
+-- The identity suite takes 21-30 s whole on macOS, and 35 s at worst, past
+-- the runner's default 30 s per test. Its focused-embed step takes 21 s of
+-- that alone and is a test of its own. The two run at once on a runner of
+-- two or more processors, so both near this bound still end inside the
+-- whole file's.
 local identity_per_test_timeout_s <const> = "60"
 -- The checked cosmic's first file in the tree after the checked build
 -- (`checked_suite`). A boot names the analyzer as the tool it writes
 -- does (build/importer.tl's `tree_code`), so that file builds nothing
--- again: 0.3-0.7 s here, where it was a reparse of every source, 30-35 s
--- by the checked cosmic under ci/run-local on a 4-core host, once 41 s.
+-- again: 0.3-0.7 s here. A reparse of every source would take 30-35 s by
+-- the checked cosmic under ci/run-local on a 4-core host, once 41 s.
 -- TODO: lower this bound once CI's own runs show the step's time
 -- without that reparse; it is still sized for it.
 local checked_compile_timeout_ms <const> = 300000
@@ -466,11 +471,10 @@ local checked_compile_timeout_ms <const> = 300000
 -- A whole `cosmic test` run of every test, sandboxed, takes about 96 s of
 -- tests on a four-core runner (1872 tests), after a build of up to 25 s
 -- where the tree is compiled cold (the portable suite, macOS) and up to
--- 10 s writing the closure stores: about 130 s whole. The merge queue's
--- run hit the old 120 s bound on linux-x86_64 and macOS (run
--- 36306898411). Each test gets far less than the whole run, so a test
--- that hangs is ended and named by the runner, not hidden under a
--- cancelled run; the run's own bound is about twice the whole.
+-- 10 s writing the closure stores: about 130 s whole. The run's own
+-- bound is about twice that. Each test gets far less than the whole run,
+-- so a test that hangs is ended and named by the runner, not hidden under
+-- a cancelled run.
 local suite_timeout_ms <const> = 270000
 local suite_test_timeout_s <const> = "10"
 
@@ -500,25 +504,27 @@ end
 
 --- `env`, an operation's environment, made a fixture's `cosmic test`'s:
 --- its temporary files under `tmpdir`, its workers unsandboxed, and no
---- verdict but one it reaches itself. A fixture reads the candidate and
---- its products where variables of `env` say (COSMIC_FIXTURE_*), which
---- no verdict's key holds, so a verdict another run reached -- of
---- another commit's products, in a leg's restored cache
---- (COSMIC_VERDICT_CACHE) -- would stand for this one's: a fixture
---- neither reads nor writes the shared verdicts, whatever the event.
---- Nor can a verdict of its own stand: its project, and the o/ under
---- it, is made afresh for each run (`fixture_project`), and it names the
---- file it runs, so none is assumed. Its compiles and parses
---- (COSMIC_BUILD_CACHE) are the file `compiles` names, which the leg's
---- fixtures share with one another and with nothing else: each is a
---- project made afresh of the same sources, so the first to run
---- compiles it and the rest take that work back, rather than each
---- compiling it cold. It is not the leg's cache, which ci.yml restores
---- and saves (cosmic_ci/compiles.tl), so no fixture's rows are kept from
---- one run to the next, nor the boot's work taken back. A child a
---- fixture starts takes none (`Fixture.environment`): what a fresh tree
---- compiles, and what the tool built from it compiles again
---- (fixed_point_test, self_rebuild_test), it must compile and parse.
+--- verdict but one it reaches itself.
+---
+--- A fixture reads the candidate and its products where variables of
+--- `env` say (COSMIC_FIXTURE_*), which no verdict's key holds. A verdict
+--- another run reached (of another commit's products, in a leg's
+--- restored cache, COSMIC_VERDICT_CACHE) would stand for this one's, so
+--- a fixture neither reads nor writes the shared verdicts, whatever the
+--- event. Nor can a verdict of its own stand: its project, and the o/
+--- under it, is made afresh for each run (`fixture_project`), and it
+--- names the file it runs, so none is assumed.
+---
+--- Its compiles and parses (COSMIC_BUILD_CACHE) are the file `compiles`
+--- names, which the leg's fixtures share with one another and with
+--- nothing else. Each is a project made afresh of the same sources, so
+--- the first to run compiles it and the rest take that work back. It is
+--- not the leg's cache, which ci.yml restores and saves
+--- (cosmic_ci/compiles.tl), so no fixture's rows are kept from one run
+--- to the next, nor the boot's work taken back. A child a fixture starts
+--- takes none (`Fixture.environment`): what a fresh tree compiles, and
+--- what the tool built from it compiles again (fixed_point_test,
+--- self_rebuild_test), it must compile and parse.
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
     compiles: string): {string:string}
   env.TMPDIR = tmpdir
@@ -609,18 +615,18 @@ local function checked_suite(c: Context, target: string, work: string,
   assert(#extracted == length and Hash.hex_sha256(extracted) == digest and
     extracted == raw, "checked core range differs")
   write(work .. "/checked.core", extracted)
-  -- The checked core keeps its debug information, so its bytes name no
-  -- path of the run that built it (build.zig's `debug_dir` and the
-  -- generated map's `-g0`): the checked suite's verdicts are keyed by
-  -- the core's image, its debug sections left out (build/core_image.tl),
-  -- but a core naming the tree root -- per commit in CI (place-tree.sh)
-  -- -- or the map's zig-cache directory, new on every relink, in what it
-  -- loads (an assert's __FILE__) would move every key each run and
-  -- stand on none. Plain finds
-  -- over the core already read above, some 35 ms for 38 MB. The tree
-  -- root may be named under the checkout's own zig cache (run-local's
-  -- `o/zig-cache`, whose vendored trees' paths the core's assert strings
-  -- hold; build.zig's `debug_dir`), which is no path CI's builds name.
+  -- The checked core keeps its debug information but names no path of
+  -- the run that built it (build.zig's `debug_dir` and the generated
+  -- map's `-g0`). The checked suite's verdicts are keyed by the core's
+  -- image, its debug sections left out (build/core_image.tl). A core
+  -- that names the tree root (per commit in CI, place-tree.sh) or the
+  -- map's zig-cache directory (new on every relink) in what it loads,
+  -- such as an assert's __FILE__, would move every key each run and
+  -- stand on none. These are plain finds over the core already read
+  -- above, some 35 ms for 38 MB. The tree root may be named under the
+  -- checkout's own zig cache (run-local's `o/zig-cache`, whose vendored
+  -- trees' paths the core's assert strings hold; build.zig's
+  -- `debug_dir`), which is no path CI's builds name.
   -- TODO: hold each compile unit's DW_AT_comp_dir to "." here, reading
   -- the core's DWARF, once musl's is (the TODO beside build.zig's
   -- `debug_dir`): a unit naming the bare tree root is today told from
@@ -662,18 +668,17 @@ local function checked_suite(c: Context, target: string, work: string,
   -- TODO: the core's platform-conditional C (__APPLE__, __aarch64__ in
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
   -- off linux-x86_64: a leg that skips the suite runs the checked cosmic
-  -- only on a chunk (`-e`, above), no longer on a file in the tree, whose
-  -- build (staging it, writing SQLite) was the one real code it ran
+  -- only on a chunk (`-e`, above), not on a file in the tree, whose
+  -- build (staging it, writing SQLite) is the one real code it would run
   -- there. A checked run of only the tests that enter that C, on the legs
   -- that skip the whole suite, would cover it for seconds.
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
     Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
       "(COSMIC_CI_CHECKED_SUITE=skip)\n")
-    -- Nor does such a leg keep the suite's verdicts, which the job that
-    -- runs it keeps in a cache entry of its own: left in the leg's
-    -- (linux-x86_64's, from when the suite ran there), a file none of
-    -- whose rows a run reaches would ride along whole in every save
-    -- (cosmic_ci/verdicts.tl).
+    -- Such a leg keeps none of the suite's verdicts either, which the job
+    -- that runs it keeps in a cache entry of its own. A file left in the
+    -- leg's cache, none of whose rows a run reaches, would ride along
+    -- whole in every save (cosmic_ci/verdicts.tl).
     local stale = Orchestration.suite_verdicts(Env.all(), "checked")
     if stale ~= "0" and exists(stale) then
       local removed, trouble = Fs.remove(stale)
@@ -695,24 +700,18 @@ local function checked_suite(c: Context, target: string, work: string,
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
-  -- Bounded at about twice what it takes: 271 s whole (248 to 285 over
-  -- six main runs of September 2026) for 1948 tests on a 4-core host,
-  -- each worker sandboxed, the checked core running each test about
-  -- 2.9 times slower than the release core does; and some 30 s more
-  -- once the sandbox's own tests built a stand-in program each (#2269).
-  -- Its earlier bounds each timed out as the suite grew past them: 180 s,
-  -- set for 1400 tests unsandboxed, once every worker was sandboxed;
-  -- 320 s, set at twice 157 s for 1869 tests, at 1948 (36358276275) and
-  -- at 1967. Where its key holds, it stands on the last run's verdicts
-  -- as the local suite does: a commit that moves neither the core nor
-  -- the runner keys the checked core by the same digest, since its image
-  -- names no path of the run (asserted above; before, each object's
-  -- DW_AT_comp_dir named the checkout that first compiled it, and the
-  -- map its zig-cache directory, so it stood on none), and its debug
-  -- sections, where musl's units still name one, are no part of the key
-  -- (build/core_image.tl). It keeps its
-  -- verdicts in checked.db (`suite_verdicts`), and says which key parts
-  -- a run that stands on none reached (`--census`, build/test.tl).
+  -- The bound is about twice what the suite takes: 271 s whole (248 to
+  -- 285 over six main runs of September 2026) for 1948 tests on a 4-core
+  -- host, each worker sandboxed, the checked core running each test about
+  -- 2.9 times slower than the release core does.
+  -- Where its key holds, it stands on the last run's verdicts as the
+  -- local suite does: a commit that moves neither the core nor the
+  -- runner keys the checked core by the same digest, since its image
+  -- names no path of the run (asserted above), and its debug sections,
+  -- where musl's units still name one, are no part of the key
+  -- (build/core_image.tl). It keeps its verdicts in checked.db
+  -- (`suite_verdicts`), and says which key parts a run that stands on
+  -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever o/ holds.
   local checked_argv: {string} = { cosmic }
@@ -840,9 +839,9 @@ local record PlatformContext
   fresh: string
 end
 
---- The candidate's cores and boot, on a fresh checkout: the build
---- phase without its native suite, and all of it the `boot` phase runs,
---- for a job that runs no native suite (ci.yml's `checked`).
+--- The candidate's cores and boot, on a fresh checkout: the `build`
+--- phase without its native suite. It is all the `boot` phase runs, for
+--- a job that runs no native suite (ci.yml's `checked`).
 local function boot(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
@@ -943,9 +942,9 @@ local function phase_sandbox(p: PlatformContext): integer
   return 0
 end
 
---- The tree's format check, which `fix --check` also builds and
---- type-checks it for: the first thing assemble does, and all a branch
---- push's light run does after the native suite (see ci.yml's
+--- The tree's format check (`fix --check .`, which also builds and
+--- type-checks the tree). It is the first thing assemble does, and all a
+--- branch push's light run does after the native suite (see ci.yml's
 --- COSMIC_CI_SCOPE). A tree formats and type-checks the same on every
 --- platform, so the workflow runs it on one leg, and the others set
 --- COSMIC_CI_FORMAT=skip, as COSMIC_CI_CHECKED_SUITE does the checked
@@ -1033,10 +1032,10 @@ local function phase_portable(p: PlatformContext): integer
   -- portable product's launcher (phase_fixtures). So a gating run runs
   -- it on the two x86-64 legs, a glibc host and a musl one, and the
   -- others set COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a
-  -- manual one keep it on every leg (ci.yml). A leg that skips it still checks the
-  -- artifact unchanged since assemble (attest), and its portable.db
-  -- keeps what was restored whole, since the run reached none of it
-  -- (cosmic_ci/verdicts.tl).
+  -- manual one keep it on every leg (ci.yml). A leg that skips it still
+  -- checks the artifact unchanged since assemble (attest), and its
+  -- portable.db keeps what was restored whole, since the run reached
+  -- none of it (cosmic_ci/verdicts.tl).
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
       "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
@@ -1120,10 +1119,11 @@ local function phase_fixtures(p: PlatformContext): integer
   end
   -- The fixed-point regression is the slowest fixture on every leg
   -- (about 90 to 180 s: each of its six tests rebuilds the product twice
-  -- from a fresh tree, and three compile the tree twice over), and what it checks -- that the compiler compiles itself to
-  -- itself -- is the same on every platform, so a gating run runs it on
-  -- one leg, and the others set COSMIC_CI_FIXED_POINT=skip; the
-  -- scheduled run keeps it on every leg (ci.yml).
+  -- from a fresh tree, and three compile the tree twice over), and what
+  -- it checks, that the compiler compiles itself to itself, is the same
+  -- on every platform. So a gating run runs it on one leg, and the
+  -- others set COSMIC_CI_FIXED_POINT=skip; the scheduled run keeps it on
+  -- every leg (ci.yml).
   if Env.get("COSMIC_CI_FIXED_POINT") == "skip" then
     Fs.put(Fs.stderr, "fixture: fixed-point-regression: skipped on this leg " ..
       "(COSMIC_CI_FIXED_POINT=skip)\n")
