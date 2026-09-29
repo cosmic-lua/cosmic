@@ -295,3 +295,34 @@ local function test_a_long_path_is_reached_from_its_directory(tmp: string)
   assert(server:close())
   assert(Fs.stat(deep .. "/r.sock") == nil, "the socket file was left")
 end
+
+--- `reclaim` takes over a socket file a listener left behind, and
+--- nothing else: a live listener's file, and a file that is no socket,
+--- are left alone.
+local function test_reclaim_takes_over_only_a_socket_file_left_behind(tmp: string)
+  local path = tmp .. "/s.sock"
+  local moved = tmp .. "/moved.sock"
+  -- Moved aside while it listened, and back once it closed: a socket
+  -- file with nothing listening, as one a killed listener leaves.
+  do
+    local _gone <close> = assert(Net.listen(Net.unix(path)))
+    assert(sys.rename(path, moved))
+  end
+  assert(sys.rename(moved, path))
+  local refused, why = Net.listen(Net.unix(path))
+  assert(refused == nil and why == path .. ": Address in use", why)
+  local server <close> = assert(Net.listen(Net.unix(path), { reclaim = true, timeout_ms = 5000 }))
+  local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+  local accepted <close> = assert(server:accept())
+  assert(client:write("here"))
+  assert(assert(accepted:read()) == "here")
+  local again, live = Net.listen(Net.unix(path), { reclaim = true })
+  assert(again == nil and live == path .. ": Address in use", live)
+  assert(client:write("still"))
+  assert(assert(accepted:read()) == "still")
+  local plain = tmp .. "/plain"
+  assert(Fs.write(plain, "mine"))
+  local over, taken = Net.listen(Net.unix(plain), { reclaim = true })
+  assert(over == nil and taken == plain .. ": Address in use", taken)
+  assert(Fs.read(plain) == "mine")
+end

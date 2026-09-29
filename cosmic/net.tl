@@ -68,6 +68,16 @@ local record Net
   end
 
   record ListenOptions
+    --- For "unix": take over a socket file a listener left behind -- one
+    --- that exited without `close`, killed or crashed -- rather than
+    --- fail "Address in use" there, as a daemon restarting at its
+    --- control socket does. The path is taken over only where it is a
+    --- socket file and connecting to it is refused: a live listener's
+    --- file, or any other file, is left alone. macOS refuses a live
+    --- listener whose backlog is full as it refuses a dead one, so there
+    --- such a listener's file is taken over too; and a listener that
+    --- binds there between the check and the removal loses its file.
+    reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
     timeout_ms: integer
@@ -340,10 +350,34 @@ local function raw_address(address: Net.Address): raw_socket.Address
   return { kind = address.kind, path = address.path, host = address.host, port = address.port }
 end
 
+--- How long `left_behind` waits to connect: a live listener on Linux
+--- whose backlog is full keeps a connection waiting for room, which
+--- then times out rather than being refused.
+local PROBE_MS <const> = 1000
+
+--- The type bits of a socket file (S_IFSOCK) in `Stat.mode`, the same
+--- on Linux and macOS.
+local SOCKET_TYPE <const> = 0xC000
+
+--- Whether the file at `absolute` is a socket file nothing listens at
+--- any longer: a socket file, and connecting to it (`address`) is
+--- refused.
+local function left_behind(address: Net.Address, absolute: string): boolean
+  local st, _ = sys.lstat(absolute)
+  if st == nil or st.mode & 0xF000 ~= SOCKET_TYPE then return false end
+  local fd, _, errno = raw.connect(raw_address(address), PROBE_MS)
+  if fd ~= nil then
+    local _, _ = sys.close(fd)
+    return false
+  end
+  return errno == raw.ECONNREFUSED
+end
+
 --- Listens at `address`. A unix one makes its socket file, and fails
 --- where the path is already there -- a socket file left behind by a
 --- listener that did not close included -- rather than take the name
---- from whatever holds it. A TCP one fails "Address in use" at a port
+--- from whatever holds it, unless `reclaim` takes a socket file left
+--- behind by a listener that is gone. A TCP one fails "Address in use" at a port
 --- another listens at; its `address` names the port it has.
 function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listener | nil, string
   opts = opts or {}
@@ -367,6 +401,10 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     absolute = cwd .. "/" .. absolute
   end
   local fd, trouble, errno = raw.listen(raw_address(address), backlog)
+  if fd == nil and errno == raw.EADDRINUSE and opts.reclaim and left_behind(address, absolute) then
+    local _, _ = sys.unlink(absolute)
+    fd, trouble, errno = raw.listen(raw_address(address), backlog)
+  end
   if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
   -- The socket file the bind made, to remove at close. A process that
   -- replaces the name in the moment since would have its file taken
