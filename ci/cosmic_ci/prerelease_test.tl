@@ -46,8 +46,8 @@ local function test_expects_four()
   end
 end
 
---- The bytes the shell script wrote, `jq -n` for source.json and a
---- here-document for the notes, for the same inputs.
+--- The release text is byte for byte what `jq -n` (source.json) and a
+--- here-document (the notes) make of the same inputs.
 local function test_release_text_is_the_shell_scripts()
   local digest = string.rep("ab", 32)
   local run_url = run_prefix .. "123"
@@ -365,9 +365,9 @@ local function test_publish_refuses_api_failures_other_than_404(tmp: string)
   end
 end
 
---- GitHub refused a GITHUB_TOKEN the tag once the default branch's
---- workflows had moved past the commit (run 36333356031): the publish
---- skips with a warning, making nothing, rather than failing main's run.
+--- Where GitHub refuses a GITHUB_TOKEN the tag because the default
+--- branch's workflows have moved past the commit, the publish skips with
+--- a warning, making nothing, rather than failing main's run.
 local function test_publish_skips_a_commit_the_default_branchs_workflows_moved_past(tmp: string)
   local r = repo(tmp)
   assert(Fs.mkdirs(r.state .. "/fail"))

@@ -140,7 +140,7 @@ end
 --- it (status 124); "fail" where it exited otherwise than 0, whatever
 --- its summary said (`--audit` says PASS and exits 1 for a test that
 --- read what it does not declare); else its summary line's verdict, or
---- "unreported" where it said none, having stopped before its tests'
+--- "unreported" where it said none because it stopped before its tests'
 --- end.
 function SuiteOutput.status(figures: SuiteOutput.Figures, code: integer): string
   if code == 124 then return "timeout" end

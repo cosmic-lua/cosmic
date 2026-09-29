@@ -26,16 +26,16 @@ local function archive_tree(root: string, tree: string, diagnostics: string)
     root, diagnostics)
 end
 
--- The fixed point of the self-rebuild: the tool a boot wrote (the
--- product), made stale by `edit` of `file` and rebuilt, then made stale
--- again by undoing it and rebuilt once more, must be the product again,
--- byte for byte -- prefix, database and all. The second rebuild is done
--- by a tool the first built, so this holds only when a tool built by a
--- rebuild compiles and writes what a boot does. `settles` is whether
--- `file` is in the writer's identity (`build.work`'s `writer_modules`)
--- or the compiler's (`compiler_modules`), so that each rebuilt
--- tool finds its database built by other code than its own and builds
--- it again once (`build.reboot`); outside both, neither does.
+-- The fixed point of the self-rebuild. The tool a boot wrote (the
+-- product) is made stale by `edit` of `file` and rebuilt, then made stale
+-- again by undoing it and rebuilt once more. The result must be the
+-- product again, byte for byte (prefix, database and all). The second
+-- rebuild is done by a tool the first built, so this holds only when a
+-- tool built by a rebuild compiles and writes what a boot does.
+-- `settles` is whether `file` is in the writer's identity (`build.work`'s
+-- `writer_modules`) or the compiler's (`compiler_modules`): then each
+-- rebuilt tool finds its database built by other code than its own and
+-- builds it again once (`build.reboot`). Outside both, neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
     edit: function(string): string, settles: boolean)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
@@ -113,7 +113,7 @@ end
 -- its own, older definition, so the tool it writes carries a name its
 -- own code does not give the tree. Settling, that tool keys its compiles
 -- by the identity its own code takes (`build.reboot`'s `into`), which is
--- what the tool it writes carries, so each stage settles once; keyed by
+-- what the tool it writes carries, so each stage settles once. Keyed by
 -- the carried name instead, the settled tool would be unsettled still,
 -- and refuse (exit 3).
 local function test_a_redefined_compiler_lands_on_the_booted_tool(tmp: string)
@@ -135,14 +135,14 @@ local function test_a_rebuilt_fingerprint_lands_on_the_booted_tool(tmp: string)
 end
 
 -- One commit that moves both what the fingerprint covers and how the
--- compiler's identity is defined: the tool the stale tool writes is
+-- compiler's identity is defined. The tool the stale tool writes is
 -- stale by its own code and carries the identity the older definition
 -- takes. Settling on the "teal" path, it carries the tree's code
 -- (`build.reboot`'s `carries_tree_code`), so it keys its compiles, and
 -- signs what it writes, by the identities its own code takes, and the
--- tool it writes is settled: each stage rebuilds once and settles once,
--- where keyed by the carried names it would be unsettled still, and
--- refuse (exit 3).
+-- tool it writes is settled: each stage rebuilds once and settles once.
+-- Keyed by the carried names, it would be unsettled still, and refuse
+-- (exit 3).
 local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "fingerprint-identity", "build/work.tl", function(source: string): string
     local covered, files = source:gsub('(%["build%.zig%.zon"%] = true,\n)',

@@ -1,30 +1,30 @@
 --- The test verdicts a leg keeps from one run to the next: the
 --- directory of the file COSMIC_VERDICT_CACHE names
 --- (build/shared_verdicts.tl in the candidate), which ci.yml restores
---- before the leg's suites and saves after them -- `verdicts.db`, the
---- native suite's; `portable.db` beside it, the portable suite's; or,
---- in ci.yml's checked job, which runs no other suite, `checked.db`
---- alone, the checked suite's (COSMIC_CI_CHECKED_SUITE)
---- (cosmic_ci/orchestration.tl's `suite_verdicts`).
+--- before the leg's suites and saves after them. It holds `verdicts.db`,
+--- the native suite's; `portable.db` beside it, the portable suite's;
+--- or, in ci.yml's checked job, which runs no other suite, `checked.db`
+--- alone, the checked suite's (COSMIC_CI_CHECKED_SUITE;
+--- cosmic_ci/orchestration.tl's `suite_verdicts`).
 ---
 --- A file bounds itself at 8192 rows and thirty days, some 3 KB a row
 --- (the lines each test hit, deflated, most of it), and SQLite keeps
 --- the pages its bound frees: 32 MB where it is full. A row is keyed by
 --- everything its test was given, the harness and the runtime among
---- them, which every change to build/ moves, so most of what a file
+--- them, which every change to build/ moves. So most of what a file
 --- holds is under keys no later run reaches, and a leg's save of both
 --- carried some 42 MB compressed each main push into the repository's
---- cache, which holds 10 GB for every entry, the zig caches among them.
---- So a leg that passed keeps only the verdicts its own run relied on
+--- cache, which holds 10 GB in all, the zig caches among them. A leg
+--- that passed therefore keeps only the verdicts its own run relied on
 --- or reached (`trim`): the keys a later run of the same tree reaches
 --- again, and no more. A run's suites stamp each row they stood on or
 --- wrote with the time (`used_ns`), and take out a row whose test
 --- failed.
 ---
---- A file none of whose rows the run reached -- the portable suite's,
---- on a run that has none, or on a leg that skips it
---- (COSMIC_CI_PORTABLE_SUITE) -- keeps them all: that is no sign they
---- are dead. Like the suites, which never fail over the cache, a trim that
+--- A file none of whose rows the run reached (the portable suite's, on
+--- a run that has none, or on a leg that skips it,
+--- COSMIC_CI_PORTABLE_SUITE) keeps them all: that is no sign they are
+--- dead. Like the suites, which never fail over the cache, a trim that
 --- cannot read it never fails the leg (cosmic_ci/cache_trim.tl).
 
 local CacheTrim = require("cosmic_ci.cache_trim")
@@ -36,8 +36,8 @@ local record Verdicts
 end
 
 --- The tables of build/shared_verdicts.tl's formats: `declared_v<n>`,
---- and the `verdicts_v<n>` observation-keyed runs shared, which no
---- run of today's tool stamps, so they go wherever the file is trimmed.
+--- and the observation-keyed `verdicts_v<n>`, which the tree's tool does
+--- not stamp, so every row of it goes wherever the file is trimmed.
 local tables: CacheTrim.Tables = { patterns = { "declared_v[0-9]*", "verdicts_v[0-9]*" },
   whole_unless_reached = true }
 
@@ -56,17 +56,16 @@ end
 --- `driver.tl verdicts-trim SINCE|whole` in `env`: its exit status,
 --- and what it says on standard output and on standard error. It trims
 --- every cache in the directory of the file `env.COSMIC_VERDICT_CACHE`
---- names -- the directory ci.yml saves -- to the verdicts used since
---- SINCE, in Unix seconds (`CacheTrim.file`), or, given `whole`, trims
---- none of them, as a run that failed saves what it restored with what
---- it reached; either way it removes what was set aside beside them.
---- Then it writes `digest=<hex>` of the caches' rows
---- (`CacheTrim.digest`) to the step's outputs (`CacheTrim.output`), the
---- tail of the key ci.yml saves them under. Nothing to do, and no
---- digest, where the variable names no file or its directory holds no
---- cache. Only a SINCE that is no count of seconds fails it (2): a
---- cache it cannot trim is said so, on standard error, and left, or
---- removed where it is no database.
+--- names (the directory ci.yml saves) to the verdicts used since SINCE,
+--- in Unix seconds (`CacheTrim.file`). Given `whole`, it trims none, so
+--- a run that failed saves what it restored with what it reached;
+--- either way it removes what was set aside beside them. Then it writes
+--- `digest=<hex>` of the caches' rows (`CacheTrim.digest`) to the
+--- step's outputs (`CacheTrim.output`), the tail of the key ci.yml
+--- saves them under. Nothing to do, and no digest, where the variable
+--- names no file or its directory holds no cache. Only a SINCE that is
+--- no count of seconds fails it (2): a cache it cannot trim is reported
+--- on standard error and left, or removed where it is no database.
 function Verdicts.command(argv: {string}, env: {string:string}): integer, string, string
   local whole = argv[1] == "whole"
   local since = CacheTrim.since(argv)
@@ -97,7 +96,7 @@ function Verdicts.command(argv: {string}, env: {string:string}): integer, string
       outs[#outs + 1], errs[#errs + 1] = out, err
     end
   end
-  -- Again: a trim removes a cache that is no database.
+  -- Listed again, since a trim removes a cache that is no database.
   local kept = caches(dir)
   if #kept > 0 then
     local digest, trouble = CacheTrim.digest(kept)
@@ -154,19 +153,19 @@ local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
 end
 
 --- Adds to the cache at `into` (made where it is not there) the rows of
---- the cache at `from` it has no row of under the same primary key, in
---- the tables of the tool's formats (`tables`), in one transaction:
---- a union, which never replaces a row `into` holds nor makes one
---- neither file held, so a second merge of the same file adds nothing.
---- A table `into` lacks is made as `from` declares it, with its
+--- the cache at `from` that `into` has no row of under the same primary
+--- key, in the tables of the tool's formats (`tables`), in one
+--- transaction. It is a union: it never replaces a row `into` holds nor
+--- makes one neither file held, so a second merge of the same file adds
+--- nothing. A table `into` lacks is made as `from` declares it, with its
 --- indexes. Each row added is stamped used at 0, by no run: a lookup
 --- reads a row by its key alone, so it stands all the same, and the
---- suite stamps it again where it stands on it, but one it never
+--- suite stamps it again where it stands on it, but a row it never
 --- reaches is the trim's to take out (and the cache's own bound's)
 --- rather than saved as though this run had reached it. A table of
 --- another shape in the two, or with no primary key to tell a row
---- already held by, is left as it is and said so. What it says on
---- standard output and on standard error.
+--- already held by, is left as it is and said so. Answers what to say
+--- on standard output and on standard error.
 local function merge_file(from: string, into: string): string, string
   local opened, open_trouble = Sqlite.open(into, true)
   if opened == nil then
@@ -257,16 +256,16 @@ end
 
 --- `driver.tl verdicts-merge DIR` in `env`: its exit status, and what
 --- it says on standard output and on standard error. It merges each
---- cache in DIR -- the verdicts of the merge queue's run ahead of this
---- one, which ci.yml's `verdicts-ahead` downloads -- into the cache of
---- the same name in the directory of the file `env.COSMIC_VERDICT_CACHE`
+--- cache in DIR (the verdicts of the merge queue's run ahead of this
+--- one, which ci.yml's `verdicts-ahead` downloads) into the cache of the
+--- same name in the directory of the file `env.COSMIC_VERDICT_CACHE`
 --- names (`merge_file`), made where it is not there. The run ahead
---- tested the tree this one's change is made on, so a verdict it
---- reached under a key this run reaches again stands here too: every
---- row is keyed by all its test was given. Nothing to do where the
---- variable names no file or DIR holds no cache; only a missing DIR
---- argument fails it (2): a cache it cannot merge is said so, on
---- standard error, and this run goes on with what it restored.
+--- tested the tree this one's change is made on, and every row is keyed
+--- by all its test was given, so a verdict it reached under a key this
+--- run reaches again stands here too. Nothing to do where the variable
+--- names no file or DIR holds no cache. Only a missing DIR argument
+--- fails it (2): a cache it cannot merge is reported on standard error,
+--- and this run goes on with what it restored.
 function Verdicts.merge(argv: {string}, env: {string:string}): integer, string, string
   local from = argv[1] or ""
   if from == "" or argv[2] ~= nil then
