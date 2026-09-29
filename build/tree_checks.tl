@@ -67,11 +67,6 @@ allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl
   "holds .github/scripts/host-features.sh to: it reads a macOS host's system where a key does"
 allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
   "what executable_cached keeps against what this computes afresh"
-allowed["build.this_program.program"] = "how a test starts this very program, " ..
-  "which only a test does: build.test_inputs requires the module for the environment " ..
-  "it pins, so it is no test support, and build.stand_in no longer starts it"
-allowed["build.this_program.environment"] = "the environment a test starts this very " ..
-  "program with (`program`), which only a test does"
 allowed["build.confine.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.confine.must_confine"] = "a test's own declaration: " ..

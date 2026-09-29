@@ -1,23 +1,17 @@
 --- What build/verbs_tool_test.tl and build/verbs_store_test.tl share:
 --- a tree to run verbs in, a verb's run -- in this process where it
 --- can be, else started from this program -- and the assertion that it
---- exits as asked and ends in its verdict line.
+--- exits as asked and ends in its verdict line. Test support; the
+--- tables of each verb's cases are `build.verb_cases`', which the
+--- tests read themselves.
 
 local Child = require("cosmic.child")
-local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local invoke = require("build.invoke")
 local this_program = require("build.this_program")
-local verb_cases = require("build.verb_cases")
 
 local record verbs_fixture
 end
-
---- The vendored bundle, which `refresh` reads with no network; the
---- tree's root is where a test module loads.
-local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
-
-local cases = verb_cases.cases(bundle)
 
 --- A tree under `tmp` with a passing test, a failing one and a file
 --- `fix` would change; beside it a module that does not type-check, and
@@ -119,25 +113,6 @@ end
 --- Whether `verb`'s cases start this program.
 function verbs_fixture.started(verb: string): boolean
   return not verbs_fixture.in_process(verb)
-end
-
---- Asserts each verb `which` answers for passes and fails its case
---- (`build.verb_cases`), each run ending in its verdict line.
-function verbs_fixture.ends_in_a_verdict(tmp: string, which: function(string): boolean)
-  local tree = verbs_fixture.write_tree(tmp)
-  -- `db` passes once the tree has a database.
-  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
-  for _, verb in ipairs(Cli.order) do
-    local case = cases[verb]
-    if case ~= nil and which(verb) then
-      local _ = verbs_fixture.expect(tree, verb, case.pass, 0)
-      local fail = case.fail
-      if fail is {string} then
-        local dir = case.fail_in ~= nil and tmp .. "/" .. case.fail_in or tree
-        local _ = verbs_fixture.expect(dir, verb, fail, 1)
-      end
-    end
-  end
 end
 
 return verbs_fixture

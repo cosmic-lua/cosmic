@@ -8,6 +8,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
+local verb_cases = require("build.verb_cases")
 local verbs_fixture = require("build.verbs_fixture")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
@@ -24,8 +25,33 @@ Test.needs{
   store = true,
 }
 
+--- The vendored bundle, which `refresh` reads with no network; the
+--- tree's root is where a test module loads.
+local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
+
+local cases = verb_cases.cases(bundle)
+
+--- Asserts each verb whose cases run in this process passes and fails its case,
+--- each run ending in its verdict line.
+local function ends_in_a_verdict(tmp: string)
+  local tree = verbs_fixture.write_tree(tmp)
+  -- `db` passes once the tree has a database.
+  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  for _, verb in ipairs(Cli.order) do
+    local case = cases[verb]
+    if case ~= nil and verbs_fixture.in_process(verb) then
+      local _ = verbs_fixture.expect(tree, verb, case.pass, 0)
+      local fail = case.fail
+      if fail is {string} then
+        local dir = case.fail_in ~= nil and tmp .. "/" .. case.fail_in or tree
+        local _ = verbs_fixture.expect(dir, verb, fail, 1)
+      end
+    end
+  end
+end
+
 local function test_every_verb_ends_in_a_verdict(tmp: string)
-  verbs_fixture.ends_in_a_verdict(tmp, verbs_fixture.in_process)
+  ends_in_a_verdict(tmp)
 end
 
 local function test_help_takes_a_verb(tmp: string)
