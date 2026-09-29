@@ -646,7 +646,7 @@ end
 --- Starting and waiting for a confined child costs milliseconds, not the
 --- second `waitpid` gives a sandbox's init to end once its program has
 --- (core/syscalls.c's `end_sandbox_init`): a run of `cosmic test` that
---- confines each of its processes, as build/shared_verdicts_test.tl's
+--- confines each of its processes, as build/shared_verdicts_tool_test.tl's
 --- nested runs do, would pay that second for every one. Each of a few
 --- runs of a confined program that exits at once takes well under half
 --- a second, and leaves no init behind.

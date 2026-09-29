@@ -229,6 +229,12 @@ end
 -- extraction
 ------------------------------------------------------------------
 
+--- Whether `path` holds a NUL byte or a backslash anywhere, or starts
+--- with a drive letter: a path no archive entry or link may name.
+local function foreign_syntax(path: string): boolean
+  return path:find("[%z\\]") ~= nil or path:find("^%a:") ~= nil
+end
+
 --- False for an absolute path, a `\`-separated or drive/UNC path, one
 --- holding a NUL byte (which every system call would silently cut the
 --- path at), or one with a `..` component -- the archive path itself,
@@ -237,8 +243,7 @@ end
 --- safe.
 local function safe_relative(path: string): boolean
   if path == "" or path:byte(1) == 47 then return false end -- '/'
-  -- A NUL or a backslash anywhere, or a drive letter up front.
-  if path:find("[%z\\]") ~= nil or path:find("^%a:") ~= nil then return false end
+  if foreign_syntax(path) then return false end
   -- Only a path holding ".." at all can have it as a component.
   if path:find("..", 1, true) ~= nil then
     for segment in (path .. "/"):gmatch("([^/]*)/") do
@@ -285,8 +290,7 @@ end
 --- symlink, which would make this lexical walk meaningless.
 local function stays_inside(rel_dir: string, target: string): boolean
   if target == "" or target:sub(1, 1) == "/" then return false end
-  -- A NUL or a backslash anywhere, or a drive letter up front.
-  if target:find("[%z\\]") ~= nil or target:find("^%a:") ~= nil then return false end
+  if foreign_syntax(target) then return false end
   local depth = #components(rel_dir)
   for seg in (target .. "/"):gmatch("([^/]*)/") do
     if seg == "" or seg == "." then

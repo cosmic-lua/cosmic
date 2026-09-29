@@ -1,11 +1,10 @@
 #define _XOPEN_SOURCE 700
 
 #include "vfs.h"
+#include "portable.h"
 #include "vfs_wrap.h"
 
-#include <errno.h>
 #include <string.h>
-#include <unistd.h>
 
 /* The retained descriptor does the reading; this VFS shifts its database
  * range and refuses every write. */
@@ -22,17 +21,8 @@ static int file_close (sqlite3_file *file) {
 }
 
 static int retained_read (int fd, void *buf, int amount, sqlite3_int64 at) {
-  unsigned char *p = buf;
-  int left = amount;
-  while (left > 0) {
-    ssize_t got = pread(fd, p, (size_t)left, (off_t)at);
-    if (got < 0 && errno == EINTR) continue;
-    if (got <= 0) return SQLITE_IOERR_READ;
-    p += (size_t)got;
-    left -= (int)got;
-    at += (sqlite3_int64)got;
-  }
-  return SQLITE_OK;
+  return cosmic_read_at(fd, buf, (size_t)amount, (uint64_t)at) ? SQLITE_OK
+                                                                : SQLITE_IOERR_READ;
 }
 
 static int file_read (sqlite3_file *file, void *buf, int amount,
