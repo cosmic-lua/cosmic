@@ -133,17 +133,17 @@
 #define CURL_DISABLE_TFTP 1
 #define CURL_DISABLE_FILE 1
 
-/* Decided: no cookies, no HTTP/2 (USE_NGHTTP2 simply never defined),
- * no compressed transfer-encoding (no zlib/brotli/zstd HAVE_* either).
+/* No cookies, no HTTP/2 (USE_NGHTTP2 is never defined), and no
+ * compressed transfer-encoding (no zlib, brotli or zstd HAVE_* either).
  * Nor anything else core/http.c never asks for: HSTS and Alt-Svc
  * caches, DNS-over-HTTPS, WebSockets, MIME and form posts, .netrc,
  * binding to a local address or interface, the option-introspection
- * API (curl_easy_option_*), the progress meter, and SHA-512/256
- * (only Digest auth's RFC 7616 variant uses it; MD5 and SHA-256
- * Digest stay). CURLOPT_VERBOSE's strings stay on, as
- * does proxy support: HTTPS_PROXY is how most sandboxes reach out,
- * and the header API: core/http.c reads the final response's headers
- * with curl_easy_nextheader. */
+ * API (curl_easy_option_*), the progress meter, and SHA-512/256 (only
+ * Digest auth's RFC 7616 variant uses it; MD5 and SHA-256 Digest stay).
+ * Three things stay on: CURLOPT_VERBOSE's strings; proxy support,
+ * since HTTPS_PROXY is how most sandboxes reach out; and the header
+ * API, since core/http.c reads the final response's headers with
+ * curl_easy_nextheader. */
 #define CURL_DISABLE_COOKIES 1
 #define CURL_DISABLE_ALTSVC 1
 #define CURL_DISABLE_HSTS 1

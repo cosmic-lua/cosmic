@@ -18,10 +18,10 @@
  * there unwinds ordinary Lua frames only.
  *
  * `open` drives the transfer until the final response's headers are
- * known, and a response's headers are final once curl hands over the
- * first byte of its body or the whole transfer is over: curl delivers
- * no body for a 1xx or for a redirect it follows itself, so neither
- * ever looks final. The status and headers are then read from curl
+ * known. They are final at the blank line ending a header block that is
+ * neither a 1xx's nor a redirect curl follows itself (`header_cb`), or
+ * else once curl hands over the first byte of a body or the whole
+ * transfer is over. The status and headers are then read from curl
  * (CURLINFO_RESPONSE_CODE, and the header API's last request) rather
  * than parsed here. Nothing drives the transfer further until `read`
  * does; the write callback bounds what one drive can buffer by pausing
@@ -144,9 +144,10 @@ struct transfer {
 static int curl_ready;
 static CURLM *shared_multi;
 static struct script *live_scripts;
-/* What a failure the carried roots may cause says after it: how to
- * trust more, and how this binary, or a program built with it, gets
- * newer ones -- from a file when the stale roots cannot reach curl.se. */
+/* The advice that follows a failure the carried roots may have caused:
+ * how to trust more roots, and how to write a copy of this binary, or of
+ * a program built with it, that carries newer ones, which it can read
+ * from a file when the stale roots cannot reach curl.se. */
 #define STALE_ROOTS \
   "the CA roots this binary carries may not include this peer's: " \
   "$SSL_CERT_FILE names more to trust, and `cosmic refresh cacert " \
@@ -205,13 +206,12 @@ static bool add_cert_file (void) {
   return ok;
 }
 
-/* Fills `roots` from the `ca_roots` rows of the database attached to the
- * running binary: the last one the store searches, as it trusts for the
- * standard library, so a project's database never adds a root. Returns
- * NULL, or why not, leaving `roots` empty: a binary with no roots
- * refuses every request, plain http too, rather than trusting some
- * other set -- one whose own database is missing or holds none is
- * broken, and says so at its first request. */
+/* Fills `roots` from the `ca_roots` rows of the last database the store
+ * searches, which is always the binary's own, so a project's database
+ * never adds a root. Returns NULL, or why not, leaving `roots` empty.
+ * A binary with no roots refuses every request, plain http too, rather
+ * than trusting some other set: one whose own database is missing or
+ * holds none is broken, and says so at its first request. */
 static const char *load_roots (lua_State *L) {
   int count = cosmic_store_count(L);
   sqlite3 *db = count > 0 ? cosmic_store_database(L, count) : NULL;

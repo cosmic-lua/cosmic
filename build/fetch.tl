@@ -3,28 +3,32 @@
 --- checked against a digest. With no `-o` the body goes to standard
 --- output, so `cosmic fetch <url> | cosmic json '.items'` reads it; with
 --- `-o` it goes to a file that is renamed into place only once the
---- whole body is in and matches `--sha256` or `--sha512`, or the digest
---- its URL's fragment carries: `<url>#sha256=<hex>` (`#sha256sum=`,
---- `#sha512=` and `#sha512sum=` too, several joined by `&`), the form pip
---- reads, so one string names what to fetch and what it must be. The
---- fragment is taken off before anything is sent and never printed, and
---- one that names none of these is dropped, as a fragment always was --
---- unless a parameter reads as a checksum this verb does not check
---- (`sha1=`, `SHA256=`, `sha-256=`, `sha256:`, `md5=`), which is exit 2:
---- a body left unverified by a typo is the failure this exists to stop. A
---- digest that is not hex of the right length is exit 2 before any
---- request; a flag and a fragment for the same algorithm must agree, or
---- that is exit 2 too; for different algorithms both are checked, and
---- every one must match (a mismatch names the algorithm, the digest
---- wanted and the one got). With `-o` the digests are computed while the
---- file is written, and a mismatch leaves no target and no `.part`.
+--- whole body is in and matches every digest asked for. The digests are
+--- computed while the file is written, and a mismatch leaves no target
+--- and no `.part`.
+---
+--- A digest comes from `--sha256` or `--sha512`, or from the URL's
+--- fragment: `<url>#sha256=<hex>` (`#sha256sum=`, `#sha512=` and
+--- `#sha512sum=` too, several joined by `&`), the form pip reads, so one
+--- string names what to fetch and what it must be. The fragment is taken
+--- off before anything is sent and never printed. One that names none of
+--- these is dropped, unless a parameter reads as a checksum this verb
+--- does not check (`sha1=`, `SHA256=`, `sha-256=`, `sha256:`, `md5=`),
+--- which is exit 2: a body left unverified by a typo is the failure this
+--- exists to stop. A digest that is not hex of the right length is exit 2
+--- before any request. A flag and a fragment for the same algorithm must
+--- agree, or that is exit 2 too. For different algorithms both are
+--- checked, and every one must match; a mismatch names the algorithm, the
+--- digest wanted and the one got.
 ---
 --- Like `cosmic json` it ends in no verdict line -- its standard output
 --- is the body -- and its exit status is the verdict: 0 the body was
 --- delivered, 1 the fetch failed (no connection, a status outside 2xx,
---- a digest that does not match, a body that broke off, an `-o` write that failed), 2 a command
---- line, a URL or a write it cannot use. Its `spec` (build/verb_spec.tl)
---- is `bare`.
+--- a digest that does not match, a body that broke off, an `-o` write
+--- that failed), 2 a command line, a URL or a write it cannot use. Only
+--- a failed write to standard output is 2; a failed write of the `-o`
+--- file is 1, a failed fetch like the rest. Its `spec`
+--- (build/verb_spec.tl) is `bare`.
 ---
 --- Three decisions, each a plain comment and not a TODO, since each
 --- stays:
@@ -36,9 +40,9 @@
 ---   or saved as a download is the trap this verb exists to avoid. To
 ---   read what an error says, `--head` prints the status and headers,
 ---   and then fails on a non-2xx as well.
---- * A digest with no `-o` buffers the whole body in memory and writes
----   it only once the digest matches, rather than refusing the pair:
----   bytes already on a pipe cannot be taken back, and
+--- * A digest with no `-o` buffers the whole body in memory, with no
+---   cap, and writes it only once the digest matches, rather than
+---   refusing the pair: bytes already on a pipe cannot be taken back, and
 ---   `cosmic fetch --sha256 <hex> <url> | cosmic json` is the useful
 ---   line. The cost is the body's size in memory; `-o` streams.
 ---
@@ -50,22 +54,22 @@
 --- certificate verified): a plaintext hop hands the request, and any
 --- body, to whoever is on the path, who can also swap the body, and
 --- nobody chose it who typed https. It differs from curl's default, which
---- follows the downgrade, on purpose; what a script gains from it, a
---- mirror that still bounces to http, `--allow-downgrade` (with
---- a digest) names. An http start URL may redirect to either.
---- Failures: a body that breaks off after some bytes went to standard
---- output leaves those bytes sent (exit 1), since a pipe cannot take
---- them back; a digest on standard output buffers the whole body in
---- memory, with no cap. A failed write of the `-o` file is exit 1, a
---- failed fetch like the rest; only standard output's is 2.
+--- follows the downgrade, on purpose; for a mirror that still bounces to
+--- http, `--allow-downgrade` with a digest names what the script accepts.
+--- An http start URL may redirect to either.
+---
+--- A body that breaks off after some bytes went to standard output
+--- leaves those bytes sent (exit 1), since a pipe cannot take them back.
+---
 --- An interrupt (SIGINT or SIGTERM) during an `-o` download removes the
 --- temporary file, never creates the target, and exits by that signal:
 --- the verb holds a `Child.guard` for the download, `Http.download`
 --- asks it between chunks and a wait for data ends when it catches one,
---- and closing the guard delivers the signal again. What it cannot help, and stays so, is a kill nothing can
---- catch (SIGKILL) or that the verb does not hold (SIGHUP), which
---- leave the `.part` file beside the target: a plain limit of the
---- platform, not a gap.
+--- and closing the guard delivers the signal again. A kill nothing can
+--- catch (SIGKILL) or that the verb does not hold (SIGHUP) leaves the
+--- `.part` file beside the target: a plain limit of the platform, not a
+--- gap.
+---
 --- Certificates are always verified; there is no option that turns that
 --- off, and none will be added.
 
@@ -401,8 +405,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 end
 
 --- The `fetch` verb as `build/verb_list.tl` lists it. Reads a URL it is
---- given, never the tree: never stale-checked. This module's header says
---- why.
+--- given, never the tree: never stale-checked (`bare` in
+--- build/verb_spec.tl).
 verb.spec = {
   name = "fetch",
   guide = "questions about a data file",

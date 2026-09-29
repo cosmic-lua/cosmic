@@ -58,8 +58,8 @@ case "$(uname -sm)" in
 esac
 @SELECT_HOOK@
 
-# Keep this open across extraction and exec. Step 5 adopts this descriptor;
-# extraction deliberately reads it rather than reopening the pathname.
+# Keep this open across extraction and exec: startup adopts this descriptor,
+# and extraction deliberately reads it rather than reopening the pathname.
 eval 'exec '"$cosmic_artifact_fd"'<"$cosmic_artifact"' ||
   portable_die 'cannot open the portable artifact'
 @ADOPT_HOOK@
