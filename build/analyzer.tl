@@ -713,7 +713,8 @@ end
 --- `surface_of`), and every `local` record, enum, interface or type
 --- an exported row's signature names, again for each one that joins,
 --- since a caller meets those names in the signatures it reads. A
---- `local` type no exported signature reaches stays private.
+--- `local` type no exported signature reaches stays private; a member
+--- named `_x` is no caller's to read, so its signature reaches nothing.
 local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: string,
                                     export: string)
   local function under(entry: analyzer.DocEntry, root: string): boolean
@@ -732,7 +733,11 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
   while joined do
     joined = false
     for _, reader in ipairs(entries) do
-      if reader.exported and not searched[reader] and reader.signature ~= "" then
+      -- A member named `_x` is hidden from callers, so what its
+      -- signature names is not reached through it.
+      local hidden = reader.source_symbol:find("[.:]_[^.:]*$") ~= nil
+        or reader.source_symbol:sub(1, 1) == "_"
+      if reader.exported and not hidden and not searched[reader] and reader.signature ~= "" then
         searched[reader] = true
         local words = " " .. reader.signature .. " "
         for _, entry in ipairs(entries) do

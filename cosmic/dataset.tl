@@ -80,6 +80,7 @@ local record Dataset
   --- has one (a CSV's header): `load` puts the columns in it unless
   --- `opts.columns` says otherwise.
   record Rows is {Dataset.Row}
+    --- The column names, in the order the format gives them.
     columns: {string}
   end
 

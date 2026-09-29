@@ -23,10 +23,13 @@ local record Zip
   end
 
   record Entry
+    --- The entry's path as the archive stores it.
     path: string
+    --- What the entry is.
     kind: Kind
     --- The uncompressed size.
     size: integer
+    --- The size of the body as stored, compressed.
     compressed_size: integer
     --- 0 for stored, 8 for deflated; nothing else is understood.
     -- TODO: EntryOptions.method is a Zip.Method name and this is zip's
@@ -35,10 +38,13 @@ local record Zip
     -- "a method this reader cannot open" (listing such an entry works
     -- today; only opening it fails), keeping the number beside it.
     method: integer
+    --- The CRC-32 the archive records for the uncompressed body.
     crc32: integer
     --- The permission bits from the entry's external attributes, when
     --- it was made by a Unix zip tool; 0 otherwise.
     mode: integer
+    --- The modification time, in Unix epoch seconds, read from the
+    --- entry's DOS date and time as UTC.
     mtime: integer
     --- A symlink's target; "" otherwise.
     linkpath: string
@@ -60,6 +66,8 @@ local record Zip
     --- entry at a time; nil and `""` after the last. Independent of
     --- `entries`.
     next: function(Reader): Entry | nil, string
+    --- Releases the file the archive is read from, if it has one; no
+    --- entry can be opened afterward.
     close: function(Reader): boolean, string
   end
 

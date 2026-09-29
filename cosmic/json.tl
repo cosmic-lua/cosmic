@@ -189,15 +189,20 @@ local record Json
   --- One step of a pattern (`Json.parse_pattern`): `key` is set for
   --- `key` and `deep_key`, `index` for `index` and `deep_index`.
   record Step
+    --- Which step this is.
     kind: StepKind
+    --- The object key to take, for a `key` or `deep_key` step.
     key: string
+    --- The array position to take, for an `index` or `deep_index` step.
     index: integer
   end
 
   --- A value and the path it was found at, spelled as `child_path`
   --- spells it: what `flatten` and `select` answer.
   record Located
+    --- Where the value was found.
     path: string
+    --- The value itself.
     value: any
   end
 

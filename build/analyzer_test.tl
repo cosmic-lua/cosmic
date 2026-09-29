@@ -494,6 +494,27 @@ local function test_a_local_type_is_exported_only_when_reached()
   assert(not by_symbol["State"].exported)
 end
 
+--- A member named `_x` is no caller's to read, so a `local` type only its
+--- signature names stays the module's own.
+local function test_a_local_type_only_a_private_member_names_stays_private()
+  local by_symbol = docs(lines({
+    "local record Pipe",
+    "  fd: integer",
+    "end",
+    "local record Handle",
+    "  _pipes: {Pipe}",
+    "  pid: integer",
+    "end",
+    "local record Thing",
+    "  open: function(): Handle",
+    "end",
+    "local thing: Thing = {}",
+    "return thing",
+  }))
+  assert(by_symbol["Handle"].exported and by_symbol["Handle.pid"].exported)
+  assert(not by_symbol["Pipe"].exported and not by_symbol["Pipe.fd"].exported)
+end
+
 --- A function with no comment of its own is still a symbol, with an
 --- empty text: `cosmic docs` can still say where it lives.
 local function test_an_undocumented_function_is_still_a_symbol()

@@ -22,6 +22,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local docs_checks = require("build.docs_checks")
 local exit_status = require("build.exit_status")
 local sys = require("cosmic.sys")
 local verb_list = require("build.verb_list")
@@ -41,20 +42,24 @@ local log = verdict.log
 --- Falls back to naming the lookup that failed, rather than silently
 --- dropping a verb from its own help, if `cosmic.cli`'s own database
 --- row is ever missing.
---- @param verbs the verbs to print, in order
-local function verb_help(verbs: {string}): string
+--- @param verbs the verbs to print
+--- @return each verb's text, by verb
+local function verb_help(verbs: {string}): {string: string}
   local docs = require("build.docs")
   local sources = docs.databases()
   local view, view_trouble = docs.view(sources.handles, sources.public)
+  local out: {string: string} = {}
   if view == nil then
-    return "(cosmic.cli: " .. view_trouble .. ")"
+    for _, verb in ipairs(verbs) do
+      out[verb] = "(cosmic.cli: " .. view_trouble .. ")\n"
+    end
+    return out
   end
   local names: {string} = {}
   for _, verb in ipairs(verbs) do
     names[#names + 1] = "Cli." .. verb
   end
   local found, trouble = docs.named_all(view, names)
-  local lines: {string} = {}
   for _, verb in ipairs(verbs) do
     local symbol = "Cli." .. verb
     local text: string | nil = nil
@@ -66,6 +71,7 @@ local function verb_help(verbs: {string}): string
         end
       end
     end
+    local lines: {string} = {}
     if found == nil then
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": " .. trouble .. ")"
     elseif text == nil then
@@ -78,8 +84,9 @@ local function verb_help(verbs: {string}): string
       end
     end
     lines[#lines + 1] = ""
+    out[verb] = table.concat(lines, "\n")
   end
-  return table.concat(lines, "\n")
+  return out
 end
 
 --- What follows the list of bare verbs in the paragraph that names them,
@@ -181,6 +188,18 @@ local function exit_help(specs: {verb_spec.Spec}): string
   end
   return wrapped("Every verb but " .. listed(bare) .. " " .. help_verdict .. " " ..
     table.concat(sentences, " "), help_width) .. "\n"
+end
+
+--- The text of `cosmic help <verb>`: the verb's docs, its options, then
+--- what its spec says of its command line.
+--- @param specs every verb's spec, the `help` verb's included
+--- @param docs the verb's own text if already read (`verb_help`)
+local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): string
+  local spec: verb_spec.Spec | nil = nil
+  for _, candidate in ipairs(specs) do
+    if candidate.name == verb then spec = candidate end
+  end
+  return (docs or verb_help({ verb })[verb]) .. "\n" .. spec_notes(verb, spec)
 end
 
 --- The index `cosmic help` prints: what `cosmic` is, each verb's usage
@@ -526,11 +545,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     if words[1] == "exit" then
       log:say(exit_help(specs))
     else
-      local spec: verb_spec.Spec | nil = nil
-      for _, candidate in ipairs(specs) do
-        if candidate.name == words[1] then spec = candidate end
-      end
-      log:say(verb_help(words) .. "\n" .. spec_notes(words[1], spec) .. "\n")
+      log:say(verb_text(words[1], specs) .. "\n")
     end
     log:verdict("help", true, "1 verb, " .. clock.took(started))
     return 0
@@ -606,6 +621,22 @@ local function asks_help(argv: {integer:string},
 end
 
 local dispatch = {}
+
+--- Every text `cosmic help` prints, by what asks for it: `""` is the
+--- index, `exit` its page, and each verb of `Cli.order` its own, so a
+--- check reads what a user reads.
+local function help_texts(): {string: string}
+  local specs = verb_list.specs()
+  specs[#specs + 1] = help_spec
+  local out: {string: string} = { [""] = index_help(), exit = exit_help(specs) }
+  local texts = verb_help(Cli.order)
+  for _, verb in ipairs(Cli.order) do
+    out[verb] = verb_text(verb, specs, texts[verb])
+  end
+  return out
+end
+
+docs_checks.provide_help(help_texts)
 
 --- Runs the command line and answers its exit code.
 --- @param argv the command line, with the program's own name at slot 0

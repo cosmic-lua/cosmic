@@ -85,8 +85,11 @@ local record Time
   --- A calendar amount, for `add_calendar`: each field may be negative,
   --- and a missing one is zero.
   record Change
+    --- Calendar years to add.
     years: integer
+    --- Calendar months to add.
     months: integer
+    --- Calendar days to add.
     days: integer
   end
 
@@ -139,6 +142,7 @@ local record Time
   --- A moment read from RFC 3339 text, and the zone its RFC 9557
   --- suffix names.
   record Zoned
+    --- The moment, in nanoseconds since the Unix epoch.
     ns: integer
     --- Nil when the text names none.
     zone: Time.Zone

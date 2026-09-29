@@ -26,6 +26,7 @@ local closure_store = require("build.closure_store")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
+local docs_checks = require("build.docs_checks")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local symbols = require("build.symbols")
@@ -897,7 +898,13 @@ end
 
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
-function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil): {string}
+--- @param carried the database a release binary carries of `db`
+---   (`build.docs_checks`' `carried`), which the checks of what `cosmic
+---   docs` shows read; `db` itself when not given
+--- @param help what `cosmic help` prints (`docs_checks.help_texts`),
+---   whose references are checked with the docs'; none when not given
+function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil,
+                         carried?: Sqlite.Handle, help?: {string: string}): {string}
   local out: {string} = {}
   for _, check in ipairs({
     { name = "exports", lines = tree_checks.exports(db) },
@@ -909,6 +916,8 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil): {string}
     { name = "declarations", lines = tree_checks.declarations(db) },
     { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
     { name = "guides", lines = tree_checks.guides(db) },
+    { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
+    { name = "doc references", lines = docs_checks.references(carried or db, help) },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

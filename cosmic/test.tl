@@ -30,6 +30,7 @@
 --- process, whichever module makes it: a test module never requires
 --- another test module that calls `needs`. Every string is written
 --- plainly, without escapes or long brackets, as the build reads it.
+
 -- TODO: take `environment` and `program` from build.this_program, which
 -- a test calls to say what a process of this program it starts needs
 -- and how to start one past its launcher, once each can be read from the
@@ -93,11 +94,13 @@ local record Test
     --- what the module declares, and where a worker runs unsandboxed
     --- (macOS, a host refusing user namespaces) a test that starts one
     --- never stands, and the audit asks nothing of it.
+    processes: boolean
+
     -- TODO: audit what a process an unsandboxed worker starts reads, once
     -- a host without spawn's sandbox (macOS: core/process.h's `unveil` is
     -- Linux's alone) can observe it: today such a read is seen by no
     -- audit but a sandboxed run's, where it finds nothing.
-    processes: boolean
+
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
     --- and nothing else -- not the store beyond their closure (`store`),
@@ -133,10 +136,12 @@ local record Test
     --- through the descriptor a portable start keeps on it: that read is
     --- refused, whatever the test declares.
     store: boolean
+
     -- `Store.meta` is not held (the TODO on `hold_store` in
     -- build/test_worker.tl). The descriptor is refused by core/check.h's
     -- `cosmic_checkfd`, and a sandboxed worker that does not declare
     -- `tool` has no name to open the program by.
+
     --- Whether the tests, or the processes they start, read the system's
     --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and
     --- /etc, as a host program or its dynamic loader needs them -- a

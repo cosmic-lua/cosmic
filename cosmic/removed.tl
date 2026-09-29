@@ -30,6 +30,7 @@ local record Removed
 end
 
 local record Module
+  --- One field per removed global, named for it: what to write instead.
   fields: Removed
   --- The removed globals, the same five `fields` names. Each fails to
   --- resolve at compile time rather than when a running program reaches
@@ -46,6 +47,8 @@ local record Module
   --- The compiler says it after its `invalid key` for the member, or,
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
+  members: {string:string}
+
   -- TODO: a field removed from a record a caller builds as a table
   -- literal (cosmic.archive's ExtractOptions.strip, replaced by
   -- strip_prefix and strip_components) has no entry: the checker says only `unknown
@@ -57,7 +60,7 @@ local record Module
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as `core/surface.c` does for a
   -- removed global, once a module's record can answer a missing field.
-  members: {string:string}
+
   --- What to write instead of `name`, or of its field `field`.
   message: function(name: string, field?: string): string
 end

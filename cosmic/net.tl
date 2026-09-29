@@ -52,6 +52,7 @@ local record Net
 
   --- Where a socket is.
   record Address
+    --- Whether the address is a socket file or a host and port.
     kind: Kind
     --- For "unix": the socket file's path, of any length a path may
     --- have. The platform bounds the file's own name, past the last "/"

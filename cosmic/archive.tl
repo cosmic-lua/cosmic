@@ -17,13 +17,22 @@ local record Archive
   type Kind = Tar.Kind
 
   record Entry
+    --- The entry's path as the archive stores it.
     path: string
+    --- What the entry is; a zip entry is "file", "dir" or "symlink".
     kind: Kind
+    --- The permission bits (the low 12); 0 for a zip entry whose tool
+    --- recorded none.
     mode: integer
+    --- The body's size in bytes, uncompressed.
     size: integer
+    --- The modification time, in Unix epoch seconds.
     mtime: integer
     --- A symlink's or hardlink's target; "" otherwise.
     linkpath: string
+    --- The entry's body. Read it before asking for the next entry: a
+    --- tar body cannot be read after that, and no body can be read once
+    --- the Reader is closed.
     open: function(Entry): Stream.Reader | nil, string
   end
 
@@ -33,6 +42,7 @@ local record Archive
     --- of its stream, so a truncated or corrupt one fails here rather
     --- than passing as a complete archive.
     next: function(Reader): Entry | nil, string
+    --- Closes the file or stream the archive is read from.
     close: function(Reader): boolean, string
   end
 
