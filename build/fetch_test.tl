@@ -374,8 +374,7 @@ local function test_bad_hex_in_a_recognized_fragment_is_a_usage_error()
 end
 
 local function test_an_unrecognized_fragment_is_dropped()
-  for _, fragment in ipairs({ "", "section", "a=b", "sha1=abc", "&&", "sha256", "SHA256=zz",
-      "egg=x&sha256x=1", "x#y" } as {string}) do
+  for _, fragment in ipairs({ "", "section", "a=b", "&&", "shape=1", "egg=x&hashtag", "x#y" } as {string}) do
     local ran = run({ url .. "#" .. fragment }, { reply("200 OK", "", "hello") })
     assert(ran.code == 0 and ran.out == "hello", fragment .. ": " .. ran.err)
   end
@@ -383,4 +382,15 @@ local function test_an_unrecognized_fragment_is_dropped()
   assert(mixed.code == 0, mixed.err)
   local head = run({ "--head", url .. "#sha256=" .. Hash.hex_sha256("x") }, { reply("200 OK", "") })
   assert(head.code == 2, head.err)
+end
+
+local function test_a_fragment_that_looks_like_a_checksum_is_refused()
+  local hex = Hash.hex_sha256("hello")
+  for _, fragment in ipairs({ "sha1=abc", "SHA256=" .. hex, "sha-256=" .. hex, "sha256:" .. hex,
+      "sha256", "md5=abc", "Sha512sum=" .. hex, "egg=x&sha256x=1", "checksum=" .. hex } as {string}) do
+    -- no script: a request would fail as exit 1, not the usage error
+    local ran = run({ url .. "#" .. fragment }, {})
+    assert(ran.code == 2 and ran.out == "", fragment .. ": " .. tostring(ran.code) .. ran.err)
+    assert(ran.err:find("looks like a checksum", 1, true), ran.err)
+  end
 end

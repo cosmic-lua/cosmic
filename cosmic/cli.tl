@@ -333,7 +333,8 @@ local record Cli
   --- only once it is all in and matches `--sha256`, `--sha512` or the digest
   --- the URL's fragment carries (`<url>#sha256=<hex>`, or `#sha256sum=`,
   --- `#sha512=`, `#sha512sum=`; the fragment is never sent or printed, and
-  --- an unrecognized one is dropped; a bad digest, or a flag and fragment
+  --- an unrecognized one is dropped, but one that looks like a
+  --- checksum this verb does not check, such as `sha1=` or `SHA256=`, is exit 2; a bad digest, or a flag and fragment
   --- for one algorithm that differ, exits 2 before any request; for
   --- different algorithms both must match), so a failed digest
   --- leaves nothing at the target. `--sha256` with standard output holds

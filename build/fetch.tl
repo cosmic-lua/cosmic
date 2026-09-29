@@ -8,7 +8,10 @@
 --- `#sha512=` and `#sha512sum=` too, several joined by `&`), the form pip
 --- reads, so one string names what to fetch and what it must be. The
 --- fragment is taken off before anything is sent and never printed, and
---- one that names none of these is dropped, as a fragment always was. A
+--- one that names none of these is dropped, as a fragment always was --
+--- unless a parameter reads as a checksum this verb does not check
+--- (`sha1=`, `SHA256=`, `sha-256=`, `sha256:`, `md5=`), which is exit 2:
+--- a body left unverified by a typo is the failure this exists to stop. A
 --- digest that is not hex of the right length is exit 2 before any
 --- request; a flag and a fragment for the same algorithm must agree, or
 --- that is exit 2 too; for different algorithms both are checked, and
@@ -133,6 +136,31 @@ function verb.refusal(why: string, protocols: {string}): string
   return why
 end
 
+--- Whether `key` is a fragment key that names one of `algorithms`.
+local function recognized(key: string): boolean
+  for _, algorithm in ipairs(algorithms) do
+    for _, name in ipairs(algorithm.keys) do
+      if key == name then return true end
+    end
+  end
+  return false
+end
+
+--- Whether a fragment parameter reads as an attempt at a checksum: a name
+--- (up to its `=` or `:`) that, ignoring case and any `-` or `_`, begins
+--- like a hash's (`sha1`, `md5`) or is one of the words for a digest.
+--- Dropping such a parameter as an ordinary fragment would fetch unverified
+--- what the user believes is checked.
+local function looks_like_a_checksum(parameter: string): boolean
+  local name = (parameter:match("^[^=:]*"):lower():gsub("[-_ ]", ""))
+  local patterns: {string} = { "^sha%d", "^sha$", "^md%d", "^blake", "^crc%d", "^ripemd", "^whirlpool",
+      "^hash$", "^hash%d", "^checksum", "^digest$", "^integrity$" }
+  for _, pattern in ipairs(patterns) do
+    if name:find(pattern) then return true end
+  end
+  return false
+end
+
 --- `body`'s digest in hex, by the name of one of `algorithms`.
 local function digest_of(name: string, body: string): string
   if name == "sha512" then return Codec.hex(Hash.digest("sha512", body)) end
@@ -247,6 +275,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   for parameter in (fragment or ""):gmatch("[^&]+") do
     local key, value = parameter:match("^([^=]+)=(.*)$")
+    if looks_like_a_checksum(parameter) and not recognized(key) then
+      return refuse("#" .. parameter:match("^[^=]*"):sub(1, 40) ..
+        " looks like a checksum but is not one this verb checks (it reads #sha256=, " ..
+        "#sha256sum=, #sha512= and #sha512sum=, in lowercase), and the body would go unverified")
+    end
     for _, algorithm in ipairs(algorithms) do
       for _, name in ipairs(algorithm.keys) do
         if key == name then
