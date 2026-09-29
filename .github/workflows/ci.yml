@@ -380,7 +380,7 @@
         # fuzz_test /bin/cp) declare `system = true` in their
         # `Test.needs`.
         {
-          name: "move the tree to a path of this commit's own",
+          name: "move the tree to a path of its own",
           "working-directory": ".",
           run: "sh .github/scripts/place-tree.sh",
         },
@@ -697,9 +697,14 @@
         # that takes this copy where no save by content followed, matches
         # a key under a commit, so the save by content runs where its
         # rows are an entry's already, and warns that the key exists.
+        # Neither save runs for the macOS leg's scheduled run: its keys
+        # hold the tree's path, which that run chooses by the commit
+        # (place-tree.sh), so its rows would answer no gating run, whose
+        # path the leg alone chooses, and one that restored them would
+        # run every test.
         {
           name: "save test verdicts under this commit",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1')",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -711,7 +716,7 @@
         # where the rows differ from the entry restored.
         {
           name: "save test verdicts",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -872,7 +877,7 @@
         # another length each commit varies what the sanitizers see.
         # After every hashFiles, which reads the checkout.
         {
-          name: "move the tree to a path of this commit's own",
+          name: "move the tree to a path of its own",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           "working-directory": ".",
           run: "sh .github/scripts/place-tree.sh",

@@ -1133,7 +1133,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
       { "name the zig build cache, and the run's start" }, { "restore zig build outputs" },
       { "restore zig build outputs of another vendor part" }, { "name the leg's host" },
       { "find the tree's base on main" }, { "restore test verdicts" }, { "restore compiles and parses" },
-      { "move the tree to a path of this commit's own" },
+      { "move the tree to a path of its own" },
       { "move the tree back to where it was checked out" } }) do
     local step_name = pair[1]
     local our, their = ours[step_name], theirs[pair[2] or step_name]

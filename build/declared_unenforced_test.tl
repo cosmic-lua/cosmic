@@ -226,3 +226,36 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
   local second = says(tmp .. "/second", tmp .. "/second.out", sandboxed, "2 ran, 0 stood")
   assert(second:find("; sandboxed)", 1, true), second)
 end
+
+--- Its worker attaches the store of its module's closure, not the
+--- tree's projection at o/cosmic.db: the database it holds open is
+--- under o/stores/. The store's own `closure` row, which names its
+--- address, would say so too, but the store's hold keeps a test from
+--- reading that row (build.test_worker's `held_meta`), so the case
+--- reads the worker's descriptors from /proc instead -- where there is
+--- one: macOS has none, and a Linux leg checks it.
+local function test_an_unenforced_worker_attaches_its_closure_store(tmp: string)
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local root = tmp .. "/root"
+  checkout(root)
+  assert(Fs.write(root .. "/suite/store_test.tl", [[
+local Fs = require("cosmic.fs")
+
+local function test_the_store_it_attached()
+  local listed = Fs.list("/proc/self/fd")
+  if listed == nil then return end
+  local attached: {string} = {}
+  for _, fd in ipairs(listed) do
+    local link = Fs.readlink("/proc/self/fd/" .. fd)
+    if link ~= nil and link:find("/o/", 1, true) ~= nil and link:sub(-3) == ".db" then
+      attached[#attached + 1] = link
+    end
+  end
+  assert(#attached > 0, "it holds no database of the tree open")
+  for _, link in ipairs(attached) do
+    assert(link:find("/o/stores/", 1, true) ~= nil, "it attached " .. link)
+  end
+end
+]]))
+  says(root, tmp .. "/first.out", env, "3 ran, 0 stood")
+end
