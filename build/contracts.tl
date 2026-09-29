@@ -10,14 +10,15 @@
 ---    returned whole as a `return`'s last value, or passed whole as the
 ---    last argument of `assert` or of a function whose last required
 ---    parameters take every result, a `string` where the reason lands
----    (`complain(v, why)`). Anywhere else -- `f() or x`, `not f()`, `if f() then`,
----    `(f())`, a non-final argument, `local v = f()`, `{f()}`,
----    `print(f())`, `table.insert(t, f())` -- the reason is dropped. A
----    call standing alone as a statement drops it too. A failure to be
----    ignored on purpose (a cleanup on a path that is already failing,
----    a diagnostic written to stderr) says so by binding both slots to
----    `_`: `local _, _ = Fs.remove(path)`. A method of a record
----    `quieted` names (`cosmic.log`'s Logger) may stand alone.
+---    (`complain(v, why)`). Anywhere else the reason is dropped:
+---    `f() or x`, `not f()`, `if f() then`, `(f())`, a non-final
+---    argument, `local v = f()`, `{f()}`, `print(f())`,
+---    `table.insert(t, f())`. A call standing alone as a statement
+---    drops it too. A failure to be ignored on purpose (a cleanup on a
+---    path that is already failing, a diagnostic written to stderr) says
+---    so by binding both slots to `_`: `local _, _ = Fs.remove(path)`. A
+---    method of a record `quieted` names (`cosmic.log`'s Logger) may
+---    stand alone.
 --- 2. A failure carries no value: in a fallible function, a `return a,
 ---    b` whose `b` is not the literal `""` has a literal `nil` (`false`,
 ---    for an effect) as `a`. So `local v, err = f(); return v, err` is
@@ -32,8 +33,9 @@
 ---    string` whose every return is a value that cannot be nil and `""`
 ---    returns the value alone.
 --- 5. Two slots, and nothing in a third: a fallible function declares
----    exactly two results, and no variadic tail. What else a failure means goes in its
----    reason, or in a structured error record standing as the value.
+---    exactly two results, and no variadic tail. What else a failure
+---    means goes in its reason, or in a structured error record standing
+---    as the value.
 ---    The one exception is `cosmic.sys` (and the raw process table,
 ---    `cosmic.internal.process`), whose C bindings answer
 ---    `nil | false, error, errno`: a function a module stores into one
@@ -117,10 +119,10 @@
 --- 5 read a function's declared results.
 ---
 --- `exempt` names the functions rules 2 to 5, 10 and 11 cannot yet hold,
---- `parsing` the functions rule 6 cannot, and `casts`
---- the functions rule 7 lets cast, each with its reason; the TODO for
---- each is where its fix goes. `modes` names, as `"file:Record.field"`,
---- the string fields rule 9 lets be compared with literals.
+--- `parsing` the functions rule 6 cannot, and `casts` the functions
+--- rule 7 lets cast, each with its reason. `modes` names, as
+--- `"file:Record.field"`, the string fields rule 9 lets be compared with
+--- literals.
 
 local ast = require("build.ast")
 local receivers = require("build.receivers")
@@ -435,12 +437,12 @@ local record Used
 end
 
 --- One walk of a checked module's tree, kept for every rule to read
---- rather than each walking it again. `order` is every node reached
---- from the root through its children (`ast.children` passing by the
---- fields `skipped` names), each once, at its first reach, depth
---- first; `parent` is the node it was first reached from. `reached` is
---- every node `ast.walk` reaches, the fields `skipped` names followed
---- too, in no promised order.
+--- rather than each walking it again. `order` holds each node reached
+--- from the root through its children (`ast.children`, which passes by
+--- the fields `skipped` names), depth first, at its first reach.
+--- `parent` is the node it was first reached from. `reached` holds
+--- every node `ast.walk` reaches, which follows the fields `skipped`
+--- names too, in no promised order.
 local record Index
   order: {Node}
   parent: {Node: Node}
@@ -621,7 +623,7 @@ local function check_function(file: string, fn: Node, scope: string, exemptions:
   if not effect and not value then return end
   local name = function_name(fn)
   -- TODO: mark an exemption used only where a rule 2 to 5 would have
-  -- refused the function, so one whose function now keeps the
+  -- refused the function, so an entry for a function that keeps the
   -- discipline is reported stale too; that wants the rules run whole
   -- and their problems dropped, rather than skipped at this lookup.
   if exemptions.exempt[file .. ":" .. scope] ~= nil then
@@ -983,21 +985,21 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
       end
     end
     local reading = inspected(n)
-    if #reading == 0 then
-      -- nothing read here
-    elseif exemptions.parsing[file .. ":" .. within] == nil then
-      for _, read in ipairs(reading) do reads[#reads + 1] = { read, n } end
-    else
-      used.parsing[file .. ":" .. within] = true
+    if #reading > 0 then
+      if exemptions.parsing[file .. ":" .. within] == nil then
+        for _, read in ipairs(reading) do reads[#reads + 1] = { read, n } end
+      else
+        used.parsing[file .. ":" .. within] = true
+      end
     end
   end
   for _, list in pairs(bindings) do
     table.sort(list, function(a: Binding, b: Binding): boolean return a.at < b.at end)
   end
-  --- Whether the assignment `list[i]`, in a block closed before `at`,
-  --- stored into a local declared in a block that has closed too: one
-  --- declared before it whose scope holds the assignment's block and
-  --- ends before `at`. Such a store is not what `at` reads.
+  --- Whether the assignment `list[i]` stored into a local whose scope
+  --- has closed before `at`: a declaration before it whose scope holds
+  --- the assignment's block and ends before `at`. Such a store is not
+  --- what `at` reads.
   local function into_closed(list: {Binding}, i: integer, at: integer): boolean
     local b = list[i]
     for j = i - 1, 1, -1 do
@@ -1449,8 +1451,8 @@ end
 --- A value read any other way is not followed: `o.x:match(...)` or
 --- `o.x:find(...)` telling modes apart, a lookup table keyed by it
 --- (`handlers[o.x]`), a field of another record it is copied into, or a
---- function that is not a local one (`R.f(o.x)`). No mode in the tree is
---- read so; one that is goes unchecked rather than refused.
+--- function that is not a local one (`R.f(o.x)`). Such a mode goes
+--- unchecked rather than refused.
 local function check_modes(file: string, root: Node, index: Index, records: {integer: Type},
                            exemptions: contracts.Exemptions, used: Used, problems: {string})
   local declared = string_fields(root)
