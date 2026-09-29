@@ -30,7 +30,10 @@ end
 
 local record Stream
   interface Reader
+    --- The next chunk of at most `max` bytes, or nil and `""` at the
+    --- end, or nil and an error; see the module's description.
     read: function(Reader, max?: integer): string | nil, string
+    --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that
@@ -40,13 +43,18 @@ local record Stream
   end
 
   interface Writer
+    --- Takes one chunk; false and why when it cannot.
     write: function(Writer, string): boolean, string
+    --- Commits what was written. Safe to call more than once.
     close: function(Writer): boolean, string
+    --- Discards what was written, where that means anything. Safe to
+    --- call more than once.
     abort: function(Writer): boolean, string
   end
 
   --- An in-memory Writer that also hands back everything written to it.
   record Collector is Writer
+    --- Everything written so far.
     result: function(Collector): string
   end
 

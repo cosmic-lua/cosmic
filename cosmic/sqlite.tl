@@ -52,9 +52,13 @@ local record Sqlite
   --- a blob never arrives as text by accident. At most one field is
   --- allowed; an empty table explicitly binds SQL NULL.
   record Value
+    --- Bound as an SQLite integer.
     integer: integer
+    --- Bound as a floating-point number.
     number: number
+    --- Bound as text.
     text: string
+    --- Bound as a blob: bytes, never text.
     blob: string
   end
 
@@ -62,10 +66,15 @@ local record Sqlite
   --- `"number"`, `"text"`, or `"blob"`; exactly the matching value field is
   --- present, except that a null cell has no value field.
   record Cell
+    --- Which field holds the value.
     kind: string
+    --- The value of an integer cell.
     integer: integer
+    --- The value of a number cell.
     number: number
+    --- The value of a text cell.
     text: string
+    --- The bytes of a blob cell.
     blob: string
   end
 

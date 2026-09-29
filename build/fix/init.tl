@@ -52,6 +52,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local docs_checks = require("build.docs_checks")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local flow = require("build.flow")
@@ -646,9 +647,21 @@ local function run(argv: {integer:string}): integer
       if guide == nil then
         findings[#findings + 1] = "tree checks: " .. guide_trouble
       end
-      local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root))
+      local carried, carried_trouble = docs_checks.carried(root .. "/o/cosmic.db",
+        root .. "/o/docs-check.db")
+      if carried == nil then
+        findings[#findings + 1] = "tree checks: " .. carried_trouble
+      end
+      local help, help_trouble = docs_checks.help_texts()
+      if help == nil then
+        findings[#findings + 1] = "tree checks: " .. help_trouble
+      end
+      local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root), carried, help)
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
+      end
+      if carried ~= nil then
+        local _, _ = carried:close()
       end
       -- A compiler of its own: the check points its search at this
       -- binary's sources, which the tree's build must not inherit.

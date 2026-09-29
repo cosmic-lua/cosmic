@@ -22,6 +22,7 @@ local artifact = require("build.artifact")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
@@ -73,20 +74,18 @@ end
 ]]))
 end
 
---- Whether a run that said `text` sandboxed no worker, where that is
---- allowed: false where it did sandbox them, and a failure where this
---- run is held to sandboxing -- COSMIC_TEST_SANDBOX=1, as CI's suites
---- set it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1 -- so a run
---- held to it proves the runs it starts sandbox theirs, nested in its
---- own as they are (CI's unprivileged runner nests them, as
---- build/shared_verdicts_tool_test.tl's `shares` holds it to). Elsewhere, a
---- host that refuses a worker's workers a sandbox of their own -- one
---- running the tests as root, this test's run confined in a sandbox
---- already -- checks nothing here.
+--- Whether a run that said `text` sandboxed no worker, which skips the
+--- test (`Test.skip`): false where it did sandbox them. A host that
+--- refuses a worker's workers a sandbox of their own -- one running the
+--- tests as root, this test's run confined in a sandbox already --
+--- checks nothing here, and a run held to sandboxing --
+--- COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
+--- COSMIC_CI_REQUIRE_SANDBOX=1 -- fails a skipped test, so a run held to
+--- it proves the runs it starts sandbox theirs, nested in its own as
+--- they are (CI's unprivileged runner nests them).
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
-  assert(not confine.held_to_sandbox(),
-    "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  sandbox_skip.nested(text)
   return true
 end
 

@@ -32,13 +32,21 @@ local record Tar
   end
 
   record Entry
+    --- The entry's path as the archive stores it.
     path: string
+    --- What the entry is; see `Kind`.
     kind: Kind
+    --- The permission bits (the low 12).
     mode: integer
+    --- The body's size in bytes.
     size: integer
+    --- The modification time, in Unix epoch seconds.
     mtime: integer
+    --- A symlink's or hardlink's target; "" otherwise.
     linkpath: string
+    --- The owner's numeric user id.
     uid: integer
+    --- The owner's numeric group id.
     gid: integer
     --- The header's typeflag byte, for telling apart what `kind`
     --- lumps together as "other".

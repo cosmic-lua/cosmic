@@ -10,9 +10,9 @@ local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local test = require("build.test")
-local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
@@ -41,13 +41,13 @@ end
 --- that is allowed. The workers nest in this test's own sandbox, which a
 --- host may refuse (the kernel lets root nest one only two deep:
 --- core/syscalls.c's `map_ids`); the sandboxed case then checks only what
---- the unsandboxed one does. A run held to sandboxing fails instead
+--- the unsandboxed one does. It says it is skipped (`Test.skip`),
+--- which a run held to sandboxing fails
 --- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return false end
-  assert(not confine.held_to_sandbox(),
-    "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  sandbox_skip.nested(text)
   return true
 end
 

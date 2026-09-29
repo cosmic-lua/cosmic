@@ -324,9 +324,9 @@ end
 --- A run's digests of the tree at `root`, seeded with `remembered`, what
 --- `kept` answered in an earlier run -- absolute path, what `lstat` said,
 --- sha256.
--- The build's staged hashes are not taken: its stage keeps no change
--- time, so a file rewritten in place with its modification time set
--- back would answer the hash it had before.
+--- The build's staged hashes are not taken: its stage keeps no change
+--- time, so a file rewritten in place with its modification time set
+--- back would answer the hash it had before.
 function declared_key.digests(root: string, remembered?: {{string}}): declared_key.Digests
   local hashed: {string:string} = {}
   for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end
