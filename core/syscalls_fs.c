@@ -1209,6 +1209,10 @@ int cosmic_query_tree_digest (lua_State *L) {
   walk->contents = contents;
   walk->name_room = 64;
   walk->name = malloc(walk->name_room);
+  /* TODO: count /dev/full inert here too, and in syscalls.h's `special`,
+   * as build/filesystem_observations.tl's `inert_device` does: its every
+   * answer is the same, yet a tree holding one is `special`, which errs
+   * safe, refusing only to key that tree. */
   static const char *const inert[] = { "/dev/null", "/dev/zero", "/dev/urandom" };
   for (size_t i = 0; i < sizeof inert / sizeof *inert; i++) {
     struct stat device;

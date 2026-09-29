@@ -179,9 +179,9 @@ end
 --- /dev/null (a child's "null" stream), /proc/self/exe and
 --- /proc/thread-self/children, and nothing of /usr, /lib or /etc;
 --- /dev/zero it does not open, but a program takes it for granted as it
---- does /dev/null; /dev/full, where a write fails with ENOSPC, is for a
---- test of a failed write (build/codec_tool_test.tl's), and macOS has
---- none. /proc alone does not enter a key: a sandboxed process's is a
+--- does /dev/null; /dev/full is where a write fails with ENOSPC, for a
+--- test of how a program meets a failed write, and macOS has none.
+--- /proc alone does not enter a key: a sandboxed process's is a
 --- procfs of its own pid namespace, holding its own processes and
 --- nothing of the host's. The devices' every answer is the same, or none
 --- a key could hold (/dev/urandom's), so the key holds them through the
