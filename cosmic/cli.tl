@@ -326,11 +326,17 @@ local record Cli
   --- the data a pipe reads; exits 0 when done, 2 for a command line, an
   --- input or a write it cannot honor
   codec: string
-  --- `cosmic fetch <url> [-o file] [--sha256 hex] [--head [--json]]`: one
+  --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]`: one
   --- GET, a small curl. With no `-o` the body goes to standard output, so
   --- `cosmic fetch <url> | cosmic json '.items'` reads it; with `-o` it is
   --- written to a temporary file beside the target and renamed into place
-  --- only once it is all in and matches `--sha256`, so a failed digest
+  --- only once it is all in and matches `--sha256`, `--sha512` or the digest
+  --- the URL's fragment carries (`<url>#sha256=<hex>`, or `#sha256sum=`,
+  --- `#sha512=`, `#sha512sum=`; the fragment is never sent or printed, and
+  --- an unrecognized one is dropped, but one that looks like a
+  --- checksum this verb does not check, such as `sha1=` or `SHA256=`, is exit 2; a bad digest, or a flag and fragment
+  --- for one algorithm that differ, exits 2 before any request; for
+  --- different algorithms both must match), so a failed digest
   --- leaves nothing at the target. `--sha256` with standard output holds
   --- the whole body in memory and writes it only once the digest
   --- matches, since bytes already on a pipe cannot be taken back; on a
@@ -340,11 +346,12 @@ local record Cli
   --- `--head` prints `HTTP <status>` and the headers, names lowercased
   --- and sorted, or with `--json` an object of `status`, `url` and
   --- `headers`, and then fails on a non-2xx too. Redirects are followed,
-  --- up to 10, as `cosmic.http` follows them, and one may downgrade https
-  --- to http, as curl's default does: use `--sha256` when that matters. Header
+  --- up to 10, as `cosmic.http` follows them, but from an https URL a
+  --- redirect to http is refused (exit 1), unlike curl's default;
+  --- `--allow-downgrade` follows it, best with `--sha256`. Header
   --- values print with control bytes as `\xNN`, and a URL's userinfo prints as
   --- `***`. Streaming to standard output can leave partial bytes sent before a
-  --- failure (exit 1); `--sha256` there buffers the whole body, uncapped. Certificates are always
+  --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
   --- verified: there is no option that turns it off. GET only, by
   --- design: for a header, a body or another method write the script
   --- with `cosmic.http`. It prints no verdict line, which would be in
@@ -504,6 +511,8 @@ local module: Module = {
     fetch = {
       ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
       ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
+      ["--sha512"] = { value = "hex", about = "fail unless the body has this sha512 (also checked with --sha256)" },
+      ["--allow-downgrade"] = { about = "follow a redirect from https to http, which is refused by default" },
       ["--head"] = { about = "print the status and headers, not the body" },
       ["--json"] = { about = "with --head, print them as a JSON object" },
     },

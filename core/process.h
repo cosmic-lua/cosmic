@@ -18,6 +18,8 @@
 #ifndef COSMIC_PROCESS_H
 #define COSMIC_PROCESS_H
 
+#include <stdbool.h>
+
 #include "lua.h"
 #include "syscalls.h"
 
@@ -28,6 +30,13 @@
 
 /* Opens the table as the raw `cosmic.internal.process` module. */
 int cosmic_open_process (lua_State *L);
+
+/* Whether an open `Child.guard` has caught SIGINT or SIGTERM that
+ * nothing has read yet (`cancelled_child_signal`): a wait of core/http.c's
+ * asks it each round, so a signal ends a read or an open that no data
+ * would. It reads the signal without taking it, so the guard's holder
+ * still sees it. */
+bool cosmic_signal_caught (void);
 
 #if defined(__linux__)
 #include <stdbool.h>

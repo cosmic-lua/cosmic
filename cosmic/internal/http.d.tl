@@ -55,6 +55,7 @@ local record http
     body_size: integer
     follow: boolean
     max_redirects: integer
+    redirect_protocols: {string}
     connect_timeout_ms: integer
     timeout_ms: integer
     low_speed_bytes: integer
