@@ -29,12 +29,17 @@
 --- and `=` padding on base64url. Hex has no padding, so `--lenient` with
 --- it is refused.
 ---
---- The input is streamed, a chunk at a time, through `cosmic.codec`'s
---- incremental coders, so memory stays bounded however large it is. A
---- decoder holds the output of one chunk back until the next has
---- decoded, so an input that fits one chunk (64 KiB) writes nothing when
---- it is refused; a larger one may have written the text before its
---- fault.
+--- The input is streamed, 64 KiB at a time (a read that comes up short,
+--- as a pipe's does, is read on until the chunk is full or the input
+--- ends), through `cosmic.codec`'s incremental coders. Encoding writes
+--- each chunk's text as soon as it is made. Decoding holds one chunk's
+--- bytes back until the next chunk has decoded, so an input of at most
+--- 64 KiB writes nothing when it is refused. A padding, length or
+--- misplaced-`=` fault shows only at the end of the input, so a decoder
+--- reads all of a stream to find one -- in bounded memory, whatever its
+--- size -- and for an input of more than 64 KiB may have written most
+--- of its bytes before it refuses. An invalid character is refused as
+--- soon as its chunk is read.
 
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
@@ -52,11 +57,11 @@ local record verb
     out: function(text: string): boolean, string
     --- Writes one complaint line, without its newline.
     err: function(line: string)
-    --- Standard input, or nil and why: what `run` reads when no file
-    --- is named and `input` is not given.
+    --- Standard input, or nil and why, read a chunk at a time. `run`
+    --- reads it when no file is named; `stdin` is the whole of it, in
+    --- a test's stead, and is used only when `input` is not given.
+    --- One of the two is required: `run` says so when neither is.
     input: function(): Stream.Reader | nil, string
-    --- The whole of standard input, or nil and why: what a test
-    --- stands in for it with, when `input` is not given.
     stdin: function(): string | nil, string
   end
 end
@@ -141,9 +146,6 @@ local function encoding(name: Codec.Name, wrap: integer): Codec.Coder
   end
   coder.finish = function(_self: Codec.Coder): string, string
     return shaped((assert(inner:finish()))) .. "\n", ""
-  end
-  coder.pending = function(_self: Codec.Coder): boolean
-    return false
   end
   return coder
 end
@@ -235,9 +237,6 @@ function verb.decoding(name: Codec.Name, lenient: boolean): Codec.Coder
     local out, why = inner:finish()
     if out == nil then return at_end(why) end
     return head .. out, ""
-  end
-  coder.pending = function(_self: Codec.Coder): boolean
-    return false
   end
   return coder
 end
@@ -356,21 +355,24 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     opened, read_trouble = Stream.open(request.file)
   elseif to.input ~= nil then
     opened, read_trouble = to.input()
-  else
+  elseif to.stdin ~= nil then
     local whole: string | nil
     whole, read_trouble = to.stdin()
     if whole ~= nil then opened = Stream.from_string(whole) end
+  else
+    read_trouble = "no standard input is given to read"
   end
   if opened == nil then
     complain(read_trouble)
     return 2
   end
   local reader: Stream.Reader = opened
-  local coder = request.decode and verb.decoding(request.name, request.lenient)
+  local decode = request.decode
+  local coder = decode and verb.decoding(request.name, request.lenient)
     or encoding(request.name, request.wrap)
   local source = request.file or "standard input"
-  -- What one step of the coder gave, kept until the next step shows
-  -- the text is sound so far: see the head of this file.
+  -- What one chunk decoded to, kept until the next chunk shows the
+  -- text is sound so far: see the head of this file. Not used to encode.
   local held = ""
   --- Writes `text`, or complains of the write and answers false.
   local function put(text: string): boolean
@@ -385,21 +387,38 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return 2
   end
   while true do
-    local chunk, why = reader:read(chunk_size)
-    if chunk == nil then
-      if why ~= "" then
-        complain(why)
+    -- A read may come up short; fill the chunk, so that what is held
+    -- back is a whole chunk of input and not the last read.
+    local parts: {string} = {}
+    local have = 0
+    local ended = false
+    while have < chunk_size do
+      local piece, why = reader:read(chunk_size - have)
+      if piece == nil then
+        if why ~= "" then
+          complain(why)
+          return stop()
+        end
+        ended = true
+        break
+      end
+      parts[#parts + 1] = piece
+      have = have + #piece
+    end
+    if have > 0 then
+      local out, refusal = coder:update(table.concat(parts))
+      if out == nil then
+        complain(source .. ": " .. refusal)
         return stop()
       end
-      break
+      if decode then
+        if not put(held) then return stop() end
+        held = out
+      elseif not put(out) then
+        return stop()
+      end
     end
-    local out, refusal = coder:update(chunk)
-    if out == nil then
-      complain(source .. ": " .. refusal)
-      return stop()
-    end
-    if not put(held) then return stop() end
-    held = out
+    if ended then break end
   end
   local last, refusal = coder:finish()
   if last == nil then

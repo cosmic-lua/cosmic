@@ -142,7 +142,6 @@ local function through(coder: Codec.Coder, pieces: {string}): string | nil, stri
   for _, piece in ipairs(pieces) do
     local part, why = coder:update(piece)
     assert(part ~= nil, "update refused: " .. why)
-    assert(not coder:pending())
     out[#out + 1] = part
   end
   local last, why = coder:finish()
@@ -295,7 +294,7 @@ local function test_a_long_stream_takes_bounded_memory()
     held = held .. assert(dec:update(text)) .. assert(dec:finish())
     drain()
     assert(held == "" and matched == rounds, name)
-    assert(late < early + 256 and late < 2048,
+    assert(early < 128 and late < early + 64,
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
         name, early, late, #chunk * rounds // 1024))
   end

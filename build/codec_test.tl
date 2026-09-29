@@ -235,11 +235,11 @@ local function test_a_large_stream_is_coded_in_bounded_memory()
   local rounds = 40 -- about 2 MiB
   local written, same, early, late = stream({ "base64" }, block, rounds, encoded, true)
   assert(written == rounds * #encoded and same, "encoded text differs")
-  assert(late < early + 256 and late < 2048,
+  assert(early < 128 and late < early + 64,
     ("encoding grew %.0f KiB, then %.0f KiB, over %d KiB"):format(early, late, rounds * #block // 1024))
   local plain, plain_same, plain_early, plain_late = stream({ "base64", "-d" }, encoded, rounds, block, false)
   assert(plain == rounds * #block and plain_same, "decoded bytes differ")
-  assert(plain_late < plain_early + 256 and plain_late < 2048,
+  assert(plain_early < 128 and plain_late < plain_early + 64,
     ("decoding grew %.0f KiB, then %.0f KiB"):format(plain_early, plain_late))
 end
 
@@ -257,4 +257,85 @@ local function test_a_fault_past_the_first_chunk_names_its_offset_in_the_input()
   local short = run({ "base64", "-d" }, string.rep("Zm9v", 20000) .. "Zg")
   assert(short.code == 2 and #short.out > 0, short.code)
   assert(short.err:find("multiple of 4 (at offset 80001)", 1, true), short.err)
+end
+
+--- A Reader that gives `text` a few bytes a read, one to four in turn,
+--- as a pipe does.
+local function trickle(text: string): Stream.Reader
+  local at, turn = 1, 0
+  local reader: Stream.Reader = {}
+  reader.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    if at > #text then return nil, "" end
+    turn = turn % 4 + 1
+    local piece = text:sub(at, at + math.min(turn, max or turn) - 1)
+    at = at + #piece
+    return piece, ""
+  end
+  reader.close = function(_self: Stream.Reader): boolean, string
+    return true, ""
+  end
+  return reader
+end
+
+local function run_trickled(words: {string}, text: string): Ran
+  local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
+  for index, word in ipairs(words) do argv[index + 1] = word end
+  local ran: Ran = { code = -1, out = "", err = "" }
+  ran.code = codec.run(argv, {
+    input = function(): Stream.Reader | nil, string return trickle(text), "" end,
+    out = function(text_out: string): boolean, string
+      ran.out = ran.out .. text_out
+      return true, ""
+    end,
+    err = function(line: string) ran.err = ran.err .. line .. "\n" end,
+  })
+  return ran
+end
+
+local function test_short_reads_do_not_release_what_a_refusal_would_take_back()
+  -- A pipe gives a few bytes a read; only a whole chunk of them is held.
+  local refused = run_trickled({ "base64", "-d" }, "QUJDREVG!!!!")
+  assert(refused.code == 2 and refused.out == "", refused.out)
+  local short = run_trickled({ "base64", "-d" }, "QUJDREVGR")
+  assert(short.code == 2 and short.out == "" and short.err:find("length 9", 1, true), short.out .. short.err)
+  local fine = run_trickled({ "base64", "-d" }, "QUJD REVG\nR0hJ")
+  assert(fine.code == 0 and fine.out == "ABCDEFGHI", fine.err)
+  local encoded = run_trickled({ "hex", "--wrap", "4" }, "hello")
+  assert(encoded.out == "6865\n6c6c\n6f\n", encoded.out)
+end
+
+local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
+  local writes = 0
+  local sent = 0
+  local input: Stream.Reader = {}
+  input.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    if sent == 3 then return nil, "" end
+    sent = sent + 1
+    return ("a"):rep(max or 1), ""
+  end
+  input.close = function(_self: Stream.Reader): boolean, string
+    return true, ""
+  end
+  local seen: {integer} = {}
+  local code = codec.run({ [0] = "cosmic", [1] = "codec", [2] = "hex" }, {
+    input = function(): Stream.Reader | nil, string return input, "" end,
+    out = function(_text: string): boolean, string
+      writes = writes + 1
+      seen[#seen + 1] = sent
+      return true, ""
+    end,
+    err = function(line: string) error(line) end,
+  })
+  assert(code == 0)
+  -- Each chunk's text was written before the next was read.
+  assert(seen[1] == 1 and seen[2] == 2 and seen[3] == 3, tostring(seen[1]))
+end
+
+local function test_no_input_given_is_an_error_not_a_crash()
+  local complaint = ""
+  local code = codec.run({ [0] = "cosmic", [1] = "codec", [2] = "hex" }, {
+    out = function(_text: string): boolean, string return true, "" end,
+    err = function(line: string) complaint = line end,
+  })
+  assert(code == 2 and complaint:find("^cosmic: codec: "), complaint)
 end

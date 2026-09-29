@@ -23,14 +23,12 @@ local record Codec
   --- character until the text ends, and the whole-string decoders
   --- report the length first, so it keeps the first bad character and
   --- carries on. A coder holds at most three characters of a group not
-  --- yet whole, plus a little state, however much passes through it.
-  --- `pending()` is always false: a coder gives all of its output at
-  --- once, so a caller written for a decompressor drains nothing.
-  --- After `finish`, `update` and `finish` raise.
+  --- yet whole, plus a little state, however much passes through it,
+  --- and gives all the output it has at each call. After `finish`,
+  --- `update` and `finish` raise.
   record Coder
     update: function(Coder, chunk: string): string | nil, string
     finish: function(Coder): string | nil, string
-    pending: function(Coder): boolean
   end
 end
 
@@ -268,9 +266,6 @@ local function coder(
     if done then error(finished_error(), 2) end
     done = true
     return finish()
-  end
-  c.pending = function(_self: Codec.Coder): boolean
-    return false
   end
   return c
 end
