@@ -63,6 +63,18 @@ works. Numbers print as `Json.encode` writes them, so `1e2` reads
 `100.0`. It is only a lookup, with no filters: for more, write the
 script with `cosmic.json`. `cosmic help json` has the rest.
 
+## a quick question about a time
+
+For a clock or calendar question, `cosmic time` answers the same on every
+host, where GNU and BSD `date` differ, with zones from the binary's own tz
+database. `cosmic time now --zone Asia/Tokyo`; `cosmic time convert
+2026-03-08T12:00Z --to America/New_York`; `cosmic time between 2026-01-01
+2026-09-28 --days`; `cosmic time add 2026-01-31 1mo --clamp` (a duration is
+`1y2mo3d4h5m6s`, negative with a leading `-`). A time is RFC 3339, a date,
+a local `2026-03-08T02:30` (read in `--from`; a gap or overlap resolved by
+`--disambiguate`) or `@<epoch>`. `--json` prints the fields. `cosmic help
+time` has the rest.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function
