@@ -34,6 +34,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
 local plural = require("build.plural")
+local shared_sqlite = require("build.shared_sqlite")
 
 local record shared_verdicts
   --- An open cache.
@@ -94,9 +95,6 @@ local kept_rows <const> = 8192
 
 --- How long a row no run relies on is kept: thirty days.
 local kept_ns <const> = 30 * 24 * 3600 * 1000000000
-
---- How long a write waits on another run's: its transactions are short.
-local busy_ms <const> = 10000
 
 --- The table rows are in, by their declared key alone: `declared_v1`.
 --- A later format keeps a table of its own, so a binary of it sharing
@@ -224,23 +222,13 @@ local function prepare(db: Sqlite.Handle): boolean, string
   return db:exec("COMMIT")
 end
 
---- Opens the cache at `path`, making it and its directory when missing.
+--- Opens the cache at `path`, making it and its directory when missing,
+--- in write-ahead mode (`shared_sqlite.open`).
 function shared_verdicts.open(path: string): shared_verdicts.Cache | nil, string
   local made, made_trouble = Fs.mkdirs(Fs.dirname(path))
   if not made then return nil, made_trouble end
-  local opened, trouble = Sqlite.open(path, true)
-  if opened == nil then return nil, path .. ": " .. trouble end
-  local db: Sqlite.Handle = opened
-  local function fail(why: string): shared_verdicts.Cache | nil, string
-    local _, _ = db:close()
-    return nil, path .. ": " .. why
-  end
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
-  if not timed then return fail(time_trouble) end
-  local journal, journal_trouble = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
-  if journal == nil then return fail(journal_trouble) end
-  local prepared, prepare_trouble = prepare(db)
-  if not prepared then return fail(prepare_trouble) end
+  local db, trouble = shared_sqlite.open(path, prepare)
+  if db == nil then return nil, trouble end
   return { db = db, path = path }
 end
 
@@ -249,36 +237,16 @@ function shared_verdicts.close(cache: shared_verdicts.Cache)
 end
 
 --- Whether `trouble`, from a query of the cache, says the file itself
---- is broken, rather than, say, busy.
+--- is broken (`shared_sqlite.corrupt`).
 function shared_verdicts.corrupt(trouble: string): boolean
-  return trouble:find("malformed", 1, true) ~= nil or
-    trouble:find("not a database", 1, true) ~= nil
+  return shared_sqlite.corrupt(trouble)
 end
 
 --- Moves a broken cache aside, write-ahead log and all, to
---- `<path>.corrupt-<now_ns>`, so the next run starts a fresh cache
---- rather than meeting it again. The log and its index move first, so
---- no one opening the path meanwhile finds the old log beside a new
---- file. Any earlier set-aside file is removed, so at most one is kept.
---- Answers where it went, or nil and why.
+--- `<path>.corrupt-<now_ns>` (`shared_sqlite.set_aside`). Answers where
+--- it went, or nil and why.
 function shared_verdicts.set_aside(path: string, now_ns: integer): string | nil, string
-  local dir, name = Fs.dirname(path), Fs.basename(path)
-  local listed, _ = Fs.list(dir)
-  for _, entry in ipairs(listed or {}) do
-    if entry:sub(1, #name + 9) == name .. ".corrupt-" then
-      local _, _ = Fs.remove(dir .. "/" .. entry)
-    end
-  end
-  local aside = path .. ".corrupt-" .. tostring(now_ns)
-  for _, suffix in ipairs({ "-wal", "-shm" }) do
-    local there, _ = Fs.stat(path .. suffix)
-    if there ~= nil then
-      local _, _ = Fs.rename(path .. suffix, aside .. suffix)
-    end
-  end
-  local moved_file, trouble = Fs.rename(path, aside)
-  if not moved_file then return nil, trouble end
-  return aside, ""
+  return shared_sqlite.set_aside(path, now_ns)
 end
 
 --- The coverage and duration of the passing verdict under the declared
