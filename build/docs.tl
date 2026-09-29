@@ -1252,7 +1252,7 @@ local function run(argv: {integer:string}): integer
   if exit ~= nil then
     return exit
   end
-  local built, build_trouble = require("build.rebuild").here()
+  local built, build_trouble = require("build.rebuild").here("docs")
   if not built then
     log:complain("docs: not rebuilt, answering from the last build: " .. build_trouble)
   end
@@ -1343,7 +1343,7 @@ local function run_uses(argv: {integer:string}): integer
   if exit ~= nil then
     return exit
   end
-  local built, build_trouble = require("build.rebuild").here()
+  local built, build_trouble = require("build.rebuild").here("uses")
   if not built then
     log:complain("uses: not rebuilt, answering from the last build: " .. build_trouble)
   end

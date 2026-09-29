@@ -15,54 +15,49 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
+local log = require("build.verdict").log
 
 local record rebuild
 end
 
---- Whether `entries` (a directory's names) hold a Teal source.
-local function holds_teal(entries: {string}): boolean
-  for _, name in ipairs(entries) do
-    if String.ends_with(name, ".tl") then
-      return true
-    end
-  end
-  return false
-end
-
---- Whether the directory `root` is a project to build: cosmic's own
---- tree, one with a build already (`o/cosmic.db`), or one that holds
---- Teal at its top, in a directory of its own, or under `cmd/`. The
---- directory of no project at all (an empty one, the home directory)
---- is none, so a lookup there builds nothing and writes no `o/`.
+--- Whether the directory `root` is one to build: cosmic's own tree, or
+--- one a build has written `o/cosmic.db` under. Anything else is left
+--- alone, whatever it holds: a lookup never starts a tree of its own in
+--- a directory that has a stray `.tl`, nor below the home directory.
 local function is_project(root: string): boolean | nil, string
   local own, own_trouble = tree.is_own(root)
   if own == nil then return nil, own_trouble end
   if own then return true, "" end
-  local built, built_trouble = Fs.exists(root .. "/o/cosmic.db")
-  if built == nil then return nil, built_trouble end
-  if built then return true, "" end
-  local top, top_trouble = Fs.list(root)
-  if top == nil then return nil, top_trouble end
-  if holds_teal(top) then return true, "" end
+  return Fs.exists(root .. "/o/cosmic.db")
+end
+
+--- Whether `root` looks like a project that has not been built: Teal at
+--- its top, or a `cmd/`.
+local function looks_unbuilt(root: string): boolean
+  local top, _ = Fs.list(root)
+  if top == nil then return false end
   for _, name in ipairs(top) do
-    if name == "cmd" then return true, "" end
-    if name:sub(1, 1) ~= "." and name ~= "o" then
-      local inside, _ = Fs.list(root .. "/" .. name)
-      if inside ~= nil and holds_teal(inside) then return true, "" end
-    end
+    if name == "cmd" or String.ends_with(name, ".tl") then return true end
   end
-  return false, ""
+  return false
 end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
 --- `o/cosmic.db` as the tree stands. It does nothing, answering true,
---- where `root` is no project (`is_project`). Answers false and
+--- where `root` is not one to build (`is_project`), saying so on stderr
+--- when it looks like a project no build has been made of. Answers false and
 --- why when the build fails, which the caller may say and go on from
 --- the last build.
-local function project(root: string): boolean, string
+local function project(root: string, verb: string): boolean, string
   local found, found_trouble = is_project(root)
   if found == nil then return false, found_trouble end
-  if not found then return true, "" end
+  if not found then
+    if looks_unbuilt(root) then
+      log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
+        "first to include its modules")
+    end
+    return true, ""
+  end
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return false, own_trouble end
   local started = Time.monotonic_ns()
@@ -88,11 +83,12 @@ local function project(root: string): boolean, string
   return true, ""
 end
 
---- Builds the project in the working directory, as `project` does.
-function rebuild.here(): boolean, string
+--- Builds the project in the working directory, as `project` does, for
+--- the verb `verb`, which names itself in what it says.
+function rebuild.here(verb: string): boolean, string
   local root, trouble = Fs.absolute(".")
   if root == nil then return false, trouble end
-  return project(root)
+  return project(root, verb)
 end
 
 return rebuild
