@@ -1,40 +1,39 @@
---- `cosmic sql`: one SQL statement against a database, read-only, its
---- column names printed as a first line (none for a statement without
---- columns, such as most PRAGMAs that set) and its rows one per line
---- after, cells tab-separated. This is
---- how the build's own databases get asked a question without writing
---- a throwaway script -- a script must be built as a tree, and the
---- tree it would build is whatever directory it was run from.
+--- `cosmic sql`: one SQL statement against a database, read-only. The
+--- column names print as a first line (none for a statement without
+--- columns, such as most PRAGMAs that set), then the rows, one per line,
+--- cells tab-separated. This is how the build's own databases get asked
+--- a question without a throwaway script: a script must be built as a
+--- tree, and the tree it would build is whatever directory it was run
+--- from.
 ---
---- It opens the database read-only and sets `PRAGMA query_only` before
---- running the statement, so SQLite itself refuses a write: nothing
---- here reads the statement's text to decide what it may do. SQLite
---- prepares exactly one statement, so the pragma cannot be undone
---- ahead of a write in the same call. What the database holds is never
---- changed, though SQLite may leave files beside it -- see `sql.open`.
---- Nothing is built, staged or scanned: the only directory looked in
---- is `o/` under the working directory, never one above it.
+--- The verb opens the database read-only and sets `PRAGMA query_only`
+--- before running the statement, so SQLite itself refuses a write;
+--- nothing here reads the statement's text to decide what it may do.
+--- SQLite prepares exactly one statement, so the pragma cannot be
+--- undone ahead of a write in the same call. What the database holds is
+--- never changed, though SQLite may leave files beside it (see
+--- `sql.open`). Nothing is built, staged or scanned: the only directory
+--- looked in is `o/` under the working directory, never one above it.
 ---
---- A cell, and a column's name, is written as text: NULL as `\N`, a
---- blob as `X'<hex>'`, and
---- inside text a backslash as `\\`, a tab, newline or carriage return
---- as `\t`, `\n` or `\r`, and any other control byte as `\xHH`, so one
---- row is always one line, no stored escape sequence reaches the
---- terminal, and undoing those escapes gives the stored bytes back. The
---- verdict line comes last on stdout, as every verb's does (see
---- build/verbs_tool_test.tl), so a pipe that wants only the rows drops the
---- first line and the last; complaints go to stderr.
+--- A cell, and a column's name, is written as text. NULL is `\N` and a
+--- blob is `X'<hex>'`. Inside text, a backslash is `\\`, a tab, newline
+--- or carriage return is `\t`, `\n` or `\r`, and any other control byte
+--- is `\xHH`. So one row is always one line, no stored escape sequence
+--- reaches the terminal, and undoing those escapes gives the stored
+--- bytes back. The verdict line comes last on stdout, as every verb's
+--- does (see build/verbs_tool_test.tl), so a pipe that wants only the
+--- rows drops the first line and the last. Complaints go to stderr.
 ---
---- `--from <file|->` asks the same of a data file instead of a database:
---- each `--from` is loaded as a table of an in-memory database
+--- `--from <file|->` asks the same of a data file instead of a database.
+--- Each `--from` is loaded as a table of an in-memory database
 --- (`cosmic.dataset` says how: the columns, how a value is stored, the
 --- `_json` column), and the statement runs on that, under the same
---- read-only guard, with the same rows and verdict. `--as <format>` and
---- `--at '<path>'` and `--raw` belong to the `--from` they follow. With no statement
---- the verb prints each table's name, row count, columns with the SQLite
---- types seen, and a sample row. `no such column` and `no such table`
---- are answered with the names that exist. The database is built from
---- the data alone, so nothing under o/ is read.
+--- read-only guard, with the same rows and verdict. `--as <format>`,
+--- `--at '<path>'` and `--raw` belong to the `--from` they follow. With
+--- no statement the verb prints each table's name, row count, columns
+--- with the SQLite types seen, and a sample row. `no such column` and
+--- `no such table` are answered with the names that exist. The database
+--- is built from the data alone, so nothing under o/ is read.
 
 local Cli = require("cosmic.cli")
 local Dataset = require("cosmic.dataset")
@@ -174,19 +173,20 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, s
   if st.kind ~= "file" then
     return nil, "not a regular file (its kind is " .. st.kind .. "), so not a database"
   end
-  -- Immutable where nothing lives outside the file: no lock is taken, and
-  -- no -wal or -shm is made beside a WAL-mode database whose -wal file is
-  -- missing. SQLite never reads a -wal of an immutable database, so one
-  -- that holds frames -- commits not yet checkpointed, as a build's
-  -- database has while it runs -- is opened the ordinary read-only way,
-  -- which reads them, and takes the shared lock while a statement runs.
-  -- The -wal is looked at again once the immutable open is made, and a
-  -- frame that has come since sends it the ordinary way after all: what
-  -- is committed after that look is concurrent with the query.
+  -- Immutable where nothing lives outside the file: no lock is taken,
+  -- and no -wal or -shm is made beside a WAL-mode database whose -wal
+  -- file is missing. SQLite never reads the -wal of an immutable
+  -- database, so one that holds frames (commits not yet checkpointed, as
+  -- a build's database has while it runs) is opened the ordinary
+  -- read-only way instead. That open reads the frames and takes the
+  -- shared lock while a statement runs. The -wal is looked at again once
+  -- the immutable open is made, and a frame that has come since sends
+  -- the open the ordinary way after all; what is committed after that
+  -- look is concurrent with the query.
   -- Decided limit: a database with no -wal that a build checkpoints or
   -- rewrites during the query may be read torn, which a one-shot query
-  -- accepts; only holding its lock would prevent that, and holding it
-  -- is what an immutable open exists to avoid.
+  -- accepts. Only holding its lock would prevent that, and avoiding that
+  -- lock is what an immutable open is for.
   local wal = path .. "-wal"
   local function has_frames(): boolean | nil, string
     local there, exists_trouble = Fs.exists(wal)
@@ -280,13 +280,13 @@ local function cell_text(cell: Sqlite.Cell): string
 end
 
 --- Runs one statement on `db`, giving `emit` its column names as one
---- line -- none for a statement without columns -- then each row it
---- yields as one line, the moment it is stepped. Answers how many rows
---- it yielded, or nil and why when it takes a parameter, or SQLite's
---- own reason when it will not prepare or run -- a write among them;
---- the lines before a failure have been given by then. `emit` answers
---- false and why when it could not write the line: the statement is
---- stepped no further, and that is the failure answered.
+--- line (none for a statement without columns), then each row it yields
+--- as one line, the moment it is stepped. Answers how many rows it
+--- yielded, or nil and why when the statement takes a parameter, or
+--- SQLite's own reason when it will not prepare or run (a write among
+--- them). The lines before a failure have been given by then. `emit`
+--- answers false and why when it could not write the line; the
+--- statement is stepped no further, and that is the failure answered.
 local function stream(db: Sqlite.Handle, statement: string,
                       emit: function(string): boolean, string): integer | nil, string
   local prepared, prepare_trouble = db:prepare(statement)
@@ -763,7 +763,7 @@ end
 --- unlike `db`: a staleness check stages the tree, and this verb reads o/
 --- and nothing else under it. It gives its own verdict on every exit, a
 --- usage error included, so the check main runs after a verdictless exit
---- 2 never runs for it (build/verbs_tool_test.tl's
+--- 2 never runs for it (build/verbs_store_test.tl's
 --- test_sql_never_stages_the_tree).
 sql.spec = {
   name = "sql",

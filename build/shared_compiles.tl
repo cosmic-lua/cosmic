@@ -1,28 +1,28 @@
 --- The compiles and parses every checkout shares: a SQLite database
---- under the cosmic cache directory -- `build/cache.db` in
---- `Fs.cache_dir`'s `$XDG_CACHE_HOME/cosmic` (`~/.cache/cosmic`) by
---- default, or the absolute path `COSMIC_BUILD_CACHE` names, and none at
---- all when it is `0` -- beside the `compiled` table and the parse
---- tables each checkout keeps in `o/build.db`. A module's key
---- (`build.importer`'s) names no path: the module's import graph by
---- name and content, and the compiler's identity. So a compile one
---- checkout made stands in another of the same content, and a fresh
+--- under the cosmic cache directory, beside the `compiled` table and the
+--- parse tables each checkout keeps in `o/build.db`. The file is
+--- `build/cache.db` in `Fs.cache_dir`'s `$XDG_CACHE_HOME/cosmic`
+--- (`~/.cache/cosmic`) by default, or the absolute path
+--- `COSMIC_BUILD_CACHE` names; `0` turns the cache off. A module's key
+--- (`build.importer`'s) names no path: it covers the module's import
+--- graph by name and content, and the compiler's identity. So a compile
+--- one checkout made stands in another of the same content, and a fresh
 --- worktree compiles only what no sibling has compiled already.
 ---
---- A row is keyed by more than the local key (`key`): what else decides
---- whether a compile is accepted, which a checkout's own cache leaves
---- out -- whether the tree is cosmic's own (`build.contracts` runs only
---- there) and whether the module was extracted from a doc -- so a row
---- never stands where a compile of the module here would refuse it.
---- The file the module is read from is in the local key already. A
---- compile refused and kept only for the run that made it (an unjudged
---- run's, `seen = -1`) is never shared.
+--- A row is keyed by more than the local key (`key`): also by what else
+--- decides whether a compile is accepted, which a checkout's own cache
+--- leaves out. That is whether the tree is cosmic's own
+--- (`build.contracts` runs only there) and whether the module was
+--- extracted from a doc, so a row never stands where a compile of the
+--- module here would refuse it. The file the module is read from is in
+--- the local key already. A compile refused and kept only for the run
+--- that made it (an unjudged run's, `seen = -1`) is never shared.
 ---
 --- A row holds what a local compile writes: the Lua, the bytecode and
 --- the record-field uses its checker found (`typed_refs`), so a
 --- projection built from shared rows is the one a compile would have
---- made, and a digest of the three: a row that does not decode to what
---- its digest says is a miss, and is deleted.
+--- made. It also holds a digest of the three. A row that does not decode
+--- to what its digest says is a miss, and is deleted.
 ---
 --- A parse is shared the same way, a row per source: what one parse of
 --- it wrote in every table `build.importer` fills from a parse, keyed
@@ -32,19 +32,19 @@
 --- the lot. `build.importer`'s `derive` says when a row stands in for a
 --- parse.
 ---
---- A row's bytecode runs -- a build of cosmic's own tree carries the
---- `build.*` modules' in `o/bin/cosmic` -- so whoever can write the
---- file can run code as every user of it. The file and its directory
---- are held to what `Fs.cache_dir` holds its directories to, wherever
---- the file is: owned by this user, and writable by no one else.
+--- A row's bytecode runs (a build of cosmic's own tree carries the
+--- `build.*` modules' in `o/bin/cosmic`), so whoever can write the file
+--- can run code as every user of it. The file and its directory are held
+--- to what `Fs.cache_dir` holds its directories to, wherever the file
+--- is: owned by this user, and writable by no one else.
 ---
---- Many builds share the file at once: it is in WAL mode, so a reader
---- never waits on a writer; a build reads a row at a time and writes
+--- Many builds share the file at once. It is in WAL mode, so a reader
+--- never waits on a writer. A build reads a row at a time and writes
 --- what it compiled and parsed in one short transaction as its compile
---- ends, and two writers of one key write the same bytes. It is
+--- ends; two writers of one key write the same bytes. The file is
 --- bounded: a row no build has used for `kept_ns` goes, and past
 --- `kept_bytes`, the least lately used of either table go first. A
---- cache that cannot be opened, read or written is said so once and
+--- cache that cannot be opened, read or written is reported once and
 --- done without: it never fails a build.
 
 local Env = require("cosmic.env")
@@ -169,9 +169,9 @@ function shared_compiles.turn_off(environment: {string:string})
 end
 
 --- The key a compile is shared under: the module's own key
---- (`importer.Module.key`) and what else decides whether it is
---- accepted, and the format it is kept in: `format` the format's
---- table, by default this one's.
+--- (`importer.Module.key`), what else decides whether the compile is
+--- accepted (`own_tree`, `generated`), and the format's table (`format`,
+--- this one's by default).
 -- The file the module is read from is no salt here: the module's own
 -- key holds it already (build.importer's `dependency_keys`), so a
 -- compile is never taken across a moved file.
@@ -277,9 +277,9 @@ local function private(path: string, kind: string): boolean, string
   return true, ""
 end
 
---- Makes each format's table when the file has none yet, dropping any
---- earlier format's of either, in one transaction; a file that has them
---- is only read.
+--- Makes each format's table when the file has none yet, and drops any
+--- earlier format's table of either kind, in one transaction. A file
+--- that has them all is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
@@ -324,12 +324,12 @@ end
 
 --- Puts `db` in write-ahead mode, so a build's reads never wait on
 --- another's write. The switch is one statement that reads the file's
---- header, then writes it, and SQLite answers "database is locked" at
---- once, calling no busy handler, when another connection holds the
---- write lock between those two -- as two builds meeting a fresh cache
---- do -- so a locked answer is tried again, up to the busy timeout;
---- once the other's switch is written, this one reads the header and
---- has nothing to write.
+--- header, then writes it. When another connection holds the write lock
+--- between those two, as two builds meeting a fresh cache do, SQLite
+--- answers "database is locked" at once and calls no busy handler. So a
+--- locked answer is tried again, up to the busy timeout; once the
+--- other's switch is written, this one reads the header and has nothing
+--- to write.
 local function to_wal(db: Sqlite.Handle): boolean, string
   local waited_ms = 0
   while true do
@@ -342,9 +342,9 @@ local function to_wal(db: Sqlite.Handle): boolean, string
 end
 
 --- Opens the cache at `path`, making it and its directory when missing.
---- Its directory is made 0700 when missing, and the file 0600 before
---- SQLite opens it, so no build ever meets it wider; it and the file must be
---- private (`private`): a file made here is made 0600.
+--- The directory is made 0700 and the file 0600, the file before SQLite
+--- opens it, so no build ever meets either wider. Both must be private
+--- (`private`), one that already exists included.
 function shared_compiles.open(path: string): shared_compiles.Cache | nil, string
   local dir = Fs.dirname(path)
   local made, made_trouble = Fs.mkdirs(Fs.dirname(dir))
@@ -629,11 +629,11 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
 end
 
 --- The shared cache for one build, as `importer.derive` and
---- `importer.compile` take it, or
---- nil where there is none: turned off, or not to be opened, which is
---- said once, as is any later failure to read or write it, and the
---- build goes on without it. A corrupt file is moved aside
---- (`set_aside`), so the next build starts a fresh one.
+--- `importer.compile` take it, or nil where there is none: turned off,
+--- or not to be opened. That is reported once, as is any later failure
+--- to read or write it, and the build goes on without the cache. A
+--- corrupt file is moved aside (`set_aside`), so the next build starts a
+--- fresh one.
 function shared_compiles.for_build(environment?: {string:string}): importer.Shared | nil
   local path, trouble = location(environment)
   local cache: shared_compiles.Cache | nil = nil

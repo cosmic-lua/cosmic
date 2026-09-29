@@ -205,9 +205,9 @@ local cacert: refresh.Dataset = {
     if date == nil then
       return nil, cacert_latest .. ": names no date for its Mozilla data"
     end
-    -- Recorded by the dated name, which keeps naming these bytes after
-    -- the newest has moved on: fetched again by it, so the record
-    -- names what it holds.
+    -- Fetched again by the dated name, which keeps naming these bytes
+    -- after the newest has moved on, so the recorded URL names what the
+    -- binary holds.
     local url = cacert_dated:format(date)
     local path = scratch .. "/cacert.pem"
     local sha256 = Hash.hex_sha256(pem)
@@ -376,7 +376,7 @@ local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
 end
 
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
---- records it; one line saying what changed.
+--- records it. Answers one line saying what changed.
 local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refresh.Source,
                        scratch: string): string | nil, string
   local bytes, trouble = Fs.read(source.path)
@@ -433,9 +433,10 @@ local function same_file(a: string, b: string): boolean
   return sa ~= nil and sb ~= nil and sa.dev == sb.dev and sa.ino == sb.ino
 end
 
---- The executable at `binary` with each of `chosen` replaced from its
---- source -- `sources[name]`, a file, or fetched upstream when that is
---- nil -- written to `out`; a line per dataset saying what changed.
+--- The executable at `binary` with each dataset of `chosen` replaced from its
+--- source (`sources[name]`, a file, or fetched upstream when that is
+--- nil), written to `out`. Answers a line per dataset saying what
+--- changed.
 function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
                         sources: {string:string}): {string} | nil, string
   local bytes, trouble = Fs.read(binary)

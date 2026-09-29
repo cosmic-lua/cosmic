@@ -12,15 +12,16 @@
 ---
 --- The checker's own type reporter is the hook: with `report_types` on,
 --- tl calls `store_type(y, x, type)` for every node it checks. The
---- reporter installed here keeps, by position, the types that resolve
---- to a record or interface for this module's own questions, and every
---- type as tl gave it for `build.contracts`, rather than serializing
---- them the way tl's own reporter does. A
---- receiver resolves to a symbol only when its record is one some
+--- reporter installed here does not serialize the types the way tl's own
+--- reporter does. It keeps, by position, the types that resolve to a
+--- record or interface for this module's own questions, and every type
+--- as tl gave it for `build.contracts`.
+---
+--- A receiver resolves to a symbol only when its record is one some
 --- module's type declares, nested under the module's own record
---- (`Zip.Writer`, `Stream.Reader`): a record a file keeps to
---- itself has no row in `docs` to be a use of, and the module's own
---- record is the syntactic half's to answer.
+--- (`Zip.Writer`, `Stream.Reader`). A record a file keeps to itself has
+--- no row in `docs` to be a use of, and the module's own record is the
+--- syntactic half's to answer.
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
@@ -188,9 +189,10 @@ local function reporter_for(state: receivers.State): any
       -- A position holds one callee, the last function type stored
       -- there. A chained call (`make()()`) does not collide: the outer
       -- callee is the inner call, at its own `(`, and `make` is at its
-      -- name. Two callees could share a position only if tl stamped two
-      -- call targets on one token, which its parser never does; only a
-      -- position reaches `store_type`, so a node key is not available.
+      -- name. Two callees would share a position only if tl stamped two
+      -- call targets on one token, which its parser never does. A node
+      -- cannot key this instead, since `store_type` receives only a
+      -- position.
       local name = t.typename
       if name == "function" or name == "generic" or name == "poly" then
         state.callees[at] = t
@@ -347,8 +349,9 @@ function receivers.references(state: receivers.State, env: compiler.Env,
   end
 
   -- Depth first, a node before what it holds, so an assignment has
-  -- marked its targets before they are reached. `if_parent` and
-  -- `fn_owner` point back up the tree and are not followed.
+  -- marked its targets before they are reached. `back_up` names the
+  -- fields not followed: `if_parent` and `fn_owner` point back up the
+  -- tree, and `expected` and `known` hold types, not syntax.
   visit = function(n: ast.Node)
     if visited[n] then
       return
