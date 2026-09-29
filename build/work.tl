@@ -25,6 +25,7 @@ local analysis_schema = require("build.analysis_schema")
 local todo_scan = require("build.todo_scan")
 local gen_syscalls = require("build.gen_syscalls")
 local bind = require("build.bind")
+local log = require("build.verdict").log
 
 local record work
   --- An open working database, for one run. A run is one transaction
@@ -403,6 +404,59 @@ local function create(db: Sqlite.Handle): boolean, string
   return true, ""
 end
 
+--- How long a run waits for another run of the same tree to end its
+--- transaction on `o/build.db`, which that run holds from staging through
+--- its compile: a cold compile, a boot, or a stale tool's whole rebuild of
+--- itself (build.reboot), each of which takes minutes on a loaded host --
+--- past the 60 s every handle waits by default (core/sqlite.c), which a
+--- waiting run would otherwise meet as "database is locked". As long as
+--- build.reboot waits for another run's rebuild lock.
+local wait_ms <const> = 30 * 60 * 1000
+
+--- How long a run waits for that transaction before it says so.
+local notice_ms <const> = 1000
+
+--- Whether `trouble`, from beginning a transaction, says another
+--- connection holds the write lock, rather than anything of the file:
+--- SQLite answers its reason only as text, as build.shared_compiles'
+--- `busy` reads it.
+-- TODO: tell SQLITE_BUSY by its code once cosmic.sqlite answers a
+-- failure's result code beside its message, here and in
+-- build.shared_compiles' `busy`.
+local function locked(trouble: string): boolean
+  return trouble:find("locked", 1, true) ~= nil
+end
+
+--- Begins the run's transaction on `db`, the working database at
+--- `path`, waiting up to `wait_ms` for another run that holds it: after
+--- `notice_ms`, saying so. The handle keeps the long wait, for every
+--- statement after (`work.begin`'s transactions among them).
+local function begin_waiting(db: Sqlite.Handle, path: string): boolean, string
+  local noticed, notice_trouble = db:exec("PRAGMA busy_timeout = " ..
+    tostring(notice_ms))
+  if not noticed then
+    return false, notice_trouble
+  end
+  local begun, trouble = db:exec("BEGIN IMMEDIATE")
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
+    tostring(wait_ms))
+  if not timed then
+    return false, time_trouble
+  end
+  if begun then
+    return true, ""
+  end
+  if not locked(trouble) then
+    return false, trouble
+  end
+  log:complain("another cosmic run holds " .. path .. "; waiting for it")
+  local waited, wait_trouble = db:exec("BEGIN IMMEDIATE")
+  if not waited then
+    return false, wait_trouble
+  end
+  return true, ""
+end
+
 --- Opens `<root>/o/build.db`, creating it and its tables when new, and
 --- counts this run. A file whose schema is not this module's is
 --- removed and made again: it holds nothing the tree cannot produce.
@@ -415,6 +469,14 @@ function work.open(root: string): work.Handle | nil, string
   local db, open_trouble = Sqlite.open(path, true)
   if db == nil then
     return nil, path .. ": " .. open_trouble
+  end
+  -- Before the schema is made: a run meeting a fresh file another is
+  -- making its tables in waits for that run's lock here.
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " ..
+    tostring(wait_ms))
+  if not timed then
+    local _, _ = db:close()
+    return nil, path .. ": " .. time_trouble
   end
   local encoded, encode_trouble = db:exec("PRAGMA encoding = 'UTF-8'")
   if not encoded then
@@ -443,9 +505,9 @@ function work.open(root: string): work.Handle | nil, string
   end
 
   -- IMMEDIATE takes the write lock before reading, so a second build of
-  -- the same tree waits for the first (the handle's busy timeout) instead
-  -- of both reading and then one failing to upgrade.
-  local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
+  -- the same tree waits for the first (`begin_waiting`) instead of both
+  -- reading and then one failing to upgrade.
+  local begun, begin_trouble = begin_waiting(db, path)
   if not begun then
     local _, _ = db:close()
     return nil, path .. ": " .. begin_trouble

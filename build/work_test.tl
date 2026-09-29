@@ -11,6 +11,21 @@ local function count(db: Sqlite.Handle, table_name: string): integer
   return math.tointeger(tonumber(rows[1][1])) as integer
 end
 
+--- A run waits for another run of the tree to end its transaction on
+--- o/build.db as long as that run may hold it: through a stale tool's
+--- whole rebuild of itself, which takes more than a minute on a loaded
+--- host. Waiting only SQLite's 60 s, runs started beside a rebuilding
+--- one failed with "database is locked" (ci/fixtures/self_rebuild_test.tl's
+--- concurrent runs).
+local function test_a_run_waits_for_another_past_a_rebuild(tmp: string)
+  local handle = assert(work.open(tmp))
+  local rows = assert(Sqlite.text_rows(handle.db, "PRAGMA busy_timeout"))
+  local waits = math.tointeger(tonumber(rows[1][1])) or 0
+  assert(waits >= 10 * 60 * 1000, "o/build.db waits only " ..
+    tostring(waits) .. " ms for another run")
+  assert(work.close(handle))
+end
+
 local function test_recording_error_rolls_back_every_table(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))
