@@ -20,16 +20,21 @@ local function value_at(index: integer): any
   return values[index]
 end
 
---- Rows as packed fields: for each row, its pair count, then each pair's
---- key and value index.
+--- Rows as packed triples: `r` starts a row; `p`, a key and a value index
+--- add a pair to the row before it. Each is drawn with `Fuzz.more`, so
+--- shrinking can cut any row or pair.
 local function gen_rows(src: Fuzz.Source): string
   local fields: {string} = {}
   local rows = 0
   while Fuzz.more(src, rows, 4) do
     rows = rows + 1
-    local pairs_count = src:int(0, 4)
-    fields[#fields + 1] = tostring(pairs_count)
-    for _ = 1, pairs_count do
+    fields[#fields + 1] = "r"
+    fields[#fields + 1] = ""
+    fields[#fields + 1] = ""
+    local count = 0
+    while Fuzz.more(src, count, 4) do
+      count = count + 1
+      fields[#fields + 1] = "p"
       fields[#fields + 1] = src:int(0, 11) == 0 and Fuzz.bytes(src, 4) or Fuzz.pick(src, KEYS)
       fields[#fields + 1] = tostring(src:int(1, 14))
     end
@@ -40,16 +45,12 @@ end
 local function rows_from(input: string): {Dataset.Row}
   local fields = Fuzz.unpack(input)
   local rows: {Dataset.Row} = {}
-  local at = 1
-  while at <= #fields do
-    local row: Dataset.Row = {}
-    local count = math.tointeger(tonumber(fields[at])) or 0
-    at = at + 1
-    for _ = 1, count do
-      row[fields[at]] = value_at(math.tointeger(tonumber(fields[at + 1])) or 1)
-      at = at + 2
+  for at = 1, #fields - 2, 3 do
+    if fields[at] == "r" then
+      rows[#rows + 1] = {}
+    elseif rows[#rows] ~= nil then
+      rows[#rows][fields[at + 1]] = value_at(math.tointeger(tonumber(fields[at + 2])) or 1)
     end
-    rows[#rows + 1] = row
   end
   return rows
 end
@@ -159,6 +160,58 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
       local loaded, trouble = Dataset.load(db, "t", rows)
       if loaded == nil then return false, "rows read but not loaded: " .. trouble end
       if loaded.count ~= #rows then return false, "counted " .. loaded.count .. " of " .. #rows end
+      return true, ""
+    end,
+  })
+end
+
+--- What `Dataset.load` stores for `value`, as the cell a query reads.
+local function expected_cell(value: any): Sqlite.Cell
+  if value == nil or value == Json.null then return { kind = "null" } end
+  if value is boolean then return { kind = "integer", integer = value and 1 or 0 } end
+  if value is integer then return { kind = "integer", integer = value } end
+  if value is number then return { kind = "number", number = value } end
+  if value is string then return { kind = "text", text = value } end
+  return { kind = "text", text = assert(Json.encode(value)) }
+end
+
+-- Whatever the key, `SELECT "<column>"` reads back its value from each
+-- row: what the quoting and the renaming exist for.
+local function test_each_key_reads_back_by_its_column(tmp: string)
+  Fuzz.run({
+    name = "dataset column read back",
+    dir = tmp,
+    gen = gen_rows,
+    requires = { "renamed", "quoted", "read" },
+    shares = { renamed = 0.05, quoted = 0.15 },
+    check = function(input: string): boolean, string
+      local rows = rows_from(input)
+      local db = assert(Sqlite.memory())
+      local made = Dataset.load(db, "t", rows)
+      if made == nil then return true, "" end
+      local column_of: {string:string} = {}
+      -- The last column is the row's own `_json`, no key's.
+      for index = 1, #made.columns - 1 do
+        local column = made.columns[index]
+        column_of[made.renamed[column] or column] = column
+      end
+      for key, column in pairs(column_of) do
+        do
+          if column ~= key then Fuzz.label("renamed") end
+          if not key:match("^[%a_][%w_]*$") then Fuzz.label("quoted") end
+          local got, trouble = Sqlite.rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t ORDER BY rowid')
+          if got == nil then return false, column .. ": " .. trouble end
+          for index, row in ipairs(rows) do
+            local want = expected_cell(row[key])
+            local cell = got[index][1]
+            Fuzz.label("read")
+            if cell.kind ~= want.kind or cell.integer ~= want.integer or cell.number ~= want.number or
+              cell.text ~= want.text then
+              return false, "key " .. Json.quote(key) .. " row " .. index .. " read as " .. cell.kind
+            end
+          end
+        end
+      end
       return true, ""
     end,
   })

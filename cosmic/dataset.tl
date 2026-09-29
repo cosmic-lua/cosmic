@@ -34,7 +34,9 @@
 --- whose lower case an earlier column has (`A` after `a`) gets `_2` after
 --- it (`A_2`), or `_3` and on; the empty key is `_`; a NUL byte in a key,
 --- which SQL text cannot hold, is `_`; and a key `_json` is renamed the
---- same way, as the column of that name is the row's own.
+--- same way, as the column of that name is the row's own; and so are
+--- `rowid`, `oid` and `_rowid_`, which would otherwise shadow SQLite's
+--- own row id (`rowid_2`).
 --- Names are quoted (`"` doubled), so a space, a dot or a keyword in a key
 --- is no trouble in the statement either, written in double quotes.
 ---
@@ -238,7 +240,7 @@ local function columns_of(rows: {Dataset.Row}, json_column: boolean): {string}, 
     end
   end
   table.sort(keys)
-  local taken: {string:boolean} = { _json = json_column or nil }
+  local taken: {string:boolean} = { _json = json_column or nil, rowid = true, oid = true, _rowid_ = true }
   local names: {string} = {}
   local key_of: {string:string} = {}
   local renamed: {string:string} = {}
@@ -260,10 +262,14 @@ local function columns_of(rows: {Dataset.Row}, json_column: boolean): {string}, 
   return names, key_of, renamed
 end
 
+--- SQLite's default limit on the columns of a table.
+local max_columns <const> = 2000
+
 --- Makes the table `name` on `handle` from `rows` and inserts them, in
 --- one transaction, so a failure leaves no table. The columns and how a
 --- value is stored are the module comment's. Answers the table it made;
---- nil and why when `name` is empty, SQLite refuses the table (it
+--- nil and why when `name` is empty, there are more keys than SQLite holds
+--- columns (2000, `_json` among them), SQLite refuses the table (it
 --- exists, or `name` is reserved) or a row, a row holds a value with
 --- no SQLite one, or a nested value cannot be encoded.
 --- `name` and the keys are text SQL is written in, so `name` holds no NUL byte.
@@ -277,6 +283,10 @@ function Dataset.load(handle: Sqlite.Handle, name: string, rows: {Dataset.Row},
   end
   local json_column = not (opts and opts.json_column == false)
   local names, key_of, renamed = columns_of(rows, json_column)
+  if #names + (json_column and 1 or 0) > max_columns then
+    return nil, "too many columns: " .. #names .. " distinct keys, and SQLite holds at most " ..
+      max_columns .. " columns in a table" .. (json_column and " (one is `_json`)" or "")
+  end
   local declared: {string} = {}
   local marks: {string} = {}
   for index, column in ipairs(names) do

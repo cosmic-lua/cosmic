@@ -377,3 +377,38 @@ local function test_from_is_not_a_database_option_and_takes_one_statement()
   assert(code == 2, table.concat(written.err, "|"))
   assert(Fs.remove_tree(dir))
 end
+
+local function test_from_refuses_a_second_standard_input_and_a_repeated_as_or_at()
+  local dir = data()
+  local code, written = run(dir, { "--from", "x=-", "--as", "ndjson", "--from", "y=-", "--as", "ndjson",
+    "SELECT 1" }, '{"a": 1}\n')
+  assert(code == 2 and written.err[1]:find("standard input can be read once", 1, true), written.err[1])
+  code, written = run(dir, { "--from", dir .. "/lines.dat", "--as", "json", "--as", "ndjson", "SELECT 1" })
+  assert(code == 2 and written.err[1]:find("--as is given twice for", 1, true), written.err[1])
+  code, written = run(dir, { "--from", dir .. "/nested.json", "--at", "$.a", "--at", "$.a.rows", "SELECT 1" })
+  assert(code == 2 and written.err[1]:find("--at is given twice for", 1, true), written.err[1])
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_a_column_with_no_types_and_a_control_byte_in_a_name()
+  local dir = data()
+  assert(Fs.write(dir .. "/empty.json", "[]"))
+  local code, written = run(dir, { "--from", dir .. "/empty.json" })
+  assert(code == 0 and written.out[2] == "  _json  -", table.concat(written.out, "|"))
+  assert(Fs.write(dir .. "/ctl.json", '[{"a\\u001bb": 1}]'))
+  code, written = run(dir, { "--from", dir .. "/ctl.json", "SELECT nope FROM ctl" })
+  assert(code == 1 and written.err[1]:find("columns: a\\x1Bb, _json", 1, true), written.err[1])
+  assert(not written.err[1]:find("\27", 1, true))
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_a_missing_file_names_its_path_once_and_usage_shows_as_and_at()
+  local dir = data()
+  local code, written = run(dir, { "--from", dir .. "/none.json", "SELECT 1" })
+  local _, count = written.err[1]:gsub("none.json", "")
+  assert(code == 1 and count == 1, written.err[1])
+  code, written = run(dir, { "--from" })
+  assert(code == 2 and written.err[1]:find("--from needs a value", 1, true), written.err[1])
+  assert(written.err[1]:find("[--as json|ndjson] [--at '<path>']", 1, true), written.err[1])
+  assert(Fs.remove_tree(dir))
+end

@@ -114,7 +114,8 @@ local record Cli
   --- objects is a table of them, with a column per key, an array of
   --- scalars a `value` column, and any other value one row; a nested
   --- object or array is JSON text for `json_extract`, a boolean is 0 or
-  --- 1, and `_json` is the whole row. With no statement it prints each
+  --- 1, `_json` is the whole row, and a key that would collide (`A` with
+  --- `a`, or `_json`, `rowid`) is renamed `_2`. With no statement it prints each
   --- table's row count, columns with the types stored, and a sample row.
   --- A missing column or table is answered with the ones there are.
   --- Exit codes as below, 1 for a file it cannot read or load. The
@@ -150,8 +151,8 @@ local record Cli
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
   --- `--shape` prints `Json.describe` of the value. Only a lookup: no
-  --- filter, no transform; to count or sum, use `cosmic sql --from`. Exits 0 when the path is found, 1 when it is
-  --- not, with the message `Json.get` gives on standard error (a
+  --- filter, no transform; to count or sum, use `cosmic sql --from`.
+  --- Exits 0 when the path is found, 1 when it is not, with the message `Json.get` gives on standard error (a
   --- `null` value is found), 2 for a command line it cannot read or a
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads

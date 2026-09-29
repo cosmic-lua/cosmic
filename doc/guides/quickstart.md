@@ -66,18 +66,14 @@ script with `cosmic.json`. `cosmic help json` has the rest.
 
 ## questions about a data file
 
-A question about a data file -- what is in it, where is a value, how many
-of these does it hold -- takes three steps, each a step up in cost, and
-none is a script. Stop at the first that answers:
+A question about a data file -- what is in it, how many of these it
+holds -- takes two steps, and neither is a script. Stop at the first that
+answers:
 
 1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
    what is in the file, and `cosmic json '.users[1]' export.json` prints
    one value.
-2. Find it with `cosmic json --flat export.json | grep needle`, which
-   prints every value with its path on one line, so `grep` finds which
-   path holds it. (`--flat` is being added to `cosmic json`; until it is
-   there, `cosmic json --shape` shows where to look.)
-3. Count, filter, join and sum with `cosmic sql --from`, which loads the
+2. Count, filter, join and sum with `cosmic sql --from`, which loads the
    file as a table of an in-memory SQLite database and runs one
    read-only statement on it:
 

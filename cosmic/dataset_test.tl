@@ -182,3 +182,25 @@ local function test_a_nul_byte_in_a_key_or_name_is_not_sql()
   local bad, why = Dataset.load(db, "u\0v", {})
   assert(bad == nil and why == "a table name cannot hold a NUL byte", why)
 end
+
+local function test_a_key_named_rowid_does_not_shadow_the_row_id()
+  local db, made = loaded('[{"rowid": "mine", "oid": 1, "_rowid_": 2, "ROWID": 3}]')
+  assert(table.concat(made.columns, ",") == "ROWID_2,_rowid__2,oid_2,rowid_3,_json",
+    table.concat(made.columns, ","))
+  assert(grid(db, "SELECT rowid FROM t")[1] == "i1")
+  assert(made.renamed["rowid_3"] == "rowid" and made.renamed["ROWID_2"] == "ROWID")
+  assert(grid(db, "SELECT json_extract(_json, '$.rowid') FROM t")[1] == "mine")
+end
+
+local function test_too_many_columns_says_the_limit_and_the_count()
+  local row: Dataset.Row = {}
+  for index = 1, 2000 do row["k" .. index] = index end
+  local db = memory()
+  local made, why = Dataset.load(db, "t", { row })
+  assert(made == nil and why == "too many columns: 2000 distinct keys, and SQLite holds at most " ..
+    "2000 columns in a table (one is `_json`)", why)
+  assert(Dataset.load(db, "u", { row }, { json_column = false }))
+  row.extra = 1
+  local over, over_why = Dataset.load(db, "v", { row }, { json_column = false })
+  assert(over == nil and over_why:find("2001 distinct keys", 1, true), over_why)
+end
