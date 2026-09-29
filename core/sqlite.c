@@ -630,8 +630,7 @@ static int handle_exec (lua_State *L) {
   if (rc != SQLITE_OK) {
     return failed_effect(L, h->db, rc);
   }
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static int handle_prepare (lua_State *L) {
@@ -691,22 +690,18 @@ static int handle_prepare (lua_State *L) {
 
 static int handle_close (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
-  if (h->db == NULL) {
-    lua_pushboolean(L, 1);
-    return cosmic_succeeded(L);
-  }
-  if (h->borrowed) {
+  /* Closed already, or borrowed: the connection is its owner's to close,
+   * and this handle only lets go of it. */
+  if (h->db == NULL || h->borrowed) {
     h->db = NULL;
-    lua_pushboolean(L, 1);
-    return cosmic_succeeded(L);
+    return cosmic_done(L);
   }
   int rc = sqlite3_close(h->db);
   if (rc != SQLITE_OK) {
     return failed_effect(L, h->db, rc);
   }
   h->db = NULL;
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static int handle_gc (lua_State *L) {
@@ -749,8 +744,7 @@ static int bound (lua_State *L, int rc, sqlite3 *db) {
   if (rc != SQLITE_OK) {
     return failed_effect(L, db, rc);
   }
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static int statement_parameters (lua_State *L) {
@@ -905,8 +899,7 @@ static int statement_reset (lua_State *L) {
   if (rc != SQLITE_OK) {
     return failed_effect(L, s->db, rc);
   }
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static int statement_finalize (lua_State *L) {

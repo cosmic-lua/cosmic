@@ -831,12 +831,14 @@ static int failed (lua_State *L, const char *why) {
   return 2;
 }
 
-/* `nil, err` for the multi handle's refusal, naming the call. A macro
- * rather than a function: nothing a test does on a release core makes
- * a multi call fail, and every function of a core is one a test must
- * enter (build/c_functions.tl). */
-#define MULTI_FAILED(L, which, mc) \
-  failed((L), lua_pushfstring((L), "%s: %s", (which), curl_multi_strerror(mc)))
+/* The multi handle's refusal, naming the call, pushed as a message;
+ * MULTI_FAILED answers it as `nil, err`. Macros rather than functions:
+ * nothing a test does on a release core makes a multi call fail, and
+ * every function of a core is one a test must enter
+ * (build/c_functions.tl). */
+#define MULTI_MESSAGE(L, which, mc) \
+  lua_pushfstring((L), "%s: %s", (which), curl_multi_strerror(mc))
+#define MULTI_FAILED(L, which, mc) failed((L), MULTI_MESSAGE(L, which, mc))
 
 static int handle_read (lua_State *L) {
   struct transfer *t = checked(L);
@@ -911,8 +913,7 @@ static int handle_write (lua_State *L) {
     return upload_failed(L);
   }
   if (len == 0) {
-    lua_pushboolean(L, 1);
-    return cosmic_succeeded(L);
+    return cosmic_done(L);
   }
   if (t->upload == NULL || t->upload_len + len > t->upload_cap) {
     size_t want = t->upload_cap == 0 ? 16384 : t->upload_cap;
@@ -933,13 +934,12 @@ static int handle_write (lua_State *L) {
     const char *which = NULL;
     CURLMcode mc = pump_once(&which);
     if (mc != CURLM_OK) {
-      lua_pushfstring(L, "%s: %s", which, curl_multi_strerror(mc));
+      MULTI_MESSAGE(L, which, mc);
       return upload_failed(L);
     }
   }
   if (t->upload_len > 0) return upload_over(L, t);
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 /* finish(): ends the streamed body and drives the transfer until the
@@ -959,7 +959,7 @@ static int handle_finish (lua_State *L) {
     const char *which = NULL;
     CURLMcode mc = pump_once(&which);
     if (mc != CURLM_OK) {
-      lua_pushfstring(L, "%s: %s", which, curl_multi_strerror(mc));
+      MULTI_MESSAGE(L, which, mc);
       return upload_failed(L);
     }
   }
@@ -967,8 +967,7 @@ static int handle_finish (lua_State *L) {
     push_transfer_error(L, t);
     return upload_failed(L);
   }
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 /* What curl has written to a scripted transfer's connections so far,
@@ -1405,8 +1404,7 @@ static int http_check_certificate (lua_State *L) {
     lua_pushstring(L, why);
     return 2;
   }
-  lua_pushboolean(L, 1);
-  return cosmic_succeeded(L);
+  return cosmic_done(L);
 }
 
 static const luaL_Reg module[] = {
