@@ -280,6 +280,50 @@ local function test_a_module_listing_leaves_out_data_fields(dir: string)
   assert(not text:find("callbacks", 1, true), text)
 end
 
+--- A callable module's own `metamethod` is listed with its signature,
+--- and documented; a nested record's (`__close`) stays that record's.
+local function test_a_module_listing_shows_its_metamethods(dir: string)
+  local db = built(dir, { ["cosmic/callable.tl"] = source(
+    "--- A callable module.",
+    "",
+    "local record callable",
+    "  --- Calls the module.",
+    "  metamethod __call: function(callable, string): boolean",
+    "  record Handle",
+    "    metamethod __close: function(Handle)",
+    "  end",
+    "end",
+    "",
+    "return callable") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.callable"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  assert(text:find("\n  metamethod __call: function(callable, string): boolean",
+    1, true), text)
+  assert(not text:find("__close", 1, true), text)
+  local call = assert(docs.lookup(view({ db }), "callable.__call"))
+  assert(#call == 1 and call[1].kind == "metamethod", tostring(#call))
+  local rendered = assert(docs.render(view({ db }), call[1]))
+  assert(table.concat(rendered, "\n"):find("Calls the module.", 1, true))
+end
+
+--- A script's opening comment after its `#!` line is its module text.
+local function test_a_script_after_a_shebang_lists_its_own_text(dir: string)
+  local db = built(dir, { ["cosmic/script.tl"] = source(
+    "#!/usr/bin/env cosmic",
+    "",
+    "--- Runs the thing.",
+    "",
+    "local function run()",
+    "end",
+    "",
+    "return { run = run }") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.script"))
+  assert(#found == 1 and found[1].kind == "module", tostring(#found))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  assert(lines[2] == "  Runs the thing.", lines[2])
+end
+
 --- A bare lowercase name that ends a public module's name is that
 --- module, not an internal record or symbol of the same name; a name
 --- that is no module's still finds its symbols.

@@ -525,6 +525,152 @@ local function test_an_opening_comment_on_a_type_is_the_modules_too()
   assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
 end
 
+--- A script opening with a `#!` line and a comment documents the
+--- module: the shebang is no code, and blank lines before the run do not
+--- end it. A function directly below keeps the run as its own.
+local function test_an_opening_comment_after_a_shebang_is_the_modules()
+  local by_symbol = docs(lines({
+    "#!/usr/bin/env cosmic",
+    "",
+    "--- A script.",
+    "--- It runs things.",
+    "",
+    "--- Runs one.",
+    "local function run()",
+    "end",
+  }))
+  local module = by_symbol[""]
+  assert(module ~= nil, "no module doc")
+  assert(module.text == "A script.\nIt runs things.", module.text)
+  assert(module.line == 3, tostring(module.line))
+  assert(by_symbol["run"].text == "Runs one.", by_symbol["run"].text)
+
+  local adjacent = docs(lines({
+    "#!/usr/bin/env cosmic",
+    "--- Runs one.",
+    "local function run()",
+    "end",
+  }))
+  assert(adjacent[""] == nil, "the function's comment was taken as the module's")
+  assert(adjacent["run"].text == "Runs one.", adjacent["run"].text)
+
+  local on_record = docs(lines({
+    "#!/usr/bin/env cosmic",
+    "-- A script's record.",
+    "local record Thing",
+    "end",
+  }))
+  assert(on_record[""] ~= nil and on_record[""].text == "A script's record.")
+  assert(on_record["Thing"].text == "A script's record.")
+end
+
+--- Blank lines before the opening comment do not hide it from the module
+--- either.
+local function test_an_opening_comment_after_blank_lines_is_the_modules()
+  local by_symbol = docs(lines({
+    "",
+    "",
+    "--- The thing module.",
+    "",
+    "local count = 3",
+  }))
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
+end
+
+--- A comment trailing a field on its own line is a note on that field,
+--- not the documentation of the next; a doc comment written right below
+--- it still is.
+local function test_a_trailing_field_comment_is_not_the_next_fields_doc()
+  local by_symbol = docs(lines({
+    "local record Thing",
+    "  s: string -- why it is a string",
+    "  t: string",
+    "  u: integer -- a note",
+    "  --- What u2 is.",
+    "  u2: integer",
+    "  wide: function(a: string, -- the first",
+    "                 b: string): string",
+    "  v: boolean",
+    "  enum Kind",
+    "    \"a\" -- the first kind",
+    "    \"b\"",
+    "  end",
+    "end",
+    "return Thing",
+  }))
+  assert(by_symbol["s"].text == "", by_symbol["s"].text)
+  assert(by_symbol["t"].text == "", by_symbol["t"].text)
+  assert(by_symbol["u2"].text == "What u2 is.", by_symbol["u2"].text)
+  assert(by_symbol["v"].text == "", by_symbol["v"].text)
+  assert(by_symbol["Kind.b"].text == "", by_symbol["Kind.b"].text)
+end
+
+--- A comment trailing a statement is not the doc comment of the
+--- declaration below it either.
+local function test_a_trailing_statement_comment_is_not_the_next_ones_doc()
+  local by_symbol = docs(lines({
+    "local limit = 3 -- how many",
+    "local function run()",
+    "end",
+    "local count = 4 -- how much",
+    "--- Runs.",
+    "local function go()",
+    "end",
+  }))
+  assert(by_symbol["run"].text == "", by_symbol["run"].text)
+  assert(by_symbol["go"].text == "Runs.", by_symbol["go"].text)
+end
+
+--- A record's `metamethod` fields are rows of their own, of kind
+--- `metamethod`, with their signature and doc comment, after its fields.
+local function test_documents_a_records_metamethods()
+  local by_symbol, all = docs(lines({
+    "local record Thing",
+    "  --- Calls the thing.",
+    "  metamethod __call: function(Thing, integer): string",
+    "  metamethod __close: function(Thing)",
+    "  size: integer",
+    "  --- Looks a member up.",
+    "  metamethod __index: function(Thing,",
+    "                                 string): any",
+    "end",
+    "return Thing",
+  }))
+  local call = by_symbol["__call"]
+  assert(call ~= nil, "no row for __call")
+  assert(call.kind == "metamethod", call.kind)
+  assert(call.source_symbol == "Thing.__call", call.source_symbol)
+  assert(call.exported)
+  assert(call.signature == "metamethod __call: function(Thing, integer): string",
+    call.signature)
+  assert(call.text == "Calls the thing.", call.text)
+  assert(by_symbol["__close"].text == "", by_symbol["__close"].text)
+  assert(by_symbol["__index"].signature ==
+    "metamethod __index: function(Thing, string): any", by_symbol["__index"].signature)
+  assert(by_symbol["__index"].text == "Looks a member up.")
+  local order: {string} = {}
+  for _, entry in ipairs(all) do
+    order[#order + 1] = entry.symbol
+  end
+  assert(table.concat(order, " ") == "Thing size __call __close __index",
+    table.concat(order, " "))
+end
+
+--- The `__is` a `where` clause makes up has no source of its own and no
+--- row.
+local function test_a_where_clause_adds_no_metamethod_row()
+  local _, all = docs(lines({
+    "local record Sized",
+    "  where self.size >= 0",
+    "  size: integer",
+    "end",
+    "return Sized",
+  }))
+  for _, entry in ipairs(all) do
+    assert(entry.kind ~= "metamethod", entry.symbol)
+  end
+end
+
 --- A field's stored signature runs to the end of its type, however many
 --- lines the source spent on it, and stops at the next field.
 local function test_a_multi_line_field_keeps_its_whole_signature()
