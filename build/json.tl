@@ -266,13 +266,23 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if request.mode == "exists" then return 0 end
     if request.mode ~= "flat" then return print_lines(matches, request.raw) end
     local leaves: {Json.Located} = {}
+    -- Matches come before what is inside them, so those under a match
+    -- already flattened follow it: skip them, or each leaf would print
+    -- once per match above it (`$..a` over nested `a`s, `$..*`).
+    local covered: string | nil
     for _, match in ipairs(matches) do
+      if covered ~= nil and match.path:sub(1, #covered) == covered
+        and match.path:find("^[.%[]", #covered + 1) then
+        goto next_match
+      end
+      covered = match.path
       local under, flat_why = Json.flatten(match.value, { max_depth = walk.max_depth, root = match.path })
       if under == nil then
         complain(flat_why)
         return 2
       end
       for _, leaf in ipairs(under) do leaves[#leaves + 1] = leaf end
+      ::next_match::
     end
     return print_lines(leaves, false)
   end

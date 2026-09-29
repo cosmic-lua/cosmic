@@ -275,13 +275,13 @@ local function gen_doc(src: Fuzz.Source, depth: integer): string
     return Fuzz.pick(src, { "1", '"s"', "true", "null", "2.5" })
   elseif kind <= 2 then
     local parts: {string} = {}
-    while Fuzz.more(src, #parts, 3) do parts[#parts + 1] = gen_doc(src, depth + 1) end
+    while Fuzz.more(src, #parts, depth == 0 and 6 or 4) do parts[#parts + 1] = gen_doc(src, depth + 1) end
     return "[" .. table.concat(parts, ",") .. "]"
   end
-  local names: {string} = { "a", "b", "c" }
+  local names: {string} = { "a", "b", "c", "1" }
   local parts: {string} = {}
   local used: {string:boolean} = {}
-  while Fuzz.more(src, #parts, 3) do
+  while Fuzz.more(src, #parts, 4) do
     local name = Fuzz.pick(src, names)
     if not used[name] then
       used[name] = true
@@ -313,7 +313,13 @@ local function children(node: Node): {Node}
   end
   local items = Json.items(node.value)
   if items ~= nil then
-    for i, item in ipairs(items) do child(i, item) end
+    -- A decoded array may have holes where a null was dropped: its
+    -- elements are the integer keys, in order.
+    local indexes: {integer} = {}
+    local loose: {any:any} = items as {any:any}
+    for index in pairs(loose) do indexes[#indexes + 1] = index as integer end
+    table.sort(indexes)
+    for _, index in ipairs(indexes) do child(index, items[index]) end
     return out
   end
   local members = Json.entries(node.value)
@@ -384,26 +390,28 @@ local function test_select_matches_a_step_by_step_reference(tmp: string)
     gen = function(src: Fuzz.Source): string
       local fields: {string} = {}
       local steps: {string} = {}
-      while Fuzz.more(src, #steps // 2, 4) do
+      while Fuzz.more(src, #steps // 2, 8) do
         local kind = Fuzz.pick(src, { "key", "index", "any", "any", "deep_key", "deep_key", "deep_index", "deep_any" })
         steps[#steps + 1] = kind
         if kind == "key" or kind == "deep_key" then
-          steps[#steps + 1] = Fuzz.pick(src, { "a", "b", "c" })
+          steps[#steps + 1] = Fuzz.pick(src, { "a", "b", "c", "1" })
         elseif kind == "index" or kind == "deep_index" then
-          steps[#steps + 1] = tostring(src:int(1, 3))
+          steps[#steps + 1] = tostring(src:int(1, 6))
         else
           steps[#steps + 1] = ""
         end
       end
       fields[1] = gen_doc(src, 0)
       fields[2] = Fuzz.pack(steps)
+      -- Without `null_value`, a null in an array is a hole.
+      fields[3] = src:int(0, 1) == 0 and "nulls" or "holes"
       return Fuzz.pack(fields)
     end,
-    requires = { "matched", "unmatched", "descent", "several" },
-    shares = { matched = 0.2, unmatched = 0.1, descent = 0.3, several = 0.02 },
+    requires = { "matched", "unmatched", "descent", "several", "holes" },
+    shares = { matched = 0.2, unmatched = 0.1, descent = 0.3, several = 0.02, holes = 0.1 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local doc = Json.decode(fields[1], { null_value = Json.null })
+      local doc = Json.decode(fields[1], { null_value = fields[3] == "nulls" and Json.null or nil })
       local pattern = steps_of(fields[2])
       local want = reference({ steps = {}, value = doc }, pattern)
       local ok, found, err = pcall(Json.select, doc, pattern, { max_depth = 100 })
@@ -418,6 +426,7 @@ local function test_select_matches_a_step_by_step_reference(tmp: string)
       end
       Fuzz.label(#want > 0 and "matched" or "unmatched")
       if #want > 1 then Fuzz.label("several") end
+      if fields[3] == "holes" then Fuzz.label("holes") end
       if text:find("..", 1, true) then Fuzz.label("descent") end
       return true, ""
     end,
@@ -430,10 +439,13 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
   Fuzz.run({
     name = "json flatten read back",
     dir = tmp,
-    gen = function(src: Fuzz.Source): string return gen_doc(src, 0) end,
+    gen = function(src: Fuzz.Source): string
+      return Fuzz.pack({ gen_doc(src, 0), src:int(0, 1) == 0 and "nulls" or "holes" })
+    end,
     requires = { "leaves", "empty container" },
-    check = function(input: string): boolean, string
-      local doc = Json.decode(input, { null_value = Json.null })
+    check = function(packed: string): boolean, string
+      local fields = Fuzz.unpack(packed)
+      local doc = Json.decode(fields[1], { null_value = fields[2] == "nulls" and Json.null or nil })
       local ok, leaves, err = pcall(Json.flatten, doc)
       if not ok then return false, "raised: " .. tostring(leaves) end
       if leaves == nil then return false, "failed: " .. err end

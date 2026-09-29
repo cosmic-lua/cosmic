@@ -126,7 +126,9 @@ local record Cli
   --- current level included (`$..id`, `$.users[*].name`): such a path
   --- prints each match as a `path = value` line, the value as compact
   --- JSON (`$.users[1].name = "ann"`), in document order (arrays by
-  --- index, keys sorted); with `-r`, the raw values alone, one to a line;
+  --- index, keys sorted); with `-r`, the raw values alone, one to a line
+  --- (a string prints as its text, so one with a newline in it spans
+  --- lines; without `-r`, or with `--flat`, every line is one JSON value);
   --- with `--exists`, nothing, and 0 when at least one matches. A key
   --- named `*` is `["*"]`. JSONPath's filters, slices and unions are
   --- left out on purpose: this is a lookup, not a query language.
@@ -149,8 +151,9 @@ local record Cli
   --- pattern, which can match many values. Only a lookup: no
   --- filter, no transform. Exits 0 when the path is found (a pattern:
   --- when something matches), 1 when it is not, with the message
-  --- `Json.get` gives on standard error (a
-  --- `null` value is found), 2 for a command line it cannot read or a
+  --- `Json.get` gives on standard error (a pattern that matches nothing:
+  --- `<pattern>: no match`; a `null` value is found), 2 for a command line
+  --- it cannot read, a pattern too deep to walk, or a
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
   json: string

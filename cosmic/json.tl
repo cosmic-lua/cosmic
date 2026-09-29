@@ -802,8 +802,17 @@ local function descend(value: any, path: {string | integer}): Reached
         return { err = at .. ": expected an array to look up " .. Json.child_path("", step_value)
           .. ", got " .. shape_kind(here), at = at }
       end
-      if step_value < 1 or step_value > rawlen(here) then
-        return { err = at .. ": index " .. step_value .. " out of range, the array has " .. rawlen(here), at = at }
+      local size = rawlen(here)
+      if step_value > size and raw.is_array(here) then
+        -- A decoded array with holes: `rawlen` is any border of it, so the
+        -- extent is its highest integer key.
+        for key in pairs(here) do
+          local k: any = key
+          if k is integer and k > size then size = k end
+        end
+      end
+      if step_value < 1 or step_value > size then
+        return { err = at .. ": index " .. step_value .. " out of range, the array has " .. size, at = at }
       end
       here = here[step_value]
     elseif step_value is string then
@@ -935,11 +944,22 @@ end
 --- "object", "hole" or "mixed"), and for an object the string keys it has,
 --- sorted, or for a hole the integer keys it has, sorted: the order
 --- `flatten` and `select` visit its members in. An array's elements are
---- 1 to `rawlen`, so no list is made for one, and the keys of a hole are
---- its elements' indexes, so a hole is not visited and its neighbours
---- keep theirs. One pass over the keys, where `table_kind` is another.
-local function layout(v: {any:any}): string, {string | integer}
-  if raw.is_array(v) then return "array", {} end
+--- 1 to the third answer, its extent, so no list is made for one; the
+--- extent of a marked array (a decoded one, which may hold holes where a
+--- `null` was dropped, so that `rawlen` is any border of it) is its
+--- highest integer key, found by a pass over the keys. The keys of a
+--- hole are its elements' indexes, so a hole is not visited and its
+--- neighbours keep theirs. One pass over the keys, where `table_kind` is
+--- another.
+local function layout(v: {any:any}): string, {string | integer}, integer
+  if raw.is_array(v) then
+    local extent = 0
+    for key in pairs(v) do
+      local k: any = key
+      if k is integer and k > extent then extent = k end
+    end
+    return "array", {}, extent
+  end
   local keys: {string | integer} = {}
   local strings, numbers = 0, 0
   for key in pairs(v) do
@@ -951,13 +971,13 @@ local function layout(v: {any:any}): string, {string | integer}
       numbers = numbers + 1
       keys[strings + numbers] = k
     else
-      return "mixed", {}
+      return "mixed", {}, 0
     end
   end
-  if strings > 0 and numbers > 0 then return "mixed", {} end
-  if numbers > 0 and numbers == rawlen(v) then return "array", {} end
+  if strings > 0 and numbers > 0 then return "mixed", {}, 0 end
+  if numbers > 0 and numbers == rawlen(v) then return "array", {}, numbers end
   table.sort(keys)
-  return numbers > 0 and "hole" or "object", keys
+  return numbers > 0 and "hole" or "object", keys, 0
 end
 
 --- Every leaf of `value` as a path and its value, in a list, and "":
@@ -991,7 +1011,7 @@ function Json.flatten(value: any, opts?: Json.WalkOptions): {Json.Located} | nil
       leaves[#leaves + 1] = { path = path, value = v }
       return
     end
-    local shape, keys = layout(v)
+    local shape, keys, extent = layout(v)
     if shape == "mixed" then
       failed = path .. ": expected an object or an array, got " .. shape_kind(v)
       return
@@ -1007,7 +1027,7 @@ function Json.flatten(value: any, opts?: Json.WalkOptions): {Json.Located} | nil
     open[v] = true
     local before = #leaves
     if shape == "array" then
-      for i = 1, rawlen(v) do
+      for i = 1, extent do
         local child = v[i]
         if child ~= nil and failed == nil then walk(child, path .. "[" .. i .. "]", depth + 1) end
       end
@@ -1049,8 +1069,9 @@ end
 --- as `flatten`'s are, and each value is listed once however many ways
 --- the pattern reaches it. The order is document order: a value before
 --- what is inside it, an object's keys sorted, an array's elements by
---- index, and a hole in an array matches nothing. No steps match `value`
---- itself. A step that meets a scalar, or a container of the other kind,
+--- index, and a hole in an array matches nothing. The empty pattern
+--- (`$`, no steps) selects `value` itself, once, and no other pattern
+--- does. A step that meets a scalar, or a container of the other kind,
 --- matches nothing there. The walk visits each value once, and each step
 --- at most once per value, so `..` over a large document costs the size
 --- of the document, however the pattern is spelled. nil and a message
@@ -1100,10 +1121,17 @@ function Json.select(value: any, pattern: {Json.Step}, opts?: Json.WalkOptions):
   local open: {any:boolean} = {}
   local failed: string | nil
   local stack: {string | integer} = {}
+  -- `spelled_at[d]` is the path of the value `d` steps down, good for
+  -- the first `cached` levels of `stack`: a path is spelled from the last
+  -- one that was, a step at a time, and not again from the root.
+  local spelled_at: {integer:string} = { [0] = root }
+  local cached = 0
   local function spelled(): string
-    local text = root
-    for i = 1, #stack do text = Json.child_path(text, stack[i]) end
-    return text
+    for d = cached + 1, #stack do
+      spelled_at[d] = Json.child_path(spelled_at[d - 1], stack[d])
+    end
+    cached = #stack
+    return spelled_at[cached]
   end
   local visit: function(v: any, mask: integer, depth: integer)
   --- Visits `child`, at `step` below a value that has matched up to
@@ -1127,6 +1155,7 @@ function Json.select(value: any, pattern: {Json.Step}, opts?: Json.WalkOptions):
       stack[#stack + 1] = step
       visit(child, following, depth + 1)
       stack[#stack] = nil
+      if cached > #stack then cached = #stack end
     end
   end
   visit = function(v: any, mask: integer, depth: integer)
@@ -1148,8 +1177,10 @@ function Json.select(value: any, pattern: {Json.Step}, opts?: Json.WalkOptions):
         if active == 1 << (position - 1) then only = position end
       end
     end
-    if only ~= 0 and not deep[only] and kinds[only] == 1 then
-      -- One plain step: look it up, as `get` does, and not scan an object.
+    if only ~= 0 and not deep[only] and kinds[only] ~= 3 and not raw.is_array(v) and table_kind(v) == "mixed" then
+      failed = spelled() .. ": expected an object or an array, got " .. shape_kind(v)
+    elseif only ~= 0 and not deep[only] and kinds[only] == 1 then
+      -- One plain step: look it up, as `get` does.
       local key = keys[only]
       local child = v[key]
       if child ~= nil then enter(mask, key, child, depth) end
@@ -1158,11 +1189,11 @@ function Json.select(value: any, pattern: {Json.Step}, opts?: Json.WalkOptions):
       local child = v[index]
       if child ~= nil then enter(mask, index, child, depth) end
     else
-      local shape, ordered = layout(v)
+      local shape, ordered, extent = layout(v)
       if shape == "mixed" then
         failed = spelled() .. ": expected an object or an array, got " .. shape_kind(v)
       elseif shape == "array" then
-        for i = 1, rawlen(v) do
+        for i = 1, extent do
           local child = v[i]
           if child ~= nil and failed == nil then enter(mask, i, child, depth) end
         end

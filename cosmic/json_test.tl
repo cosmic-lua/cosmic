@@ -1361,20 +1361,38 @@ local function test_select_fails_like_flatten_on_depth_cycles_and_mixed_keys()
   assert(not pcall(Json.select, doc, {}, { max_depth = 0 }))
 end
 
-local function test_select_descent_over_a_large_document_is_linear()
+--- `value` with every table replaced by an empty one that answers for it,
+--- and counts in `counter[1]` each time it is walked by `pairs`: one for
+--- every container a walk lays out, so a test can bound the work a walk
+--- does by what it counted, not by how long it took.
+local function counted(value: any, counter: {integer}): any
+  if not (value is {any:any}) then return value end
+  local copy: {any:any} = {}
+  for key, member in pairs(value) do copy[key] = counted(member, counter) end
+  local walk_copy: function(): any, any, any = function(): any, any, any
+    counter[1] = counter[1] + 1
+    return next, copy, nil
+  end
+  return setmetatable({}, { __index = copy, __pairs = walk_copy })
+end
+
+local function test_select_descent_over_a_large_document_lays_out_each_container_once()
   local parts: {string} = {}
   for i = 1, 16000 do
     parts[i] = '{"id": ' .. i .. ', "tags": ["a", "b"], "in": {"id": -' .. i .. '}}'
   end
-  -- 16000 x 7 values (the record, id, tags and its two strings, in, in.id) is over 100k.
-  local doc = decoded('{"rows": [' .. table.concat(parts, ",") .. ']}')
-  local pattern = pat("$..id")
-  local started = Time.monotonic_ns()
-  local ids = assert(Json.select(doc, pattern))
-  local elapsed = Time.monotonic_ns() - started
+  -- 16000 x 7 values is over 100k: the root, rows, and per record the
+  -- record, tags and in are 48002 containers.
+  local counter = { 0 }
+  local doc = counted(decoded('{"rows": [' .. table.concat(parts, ",") .. ']}'), counter)
+  local ids = assert(Json.select(doc, pat("$..id")))
   assert(#ids == 32000, #ids)
   assert(ids[1].path == "$.rows[1].id" and ids[2].path == "$.rows[1].in.id")
-  assert(elapsed < 1000000000, "descent over 112k values took " .. elapsed // 1000000 .. " ms")
+  assert(counter[1] == 48002, "laid out " .. counter[1] .. " containers")
+  -- Nor does a second descent, or a wildcard, walk anything twice.
+  counter[1] = 0
+  assert(#assert(Json.select(doc, pat("$..in..id"))) == 16000)
+  assert(counter[1] == 48002, "laid out " .. counter[1] .. " containers")
 end
 
 local function test_select_chained_descents_are_linear_not_a_product()
@@ -1383,21 +1401,77 @@ local function test_select_chained_descents_are_linear_not_a_product()
   -- 100 million times here, and lists them that often.
   local chain: any = { leaf = 1 }
   for _ = 1, 900 do chain = { a = chain } end
-  local started = Time.monotonic_ns()
-  local found = assert(Json.select(chain, pat("$..a..a..a"), { max_depth = 1000 }))
-  local elapsed = Time.monotonic_ns() - started
+  local counter = { 0 }
+  local found = assert(Json.select(counted(chain, counter), pat("$..a..a..a"), { max_depth = 1000 }))
   assert(#found == 898, #found)
   assert(found[1].path == "$.a.a.a" and found[898].path:sub(-6) == ".a.a.a")
-  assert(elapsed < 1000000000, "chained descent took " .. elapsed // 1000000 .. " ms")
+  assert(counter[1] == 901, "laid out " .. counter[1] .. " containers")
 end
 
-local function test_flatten_of_a_large_document_is_linear_too()
+local function test_select_spells_each_path_from_the_one_before_it()
+  -- 900 matches at depths 1 to 900: spelling each from `$` would be
+  -- 400k steps; the paths have to come out right all the same.
+  local chain: any = { leaf = 1 }
+  for _ = 1, 900 do chain = { a = chain } end
+  local found = assert(Json.select(chain, pat("$..a"), { max_depth = 1000 }))
+  assert(#found == 900, #found)
+  local text = "$"
+  for i = 1, 900 do
+    text = text .. ".a"
+    assert(found[i].path == text, i)
+  end
+end
+
+local function test_flatten_of_a_large_document_lays_out_each_container_once()
   local rows: {any} = {}
   for i = 1, 25000 do rows[i] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
-  local started = Time.monotonic_ns()
-  local leaves = assert(Json.flatten({ rows = Json.array(rows) }))
-  local elapsed = Time.monotonic_ns() - started
+  local counter = { 0 }
+  local leaves = assert(Json.flatten(counted({ rows = Json.array(rows) }, counter)))
   assert(#leaves == 100000, #leaves)
   assert(leaves[1].path == "$.rows[1].id" and leaves[4].path == "$.rows[1].tags[2]")
-  assert(elapsed < 1000000000, "flatten of 100k leaves took " .. elapsed // 1000000 .. " ms")
+  assert(counter[1] == 75002, "laid out " .. counter[1] .. " containers")
+end
+
+local function test_a_decoded_array_with_holes_keeps_the_elements_past_them()
+  assert_lines(flat_lines(decoded("[null, 2, 3]")), { "$[2] = 2", "$[3] = 3" })
+  assert_lines(flat_lines(decoded("[1, null, 3]")), { "$[1] = 1", "$[3] = 3" })
+  assert_lines(flat_lines(decoded("[1, null, null]")), { "$[1] = 1" })
+  assert_lines(flat_lines(decoded('{"a": [null, {"b": 1}, null, [4]]}')), { "$.a[2].b = 1", "$.a[4][1] = 4" })
+  assert_lines(flat_lines(decoded("[null, null]")), { "$ = []" })
+  assert(selected(decoded("[null, 2, 3]"), "$[*]") == "$[2] $[3]")
+  assert(selected(decoded("[1, null, 3]"), "$[*]") == "$[1] $[3]")
+  assert(selected(decoded("[1, null, 3]"), "$[3]") == "$[3]")
+  assert(selected(decoded("[1, null, 3]"), "$[2]") == "")
+  assert(selected(decoded('{"a": [null, {"b": 1}, [null, 5]]}'), "$..*") == "$.a $.a[2] $.a[2].b $.a[3] $.a[3][2]")
+  assert(selected(decoded('[null, {"id": 1}, null, {"id": 2}]'), "$..id") == "$[2].id $[4].id")
+end
+
+local function test_select_refuses_a_pattern_of_more_than_62_steps()
+  local steps: {Json.Step} = {}
+  for i = 1, 62 do steps[i] = { kind = "any" } end
+  local deep: any = 1
+  for _ = 1, 62 do deep = { deep } end
+  local found = assert(Json.select(deep, steps, { max_depth = 100 }))
+  assert(#found == 1 and found[1].path:sub(1, 6) == "$[1][1")
+  steps[63] = { kind = "any" }
+  local none, err = Json.select(deep, steps)
+  assert(none == nil and err:find("at most 62 steps, not 63", 1, true), err)
+end
+
+local function test_select_a_plain_step_meets_mixed_keys_as_a_wildcard_does()
+  local mixed: {any:any} = { a = 1, [1] = 2 }
+  for _, text in ipairs({ "$.x.a", "$.x[1]", "$.x.*", "$.x..a" }) do
+    local found, err = Json.select({ x = mixed }, pat(text))
+    assert(found == nil and err:find("$.x: expected an object or an array, got table with mixed keys", 1, true), text .. ": " .. tostring(err))
+  end
+end
+
+local function test_get_finds_an_element_past_a_hole_of_a_decoded_array()
+  local doc = decoded("[1, null, 3]")
+  assert(got(doc, { 3 }) == 3)
+  local hole, err = Json.get(doc, { 2 })
+  assert(hole == nil and err == "", err)
+  assert(get_failure(doc, { 4 }):find("index 4 out of range, the array has 3", 1, true))
+  assert(got(decoded("[null, null, 7]"), { 3 }) == 7)
+  assert(got(decoded('{"a": [null, {"b": 2}]}'), { "a", 2, "b" }) == 2)
 end
