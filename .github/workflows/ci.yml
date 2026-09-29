@@ -157,6 +157,11 @@
         # Rename, unlink and locking bugs show on glibc Linux and macOS:
         # those two legs on a gating run, every leg on the scheduled run.
         COSMIC_CI_SELF_REBUILD: "${{ (matrix.name == 'linux-x86_64' || matrix.name == 'macos-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
+        # The portable suite reruns the native suite's tests under the
+        # portable build: the two x86-64 legs (glibc and musl hosts) on
+        # a gating run, every leg on the scheduled and a manual run
+        # (phase_portable).
+        COSMIC_CI_PORTABLE_SUITE: "${{ (matrix.name == 'linux-x86_64' || matrix.name == 'alpine-x86_64' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'run' || 'skip' }}",
         COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
         # A Linux leg fails where a confined test's sandbox does not hold
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.

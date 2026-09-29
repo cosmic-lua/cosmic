@@ -725,6 +725,67 @@ local function test_the_self_rebuild_fixture_runs_on_two_legs_and_on_every_sched
     "the self-rebuild fixture runs on no macOS leg of a gating run: " .. value)
 end
 
+--- The portable suite runs on the two x86-64 legs of a gating run
+--- (COSMIC_CI_PORTABLE_SUITE), a glibc host and a musl one, and on
+--- every leg of the scheduled run and a manual one.
+local function test_the_portable_suite_runs_on_two_legs_and_on_every_scheduled_one()
+  local legs, env = platform_legs_and_env()
+  local value = assert(env.COSMIC_CI_PORTABLE_SUITE, "ci.yml's platform job sets no COSMIC_CI_PORTABLE_SUITE")
+  local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
+    "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
+    "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
+  assert(one and two and one ~= two and legs[one] and legs[two],
+    "the portable suite runs on no two legs of the matrix, " ..
+    "or not on every leg of the scheduled and a manual run: " .. value)
+  assert(legs[one].target:sub(1, 7) == "x86_64-" and legs[two].target:sub(1, 7) == "x86_64-",
+    "the portable suite runs on a leg of a gating run that is no x86-64 one: " .. value)
+  -- Both Linux legs, one in the Alpine (musl) image, one not (glibc).
+  assert(legs[one].image ~= "" and legs[two].image ~= "" and
+    (legs[one].image:find("alpine", 1, true) ~= nil) ~= (legs[two].image:find("alpine", 1, true) ~= nil),
+    "the portable suite's gating legs are not a glibc host and a musl one: " .. value)
+end
+
+--- A leg that skips the portable suite (COSMIC_CI_PORTABLE_SUITE=skip)
+--- starts no suite and says so, still records the artifact's digest
+--- that attest compares, and its boundary, with no suite's database or
+--- cache to hold, passes.
+local function test_a_leg_that_skips_the_portable_suite_still_attests(tmp: string)
+  local base, project = command(tmp)
+  local fake = tmp .. "/portable-skip"
+  local runner_temp = fake .. "-runner-temp"
+  local work = runner_temp .. "/cosmic-ci/platform"
+  local diagnostics = work .. "/portable-diagnostics"
+  assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
+    Fs.mkdirs(work .. "/portable-source"))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  local executable = diagnostics .. "/cosmic-portable"
+  local seen = fake .. "-seen"
+  Fixture.write(executable, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SEEN\"\nexit 0\n", 493)
+  local digest = Hash.hex_sha256((assert(Fs.read(executable)))) .. "\n"
+  assert(Fs.write(diagnostics .. "/portable-artifact.before.sha256", digest))
+  for _, phase in ipairs({ "portable", "portable-boundary" }) do
+    local outcome = Fixture.call("portable-skip-" .. phase,
+      append(base, { "platform", phase, "success" }), project, tmp .. "/logs",
+      context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", SEEN = seen, COSMIC_CI_EVENT = "merge_group",
+        COSMIC_CI_PORTABLE_SUITE = "skip",
+        COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
+        XDG_CACHE_HOME = tmp .. "/cache",
+      }))
+    local err = Fixture.read(outcome.err)
+    assert(outcome.result.ok, phase .. ": failed: " .. err)
+    assert(err:find(": skipped on this leg (COSMIC_CI_PORTABLE_SUITE=skip)", 1, true) ~= nil,
+      phase .. ": " .. err)
+  end
+  assert(Fs.read(seen) == nil, "a skipped portable suite ran the artifact: " ..
+    tostring((Fs.read(seen))))
+  assert(Fs.read(diagnostics .. "/portable-artifact.after.sha256") == digest,
+    "a skipped portable suite recorded no digest for attest")
+  assert(Fs.read(diagnostics .. "/portable-immediate/hashes.sha256") == nil and
+    Fs.read(diagnostics .. "/portable-boundary/hashes.sha256") == nil,
+    "a skipped portable suite snapshotted a database")
+end
+
 --- A gating suite's workers are given none of what names the run --
 --- GitHub's GITHUB_*, RUNNER_* and ACTIONS_*, CI, systemd's per-unit
 --- variables, the container's HOSTNAME, the driver's own COSMIC_CI_*
