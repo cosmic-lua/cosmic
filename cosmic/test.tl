@@ -129,11 +129,13 @@ local record Test
     --- `cosmic.*` sources and declarations this way: a module the
     --- snippet requires goes in the test's closure
     --- (`local type _ = require(...)`), or the test declares `store`.
+    --- `tool` lets a test start the program, but not read its database
+    --- through the descriptor a portable start keeps on it: that read is
+    --- refused, whatever the test declares.
     store: boolean
     -- `Store.meta` is not held (the TODO on `hold_store` in
-    -- build/test_worker.tl). The descriptor a portable start keeps on
-    -- the program is refused to every binding (core/check.h's
-    -- `cosmic_checkfd`), and a sandboxed worker that does not declare
+    -- build/test_worker.tl). The descriptor is refused by core/check.h's
+    -- `cosmic_checkfd`, and a sandboxed worker that does not declare
     -- `tool` has no name to open the program by.
     --- Whether the tests, or the processes they start, read the system's
     --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and
@@ -176,7 +178,7 @@ Test.fields = {
 
 --- What a test runner installed as `__runner` on this module's table
 --- -- no part of its type -- to learn what `needs` is handed as the
---- module it runs loads (`build.test_worker`), and to have a call once
+--- module it runs loads, and to have a call once
 --- that module has loaded refused: a table whose `handed` is called with
 --- what `needs` was handed, and whose `loaded` the runner sets once the
 --- module has loaded. Nil when none is installed.

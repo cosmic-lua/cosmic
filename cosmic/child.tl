@@ -12,8 +12,9 @@
 --- with it. Start a child with `process_group = false` for one meant
 --- to outlive the call that started it. A child started with a
 --- `sandbox` that unveils, or one the test runner confines, starts a
---- session, and so a group, of its own whatever `process_group` says, in a pid namespace of its own that
---- ends when it does: nothing it starts outlives it there.
+--- session, and so a group, of its own whatever `process_group` says, in
+--- a pid namespace of its own that ends when it does: nothing it starts
+--- outlives it there.
 ---
 --- Standard streams are inherited unless redirected: to a caller-owned
 --- descriptor, to "null", or to "capture", which collects the stream in
@@ -228,8 +229,8 @@ local record Handle
   --- captured and streamed outputs and input meanwhile. Nil and why when
   --- settling the child fails.
   try_wait: function(Handle): TryWait | nil, string
-  --- Sends `signal` (SIGTERM by default) to the child, and to its group
-  --- when it leads one. It does not wait. False and why when the child
+  --- Sends `signal` (SIGTERM by default) to the child, or to its whole
+  --- group when `process_group` is true. It does not wait. False and why when the child
   --- has been reaped already or the signal cannot be sent.
   stop: function(Handle, signal?: integer): boolean, string
   --- Closes the writable end of the child's stdin, `Handle.stdin`, so the
@@ -237,9 +238,10 @@ local record Handle
   --- or is closed already.
   close_stdin: function(Handle): boolean, string
   --- Ends the child if it is still running, as an expired `wait` does,
-  --- reaps it and closes its streams; closing a settled handle does
-  --- nothing more. False and why when the child or its group cannot be
-  --- ended.
+  --- reaps it and closes its stdin, and ends its streamed outputs so
+  --- their readers read what is queued and stop. Closing a settled
+  --- handle only ends the streamed outputs. False and why when the
+  --- child or its group cannot be ended.
   close: function(Handle): boolean, string
 end
 
@@ -267,8 +269,8 @@ local record Guard
   _closed: boolean
   --- Why the dispositions could not be restored, "" when they were.
   _trouble: string
-  --- The last SIGINT or SIGTERM caught, or 0 until one is; it stays
-  --- until the guard closes.
+  --- The last SIGINT or SIGTERM caught, or 0 until one is. It is kept
+  --- after the guard closes.
   cancelled: function(Guard): integer
   --- The last signal caught since the previous take, or 0, and clears
   --- it: the way to pass each signal on to a child.
@@ -286,11 +288,17 @@ end
 --- The open guard, if any: at most one is, process-wide.
 local active: Guard | nil
 
---- Why no guard could be taken, from the core's `trouble` for it: the
---- core refuses only while a guard is open, and this names it.
-local function busy(trouble: string): string
-  if active ~= nil then
-    return "a Child.guard is already open (" .. trouble .. "): close it first"
+-- TODO: use sys.EBUSY once cosmic.sys carries it; 16 is EBUSY on Linux
+-- and macOS alike.
+local EBUSY <const> = 16
+
+--- Why no guard could be taken, from the core's `trouble` and `errno`
+--- for it. The core answers EBUSY only while a guard is open, and this
+--- names it; any other failure keeps the core's own words.
+local function busy(trouble: string, errno: integer): string
+  if errno == EBUSY then
+    return "a guard (Child.guard or another Child.run) is already open (" ..
+      trouble .. "): close it first"
   end
   return trouble
 end
@@ -941,7 +949,7 @@ end
 --- again, so a process that would have died of it dies of it then,
 --- its children already ended. One guard is open at a time,
 --- `Child.run`'s included: another answers nil and why, naming the
---- open guard ("a Child.guard is already open"). `close`
+--- open guard ("a guard ... is already open"). `close`
 --- answers false and why when the dispositions could not be restored,
 --- and again on every later close; the signal is not delivered then.
 --- A guard never closed holds the signals for the rest of the
@@ -955,8 +963,8 @@ end
 --- releasing it again, does nothing, and a release after a close
 --- answers the signal the close delivered.
 function Child.guard(): Guard | nil, string
-  local guarded, trouble = raw.guard_child_signals()
-  if not guarded then return nil, busy(trouble) end
+  local guarded, trouble, errno = raw.guard_child_signals()
+  if not guarded then return nil, busy(trouble, errno) end
   return make_guard(), ""
 end
 
@@ -1349,7 +1357,7 @@ end
 --- dispositions are restored and the signal delivered again. The run
 --- then answers nil and "cancelled by signal N". Because one guard is
 --- open at a time, a run made while the caller holds a `Child.guard`
---- answers nil and "signal guard: a Child.guard is already open ...";
+--- answers nil and "signal guard: a guard ... is already open ...";
 --- close the caller's guard first, or supervise with `Child.start`. It
 --- also answers nil and why when the child cannot be started.
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
@@ -1358,8 +1366,8 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
     error("a \"stream\" is read or written while the child runs: use Child.start", 2)
   end
-  local guarded, guard_trouble = raw.guard_child_signals()
-  if not guarded then return nil, "signal guard: " .. busy(guard_trouble) end
+  local guarded, guard_trouble, guard_errno = raw.guard_child_signals()
+  if not guarded then return nil, "signal guard: " .. busy(guard_trouble, guard_errno) end
   local guard = make_guard()
   local h: Handle
   local function supervised(): Result | nil, string

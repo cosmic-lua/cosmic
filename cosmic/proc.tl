@@ -69,8 +69,8 @@ end
 --- relaunches as a checked build. A host program is executed again as it
 --- is: `argv` is just its path, and `env` and `fds` are empty. Append the
 --- child's own arguments to `argv`, add `env` to its environment, and pass
---- `fds` to `Child.start`. Returns nil and a message when this process has
---- no artifact to start again.
+--- `fds` to `Child.start`. Returns nil and why when this process has no
+--- artifact to start again, or its executable or core cannot be reopened.
 function Proc.relaunch(): Proc.Relaunch | nil, string
   if relaunch ~= nil then return relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
