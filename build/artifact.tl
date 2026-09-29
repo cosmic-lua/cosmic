@@ -343,19 +343,20 @@ function artifact.split(bytes: string): artifact.Split | nil, string
 end
 
 --- What of `head`, an artifact's bytes ahead of its database (`split`),
---- a verdict's key holds: `head` itself, unless a core its manifest
---- names carries debug information (build.core_image), which is keyed
---- by its image instead. Then it is `head` with each core stood for by
---- its image's digest (`core_image.digest`), and with the fields that
---- say where the cores lie and what their bytes hash to -- the
---- manifest's offsets, lengths, digests and prefix length, and a
---- launcher arm's `cosmic_offset`, `cosmic_block`, `cosmic_length` and
---- `cosmic_sha256` -- left out where they name exactly what is there:
---- which bytes a launcher extracts, and whether they are the ones its
+--- a verdict's key holds. It is `head` itself, unless a core its
+--- manifest names carries debug information (build.core_image), which is
+--- keyed by its image instead. Then it is `head` with each core stood
+--- for by its image's digest (`core_image.digest`).
+---
+--- The fields that say where the cores lie and what their bytes hash to
+--- are left out where they name exactly what is there: the manifest's
+--- offsets, lengths, digests and prefix length, and a launcher arm's
+--- `cosmic_offset`, `cosmic_block`, `cosmic_length` and `cosmic_sha256`.
+--- Which bytes a launcher extracts, and whether they are the ones its
 --- manifest names, is then the image it runs, whatever its debug
 --- information weighs. The padding between the cores is held to zeros,
---- and the comment that pads the launcher is left out.
---- A head that is not so, in any part, is keyed whole.
+--- and the comment that pads the launcher is left out. A head that is
+--- not so, in any part, is keyed whole.
 function artifact.keyed_head(head: string): string
   if #head < manifest_length then return head end
   local manifest_offset = #head - manifest_length
