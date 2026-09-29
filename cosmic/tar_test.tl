@@ -334,8 +334,8 @@ local function pax_rec(key: string, value: string): string
 end
 
 local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
-  -- Forty global headers, each naming a distinct 256 KiB key, used to
-  -- stay in memory for the reader's lifetime.
+  -- Forty global headers, each naming a distinct 256 KiB key, would
+  -- stay in memory for the reader's lifetime if every key were kept.
   local parts: {string} = {}
   local big = string.rep("v", 256 * 1024)
   for i = 1, 40 do

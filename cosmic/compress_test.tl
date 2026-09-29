@@ -406,8 +406,8 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     } as metatable<Holder>)
     holder.s = case[1]
     -- The stream is collected in the same cycle as the table whose
-    -- finalizer hands it back; before it was left "closed", this
-    -- update read freed codec state.
+    -- finalizer hands it back: an update on it must not read freed
+    -- codec state.
     case[1] = nil
     holder = nil
     collectgarbage()
