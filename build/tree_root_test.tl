@@ -2,6 +2,7 @@
 --- root runs at the root, its paths read from where it was started.
 
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
 local tree_root = require("build.tree_root")
@@ -12,15 +13,21 @@ local function project(dir: string): string
   assert(Fs.mkdirs(tmp .. "/proj/o"))
   assert(Fs.write(tmp .. "/proj/o/cosmic.db", ""))
   assert(Fs.mkdirs(tmp .. "/proj/a/b"))
+  -- What the last build staged: one source under a/b.
+  local db = assert(Sqlite.open(tmp .. "/proj/o/build.db", true))
+  assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
+    "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
+  assert(Sqlite.run(db, "INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))
+  assert(db:close())
   return tmp .. "/proj"
 end
 
 --- The root `cosmic todos` would run at from `dir`, or nil where it runs
 --- in `dir` itself.
-local function rooted(dir: string, home: string | nil): string | nil
+local function rooted(dir: string, home: string | nil, named?: string): string | nil
   local here = assert(sys.getcwd())
   assert(sys.chdir(dir))
-  local moved = tree_root.move({ [0] = "cosmic", "todos" }, {}, home)
+  local moved = tree_root.move({ [0] = "cosmic", "todos" }, {}, home, named)
   assert(sys.chdir(here))
   if moved == nil then return nil end
   return moved.root
@@ -45,7 +52,31 @@ local function test_only_a_built_database_establishes_a_tree(tmp: string)
   assert(rooted(root .. "/a", nil) == root)
   assert(Fs.write(root .. "/a/o/cosmic.db", ""))
   assert(rooted(root .. "/a", nil) == nil)
-  assert(rooted(root .. "/a/b", nil) == root .. "/a")
+  -- The nearest built ancestor is a/, which staged nothing under a/b.
+  assert(rooted(root .. "/a/b", nil) == nil)
+end
+
+--- A project made below a built tree, which that build never staged,
+--- is a root of its own; one whose sources the build did stage is not.
+local function test_a_new_project_in_a_built_tree_is_its_own_root(tmp: string)
+  local root = project(tmp)
+  assert(Fs.mkdirs(root .. "/fresh/greet"))
+  assert(Fs.write(root .. "/fresh/greet/init.tl", "return {}\n"))
+  assert(rooted(root .. "/fresh", nil) == nil)
+  assert(rooted(root .. "/fresh/greet", nil) == nil)
+  assert(rooted(root .. "/a/b", nil) == root)
+  -- a/bc is not under a/b.
+  assert(Fs.mkdirs(root .. "/a/bc"))
+  assert(rooted(root .. "/a/bc", nil) == nil)
+end
+
+--- `COSMIC_TREE` names the root outright, `.` being where it started.
+local function test_a_named_tree_is_the_root(tmp: string)
+  local root = project(tmp)
+  assert(Fs.mkdirs(root .. "/fresh"))
+  assert(rooted(root .. "/fresh", nil, "..") == root)
+  assert(rooted(root .. "/fresh", nil, root) == root)
+  assert(rooted(root .. "/a/b", nil, ".") == nil)
 end
 
 --- No ancestor built, no move; and the home directory is not a tree
@@ -70,9 +101,13 @@ local function test_paths_are_read_from_where_the_verb_started(tmp: string)
     { ["--jobs"] = { value = "n" } }, nil)
   local uses = tree_root.move({ [0] = "cosmic", "uses", "Fs.read", "x_test.tl" }, {}, nil)
   local docs = tree_root.move({ [0] = "cosmic", "docs", "x_test.tl" }, {}, nil)
+  local made = tree_root.move({ [0] = "cosmic", "fix", "new/x.tl", "../x.tl", "/elsewhere/y" }, {}, nil, nil)
   local json = tree_root.move({ [0] = "cosmic", "json", "x" }, {}, nil)
   assert(sys.chdir(here))
-  assert(fix ~= nil and fix.root == root and fix.from == root .. "/a/b")
+  assert(made ~= nil)
+  assert(table.concat(made.argv, " ") == "fix a/b/new/x.tl a/x.tl /elsewhere/y",
+    table.concat(made.argv, " "))
+  assert(fix ~= nil and fix.root == root)
   assert(table.concat(fix.argv, " ") == "fix --check a/b/x_test.tl a/b", table.concat(fix.argv, " "))
   assert(test ~= nil)
   assert(table.concat(test.argv, " ") == "test --jobs 2 a/b/x_test.tl:test_a some.module",

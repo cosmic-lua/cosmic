@@ -70,8 +70,10 @@ local record Cli
   --- (~/.cache/cosmic/build): COSMIC_BUILD_CACHE names another file, and
   --- COSMIC_BUILD_CACHE=0 turns it off. The tree is the working directory,
   --- unless that has no o/cosmic.db and an ancestor below the home
-  --- directory has one: then it is that ancestor, named on stderr, and
-  --- paths are read from the working directory
+  --- directory has one whose build staged the working directory: then it
+  --- is that ancestor, named on stderr, and paths are read from the
+  --- working directory. COSMIC_TREE=<dir> names the tree outright, `.`
+  --- for the working directory
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in
   --- the working directory structurally, then writes it back out as
