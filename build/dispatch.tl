@@ -495,7 +495,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       for slot, word in pairs(argv) do line[slot] = word end
       line[2] = spelled
     end
-    local parsed, parse_trouble = Flags.parse(line, 2, { ["--help"] = true, ["-h"] = true })
+    local parsed, parse_trouble = Flags.parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
       log:complain("help: " .. parse_trouble)
       log:verdict("help", false, parse_trouble)
