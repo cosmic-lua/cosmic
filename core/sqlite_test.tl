@@ -7,7 +7,9 @@
 --- helpers `cosmic.sqlite` builds over them, so every C method is held
 --- to its own promise.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 
 --- Asserts `value, message` is the failure shape SQLite's methods use:
 --- `nil` or `false`, then a non-empty message. SQLite has no errno, so
@@ -339,4 +341,91 @@ local function test_a_reader_beside_an_open_write_reads_the_last_commit(tmp: str
   assert(reader:close())
   assert(writer:exec("COMMIT"))
   assert(writer:close())
+end
+
+local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp: string)
+  local path = tmp .. "/immutable.db"
+  local writer = assert(Sqlite.open(path, true))
+  assert(writer:exec("PRAGMA journal_mode = WAL; CREATE TABLE t (v); INSERT INTO t VALUES (1)"))
+  assert(writer:close())
+  assert(Fs.exists(path .. "-wal") == false)
+  local reader = assert(Sqlite.open(path, false, true))
+  local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
+  assert(#rows == 1 and rows[1][1] == "1")
+  assert(Fs.exists(path .. "-wal") == false, "an immutable open made a -wal")
+  assert(Fs.exists(path .. "-shm") == false, "an immutable open made a -shm")
+  failed(reader:exec("INSERT INTO t VALUES (2)"))
+  assert(reader:close())
+  -- A path with URI syntax in it is a filename still.
+  local odd = tmp .. "/we?ird#100%.db"
+  local made = assert(Sqlite.open(odd, true))
+  assert(made:exec("CREATE TABLE t (v)"))
+  assert(made:close())
+  local again = assert(Sqlite.open(odd, false, true))
+  assert(#assert(Sqlite.text_rows(again, "SELECT v FROM t")) == 0)
+  assert(again:close())
+  failed(Sqlite.open(tmp .. "/absent.db", false, true))
+  assert(Fs.exists(tmp .. "/absent.db") == false)
+  raises(Sqlite.open, path, true, true)
+end
+
+--- The URI is built for every kind of name, relative or not, and a path
+--- is never read as URI syntax or as a Windows drive.
+local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
+  local names = { "rel.db", "a:b.db", "\\back.db", "file:x.db", "sp ace.db",
+    "caf\xc3\xa9.db", "q?vfs=memdb.db", "h#.db" }
+  for _, name in ipairs(names) do
+    local path = tmp .. "/" .. name
+    local made = assert(Sqlite.open(path, true))
+    assert(made:exec("CREATE TABLE t (v); INSERT INTO t VALUES ('" .. name:gsub("'", "") .. "')"))
+    assert(made:close())
+    local read = assert(Sqlite.open(path, false, true), name)
+    local rows = assert(Sqlite.text_rows(read, "SELECT v FROM t"))
+    assert(rows[1][1] == name, name)
+    assert(read:close())
+  end
+  -- The same names as relative paths, from the working directory, and one
+  -- through "..".
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(tmp))
+  local trouble: string | nil
+  for _, name in ipairs(names) do
+    local read, why = Sqlite.open(name, false, true)
+    if read == nil then
+      trouble = name .. ": " .. why
+      break
+    end
+    local rows = Sqlite.text_rows(read, "SELECT v FROM t")
+    if rows == nil or rows[1][1] ~= name then
+      trouble = name .. " read another file"
+    end
+    read:close()
+  end
+  local dotted = Sqlite.open("../" .. (tmp:match("[^/]*$")) .. "/rel.db", false, true)
+  assert(sys.chdir(here))
+  assert(trouble == nil, trouble)
+  assert(dotted ~= nil and #assert(Sqlite.text_rows(dotted, "SELECT v FROM t")) == 1)
+  assert(dotted:close())
+  local embedded, why = Sqlite.open("a\0b.db", false, true)
+  failed(embedded, why)
+end
+
+local function test_limit_sets_a_named_limit_and_answers_the_old_one()
+  local handle = memory()
+  local before = handle:limit("attached", -1)
+  assert(before > 0)
+  assert(handle:limit("attached", 0) == before)
+  assert(handle:limit("attached", -1) == 0)
+  local ok, why = handle:exec("ATTACH ':memory:' AS m")
+  failed(ok, why)
+  assert(why:find("too many attached", 1, true) ~= nil, why)
+  raises(handle.limit, handle, "nonesuch", 0)
+  raises(handle.limit, handle, "attached", 2 ^ 40)
+  for _, name in ipairs({ "length", "sql_length", "column", "expr_depth", "compound_select",
+    "vdbe_op", "function_arg", "like_pattern_length", "variable_number",
+    "trigger_depth", "worker_threads" }) do
+    assert(handle:limit(name, -1) >= 0, name)
+  end
+  handle:close()
+  raises(handle.limit, handle, "attached", 0)
 end
