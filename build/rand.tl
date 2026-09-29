@@ -5,18 +5,19 @@
 --- WHERE THE BYTES COME FROM. Everything secret-grade -- `uuid`, `token`,
 --- and `int`, `pick` and `shuffle` without `--seed` -- is drawn from the
 --- operating system's entropy source, `Rand.entropy`, and from nothing
---- else: `secret` below is the one function that reads it, and no seeded
---- generator is ever reached from those paths. `--seed <n>` is the other
---- road and the only one to `Rand.new`, a replayable xoshiro256** that is
---- not secret: it exists so a test or a script can name its chance, and
---- its output must never be used as a key, token or nonce. `--seed` is
---- refused with `uuid` and `token`, which have no use for it.
+--- else: `fetch` below is the one read of it, through `secret`, and no
+--- seeded generator is ever reached from those paths. `--seed <n>` is
+--- the other road and the only one to `Rand.new`, a replayable
+--- xoshiro256** that is not secret: it exists so a test or a script can
+--- name its chance, and its output must never be used as a key, token or
+--- nonce. `--seed` is refused with `uuid` and `token`, which have no use
+--- for it.
 ---
 --- Like `cosmic json` it ends in no verdict line: its standard output is
 --- data for a pipe. Exit 0 is ok, 2 a command line, a file or a request
 --- it refuses (a failed write to standard output included), 1 the
 --- operating system's entropy source failing. Complaints go to standard
---- error as `cosmic: rand: ...`. its `spec` (build/verb_spec.tl) is `bare`.
+--- error as `cosmic: rand: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- UUIDs. Version 4 is 122 bits of entropy. Version 7 (RFC 9562) is the
 --- Unix time in milliseconds from `cosmic.time`, then the rest from
@@ -218,8 +219,9 @@ local standard: verb.Io = {
   now_ns = Time.now_ns,
 }
 
---- The lines of `text`, split at "\n" with a "\r" before it dropped; a last line's newline ends it, it
---- does not begin another, so "" is no lines and "a\n\nb" is three.
+--- The lines of `text`, split at "\n" with a "\r" before it dropped. A
+--- last line's newline ends it and does not begin another, so "" is no
+--- lines and "a\n\nb" is three.
 local function lines_of(text: string): {string}
   local lines: {string} = {}
   local at = 1
@@ -254,9 +256,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local draw_entropy = to.entropy or Rand.entropy
   local now_ns = to.now_ns or Time.now_ns
 
-  --- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
-  --- may be a secret is made from bytes this returns; a seeded
-  --- generator (`Rand.new`) is reached only from `seeded` below.
+  -- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
+  -- may be a secret is made from bytes this returns; a seeded
+  -- generator (`Rand.new`) is reached only from `seeded` below.
   local broken: string | nil
   local function fetch(count: integer): string
     local bytes, why = draw_entropy(count)
@@ -437,9 +439,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   return code
 end
 
---- The `rand` verb as `build/verb_list.tl` lists it. Draws from the OS
---- entropy source, or a seed on request; reads no tree, so never stale-
---- checked.
+--- The `rand` verb as `build/verb_list.tl` lists it. It reads no tree,
+--- so it is never stale-checked.
 verb.spec = {
   name = "rand",
   guide = "a random id, token or number",

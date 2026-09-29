@@ -172,14 +172,14 @@ local verbs: {string:function(string, string): integer} = {
     local ok, trouble = sys.kill(pid, signal)
     if not ok then return failed("signal", trouble) end
     if target ~= "" then return nil end
-    -- Its own: it ends of it, or of a trap that holds it, soon; one
-    -- that never lands -- a trap that goes on, or a process to which
-    -- the kernel delivers no signal it does not catch, as its pid
-    -- namespace's init -- ends it all the same, saying so.
+    -- Sent to itself, the signal ends the script soon, or a `trap`
+    -- that holds it does. One that never lands ends it all the same,
+    -- saying so: a `trap -` goes on, and the kernel delivers no
+    -- uncaught signal to a pid namespace's init.
     local stopped = sleep_ms(SIGNAL_WAIT_MS)
     if stopped ~= nil then return stopped end
-    -- Past the bound by the clock, it ends here and now, through no
-    -- more of the script, nor anything its end would run.
+    -- Past the bound it ends at once, running no more of the script
+    -- and nothing its end would run.
     local _, _ = Fs.put(2, "probe: signal: SIG" .. name .. " sent to itself did not end it in " ..
       tostring(SIGNAL_WAIT_MS) .. " ms\n")
     sys.exit(SIGNAL_MISSED)

@@ -1,15 +1,15 @@
 --- A stale tool, rebuilt from the tree it is stale against and re-entered.
 ---
 --- Cosmic builds itself, so the tool is also an artifact of the tree. When
---- only Teal differs, it projects a new database, combines it with the exact
---- retained portable prefix, atomically replaces the same logical artifact,
---- and re-enters the original argv once; when the rebuilt tool's writer is
---- not the code that wrote its database, it writes that database again
---- itself and re-enters once more, so a rebuild lands on the bytes a boot
---- writes. When a core input differs, only zig
---- can rebuild it: the tool runs `bin/zig build boot` and re-enters the
---- original argv on the tool that boot wrote, unless `COSMIC_AUTO_BOOT=0`
---- says to refuse instead (`reboot.auto_boot`).
+--- only Teal differs, the tool projects a new database, combines it with
+--- the exact retained portable prefix, atomically replaces the same
+--- logical artifact, and re-enters the original argv once. When the
+--- rebuilt tool's writer is not the code that wrote its database, that
+--- tool writes the database again itself and re-enters once more, so a
+--- rebuild lands on the bytes a boot writes. When a core input differs,
+--- only zig can rebuild it: the tool runs `bin/zig build boot` and
+--- re-enters the original argv on the tool that boot wrote, unless
+--- `COSMIC_AUTO_BOOT=0` says to refuse instead (`reboot.auto_boot`).
 ---
 --- One rule for the working database's handle: a function here that is
 --- handed it and stops the command -- `into` on every path,
@@ -50,12 +50,11 @@ end
 local marker = "COSMIC_REBOOTED"
 
 --- Whether the running binary's database was compiled or written by
---- other code than it carries: a stale tool rebuilding itself compiles
---- the tree and writes the new tool's database with its own compiler and
---- writer, and when either is not the tree's (`work.Identities`), the new
---- tool compiles and writes it again itself, once, so the tool a rebuild
---- leaves is the one a boot writes. A tool whose database names neither
---- was written by a binary from before they did, and is unsettled too.
+--- code other than the compiler and writer it carries
+--- (`work.Identities`). A rebuild uses the stale tool's compiler and
+--- writer, so the rebuilt tool compiles and writes its database once
+--- more itself; then it matches what a boot writes. A database that
+--- records neither identity is unsettled too.
 local function unsettled(): boolean
   local written_by = Store.meta("written_by")
   local compiled_by = Store.meta("compiled_by")
@@ -74,14 +73,14 @@ local foreign_refusal = "this cosmic is stale against the tree and is not " ..
 
 --- Whether the running binary is one this tree built: under `root/o`,
 --- as o/bin/cosmic and the checked suite's o/sanitized one are. Only such
---- a tool rebuilds itself when stale, since a rebuild writes the tree's
---- tool over the path it was started as; any other cosmic run here -- a
---- release, the bootstrap cache's, one on PATH -- would be overwritten
---- with it. That path is judged where it names, its directory resolved
---- but not the name itself: a file renamed or removed while it runs is
---- still judged by where it was, and a link into o/ from elsewhere is
---- elsewhere, since the rebuild would replace the link, not o/'s tool.
---- `executable` is the path this process was started as by default.
+--- a tool rebuilds itself when stale. A rebuild writes the tree's tool
+--- over the path it was started as, so any other cosmic run here (a
+--- release, the bootstrap cache's, one on PATH) would be overwritten.
+--- The path is judged where it names: its directory is resolved but not
+--- its name. A file renamed or removed while it runs is still judged by
+--- where it was, and a link into o/ from elsewhere is elsewhere, since
+--- a rebuild would replace the link, not o/'s tool. `executable` is the
+--- path this process was started as, by default.
 -- TODO: refuse a host-built tool whose file was removed while it runs:
 -- with no started-as path, Proc.executable falls back to /proc/self/exe,
 -- which then reads ".../cosmic (deleted)", and a rebuild would write a
@@ -169,13 +168,14 @@ end
 --- the tree in `handle`, open and staged, that a tool carries (its
 --- modules and its main, not its tests, examples or declarations) is
 --- one the binary carries, with the same source, and so is the Teal
---- compiler the tree holds (`vendor.tl`, origin 'vendor'). A tool a stale tool
---- rebuilt from this tree does, though it may be stale by its own code
---- -- its fingerprint taken by the older definition the stale tool ran
---- -- so what it computes of the tree (the fingerprint, the compiler's
---- and the writer's identities) is what the tree's own code computes,
---- which is what a tool it writes carries. False when any is missing
---- or differs, or the tree cannot be read.
+--- compiler the tree holds (`vendor.tl`, origin 'vendor'). A tool that a
+--- stale tool rebuilt from this tree does, though it may still be stale
+--- by its own code, its fingerprint having been taken by the older
+--- definition the stale tool ran. What it computes of the tree (the
+--- fingerprint, the compiler's and the writer's identities) is then what
+--- the tree's own code computes, and what a tool it writes carries.
+--- False when any module is missing or differs, or the tree cannot be
+--- read.
 function reboot.carries_tree_code(handle: work.Handle): boolean
   local rows, _ = Sqlite.text_rows(handle.db,
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
@@ -252,15 +252,15 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, identity_trouble)
   end
   -- A tool settling that carries the tree's code (`carries_tree_code`)
-  -- names its compiler as its own `work.compiler_identity` names it,
-  -- which is what the tool it writes carries. The identity it carries
-  -- itself was taken by the tool that wrote it, by that tool's code:
-  -- where the two define the identity apart, keying by it would leave
-  -- the tool written here as unsettled as this one. A tool whose
-  -- recorded fingerprint is the tree's, by its own code, carries it; so
-  -- does one a stale tool rebuilt across a change to the fingerprint's
-  -- definition, which is stale by its own code, and settles on the
-  -- "teal" path.
+  -- keys by the compiler identity its own `work.compiler_identity`
+  -- computes, which is what the tool it writes carries. The identity it
+  -- carries was taken by the tool that wrote it, by that tool's code;
+  -- where the two define the identity apart, keying by the carried one
+  -- would leave the tool written here as unsettled as this one. A tool
+  -- carries the tree's code when its recorded fingerprint is the tree's
+  -- by its own code, and also when a stale tool rebuilt it across a
+  -- change to the fingerprint's definition: it is stale by its own code,
+  -- and settles on the "teal" path.
   local tool = Store.meta("compiler") or ""
   local tree_code = false
   if settle then
@@ -320,16 +320,17 @@ end
 
 --- The lock a run holds from the moment it finds it must rebuild or
 --- boot the tool until it re-enters the command on the tool it wrote,
---- or exits: two runs in one checkout that both find the tool stale --
---- an editor, a watcher and a terminal, say -- would otherwise rebuild
+--- or exits. Without it, two runs in one checkout that both find the
+--- tool stale (an editor, a watcher and a terminal, say) would rebuild
 --- it at once: each writes o/cosmic.db and o/carried.db aside through
 --- the same fixed `.building` name (`writer.write_result`,
 --- `writer.carried`), which the other removes and writes into under it.
---- It is an SQLite write lock on an empty database,
---- `o/rebuild.lock`, which the system drops with the descriptor, so a
---- holder that dies or execs (SQLite opens it close-on-exec) never
---- leaves it held; a sandboxed test worker never takes it, since only
---- the tree's own tool (`reboot.own_tool`) rebuilds.
+---
+--- It is an SQLite write lock on an empty database, `o/rebuild.lock`.
+--- The system drops it with the descriptor, so a holder that dies or
+--- execs (SQLite opens it close-on-exec) never leaves it held. A
+--- sandboxed test worker never takes it, since only the tree's own tool
+--- (`reboot.own_tool`) rebuilds.
 -- TODO: hold this with flock on o/rebuild.lock itself, once cosmic.sys
 -- carries flock, rather than through an SQLite transaction nothing
 -- writes.
@@ -495,21 +496,23 @@ end
 --- Before a run rebuilds or boots the tool, takes the rebuild lock, so
 --- that only one run in a checkout does so at a time. Answers nil, the
 --- lock held and `handle` still open, when this run is to go on and
---- rebuild. When another run holds the lock, this one closes `handle`
---- -- the holder needs the working database to finish -- says so,
---- waits for the holder to re-enter or exit, and replaces itself with
---- the tool now under o/, running `argv` again: it is fresh when the
---- holder's rebuild landed, and when it did not, that run takes the
---- lock and rebuilds itself. A run that takes the lock at once but
---- finds the tool under o/ is no longer the one it runs (`replaced`)
---- re-enters that tool too, rather than rebuild from an older one. A
---- re-entered run keeps `marker` as it was: a run a reboot entered that
---- waits on a rebuild that failed refuses rather than rebuild, so no
---- runs rebuild one after another for good. The caller makes the
+--- rebuild. Otherwise it has said why, closed `handle`, and answers the
+--- exit code to return.
+---
+--- When another run holds the lock, this one closes `handle` (the holder
+--- needs the working database to finish), says so, waits for the holder
+--- to re-enter or exit, and replaces itself with the tool now under o/,
+--- running `argv` again. That tool is fresh when the holder's rebuild
+--- landed; when it did not, the re-entered run takes the lock and
+--- rebuilds itself. A run that takes the lock at once but finds the tool
+--- under o/ is no longer the one it runs (`replaced`) re-enters that
+--- tool too, rather than rebuild from an older one.
+---
+--- A re-entered run keeps `marker` as it was: a run a reboot entered
+--- that waits on a rebuild that failed refuses rather than rebuild, so
+--- runs never rebuild one after another for good. The caller makes the
 --- `marker` refusal (`refusal`) before it comes here, so a run that
 --- would refuse never waits.
---- Otherwise it has said why, closed `handle`, and answers the exit
---- code to return.
 local function serialize(handle: work.Handle, root: string,
                          argv: {integer:string}): integer | nil
   -- Tried at once, while this run holds the working database: a run
