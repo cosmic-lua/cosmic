@@ -268,7 +268,7 @@ local function test_duplicate_and_empty_csv_headers_are_renamed_like_json_keys()
   local rows = assert(Dataset.read("csv", "a,A,,a,_json\n1,2,3,4,5\n"))
   local db = memory()
   local made = assert(Dataset.load(db, "t", rows))
-  assert(table.concat(made.columns, ",") == "A_2,_,_json_2,a,a_3,_json", table.concat(made.columns, ","))
+  assert(table.concat(made.columns, ",") == "a,A_2,_,a_3,_json_2,_json", table.concat(made.columns, ","))
   assert(grid(db, "SELECT a, A_2, a_3, _, _json_2 FROM t")[1] == "i1|i2|i4|i3|i5")
 end
 
@@ -279,6 +279,14 @@ local function test_json_formats_refuse_raw()
   end
 end
 
+local function test_load_defaults_to_the_rows_own_column_order()
+  local rows = assert(Dataset.read("csv", "z,a,m\n1,2,3\n"))
+  local made = assert(Dataset.load(memory(), "t", rows))
+  assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
+  local given = assert(Dataset.load(memory(), "t", rows, { columns = { "m" } }))
+  assert(table.concat(given.columns, ",") == "m,a,z,_json", table.concat(given.columns, ","))
+end
+
 local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local rows = assert(Dataset.read("csv", "z,a,m\n1,2,3\n"))
   local db = memory()
@@ -286,9 +294,9 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
   local star = Sqlite.text_rows(db, "SELECT * FROM t")
   assert(star ~= nil and star[1][1] == "1" and star[1][2] == "2" and star[1][3] == "3")
-  -- Without the order it is byte order, as for JSON.
+  -- Rows with no order of their own are in byte order.
   local db2 = memory()
-  assert(table.concat(assert(Dataset.load(db2, "t", rows)).columns, ",") == "a,m,z,_json")
+  assert(table.concat(assert(Dataset.load(db2, "t", { { z = 1, a = 2 } })).columns, ",") == "a,z,_json")
   local json = assert(Dataset.read("json", '[{"z": 1, "a": 2}]'))
   assert(json.columns == nil)
   -- A listed key no row has is still a column; others follow in byte order.
@@ -297,7 +305,7 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   assert(table.concat(extra.columns, ",") == "q,b,a,_json", table.concat(extra.columns, ","))
   -- A header alone is a table of empty columns.
   local none = assert(Dataset.read("csv", "x,y\n"))
-  local empty = assert(Dataset.load(memory(), "t", none, { columns = none.columns }))
+  local empty = assert(Dataset.load(memory(), "t", none))
   assert(table.concat(empty.columns, ",") == "x,y,_json" and empty.count == 0)
 end
 
