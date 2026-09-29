@@ -73,10 +73,14 @@ local record Net
     --- fail "Address in use" there, as a daemon restarting at its
     --- control socket does. The path is taken over only where it is a
     --- socket file and connecting to it is refused: a live listener's
-    --- file, or any other file, is left alone. macOS refuses a live
-    --- listener whose backlog is full as it refuses a dead one, so there
-    --- such a listener's file is taken over too; and a listener that
-    --- binds there between the check and the removal loses its file.
+    --- file, or any other file, is left alone, and a live listener sees
+    --- the connection that asked, which sends nothing. Refused is not
+    --- always gone: macOS refuses a live listener whose backlog is full
+    --- as it refuses a dead one, and every platform refuses a socket
+    --- bound but not yet listening -- another `listen` in its moment
+    --- between the two, as when two start at once -- so theirs is taken
+    --- over too; and one that binds there between the check and the
+    --- removal loses its file.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
@@ -359,18 +363,25 @@ local PROBE_MS <const> = 1000
 --- on Linux and macOS.
 local SOCKET_TYPE <const> = 0xC000
 
---- Whether the file at `absolute` is a socket file nothing listens at
---- any longer: a socket file, and connecting to it (`address`) is
---- refused.
-local function left_behind(address: Net.Address, absolute: string): boolean
-  local st, _ = sys.lstat(absolute)
-  if st == nil or st.mode & 0xF000 ~= SOCKET_TYPE then return false end
+--- What `reclaim` finds at `absolute`, which a bind found taken:
+--- "refused", a socket file connecting to which (`address`) is refused,
+--- to take over; "gone", nothing there any longer, to bind again; or
+--- "", anything else, to leave alone.
+-- TODO: take a lock beside the path (a file of its own, held while
+-- the check, the removal and the bind run) so two `reclaim`s starting
+-- at once cannot each take the other's socket for one left behind,
+-- once cosmic.sys carries flock.
+local function left_behind(address: Net.Address, absolute: string): string
+  local st, _, lstat_errno = sys.lstat(absolute)
+  if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
+  if st.mode & 0xF000 ~= SOCKET_TYPE then return "" end
   local fd, _, errno = raw.connect(raw_address(address), PROBE_MS)
   if fd ~= nil then
     local _, _ = sys.close(fd)
-    return false
+    return ""
   end
-  return errno == raw.ECONNREFUSED
+  if errno == raw.ECONNREFUSED then return "refused" end
+  return errno == sys.ENOENT and "gone" or ""
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
@@ -401,9 +412,15 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     absolute = cwd .. "/" .. absolute
   end
   local fd, trouble, errno = raw.listen(raw_address(address), backlog)
-  if fd == nil and errno == raw.EADDRINUSE and opts.reclaim and left_behind(address, absolute) then
-    local _, _ = sys.unlink(absolute)
-    fd, trouble, errno = raw.listen(raw_address(address), backlog)
+  if fd == nil and errno == raw.EADDRINUSE and opts.reclaim then
+    local found = left_behind(address, absolute)
+    if found == "refused" then
+      local removed, why, number = sys.unlink(absolute)
+      if not removed and number ~= sys.ENOENT then
+        return nil, named(address) .. ": " .. why
+      end
+    end
+    if found ~= "" then fd, trouble, errno = raw.listen(raw_address(address), backlog) end
   end
   if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
   -- The socket file the bind made, to remove at close. A process that
