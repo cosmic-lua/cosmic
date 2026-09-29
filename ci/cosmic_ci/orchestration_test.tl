@@ -397,17 +397,18 @@ local function test_the_checked_suite_keeps_verdicts_of_its_own()
   assert(Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = "0" }, "checked") == "0")
 end
 
---- A fixture reads inputs its environment names (COSMIC_FIXTURE_*),
---- which no verdict's key holds, so it stands on no verdict another run
---- reached, and keeps none for one, even in a Linux branch push's run,
---- where every other suite shares them. Its compiles are the file the
---- leg's fixtures share with one another alone, not the leg's cache,
---- which ci.yml saves.
-local function test_a_fixture_neither_reads_nor_writes_shared_verdicts(tmp: string)
+--- A fixture outside `sandboxed_fixtures` reads inputs its environment
+--- names (COSMIC_FIXTURE_*), which no verdict's key holds, so it stands
+--- on no verdict another run reached, and keeps none for one, even in a
+--- Linux branch push's run, where every other suite shares them. Its
+--- compiles are the file the leg's fixtures share with one another
+--- alone, not the leg's cache, which ci.yml saves.
+local function test_an_unsandboxed_fixture_neither_reads_nor_writes_shared_verdicts(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local env: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push",
     COSMIC_TEST_SANDBOX = "1", COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
-    COSMIC_BUILD_CACHE = tmp .. "/build.db", COSMIC_FIXTURE_ROOT = tmp .. "/root" }
+    COSMIC_BUILD_CACHE = tmp .. "/build.db", COSMIC_FIXTURE_SOURCE = tmp .. "/source",
+    COSMIC_TEST_KEY = "declared" }
   Orchestration.shares(env)
   assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
   local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
@@ -416,7 +417,121 @@ local function test_a_fixture_neither_reads_nor_writes_shared_verdicts(tmp: stri
     "the fixture shares the leg's compiles, not its fixtures' own")
   assert(fixture.COSMIC_TEST_NO_SHARED == "1", "the fixture may stand on shared verdicts")
   assert(fixture.COSMIC_TEST_SANDBOX == "0" and fixture.TMPDIR == tmp .. "/tmp")
-  assert(fixture.COSMIC_FIXTURE_ROOT == tmp .. "/root")
+  assert(fixture.COSMIC_TEST_KEY == nil, "the fixture is keyed by a declaration it does not keep")
+  assert(fixture.COSMIC_FIXTURE_SOURCE == tmp .. "/source")
+end
+
+--- A fixture of `sandboxed_fixtures` runs as the leg's suites do: its
+--- workers sandboxed where the leg's are, and its verdicts kept in
+--- `fixtures.db` beside the leg's `verdicts.db`, which it stands on
+--- where the suites stand on theirs -- a push's run -- and not on a
+--- manual one's.
+local function test_a_sandboxed_fixture_keeps_verdicts_beside_the_legs(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local fixtures = Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db" },
+    "fixtures")
+  assert(fixtures == tmp .. "/v/fixtures.db", fixtures)
+  for _, case in ipairs({ { event = "push", stands = true },
+      { event = "workflow_dispatch", stands = false } }) do
+    local env: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = case.event,
+      COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
+      COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db", COSMIC_BUILD_CACHE = tmp .. "/build.db" }
+    local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db",
+      fixtures)
+    assert(fixture.COSMIC_VERDICT_CACHE == fixtures, "the fixture keeps its verdicts apart")
+    assert(fixture.COSMIC_TEST_SANDBOX == "1" and fixture.COSMIC_SANDBOX == "must",
+      "the fixture's workers are sandboxed where the leg's are")
+    assert((fixture.COSMIC_TEST_NO_SHARED == nil) == case.stands, case.event)
+    assert(fixture.COSMIC_BUILD_CACHE == tmp .. "/fixture-compiles.db")
+  end
+end
+
+--- What `fixture_run` gives a fixture, on a Linux leg (its suites
+--- sandboxed and required to be) and on macOS's (keyed by declaration,
+--- no sandbox): one of `sandboxed_fixtures` runs as the leg's suites do
+--- and keeps its verdicts in fixtures.db; any other runs unsandboxed and
+--- shares none; and a sandboxed one given no product is refused.
+local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local legs: {string:{string:string}} = {
+    linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must" },
+    macos = { COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_KEY = "declared" },
+  }
+  for leg, values in pairs(legs) do
+    local function env(): {string:string}
+      local out: {string:string} = { COSMIC_CI_EVENT = "push",
+        COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db", COSMIC_FIXTURE_PRODUCT = tmp .. "/product" }
+      for name, value in pairs(values) do out[name] = value end
+      return out
+    end
+    local sandboxed = Orchestration.fixture_run("runtime", env(), tmp .. "/tmp", tmp .. "/c.db")
+    assert(sandboxed.COSMIC_VERDICT_CACHE == tmp .. "/v/fixtures.db", leg .. ": " ..
+      tostring(sandboxed.COSMIC_VERDICT_CACHE))
+    assert(sandboxed.COSMIC_TEST_NO_SHARED == nil, leg .. ": a push's fixture stands on nothing")
+    assert(sandboxed.COSMIC_TEST_SANDBOX == values.COSMIC_TEST_SANDBOX,
+      leg .. ": the fixture's workers are not held as the leg's are")
+    assert(sandboxed.COSMIC_TEST_KEY == values.COSMIC_TEST_KEY,
+      leg .. ": the fixture is not keyed as the leg's suites are")
+    local plain = Orchestration.fixture_run("self_driven", env(), tmp .. "/tmp", tmp .. "/c.db")
+    assert(plain.COSMIC_VERDICT_CACHE == "0" and plain.COSMIC_TEST_NO_SHARED == "1" and
+      plain.COSMIC_TEST_SANDBOX == "0" and plain.COSMIC_TEST_KEY == nil,
+      leg .. ": an unsandboxed fixture shares verdicts")
+    local bare = env()
+    bare.COSMIC_FIXTURE_PRODUCT = nil
+    local refused, why = pcall(Orchestration.fixture_run, "identity", bare, tmp .. "/tmp",
+      tmp .. "/c.db")
+    assert(not refused and tostring(why):find("product", 1, true),
+      leg .. ": a sandboxed fixture ran with no product to key it by")
+  end
+end
+
+--- The source of the fixture module `source` with its comments taken
+--- out, so a path commented out of a declaration is none of it.
+local function code_of(source: string): string
+  local text = Fixture.read("fixtures/" .. source .. "_test.tl")
+  return (text:gsub("%-%-[^\n]*", ""))
+end
+
+--- The `host` paths the `Test.needs` call of the fixture module `source`
+--- declares.
+local function declared_host(source: string): {string:boolean}
+  local needs = assert(code_of(source):match("\nTest%.needs%s*%(?%s*(%b{})"),
+    source .. ": no Test.needs")
+  local host = assert(needs:match("host%s*=%s*(%b{})"), source .. ": no host")
+  local out: {string:boolean} = {}
+  for path in host:gmatch('"([^"]*)"') do out[path] = true end
+  return out
+end
+
+--- A sandboxed fixture's verdict is shared across runs and commits, so
+--- its key must hold the product it checks: each declares the product's
+--- `cosmic` by the variable the driver gives it, which keys the verdict
+--- by those bytes, and no other product's verdict stands for it. Each
+--- unsandboxed one declares nothing, since nothing holds it to a
+--- declaration.
+local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
+  local _ = tmp
+  local Orchestration = require("cosmic_ci.orchestration")
+  local names: {string} = {}
+  for _, entry in ipairs((assert(Fs.list("fixtures")))) do
+    local name = entry:match("^(.*)_test%.tl$")
+    if name then names[#names + 1] = name end
+  end
+  table.sort(names)
+  local sandboxed = 0
+  for _, name in ipairs(names) do
+    if Orchestration.sandboxed_fixtures[name] then
+      sandboxed = sandboxed + 1
+      assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/cosmic"],
+        name .. ": a sandboxed fixture's key does not hold the product")
+    else
+      assert(not code_of(name):find("\nTest%.needs"),
+        name .. ": an unsandboxed fixture declares what nothing holds it to")
+    end
+  end
+  local listed = 0
+  for _ in pairs(Orchestration.sandboxed_fixtures) do listed = listed + 1 end
+  assert(sandboxed == listed and listed > 0, "a sandboxed fixture has no module")
 end
 
 --- COSMIC_CI_FORMAT=skip skips the format check on a leg, as ci.yml

@@ -204,6 +204,12 @@ end
 -- container masking parts of it: core/syscalls.c's `place_proc`), which
 -- it can read there without that entering the key: refused, as the
 -- TODO there asks, once no container the tree is tested in masks /proc.
+-- TODO: give a confined process /dev/full too, where a write fails
+-- with ENOSPC, so build/codec_tool_test.tl's failed-write case checks
+-- something on a Linux leg, where every worker is sandboxed: today only
+-- an unsandboxed Linux run reaches it, and macOS has none. That moves
+-- the harness epoch; its key holds it as it holds these, through the
+-- host's identity, since it has no contents to digest.
 local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
 
 --- What a confined process has without its test naming it, each where

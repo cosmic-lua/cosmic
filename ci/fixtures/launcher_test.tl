@@ -1,74 +1,40 @@
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
+local LauncherFixture = require("cosmic_ci.launcher_fixture")
 local Process = require("cosmic_ci.process")
-local Runner = require("cosmic_ci.runner")
+local Test = require("cosmic.test")
 
-local child_timeout_ms <const> = 30000
-
-local record Context
-  artifact: string
-  socket: string
-  target: string
-  work: string
-  diagnostics: string
-end
-
-local private_environment = {
-  "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
-  "COSMIC_PORTABLE_TARGET_ID", "COSMIC_PORTABLE_CONFIGURATION_ID",
-  "COSMIC_PORTABLE_CORE_OFFSET", "COSMIC_PORTABLE_CORE_LENGTH",
-  "COSMIC_PORTABLE_CORE_SHA256", "COSMIC_PORTABLE_TEST_HOOK",
-  "COSMIC_PORTABLE_TEST_READY", "COSMIC_PORTABLE_TEST_GO",
-  "PORTABLE_PAYLOAD_MARKER", "PORTABLE_PAYLOAD_EXIT",
-  "PORTABLE_PAYLOAD_SIGNAL", "PORTABLE_EXPECT_CWD",
-  "PORTABLE_EXPECT_UMASK", "PORTABLE_CHECK_IO",
+-- The launcher contract (COSMIC_FIXTURE_LAUNCHER,
+-- cosmic_ci/launcher_setup.tl): the launcher and the target's socket
+-- payload, one of each target's there and the others keyed as missing;
+-- and the product (COSMIC_FIXTURE_PRODUCT), whose launcher this is, in
+-- every verdict's key, so no verdict stands for a product it was not
+-- reached on (cosmic_ci/orchestration.tl's `sandboxed_fixtures`).
+-- `system`: the launcher is a /bin/sh script, and the tests start
+-- /bin/sh themselves. The noexec case, which needs the host's own
+-- noexec mount, is launcher_noexec_test.tl's, run unsandboxed.
+Test.needs{
+  host = {
+    "$COSMIC_FIXTURE_PRODUCT/cosmic",
+    "$COSMIC_FIXTURE_LAUNCHER/launcher.test",
+    "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-x86_64-linux-musl",
+    "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-aarch64-linux-musl",
+    "$COSMIC_FIXTURE_LAUNCHER/payloads/socket-aarch64-macos",
+  },
+  env = { "COSMIC_FIXTURE_TARGET" },
+  system = true,
 }
 
-local function environment(cache?: string,
-    extra?: {string:string}): {string:string}
-  local values = Fixture.environment({
-    PORTABLE_ORDINARY_ENV = "preserved",
-    PORTABLE_CALLER_LOCALE = "preserved",
-  })
-  for _, name in ipairs(private_environment) do values[name] = nil end
-  values.COSMIC_PORTABLE_CACHE = cache
-  if extra then for name, value in pairs(extra) do values[name] = value end end
-  return values
-end
+local type Context = LauncherFixture.Context
+local environment, setup = LauncherFixture.environment, LauncherFixture.setup
+local outcome_ok, run = LauncherFixture.outcome_ok, LauncherFixture.run
+local only_core = LauncherFixture.only_core
 
 local function permissions(path: string): integer
   return assert(Fs.stat(path)).mode & 0x1ff
-end
-
-local function setup(tmp: string): Context
-  local work = tmp .. "/launcher"
-  local program = work .. "/program space"
-  local run = work .. "/run space"
-  local alias = work .. "/run alias"
-  local diagnostics = work .. "/logs"
-  Fixture.mkdir(program); Fixture.mkdir(run); Fixture.mkdir(diagnostics)
-  assert(Fs.symlink(run, alias))
-  local artifact = program .. "/launcher.test"
-  Fixture.copy(Fixture.required("COSMIC_FIXTURE_LAUNCHER"), artifact, 0x1ed)
-  return { artifact = artifact,
-    socket = Fixture.required("COSMIC_FIXTURE_LAUNCHER_SOCKET"),
-    target = Fixture.required("COSMIC_FIXTURE_TARGET"), work = work,
-    diagnostics = diagnostics }
-end
-
-local function outcome_ok(outcome: Fixture.Outcome, label: string)
-  assert(outcome.result.ok, label .. " failed; stdout=" .. outcome.out ..
-    "; stderr=" .. outcome.err)
-end
-
-local function run(ctx: Context, label: string, cache?: string,
-    extra?: {string:string}, program?: string): Fixture.Outcome
-  return Fixture.call_with_environment(label, { program or ctx.artifact }, ctx.work,
-    ctx.diagnostics, environment(cache, extra), child_timeout_ms)
 end
 
 local function expect_failure(ctx: Context, label: string, pattern: string,
@@ -78,19 +44,6 @@ local function expect_failure(ctx: Context, label: string, pattern: string,
     label .. " unexpectedly succeeded or timed out")
   Fixture.contains(answer.err, pattern)
   return answer
-end
-
-local function only_core(cache: string): string
-  local found: string | nil = nil
-  for _, name in ipairs((assert(Fs.list(cache)))) do
-    local path = cache .. "/" .. name
-    local st = assert(sys.lstat(path))
-    if name:sub(1, 1) ~= "." and st.kind == "file" then
-      assert(found == nil, "cache contains multiple public cores")
-      found = path
-    end
-  end
-  return (assert(found, "cache contains no public core"))
 end
 
 local function no_private_entries(cache: string, stem: string)
@@ -459,49 +412,10 @@ exit "$result"
     "payload signal was not passed through")
 end
 
-local function test_launcher_noexec_timing_and_immutability(tmp: string)
+-- The noexec case, which needs the host's own noexec mount, is
+-- launcher_noexec_test.tl's.
+local function test_launcher_timing_and_immutability(tmp: string)
   local ctx = setup(tmp); local before = Fixture.hash(ctx.artifact)
-  local base = ctx.work .. "/base"; outcome_ok(run(ctx, "base", base), "base")
-  local key = only_core(base):match("([^/]+)$") as string
-  if ctx.target ~= "aarch64-macos" then
-    local parent = Env.get_or("COSMIC_PORTABLE_NOEXEC_ROOT", "/dev/shm")
-    local parent_is_dir = Predicate.is_dir(parent)
-    if parent_is_dir then
-      local noexec = sys.mkdtemp(parent .. "/cosmic-launcher.XXXXXX")
-      if noexec then
-        local called, failure = pcall(function(): boolean
-          local probe = noexec .. "/probe"
-          Fixture.write(probe, "#!/bin/sh\nexit 0\n", 0x1c0)
-          -- A noexec mount refuses the exec itself, so the probe may not
-          -- even start; that is the answer, not a fixture error.
-          local probe_run = Runner.execute({ argv = { probe }, cwd = ctx.work })
-          if not probe_run.result or not probe_run.result.ok then
-            local cache = noexec .. "/cache"
-            local answer = run(ctx, "noexec-launch", cache)
-            assert(answer.result.code == 126 and
-              assert(Fs.stat(cache .. "/" .. key)).kind == "file",
-              "noexec launch did not stop at 126 with the core intact")
-            -- `[ -x ]` reflects noexec only where test(1) asks the kernel;
-            -- BusyBox answers from the mode bits, so there the exec itself
-            -- fails, the shell names the errno, and the launcher's EXIT
-            -- trap ends the output. Either way the launcher stops at 126
-            -- with the verified core left intact.
-            local diagnostic = Fixture.small(answer.err, 4096)
-            local refused =
-              "\ncosmic portable: verified core was refused execution; " ..
-              "Permission denied here usually means a noexec cache filesystem\n"
-            assert(diagnostic ==
-              "cosmic portable: verified core cannot execute on the cache filesystem\n" or
-              diagnostic:sub(-#refused) == refused, diagnostic)
-          end
-          return true
-        end)
-        local removed, remove_trouble = Fs.remove_tree(noexec)
-        assert(removed, "noexec cleanup: " .. tostring(remove_trouble))
-        if not called then error(failure) end
-      end
-    end
-  end
   local timing = ctx.work .. "/timing cache"
   local cold_started = Time.monotonic_ns()
   outcome_ok(run(ctx, "timing-cold", timing), "cold timing launch")
