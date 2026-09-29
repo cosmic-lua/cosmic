@@ -1857,6 +1857,13 @@ local function read_input(text: string, zone?: Time.Zone,
   local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
   if minutes ~= nil then
     zoned, why = parse(minutes .. ":00" .. rest)
+    if zoned == nil then
+      -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
+      why = why:gsub("byte (%d+)", function(n: string): string
+        local at = math.tointeger(n) or 0
+        return "byte " .. (at >= 17 and at - 3 or at)
+      end)
+    end
   else
     zoned, why = parse(text)
   end

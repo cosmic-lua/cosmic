@@ -78,6 +78,16 @@ local function test_seconds_are_optional_in_rfc_3339_as_in_local_text()
   assert(none == nil and why:find("RFC 3339", 1, true) and why:find("offset", 1, true), why)
 end
 
+local function test_an_error_after_the_minutes_counts_bytes_of_the_users_text()
+  local _, with_seconds = Time.parse_input("2026-03-08T12:00:00Z x")
+  local _, without = Time.parse_input("2026-03-08T12:00Z x")
+  assert(with_seconds:find("unexpected text at byte 21", 1, true), with_seconds)
+  -- "2026-03-08T12:00Z x": the stray text begins at byte 18, not 21.
+  assert(without:find("unexpected text at byte 18", 1, true), without)
+  local _, offset = Time.parse_input("2026-03-08T12:00+05:3x")
+  assert(offset:find("byte 17", 1, true) or offset:find("offset", 1, true), offset)
+end
+
 local function test_every_failure_names_the_forms_then_the_fault()
   for _, text in ipairs({ "2026-02-30", "2026-03-08T25:00", "2026-03-08T12:00:00.1234567890",
       "2026-03-08T12:00:60", "@x", "@12345678901", "2026-03-08T12:00x", "2026-13-01T00:00" }) do
