@@ -3,11 +3,10 @@ local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local State = require("cosmic_ci.state")
 
--- Every driver subcommand reads its context from the environment instead of
--- eight positional arguments a workflow step used to spell out: the
--- workflow sets GITHUB_WORKSPACE, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
--- RUNNER_TEMP and COSMIC_WORKER once per job (TARGET once per `platform`
--- job), rather than on every step.
+-- Every driver subcommand reads its context from the environment, not from
+-- positional arguments: the workflow sets GITHUB_WORKSPACE, GITHUB_RUN_ID,
+-- GITHUB_RUN_ATTEMPT, RUNNER_TEMP and COSMIC_WORKER once per job (TARGET
+-- once per `platform` job), rather than on every step.
 local record Context
   db: string
   root: string
@@ -27,11 +26,11 @@ local required = Context.required
 
 -- All driver state lives under $RUNNER_TEMP/cosmic-ci/: the operations
 -- database, the platform work directory, and the provenance products
--- directory. The scratch directory is resolved as an external path --
--- outside the candidate, symlinks rejected -- BEFORE anything is created
--- there, so a RUNNER_TEMP pointed inside the candidate is refused without
--- leaving anything behind; only then is it created. RUNNER_TEMP's parent
--- for this purpose is RUNNER_TEMP itself, which always exists in CI.
+-- directory. `read` resolves the scratch directory as an external path
+-- (outside the candidate, symlinks rejected) before creating anything
+-- there, so a RUNNER_TEMP inside the candidate is refused without leaving
+-- anything behind. The parent it checks against is RUNNER_TEMP itself,
+-- which always exists in CI.
 local function scratch_path(): string
   return required("RUNNER_TEMP") .. "/cosmic-ci"
 end

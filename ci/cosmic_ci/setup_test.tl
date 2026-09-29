@@ -41,8 +41,8 @@ end
 
 --- The product fixture runs once, before the portable suite and the
 --- regressions; after them the driver checks every file of the product
---- against the hashes its setup recorded, and each program's mode, as the
---- fixture's second run did.
+--- against the hashes its setup recorded, and each program's mode, as a
+--- second run of the fixture would.
 local function test_a_product_file_changed_after_setup_is_named(tmp: string)
   local product = tmp .. "/product"
   assert(Fs.mkdirs(product .. "/apps"))

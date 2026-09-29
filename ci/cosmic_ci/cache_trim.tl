@@ -1,15 +1,15 @@
---- What the compile and verdict trims share: a cache the tree's tool
---- keeps in SQLite, rows stamped with the wall clock of the last run
---- that used or made them (`used_ns`), cut to what one run reached
---- before ci.yml saves it (cosmic_ci/compiles.tl, cosmic_ci/verdicts.tl),
---- and named by a digest of the rows it keeps (`digest`), which the key
---- ci.yml saves it under ends in: a run that kept the rows of a save
---- already made names that save's key, and saves nothing new.
+--- What the compile and verdict trims share. Each cache is a SQLite
+--- file the tree's tool keeps, whose rows carry the wall clock of the
+--- last run that used or made them (`used_ns`). Before ci.yml saves a
+--- cache, a trim cuts it to the rows one run reached
+--- (cosmic_ci/compiles.tl, cosmic_ci/verdicts.tl). The key ci.yml saves
+--- it under ends in a `digest` of the rows kept, so a run that kept the
+--- rows of an earlier save names that save's key and saves nothing new.
 ---
 --- Like the builds and the suites, which never fail over these caches,
---- a trim that cannot read one never fails the leg: it says why and
---- leaves the file, or removes one that is no database, and the next
---- run compiles or runs what it must.
+--- a trim that cannot read one never fails the leg. It says why, then
+--- leaves the file or, where the file is no database, removes it; the
+--- next run compiles or runs what it must.
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
@@ -100,11 +100,10 @@ end
 --- as a cache's `used_ns` is), then rewrites the file without the space
 --- they took, and without the pages the tool's own bounds freed, which
 --- SQLite keeps. Where `tables.whole_unless_reached`, a file none of
---- whose rows was used since -- one whose run never started -- keeps
---- them all. A table without a `used_ns` column is left whole, and
---- named in the answer's `unstamped`. Nil and
---- "" for a file that is not there, and nil and why where the file
---- could not be trimmed.
+--- whose rows was used since (one whose run never started) keeps them
+--- all. A table without a `used_ns` column is left whole and named in
+--- the answer's `unstamped`. Answers nil and "" for a file that is not
+--- there, and nil and why where the file could not be trimmed.
 -- TODO: ask the tool to trim its caches to what one run used, once
 -- build/shared_compiles.tl and build/shared_verdicts.tl can (a verb, or
 -- a bound the environment sets), rather than reach into their tables
@@ -182,12 +181,11 @@ end
 
 --- Trims the cache at `path` (`trim`) to what was used since `since`,
 --- in Unix seconds, after removing what was set aside beside it
---- (`remove_set_aside`), for the driver command `verb`: what it says on
---- standard output and on standard error. A cache it cannot trim is
---- said so, on standard error, and left, or removed where it is no
---- database; so is a table it keeps whole for want of a `used_ns`
---- column to trim it by, which would otherwise be saved from run to
---- run unseen.
+--- (`remove_set_aside`), for the driver command `verb`. Answers what to
+--- say on standard output and on standard error. A cache it cannot trim
+--- is reported on standard error and left, or removed where it is no
+--- database. A table kept whole for want of a `used_ns` column is
+--- reported too, since a save would carry it from run to run unseen.
 function CacheTrim.file(verb: string, path: string, since: integer,
                         tables: CacheTrim.Tables): string, string
   local out = ""
@@ -224,12 +222,11 @@ function CacheTrim.file(verb: string, path: string, since: integer,
 end
 
 --- Feeds `hasher` the rows of the cache at `path`: every table of it
---- but SQLite's own, by name, each row of it in order, every column but
---- `used_ns`, which each run that stands on a row stamps again and
---- which decides only what a trim keeps. So two files that hold the
---- same rows feed the same bytes, whatever SQLite made of their pages
---- or when a run last used them. Answers why, where it could not read
---- the file.
+--- but SQLite's own, by name, each row in order, every column but
+--- `used_ns`. Each run that stands on a row stamps `used_ns` again, and
+--- it decides only what a trim keeps, so two files that hold the same
+--- rows feed the same bytes whatever SQLite made of their pages or when
+--- a run last used them. Answers why where it could not read the file.
 local function feed_rows(hasher: Hash.Hasher, path: string): boolean, string
   -- Writable, as the trim opens it: a reader of a file in write-ahead
   -- mode leaves its log and index behind, which the save would carry.

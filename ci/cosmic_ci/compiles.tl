@@ -2,13 +2,13 @@
 --- COSMIC_BUILD_CACHE names (build/shared_compiles.tl in the candidate),
 --- which ci.yml restores before the leg's builds and saves after them.
 ---
---- The file bounds itself only at 256 MB and thirty days, and every
---- change to the build's own modules moves every row's key, so a file
---- each run saves back grows by a tree's worth of compiles (about 3 MB)
---- with most commits to main, to that bound, and the repository's cache,
---- which holds 10 GB for every entry, would hold that much again with
---- each save. So a leg keeps only what its own run used or compiled
---- (`trim`): what the next run of the tree it built needs, and no more.
+--- The file bounds itself only at 256 MB and thirty days, and a change
+--- to the build's own modules moves every row's key. A file that each
+--- run saved back whole would grow by a tree's worth of compiles (about
+--- 3 MB) with most commits to main, up to that bound, and the
+--- repository's cache, which holds 10 GB in all, would hold that much
+--- again with each save. So a leg keeps only what its own run used or
+--- compiled (`trim`): what the next run of the tree it built needs.
 ---
 --- Like the builds, which never fail over this cache, a trim that cannot
 --- read it never fails the leg (cosmic_ci/cache_trim.tl, which the
