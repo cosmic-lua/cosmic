@@ -219,7 +219,7 @@ end
 --- the tree. Each defect is named with its verb; the tree without any
 --- passes.
 local function test_a_verb_is_held_to_its_registration(dir: string)
-  local quickstart = "# quickstart\n\n## a thing\n\ntext\n"
+  local quickstart = "# quickstart\n\n## a thing\n\n`cosmic thing` does it.\n\n## a stray\n\nnothing\n\n```\n## in a fence\n```\n"
   local function found_with(thing: string, extra?: {string:string}): {string}
     local files: {string:string} = {
       ["build/verb_list.tl"] = source("local thing = require(\"build.thing\")", "return {}"),
@@ -235,7 +235,7 @@ local function test_a_verb_is_held_to_its_registration(dir: string)
   found = found_with(verb("thing", "none: a maintainer's verb", ok))
   assert(#found == 0, table.concat(found, "\n"))
 
-  found = found_with(verb("thing", "a thing", ok), { ["build/spare.tl"] = verb("spare", "a thing", ok) })
+  found = found_with(verb("thing", "a thing", ok), { ["build/spare.tl"] = verb("spare", "none: a spare", ok) })
   assert(#found == 1 and found[1]:find("^`spare` %(build%.spare%) assigns a `spec` but " ..
     "build/verb_list%.tl does not list its module") ~= nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "a missing heading", ok))
@@ -247,10 +247,90 @@ local function test_a_verb_is_held_to_its_registration(dir: string)
   found = found_with(verb("thing", "a thing", ""))
   assert(#found == 1 and found[1]:find("^`thing` names no test module in `tests`") ~= nil,
     table.concat(found, "\n"))
+  found = found_with(verb("thing", "a stray", ok))
+  assert(#found == 1 and found[1]:find("whose section never mentions `cosmic thing`", 1, true) ~= nil,
+    table.concat(found, "\n"))
+  found = found_with(verb("thing", "in a fence", ok))
+  assert(#found == 1 and found[1]:find("is no `## ` heading", 1, true) ~= nil, table.concat(found, "\n"))
   found = found_with(verb("thing", "a thing", "\"build.gone_test\", \"build.thing\", " .. ok))
   assert(#found == 2 and found[1]:find("^`thing`'s tests name build%.gone_test, which is no test module")
     ~= nil and found[2]:find("name build%.thing, which is no test module") ~= nil,
     table.concat(found, "\n"))
+end
+
+--- A spec is read as the source writes it, in any layout of literals, and
+--- what cannot be read is refused rather than passed over: a guide that is
+--- no string literal, a listed verb whose spec is no table literal, a
+--- test named by a variable.
+local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
+  local quickstart = "## a thing\n\n`cosmic thing` does it.\n"
+  local function found_with(thing: string, extra?: {string:string}): {string}
+    local files: {string:string} = {
+      ["build/verb_list.tl"] = source(
+        "local record list end",
+        "local x = { load = function() return require(\"build.thing\").spec end }",
+        "return {}"),
+      ["build/thing.tl"] = thing,
+      ["build/thing_test.tl"] = source("return {}"),
+    }
+    for path, text in pairs(extra or {}) do files[path] = text end
+    return tree_checks.verbs(fixture.database(dir, files), quickstart)
+  end
+  local function spec(...: string): string
+    return source("local m = {}", "m.spec = {", table.concat({ ... }, "\n"), "}", "return m")
+  end
+
+  local found = found_with(spec(
+    "  name = \"thing\", -- \"a } stray\", { \"build.gone_test\"",
+    "  guide = \"a thing\",",
+    "  tests = {",
+    "    -- the module below is checked, and this one's braces } are not",
+    "    \"build.thing_test\", -- \"build.gone_test\"",
+    "  },",
+    "  takes = \"a \\\"quoted\\\" } brace\","))
+  assert(#found == 0, table.concat(found, "\n"))
+
+  found = found_with(spec("  name = \"thing\",", "  guide = \"a \\\"thing\\\"\",",
+    "  tests = { \"build.thing_test\" },"))
+  assert(#found == 1 and found[1]:find("guide is \"a \"thing\"\"", 1, true) ~= nil,
+    table.concat(found, "\n"))
+
+  found = found_with(spec("  name = \"thing\",", "  tests = { \"build.thing_test\" },"))
+  assert(#found == 1 and found[1]:find("^`thing` has no guide as a string literal") ~= nil,
+    table.concat(found, "\n"))
+  found = found_with(spec("  name = \"thing\",", "  guide = [[a thing]],",
+    "  tests = { \"build.thing_test\" },"))
+  assert(#found == 1 and found[1]:find("^`thing` has no guide as a string literal") ~= nil,
+    table.concat(found, "\n"))
+  found = found_with(spec("  name = \"thing\",", "  guide = \"a thing\",",
+    "  tests = { \"build.thing_test\", other },"))
+  assert(#found == 1 and found[1]:find("^`thing` names no test module in `tests`, as string literals")
+    ~= nil, table.concat(found, "\n"))
+
+  -- A spec exported from a local is no literal the check reads: refused
+  -- as a listed verb with none.
+  found = found_with(source("local m = {}", "local s = { name = \"thing\" }", "m.spec = s", "return m"))
+  assert(#found == 1 and found[1]:find("loads `build.thing`'s `spec`", 1, true) ~= nil,
+    table.concat(found, "\n"))
+
+  -- What only looks like a spec is none: a name that merely ends in
+  -- "spec", and a line inside a comment.
+  found = found_with(spec("  name = \"thing\",", "  guide = \"a thing\",",
+    "  tests = { \"build.thing_test\" },"), {
+    ["build/other.tl"] = source("local m = {}", "m.respec = { name = \"other\" }",
+      "--- m.spec = { name = \"other\" }", "return m"),
+  })
+  assert(#found == 0, table.concat(found, "\n"))
+
+  -- Its guide is not held to a quickstart that could not be read.
+  local files = {
+    ["build/verb_list.tl"] = source("return { require(\"build.thing\").spec }"),
+    ["build/thing.tl"] = spec("  name = \"thing\",", "  guide = \"a missing heading\",",
+      "  tests = { \"build.thing_test\" },"),
+    ["build/thing_test.tl"] = source("return {}"),
+  }
+  found = tree_checks.verbs(fixture.database(dir, files), nil)
+  assert(#found == 0, table.concat(found, "\n"))
 end
 
 --- Every check runs, each line named by its check: a projection with

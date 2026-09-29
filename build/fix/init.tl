@@ -645,7 +645,7 @@ function fix.run(argv: {integer:string}): integer
       if guide == nil then
         findings[#findings + 1] = "tree checks: " .. guide_trouble
       end
-      local found = tree_checks.run(db, guide or "")
+      local found = tree_checks.run(db, guide)
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
       end
