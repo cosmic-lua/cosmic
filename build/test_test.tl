@@ -208,14 +208,12 @@ local function test_distinct_read_sets_never_share_a_key(tmp: string)
   assert(key1 ~= key2)
 end
 
---- Regression: generation 2's header line was a raw
---- `id .. " " .. module_key .. " " .. runtime`, unescaped -- two distinct
---- triples whose fields concatenate to the same string collided on the
---- same key. Every real caller only ever passes a fixed-width hex digest
---- for module_key and runtime, so this was never reachable in practice,
---- but nothing in verdict_key itself enforced that. Generation 3 frames
---- the header through the same key_part hex-encoding every read line
---- already uses.
+--- The header line frames its fields through `key_part`'s hex encoding,
+--- as every read line does. Joined raw as `id .. " " .. module_key .. " "
+--- .. runtime`, two distinct triples whose fields concatenate to the same
+--- string would share a key. Real callers pass fixed-width hex digests
+--- for module_key and runtime, but verdict_key itself must not depend on
+--- that.
 local function test_header_fields_do_not_collide_across_their_boundary(tmp: string)
   local key1 = test.verdict_key(tmp, {}, "foo bar", "baz", "r", {}, {}).key
   local key2 = test.verdict_key(tmp, {}, "foo", "bar baz", "r", {}, {}).key

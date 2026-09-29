@@ -70,7 +70,8 @@ local function test_build_args_adds_cache_flags_only_for_build()
   assert(got[9] == "-Doptimize=ReleaseFast")
 end
 
--- zig's default kept the three targets' vendored compiles one after another.
+-- Twice the processors, at least 8: under zig's default the three targets'
+-- vendored compiles run one after another.
 local function test_build_args_run_steps_past_the_processor_count()
   assert(Zig.build_jobs(1) == 8)
   assert(Zig.build_jobs(4) == 8)

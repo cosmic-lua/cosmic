@@ -53,15 +53,14 @@ local function run(root: string, output: string, env: {string:string},
   return text, result.ok
 end
 
---- Whether a run that printed `text`, its workers sandboxed where they
---- can be, sandboxed none, where that is allowed. Its workers are nested
---- in this test's own sandbox, which a host may refuse them (the kernel
---- lets root nest one only two deep: core/syscalls.c's `map_ids`) -- and
---- what they confine besides -- and a case of a confined process then has
---- only the refusal to check, unless this run is held to sandboxing
---- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
---- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them, and
---- there it fails.
+--- Whether the run that printed `text` sandboxed none of its workers,
+--- where that is allowed. The workers, and what they confine, nest in
+--- this test's own sandbox, which a host may refuse (the kernel lets
+--- root nest one only two deep: core/syscalls.c's `map_ids`); a case of a
+--- confined process then has only the refusal to check. A run held to
+--- sandboxing fails instead (COSMIC_TEST_SANDBOX=1, as CI's suites set
+--- it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
+--- unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) then return false end
   assert(not confine.held_to_sandbox(),
@@ -288,10 +287,10 @@ end
 
 --- COSMIC_SANDBOX=must makes every `confine` a `must_confine`, and runs
 --- every test no key holds, as `--all` does, where a run without it
---- assumes one -- and a sandboxed run keys every test by it -- so a
---- test that fell back to an unconfined process, passed and so is
---- assumed or stands, runs again and fails. Any other value fails the
---- test that confines.
+--- assumes one; a sandboxed run keys every test by it. A test that fell
+--- back to an unconfined process and passed is assumed or stands without
+--- it, and runs again and fails with it. Any other value fails the test
+--- that confines.
 local function test_the_sandbox_mode_holds_confine_to_must_confine(tmp: string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)

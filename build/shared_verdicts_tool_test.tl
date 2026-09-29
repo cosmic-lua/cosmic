@@ -44,16 +44,13 @@ local function run(root: string, output: string, env: {string:string},
   return text
 end
 
---- Whether the run that printed `text` shared its verdicts: only a run
---- whose workers are sandboxed shares any, and a case of sharing has
---- nothing to check where none can be. Its workers are nested in this
---- test's own sandbox, which a host may refuse them (the kernel lets
---- root nest one only two deep: core/syscalls.c's `map_ids`), where the
---- case returns unchecked -- unless this run is held to sandboxing
---- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must
---- or COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest
---- them, and there a run that shared nothing fails the case rather
---- than skip it.
+--- Whether the run that printed `text` shared its verdicts. Only a run
+--- whose workers are sandboxed shares any. The workers nest in this
+--- test's own sandbox, which a host may refuse (the kernel lets root nest
+--- one only two deep: core/syscalls.c's `map_ids`); the case then returns
+--- unchecked. A run held to sandboxing fails it instead (COSMIC_TEST_SANDBOX=1,
+--- as CI's suites set it, COSMIC_SANDBOX=must or
+--- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function shares(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return true end
   assert(not confine.held_to_sandbox(),
