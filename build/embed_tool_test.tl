@@ -19,7 +19,8 @@ local Test = require("cosmic.test")
 --- This program's database, which every executable's is joined from.
 --- The programs they build and run are built `--host`, so no launcher
 --- -- and no `sh` -- runs them.
-Test.needs{ tool = true }
+--- `store`: `embed.database` reads every `cosmic.*` module's rows.
+Test.needs{ tool = true, store = true }
 
 local main_source = [[
 local Fs = require("cosmic.fs")

@@ -60,20 +60,38 @@ style the JSON messages print, with indices counted from 1; quote it in
 single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
 out to read standard input, so `curl ... | cosmic json '.items[1]'`
 works. Numbers print as `Json.encode` writes them, so `1e2` reads
-`100.0`. It is only a lookup, with no filters: to count or sum, use
-`cosmic sql --from` (next section), and for anything else write the
-script with `cosmic.json`. `cosmic help json` has the rest.
+`100.0`.
+
+When you do not know where a value lives, list them all: `cosmic json
+--flat export.json` prints every leaf as a `path = value` line, keys
+sorted, and `cosmic json --flat export.json | grep -i email` finds the
+one you want, say `$.users[2].contact.email = "bo@example.com"`. That
+path is exactly what `cosmic json` takes, so paste it back: `cosmic json
+'$.users[2].contact'` shows what is around it. A `*` stands for every
+member or element, and `..` for any depth: `cosmic json '$.users[*].name'
+export.json` prints each user's name as such a line, `cosmic json -r
+'$..email' export.json` every email in the file, bare (a string with a
+newline in it takes more than one line), and `cosmic json
+--exists '$..error' export.json` asks whether any `error` key is there.
+`--keys` and `--shape` take one path, not a pattern. There are no
+JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
+over `--flat` covers the simple cases. To count or sum, use `cosmic sql
+--from` (next section); for anything else write the script with
+`cosmic.json`, whose `Json.flatten` and `Json.select` are these two.
+`cosmic help json` has the rest.
 
 ## questions about a data file
 
 A question about a data file -- what is in it, how many of these it
-holds -- takes two steps, and neither is a script. Stop at the first that
+holds -- takes three steps, and none is a script. Stop at the first that
 answers:
 
 1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
    what is in the file, and `cosmic json '.users[1]' export.json` prints
    one value.
-2. Count, filter, join and sum with `cosmic sql --from`, which loads the
+2. Find where something is with `cosmic json --flat export.json | grep
+   needle`, and paste the path it prints back into `cosmic json`.
+3. Count, filter, join and sum with `cosmic sql --from`, which loads the
    file as a table of an in-memory SQLite database and runs one
    read-only statement on it:
 
@@ -115,6 +133,19 @@ a bad character or padding with exit 2 and its byte offset: `printf hi
 | cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
 write it; `--lenient` accepts the other padding. It prints no verdict
 line.
+
+## a quick look inside an archive
+
+`cosmic archive list release.tar.gz` prints one entry per line (path, size,
+mode, type), and `--json` an array of objects for `cosmic json` or
+`cosmic sql --from -`; `cosmic archive extract release.zip -C out [member...]` unpacks
+all or some of it, refusing a path that escapes `out` and a file it would
+overwrite (unless `--force`) -- only that and a missing member write
+nothing; an unsafe entry stops extraction after the entries before it, which
+stay written; `cosmic archive create out.tar.gz dir
+--reproducible` packs a tree (fixed times, file modes kept), as a zip or a gzip tar. The format is read from
+the file's bytes, not its name; `-` reads standard input. `cosmic help archive`
+has the rest.
 
 ## below cosmic.fs
 
