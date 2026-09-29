@@ -181,7 +181,16 @@ What stage 2 showed, beyond its numbers:
 ### 2.2 Key tests by a harness epoch: landed (#2295)
 
 - The declared key holds `epoch` (`build/harness_epoch.tl`) and
-  `timeout` in place of the harness's source and bytecode.
+  `timeout` in place of the harness's source and bytecode. The epoch is
+  a count and a random token (`"N-xxxxxxxx"`, the count one past the
+  tokens `retired` holds; #2429).
+- Two branches' bumps conflict in git rather than merging as one edit
+  (bare counts collided silently at #2413 and #2422); the guard prints
+  both edits of a bump, and a conflict is resolved by keeping neither
+  side.
+- Also landed (#2427): a root runner's sandboxed workers run as an
+  unprivileged mapped user, so root nests at any depth and the sandbox
+  tests no longer skip there.
 - `build/harness_epoch_test.tl` holds the harness set (what a worker
   loads, `harness_own`, the key's own code, by source and bytecode) to
   an acknowledged digest. It also fails when a harness module requires
