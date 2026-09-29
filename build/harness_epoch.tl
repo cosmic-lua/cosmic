@@ -122,7 +122,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.test"] = "cbf2ddedccf2e18689dc3ddef0873993c8c5ec1d5bb2c3d6b03e2993402bfd78",
 
-  ["cosmic.time"] = "a5071b9f5b61979e3137751dc9891290ee66ce0ee447598f689b004568c40576",
+  ["cosmic.time"] = "e77d1b11ea18d15e46855731973e94d159ed578257ec3f869e713a24874095ad",
 
 }
 
