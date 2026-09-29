@@ -80,14 +80,13 @@ end
 
 --- Parses command line options. Reads `argv` from slot `from` on: 1
 --- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
---- `spec` maps each option,
---- written as it is typed ("--check", "-v"), to whether it takes a
---- value: `true` or `false`, or a `Flags.Option`, which takes one when
---- it names its `value`. The value is the next word, or what follows
---- "=" in the same word for a "--" option or a one-dash option named
---- whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and "--" ends
---- the options: every word after it is a word even when it begins with
---- "-", as a negative number must.
+--- `spec` maps each option, written as it is typed ("--check", "-v"), to
+--- whether it takes a value: `true` or `false`, or a `Flags.Option`, which
+--- takes one when it names its `value`. The value is the next word, or
+--- what follows "=" in the same word for a "--" option or a one-dash
+--- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
+--- "--" ends the options: every word after it is a word even when it
+--- begins with "-", as a negative number must.
 ---
 --- A word with one "-" that the spec does not name whole is a cluster of
 --- one-letter options, as getopt reads one: "-vq" is "-v -q", and a

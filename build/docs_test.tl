@@ -5,6 +5,7 @@ local docs = require("build.docs")
 local sys = require("cosmic.sys")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local symbols = require("build.symbols")
 
 --- Whether the tree is cosmic's own. No test here reads the binary's
 --- own databases, or the tree's o/cosmic.db, whole: `docs.databases`
@@ -633,40 +634,52 @@ local function test_the_listing_follows_a_multi_block_example(dir: string)
     listing < prose, text)
 end
 
---- Words that name no symbol search the documentation, the members
---- carrying every word first, and a name nothing matches finds nothing.
+--- Words that name no symbol search the documentation, every word
+--- required, and a name nothing matches finds nothing.
 local function test_searches_the_documentation_for_words(dir: string)
   local db = built(dir, fs_tree())
   local words = assert(docs.lookup(view({ db }), "whole file"))
   local exact = words.exact
   assert(words ~= nil)
   assert(not exact)
-  assert(#words >= 2, tostring(#words))
-  local both = { words[1].source_symbol, words[2].source_symbol }
-  table.sort(both)
-  assert(both[1] == "Fs.read" and both[2] == "Fs.write", both[1] .. " " .. both[2])
+  assert(#words == 2, tostring(#words))
   local one = assert(docs.lookup(view({ db }), "parent directory"))
-  assert(one[1].source_symbol == "Fs.write")
+  assert(#one == 1 and one[1].source_symbol == "Fs.write")
   local none = assert(docs.lookup(view({ db }), "nothing_like_this"))
   assert(#none == 0)
 end
 
 --- A search stems its words, so "writing" finds a comment that says
---- "Writes", and one no member answers whole still offers the members
---- that carry some of its words, the more the better.
-local function test_a_search_stems_and_falls_back_to_some_of_the_words(dir: string)
+--- "Writes". When no member carries every word, the closest ones follow:
+--- those with at least half of them, and never on one word alone.
+local function test_a_search_stems_and_offers_the_closest_when_none_has_every_word(dir: string)
   local db = built(dir, fs_tree())
   local stemmed = assert(docs.lookup(view({ db }), "writing"))
   assert(stemmed[1].source_symbol == "Fs.write", tostring(stemmed[1].source_symbol))
   local some = assert(docs.lookup(view({ db }), "create parent unheard whole"))
-  -- Fs.write carries three of the words, Fs.read one.
+  assert(some.closest and not some.exact)
   assert(some[1].source_symbol == "Fs.write", some[1].source_symbol)
   local seen: {string:boolean} = {}
   for _, entry in ipairs(some) do
     assert(not seen[entry.source_symbol], "repeated " .. entry.source_symbol)
     seen[entry.source_symbol] = true
   end
-  assert(seen["Fs.read"], "the member with one of the words follows")
+  assert(seen["Fs.read"] == nil, "one word of four is not enough")
+  local junk = assert(docs.lookup(view({ db }), "unheard whole"))
+  assert(#junk == 0, "one of two words is not enough")
+  local whole = assert(docs.lookup(view({ db }), "whole file"))
+  assert(whole[1].symbol == "read", "a member comes before its module: " .. whole[1].symbol)
+end
+
+--- A name counts as documented by an example only when the example
+--- spells it whole: the index stems words, so `Fs.reads` reaches an
+--- example of `Fs.read`, which the compiler's hint must not follow.
+local function test_a_misspelt_name_is_not_a_known_example(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("load", "Loads a file.", "  local _ = Fs.read(\"x\")"),
+  }))
+  assert(symbols.has_example_query({ db }, { false }, "Fs.read"))
+  assert(not symbols.has_example_query({ db }, { false }, "Fs.reads"))
 end
 
 --- A qualified name that names nothing answers from its qualifier:
@@ -779,7 +792,7 @@ end
 local function test_a_search_leaves_out_one_letter_words(dir: string)
   local db = built(dir, fs_tree())
   local found = assert(docs.lookup(view({ db }), "parent directory -p"))
-  assert(found[1].source_symbol == "Fs.write", tostring(#found))
+  assert(#found == 1 and found[1].source_symbol == "Fs.write", tostring(#found))
   -- A query of nothing else still searches for what it has.
   local lone = built(dir, { ["cosmic/fs.tl"] = source(
     "local record Fs",
@@ -1065,16 +1078,9 @@ local function test_search_keeps_docs_and_example_identities(dir: string)
       "  Fs.read(\"config\")"),
   }))
   local found = assert(docs.lookup(view({ db }), "whole config"))
-  local example: docs.Entry
-  for _, entry in ipairs(found) do
-    if entry.symbol:find("^Example%.") then
-      assert(example == nil, "expected one example result")
-      example = entry
-    end
-  end
-  assert(example ~= nil and example.symbol == "Example.read_config", "expected the example")
-  assert(found[1].symbol == "read", found[1].symbol)
-  local rendered = table.concat(assert(docs.render(view({ db }), example)), "\n")
+  assert(#found == 1, "expected one example result")
+  assert(found[1].symbol == "Example.read_config", found[1].symbol)
+  local rendered = table.concat(assert(docs.render(view({ db }), found[1])), "\n")
   assert(rendered:find("function Example.read_config()", 1, true) ~= nil, rendered)
 end
 
@@ -1244,9 +1250,7 @@ local function test_an_undocumented_module_hides_old_docs_and_examples(dir: stri
   }))
   local layered = view({ project, binary })
   assert(#assert(docs.lookup(layered, "Fs.read")) == 0)
-  -- "example" alone matches other modules' rows, so the query is the
-  -- one word only the hidden example spells.
-  assert(#assert(docs.lookup(layered, "legacy")) == 0)
+  assert(#assert(docs.lookup(layered, "legacy example")) == 0)
 end
 
 --- Uses belong to their calling module. Independent callers in later
@@ -1358,10 +1362,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
   assert(found[1].uses == 1, "only the standard library's own use counts: " .. found[1].uses)
   assert(#assert(docs.lookup(public, "build.importer")) == 0, "the build is not a public module")
   local searched = assert(docs.lookup(public, "whole file"))
-  assert(#searched >= 1 and searched[1].module == "cosmic.fs", tostring(#searched))
-  for _, entry in ipairs(searched) do
-    assert(entry.module == "cosmic.fs", entry.module)
-  end
+  assert(#searched == 1 and searched[1].module == "cosmic.fs", tostring(#searched))
   local referring = assert(docs.uses(public, "Fs.read"))
   assert(#referring == 1 and referring[1].from_module == "cosmic.hash")
   local listed = assert(docs.render(public, assert(docs.lookup(public, "cosmic.fs"))[1]))

@@ -91,6 +91,9 @@ local record docs
     --- How many entries, from the first, are named by the query; any
     --- after them stand in for a raw binding it named (see `stand_ins`).
     named: integer
+    --- Whether no entry carries every word of the query, and these carry
+    --- some of them (see `closest`).
+    closest: boolean
   end
 
   --- One module as the index lists it.
@@ -577,20 +580,24 @@ end
 --- than one somewhere in its prose, which is the longest by far.
 local DOCS_WEIGHTS = "10.0, 3.0, 1.0"
 
---- Fewer rows than this from the query every word must match, and a
---- search also offers what carries only some of the words.
-local FEW = 3
-
---- The most rows a search offers.
+--- The most rows a search offers, and the most it offers of what
+--- carries only some of the words.
 local LIMIT = 20
+local CLOSEST = 5
 
---- The rows whose symbol, signature or documentation carries any word of
---- `words`, at most `limit` of them, those carrying more of the words
---- first and, among equals, the better match by relevance. `skip` names
---- ids (`docs.id`) already offered. Each row's last field is its id.
+--- How many of `count` words a row must carry to be offered when none
+--- carries all: half of them, and at least two, so a query with one word
+--- nothing knows never finds the rows of the other.
+local function bar(count: integer): integer
+  return math.max(2, (count + 1) // 2)
+end
+
+--- The rows whose symbol, signature or documentation carries at least
+--- `bar(#words)` of `words`, at most `CLOSEST` of them, those carrying
+--- more of the words first and, among equals, the better match by
+--- relevance. Each row's last field is its id.
 local function partly_searched(db: Sqlite.Handle, public: boolean,
-                               words: {string}, skip: {integer:boolean},
-                               limit: integer): {{string}} | nil, string
+                               words: {string}): {{string}} | nil, string
   local matched: {integer:integer} = {}
   local score: {integer:number} = {}
   for _, word in ipairs(words) do
@@ -608,15 +615,15 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
     end
   end
   local ids: {integer} = {}
-  for id in pairs(matched) do
-    if not skip[id] then ids[#ids + 1] = id end
+  for id, count in pairs(matched) do
+    if count >= bar(#words) then ids[#ids + 1] = id end
   end
   table.sort(ids, function(x: integer, y: integer): boolean
     if matched[x] ~= matched[y] then return matched[x] > matched[y] end
     if score[x] ~= score[y] then return score[x] < score[y] end
     return x < y
   end)
-  while #ids > limit do ids[#ids] = nil end
+  while #ids > CLOSEST do ids[#ids] = nil end
   if #ids == 0 then
     return {}
   end
@@ -655,9 +662,7 @@ end
 --- The rows whose symbol, signature or documentation carries every
 --- word of `query`, best match first: those that spell its first word
 --- as code, where it is not a parameter of theirs, then by relevance,
---- weighing a word in the name above one in the prose. When fewer than
---- `FEW` rows carry every word, rows carrying some of them follow, the
---- more words the better.
+--- weighing a word in the name above one in the prose.
 local function searched_docs(db: Sqlite.Handle, public: boolean,
                              query: string): {docs.Entry} | nil, string
   local lead = lead_word(query)
@@ -683,6 +688,12 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
   -- Then a comment that says the words together, as typed, and then a
   -- member before a field: a field is a detail of a record, which is
   -- likelier to be what was sought.
+  -- A module comes after the members unless its name is one of the words.
+  local module_hit = {}
+  for _, hit in ipairs(hits) do
+    module_hit[#module_hit + 1] = "lower(d.module) = " .. hit ..
+      " OR lower(d.module) LIKE '%.' || " .. hit
+  end
   local phrase = ""
   if #words > 1 then
     local typed: {string} = {}
@@ -694,22 +705,27 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
     "SELECT " .. columns .. ", d.id FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
     "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_docs("d", public) ..
     " ORDER BY " .. stands_in .. "lower(d.symbol) IN (" .. table.concat(hits, ", ") ..
-    ") DESC, " .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
+    ") DESC, (d.symbol = '' AND NOT (" .. table.concat(module_hit, " OR ") ..
+    ")), " .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
     "), d.module, d.id LIMIT " .. LIMIT,
     binds)
   if rows == nil then
     return nil, trouble
   end
-  if #rows < FEW and #words > 1 then
-    local skip: {integer:boolean} = {}
-    for _, row in ipairs(rows) do
-      skip[math.tointeger(tonumber(row[#row])) or 0] = true
-    end
-    local more, more_trouble = partly_searched(db, public, words, skip, LIMIT - #rows)
-    if more == nil then
-      return nil, more_trouble
-    end
-    for _, row in ipairs(more) do rows[#rows + 1] = row end
+  return entries_of(rows)
+end
+
+--- The rows carrying some words of `query` when none carries them all,
+--- at most `CLOSEST`; nothing when it has fewer than two words to carry.
+local function closest(db: Sqlite.Handle, public: boolean,
+                      query: string): {docs.Entry} | nil, string
+  local words = query_words(query)
+  if #words < 2 then
+    return {}
+  end
+  local rows, trouble = partly_searched(db, public, words)
+  if rows == nil then
+    return nil, trouble
   end
   return entries_of(rows)
 end
@@ -965,8 +981,9 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
 end
 
 --- `entries` as a lookup's answer.
-local function lookup(entries: {docs.Entry}, exact: boolean, count: integer): docs.Lookup
-  local out: docs.Lookup = { exact = exact, named = count }
+local function lookup(entries: {docs.Entry}, exact: boolean, count: integer,
+                      partial?: boolean): docs.Lookup
+  local out: docs.Lookup = { exact = exact, named = count, closest = partial == true }
   for i, entry in ipairs(entries) do out[i] = entry end
   return out
 end
@@ -1170,6 +1187,21 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
       return nil, verbs_trouble
     end
     for _, entry in ipairs(verbs) do found[#found + 1] = entry end
+    if #found == 0 then
+      local near, near_trouble = across(view,
+        function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+          return closest(db, public, query)
+        end, entry_module)
+      if near == nil then
+        return nil, near_trouble
+      end
+      while #near > CLOSEST do near[#near] = nil end
+      local counted, count_trouble = effective_counts(view, near)
+      if not counted then
+        return nil, count_trouble
+      end
+      return lookup(near, false, 0, #near > 0), ""
+    end
   end
   local counted, count_trouble = effective_counts(view, found)
   if not counted then
@@ -1809,7 +1841,10 @@ local function run(argv: {integer:string}): integer
       clock.took(started))
     return 1
   end
-  if not found.exact then
+  if found.closest then
+    log:say("No entry has every word; closest matches:")
+    log:say("")
+  elseif not found.exact then
     log:say("No exact symbol match; showing related documentation:")
     log:say("")
   end

@@ -32,9 +32,9 @@ end
 
 local chunk_size = 1 << 16
 
---- Reads a file: loads the whole of it as bytes. Use this for the common
---- io.open/io.read or io.lines case when streaming and Lua file handles are
---- unnecessary.
+--- Reads the whole of a file as bytes, loading it in one call. Use this for
+--- the common io.open/io.read or io.lines case when streaming and Lua file
+--- handles are unnecessary.
 function Fs.read(path: string): string | nil, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
@@ -195,9 +195,9 @@ function Fs.mkdirs(path: string): boolean, string
   return false, path .. ": " .. why
 end
 
---- Makes a temporary directory: a fresh, empty directory under the system
---- temp directory, named with `prefix` and a random suffix: `mktemp -d`.
---- `TMPDIR` picks the temp directory when it is set, and `/tmp` otherwise.
+--- A fresh, empty temporary directory under the system temp directory,
+--- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
+--- temp directory when it is set, and `/tmp` otherwise.
 function Fs.mkdtemp(prefix: string): string | nil, string
   local base = Env.get_or("TMPDIR", "/tmp")
   local template = base .. "/" .. prefix .. "XXXXXX"

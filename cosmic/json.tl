@@ -241,8 +241,8 @@ end
 
 --- Parses JSON text into the value it holds, and "". nil and a message,
 --- naming the line and column, when the text is not one JSON value or
---- nests past `max_depth`. The value is `any`: when the text is from outside,
---- narrow it with `is` before trusting its shape, or use
+--- nests past `max_depth`. The value is `any`: when the text is from
+--- outside, narrow it with `is` before trusting its shape, or use
 --- `decode_object` or `decode_array`, which check the outermost one.
 function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
