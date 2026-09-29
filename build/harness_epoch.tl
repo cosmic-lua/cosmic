@@ -71,13 +71,13 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
 
-  ["build.declared_key"] = "0b4df3c2535d7b4c03b8fafc7ade593aa6faddd2530fa54a1b1f44eccbe38796",
+  ["build.declared_key"] = "879bc80dbfd40d18f3e5f220a6eac261912071261ac3099a6a2f5bc189bdd1cf",
 
   ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
 
   ["build.filesystem_observations"] = "ca600b34e5959f900fd089ec298dda56bfb5cb08e8bc153cef8b2ccfe408b224",
 
-  ["build.key_parts"] = "0b6b9c26839b92e7c30c018086cce7fe1e81f6f91307e092e9cd9c0ba9356a5c",
+  ["build.key_parts"] = "2f2ce8af4d238b79db14c11fb27dadba90c608885ca1c3044292de6632169b98",
 
   ["build.launcher"] = "9dff6e6443e223fa5a99bb960d8046b47ea47bb506ffd08798771153715a2305",
 
@@ -87,13 +87,13 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
-  ["build.test"] = "72393c20b82ea80aef34ee44b6e3251eb633421ae550a1c454c09431f9de6dbf",
+  ["build.test"] = "58abff2f793295e035a9538f1c7d66838fb87f34c82ebcada58f8de38cdc2ce1",
 
   ["build.test_inputs"] = "73600e0ad4cc72061f59bb556723015e07bc6f76345f6e405f4a8d4510b960aa",
 
-  ["build.test_sandbox"] = "e2dc150a1bc4401879766319a8b2532b42d57b65fa8980c156ae8ad69ae2bb5b",
+  ["build.test_sandbox"] = "cfbb580a7b0b648d7e40aa41390d64a157214bc27a65034364106e47050289b7",
 
-  ["build.test_worker"] = "fa3fcb2b65ccb759bb3df97dfb6335d0476d0468503540115e94aa0825bacb81",
+  ["build.test_worker"] = "7c4b7b1765bdabc460fa7d37de3aad6a2d1c10429650b7d923c03a7bd093244d",
 
   ["build.this_program"] = "543c40bf6abd96f03c599f91a873433d13a533ef19a6d6fca30085dc8b7c2265",
 
@@ -117,7 +117,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
 
-  ["cosmic.test"] = "eb024d314101ac6adac7b3d7a239a91de98c4654416e58ddfdfe02637dd4c9fb",
+  ["cosmic.test"] = "55d1c087e51e4f26bea6562ea716dfcc82e86543cc7c4f0618a3d2522489fab3",
 
 }
 

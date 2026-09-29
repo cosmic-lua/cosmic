@@ -66,7 +66,9 @@
 --- - the environment its worker is given (`test_sandbox.environment`):
 ---   the pinned variables and the declared ones, all of them for `"*"`
 ---   -- a value where a variable a `host` path names says, or beneath
----   it, by that variable's name.
+---   it, by that variable's name;
+--- - where the tree is, only for a worker no sandbox gives it at /tree
+---   (`Spec`'s `tree`).
 ---
 --- The compiler is held by what it made, not by its identity. Its
 --- identity digests every module a compile or a parse runs to decide
@@ -128,11 +130,13 @@
 --- addresses alone (`cosmic.test`), which its worker's own loopback
 --- answers offline: they are keyed with the declaration.
 ---
---- Nothing in a key names where the tree is -- a path of it is keyed by
---- its name there, and a variable's value, each of its `:`-separated
---- parts, by `tree_name` -- so another checkout of the same
---- content reaches the same key, and a verdict is shared by it alone
---- (`build.shared_verdicts`).
+--- Nothing in a sandboxed key names where the tree is -- a path of it
+--- is keyed by its name there, and a variable's value, each of its
+--- `:`-separated parts, by `tree_name` -- so another checkout of the
+--- same content reaches the same key, and a verdict is shared by it
+--- alone (`build.shared_verdicts`). A worker no sandbox holds sees the
+--- tree where it is, not at /tree, so its key holds that path too
+--- (`Spec`'s `tree`): it shares only with a checkout at the same path.
 ---
 --- Files are hashed once a run, and a file whose `lstat` says the same
 --- as when a run last hashed it is not read at all: `Digests` remembers
@@ -248,6 +252,12 @@ local record declared_key
     --- `store` (`build.closure_store`'s `address`), or nil where it is
     --- given the whole projection, keyed by its contents.
     closure_store: string
+    --- Where the tree is, for a worker no sandbox gives it at /tree
+    --- (`build.test`'s `launch`, COSMIC_TEST_KEY=declared unsandboxed),
+    --- which sees it where it is: its verdict may turn on that path, so
+    --- it stands only in a checkout there. Nil for a sandboxed worker,
+    --- whose key names no place of the tree.
+    tree: string
   end
 
   --- Where `host_identity` and `system_identity` look, for a test: each
@@ -790,6 +800,7 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("declaration", spec.declaration, ""),
   }
   if spec.launcher ~= nil then lines[#lines + 1] = part("launcher", spec.launcher, "") end
+  if spec.tree ~= nil then lines[#lines + 1] = part("tree", spec.tree, "") end
   local files: {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)

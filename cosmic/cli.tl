@@ -443,9 +443,9 @@ local module: Module = {
   },
   options = {
     test = {
-      ["--all"] = { about = "run the tests no key can hold rather than assume they pass " ..
-        "as they last did, in this checkout or another; sandboxed, run every test, " ..
-        "whatever stands (COSMIC_TEST_ALL=1)" },
+      ["--all"] = { about = "run every test chosen, whatever stands, sandboxed or not, " ..
+        "and the tests no key can hold rather than assume they pass as they last did " ..
+        "(COSMIC_TEST_ALL=1)" },
       ["--audit"] = { about = "run every test, then name what each read beyond its " ..
         "default and declared inputs (`cosmic docs Test.needs` says how to " ..
         "declare one), and fail if any did" },
