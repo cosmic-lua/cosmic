@@ -28,9 +28,10 @@ local verdict = require("build.verdict")
 
 local log = verdict.log
 
--- Require build modules lazily inside the verb that needs them, so `help`
--- remains fast and loads only `build.clock`, `build.docs`,
--- `build.exit_status`, `build.reboot` and `build.verdict`.
+-- Require build modules lazily inside what needs them, so a verb's command
+-- line loads that verb's module alone (`verb_list.find`). Only the whole
+-- `cosmic help`, which prints every verb's `Spec.takes` and `Spec.exits`,
+-- loads them all.
 
 local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 

@@ -400,7 +400,7 @@ verb.spec = {
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its times",
-  exits = "`time` prints its answer likewise, exiting 1 when an `add` has none.",
+  exits = "`time` prints its answer and nothing after, exiting 1 when an `add` has none.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/time_test.tl)",
 }
 

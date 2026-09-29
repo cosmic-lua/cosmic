@@ -233,7 +233,7 @@ end
 --- coverage rows counted are every kept run's, not only the latest.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.databases` itself -- see `build.reboot.stale_exit`
-function databases.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -349,7 +349,7 @@ end
 --- The `db` verb as `build/verb_list.tl` lists it.
 databases.spec = {
   name = "db",
-  run = function(argv: {integer:string}): integer return databases.run(argv) end,
+  run = run,
   bare = false,
   takes = "the sources whose rows to count",
 }

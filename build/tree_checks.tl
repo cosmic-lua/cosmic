@@ -49,12 +49,16 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
-for _, name in ipairs({ "bom", "databases", "docs", "embed", "fix", "refresh", "test", "todos" }) do
+for _, name in ipairs({ "docs", "fix", "test" }) do
   allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
     "which its own module holds; kept a member because ci/fixtures/self_rebuild_test.tl " ..
-    "rewrites its head and the tests run it"
+    "rewrites the line that declares it"
 end
-allowed["build.docs.run_uses"] = "reached through the `uses` verb's `uses_spec`, which build/docs.tl holds"
+for _, name in ipairs({ "bom", "embed", "refresh", "todos" }) do
+  allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
+    "which its own module holds; kept a member because a module that exports `run` is a " ..
+    "program's entry, and its other exports may be used by its test alone (see `unearned`)"
+end
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..

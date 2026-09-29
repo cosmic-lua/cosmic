@@ -1193,7 +1193,7 @@ end
 --- `cosmic uses <symbol> [path...]`: every place that refers to the
 --- symbol, one `file:line` per line -- only those in a file under one
 --- of the paths, when there are any -- and a verdict line.
-function docs.run_uses(argv: {integer:string}): integer
+local function run_uses(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("uses: " .. parse_trouble)
@@ -1250,13 +1250,13 @@ docs.spec = {
   name = "docs",
   run = function(argv: {integer:string}): integer return docs.run(argv) end,
   bare = false,
-  takes = "words to search for instead",
+  takes = "words to search for",
 }
 
 --- The `uses` verb as `build/verb_list.tl` lists it.
 docs.uses_spec = {
   name = "uses",
-  run = function(argv: {integer:string}): integer return docs.run_uses(argv) end,
+  run = run_uses,
   bare = false,
   takes = "paths after its symbol",
 }
