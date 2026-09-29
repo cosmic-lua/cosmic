@@ -215,12 +215,17 @@ local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
       return true, ""
     end,
     writer = function(self: Net.Conn): Stream.Writer
+      -- Once ended, a second close asks nothing of the socket, which
+      -- macOS answers ENOTCONN once the peer has gone.
+      local ended = false
       return {
         write = function(_w: Stream.Writer, data: string): boolean, string
+          if ended then return false, "writer is closed" end
           return self:write(data)
         end,
         close = function(_w: Stream.Writer): boolean, string
-          if not open then return true, "" end
+          if ended or not open then return true, "" end
+          ended = true
           return self:shutdown("write")
         end,
         abort = function(_w: Stream.Writer): boolean, string

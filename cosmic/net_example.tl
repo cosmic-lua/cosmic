@@ -10,9 +10,12 @@ local Example = {}
 
 --- A server on a socket file: it makes the file, and `close` (here, the
 --- `<close>` variable going out of scope) removes it. Every wait is
---- bounded by `timeout_ms`, which a connection accepted inherits.
+--- bounded by `timeout_ms`, which a connection accepted inherits. A
+--- socket file's path is short (at most 103 bytes on macOS, whose
+--- temporary directory takes some 50 of them), so the directory's
+--- prefix is too.
 function Example.listen()
-  local dir = assert(Fs.mkdtemp("cosmic-net-example-"))
+  local dir = assert(Fs.mkdtemp("net-"))
   do
     local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock"), { timeout_ms = 5000 }))
     local client <close> = assert(Net.connect(server.address))
@@ -29,7 +32,7 @@ end
 --- A request and its answer: `shutdown("write")` tells the server the
 --- request is whole while the client still reads what comes back.
 function Example.connect()
-  local dir = assert(Fs.mkdtemp("cosmic-net-example-"))
+  local dir = assert(Fs.mkdtemp("net-"))
   local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock"), { timeout_ms = 5000 }))
   local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
   assert(client:write("status"))
