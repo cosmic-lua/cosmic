@@ -256,23 +256,27 @@ saves and still carries the products, both taken from the queue's run:
   they differ from the entry it restored, and the driver check's marker,
   where the check ran, with `seed.keys` naming the key each is saved
   under, the key main's own save would compute. It uploads them as
-  `seed-<leg>`, kept a day.
+  `seed-<leg>`, kept a day. The checked job (below) keeps its verdicts
+  the same way, as `seed-linux-x86_64-checked`.
 - A push to main first runs `reuse` (`queue-seed.sh find`), which asks
   the API for a `merge_group` run of ci.yml on a
   `gh-readonly-queue/main/` branch whose `head_sha` is the push's, that
   completed with success and holds an unexpired `seed-<leg>` for every
-  leg. The queue lands the merge as its `ci` check passes, a moment
+  leg and the checked job. The queue lands the merge as its `ci` check passes, a moment
   before its run completes, so a run still in progress, or an API call
   that failed, is asked after again, every 20 s up to six times, each
   call cut off at 15 s; the job's timeout is held above that budget. A
   lookup that fails, or times out, is none: the legs run, and the join
   reads only theirs.
-- Where it finds one, the platform legs are skipped, and `seed`, on
-  each leg's own runner (an entry's version hashes its path, the
-  runner's), saves that leg's seed under the keys it names and uploads
-  the queue's `portable-product-<leg>` as this run's. The `ci` join
+- Where it finds one, the platform legs and the checked job are
+  skipped, and `seed`, on each leg's own runner (an entry's version
+  hashes its path, the runner's), saves that leg's seed under the keys
+  it names and uploads the queue's `portable-product-<leg>` as this
+  run's; its checked entry saves the checked job's verdicts and relays
+  no product. The `ci` join
   compares those products as it does a platform run's, reading `seed`'s
-  result in place of the legs', and prerelease.yml publishes them
+  result in place of the legs' and the checked job's, and
+  prerelease.yml publishes them
   unchanged. The prerelease's `source.json` names this run, whose
   `reuse` summary names the queue's run that built and tested the
   product (the `TODO:` on `seed`'s relay).
@@ -295,6 +299,37 @@ second restore) and recompiles only what moved, and main has no run
 that builds but a direct push's or a manual one's. Seeding them too
 would move some 130 MB a leg through an artifact for the few hours
 before the nightly.
+
+### the checked job
+
+The checked core's suite, the whole suite on the sanitized core, ran
+at the end of linux-x86_64's assemble: 178 to 345 s after that leg's
+own suites, which made it the queue's longest leg in 9 of 13 runs
+(2026-09-29). It runs instead in a job of its own, `checked`
+(`linux-x86_64-checked`), beside the legs, on that leg's host: its
+runner, image and builder, and so the same `COSMIC_HOST_ID`. It boots
+(`platform boot`, the build phase without the native suite), builds the
+checked core and the format decoder the contract's fixture would have
+left (`platform checked-build`), and runs the suite (`platform
+checked`). Every leg sets `COSMIC_CI_CHECKED_SUITE=skip`, and still
+builds and verifies its checked core in assemble, which its fixtures
+use; a leg that skips the suite removes a `checked.db` from its
+verdicts, which would otherwise ride along whole in each save.
+
+It runs wherever the legs do. On a branch push (`light`), which runs
+no checked suite, every step skips, so it shows as a check that ran:
+a runner's start, which the join waits for, and no skipped check. It
+restores linux-x86_64's zig build outputs and compiles, which that leg
+saves, and saves neither. Its verdicts it keeps under a name of its
+own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
+restored, trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's
+are. The `ci` join requires it, and `report` counts it with the legs.
+Its tree moves to a path of the commit's own, as a leg's does: the
+checked core runs the harness, the boot's staging and `tool.tl entry`
+unsandboxed at that path, so a path of another length each commit
+varies what the sanitizers see. The tree moves back before the seed
+and the verdicts' save, whose path actions/cache names relative to the
+workspace (below).
 
 ### the Linux legs' container
 

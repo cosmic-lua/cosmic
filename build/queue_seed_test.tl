@@ -237,4 +237,11 @@ local function test_stage_keeps_what_main_would_save(tmp: string)
   assert(keys == "", keys)
   assert(not Fs.exists(seed .. "/verdicts") and not Fs.exists(seed .. "/build-cache") and
     not Fs.exists(seed .. "/driver-checked"))
+
+  -- A job that keeps no compiles (ci.yml's `checked`) names none.
+  seed, keys = stage(tmp, {
+    VERDICTS_PREFIX = "verdicts-leg-checked-h-f-", VERDICTS_DIGEST = "d2", VERDICTS_RESTORED = "",
+  }, false)
+  assert(keys == "verdicts=verdicts-leg-checked-h-f-d2\n", keys)
+  assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v" and not Fs.exists(seed .. "/build-cache"))
 end
