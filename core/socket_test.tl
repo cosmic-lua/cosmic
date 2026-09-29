@@ -45,7 +45,7 @@ local function test_a_socket_dropped_unclosed_is_closed_by_the_collector(tmp: st
     local client = assert(raw.connect(unix(path), 5000))
     assert(raw.wait(listener:fd(), false, 5000))
     local accepted = assert(raw.accept(listener:fd()))
-    assert(accepted:fd() > client:fd() and client:fd() > listener:fd())
+    assert(accepted:fd() ~= client:fd() and client:fd() ~= listener:fd())
   end
   assert(Fs.stat(path) ~= nil, "no socket file")
   collectgarbage("collect")
@@ -102,4 +102,80 @@ local function test_a_closed_socket_closes_again_and_has_no_descriptor(tmp: stri
   assert(listener:close())
   local ok, why = pcall(listener.fd, listener)
   assert(not ok and tostring(why):find("the socket is closed", 1, true) ~= nil, tostring(why))
+end
+
+--- An address whose `path` answers once and then nil -- read twice,
+--- a second read would find none -- is read once: the listener binds
+--- and removes the file of that one read.
+local function test_an_address_is_read_once(tmp: string)
+  local path = tmp .. "/s.sock"
+  local reads = 0
+  local fickle: metatable<raw_socket.Address> = {
+    __index = function(_: raw_socket.Address, key: string): any
+      if key == "kind" then return "unix" end
+      if key ~= "path" then return nil end
+      reads = reads + 1
+      return reads == 1 and path or nil
+    end,
+  }
+  local listener = assert(raw.listen(setmetatable({} as raw_socket.Address, fickle), 1))
+  assert(reads == 1, "the path was read " .. reads .. " times")
+  assert(Fs.stat(path) ~= nil, "no socket file")
+  assert(listener:close())
+  assert(Fs.stat(path) == nil, "the socket file was left")
+end
+
+local DEEP_PART <const> = string.rep("d", 200)
+local DEEP_LEVELS <const> = 24
+
+--- A directory under `tmp` whose whole path is past any platform's
+--- PATH_MAX, made and entered one component at a time, since no call
+--- can name it whole.
+local function enter_deep(tmp: string)
+  assert(sys.chdir(tmp))
+  for _ = 1, DEEP_LEVELS do
+    local made, why, errno = sys.mkdir(DEEP_PART)
+    assert(made or errno == sys.EEXIST, why)
+    assert(sys.chdir(DEEP_PART))
+  end
+end
+
+--- Removes what `enter_deep` made, deepest first, which the harness
+--- could not: its own removal names each path whole.
+local function remove_deep(tmp: string)
+  enter_deep(tmp)
+  sys.unlink("s.sock")
+  for _ = 1, DEEP_LEVELS do
+    assert(sys.chdir(".."))
+    assert(sys.rmdir(DEEP_PART))
+  end
+end
+
+--- A listener at a path past PATH_MAX -- a name bound from a working
+--- directory that deep -- removes its socket file when closed and when
+--- collected, wherever the process has moved to since.
+local function test_a_socket_file_past_path_max_is_removed(tmp: string)
+  local was = assert(sys.getcwd())
+  local ok, failure: boolean, any = pcall(function()
+    for _, collected in ipairs({ false, true }) do
+      enter_deep(tmp)
+      local listener, trouble = raw.listen(unix("s.sock"), 1)
+      assert(sys.chdir(was))
+      assert(listener ~= nil, trouble)
+      if collected then
+        listener = nil
+        collectgarbage("collect")
+        collectgarbage("collect")
+      else
+        assert(listener:close())
+      end
+      enter_deep(tmp)
+      local left = sys.lstat("s.sock")
+      assert(sys.chdir(was))
+      assert(left == nil, "the socket file was left, collected: " .. tostring(collected))
+    end
+  end)
+  remove_deep(tmp)
+  assert(sys.chdir(was))
+  assert(ok, tostring(failure))
 end

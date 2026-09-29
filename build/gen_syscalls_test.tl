@@ -222,6 +222,8 @@ local function test_a_userdata_class_declares_methods_and_metamethods()
   end
   local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
-  local refused, why = gen_syscalls.read(with("Owner: table"))
-  assert(refused == nil and why:find("a parent other than userdata", 1, true), why)
+  for _, class in ipairs({ "Owner: table", "Owner userdata" }) do
+    local refused, why = gen_syscalls.read(with(class))
+    assert(refused == nil and why:find("a parent other than userdata", 1, true), class .. ": " .. why)
+  end
 end

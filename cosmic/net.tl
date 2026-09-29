@@ -413,6 +413,7 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
   if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
   return new_listener(socket, { kind = address.kind, path = address.path }, opts.timeout_ms), ""
 end
+
 --- Connects to `address`. A unix one fails "No such file or directory"
 --- where there is no socket file and "Connection refused" where nothing
 --- listens at it, and waits for room at a listener whose backlog is

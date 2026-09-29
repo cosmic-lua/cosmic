@@ -236,12 +236,13 @@ local function parse_class(lines: {string}, at: {integer}): Class | nil, string
   for index, line in ipairs(lines) do
     local tag, rest = line:match("^@(%a+)%s+(.*)$")
     if tag == "class" then
-      local name, parent = rest:match("^([%w_]+)%s*:?%s*(%S*)")
-      if name == nil or (parent ~= "" and parent ~= "userdata") then
+      local name, parent = rest:match("^([%w_]+)(.-)%s*$")
+      local is_userdata = parent ~= nil and parent:match("^%s*:%s*userdata$") ~= nil
+      if name == nil or (parent ~= "" and not is_userdata) then
         return nil, "a class block names no class, or a parent other than userdata"
       end
       class.name = name
-      class.userdata = parent == "userdata"
+      class.userdata = is_userdata
       class.line = at[index]
     elseif tag == "field" then
       local fname, kind, description = rest:match("^([%w_]+)%s+(%S+)%s*(.*)$")
