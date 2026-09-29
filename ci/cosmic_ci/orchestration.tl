@@ -401,7 +401,7 @@ local function record_suite(c: Context, name: string, code: integer, out: string
       stood = figures.stood, every = figures.every, assumed = figures.assumed,
       shared = figures.shared, failed = figures.failed,
       elapsed_ms = figures.elapsed_ms, sandbox = figures.sandbox,
-      parts = figures.parts })
+      parts = figures.parts, held = figures.held })
     return true
   end)
   if not called then

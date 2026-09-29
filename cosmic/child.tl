@@ -1025,6 +1025,21 @@ local function null(wiring: Wiring, flags: integer): integer | nil, string
   return fd, ""
 end
 
+--- The descriptor the child's output `child_fd` goes to, as `how` asks:
+--- a pipe to capture or stream, /dev/null, or a descriptor given; nil
+--- and "" to inherit this process's, and nil and why when it fails.
+local function wire_output(wiring: Wiring, child_fd: integer,
+                           how: integer | string): integer | nil, string
+  if how == "capture" or how == "stream" then
+    return capture(wiring, child_fd, how == "stream")
+  elseif how == "null" then
+    return null(wiring, sys.O_WRONLY)
+  elseif how is integer then
+    return how, ""
+  end
+  return nil, ""
+end
+
 --- Resolves the options into the descriptor each child slot copies:
 --- nil to inherit, or a descriptor number.
 local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, string
@@ -1059,31 +1074,16 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
   elseif stdin is integer then
     slots[0] = stdin
   end
-  local stdout = descriptor(opts.stdout, "stdout", STDOUT_WORDS)
-  if stdout == "capture" or stdout == "stream" then
-    local fd, trouble = capture(wiring, 1, stdout == "stream")
-    if fd == nil then return nil, trouble end
-    slots[1] = fd
-  elseif stdout == "null" then
-    local fd, trouble = null(wiring, sys.O_WRONLY)
-    if fd == nil then return nil, trouble end
-    slots[1] = fd
-  elseif stdout is integer then
-    slots[1] = stdout
-  end
+  local out, out_trouble = wire_output(wiring, 1, descriptor(opts.stdout, "stdout", STDOUT_WORDS))
+  if out_trouble ~= "" then return nil, out_trouble end
+  slots[1] = out
   local stderr = descriptor(opts.stderr, "stderr", STDERR_WORDS)
   if stderr == "stdout" then
     slots[2] = slots[1] or 1
-  elseif stderr == "capture" or stderr == "stream" then
-    local fd, trouble = capture(wiring, 2, stderr == "stream")
-    if fd == nil then return nil, trouble end
-    slots[2] = fd
-  elseif stderr == "null" then
-    local fd, trouble = null(wiring, sys.O_WRONLY)
-    if fd == nil then return nil, trouble end
-    slots[2] = fd
-  elseif stderr is integer then
-    slots[2] = stderr
+  else
+    local err, err_trouble = wire_output(wiring, 2, stderr)
+    if err_trouble ~= "" then return nil, err_trouble end
+    slots[2] = err
   end
   if opts.fds ~= nil then
     local numbers: {integer} = {}

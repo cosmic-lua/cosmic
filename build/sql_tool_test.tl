@@ -40,7 +40,7 @@ local function test_a_pipe_is_a_table_and_a_file_beside_it_joins(tmp: string)
 end
 
 local function test_a_refused_line_and_a_bad_file_keep_the_verdict_last(tmp: string)
-  local unknown = cosmic(tmp, { "sql", "--from", "data.csv", "SELECT 1" })
+  local unknown = cosmic(tmp, { "sql", "--from", "data.xml", "SELECT 1" })
   assert(unknown.code == 2, unknown.err)
   assert(unknown.out:find("^sql: FAIL %(usage"), unknown.out)
   local invalid = cosmic(tmp, { "sql", "--from", "-", "--as", "json", "SELECT 1" }, "{")
@@ -58,4 +58,12 @@ local function test_help_points_between_sql_and_json(tmp: string)
   assert(json.out:find("cosmic sql --from", 1, true), json.out)
   local all = cosmic(tmp, { "help" })
   assert(all.out:find("cosmic sql --from", 1, true), all.out)
+end
+
+local function test_a_csv_from_a_file_and_standard_input_through_the_binary(tmp: string)
+  assert(Fs.write(tmp .. "/sales.csv", "region,amount\nn,\"1,5\"\ns,2\ns,3\n"))
+  local ran = cosmic(tmp, { "sql", "--from", "sales.csv", "--raw", "--from", "t=-", "--as", "tsv",
+    "SELECT region, typeof(amount), b FROM sales JOIN t ON t.a = region ORDER BY amount" }, "a\tb\nn\tone\n")
+  assert(ran.code == 0, ran.err)
+  assert(ran.out:find("^region\ttypeof%(amount%)\tb\nn\ttext\tone\nsql: PASS %(1 row from sales.csv, standard input, "), ran.out)
 end
