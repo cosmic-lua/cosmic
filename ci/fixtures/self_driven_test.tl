@@ -11,15 +11,12 @@ local Fixture = require("cosmic_ci.fixture")
 local boot_timeout_ms <const> = 450000
 
 local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local tree = tmp .. "/tree"
   local diagnostics = tmp .. "/logs"
   Fixture.mkdir(diagnostics)
-  Fixture.mkdir(tree)
-  Fixture.run("git-archive", { "/bin/sh", "-c",
-    "git -C \"$1\" archive HEAD | tar -xf - -C \"$2\"", "sh", root, tree },
-    root, diagnostics)
+  -- The tree the product was booted from (COSMIC_FIXTURE_SOURCE).
+  Fixture.source_tree(tree)
 
   Fixture.succeeded("self-driven-boot", Fixture.call_with_environment(
     "self-driven-boot", { tree .. "/bin/zig", "build", "boot" }, tree,

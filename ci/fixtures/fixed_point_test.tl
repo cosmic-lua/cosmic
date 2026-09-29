@@ -17,15 +17,6 @@ local function count_occurrences(text: string, needle: string): integer
   return count
 end
 
--- `git archive HEAD | tar -xf -` the candidate root into a fresh tree, the
--- tree the product was booted from.
-local function archive_tree(root: string, tree: string, diagnostics: string)
-  Fixture.mkdir(tree)
-  Fixture.run("git-archive", { "/bin/sh", "-c",
-    "git -C \"$1\" archive HEAD | tar -xf - -C \"$2\"", "sh", root, tree },
-    root, diagnostics)
-end
-
 -- The fixed point of the self-rebuild. The tool a boot wrote (the
 -- product) is made stale by `edit` of `file` and rebuilt, then made stale
 -- again by undoing it and rebuilt once more. The result must be the
@@ -38,13 +29,13 @@ end
 -- builds it again once (`build.reboot`). Outside both, neither does.
 local function run_fixed_point_case(tmp: string, name: string, file: string,
     edit: function(string): string, settles: boolean)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local case_root = tmp .. "/case-fixed-point-" .. name
   local tree = case_root .. "/tree"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  -- The tree the product was booted from (COSMIC_FIXTURE_SOURCE).
+  Fixture.source_tree(tree)
   local program = tree .. "/o/bin/cosmic"
   Fixture.mkdir(tree .. "/o/bin")
   Fixture.copy(product, program, 0x1ed)

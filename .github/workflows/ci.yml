@@ -550,6 +550,8 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform portable-boundary \"${{ steps.portable-suite.outcome }}\"",
         },
 
+        # The sandboxed fixtures stand on fixtures.db, beside verdicts.db,
+        # which the verdict cache restores and saves with it.
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
           if: "env.COSMIC_CI_SCOPE == 'full'",

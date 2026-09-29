@@ -71,13 +71,11 @@ local function insert_after(lines: {string}, marker: string,
   return out
 end
 
--- `git archive HEAD | tar -xf -` the candidate root into a fresh tree, the
--- same fixture every rebuild/refusal case starts from.
-local function archive_tree(root: string, tree: string, diagnostics: string)
-  Fixture.mkdir(tree)
-  Fixture.run("git-archive", { "/bin/sh", "-c",
-    "git -C \"$1\" archive HEAD | tar -xf - -C \"$2\"", "sh", root, tree },
-    root, diagnostics)
+-- A fresh tree, the tree the product was booted from
+-- (COSMIC_FIXTURE_SOURCE), the same fixture every rebuild/refusal case
+-- starts from.
+local function archive_tree(tree: string)
+  Fixture.source_tree(tree)
 end
 
 -- Copies the fixture-only runtime into the archived tree's `o/bin/cosmic`,
@@ -159,14 +157,14 @@ end
 -- itself from the database at the same logical path. Then, in the same
 -- case, a core input edit is checked to be refused without touching the
 -- artifact.
-local function run_rebuild_case(root: string, fixture_dir: string,
+local function run_rebuild_case(fixture_dir: string,
     tmp: string, action: string)
   local case_root = tmp .. "/case-" .. action
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local original_hash = Fixture.hash(program)
   local prefix_length = read_prefix_length(fixture_dir)
@@ -278,14 +276,14 @@ end
 -- patch, or an edited launcher generator) is refused outright, when
 -- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
 -- touching the artifact.
-local function run_refusal_case(root: string, fixture_dir: string,
+local function run_refusal_case(fixture_dir: string,
     tmp: string, name: string)
   local case_root = tmp .. "/refuse-" .. name
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before = Fixture.hash(program)
 
@@ -333,20 +331,17 @@ end
 -- Each way of losing the artifact is a test of its own, so each self-rebuild
 -- has a test's whole time limit to itself rather than half of one.
 local function test_self_rebuild_after_a_rename(tmp: string)
-  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_ROOT"),
-    Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "rename")
+  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "rename")
 end
 
 local function test_self_rebuild_after_an_unlink(tmp: string)
-  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_ROOT"),
-    Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "unlink")
+  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "unlink")
 end
 
 local function test_self_rebuild_refusals(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   for _, name in ipairs({ "tl-pin", "tl-patch", "launcher" }) do
-    run_refusal_case(root, fixture_dir, tmp, name)
+    run_refusal_case(fixture_dir, tmp, name)
   end
 end
 
@@ -358,14 +353,13 @@ end
 -- once and shows the edit; a second, now-fresh call shows it again without
 -- rebuilding again.
 local function test_self_rebuild_docs_verb(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-docs"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
@@ -401,14 +395,13 @@ end
 -- and end in "disk I/O error" or "portable program database has no SQLite
 -- header" and a spurious "(the tool is stale)" failure.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-concurrent"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
@@ -448,14 +441,13 @@ end
 -- neither waits for that run nor, re-entering after it, rebuilds, so
 -- runs that cannot settle the tool do not rebuild it by turns for good.
 local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-rebooted"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
@@ -497,14 +489,13 @@ end
 -- `fix` in cosmic's own tree fixes with the tree's rules and layout, so a
 -- tool older than the tree rebuilds itself before it fixes anything.
 local function test_self_rebuild_fix_verb(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-fix"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_fix_marker_edit(tree)
@@ -540,14 +531,13 @@ end
 -- the check build/dispatch.tl makes before it calls a refused command
 -- line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-foreign"
   local tree = case_root .. "/tree"
   local cache = case_root .. "/cache"
   local diagnostics = case_root .. "/logs"
   Fixture.mkdir(diagnostics)
-  archive_tree(root, tree, diagnostics)
+  archive_tree(tree)
   local program = case_root .. "/elsewhere/cosmic"
   Fixture.mkdir(case_root .. "/elsewhere")
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
