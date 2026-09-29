@@ -7,14 +7,15 @@
 --- `TZ` and /etc/localtime name) is the host's.
 ---
 --- Like `cosmic json` it ends in no verdict line: its standard output is
---- data for a pipe or a `$(...)`. Its exit status is the verdict: 0 done,
---- 1 an `add` whose answer does not exist (the day its month lacks, a
---- moment outside what the calendar holds, a result in a gap a zone
---- skipped, under `--disambiguate reject`), 2 a command line, a time, a
---- duration or a zone it cannot read. So a local time a zone skipped or
---- repeated that the user TYPED, read under `reject`, is bad input (2),
---- while one an `add` LANDS in is an answer that does not exist (1). Complaints go to standard error. build/dispatch.tl's
---- `bare` names it.
+--- data for a pipe or a `$(...)`, and complaints go to standard error.
+--- Its exit status is the verdict: 0 done, 1 an `add` whose answer does
+--- not exist (the day its month lacks, a moment outside what the calendar
+--- holds, a result in a gap a zone skipped, under `--disambiguate
+--- reject`), 2 a command line, a time, a duration or a zone it cannot
+--- read. So a local time a zone skipped or repeated that the user typed,
+--- read under `reject`, is bad input (2), while one an `add` lands in is
+--- an answer that does not exist (1). build/dispatch.tl's `bare` names
+--- the verb.
 ---
 --- Local times a zone skips or repeats: `YYYY-MM-DDTHH:MM[:SS]` read in a
 --- zone that had no such time (a spring-forward gap) or two (a fall-back

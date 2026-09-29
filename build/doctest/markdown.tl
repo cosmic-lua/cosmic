@@ -10,7 +10,7 @@
 --- `<!-- needs: <fields> -->`, what the doc's examples read beyond
 --- their default inputs (`cosmic.test`'s `needs`), which renders as
 --- nothing and comes back as a block of its own, `needs`, holding
---- `<fields>`. The `<!-- inputs: ... -->` it replaced is refused.
+--- `<fields>`. A `<!-- inputs: ... -->` line is refused.
 ---
 --- A fence opens with a backtick or tilde run of at least three. It
 --- closes with the same marker in a run at least as long as the opener.
@@ -127,12 +127,9 @@ end
 --- Whether `line`, already ruled out as a column-0 fence opener, still
 --- looks like one that was meant to be: an indented run of three or
 --- more backticks or tildes. CommonMark allows a fence indented up to
---- three spaces (stripping that indentation from its content); this
---- grammar does not, and silently treating such a line as prose would
---- reproduce the exact silent-gap shape `~~~` support just closed for
---- unindented fences -- a doc author's example quietly never compiled
---- or ran, with nothing to say so. Loud refusal here stands in for that
---- support until indentation is worth handling for real.
+--- three spaces; this grammar does not. Treating such a line as prose
+--- would leave the author's example silently never compiled or run, so
+--- it is refused loudly instead.
 local function looks_like_an_indented_fence(line: string): boolean
   local indented = line:match("^%s+(.*)$")
   if indented == nil then

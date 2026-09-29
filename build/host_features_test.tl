@@ -80,9 +80,8 @@ end
 --- On x86_64, only the features a core chooses code by are keyed --
 --- mbedtls's AES-NI and xz's carry-less CRCs -- so hosted runners that
 --- differ in any other split neither the verdicts nor their cache, and
---- a host lacking one of them keys apart. The FMA features, which
---- chose a glibc libm's code when a checked core linked one, are no
---- longer among them.
+--- a host lacking one of them keys apart. The FMA features are not
+--- among them.
 local function test_an_x86_64_host_keys_only_what_a_core_dispatches_on(tmp: string)
   local base = "fpu sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms"
   local write, both = host(tmp, "x86_64", "processor : 0\nflags : " .. base .. "\n")

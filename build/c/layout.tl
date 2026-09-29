@@ -361,7 +361,7 @@ local function laid_out(source: string): string
 end
 
 --- `source`, a C file, laid out; or nil and why, when the layout would
---- change more than whitespace or is not yet settled.
+--- change more than whitespace or is not a fixed point.
 function layout.rendered(source: string): string | nil, string
   local out = laid_out(source)
   local same, difference = layout.same(source, out)

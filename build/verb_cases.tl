@@ -21,13 +21,16 @@ local record verb_cases
   surplus: {string:{string} | string}
 end
 
---- The verbs that end in no verdict line: those whose words after the
---- file are the program's own, so no option or argument is theirs to
---- refuse, and whose output is the program's; `--version`, whose
---- one line is all it prints (build/version_tool_test.tl holds it); and
---- every listed verb that is `bare` (build/verb_spec.tl), which does refuse
---- options and arguments, held to that in its own test, but whose standard
---- output is the value asked for; its reason is its spec's `passthrough`.
+--- The verbs that end in no verdict line, each with its reason:
+--- - `run`, `standalone` and `eval`, whose words after the file are the
+---   program's own, so no option or argument is theirs to refuse, and
+---   whose output is the program's;
+--- - `version`, whose one line is all it prints
+---   (build/version_tool_test.tl holds it);
+--- - every listed verb that is `bare` (build/verb_spec.tl). It does
+---   refuse options and arguments, held to that in its own test, but its
+---   standard output is the value asked for. Its reason is its spec's
+---   `passthrough`.
 verb_cases.passthrough = {
   run = "the words after the file are its program's argv",
   standalone = "the words after the file are its program's argv",

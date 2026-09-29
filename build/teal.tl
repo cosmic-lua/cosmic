@@ -158,27 +158,21 @@ function teal.load(): compiler | nil, string
   return produced as compiler
 end
 
---- A capsule that puts off `teal.load`'s ~5ms, ~291KB bytecode load
---- until something actually touches the compiler. Most runs never do:
---- when `build.importer` answers every module and every coverage line
---- from its own caches, nothing ever asks the compiler to parse, check
---- or generate anything, and loading it up front is pure waste on
---- exactly that (common) run. The capsule is an empty table whose
---- metatable loads the compiler on the first field anything reads or
---- writes and remembers it afterward, so the load happens at most
---- once. A write goes onto the loaded compiler itself, never onto the
---- capsule: tl reaches its own `search_module` and `path` through its
---- module table, so `serve`'s override below has to land there for
---- the checker to see it, and a capsule that kept the write for itself
---- would leave tl searching the filesystem. A load failure raises the
---- exact message `teal.load` would have returned, with `error(_, 0)`
---- so it reaches the top unprefixed by a location naming this line
---- rather than the real cause: a broken binary still says "the
---- compiler is not in this binary: ..." instead of a nil-index
+--- A compiler that loads on first use. Most runs never touch it: when
+--- `build.importer` answers every module and coverage line from its
+--- caches, nothing asks the compiler to parse, check or generate, and
+--- loading its bytecode up front is waste.
+---
+--- The result is an empty table whose metatable calls `teal.load` on the
+--- first field read or written and keeps what it loaded. A write lands
+--- on the loaded compiler, never the capsule: tl reaches its own
+--- `search_module` and `path` through its module table, so `serve`'s
+--- overrides must land there. A load failure raises `teal.load`'s
+--- message through `error(_, 0)`, so a broken binary says "the compiler
+--- is not in this binary: ..." rather than showing a nil-index
 --- traceback.
---- @return compiler a capsule usable everywhere `teal.load`'s own
----   result is: the same one boundary, an untyped table cast to the
----   declared surface, just deferred to the first real use
+--- @return compiler usable wherever `teal.load`'s result is: the same
+---   untyped table cast to the declared surface, deferred to first use
 function teal.lazy(): compiler
   local loaded: {any:any}
   local function real(): {any:any}
@@ -247,16 +241,15 @@ function teal.serve_standard(built: compiler)
 end
 
 --- Points the checker at the tree staged at `root` in the working
---- database `db`: every module it asks for by
---- name is answered from the working database's `inputs`, a
---- declaration ahead of a source of the same name, under the name the
---- module would have on disk. A `cosmic.*` name the stage does not
---- hold is answered by the binary's own rows, which is how a project
---- outside this tree types its `require` of the standard library.
---- Nothing is read from a path, and nothing falls through to the
---- compiler's own search of the filesystem: a name neither the stage
---- nor the binary holds is not found, however a file of that name
---- may sit on disk, so a module reaches a build only by being staged.
+--- database `db`. A module asked for by name is answered from `inputs`
+--- (a declaration ahead of a source of the same name) under the name the
+--- module would have on disk. A `cosmic.*` name the stage lacks is
+--- answered by the binary's own rows, which is how a project outside
+--- this tree types its `require` of the standard library. Nothing is
+--- read from a path and nothing falls through to the compiler's own
+--- search of the filesystem: a name neither holds is not found, however
+--- a file of that name sits on disk, so a module reaches a build only by
+--- being staged.
 local function serve(built: compiler, db: Sqlite.Handle, root: string)
   built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
@@ -273,21 +266,21 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string)
   end
 end
 
---- A checker environment pointed at a staged tree, with the strictness
---- this project holds itself to -- and without the names cosmic's own
---- runtime surface removes (`cosmic.removed`'s own fields): tl's
---- bundled standard-library declarations still carry `io`, `os` and
---- `debug` as ordinary globals, since tl has no way to know cosmic's
---- runtime does not, so a program that reaches for one would otherwise
---- type-check clean and only fail once it actually runs. Stripped from
---- both `globals` (a bare reference: `os.time()`) and `modules` (a
---- `require("io")`: `env.modules` is where `new_env` puts every global
---- that is itself a module, for `require` to resolve statically), each
---- becomes tl's own "unknown variable" or "module not found" instead.
---- Handed the working database and the tree's root, not `build.work`'s
+--- A checker environment pointed at a staged tree (see `serve`), with
+--- the strictness this project holds itself to and without the names
+--- cosmic's runtime surface removes (`cosmic.removed`'s `order`). tl's
+--- bundled standard-library declarations carry `io`, `os` and `debug`
+--- as ordinary globals, since tl cannot know cosmic's runtime lacks
+--- them, so a program reaching for one would type-check and fail only
+--- when run. The names are removed from `globals` (a bare `os.time()`)
+--- and from `modules` (a `require("io")`; `new_env` puts every global
+--- that is a module there), so the checker reports tl's own "unknown
+--- variable" or "module not found".
+---
+--- Takes the working database and the tree's root, not `build.work`'s
 --- handle: a require of build.work would carry the rest of it into the
---- compiler's identity (`build.work`'s `compiler_identity`), which this
---- module is a root of.
+--- compiler's identity (`compiler_identity` in build.work), of which
+--- this module is a root.
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
                               root: string): compiler.Env | nil, string
   serve(built, db, root)
@@ -505,45 +498,46 @@ local function integer_hint(source: string, y: integer, x: integer): string | ni
 end
 
 --- What to write instead, when `msg` is the checker refusing a name
---- `environment_for` stripped: `unknown variable: os` at line `y`,
---- column `x` of `source`, read together with the field that follows
---- it there (`os.getenv` names `Env.get`), or `module not found: 'io'`
---- for a `require`. `cosmic.removed`'s `message` says it, the same
---- words `core/surface.c` raises with when a running program reaches
---- for the name. For `invalid key 'hex' in record 'Digest' of type
---- Hash`, where `source` binds the type's own name, `Hash`, to
---- `require("cosmic.hash")` (`local Hash <const> = require(...)`: the
---- checker names a module's record after the local its `require` was
---- first bound to, whatever alias reads it now) and `cosmic.removed`'s
---- `members` names `cosmic.hash.hex`, what to write instead of that
---- member; the same for a type the module no longer declares,
---- `unknown type Zip.ZipReader` (`cosmic.zip.ZipReader`). A record of
---- the program's own, or a type bound to more than one module, has no
---- answer; nor does a module bound among several
---- names (`local A, Hash = ...`) or by a line that does not start with
---- its `local` (`do local Hash = ...`). Scope is not read: a `require`
---- in a nested block counts as if it were the file's own. Nil for every
---- other message.
+--- `environment_for` stripped or a member `cosmic.removed` lists; nil
+--- for any other message. `y` and `x` are the line and column in
+--- `source` where the checker reported it.
 ---
---- `in assignment: got number, expected integer` at line `y`, column
---- `x` names the variable when `source`'s parse has, at that position,
---- the single assignment `name = <expression>` and `name` resolves,
---- through the lexical scopes, to `local name = <integer literal>`
---- with no annotation (`local peak = 0`): the checker inferred
---- `integer` there, and the answer is to spell the float or the type.
---- The position is the operator of a binary expression, the inside of
---- parentheses, or the target itself for any other expression
---- (`x = f()`, `x = t.n`). Nothing is said for a parameter, `self`, a
---- loop variable, a declaration with an annotation, a non-literal (or
---- negative, or hexadecimal) initializer or several names, a global, a
---- field (`t.n = ...`), a multiple assignment (`a, b = ...`), or a
---- source that does not parse.
+--- `unknown variable: os` is read together with the field that follows
+--- it there (`os.getenv` names `Env.get`); `module not found: 'io'`
+--- answers a `require`. The answer is `cosmic.removed`'s `message`, the
+--- words `core/surface.c` raises with when a running program reaches
+--- for the name.
+---
+--- `invalid key 'hex' in record 'Digest' of type Hash` and `unknown
+--- type Zip.ZipReader` (`cosmic.zip.ZipReader`, a type the module no
+--- longer declares) are answered from `cosmic.removed`'s `members` when
+--- `source` binds the type's own name (`Hash`) to `require("cosmic.hash")`.
+--- The checker names a module's record after the local its `require` was
+--- first bound to, whatever alias reads it now. There is no answer for a
+--- record of the program's own, a name bound to more than one module, a
+--- module bound among several names (`local A, Hash = ...`) or by a line
+--- that does not start with its `local` (`do local Hash = ...`). Scope is
+--- not read: a `require` in a nested block counts as the file's own.
+---
+--- `in assignment: got number, expected integer` names the variable when
+--- `source` has, at that position, the single assignment
+--- `name = <expression>` and `name` resolves through the lexical scopes
+--- to `local name = <integer literal>` with no annotation
+--- (`local peak = 0`). The checker inferred `integer` there, and the
+--- answer is to spell the float or the type. The position is the
+--- operator of a binary expression, the inside of parentheses, or the
+--- target itself for any other expression (`x = f()`, `x = t.n`).
+--- Nothing is said for a parameter, `self`, a loop variable, a
+--- declaration with an annotation, a non-literal (or negative, or
+--- hexadecimal) initializer or several names, a global, a field
+--- (`t.n = ...`), a multiple assignment (`a, b = ...`), or a source that
+--- does not parse.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
   if msg == "in assignment: got number, expected integer" then
     -- TODO: hint a table field too (`local t = {n = 0}; t.n = t.n + 0.5`,
     -- `t.n` an "op" node here): it waits on the checker's inferred type of
-    -- a record field being readable from the AST, which the parser alone
-    -- does not give; resolving it takes the type checker's own result.
+    -- a record field being readable from the AST; the parser alone does
+    -- not give it.
     return integer_hint(source, y, x)
   end
   local key, alias, typename = msg:match(

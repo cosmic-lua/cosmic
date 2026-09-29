@@ -1,16 +1,16 @@
 --- Statements and blocks, written from their own nodes.
 ---
---- A block's closing keyword is placed from the `yend`/`xend` its own
---- construct carries -- the only place a block's true close is
---- recorded, since an empty body has no token of its own that reaches
---- it -- so `if x then return end` on one line stays on one line and a
---- body spread over twenty stays spread over twenty.
+--- A block's closing keyword is placed from the `yend`/`xend` of its
+--- construct, the only place a block's close is recorded, since an
+--- empty body has no token that reaches it. So `if x then return end`
+--- on one line stays on one line and a body spread over twenty stays
+--- spread over twenty.
 ---
 --- Two statement kinds do not begin where tl stamped them. A `local`
---- declaration's node sits at its first NAME and a `local type`'s at
+--- declaration's node sits at its first name and a `local type`'s at
 --- the name it binds, not at the `local` that opens either. `begins_at`
 --- walks back over the token stream to the keyword, so the statement is
---- indented from where it really starts.
+--- indented from where it starts.
 
 local ast = require("build.ast")
 local ctx_mod = require("build.fix.ctx")
@@ -55,16 +55,16 @@ end
 
 --- Every statement of one block, each on the line the source gave it.
 ---
---- A `;` between two statements is not in the AST at all, and dropping
---- one can join two statements into something that reads differently
---- (`local t: T; i, t = f()`), so it is read back off the token stream:
+--- A `;` between two statements is not in the AST, and dropping one can
+--- join two statements into something that reads differently
+--- (`local t: T; i, t = f()`). So it is read back off the token stream:
 --- when the token before a statement is a separator, it is written.
 ---
---- That token stream is the parser's, not the lexer's, which means one
---- `;` can appear that the source never wrote. Where a line ends in a
---- call and the next begins with a `(`, tl inserts a `;` to record
---- which of the two readings it took, and writing it out states in the
---- source what the compiler had already decided.
+--- That stream is the parser's, not the lexer's, so it can hold a `;`
+--- the source never wrote. Where a line ends in a call and the next
+--- begins with a `(`, tl inserts a `;` to record which of the two
+--- readings it took, and writing it out states in the source what the
+--- compiler had decided.
 --- @param c Ctx
 --- @param body Node A "statements" node
 local function block(c: Ctx, body: Node)
@@ -78,9 +78,8 @@ local function block(c: Ctx, body: Node)
         emit.put(c.em, ";")
       end
     end
-    -- A statement moves by the distance its own LINE moves, which is
-    -- not the distance its first keyword moves once the source wrote a
-    -- comment in front of it on that line.
+    -- A statement moves by the distance its line moves, which differs
+    -- from its first keyword's when a comment precedes it on that line.
     ctx_mod.place(c, outer + 2, emit.opening_column(c.em, y, x))
     ctx_mod.lead_to(c, y, x, outer + 2, " ")
     statement(c, s)
@@ -90,8 +89,9 @@ local function block(c: Ctx, body: Node)
   c.em.shift = outer_shift
 end
 
---- Write a keyword the AST records no position for -- a `then` after a
---- condition, a `do` after a loop header -- where the source put it.
+--- Write a keyword the AST records no position for, such as a `then`
+--- after a condition or a `do` after a loop header, where the source
+--- put it.
 --- @param c Ctx
 --- @param from integer|nil The construct's own opening token
 --- @param word string
@@ -139,7 +139,7 @@ local function signature_and_body(c: Ctx, n: Node, name: Node)
   closes(c, n, "end")
 end
 
---- `local a <const>, b: integer, string = 1, "x"` -- names with their
+--- `local a <const>, b: integer, string = 1, "x"`: names with their
 --- attributes, then the one type list Teal writes after all of them,
 --- then the values.
 local function declaration(c: Ctx, n: Node)
@@ -160,10 +160,10 @@ local function declaration(c: Ctx, n: Node)
       emit.put(c.em, " <" .. attribute .. ">")
     end
   end
-  -- The type list follows all the names at once, which is how Teal
-  -- writes it, and its region is anchored on that one `:` rather than
-  -- on the first type's recorded position -- tl stamps a generic type
-  -- at the end of the file, so anchoring on it swallows the rest of it.
+  -- The type list follows all the names at once. Its region is anchored
+  -- on that one `:`, not on the first type's recorded position, since
+  -- tl stamps a generic type at the end of the file and anchoring on it
+  -- would swallow the rest.
   local declared = n.decltuple
   local listed = declared ~= nil and declared.tuple or nil
   if declared ~= nil and listed ~= nil and #listed > 0 then
@@ -191,10 +191,10 @@ end
 --- and `local type T = require(...)`.
 ---
 --- A record or enum body is written as the original bytes of the whole
---- statement: it is type syntax, and tl keeps a record's fields as
---- types rather than as text, so the comments written between them
---- survive only by copying. The parser marks that form by giving the
---- `newtype` an end position; an alias has none.
+--- statement. It is type syntax, and tl keeps a record's fields as
+--- types, not text, so the comments between them survive only by
+--- copying. The parser marks that form by giving the `newtype` an end
+--- position; an alias has none.
 local function type_declaration(c: Ctx, n: Node)
   local value, var = n.value, n.var
   if value == nil or var == nil then
@@ -336,9 +336,8 @@ statement = function(c: Ctx, n: Node)
     end
     emit.text(c.em, "repeat")
     block(c, body)
-    -- The `until` keyword's own LINE is the body's recorded end; the
-    -- repeat node's own end reaches past it, to the end of the
-    -- condition that follows.
+    -- The body's recorded end is the `until` keyword's line; the repeat
+    -- node's end reaches past it, to the end of the condition.
     closes(c, body, "until")
     local condition = n.exp
     if condition == nil then

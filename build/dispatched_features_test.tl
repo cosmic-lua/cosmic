@@ -1,11 +1,11 @@
 --- The processor features a key holds (`declared_key.dispatched`) are
---- those the C the build compiles chooses code by: every file of the
---- core, of the vendored libraries as fetched and of the patch records
---- applied to them, that asks what the processor can do is named here
---- with the features it reads and a digest of the lines that ask and
---- the dozen after each, where the bits asked for are read (`asking`),
---- and each of those features is keyed for its machine. A vendor refetch
---- or a patch that brings a new site, or a new question to a named one,
+--- those the compiled C chooses code by. Every file that asks what the
+--- processor can do, in the core, the vendored libraries as fetched or
+--- the patch records applied to them, is named here with the features
+--- it reads. Each is named with a digest of the lines that ask and the
+--- dozen after each, where the bits asked for are read (`asking`), and
+--- each of those features is keyed for its machine. A vendor refetch or
+--- a patch that brings a new site, or a new question to a named one,
 --- fails here, naming its file, until its features are keyed (in
 --- `dispatched` and .github/scripts/host-features.sh alike) and it is
 --- named below.

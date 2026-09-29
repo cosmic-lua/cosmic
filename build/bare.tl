@@ -1,11 +1,11 @@
 --- What the bare verbs (`json`, `hash`, `codec`, `archive`, `fetch`,
---- `time`, `rand`: the specs with `bare = true`, build/verb_spec.tl) share,
---- each having said it for itself before: the standard output and error a
---- run writes to, the complaint line's `cosmic: <verb>: ` prefix, the
---- exit codes every one of them answers, the refusal to read a terminal,
---- the escape that keeps a name or a header from moving the terminal, and
---- the URL with its password taken out. A verb keeps the rest: its own
---- `Io` record, whose fields a test stands in for, and what it prints.
+--- `time`, `rand`: the specs with `bare = true`, build/verb_spec.tl) share:
+--- the standard output and error a run writes to, the complaint line's
+--- `cosmic: <verb>: ` prefix, the exit codes every one of them answers,
+--- the refusal to read a terminal, the escape that keeps a name or a
+--- header from moving the terminal, and the URL with its password taken
+--- out. A verb keeps the rest: its own `Io` record, whose fields a test
+--- stands in for, and what it prints.
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -21,8 +21,8 @@ local record bare
     named: boolean | nil
     --- Leave a tab and a newline as they are, escaping every other
     --- control byte (a header line, whose lines the caller joins with
-    --- newlines, keeps its tabs). `fetch` has always let both through:
-    --- a carriage return is what it escapes.
+    --- newlines, keeps its tabs). `fetch` uses it, so a carriage return
+    --- is what it escapes.
     keep_tab_newline: boolean | nil
   end
 

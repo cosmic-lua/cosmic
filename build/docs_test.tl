@@ -546,8 +546,8 @@ local function test_a_short_module_name_finds_a_projects_module(dir: string)
     found[2].module == "cosmic.util", tostring(#found))
 end
 
---- A query that is not lowercase-and-bare takes the old route: exact
---- symbols only, and a qualified name answers as it did.
+--- A query that is not lowercase-and-bare takes the symbol route: exact
+--- symbols only, and a qualified name answers by its symbol.
 local function test_a_capitalized_name_takes_the_symbol_route(dir: string)
   local db = built(dir, fs_tree())
   local found = assert(docs.lookup(view({ db }), "Fs"))

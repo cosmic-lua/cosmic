@@ -1,9 +1,9 @@
 --- Where zig's global and project caches are, as build/zig.tl puts
---- them, for `build.caches`, which binds them into a sandboxed worker
---- that declares the `zig` cache: part of the test harness
+--- them. `build.caches` uses it to bind them into a sandboxed worker
+--- that declares the `zig` cache. It is part of the test harness
 --- (`build.test`'s `harness_own`), so it requires nothing but
 --- cosmic.fs. build/zig.tl runs standalone on the bootstrap's own
---- standard library and so cannot require this; it spells the same
+--- standard library and cannot require this module; it spells the same
 --- rule in its `Zig.global_cache` and `Zig.project_cache`, which
 --- build/zig_caches_test.tl holds this to.
 

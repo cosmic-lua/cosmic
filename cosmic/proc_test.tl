@@ -27,7 +27,7 @@ end
 
 --- Whether this process holds CAP_DAC_OVERRIDE, as /proc/self/status
 --- says of its effective capabilities: root does, but not root in a
---- sandbox (a sandboxed `cosmic test` worker), which gave its up.
+--- sandbox (a sandboxed `cosmic test` worker), which gives them up.
 local function overrides_permissions(): boolean
   local status = Fs.read("/proc/self/status") or ""
   local effective = status:match("\nCapEff:%s*(%x+)")

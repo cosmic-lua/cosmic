@@ -1,11 +1,10 @@
---- Turns a markdown doc's fenced code-block examples into one compiled
---- Teal source string, per doc/meta.md's grammar. The result is an
---- ordinary `kind = "test"` module's own source: `build.importer`'s
---- `collect` treats it exactly like a hand-written `_test.tl`, discovers
---- its tests through the same `build.analyzer.analyze`, and runs them
---- through the same `build.test`. Nothing here runs a test, discovers
---- one, or records a verdict -- that would be the doctest machinery of
---- its own doc/meta.md says a doc never needs.
+--- Turns a markdown doc's fenced code-block examples into one Teal
+--- source string, per doc/meta.md's grammar. The result is the source of
+--- an ordinary `kind = "test"` module: `build.importer`'s `collect`
+--- treats it like a hand-written `_test.tl`, discovers its tests through
+--- `build.analyzer.analyze` and runs them through `build.test`. Nothing
+--- here runs a test, discovers one, or records a verdict: doc/meta.md
+--- says a doc needs no doctest machinery of its own.
 local markdown = require("build.doctest.markdown")
 local generate = require("build.doctest.generate")
 

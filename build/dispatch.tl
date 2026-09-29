@@ -13,6 +13,7 @@
 
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
+local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -22,6 +23,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local exit_status = require("build.exit_status")
+local sys = require("cosmic.sys")
 local verb_list = require("build.verb_list")
 local verb_spec = require("build.verb_spec")
 local verdict = require("build.verdict")
@@ -340,12 +342,9 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  -- A test file elsewhere in the tree that `importer.compile` refused
-  -- (the return-collision case `analyzer.analyze` and
-  -- `with_test_tail` guard against) is silently dropped from the
-  -- database otherwise; the file the caller actually asked to run
-  -- still compiled fine and still runs below, so this is a warning,
-  -- never a reason to fail this invocation.
+  -- A file `importer.compile` refused (one whose top-level `return`
+  -- collides with the tail generated for its tests) is left out of the
+  -- database. The file asked for compiled, so this only warns.
   for _, line in ipairs(result.refused) do
     log:complain("warning: " .. line)
   end
@@ -463,10 +462,8 @@ local help_spec: verb_spec.Spec
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
   local started = Time.monotonic_ns()
-  -- Same staleness guard `test` applies: cheap (a fingerprint
-  -- compare) when the tool is already fresh, so this keeps help
-  -- fast in the ordinary case, and only rebuilds when an edit to
-  -- build.docs itself would otherwise go unseen.
+  -- The staleness guard `test` applies: a fingerprint compare when the
+  -- tool is fresh. Help reads build.docs, so an edit to it must rebuild.
   local code = require("build.reboot").stale_exit(argv)
   if code ~= nil then
     return code
@@ -623,6 +620,31 @@ function dispatch.main(argv: {integer:string}): integer
       end,
       bare = false,
     }
+  end
+  if chosen ~= nil and verb ~= "help" then
+    -- A tree verb started below an established tree's root runs at the
+    -- root (`build.tree_root`), its paths still read from here.
+    local tree_root = require("build.tree_root")
+    local answer = tree_root.move(argv, Cli.options[verb] or {},
+      Env.get("HOME"), Env.get("COSMIC_TREE"))
+    local moved, refused, note = answer.move, answer.refused, answer.note
+    if refused ~= "" then
+      log:complain(verb .. ": " .. refused)
+      return 2
+    end
+    if note ~= "" then
+      local _, _ = Fs.put(Fs.stderr, "cosmic: " .. verb .. ": " .. note .. "\n")
+    end
+    if moved ~= nil then
+      local entered, enter_trouble = sys.chdir(moved.root)
+      if not entered then
+        log:complain(verb .. ": " .. moved.root .. ": " .. enter_trouble)
+        return 1
+      end
+      local _, _ = Fs.put(Fs.stderr, "cosmic: " .. verb .. " runs in " .. moved.root ..
+        ", the tree this directory is in;\n  paths below are relative to " .. moved.root .. "\n")
+      argv = moved.argv
+    end
   end
   if chosen ~= nil then
     -- A verb gives its own verdict wherever it has one to give; an exit

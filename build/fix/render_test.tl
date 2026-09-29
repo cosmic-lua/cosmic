@@ -1,28 +1,24 @@
 --- What `cosmic fix` writes, checked against the exact text expected,
 --- one construct at a time.
 ---
---- The `<const>`/`<close>` cases are the reason this file leads with
---- them. cosmic's predecessor re-emitted source from a TOKEN STREAM and
---- never special-cased a variable attribute, so `local x <const> = 5`
---- came back as `local x < const > = 5` -- three bare tokens spaced by
---- a rule about adjacency -- and shipped that way in 374 places,
---- because the only tests were that the formatter agreed with itself.
---- Here the attribute is a FIELD on the variable's own node and is
---- written as one unit attached to the name, so there is no spacing
---- decision to get wrong; these cases are what says so out loud. The
---- tree this tool renders uses neither attribute anywhere, so nothing
---- else would ever exercise them.
+--- The file leads with the `<const>`/`<close>` cases. A renderer that
+--- re-emits source from a token stream, spacing tokens by a rule about
+--- adjacency, writes `local x <const> = 5` as `local x < const > = 5`,
+--- and only a test that compares against fixed text notices. Here the
+--- attribute is a field on the variable's node and is written as one
+--- unit attached to the name, so there is no spacing decision to get
+--- wrong. The tree this tool renders uses neither attribute, so nothing
+--- else exercises them.
 ---
---- The function-literal cases at the end are here for a second reason.
---- A literal is the only construct that opens a BLOCK from inside an
---- expression, so it is the only one whose block can open somewhere
---- other than the grid its enclosing statement sits on -- on a
---- continuation line, as an argument or a table value. Indenting its
---- body from the statement instead writes the body level with its own
---- `function` keyword and puts the `end` two columns further left
---- again, which at the top level is an `end` in column zero in the
---- middle of an argument list. It compiles, and it is a stable fixed
---- point, so nothing but a golden string notices.
+--- The function-literal cases at the end have a second reason. A
+--- literal is the only construct that opens a block inside an
+--- expression, so its block can open off the grid its enclosing
+--- statement sits on, on a continuation line as an argument or a table
+--- value. Indenting its body from the statement instead writes the
+--- body level with its own `function` keyword and the `end` two columns
+--- further left, which at the top level is an `end` in column zero in
+--- the middle of an argument list. That compiles and is a stable fixed
+--- point, so only a golden string notices.
 ---
 --- Every case goes through the whole verb, `build.fix.source`, not the
 --- renderer alone: that reparses what it wrote and compares the trees,
@@ -69,15 +65,14 @@ end
 
 --- The spelling a token-adjacency rule produces, fed back in: the
 --- renderer reads the attribute off the node and writes the one correct
---- form, so this is the case that says the old bug cannot come back.
+--- form.
 local function test_a_spaced_out_attribute_is_written_back_closed_up()
   writes("local x < const > = 5\n", "local x <const> = 5\n")
   writes("local y < close > : integer = 6\n", "local y <close>: integer = 6\n")
 end
 
---- The attribute comes BEFORE the type annotation. `local y: integer
---- <close> = 6` is not Teal at all, so there is only one order to write
---- and this is it.
+--- The attribute comes before the type annotation. `local y: integer
+--- <close> = 6` is not Teal, so there is one order to write.
 local function test_a_close_attribute_precedes_the_type_annotation()
   writes("local y <close>: integer = 6\n", "local y <close>: integer = 6\n")
   local parsed, trouble = fix.source(built, "local y: integer <close> = 6\n",
@@ -145,8 +140,8 @@ local function test_calls_indexes_and_methods()
          "local r = t:m(1, 2) + t.k + t[\"k\"] + f()\n")
 end
 
---- A cast's type is the source's own bytes, spacing and all, because
---- tl keeps a type's meaning rather than its text.
+--- A cast's type is the source's own bytes, spacing included, because
+--- tl keeps a type's meaning, not its text.
 local function test_a_cast_keeps_its_types_own_spelling()
   writes("local v = t as {string: any}\n", "local v = t as {string: any}\n")
   writes("local w = t as {string:any}\n", "local w = t as {string:any}\n")
@@ -200,7 +195,7 @@ local function test_type_aliases_and_type_bound_requires()
          "local type c = require(\"build.compiler\")\nlocal y: c = nil\n")
 end
 
---- A `;` between two statements on one line is not in the AST, and
+--- A `;` between two statements on one line is not in the AST and
 --- dropping it would run them together, so it is read back off the
 --- token stream.
 local function test_a_semicolon_between_statements_survives()
@@ -231,9 +226,9 @@ local function test_a_literal_function_on_a_continuation_line()
   }))
 end
 
---- The same, as a table value: the `function` keyword is not the first
---- thing on its line, so the column it is written at is the line's own
---- indentation rather than the keyword's position.
+--- The same as a table value: the `function` keyword is not first on
+--- its line, so the column it is written at is the line's indentation,
+--- not the keyword's position.
 local function test_a_literal_function_as_a_table_value()
   writes(lines({
     "local handlers = {",
@@ -250,9 +245,9 @@ local function test_a_literal_function_as_a_table_value()
   }))
 end
 
---- Two levels of it, a literal inside a literal, each on a continuation
---- line of its own: every block is indented from the one that opened
---- it, all the way down and all the way back out.
+--- A literal inside a literal, each on a continuation line of its own:
+--- every block is indented from the one that opened it, all the way
+--- down and all the way back out.
 local function test_literal_functions_nested_through_continuation_lines()
   writes(lines({
     "local deep = outer(",
@@ -277,9 +272,9 @@ local function test_literal_functions_nested_through_continuation_lines()
   }))
 end
 
---- A continuation line keeps its own column, which is not always an
---- even one, and a literal opening there still gets a body two columns
---- in from ITS column and an `end` back at it.
+--- A continuation line keeps its column, which need not be even, and a
+--- literal opening there still gets a body two columns in from that
+--- column and an `end` back at it.
 local function test_a_literal_function_off_the_two_column_grid()
   writes(lines({
     "local u = { 1,",
@@ -294,9 +289,9 @@ local function test_a_literal_function_off_the_two_column_grid()
   }))
 end
 
---- And a literal that opens on the line its own statement opens on is
---- indented from the statement, which is the same rule: the column the
---- `function` keyword is being written at.
+--- A literal that opens on its statement's own line is indented from
+--- the statement, by the same rule: the column the `function` keyword
+--- is written at.
 local function test_a_literal_function_on_its_statements_own_line()
   writes(lines({
     "local f = function()",
@@ -316,9 +311,9 @@ local function test_a_literal_function_on_its_statements_own_line()
 end
 
 --- A long comment written across several lines with code after its
---- `]]` keeps that code on the same line: the renderer adds no break
---- there any more than anywhere else. The blank line before the second
---- one is the case where a blank was owed at the same moment.
+--- `]]` keeps that code on the same line, since the renderer adds no
+--- break there. The blank line before the second comment covers a blank
+--- owed at the same moment.
 local function test_a_long_comment_closing_on_a_line_of_code()
   local source = lines({
     "--[[ a",
@@ -332,8 +327,8 @@ local function test_a_long_comment_closing_on_a_line_of_code()
   writes(source, source)
 end
 
---- And one that closes on a line of its own still gets that line, with
---- whatever follows it written under it as usual.
+--- A long comment that closes on a line of its own keeps that line,
+--- with what follows written under it.
 local function test_a_long_comment_closing_on_its_own_line()
   local source = lines({
     "--[[ a",
@@ -344,11 +339,10 @@ local function test_a_long_comment_closing_on_its_own_line()
 end
 
 --- A line can carry more than one comment. Where a long comment closes
---- on it and another comment follows before the code, the whole line is
---- written as one run: each later comment a single space along, and no
---- break anywhere in it. Taking only the first and leaving the rest puts
---- them after the code instead, which is where the tree comparison
---- catches it and the file is refused.
+--- on it and another follows before the code, the whole line is one
+--- run: each later comment a space along, and no break in it. Taking
+--- only the first would put the rest after the code, which the tree
+--- comparison catches and the file is refused.
 local function test_several_comments_share_the_line_a_long_one_closes_on()
   local source = lines({
     "local a = 1",
@@ -365,9 +359,9 @@ local function test_several_comments_share_the_line_a_long_one_closes_on()
   }), source)
 end
 
---- Three of them, the first two long ones closing a line later each: a
+--- Three comments, the first two long ones each closing a line later: a
 --- run follows the comments from line to line, and what shares a line
---- is decided per comment rather than once for the whole gap.
+--- is decided per comment, not once for the whole gap.
 local function test_three_comments_across_two_long_ones_closing()
   local source = lines({
     "local a = 1",
@@ -379,9 +373,9 @@ local function test_three_comments_across_two_long_ones_closing()
   writes(source, source)
 end
 
---- A comment BEFORE the long one that closes the line, which is the
---- same case from the other side: the first comment must not get a
---- break after it either.
+--- A comment before the long one that closes the line is the same case
+--- from the other side: the first comment must not get a break after
+--- it either.
 local function test_a_comment_in_front_of_a_long_one_closing_a_line()
   local source = lines({
     "local a = 1",
@@ -393,8 +387,7 @@ local function test_a_comment_in_front_of_a_long_one_closing_a_line()
 end
 
 --- What follows a `]]` need not be code. A comment after it stays on
---- that line too, and the statement under it keeps its own line: the
---- renderer adds no break here any more than it does in front of code.
+--- that line too, and the statement under it keeps its own line.
 local function test_a_comment_after_a_long_ones_close_keeps_its_line()
   local source = lines({
     "local a = 1",
@@ -407,7 +400,7 @@ local function test_a_comment_after_a_long_ones_close_keeps_its_line()
   writes(source, source)
 end
 
---- And a comment that follows the CODE on such a line is that line's
+--- A comment that follows the code on such a line is that line's
 --- trailing comment, written after the statement where the source had
 --- it. Pulling it forward with the ones in front of the code would put
 --- a `--` comment ahead of the statement and comment the line out.

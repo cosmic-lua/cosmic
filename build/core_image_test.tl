@@ -28,7 +28,7 @@ local function test_a_core_carrying_dwarf_is_keyed_by_its_image()
 end
 
 --- Every release core is stripped: it is keyed by its bytes whole, as
---- its manifest names it, so its keys are what they were before.
+--- its manifest names it.
 local function test_a_core_without_dwarf_is_keyed_whole()
   assert(core_image.digest(fixture.elf("code")) == nil)
   -- Nor a Mach-O core, nor anything else.

@@ -1,32 +1,33 @@
 --- The passing test verdicts every checkout of a tree shares: a SQLite
---- database under the cosmic cache directory -- `verdicts/verdicts.db`
---- by default, or the absolute path `COSMIC_VERDICT_CACHE` names, and
---- none at all when it is `0` -- beside the one each checkout keeps in
---- `o/build.db`. Only a sandboxed run's verdicts are shared: its key is
---- the digest of everything its test was given (`build.declared_key`),
---- naming nothing of where the tree is, so a verdict one checkout reached
---- stands in another of the same content, and a fresh worktree runs only
---- what no sibling has run already. An unsandboxed run's verdicts, keyed
---- by what its test was seen to read, are its checkout's alone.
+--- database under the cosmic cache directory, beside the one each
+--- checkout keeps in `o/build.db`. The file is `verdicts/verdicts.db` by
+--- default, or the absolute path `COSMIC_VERDICT_CACHE` names; `0` turns
+--- the cache off. Only a sandboxed run's verdicts are shared. Its key is
+--- the digest of everything its test was given (`build.declared_key`)
+--- and names nothing of where the tree is, so a verdict one checkout
+--- reached stands in another of the same content, and a fresh worktree
+--- runs only what no sibling has run already. An unsandboxed run's
+--- verdicts, keyed by what its test was seen to read, are its
+--- checkout's alone.
 ---
---- The cache is a plain map from key to verdict: a row holds no
---- evidence of what the run read to check again -- the key reached is
---- the whole check -- only the test it is of, the lines it hit, for the
---- coverage it is credited, how long it took, and the key parts (the
---- runtime's digest, the harness's epoch, ...) its key holds, which
---- nothing looks a verdict up by: they say what a cache holds
---- (`held`), as `cosmic test --census` does.
+--- The cache is a plain map from key to verdict. The key reached is the
+--- whole check, so a row holds no evidence of what the run read. It
+--- holds the test it is of, the lines it hit (the coverage the test is
+--- credited), how long it took, and the key parts its key holds (the
+--- runtime's digest, the harness's epoch, ...). Nothing looks a verdict
+--- up by the parts; they say what a cache holds (`held`), as `cosmic
+--- test --census` does.
 ---
---- Many runs share the file at once: it is in WAL mode, so a reader
---- never waits on a writer, and a run reads it a statement at a time
---- and writes what it owes it in one short transaction as it ends. It
+--- Many runs share the file at once. It is in WAL mode, so a reader
+--- never waits on a writer; a run reads it a statement at a time and
+--- writes what it owes it in one short transaction as it ends. The file
 --- is bounded: a row no run has relied on for `kept_ns` goes, and past
---- `kept_rows` rows, the least lately relied on go first. A failing
---- run of a key takes the key's row out, and a checkout that holds a
---- verdict of its own under a key never takes another's for it. A
---- cache that cannot be opened, read or written -- corrupt, or holding
---- this format's table in another shape -- is said so and done
---- without: it never fails a run.
+--- `kept_rows` rows, the least lately relied on go first. A failing run
+--- of a key takes the key's row out, and a checkout that holds a verdict
+--- of its own under a key never takes another's for it. A cache that
+--- cannot be opened, read or written (corrupt, or holding this format's
+--- table in another shape) is reported and done without: it never fails
+--- a run.
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -175,8 +176,8 @@ local function unpacked(hits: string): string
   end))
 end
 
---- Whether `db`'s table of this format has its `parts` column: a file
---- written before the column was lacks it.
+--- Whether `db`'s table of this format has its `parts` column, which a
+--- file from a binary without it lacks.
 local function has_parts(db: Sqlite.Handle): boolean | nil, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM pragma_table_info('" ..
     declared .. "') WHERE name = 'parts'")
@@ -184,14 +185,14 @@ local function has_parts(db: Sqlite.Handle): boolean | nil, string
   return #rows > 0, ""
 end
 
---- Makes this format's table when the file has none yet, in one
---- transaction, or adds the `parts` column to one from before it, its
---- rows naming none; a file that has both is only read. A binary from
---- before the column shares the file still: its rows name no parts,
---- until a run that names them stands on one (`settle`). The tables
---- observation-keyed runs shared (`verdicts_v<n>`) are left as they
---- are: a binary of that format sharing the file still writes its own
---- and ages its rows out, and none of this one's reads them.
+--- Makes this format's table when the file has none yet, or adds the
+--- `parts` column to a table that lacks it, in one transaction. A file
+--- that has both is only read. A binary without the column may share the
+--- file: its rows name no parts, until a run that names them stands on
+--- one (`settle`). The tables observation-keyed runs shared
+--- (`verdicts_v<n>`) are left as they are: a binary of that format
+--- sharing the file still writes its own and ages its rows out, and none
+--- of this one's reads them.
 local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = '" .. declared .. "'")
@@ -253,12 +254,12 @@ function shared_verdicts.corrupt(trouble: string): boolean
     trouble:find("not a database", 1, true) ~= nil
 end
 
---- Moves a broken cache aside, write-ahead log and all -- the log and
---- its index first, so no one opening the path meanwhile finds the old
---- log beside a new file -- to `<path>.corrupt-<now_ns>`, removing any
---- earlier one set aside there, so the next run starts a fresh cache
---- rather than meeting it again, and at most one is kept. Answers where
---- it went, or nil and why.
+--- Moves a broken cache aside, write-ahead log and all, to
+--- `<path>.corrupt-<now_ns>`, so the next run starts a fresh cache
+--- rather than meeting it again. The log and its index move first, so
+--- no one opening the path meanwhile finds the old log beside a new
+--- file. Any earlier set-aside file is removed, so at most one is kept.
+--- Answers where it went, or nil and why.
 function shared_verdicts.set_aside(path: string, now_ns: integer): string | nil, string
   local dir, name = Fs.dirname(path), Fs.basename(path)
   local listed, _ = Fs.list(dir)
@@ -293,10 +294,10 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
 end
 
 --- How many rows the cache holds, and how many are of a test in
---- `tests` (each `"path name"`): for a run none of whose lookups found
---- a verdict, whether the cache is empty or holds these very tests
---- under keys this run no longer reaches -- a host, runtime or harness
---- that moved -- which `unmatched` says.
+--- `tests` (each `"path name"`). For a run none of whose lookups found a
+--- verdict, it tells whether the cache is empty or holds these very
+--- tests under keys the run no longer reaches (a host, runtime or
+--- harness that moved), which `unmatched` says.
 function shared_verdicts.census(cache: shared_verdicts.Cache,
                                 tests: {string:boolean}): shared_verdicts.Census | nil, string
   local rows, trouble = Sqlite.text_rows(cache.db,
@@ -311,20 +312,20 @@ function shared_verdicts.census(cache: shared_verdicts.Cache,
   return out, ""
 end
 
---- `parts`, the digests a run's keys hold (a name and a digest each,
---- in order: some, as the runtime's and the harness's, every key holds,
---- and others, as the system's, the compiler's and the program's, only
---- the keys of modules given them), as the run says them:
---- "name digest, name digest".
+--- `parts`, the digests a run's keys hold, as the run says them:
+--- "name digest, name digest". Each is a name and a digest, in order.
+--- Some, as the runtime's and the harness's, every key holds; others, as
+--- the system's, the compiler's and the program's, only the keys of
+--- modules given them.
 function shared_verdicts.named(parts: {{string}}): string
   local named: {string} = {}
   for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
   return table.concat(named, ", ")
 end
 
---- The line a run asked for its key parts (`cosmic test --census`)
---- says where it says no `unmatched` line: the digests (a name and a
---- digest each, as given, in order) the run's keys hold (`named`).
+--- The line a run asked for its key parts (`cosmic test --census`) says
+--- where it says no `unmatched` line: `parts`, the digests the run's keys
+--- hold, as `named` says them.
 function shared_verdicts.key_parts(parts: {{string}}): string
   return "test: key parts: " .. shared_verdicts.named(parts)
 end
@@ -362,10 +363,10 @@ function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
 end
 
 --- The line a run says where it looked `looked` tests up in the cache
---- at `path` and none stood though it holds rows (`census`), with the
---- digests (a name and a digest each, as given, in order) that every key of
---- the run holds, so two runs' lines say which of them moved. Nil where
---- the cache holds nothing to stand on.
+--- at `path` and none stood though it holds rows (`census`), with
+--- `parts`, the digests every key of the run holds (`named`), so two
+--- runs' lines say which of them moved. Nil where the cache holds
+--- nothing to stand on.
 function shared_verdicts.unmatched(path: string, looked: integer,
                                    census: shared_verdicts.Census,
                                    parts: {{string}}): string | nil

@@ -8,26 +8,25 @@
 --- binary's own standard library, never the tree it sits in -- so it
 --- requires `cosmic.*` modules only and holds everything it needs.
 ---
---- With no archive argument it fetches for itself: every `name` (every
+--- With no archive argument it fetches for itself. Every `name` (every
 --- `vendor/*/PIN` by default) is downloaded from its PIN's `url` into
 --- `$XDG_CACHE_HOME/cosmic/vendor` (default `$HOME/.cache/cosmic/vendor`;
---- see `Fs.cache_dir`) -- reusing a cached file only when its sha256
---- still matches the PIN's -- verified with `Http.download`'s own `sha256` check, and
---- then rewritten exactly as the two-argument form does. This is what
---- `bin/vendor` runs; the repository is found from this script's own
---- path, so it works from any working directory.
+--- see `Fs.cache_dir`), checked against the PIN's sha256 by
+--- `Http.download`, and then rewritten exactly as the two-argument form
+--- does. A cached file is reused only when its sha256 still matches the
+--- PIN's. This is what `bin/vendor` runs; the repository is found from
+--- this script's own path, so it works from any working directory.
 ---
 --- The two-argument form rewrites one tree directly from an archive
 --- already on disk, without fetching or verifying it. The archive is
---- read with `cosmic.archive`, whatever format it turns out to be, and
---- unpacked with `Archive.extract` -- which refuses absolute and `..`
---- entry paths and keeps permission bits -- into a scratch directory
---- beside the tree, so a refused or broken archive never leaves the
---- tree half rewritten. Paths lose a leading `./` and then PIN's
---- `strip` prefix, and a file is kept when a `keep` glob matches it and
---- no `drop` glob does: `*` matches within one path segment, `**`
---- across them. Every `keep` must match something, so an upstream
---- rename fails here rather than in the build.
+--- read with `cosmic.archive`, whatever its format, and unpacked with
+--- `Archive.extract` (which refuses absolute and `..` entry paths and
+--- keeps permission bits) into a scratch directory beside the tree, so a
+--- refused or broken archive never leaves the tree half rewritten. Paths
+--- lose a leading `./` and then PIN's `strip` prefix. A file is kept
+--- when a `keep` glob matches it and no `drop` glob does: `*` matches
+--- within one path segment, `**` across them. Every `keep` must match
+--- something, so an upstream rename fails here rather than in the build.
 ---
 --- A PIN with a `file <name>` line vendors a single file that is not an
 --- archive at all (a `.pem`, say): its bytes become `<name>`, and every
@@ -236,8 +235,8 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
   return true, ""
 end
 
---- Moves each `scratch/<archive path>` to `tree/<under>`, once `tree`
---- holds nothing else but PIN.
+--- Empties `tree` of all but PIN, then moves each `scratch/<archive
+--- path>` to `tree/<under>`. Returns how many files it moved.
 local function install(tree: string, scratch: string, files: {string:string}): integer | nil, string
   local names: {string:boolean} = {}
   for _, under in pairs(files) do

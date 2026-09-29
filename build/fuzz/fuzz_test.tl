@@ -221,8 +221,8 @@ local function test_a_report_says_how_to_keep_the_input(tmp: string)
 end
 
 -- Labels count what the drawn inputs reached; a required label no input
--- reached fails the run, and one some input reached lets it pass. What
--- is kept then held, so it is not left to be taken for a failure.
+-- reached fails the run, and one some input reached lets it pass. The
+-- kept input is removed on that failure, since it is no failing input.
 local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
   local function check(input: string): boolean, string
     Fuzz.label("checked")

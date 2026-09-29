@@ -1,7 +1,7 @@
---- The parts of a key a worker spells (build/key_parts.tl) are what
---- build.declared_key spelled before they moved: the same hexadecimal as
---- `cosmic.codec`'s, the same framing, the same names of the tree, so
---- no key moved with them; and build.declared_key still answers each.
+--- The parts of a key a worker spells (build/key_parts.tl): hexadecimal
+--- as `cosmic.codec` spells it, a fixed framing, and a fixed name for the
+--- tree, so a key does not change with them. build.declared_key answers
+--- each of them too.
 
 local Codec = require("cosmic.codec")
 local declared_key = require("build.declared_key")
@@ -30,7 +30,7 @@ local function test_hex_is_codec_hex_and_unhex_inverts_it()
   end
 end
 
---- A contribution is framed as it was: the kind, then the path and the
+--- A contribution is framed as the kind, then the path and the
 --- answer, each in lowercase hex, a space between.
 local function test_a_key_part_is_framed_as_before()
   local edges = "\0\n\x7f\xff"
@@ -52,8 +52,8 @@ local function test_tree_name_names_the_tree_by_a_marker()
   assert(key_parts.tree_name("/etc/passwd", "/w/tree") == "/etc/passwd")
 end
 
---- build.declared_key answers the parts that moved as its own, so none
---- of its callers moved.
+--- build.declared_key answers these parts as its own, so its callers
+--- need not name build.key_parts.
 local function test_declared_key_answers_the_parts_it_moved()
   assert(declared_key.key_part == key_parts.key_part)
   assert(declared_key.tree_name == key_parts.tree_name)

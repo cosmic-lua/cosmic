@@ -81,7 +81,7 @@ for name in ([[
 end
 
 --- Modules whose documentation names things as examples of something
---- else: `cosmic.removed` lists the names the library no longer has.
+--- else: `cosmic.removed` lists names the runtime withholds.
 local EXAMPLES_ONLY: {string: boolean} = { ["cosmic.removed"] = true }
 
 local STOP: {string: boolean} = {}

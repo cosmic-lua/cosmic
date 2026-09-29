@@ -14,8 +14,8 @@ end
 --- A run waits for another run of the tree to end its transaction on
 --- o/build.db as long as that run may hold it: through a stale tool's
 --- whole rebuild of itself, which takes more than a minute on a loaded
---- host. Waiting only SQLite's 60 s, runs started beside a rebuilding
---- one failed with "database is locked" (ci/fixtures/self_rebuild_test.tl's
+--- host. Waiting only SQLite's 60 s, a run started beside a rebuilding
+--- one fails with "database is locked" (ci/fixtures/self_rebuild_test.tl's
 --- concurrent runs).
 local function test_a_run_waits_for_another_past_a_rebuild(tmp: string)
   local handle = assert(work.open(tmp))
@@ -65,8 +65,8 @@ local function test_assertion_failure_records_atomically(tmp: string)
   assert(reopened:close())
 end
 
---- A warm database from the previous symbol schema is recreated before any
---- cached parse or reference row can be trusted under the new semantics.
+--- A warm database of an older symbol schema is recreated before any
+--- cached parse or reference row is trusted under the current one.
 local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   local old = assert(work.open(tmp))
   assert(work.commit(old))
@@ -212,8 +212,7 @@ end
 
 --- The zones a boot reads from a tree replace whatever the working
 --- database held, stay blobs, and read back out of any database that
---- has them -- and out of one built before there was a table for them,
---- as none.
+--- has them -- and out of one with no table for them, as none.
 local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
   assert(Fs.mkdirs(tmp .. "/zoneinfo/Europe"))
   assert(Fs.write(tmp .. "/zoneinfo/UTC", "TZif utc"))
@@ -241,8 +240,8 @@ local function test_zoneinfo_is_replaced_whole_and_read_back(tmp: string)
 end
 
 --- The compiler is one row, whatever file an older build named it by:
---- putting one replaces a row a build before this one left under
---- `o/vendor/tl/tl.lua`, so no working database holds two.
+--- putting one replaces a row left under `o/vendor/tl/tl.lua`, so no
+--- working database holds two.
 local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root"))
   local handle = assert(work.open(tmp .. "/root"))

@@ -1,23 +1,27 @@
---- Whether this host can run a test worker sandboxed (`available`),
---- which `cosmic test` asks once a run, before it starts a worker
---- (`build.test`'s `sandbox_here`) -- not build/sandbox_probe.tl, CI's
---- report of what spawn's sandbox can hold a child to on a host. It is
---- no part of the test harness (build/harness_epoch.tl): it decides
+--- Whether this host can run a test worker sandboxed (`available`).
+--- `cosmic test` asks once a run, before it starts a worker
+--- (`build.test`'s `sandbox_here`). This is not build/sandbox_probe.tl,
+--- CI's report of what spawn's sandbox can hold a child to on a host.
+---
+--- It is no part of the test harness (build/harness_epoch.tl): it decides
 --- whether a run is sandboxed, not what a sandboxed worker is given
 --- (`build.test_sandbox`'s `plan`) nor how one is judged, and a wrong
---- answer fails loudly -- a refusal or a failure, never a pass.
---- Answered wrongly yes, every worker is started sandboxed by the plan
---- and holds itself by `confine.forbid_running`; where the host can do
---- neither, the start or the worker fails, and each test with it,
---- naming why. Answered wrongly no, the run is unsandboxed: a run held
---- to the sandbox (`COSMIC_TEST_SANDBOX=1`) fails, and any other keys
---- its verdicts as unsandboxed -- by what each test was seen to read,
---- or, under `COSMIC_TEST_KEY=declared`, by what it declares but apart
---- from a sandboxed run's -- which no sandboxed run's key finds, as on
---- a host that cannot sandbox. So its code is left out of the harness's
---- digests. cosmic.child, which it starts the probe by, is in them
---- alone, since it applies every worker's sandbox (`build.test`'s
---- `harness_alone`).
+--- answer fails loudly, never passes:
+---
+--- - Answered wrongly yes, every worker is started sandboxed by the plan
+---   and holds itself by `confine.forbid_running`. Where the host can do
+---   neither, the start or the worker fails, and each test with it,
+---   naming why.
+--- - Answered wrongly no, the run is unsandboxed. A run held to the
+---   sandbox (`COSMIC_TEST_SANDBOX=1`) fails. Any other keys its verdicts
+---   as unsandboxed, by what each test was seen to read or, under
+---   `COSMIC_TEST_KEY=declared`, by what it declares but apart from a
+---   sandboxed run's, so no sandboxed run's key finds them, as on a host
+---   that cannot sandbox.
+---
+--- So its code is left out of the harness's digests. cosmic.child, which
+--- starts the probe, is in them alone, since it applies every worker's
+--- sandbox (`build.test`'s `harness_alone`).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")

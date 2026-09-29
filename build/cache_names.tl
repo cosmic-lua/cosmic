@@ -1,11 +1,12 @@
 --- The host caches a test may declare it writes (`cosmic.test`'s
---- `Needs.caches`), by name, to what each covers: `build.caches` says
---- what each is and where it is on this host. Apart from it, and
---- requiring nothing, because the analyzer checks a declaration's names
---- against these as it parses (`build.analyzer`), so this module is in
---- the analyzer's identity and the compiler's (`build.work`'s
---- `compiler_identity`), where `build.caches`, which reaches build/zig.tl
---- to find the zig cache, is in neither.
+--- `Needs.caches`), by name, to what each covers. `build.caches` says
+--- where each is on this host.
+---
+--- The two are apart, and this module requires nothing, because the
+--- analyzer checks a declaration's names against these as it parses
+--- (`build.analyzer`). That puts this module in the analyzer's identity
+--- and the compiler's (`build.work`'s `compiler_identity`). `build.caches`
+--- reaches build/zig.tl to find the zig cache, so it is in neither.
 
 local record cache_names
   --- Each name a declaration may give, to what it covers.

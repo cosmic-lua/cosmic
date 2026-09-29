@@ -84,16 +84,18 @@ end
 --- Whether every require in `modules` respects position, and if not,
 --- which one and why. A module's home directory (`home_of`) is open to
 --- every importer when it is the root, or a top-level directory with no
---- `init.tl` of its own -- a namespace of flat modules, as `cosmic/` and
---- `build/` are; any other directory is closed, and only a file inside
+--- `init.tl` of its own: a namespace of flat modules, as `cosmic/` and
+--- `build/` are. Any other directory is closed, and only a file inside
 --- it may import a member of it. A directory's own `init.tl` is a member
 --- of the directory around it, so it is the one path into a closed
---- directory from outside, and a nested directory without one has no
---- path in at all. In cosmic's own tree `build/` is private as well:
---- only `may_import_build`'s files may import from it; and a test is
---- private to tests: the tool's identity leaves every test out
---- (`build.work`'s `is_tool`), so one it carried for a module requiring
---- it could change under it unseen.
+--- directory from outside; a nested directory without one has no path
+--- in at all.
+---
+--- In cosmic's own tree, two more rules hold. `build/` is private:
+--- only `may_import_build`'s files may import from it. A test is
+--- private to tests, since the tool's identity leaves every test out
+--- (`build.work`'s `is_tool`), and a test the tool carried for a
+--- module requiring it could change under that module unseen.
 ---
 --- Declarations (`.d.tl`) never reach this check: `collect` leaves
 --- them out, and `cosmic/internal/`'s are guarded by the reserved
