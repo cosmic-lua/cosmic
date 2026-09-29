@@ -107,6 +107,7 @@ local function test_sqlite_refuses_every_write()
     "VACUUM",
     "VACUUM INTO '" .. root .. "/copy.db'",
     "ATTACH '" .. root .. "/new.db' AS n",
+    "ATTACH ':memory:' AS m",
     "ANALYZE",
     "SELECT 1; DELETE FROM t",
   }) do
@@ -120,15 +121,46 @@ local function test_sqlite_refuses_every_write()
   for _, statement in ipairs({
     "PRAGMA query_only = 0",
     "PRAGMA writable_schema = 1",
-    "ATTACH ':memory:' AS m",
   }) do
     assert(run(root, { statement }) == 0, statement)
   end
   assert(Fs.read(path) == before, "the database changed")
-  -- VACUUM INTO's refused write leaves the empty file SQLite created
-  -- before query_only stopped it; see the TODO in build.sql.
-  assert(Fs.read(root .. "/copy.db") == "", "VACUUM INTO wrote a copy")
+  -- The attached-database limit stops both before SQLite makes a file.
+  assert(Fs.exists(root .. "/copy.db") == false, "VACUUM INTO made a file")
   assert(Fs.exists(root .. "/new.db") == false, "ATTACH made a file")
+  assert(Fs.remove_tree(root))
+end
+
+--- A read-only open used to make <db>-wal and <db>-shm beside a WAL-mode
+--- database whose -wal was gone, and leave them there.
+local function test_a_query_leaves_no_wal_or_shm_beside_the_database()
+  local root = assert(Fs.mkdtemp("cosmic-sql-wal-test-"))
+  local path = root .. "/wal.db"
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("PRAGMA journal_mode = WAL; CREATE TABLE t (a); INSERT INTO t VALUES (1)"))
+  assert(db:close())
+  assert(Fs.exists(path .. "-wal") == false and Fs.exists(path .. "-shm") == false,
+    "the last connection's close left them")
+  local opened = assert(sql.open({ name = path, path = path }))
+  local lines = assert(sql.query(opened.db, "SELECT a FROM t"))
+  assert(#lines == 2 and lines[2] == "1", table.concat(lines, "|"))
+  assert(opened.db:close())
+  assert(Fs.exists(path .. "-wal") == false, "a query made a -wal")
+  assert(Fs.exists(path .. "-shm") == false, "a query made a -shm")
+  assert(Fs.remove_tree(root))
+end
+
+--- Rows are written as they are stepped: one that fails on its third row
+--- has written the first two.
+local function test_rows_are_written_before_the_statement_finishes()
+  local root = project()
+  local failing = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 3) " ..
+    "SELECT x, CASE WHEN x = 3 THEN abs(-9223372036854775807 - 1) ELSE 0 END AS y FROM c"
+  local code, written = run(root, { failing })
+  assert(code == 1)
+  assert(#written.out == 3 and written.out[1] == "x\ty" and written.out[2] == "1\t0" and
+    written.out[3] == "2\t0", table.concat(written.out, "|"))
+  assert(#written.err == 1 and written.verdict:find("^sql: FAIL") ~= nil)
   assert(Fs.remove_tree(root))
 end
 
@@ -342,9 +374,13 @@ local function test_from_refuses_every_write_and_leaves_the_file_alone()
     assert(#written.out == 0 and written.verdict:find("^sql: FAIL") ~= nil, statement)
   end
   assert(assert(Fs.read(dir .. "/accounts.json")) == before)
-  -- VACUUM INTO's refused write leaves the empty file SQLite created
-  -- first; see the TODO in build.sql's run_from.
-  assert(Fs.read(dir .. "/copy.db") == "")
+  assert(Fs.exists(dir .. "/copy.db") == false, "VACUUM INTO made a file")
+  local code, written = run(dir, { "--from", dir .. "/accounts.json",
+    "ATTACH '" .. dir .. "/new.db' AS n" })
+  assert(code == 1 and #written.out == 0)
+  assert(Fs.exists(dir .. "/new.db") == false, "ATTACH made a file")
+  code = run(dir, { "--from", dir .. "/accounts.json", "ATTACH ':memory:' AS m" })
+  assert(code == 1, "ATTACH ':memory:' ran")
   assert(Fs.remove_tree(dir))
 end
 
