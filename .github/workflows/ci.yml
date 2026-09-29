@@ -154,6 +154,9 @@
         # The slowest fixture, the same on every platform: one leg on a
         # gating run, every leg on the scheduled run (phase_fixtures).
         COSMIC_CI_FIXED_POINT: "${{ (matrix.name == 'linux-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
+        # Rename, unlink and locking bugs show on glibc Linux and macOS:
+        # those two legs on a gating run, every leg on the scheduled run.
+        COSMIC_CI_SELF_REBUILD: "${{ (matrix.name == 'linux-x86_64' || matrix.name == 'macos-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
         COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
         # A Linux leg fails where a confined test's sandbox does not hold
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.

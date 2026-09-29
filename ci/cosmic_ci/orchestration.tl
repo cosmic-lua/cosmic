@@ -1068,12 +1068,23 @@ local function phase_fixtures(p: PlatformContext): integer
   local product = p.product
   local contract = p.contract
   local runtime = p.runtime
-  local s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
-    self_rebuild_test_timeout_ms, {
-    COSMIC_FIXTURE_ROOT = root,
-    COSMIC_FIXTURE_RUNTIME = runtime,
-    COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
-  }); if s ~= 0 then return s end
+  local s = 0
+  -- What the self-rebuild regression finds -- a rename, an unlink or a
+  -- lock gone wrong under a running tool -- shows on glibc Linux and on
+  -- macOS's file system, so a gating run runs it on those two legs, and
+  -- the others set COSMIC_CI_SELF_REBUILD=skip; the scheduled run keeps
+  -- it on every leg (ci.yml).
+  if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
+    Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
+      "(COSMIC_CI_SELF_REBUILD=skip)\n")
+  else
+    s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
+      self_rebuild_test_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_RUNTIME = runtime,
+      COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
+    }); if s ~= 0 then return s end
+  end
   -- The fixed-point regression is the slowest fixture on every leg
   -- (about 90 to 180 s: each of its six tests rebuilds the product twice
   -- from a fresh tree, and three compile the tree twice over), and what it checks -- that the compiler compiles itself to

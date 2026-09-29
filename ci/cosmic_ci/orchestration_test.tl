@@ -684,24 +684,45 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
     "the checked job runs the phases " .. table.concat(phases, " "))
 end
 
+--- ci.yml's platform job's legs, by name, and its environment.
+local function platform_legs_and_env(): {string: {string: string}}, {string: string}
+  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
+  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
+  local platform = (ci.jobs as {string: {string: any}}).platform
+  local legs: {string: {string: string}} = {}
+  local strategy = platform.strategy as {string: {string: any}}
+  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
+    legs[leg.name] = leg
+  end
+  return legs, platform.env as {string: string}
+end
+
 --- The fixed-point regression, the slowest fixture on every leg, runs
 --- on one leg of a gating run (COSMIC_CI_FIXED_POINT), and on every leg
 --- of the scheduled run.
 local function test_the_fixed_point_fixture_runs_on_one_leg_and_on_every_scheduled_one()
-  local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
-  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
-  local platform = (ci.jobs as {string: {string: any}}).platform
-  local legs: {string: boolean} = {}
-  local strategy = platform.strategy as {string: {string: any}}
-  for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
-    legs[leg.name] = true
-  end
-  local env = platform.env as {string: string}
+  local legs, env = platform_legs_and_env()
   local value = assert(env.COSMIC_CI_FIXED_POINT, "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
   local one = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
     "github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
   assert(one and legs[one], "the fixed-point fixture runs on no one leg of the matrix, " ..
     "or not on every leg of the scheduled run: " .. value)
+end
+
+--- The self-rebuild regression runs on two legs of a gating run
+--- (COSMIC_CI_SELF_REBUILD), one of them macOS, whose file system
+--- renames, unlinks and locks unlike Linux's, and on every leg of the
+--- scheduled run.
+local function test_the_self_rebuild_fixture_runs_on_two_legs_and_on_every_scheduled_one()
+  local legs, env = platform_legs_and_env()
+  local value = assert(env.COSMIC_CI_SELF_REBUILD, "ci.yml's platform job sets no COSMIC_CI_SELF_REBUILD")
+  local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
+    "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
+  assert(one and two and one ~= two and legs[one] and legs[two],
+    "the self-rebuild fixture runs on no two legs of the matrix, " ..
+    "or not on every leg of the scheduled run: " .. value)
+  assert(legs[one].runner:sub(1, 5) == "macos" or legs[two].runner:sub(1, 5) == "macos",
+    "the self-rebuild fixture runs on no macOS leg of a gating run: " .. value)
 end
 
 --- A gating suite's workers are given none of what names the run --
