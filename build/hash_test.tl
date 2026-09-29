@@ -142,7 +142,15 @@ end
 
 local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
   local good = file(tmp, "good", "abc")
-  local odd = file(tmp, "bad\255", "abc")
+  local odd = tmp .. "/bad\255"
+  -- A name that is not UTF-8 is one only some filesystems hold: APFS
+  -- (macOS) refuses it with EILSEQ, so no such path can reach `--json`
+  -- there, and the Linux legs hold this case.
+  local wrote, why = Fs.write(odd, "abc")
+  if not wrote then
+    assert(why:find("Illegal byte sequence", 1, true), why)
+    return
+  end
   local ran = run({ "--json", odd, good })
   assert(ran.code == 2, ran.code)
   assert(ran.err:find("--json cannot write this path", 1, true), ran.err)
