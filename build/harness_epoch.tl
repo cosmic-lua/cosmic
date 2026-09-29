@@ -8,16 +8,23 @@
 --- it. `epoch` moves every key, and is bumped by hand for a change that
 --- can alter a pass or a fail.
 ---
---- `epoch` is a count and a token of 8 random hex digits, "8-072f7458":
---- the count is for people, and the token makes each bump its own
---- value. Were it a count alone, two branches that each bumped 7 to 8
---- would make the one edit, which git merges cleanly, and the merged
---- tree, holding both changes, would stand on the verdicts either
---- branch earned under 8 alone (the shared verdict cache is keyed
---- without the tree's location). Two tokens conflict on this line
---- instead, and whoever resolves it draws another.
---- build/harness_epoch_test.tl holds it to that form, and prints a
---- fresh value to paste.
+--- `epoch` is a count and a token of 8 random hex digits,
+--- "N-xxxxxxxx": the token makes each bump its own value. Were it a
+--- count alone, two branches that each bumped 7 to 8 would make the one
+--- edit, which git merges cleanly, and the merged tree, holding both
+--- changes, would stand on the verdicts either branch earned under 8
+--- alone (the shared verdict cache is keyed without the tree's
+--- location). Two tokens conflict on the line instead. `retired` holds
+--- every token `epoch` held before, in the order they were retired
+--- (the counts 1 to 7 for the epochs that had none), and the count is
+--- one more than how many it holds: a bump appends the old token there
+--- and draws a new one, so a bump of the count alone fails, and two
+--- branches that bump from one value append the same line, which
+--- merges, while their `epoch` lines conflict. On a conflict, keep
+--- neither side: set `epoch` to the bare count and run
+--- build/harness_epoch_test.tl, which fails and prints a fresh value.
+--- That test holds `epoch` and `retired` to all this, and prints both
+--- edits of a bump when the harness moves.
 ---
 --- `acknowledged` holds a digest per module of that code as it was when
 --- the choice was last made (`build.test`'s `harness`, over each
@@ -61,13 +68,15 @@
 --- a test can replace, it takes as a local when it loads.
 local record harness_epoch
   epoch: string
+  --- Every token `epoch` held before its current one, oldest first.
+  retired: {string}
   acknowledged: {string:string}
   --- The standard-library modules the harness's modules may reach, each
   --- by why it must.
   library: {string:string}
 end
 
-harness_epoch.epoch = "8-072f7458"
+harness_epoch.epoch = "8-072f7458" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
@@ -98,9 +107,9 @@ harness_epoch.acknowledged = {
 
   ["build.shared_sqlite"] = "d1a6f3376ebfb4eaa5b96a0bfd283e34e07a250f984f2f2e3b7f1fe978d18047",
 
-  ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
+  ["build.shared_verdicts"] = "a618d99e7a14fc72b74fda26dbf73d988a8473dda34be888b86e530bf752e5d0",
 
-  ["build.test"] = "9248a8acceda31c4c0e4809e3bd0b1b9c0633eaeeb4e427d7615ffbaa90940fb",
+  ["build.test"] = "96806befea0fe21ac5581e241aca060060b515d274926f2dbcd98c811a6e5776",
 
   ["build.test_inputs"] = "73600e0ad4cc72061f59bb556723015e07bc6f76345f6e405f4a8d4510b960aa",
 
@@ -158,6 +167,16 @@ harness_epoch.library = {
     "through it (`build.launcher`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",
+}
+
+harness_epoch.retired = {
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
 }
 
 return harness_epoch

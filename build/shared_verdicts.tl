@@ -318,7 +318,7 @@ end
 --- rows it keys, "; " between them, or that it held none, so a report
 --- says whether the run's own parts were among what it restored:
 ---
----     test: census: 1994 rows under host features X, ..., harness e1t60000; 3 rows under no parts named
+---     test: census: 1994 rows under host features X, ..., harness e1-00000000-t60000; 3 rows under no parts named
 ---     test: census: no rows
 function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   if #held == 0 then return "test: census: no rows" end

@@ -1931,10 +1931,25 @@ end
 --- The harness's epoch every key holds (build/harness_epoch.tl), or
 --- the one COSMIC_TEST_HARNESS_EPOCH names in its place, for a test
 --- alone, which stands in for a bump without a binary of its own
---- (build/sandboxed_verdicts_test.tl).
-local function harness_epoch_of(): string
+--- (build/sandboxed_verdicts_test.tl): a count, a dash and hex digits,
+--- as the file's is, so the census and key-parts lines, which say it
+--- as one word, stay parseable. Nil and why for another.
+local function harness_epoch_of(): string | nil, string
   local named = Env.get("COSMIC_TEST_HARNESS_EPOCH") or ""
-  return named ~= "" and named or harness_epoch.epoch
+  if named == "" then return harness_epoch.epoch, "" end
+  if not named:match("^%d+%-%x+$") then
+    return nil, string.format("COSMIC_TEST_HARNESS_EPOCH is %q, not a count, a dash and " ..
+      "hex digits, as build/harness_epoch.tl's `epoch` is", named)
+  end
+  return named, ""
+end
+
+--- The word the census and key-parts lines say a key's harness parts
+--- as (`cosmic test --census`): its epoch and the workers' timeout, one
+--- word, which ci/cosmic_ci/report.tl compares whole, so a bump from
+--- the same count says a moved harness.
+function test.harness_word(epoch: string, timeout_ms: integer): string
+  return string.format("e%s-t%d", epoch, timeout_ms)
 end
 
 --- Everything a finished job's verdict is recorded into.
@@ -3432,6 +3447,13 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. verdicts_trouble)
     return 1
   end
+  local epoch, epoch_trouble = harness_epoch_of()
+  if epoch == nil then
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
+    log:complain(epoch_trouble)
+    return 1
+  end
   local credited: test.Credited = {}
 
   local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0, every = 0,
@@ -3463,7 +3485,7 @@ local function run(argv: {integer:string}): integer
     origin = checkout_id(records, root, run_at_ns),
     sandbox = sandboxed, keyed = keyed, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    epoch = harness_epoch_of(), timeout_ms = limits.timeout_ms,
+    epoch = epoch, timeout_ms = limits.timeout_ms,
     store_salt = harness.store_salt, carried = harness.carried,
     closure_sets = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
@@ -3671,7 +3693,7 @@ local function run(argv: {integer:string}): integer
       { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },
       { "compiler", (rec.compiler or ""):sub(1, 12) },
       -- The key's harness parts, its epoch and timeout, as one word.
-      { "harness", string.format("e%s-t%d", rec.epoch, rec.timeout_ms) },
+      { "harness", test.harness_word(rec.epoch, rec.timeout_ms) },
     }
     if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
     if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(root):sub(1, 12) } end

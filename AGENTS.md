@@ -114,10 +114,13 @@
    is given, how it is judged, how a key is computed, and a sandbox's
    hold or bind tightened (a soundness fix that moves no other part of a
    key, so a pass earned through the hole does not stand). `epoch` is
-   a count and a random token (`"8-072f7458"`), so two branches'
-   bumps conflict in git rather than merge as one edit that stands on
-   verdicts either branch earned alone: paste the fresh value the
-   guard prints, and resolve a conflict on it by drawing another. A
+   a count and a random token (`"N-xxxxxxxx"`), the count one past the
+   tokens `retired` holds, so two branches' bumps conflict in git
+   rather than merge as one edit that stands on verdicts either branch
+   earned alone: a bump appends the old token to `retired` and draws a
+   new one, pasting the two lines the guard prints when the harness
+   moves. Resolve a conflict on `epoch` by keeping neither side: set
+   the bare count, and the guard fails, printing a fresh value. A
    merge-queue run whose change moves that file runs every test
    (`--all`). `COSMIC_TEST_HARNESS_EPOCH` stands in for a bump in the
    tests of the runner alone (`build/sandboxed_verdicts_test.tl`);

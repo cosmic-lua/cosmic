@@ -33,31 +33,84 @@ local function entry(name: string, digest: string): string
   return string.format("  [%q] = %q,", name, digest)
 end
 
---- The count `epoch` holds (build/harness_epoch.tl) when it has the
---- form the file keeps, a count, a dash and 8 lower-case hex digits
---- ("8-072f7458"), or nil where it has another.
-local function epoch_count(epoch: string): integer | nil
-  local count = epoch:match("^(%d+)%-%x%x%x%x%x%x%x%x$")
-  if count == nil or epoch:find("%u") then return nil end
-  return math.tointeger(tonumber(count))
+--- The count and token of `epoch` (build/harness_epoch.tl) when it
+--- has the form the file keeps, a count, a dash and 8 lower-case hex
+--- digits ("N-xxxxxxxx"), or nil where it has another.
+local function epoch_parts(epoch: string): integer | nil, string | nil
+  local count, token = epoch:match("^(%d+)%-(%x%x%x%x%x%x%x%x)$")
+  if count == nil or token:find("%u") then return nil, nil end
+  return math.tointeger(tonumber(count)), token
 end
 
---- A value to bump `epoch` to: the next count, and a token
---- drawn from the system's entropy, so that two bumps from one count --
---- on two branches -- differ, and conflict in git rather than merge as
---- one edit whose verdicts either branch's alone earned.
-local function bumped(epoch: string): string
-  local token = assert(Rand.entropy(4))
-  local count = math.tointeger(tonumber(epoch:match("^%d+") or "0")) or 0
-  return string.format("%d-%s", count + 1, Codec.hex(token))
+local function holds(list: {string}, wanted: string): boolean
+  for _, value in ipairs(list) do
+    if value == wanted then return true end
+  end
+  return false
 end
 
---- The words that tell how to bump `epoch` from `epoch`, with a fresh
---- value to paste.
-local function how_to_bump(epoch: string): string
-  return string.format("To bump it, set `epoch = %q` -- a fresh token each time, " ..
-    "never one copied from another branch; where two bumps conflict in a merge, keep " ..
-    "neither: draw another, as this prints one on each run.", bumped(epoch))
+--- The two edits of a bump from `epoch` and `retired`: the line to set
+--- `epoch`'s to, with a token drawn from the system's entropy, and the
+--- line to append to `retired`, nil where there is none to retire -- a
+--- bare count, set on a conflict, whose token the merge retired
+--- already. The count is one past `retired`, as it will be after the
+--- append, so two bumps from one value -- on two branches -- append
+--- the same line, which merges, and set their `epoch` lines apart,
+--- which conflict.
+local function bump(epoch: string, retired: {string}): string, string | nil
+  local _, token = epoch_parts(epoch)
+  local retire: string | nil = nil
+  if token ~= nil and not holds(retired, token) then retire = token end
+  local count = #retired + (retire ~= nil and 1 or 0) + 1
+  local line = string.format("harness_epoch.epoch = %q",
+    string.format("%d-%s", count, Codec.hex((assert(Rand.entropy(4))))))
+  return line, retire ~= nil and string.format("  %q,", retire) or nil
+end
+
+--- The words that tell how to bump `epoch`, with the two edits to paste.
+local function how_to_bump(epoch: string, retired: {string}): string
+  local line, append = bump(epoch, retired)
+  return "To bump it, set the `epoch` line to\n" .. line .. "\nkeeping its comment" ..
+    (append ~= nil and ", and append this line to `retired`:\n" .. append or
+      "; append nothing to `retired`: `epoch` has no token of its own to retire") ..
+    "\nThe token is drawn fresh here: never copy one from another branch."
+end
+
+--- Nil where `epoch` and `retired` are as build/harness_epoch.tl keeps
+--- them, or what is wrong: `epoch` is a count and a token, the token is
+--- not retired, and the count is one past how many are; `retired`
+--- holds no token twice. So a bump that moves the count alone fails,
+--- whether or not it retires the token it keeps.
+---
+--- TODO: hold a conflict's resolution to a fresh token, which nothing
+--- here can: a merge that keeps one side's `epoch` line, with the token
+--- both sides retired, passes, and the merged tree stands on the
+--- verdicts that side earned without the other's change. Enforcing it
+--- needs what a tree alone does not say -- the tokens other branches
+--- hold: have CI's merge queue (ci/cosmic_ci/orchestration.tl, beside
+--- its `harness_moved`) refuse a change whose `epoch` token its base
+--- did not hold but another open pull request's head does, once the
+--- queue's driver reads open pull requests.
+local function epoch_trouble(epoch: string, retired: {string}): string | nil
+  local seen: {string:boolean} = {}
+  for _, token in ipairs(retired) do
+    if seen[token] then return string.format("`retired` holds %q twice", token) end
+    seen[token] = true
+  end
+  local count, token = epoch_parts(epoch)
+  if count == nil then
+    return string.format("`epoch` is %q, not a count, a dash and 8 lower-case hex digits",
+      epoch)
+  end
+  if seen[token] then
+    return string.format("`epoch`'s token %s is retired: a bump draws a new one", token)
+  end
+  if count ~= #retired + 1 then
+    return string.format("`epoch`'s count is %d, not %d, one past the %d tokens `retired` " ..
+      "holds: a bump appends the old token there and draws a new one", count,
+      #retired + 1, #retired)
+  end
+  return nil
 end
 
 --- What differs between the harness's modules as `found` has them (a
@@ -66,7 +119,7 @@ end
 --- that has no entry, and each entry that names no module of the
 --- harness, with the lines that acknowledge the first two.
 local function unacknowledged(found: {string:string}, acknowledged: {string:string},
-                              epoch: string): string | nil
+                              epoch: string, retired: {string}): string | nil
   local moved: {string} = {}
   local stale: {string} = {}
   for name, digest in pairs(found) do
@@ -84,8 +137,8 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
     "the change can alter a pass or a fail -- what a worker is given, how it is " ..
     "judged, how a key is computed; a sandbox's hold or bind tightened, too, which " ..
     "moves no other part of a key, so a pass earned through the hole does not " ..
-    "stand -- which runs every test again; otherwise keep it. " .. how_to_bump(epoch) ..
-    " Either way, in `acknowledged`:",
+    "stand -- which runs every test again; otherwise keep it. " .. how_to_bump(epoch, retired) ..
+    "\nEither way, in `acknowledged`:",
   }
   for _, name in ipairs(moved) do
     out[#out + 1] = acknowledged[name] == nil and
@@ -105,8 +158,16 @@ local function test_the_harness_is_acknowledged()
   db:close()
   assert(found ~= nil, trouble)
   local complaint = unacknowledged(found.modules, harness_epoch.acknowledged,
-    harness_epoch.epoch)
+    harness_epoch.epoch, harness_epoch.retired)
   assert(complaint == nil, complaint)
+end
+
+--- `retired` as build/harness_epoch.tl held it when `epoch` first had
+--- a token: the counts of the epochs before, 1 to 7.
+local function counted(n: integer): {string}
+  local retired: {string} = {}
+  for i = 1, n do retired[i] = tostring(i) end
+  return retired
 end
 
 --- A module that moved is named alone, with the one line to set; one
@@ -114,45 +175,87 @@ end
 --- harness does not hold is stale.
 local function test_unacknowledged_names_each_module()
   local acknowledged = { ["build.a"] = "1", ["build.b"] = "2" }
-  local epoch = "8-072f7458"
-  assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2" }, acknowledged, epoch) == nil)
+  local epoch, retired = "8-072f7458", counted(7)
+  assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2" }, acknowledged, epoch,
+    retired) == nil)
   local moved = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "3" }, acknowledged,
-    epoch))
+    epoch, retired))
   assert(moved:find("moved: build.b; set its line to\n" .. entry("build.b", "3"), 1, true), moved)
   assert(not moved:find("build.a", 1, true), moved)
   assert(moved:find("Bump `epoch`", 1, true), moved)
-  assert(moved:find('set `epoch = "9%-%x%x%x%x%x%x%x%x"`'), moved)
+  -- Both edits of a bump, to paste.
+  assert(moved:find('\nharness_epoch.epoch = "9%-%x%x%x%x%x%x%x%x"\n'), moved)
+  assert(moved:find('append this line to `retired`:\n  "072f7458",\n', 1, true), moved)
   local added = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2", ["build.c"] = "4" },
-    acknowledged, epoch))
+    acknowledged, epoch, retired))
   assert(added:find("no entry for build.c; add this line, in its place by name, between " ..
     "blank lines\n" .. entry("build.c", "4"), 1, true), added)
-  local gone = assert(unacknowledged({ ["build.a"] = "1" }, acknowledged, epoch))
+  local gone = assert(unacknowledged({ ["build.a"] = "1" }, acknowledged, epoch, retired))
   assert(gone:find("stale entry: build.b", 1, true), gone)
   assert(not gone:find("build.a", 1, true), gone)
 end
 
---- `epoch` is a count and a token, as build/harness_epoch.tl says: a
---- bare count, as it once was, is two branches' one edit.
-local function test_the_epoch_is_a_count_and_a_token()
-  assert(epoch_count(harness_epoch.epoch) ~= nil, string.format("build/harness_epoch.tl's " ..
-    "`epoch` is %q, not a count, a dash and 8 lower-case hex digits. %s",
-    harness_epoch.epoch, how_to_bump(harness_epoch.epoch)))
+--- `epoch` and `retired` are as build/harness_epoch.tl says: a count and
+--- a token no bump before used, the count one past the tokens retired.
+--- A bare count -- as a conflict's resolution sets it -- fails here,
+--- printing a fresh value.
+local function test_the_epoch_is_a_count_and_an_unused_token()
+  local trouble = epoch_trouble(harness_epoch.epoch, harness_epoch.retired)
+  assert(trouble == nil, "build/harness_epoch.tl: " .. tostring(trouble) .. ". " ..
+    how_to_bump(harness_epoch.epoch, harness_epoch.retired))
 end
 
---- The form is held exactly, and a bump the guard prints has it, counts
---- one on, and differs from another drawn from the same count.
-local function test_the_guard_holds_the_epoch_form()
-  assert(epoch_count("8-072f7458") == 8)
-  assert(epoch_count("12-00000000") == 12)
+--- What a bump's two edits, as `bump` prints them, leave `epoch` and
+--- `retired` as.
+local function applied(line: string, append: string | nil, retired: {string}): string, {string}
+  local after: {string} = {}
+  for i, token in ipairs(retired) do after[i] = token end
+  if append ~= nil then after[#after + 1] = assert(append:match('^  "(%x+)",$'), append) end
+  return assert(line:match('^harness_epoch%.epoch = "(.*)"$'), line), after
+end
+
+--- The form is held exactly; the count is held to `retired`, so a bump
+--- of the count alone fails whether or not it retires the token it
+--- keeps; and a bump as the guard prints it passes, and two drawn from
+--- one value append the same line but set `epoch` apart.
+local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
+  local retired = counted(7)
+  assert(epoch_trouble("8-072f7458", retired) == nil)
   for _, malformed in ipairs({ "8", "", "8-", "-072f7458", "8-072f745", "8-072f74581",
     "8-072F7458", "8-072g7458", "x-072f7458", "8_072f7458", " 8-072f7458" }) do
-    assert(epoch_count(malformed) == nil, string.format("%q was taken as an epoch", malformed))
+    local trouble = epoch_trouble(malformed, retired)
+    assert(trouble ~= nil and trouble:find("not a count, a dash", 1, true),
+      string.format("%q was taken as an epoch: %s", malformed, tostring(trouble)))
   end
-  local one, two = bumped("8-072f7458"), bumped("8-072f7458")
-  assert(epoch_count(one) == 9 and epoch_count(two) == 9, one .. ", " .. two)
-  assert(one ~= two, "two bumps from one count drew one token: " .. one)
-  -- A bare count, as the file held before its token, counts on too.
-  assert(epoch_count(bumped("7")) == 8, "a bare count's bump did not count on")
+  local skipped = assert(epoch_trouble("9-072f7458", retired))
+  assert(skipped:find("count is 9, not 8", 1, true), skipped)
+  local more = counted(7)
+  more[8] = "072f7458"
+  local kept = assert(epoch_trouble("9-072f7458", more))
+  assert(kept:find("072f7458 is retired", 1, true), kept)
+  local twice = counted(7)
+  twice[8] = "7"
+  local doubled = assert(epoch_trouble("9-aaaaaaaa", twice))
+  assert(doubled:find('holds "7" twice', 1, true), doubled)
+  -- Two branches bump from one value.
+  local one, one_append = bump("8-072f7458", retired)
+  local two, two_append = bump("8-072f7458", retired)
+  assert(one_append == '  "072f7458",' and two_append == one_append, tostring(one_append))
+  assert(one ~= two, "two bumps from one value drew one token: " .. one)
+  local epoch, after = applied(one, one_append, retired)
+  assert(epoch:match("^9%-"), epoch)
+  assert(epoch_trouble(epoch, after) == nil, tostring(epoch_trouble(epoch, after)))
+  -- Their conflict resolved as the epoch line's comment says: the bare
+  -- count, with the token the merge retired; the guard fails and
+  -- prints a bump that retires nothing more.
+  local bare = assert(epoch_trouble("9", after))
+  assert(bare:find("not a count, a dash", 1, true), bare)
+  local line, append = bump("9", after)
+  assert(append == nil, tostring(append))
+  assert(how_to_bump("9", after):find("append nothing to `retired`", 1, true))
+  local resolved, still = applied(line, append, after)
+  assert(resolved:match("^9%-") and resolved ~= epoch, resolved)
+  assert(epoch_trouble(resolved, still) == nil, tostring(epoch_trouble(resolved, still)))
 end
 
 --- The lines the guard prints are the lines build/harness_epoch.tl
