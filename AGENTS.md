@@ -307,6 +307,12 @@ with the date and commit `git blame` gives its first line: the work's own are
 the ones with no commit yet or with a commit on this branch. Rather than
 writing "none" from memory, run it.
 
+A comment says what the code cannot: a reason, an invariant, a contract,
+a hazard. It is correct, necessary, clear and concise, describes the code
+as it is rather than its history, and gives way to clearer code where it
+only makes up for unclear code. `.claude/skills/comments/SKILL.md` holds
+the standard, with examples, and how to audit a part of the tree against it.
+
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that
 fail for the reported bug over assertions that pin incidental implementation.
