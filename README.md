@@ -24,6 +24,20 @@ o/bin/cosmic hello.tl
 hello from the database
 ```
 
+## learn more
+
+cosmic's code is Teal, typed Lua: see [teal-language.org](https://teal-language.org).
+The tool documents itself, in a release binary too:
+
+- `cosmic help` lists every verb, and `cosmic help <verb>` describes one.
+- `cosmic docs` lists the standard library and the guides, and
+  `cosmic docs <name or words>` shows one or searches them all.
+- `cosmic docs quickstart` is a tour of the standard library, and
+  `cosmic docs project` builds a first project: its files, tests,
+  program, and the verbs that run them. Their sources are
+  [doc/guides/quickstart.md](doc/guides/quickstart.md) and
+  [doc/guides/project.md](doc/guides/project.md).
+
 ## design
 
 what cosmic is for and how it is built lives in

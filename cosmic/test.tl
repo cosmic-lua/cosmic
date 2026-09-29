@@ -6,7 +6,7 @@
 ---
 --- A test's default inputs are its module's import closure, as source
 --- files; every fuzz corpus (`testdata/fuzz/`), when that closure holds
---- `build.fuzz`; and the variables `cosmic test` itself pins. What else
+--- the fuzz module; and the variables `cosmic test` itself pins. What else
 --- the tests read, their module declares. `cosmic test --audit` runs
 --- every test and names what each read that neither covers, with the
 --- `needs` call that would hold it.
@@ -120,27 +120,23 @@ local record Test
     --- Without it, a sandboxed worker is given at o/cosmic.db the store
     --- of its module's import closure alone, which its key holds, and a
     --- `require` reaches only that closure. Every other lookup in the
-    --- store is held to the closure too (`build.test_worker`'s
-    --- `hold_store`), from the module's load until the worker ends:
-    --- `Store.bytecode`, `Store.source` or `Store.requires` of a module
-    --- of the tree outside the closure, or the store's searcher called
-    --- by hand, answers none; `Store.databases()`, whose handles read
-    --- every module's rows, raises; and `Store.meta` of a row the key
-    --- does not hold raises. The hold applies sandboxed or not, since
-    --- without it such a read reaches the program's own database, or the
-    --- whole projection, which no key of the test holds.
-    ---
-    --- A test that type-checks a snippet makes such reads: the
-    --- `Store.source` reads of `cosmic.*` sources and declarations that
-    --- build/teal.tl's `standard` does. A module the snippet requires
-    --- goes in the test's closure (`local type _ = require(...)`), or
-    --- the test declares `store`.
-    ---
-    --- The descriptor a portable start keeps on the program is refused
-    --- to every binding (core/check.h's `cosmic_checkfd`), and a
-    --- sandboxed worker that does not declare `tool` has no name to open
-    --- the program by.
+    --- store is held to the closure too, from the module's load until
+    --- the worker ends: `Store.bytecode`, `Store.source` or
+    --- `Store.requires` of a module outside it, or the store's searcher
+    --- called by hand, answers none, and `Store.databases()` raises,
+    --- sandboxed or not, since such a read would reach rows no key of
+    --- the test holds. A test that type-checks a snippet reads
+    --- `cosmic.*` sources and declarations this way: a module the
+    --- snippet requires goes in the test's closure
+    --- (`local type _ = require(...)`), or the test declares `store`.
+    --- `tool` lets a test start the program, but not read its database
+    --- through the descriptor a portable start keeps on it: that read is
+    --- refused, whatever the test declares.
     store: boolean
+    -- `Store.meta` is not held (the TODO on `hold_store` in
+    -- build/test_worker.tl). The descriptor is refused by core/check.h's
+    -- `cosmic_checkfd`, and a sandboxed worker that does not declare
+    -- `tool` has no name to open the program by.
     --- Whether the tests, or the processes they start, read the system's
     --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and
     --- /etc, as a host program or its dynamic loader needs them -- a
@@ -150,9 +146,8 @@ local record Test
     --- /dev/urandom), and its key holds nothing of which packages the
     --- host has installed or which system it says it is: a verdict that
     --- stood on one host stands on another of the same kernel and
-    --- processor. A test that starts this program only past its launcher
-    --- -- its core, relaunched (build.this_program's
-    --- `program`) -- needs none; one that runs the launcher itself
+    --- processor. A test that starts this program's core directly, past
+    --- its launcher, needs none; one that runs the launcher itself
     --- (o/bin/cosmic, `#!/bin/sh`) needs it. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
@@ -161,19 +156,20 @@ local record Test
     --- name: `"zig"` (the pinned zig, and zig's global and project
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
     --- portable cosmic extracts); the runner knows where each is on the
-    --- host (`build.caches`), and another name (`build.cache_names`)
-    --- fails the build. Only for a cache whose contents never change a
-    --- result -- content-addressed, there to save time: what a test
-    --- reads or writes there enters no verdict's key, and the audit asks
-    --- nothing more of it. A sandboxed worker has each writable at its
-    --- own path, with the variables that locate it.
+    --- host, and another name fails the build. Only for
+    --- a cache whose contents never change a result -- content-addressed,
+    --- there to save time: what a test reads or writes there enters no
+    --- verdict's key, and the audit asks nothing more of it. A sandboxed
+    --- worker has each writable at its own path, with the variables that
+    --- locate it.
     caches: {string}
   end
 end
 
 --- What each field of `Needs` takes: a list of strings ("list") or a
---- boolean ("flag"). The build holds a declaration in the source to the
---- same table (`build.analyzer`).
+--- boolean ("flag").
+-- The build holds a declaration read from the source to the same table
+-- (build/analyzer.tl).
 Test.fields = {
   reads = "list", host = "list", env = "list", network = "list",
   processes = "flag", tool = "flag", nests = "flag", store = "flag", system = "flag",
@@ -182,7 +178,7 @@ Test.fields = {
 
 --- What a test runner installed as `__runner` on this module's table
 --- -- no part of its type -- to learn what `needs` is handed as the
---- module it runs loads (`build.test_worker`), and to have a call once
+--- module it runs loads, and to have a call once
 --- that module has loaded refused: a table whose `handed` is called with
 --- what `needs` was handed, and whose `loaded` the runner sets once the
 --- module has loaded. Nil when none is installed.

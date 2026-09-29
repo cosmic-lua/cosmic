@@ -441,11 +441,23 @@ local process_target: Target = {
   },
 }
 
+--- The raw socket table, `cosmic.internal.socket`, which only
+--- `cosmic.net` is handed.
+local socket_target: Target = {
+  header = "core/socket.h",
+  record_name = "socket",
+  summary = {
+    "The raw socket table, handed only to `cosmic.net`. Derived from",
+    "core/socket.h.",
+  },
+}
+
 --- Every header a declaration is derived from, and the import path each
 --- one's declaration answers to.
 generator.targets = {
   { path = "cosmic.sys", target = syscalls_target },
   { path = "cosmic.internal.process", target = process_target },
+  { path = "cosmic.internal.socket", target = socket_target },
 }
 
 --- The Teal declaration of the module the header describes: `target`'s

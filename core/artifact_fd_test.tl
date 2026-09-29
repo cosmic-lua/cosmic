@@ -17,12 +17,14 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local gen_syscalls = require("build.gen_syscalls")
 local _child = require("cosmic.child")
+local _net = require("cosmic.net")
 local type raw_process = require("cosmic.internal.process")
+local type raw_socket = require("cosmic.internal.socket")
 
 --- The binding headers, read for which of their bindings take a
 --- descriptor.
 Test.needs{
-  reads = { "core/syscalls.h", "core/process.h" },
+  reads = { "core/syscalls.h", "core/process.h", "core/socket.h" },
 }
 
 local type Searcher = function(string): any, any
@@ -38,6 +40,7 @@ local function raw_behind(wrapper: string): any
 end
 
 local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/socket.h declares
 
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none: the one `Proc.relaunch` hands a child as its own.
@@ -78,6 +81,10 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   fsync = function(_: integer, fd: integer): {any} return { fd } end,
   ftruncate = function(_: integer, fd: integer): {any} return { fd, 0 } end,
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
+  accept = function(_: integer, fd: integer): {any} return { fd } end,
+  send = function(_: integer, fd: integer): {any} return { fd, "" } end,
+  shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
+  wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
   poll = function(_: integer, fd: integer): {any} return { { fd }, { process.POLLIN }, 0 } end,
   spawn = function(at: integer, fd: integer): {any}
     local args: {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
@@ -93,7 +100,7 @@ local not_descriptors: {string: boolean} = {
   relaunch = true, -- the numbers the child is to see its descriptors as
 }
 
---- Every binding core/syscalls.h and core/process.h declare to take a
+--- Every binding core/syscalls.h, core/process.h and core/socket.h declare to take a
 --- descriptor refuses the artifact's at each such argument -- and one
 --- declared from here on fails this test until it has a case above.
 local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
@@ -102,6 +109,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
   local tables: {string: {string: any}} = {
     ["cosmic.sys"] = sys as {string: any}, -- cast: the table core/syscalls.h declares
     ["cosmic.internal.process"] = process as {string: any}, -- cast: core/process.h's
+    ["cosmic.internal.socket"] = socket as {string: any}, -- cast: core/socket.h's
   }
   local missing: {string} = {}
   local tried = 0

@@ -4,7 +4,8 @@
 
 cosmic is one executable: the Lua runtime, the Teal compiler, and a
 standard library, `cosmic.*`, for the everyday things a script needs.
-This guide uses several of those modules and shows what they do.
+This guide uses several of those modules and shows what they do. To
+start a project of your own, see the guide `cosmic docs project`.
 
 ## hashing bytes
 
@@ -23,23 +24,22 @@ print(Hash.hex_sha256("cosmic"))
 
 ## reading a file back
 
-`cosmic.fs` reads and writes files. This example is two pieces: a
-companion file, `notes.txt`, and the entry code that reads it.
-
-```teal file=notes.txt
-hello from notes.txt
-```
+`cosmic.fs` reads and writes files. `Fs.mkdtemp` makes a fresh directory
+to work in, `Fs.write` puts a file in it, and `Fs.read` reads it back.
 
 ```teal
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 
-local content, trouble = Fs.read(tmp .. "/notes.txt")
+local dir = assert(Fs.mkdtemp("quickstart-"))
+assert(Fs.write(dir .. "/notes.txt", "hello from notes.txt"))
+local content, trouble = Fs.read(dir .. "/notes.txt")
 if content == nil then
   error(trouble)
 end
 print(content)
 print(Hash.hex_sha256(content))
+assert(Fs.remove_tree(dir))
 ```
 
 ```output
@@ -206,11 +206,14 @@ as `lstat`, is there. A failure returns nil, the error, and the errno.
 `cosmic docs cosmic.sys` lists every call.
 
 ```teal
+local Fs = require("cosmic.fs")
 local syscalls = require("cosmic.sys")
 
-assert(syscalls.mkdir(tmp .. "/made"))
-local stat = assert(syscalls.lstat(tmp .. "/made"))
+local dir = assert(Fs.mkdtemp("quickstart-"))
+assert(syscalls.mkdir(dir .. "/made"))
+local stat = assert(syscalls.lstat(dir .. "/made"))
 print(stat.kind)
+assert(Fs.remove_tree(dir))
 ```
 
 ```output
@@ -222,13 +225,7 @@ dir
 `cosmic.child` starts an executable from an exact path; it does not search
 `PATH`. Its result reports how the process ended. Output is inherited unless
 you redirect it to a caller-owned file descriptor, as this example does.
-
-```teal file=greeter.tl
-return function(argv: {string}): integer
-  print("hello, " .. argv[1])
-  return 0
-end
-```
+It writes a small program, `greeter.tl`, and runs it.
 
 ```teal
 local Child = require("cosmic.child")
@@ -236,7 +233,14 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 
-local output = tmp .. "/child-output"
+local dir = assert(Fs.mkdtemp("quickstart-"))
+assert(Fs.write(dir .. "/greeter.tl", [[
+return function(argv: {string}): integer
+  print("hello, " .. argv[1])
+  return 0
+end
+]]))
+local output = dir .. "/child-output"
 local fd = assert(Fs.open_write(output))
 -- This very cosmic, started past its launcher as `cosmic test` starts
 -- a worker: the core it runs on, with what the launcher would hand it.
@@ -244,7 +248,7 @@ local fd = assert(Fs.open_write(output))
 -- which takes a shell.
 local relaunch = assert(Proc.relaunch())
 local argv = { table.unpack(relaunch.argv) }
-argv[#argv + 1] = tmp .. "/greeter.tl"
+argv[#argv + 1] = dir .. "/greeter.tl"
 argv[#argv + 1] = "cosmic"
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
@@ -258,6 +262,7 @@ assert(finished.ok and finished.code == 0)
 local content = assert(Fs.read(output))
 print(content:sub(1, -2))
 print("exit " .. tostring(finished.code))
+assert(Fs.remove_tree(dir))
 ```
 
 ```output
@@ -309,7 +314,7 @@ not run: running it would end the test that runs this guide.
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 
-local config, trouble = Fs.read(tmp .. "/app.conf")
+local config, trouble = Fs.read("app.conf")
 if config == nil then
   local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
   Proc.exit(2)

@@ -69,9 +69,12 @@ end
 local function test_guard_is_one_at_a_time_and_closes_once()
   local guard = assert(Child.guard())
   local second, trouble = Child.guard()
-  assert(second == nil and trouble ~= "")
+  local named = "a guard (Child.guard or another Child.run) is already open"
+  assert(second == nil and trouble:find(named, 1, true), trouble)
   local r, run_trouble = Child.run({ "/bin/sh", "-c", "exit 0" })
   assert(r == nil and run_trouble:find("signal guard: ", 1, true), run_trouble)
+  -- A bare "Resource busy" would not say what holds the signals.
+  assert(run_trouble:find(named, 1, true), run_trouble)
   assert(guard:cancelled() == 0)
   assert(guard:close())
   assert(guard:close())
