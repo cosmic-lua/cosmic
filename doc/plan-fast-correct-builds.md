@@ -363,7 +363,9 @@ last.
 
 ### 3.0a Before the rules
 
-- **A test that returns early is counted as skipped (S–M).** A test
+- **A test that returns early is counted as skipped (S–M): landed (#2412).**
+  `Test.skip`; a held run fails on any skip. A root run's workers as an
+  unprivileged mapped user (so root nests at any depth) is in review. A test
   that nests a sandbox returns before asserting where the host cannot
   nest (as root). A root run then reports it passed, which is how
   2.3's failure reached CI unseen by every local and agent run.
@@ -555,7 +557,12 @@ pin-gated TODOs still wait on features not on main: `build/zig.tl:380`,
 `o/bin/cosmic todos '"cosmic-driver.pin"'` lists them when the pin
 moves.
 
-### 4.1 Fixtures sandboxed, sharing verdicts
+### 4.1 Fixtures sandboxed, sharing verdicts: landed (#2417; pin #2420)
+
+Product, runtime, launcher and identity run sandboxed into `fixtures.db`;
+the pin move (#2420) keys their `system` and macOS path. Standing on a
+new commit is still to be seen on CI.
+
 
 The `fixtures-sandboxed` branch never reached origin, so this starts
 fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
@@ -584,7 +591,7 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
 
 ### 4.2 Observation removal, PRs 2 to 5
 
-- PR 2: `--audit` from the sandbox's refusals
+- PR 2: `--audit` from the sandbox's refusals (#2423, in the queue)
   (`build/test.tl:3385`'s precondition).
 - PR 3: declared keys become the default for every unsandboxed run,
   retiring `COSMIC_TEST_KEY` (8 files). Such a run shares only when
