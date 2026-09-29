@@ -31,9 +31,12 @@
 # $RUNNER_TEMP/build-cache), each as <X>_PREFIX and <X>_DIGEST, where
 # the digest is not empty and the key is not <X>_RESTORED, the entry the
 # run restored (a job that saves no compiles, ci.yml's `checked`, sets
-# no COMPILES_*); and `driver-checked` (from
-# $RUNNER_TEMP/driver-checked), the key its marker holds, where the
-# driver check ran and passed.
+# no COMPILES_*); `verdicts-sha`, the verdicts' copy keyed by the commit,
+# <VERDICTS_PREFIX>sha-<SHA>, where the digest is not empty, even where it
+# names the entry restored (the commit's own key is saved on every push
+# to main, for a branch based on it: .github/scripts/merge-base.sh); and
+# `driver-checked` (from $RUNNER_TEMP/driver-checked), the key its marker
+# holds, where the driver check ran and passed.
 set -eu
 
 usage="usage: queue-seed.sh find|stage"
@@ -116,6 +119,10 @@ stage() {
   : > "$seed/seed.keys"
   entry verdicts verdicts "${VERDICTS_PREFIX-}" "${VERDICTS_DIGEST-}" "${VERDICTS_RESTORED-}"
   entry compiles build-cache "${COMPILES_PREFIX-}" "${COMPILES_DIGEST-}" "${COMPILES_RESTORED-}"
+  if [ -n "${VERDICTS_DIGEST-}" ] && [ -n "${SHA-}" ]; then
+    [ -d "$seed/verdicts" ] || cp -R "$RUNNER_TEMP/verdicts" "$seed/verdicts"
+    echo "verdicts-sha=${VERDICTS_PREFIX-}sha-$SHA" >> "$seed/seed.keys"
+  fi
   if [ -f "$RUNNER_TEMP/driver-checked/key" ]; then
     cp -R "$RUNNER_TEMP/driver-checked" "$seed/driver-checked"
     echo "driver-checked=$(cat "$RUNNER_TEMP/driver-checked/key")" >> "$seed/seed.keys"

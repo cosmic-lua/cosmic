@@ -245,3 +245,27 @@ local function test_stage_keeps_what_main_would_save(tmp: string)
   assert(keys == "verdicts=verdicts-leg-checked-h-f-d2\n", keys)
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v" and not Fs.exists(seed .. "/build-cache"))
 end
+
+--- The verdicts are kept under the queue's merge too, the commit main's
+--- push saves them under for a branch based on it, even where their
+--- digest names the entry the run restored, which main saves again under
+--- no key of its own; a run that trimmed nothing keeps no such copy.
+local function test_stage_keeps_the_verdicts_under_the_commit(tmp: string)
+  local seed, keys = stage(tmp, {
+    VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d0", VERDICTS_RESTORED = "verdicts-leg-h-f-d0",
+    SHA = SHA,
+  }, false)
+  assert(keys == "verdicts-sha=verdicts-leg-h-f-sha-" .. SHA .. "\n", keys)
+  assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
+
+  seed, keys = stage(tmp, {
+    VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d1", VERDICTS_RESTORED = "verdicts-leg-h-f-d0",
+    SHA = SHA,
+  }, true)
+  assert(keys == "verdicts=verdicts-leg-h-f-d1\nverdicts-sha=verdicts-leg-h-f-sha-" .. SHA ..
+    "\ndriver-checked=driver-checked-v2-leg-x\n", keys)
+  assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
+
+  seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "", SHA = SHA }, false)
+  assert(keys == "" and not Fs.exists(seed .. "/verdicts"), keys)
+end

@@ -294,16 +294,29 @@
           run: "sh .github/scripts/leg-host-id.sh \"${{ matrix.name }}\" \"${{ matrix.image }}\" \"${{ matrix.runner }}\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
         },
 
-        # Every run restores the newest verdicts main saved for this host,
-        # and only main saves (COSMIC_CI_SAVES). A restore decides how many
-        # tests stand, never whether a verdict is right.
+        # The main commit a branch's tree grew from, or the merge queue's
+        # base: main saved its verdicts under the commit too (below).
+        {
+          name: "find the tree's base on main",
+          id: "merge-base",
+          "working-directory": ".",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
+          run: "sh .github/scripts/merge-base.sh",
+        },
+
+        # Every run restores the verdicts main saved for this host at the
+        # tree's base, else the newest, and only main saves
+        # (COSMIC_CI_SAVES). A restore decides how many tests stand, never
+        # whether a verdict is right.
         {
           name: "restore test verdicts",
           id: "verdicts-restore",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}",
+            key: "${{ steps.merge-base.outputs.sha && format('{0}sha-{1}', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) || steps.host-id.outputs.verdicts }}",
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
@@ -564,6 +577,7 @@
             VERDICTS_PREFIX: "${{ steps.host-id.outputs.verdicts }}",
             VERDICTS_DIGEST: "${{ steps.verdicts-trim.outputs.digest }}",
             VERDICTS_RESTORED: "${{ steps.verdicts-restore.outputs.cache-matched-key }}",
+            SHA: "${{ github.sha }}",
             COMPILES_PREFIX: "compiles-${{ matrix.name }}-",
             COMPILES_DIGEST: "${{ steps.compiles-trim.outputs.digest }}",
             COMPILES_RESTORED: "${{ steps.compiles-restore.outputs.cache-matched-key }}",
@@ -579,6 +593,27 @@
             path: "${{ runner.temp }}/seed",
             "if-no-files-found": "error",
             "retention-days": 1,
+          },
+        },
+
+        # The same rows under this commit, for a branch based on it
+        # (merge-base.sh), whatever was restored; saved first, so a main
+        # run's restore by prefix takes the entry keyed by content where
+        # both were saved. The join prunes these after a day.
+        # TODO: skip the save by content (and queue-seed.sh stage's key
+        # for it) on the digest of the rows restored rather than on the
+        # key matched, once verdicts-trim names that digest too: a
+        # restore of the base's entry, or a main run's restore by prefix
+        # that takes this copy where no save by content followed, matches
+        # a key under a commit, so the save by content runs where its
+        # rows are an entry's already, and warns that the key exists.
+        {
+          name: "save test verdicts under this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}",
           },
         },
 
@@ -710,13 +745,23 @@
           run: "sh .github/scripts/leg-host-id.sh \"linux-x86_64-checked\" \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\" \"ubuntu-24.04\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
         },
         {
+          name: "find the tree's base on main",
+          id: "merge-base",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          "working-directory": ".",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
+          run: "sh .github/scripts/merge-base.sh",
+        },
+        {
           name: "restore test verdicts",
           id: "verdicts-restore",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
-            key: "${{ steps.host-id.outputs.verdicts }}",
+            key: "${{ steps.merge-base.outputs.sha && format('{0}sha-{1}', steps.host-id.outputs.verdicts, steps.merge-base.outputs.sha) || steps.host-id.outputs.verdicts }}",
             "restore-keys": "${{ steps.host-id.outputs.verdicts }}\n",
           },
         },
@@ -834,6 +879,7 @@
             VERDICTS_PREFIX: "${{ steps.host-id.outputs.verdicts }}",
             VERDICTS_DIGEST: "${{ steps.verdicts-trim.outputs.digest }}",
             VERDICTS_RESTORED: "${{ steps.verdicts-restore.outputs.cache-matched-key }}",
+            SHA: "${{ github.sha }}",
           },
           run: "sh .github/scripts/queue-seed.sh stage",
         },
@@ -846,6 +892,15 @@
             path: "${{ runner.temp }}/seed",
             "if-no-files-found": "error",
             "retention-days": 1,
+          },
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.host-id.outputs.verdicts }}sha-${{ github.sha }}",
           },
         },
         {
@@ -905,13 +960,19 @@
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
         {
           name: "save test verdicts",
           if: "steps.keys.outputs.verdicts != ''",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts }}"},
+        },
+        {
+          name: "save test verdicts under this commit",
+          if: "steps.keys.outputs.verdicts-sha != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts-sha }}"},
         },
         {
           name: "save compiles and parses",
@@ -963,11 +1024,14 @@
     # on a full run it is also the provenance join, proving every leg
     # attested identical bytes. Steps, not a job of its own, which a
     # branch push would show as skipped.
+    # actions: write, to prune main's verdicts keyed by a commit (its
+    # last step, which a branch push's run never reaches).
     ci: {
       needs: ["reuse", "platform", "checked", "seed"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
+      permissions: {contents: "read", actions: "write"},
       env: {COSMIC_WORKER: "provenance"},
       steps: [
         {
@@ -979,10 +1043,12 @@
           },
           run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ]",
         },
-        # Only a full run's legs attest and upload a product.
+        # Only a full run's legs attest and upload a product. The job's
+        # token may delete cache entries, so the checkout keeps none.
         {
           if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {"persist-credentials": false},
         },
         {
           name: "bootstrap the pinned provenance driver",
@@ -1016,6 +1082,15 @@
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
           },
+        },
+        # Main's copies of its verdicts under a commit, a day on: a
+        # branch based on an older commit restores main's newest.
+        {
+          name: "prune verdicts saved under a commit",
+          if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
+          run: "sh .github/scripts/prune-commit-verdicts.sh",
         },
       ],
     },
