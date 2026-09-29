@@ -1025,8 +1025,6 @@ local function null(wiring: Wiring, flags: integer): integer | nil, string
   return fd, ""
 end
 
---- Resolves the options into the descriptor each child slot copies:
---- nil to inherit, or a descriptor number.
 --- The descriptor the child's output `child_fd` goes to, as `how` asks:
 --- a pipe to capture or stream, /dev/null, or a descriptor given; nil
 --- and "" to inherit this process's, and nil and why when it fails.
@@ -1042,6 +1040,8 @@ local function wire_output(wiring: Wiring, child_fd: integer,
   return nil, ""
 end
 
+--- Resolves the options into the descriptor each child slot copies:
+--- nil to inherit, or a descriptor number.
 local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, string
   local slots: {integer:integer} = {}
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
