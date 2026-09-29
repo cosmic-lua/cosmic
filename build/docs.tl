@@ -24,8 +24,12 @@ local tree = require("build.tree")
 
 local log = require("build.verdict").log
 local bind = require("build.bind")
+local verb_spec = require("build.verb_spec")
 
 local record docs
+  --- The verbs' registrations: see build/verb_spec.tl.
+  spec: verb_spec.Spec
+  uses_spec: verb_spec.Spec
   --- The databases a lookup reads, in order, and which of them, by
   --- index, are public sources: what `view` takes.
   record Sources
@@ -1189,7 +1193,7 @@ end
 --- `cosmic uses <symbol> [path...]`: every place that refers to the
 --- symbol, one `file:line` per line -- only those in a file under one
 --- of the paths, when there are any -- and a verdict line.
-function docs.run_uses(argv: {integer:string}): integer
+local function run_uses(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("uses: " .. parse_trouble)
@@ -1240,5 +1244,21 @@ function docs.run_uses(argv: {integer:string}): integer
   log:verdict("uses", true, shown .. " places, " .. clock.took(started))
   return 0
 end
+
+--- The `docs` verb as `build/verb_list.tl` lists it.
+docs.spec = {
+  name = "docs",
+  run = function(argv: {integer:string}): integer return docs.run(argv) end,
+  bare = false,
+  takes = "words to search for",
+}
+
+--- The `uses` verb as `build/verb_list.tl` lists it.
+docs.uses_spec = {
+  name = "uses",
+  run = run_uses,
+  bare = false,
+  takes = "paths after its symbol",
+}
 
 return docs

@@ -9,8 +9,8 @@
 --- is the body -- and its exit status is the verdict: 0 the body was
 --- delivered, 1 the fetch failed (no connection, a status outside 2xx,
 --- a digest that does not match, a body that broke off, an `-o` write that failed), 2 a command
---- line, a URL or a write it cannot use. build/dispatch.tl's `bare`
---- names it.
+--- line, a URL or a write it cannot use. Its `spec` (build/verb_spec.tl)
+--- is `bare`.
 ---
 --- Three decisions, each a plain comment and not a TODO, since each
 --- stays:
@@ -54,9 +54,12 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
+local verb_spec = require("build.verb_spec")
 
 --- The `cosmic fetch` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where `run` writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -268,5 +271,17 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
   end
 end
+
+--- The `fetch` verb as `build/verb_list.tl` lists it. Reads a URL it is
+--- given, never the tree: never stale-checked. This module's header says
+--- why.
+verb.spec = {
+  name = "fetch",
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "a URL",
+  exits = "`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when the fetch failed, 2 for a command line or URL it refused.",
+  passthrough = "its output is the body for a pipe, so its exit status is the verdict (build/fetch_test.tl)",
+}
 
 return verb

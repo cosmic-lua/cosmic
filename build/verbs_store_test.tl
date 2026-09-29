@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local observations = require("build.filesystem_observations")
 local verb_cases = require("build.verb_cases")
+local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
@@ -124,6 +125,21 @@ local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout or ""
     local body = out:match("^(.-)\n+help: ") or ""
     assert(body:sub(1, 8) == "`cosmic " and not body:find("\n\n", 1, true), verb .. ": " .. out)
+  end
+end
+
+--- What each verb's spec says of it (build/verb_spec.tl) is what `cosmic
+--- help` prints: what it takes, and how a bare verb exits.
+local function test_help_prints_what_each_spec_says(tmp: string)
+  local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
+  -- Help wraps what the specs say, so it is read with its lines joined.
+  local joined = " " .. all:gsub("%s+", " ") .. " "
+  for _, spec in ipairs(verb_list.specs()) do
+    assert(joined:find(" `" .. spec.name .. "` ", 1, true), spec.name .. ": named")
+    assert(joined:find(spec.takes, 1, true), spec.name .. ": takes")
+    if spec.exits ~= nil then
+      assert(joined:find(spec.exits, 1, true), spec.name .. ": exits")
+    end
   end
 end
 

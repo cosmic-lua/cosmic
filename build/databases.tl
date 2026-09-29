@@ -13,8 +13,11 @@ local narrow = require("build.narrow")
 local reboot = require("build.reboot")
 
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
 
 local record databases
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
 end
 
 --- `name` as an SQL identifier, quoted, with each `"` in it doubled.
@@ -230,7 +233,7 @@ end
 --- coverage rows counted are every kept run's, not only the latest.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.databases` itself -- see `build.reboot.stale_exit`
-function databases.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -342,5 +345,13 @@ function databases.run(argv: {integer:string}): integer
     clock.took(started))
   return 0
 end
+
+--- The `db` verb as `build/verb_list.tl` lists it.
+databases.spec = {
+  name = "db",
+  run = run,
+  bare = false,
+  takes = "the sources whose rows to count",
+}
 
 return databases

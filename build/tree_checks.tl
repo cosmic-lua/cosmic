@@ -50,6 +50,21 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
+for _, name in ipairs({ "docs", "fix", "test" }) do
+  allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
+    "which its own module holds; kept a member because ci/fixtures/self_rebuild_test.tl " ..
+    "rewrites the line that declares it"
+end
+-- TODO: let an exported `spec` count as a module's entry point in
+-- `unearned`, as `run` and `main` do; then these four `run`s, and the
+-- three above once the fixture rewrites another line, can be local and
+-- their entries here go.
+for _, name in ipairs({ "bom", "embed", "refresh", "todos" }) do
+  allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
+    "which its own module holds; kept a member because a module that exports `run` is a " ..
+    "program's entry, and its other exports may be used by its test alone (see `unearned`)"
+end
+allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
   "in the compiler's identity or left out of it with a reason"

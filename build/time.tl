@@ -50,9 +50,12 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Time = require("cosmic.time")
+local verb_spec = require("build.verb_spec")
 
 --- The `cosmic time` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -389,5 +392,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   return written(tostring(value) .. "\n")
 end
+
+--- The `time` verb as `build/verb_list.tl` lists it. Reads the clock and
+--- the zones the binary carries, never the tree: never stale-checked.
+verb.spec = {
+  name = "time",
+  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  bare = true,
+  takes = "a subcommand and its times",
+  exits = "`time` prints its answer and nothing after, exiting 1 when an `add` has none.",
+  passthrough = "its output is data for a pipe, so its exit status is the verdict (build/time_test.tl)",
+}
 
 return verb
