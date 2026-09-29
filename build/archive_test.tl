@@ -460,13 +460,16 @@ local function test_create_closes_every_file_it_opens(tmp: string)
   end
 end
 
-local function test_create_a_zip_of_a_file_that_grew_fails_and_leaves_no_archive(tmp: string)
+local function test_create_of_a_file_that_grew_fails_and_leaves_no_archive(tmp: string)
   local src = make_tree(tmp)
-  local out = tmp .. "/grew.zip"
-  local ran, opens, closes = create_counting(src, out, "grown")
-  assert(ran.code == 2 and ran.err:find("bytes, not", 1, true), ran.err)
-  assert(opens > 0 and opens == closes)
-  assert(not Fs.exists(out), "a failed create left an archive behind")
+  for _, name in ipairs({ "grew.zip", "grew.tar.gz" }) do
+    local out = tmp .. "/" .. name
+    local ran, opens, closes = create_counting(src, out, "grown")
+    assert(ran.code == 2 and (ran.err:find("bytes, not", 1, true) or ran.err:find("bytes as it was read", 1, true)),
+      name .. ": " .. ran.err)
+    assert(opens > 0 and opens == closes, name)
+    assert(not Fs.exists(out), name .. ": a failed create left an archive behind")
+  end
 end
 
 local function test_create_a_gzip_tar_round_trips_with_a_symlink(tmp: string)

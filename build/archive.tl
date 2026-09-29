@@ -420,8 +420,16 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
       -- Tar reads only the size it was given, so the body is not read
       -- to its end: close it here, on every path.
       local ok, added = writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
+      -- A file that grew since it was stat'd has bytes past `size` that
+      -- tar would silently drop: refuse it, as the zip branch does.
+      local more, more_why: string, string = nil, ""
+      if ok then more, more_why = body:read(1) end
       local _, _ = body:close()
       if not ok then return false, added end
+      if more == nil and more_why ~= "" then return false, full .. ": " .. more_why end
+      if more ~= nil and more ~= "" then
+        return false, full .. ": grew past " .. tostring(size) .. " bytes as it was read"
+      end
       return true, ""
     end
     add_dir = function(name: string, mode: integer, mtime: integer): boolean, string

@@ -801,7 +801,10 @@ end
 --- and sizes in its local header; a `Stream.Reader` body, whose CRC32
 --- and sizes are known only once it is read, with them in a data
 --- descriptor after it (the central directory, which the reader goes by,
---- has them either way).
+--- has them either way). A reader that walks local headers forward
+--- without the central directory (Java's ZipInputStream) cannot find
+--- the end of a stored entry written so; that stays, since knowing its
+--- sizes up front would mean reading the body twice or seeking.
 function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   opts = opts or {}
   local deterministic = opts.deterministic or false
