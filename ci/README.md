@@ -404,7 +404,19 @@ again and saves nothing new. Saved whole, a leg's verdicts came to about
 reaches, since every change to `build/` moves every key; trimmed, 8 to
 13 MB. The cost: main's saved file holds only its newest commit's keys,
 so a branch based on an older main whose keys a `build/` change has
-since moved runs every test again. A run that failed keeps what it
+since moved would run every test again. So main also saves each job's
+verdicts under its commit, `<prefix>sha-<commit>`, even where their
+content is an entry's already (`seed` too, from the key
+`queue-seed.sh stage` names), and each restore asks first for the
+entry of the tree's base on main (`.github/scripts/merge-base.sh`: a
+branch's merge base with main, through the API; the merge queue's
+base), then the newest. Those copies, one a leg and the checked job
+each main push (some 11 MB each), would fill the repository's 10 GB
+within days and evict the zig outputs (below), so ci.yml's `prune`
+job deletes those more than a day old on each push to main
+(`.github/scripts/prune-commit-verdicts.sh`, with the one token in
+ci.yml that may write the cache, `actions: write`); a branch based on
+an older commit restores main's newest. A run that failed keeps what it
 restored with what it reached (`whole`). The compiles are saved only
 where the native build and suite passed.
 

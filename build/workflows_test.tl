@@ -565,7 +565,22 @@ local function test_the_verdict_cache_is_named_by_the_host_too()
     end
   end
   assert(named, "the host-id step names no verdict cache by the host's features")
-  assert(cached == 2, "restore and save: " .. cached)
+  assert(cached == 3, "the restore, and the saves by content and by commit: " .. cached)
+end
+
+--- The key a restore of the verdicts under `prefix` (an expression)
+--- takes: the entry main saved under the tree's base on main, where
+--- .github/scripts/merge-base.sh found one, else `prefix` alone, whose
+--- restore-keys then take the newest.
+local function at_the_base(prefix: string): string
+  local inner = assert(prefix:match("^%${{ (.-) }}$"), prefix)
+  return "${{ steps.merge-base.outputs.sha && format('{0}sha-{1}', " .. inner ..
+    ", steps.merge-base.outputs.sha) || " .. inner .. " }}"
+end
+
+--- The key of the copy of the verdicts main saves under its commit.
+local function under_the_commit(prefix: string): string
+  return prefix .. "sha-${{ github.sha }}"
 end
 
 --- The steps that name, restore, trim and save a leg's test verdicts,
@@ -576,7 +591,7 @@ local function verdict_steps(steps: {{string: any}}): {string: integer}
     local id = step.id as string
     local run = step.run as string or ""
     local with = step.with as {string: any}
-    if id == "host-id" or id == "verdicts-restore" then
+    if id == "host-id" or id == "merge-base" or id == "verdicts-restore" then
       at[id] = i
     elseif run:find("driver.tl verdicts-trim", 1, true) ~= nil then
       at.trim = i
@@ -595,7 +610,8 @@ end
 --- COSMIC_TEST_KEY=declared), on exactly the leg that is not required
 --- sandboxed (COSMIC_CI_REQUIRE_SANDBOX). So no step of the cache turns
 --- on the leg's image, and each comes in the order that serves it: the
---- host named, the cache restored, the suites, the trim, the tree moved
+--- host named, the tree's base on main found, the cache restored (the
+--- base's entry, else the newest), the suites, the trim, the tree moved
 --- back, and the save.
 local function test_every_leg_keeps_its_verdicts()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
@@ -613,7 +629,7 @@ local function test_every_leg_keeps_its_verdicts()
     if step.name == "move the tree back to where it was checked out" then back = i end
     if step.id == "release-suite" or step.id == "portable-suite" then at[step.id as string] = i end
   end
-  local order = { "host-id", "verdicts-restore", "release-suite", "portable-suite",
+  local order = { "host-id", "merge-base", "verdicts-restore", "release-suite", "portable-suite",
     "trim", "back", "save" }
   at.back = back
   for n, name in ipairs(order) do
@@ -626,7 +642,7 @@ local function test_every_leg_keeps_its_verdicts()
       name .. " runs only on a leg with an image: " .. condition)
   end
   local restore = steps[at["verdicts-restore"]].with as {string: string}
-  assert(restore.key == "${{ steps.host-id.outputs.verdicts }}", restore.key)
+  assert(restore.key == at_the_base("${{ steps.host-id.outputs.verdicts }}"), restore.key)
   assert(restore["restore-keys"] == "${{ steps.host-id.outputs.verdicts }}\n",
     restore["restore-keys"])
 end
@@ -702,14 +718,23 @@ local function main_saves(steps: {{string: any}}, full_only?: boolean): integer
       if key == "${{ steps." .. (restore.id as string) .. ".outputs.cache-primary-key }}" then
         assert(not rkey:find("github.sha", 1, true), path .. " is keyed by the commit: " .. rkey)
       else
-        -- The trim of this cache, and the prefix the restore takes.
-        local trim = path == "${{ runner.temp }}/verdicts" and trims.verdicts or
+        -- The trim of this cache, and the prefix the restore takes: the
+        -- restore's key, or, for the verdicts, the base's entry first.
+        local verdicts = path == "${{ runner.temp }}/verdicts"
+        local trim = verdicts and trims.verdicts or
           path == "${{ runner.temp }}/build-cache" and trims.compiles or nil
         assert(trim ~= nil, path .. " is saved under a key of its own, cut by no trim: " .. key)
+        local prefix = ((restore.with as {string: any})["restore-keys"] as string):match("^(.*)\n$")
+        assert(prefix ~= nil and (rkey == prefix or verdicts and rkey == at_the_base(prefix)),
+          path .. " is restored by another prefix than it is saved under: " .. rkey)
         local digest = "${{ steps." .. trim .. ".outputs.digest }}"
-        assert(key == rkey .. digest, path .. " is not saved under its prefix and digest: " .. key)
-        assert(((restore.with as {string: any})["restore-keys"] as string) == rkey .. "\n",
-          path .. " is restored by another prefix than it is saved under")
+        if verdicts and key == under_the_commit(prefix) then
+          -- Whatever was restored: its own key is new each commit.
+          assert(not condition:find("cache-matched-key", 1, true),
+            path .. "'s copy under the commit is skipped where the rows are an entry's: " .. condition)
+        else
+          assert(key == prefix .. digest, path .. " is not saved under its prefix and digest: " .. key)
+        end
         assert(condition:find("steps." .. trim .. ".outputs.digest != ''", 1, true) ~= nil,
           path .. " is saved where its trim named no digest: " .. condition)
       end
@@ -748,20 +773,40 @@ local function test_only_main_saves_a_cache_every_run_restores()
       assert(env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
     end
   end
-  assert(main_saves(jobs.platform.steps as {{string: any}}) == 4,
-    "the verdicts, compiles, zig outputs and driver marker")
-  assert(main_saves(jobs.checked.steps as {{string: any}}, true) == 1, "the checked job's verdicts")
+  assert(main_saves(jobs.platform.steps as {{string: any}}) == 5,
+    "the verdicts (by content and by commit), compiles, zig outputs and driver marker")
+  assert(main_saves(jobs.checked.steps as {{string: any}}, true) == 2,
+    "the checked job's verdicts, by content and by commit")
 end
 
---- The cache saves among `steps`, by the path each saves.
+--- The cache saves among `steps`, by the key each saves under: the
+--- verdicts are saved twice, by content and by commit.
 local function saves_of(steps: {{string: any}}): {string: {string: any}}
   local out: {string: {string: any}} = {}
   for _, step in ipairs(steps) do
     if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil then
-      out[(step.with as {string: string}).path] = step
+      local key = (step.with as {string: string}).key
+      assert(out[key] == nil, "two saves under " .. key)
+      out[key] = step
     end
   end
   return out
+end
+
+--- The save among `steps` of `path` under a key that names no commit,
+--- and the one under the commit, if any.
+local function save_of(steps: {{string: any}}, path: string): {string: any}, {string: any}
+  local plain, commit: {string: any}, {string: any}
+  for key, step in pairs(saves_of(steps)) do
+    if (step.with as {string: string}).path == path then
+      if key:find("sha-${{ github.sha }}", 1, true) or key:find("outputs.verdicts-sha }}", 1, true) then
+        commit = step
+      else
+        plain = step
+      end
+    end
+  end
+  return plain, commit
 end
 
 --- The step of `steps` whose `run` holds `text`, and where it stands.
@@ -884,20 +929,25 @@ local function test_a_main_push_reuses_the_queue_run()
   -- there (its host's hex, or its digest), so linux-x86_64's entry takes
   -- none of linux-x86_64-checked's.
   assert(keys.id == "keys" and keys.run == "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-" ..
-    "[0-9a-f]+|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-" ..
+    "[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|" ..
+    "compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-" ..
     "[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' " ..
     "\"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
     "seed reads other keys: " .. tostring(keys.run))
-  local ours_saved, theirs_saved, saved = saves_of(steps), saves_of(platform.steps as {{string: any}}), 0
-  for path, step in pairs(ours_saved) do
+  local theirs_saved: {string: boolean} = {}
+  for _, step in pairs(saves_of(platform.steps as {{string: any}})) do
+    theirs_saved[(step.with as {string: string}).path] = true
+  end
+  local saved = 0
+  for key, step in pairs(saves_of(steps)) do
     saved = saved + 1
-    assert(theirs_saved[path] ~= nil, "seed saves " .. path .. ", which no platform leg saves")
-    local key = (step.with as {string: string}).key
+    local path = (step.with as {string: string}).path
+    assert(theirs_saved[path], "seed saves " .. path .. ", which no platform leg saves")
     local name = key:match("^%${{ steps%.keys%.outputs%.([%w-]+) }}$")
     assert(name ~= nil, path .. " is seeded under a key the queue did not name: " .. key)
     assert(step["if"] == "steps.keys.outputs." .. name .. " != ''", path .. " is seeded where no key was named")
   end
-  assert(saved == 3, "the verdicts, compiles and driver marker: " .. saved)
+  assert(saved == 4, "the verdicts (by content and by commit), compiles and driver marker: " .. saved)
 
   local join = jobs.ci
   local needs = join.needs as {string}
@@ -937,16 +987,21 @@ local function test_the_queue_keeps_what_main_would_save()
   assert(stage.shell == "sh" and stage["working-directory"] == ".",
     "the seed is kept elsewhere than on the host from the root")
   local env = stage.env as {string: string}
-  local saves = saves_of(steps)
   for cache, path in pairs({ VERDICTS = "${{ runner.temp }}/verdicts", COMPILES = "${{ runner.temp }}/build-cache" }) do
-    local key = (saves[path].with as {string: string}).key
+    local save = save_of(steps, path)
+    local key = (save.with as {string: string}).key
     assert(env[cache .. "_PREFIX"] .. env[cache .. "_DIGEST"] == key,
       cache .. " is seeded under another key than main saves it under: " .. key)
-    assert(env[cache .. "_RESTORED"] ~= nil and (saves[path]["if"] as string):find(
+    assert(env[cache .. "_RESTORED"] ~= nil and (save["if"] as string):find(
       env[cache .. "_RESTORED"]:match("^%${{ (.-) }}$"), 1, true) ~= nil,
       cache .. "'s seed is compared with another entry than main's save is")
   end
-  local marker = saves["${{ runner.temp }}/driver-checked"]
+  -- And the verdicts under the commit, which is the queue's merge.
+  local _, twin = save_of(steps, "${{ runner.temp }}/verdicts")
+  assert(env.SHA == "${{ github.sha }}" and
+    under_the_commit(env.VERDICTS_PREFIX) == (twin.with as {string: string}).key,
+    "the verdicts are seeded under another commit's key than main saves them under")
+  local marker = save_of(steps, "${{ runner.temp }}/driver-checked")
   local _, checked = step_running(steps, "cosmic-driver test cosmic_ci")
   local writes = steps[checked].run as string
   assert(writes:find("echo \"" .. (marker.with as {string: string}).key .. "\" > \"$RUNNER_TEMP/driver-checked/key\"",
@@ -977,13 +1032,15 @@ local function test_the_queue_keeps_what_main_would_save()
   assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == ".",
     "the checked job keeps its seed on other runs, or elsewhere: " .. tostring(cstage["if"]))
   local cenv = cstage.env as {string: string}
-  local csaves = saves_of(csteps)
-  local vsave = csaves["${{ runner.temp }}/verdicts"]
+  local vsave, vtwin = save_of(csteps, "${{ runner.temp }}/verdicts")
   assert(cenv.VERDICTS_PREFIX .. cenv.VERDICTS_DIGEST == (vsave.with as {string: string}).key,
     "the checked job's verdicts are seeded under another key than main saves them under")
+  assert(cenv.SHA == "${{ github.sha }}" and
+    under_the_commit(cenv.VERDICTS_PREFIX) == (vtwin.with as {string: string}).key,
+    "the checked job's verdicts are seeded under another commit's key than main saves them under")
   assert((vsave["if"] as string):find(cenv.VERDICTS_RESTORED:match("^%${{ (.-) }}$"), 1, true) ~= nil,
     "the checked job's seed is compared with another entry than main's save is")
-  assert(cenv.COMPILES_PREFIX == nil and csaves["${{ runner.temp }}/build-cache"] == nil,
+  assert(cenv.COMPILES_PREFIX == nil and save_of(csteps, "${{ runner.temp }}/build-cache") == nil,
     "the checked job keeps compiles, which linux-x86_64's leg saves")
   local _, ctrim = step_running(csteps, "driver.tl verdicts-trim")
   local removed: integer
@@ -1076,7 +1133,7 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
       { "restore the pinned zig", "cache the pinned zig" },
       { "name the zig build cache, and the run's start" }, { "restore zig build outputs" },
       { "restore zig build outputs of another vendor part" }, { "name the leg's host" },
-      { "restore test verdicts" }, { "restore compiles and parses" },
+      { "find the tree's base on main" }, { "restore test verdicts" }, { "restore compiles and parses" },
       { "move the tree to a path of this commit's own" },
       { "move the tree back to where it was checked out" } }) do
     local step_name = pair[1]
@@ -1111,7 +1168,8 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   local at = verdict_steps(steps)
   local _, suite = step_running(steps, "platform checked")
   local _, back = step_running(steps, "place-tree.sh --restore")
-  for _, pair in ipairs({ { at["host-id"], at["verdicts-restore"] }, { at["verdicts-restore"], suite },
+  for _, pair in ipairs({ { at["host-id"], at["merge-base"] }, { at["merge-base"], at["verdicts-restore"] },
+      { at["verdicts-restore"], suite },
       { suite, at.trim }, { at.trim, at.save },
       { back, at.save } }) do
     assert(pair[1] ~= nil and pair[2] ~= nil and pair[1] < pair[2], "the checked job's verdict steps are out of order")
@@ -1177,6 +1235,90 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
     end
   end
   assert(placed >= 3, "only " .. placed .. " jobs move their tree")
+end
+
+--- A branch several commits behind main restores the verdicts main
+--- saved at its base rather than main's newest, whose tree it does not
+--- have: main saves each job's verdicts twice, under their content and
+--- under its commit, even where the content is an entry's already, and
+--- `seed` does as the queue's leg named; each restore asks for the
+--- base's entry, which .github/scripts/merge-base.sh finds (the merge
+--- queue's base, or a branch's merge base with main through the API,
+--- with the job's token, and never failing the job), and falls back to
+--- the newest. `prune` deletes the copies under a commit on a push to
+--- main, with the one token that may write the cache, and never fails
+--- for it.
+local function test_a_branch_restores_the_verdicts_of_its_base()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local VERDICTS <const> = "${{ runner.temp }}/verdicts"
+  for _, name in ipairs({ "platform", "checked" }) do
+    local steps = jobs[name].steps as {{string: any}}
+    local plain, twin = save_of(steps, VERDICTS)
+    assert(plain ~= nil and twin ~= nil, name .. " saves its verdicts under no commit")
+    local key = (plain.with as {string: string}).key
+    local prefix = key:match("^(.-)%${{ steps%.verdicts%-trim%.outputs%.digest }}$")
+    assert(prefix ~= nil and (twin.with as {string: string}).key == under_the_commit(prefix),
+      name .. "'s verdicts are saved under another commit than the run's: " .. (twin.with as {string: string}).key)
+    local at = verdict_steps(steps)
+    local find = steps[at["merge-base"]]
+    assert(find ~= nil and at["merge-base"] < at["verdicts-restore"], name .. " restores before it finds the base")
+    assert(find.run == "sh .github/scripts/merge-base.sh" and find.shell == "sh" and
+      find["working-directory"] == "." and find["continue-on-error"] == true,
+      name .. " finds the base elsewhere than on the host, or fails for it: " .. tostring(find.run))
+    local env = find.env as {string: string}
+    assert(env.GH_TOKEN == "${{ github.token }}" and env.REPOSITORY == "${{ github.repository }}" and
+      env.SHA == "${{ github.sha }}" and env.EVENT == "${{ github.event_name }}" and
+      env.REF == "${{ github.ref }}" and env.QUEUE_BASE == "${{ github.event.merge_group.base_sha }}",
+      name .. " asks for another commit's base")
+    local restore = steps[at["verdicts-restore"]].with as {string: string}
+    assert(restore.key == at_the_base(prefix) and restore["restore-keys"] == prefix .. "\n",
+      name .. " restores another entry than its base's, else the newest: " .. restore.key)
+    local permissions = jobs[name].permissions as {string: string}
+    assert(permissions.contents == "read", name .. " cannot compare commits")
+  end
+  -- seed saves the copy the queue's leg named, under this commit alone.
+  local steps = jobs.seed.steps as {{string: any}}
+  local _, twin = save_of(steps, VERDICTS)
+  assert(twin ~= nil and twin["if"] == "steps.keys.outputs.verdicts-sha != ''",
+    "seed saves no verdicts under the commit")
+  local keys = step_running(steps, "seed.keys")
+  assert((keys.run as string):find("|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|",
+    1, true), "seed takes a copy under another commit")
+
+  -- The prune: a job of its own, the one whose token may write the
+  -- cache, after every job that saves, whatever their result; on every
+  -- push (a branch's shows it run), its steps on main's alone, running
+  -- no tree code but the script, from a checkout that keeps no token.
+  -- The join, the check a ruleset requires, waits on none of it.
+  local prune = jobs.prune
+  assert(prune ~= nil, "no job prunes the verdicts under a commit")
+  local permissions = prune.permissions as {string: string}
+  assert(permissions.actions == "write" and permissions.contents == "read",
+    "prune cannot prune the cache, or may do more")
+  for name, job in pairs(jobs) do
+    local p = job.permissions as {string: string}
+    assert(name == "prune" or p == nil or p.actions ~= "write", "job " .. name .. " may write the cache")
+  end
+  assert(prune["if"] == "always() && github.event_name == 'push'",
+    "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
+  assert(table.concat(prune.needs as {string}, ",") == "platform,checked,seed",
+    "prune runs before a job that saves")
+  for _, need in ipairs(jobs.ci.needs as {string}) do assert(need ~= "prune", "the join waits on prune") end
+  local psteps = prune.steps as {{string: any}}
+  assert(#psteps == 2, "prune runs more than its checkout and its script")
+  for _, step in ipairs(psteps) do
+    assert(step["if"] == "github.ref == 'refs/heads/main'", "prune runs a step off main: " .. tostring(step["if"]))
+  end
+  local checkout = psteps[1].with as {string: any}
+  assert((psteps[1].uses as string):find("actions/checkout@", 1, true) == 1 and
+    checkout["persist-credentials"] == false and
+    checkout["sparse-checkout"] == "/.github/scripts/prune-commit-verdicts.sh\n",
+    "prune checks out more than its script, or keeps the token")
+  local step = psteps[2]
+  assert(step.run == "sh .github/scripts/prune-commit-verdicts.sh" and step["continue-on-error"] == true,
+    "the prune runs something else, or fails the run: " .. tostring(step.run))
+  assert((step.env as {string: string}).GH_TOKEN == "${{ github.token }}", "the prune has no token")
 end
 
 --- Only three jobs save a cache every run restores: the platform legs

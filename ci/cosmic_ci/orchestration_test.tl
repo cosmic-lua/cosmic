@@ -913,6 +913,7 @@ end
 --- child's environment, or names it only as ci.yml's text, which it
 --- reads. Any other such name in them is found as in any other file.
 local sets_what_it_reads: {string:{string:boolean}} = {
+  ["build/commit_verdicts_test.tl"] = { GITHUB_OUTPUT = true },
   ["build/leg_host_id_test.tl"] = { GITHUB_ENV = true, GITHUB_OUTPUT = true },
   ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true },
   ["build/queue_seed_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_STEP_SUMMARY = true,
