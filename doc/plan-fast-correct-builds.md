@@ -272,6 +272,31 @@ the merge queue to `--all` (M1's second measurement: 6 of 13 runs).
   itself, which its own key already holds.
 - Shows: the harness set's size, and the share of gating runs that go
   `--all`, both lower.
+- Census (2026-09-29): the set has 45 modules, mostly because
+  `key_code`'s walk follows `local type` requires (the `imports` table
+  does not mark them) and every worker loads `build.declared_key` for
+  three helpers. A worker loads exactly `worker.loads`; it never loads
+  `cosmic.child`, `stream`, `compress`, the analyzer or `build.ast.*`.
+- Rule: the set is the value-require closure of the three roots, and
+  harness code reaches `cosmic.*` only through a named library list
+  (`fs`, `env`, `proc`, `sqlite`, `string`, `test`, `coverage`,
+  `removed`), which a test holds. Hashing the key code's library
+  closure into every key was rejected: it reruns everything on each
+  edit, locally too.
+- PRs, all acknowledged, none bumping the epoch (each keeps the same
+  keys, and tests that):
+  1. The worker off `declared_key`, `time`, `store` and `log`
+     (`build.key_parts`). After the stage 3 batch, which edits
+     `filesystem_observations.tl` and `declared_key.tl`.
+  2. `build.digest` as a raw module in `core/store.c` (moves the core).
+  3. The value-only walk, the sandbox probe out of `harness_own`,
+     `cosmic.test` off `cosmic.errors`, and the library-list test.
+     After stage 3.
+  - Later (2.7b): hold only the key part of `build.test`, the
+    most-edited module left.
+- Expected: 45 modules to 27; of the last 40 main commits, the share
+  that sends the queue to `--all` from 45% to 20%, and among
+  ordinary PRs from 10 of 34 to 2.
 
 ### 2.8 A closure store carries only its closure's declarations
 
