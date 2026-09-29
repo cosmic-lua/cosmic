@@ -8,6 +8,17 @@
 --- it. `epoch` moves every key, and is bumped by hand for a change that
 --- can alter a pass or a fail.
 ---
+--- `epoch` is a count and a token of 8 random hex digits, "8-072f7458":
+--- the count is for people, and the token makes each bump its own
+--- value. Were it a count alone, two branches that each bumped 7 to 8
+--- would make the one edit, which git merges cleanly, and the merged
+--- tree, holding both changes, would stand on the verdicts either
+--- branch earned under 8 alone (the shared verdict cache is keyed
+--- without the tree's location). Two tokens conflict on this line
+--- instead, and whoever resolves it draws another.
+--- build/harness_epoch_test.tl holds it to that form, and prints a
+--- fresh value to paste.
+---
 --- `acknowledged` holds a digest per module of that code as it was when
 --- the choice was last made (`build.test`'s `harness`, over each
 --- module's source and bytecode). It is one module to a line, sorted,
@@ -49,14 +60,14 @@
 --- as a pass. What a module of the harness calls through a library table
 --- a test can replace, it takes as a local when it loads.
 local record harness_epoch
-  epoch: integer
+  epoch: string
   acknowledged: {string:string}
   --- The standard-library modules the harness's modules may reach, each
   --- by why it must.
   library: {string:string}
 end
 
-harness_epoch.epoch = 7
+harness_epoch.epoch = "8-072f7458"
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
@@ -71,7 +82,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
 
-  ["build.declared_key"] = "9fa8d195a0e6a127442691ef38d1ea178f1addc73957c3bd0254c3a754344bf0",
+  ["build.declared_key"] = "b7d446a467619b10f6fb45d69456d2ff1b2eee782846fb721ff7549aa0e3b8a3",
 
   ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
 
@@ -89,7 +100,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
-  ["build.test"] = "bac4d1355e0a74924e91526a377aa251057a454626866a04844158c001e2e058",
+  ["build.test"] = "9248a8acceda31c4c0e4809e3bd0b1b9c0633eaeeb4e427d7615ffbaa90940fb",
 
   ["build.test_inputs"] = "73600e0ad4cc72061f59bb556723015e07bc6f76345f6e405f4a8d4510b960aa",
 

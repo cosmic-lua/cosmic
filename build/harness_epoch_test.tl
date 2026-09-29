@@ -8,7 +8,9 @@
 --- fail. And the digests hold all the harness runs: every module of
 --- the tree the modules it runs require.
 
+local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Rand = require("cosmic.rand")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local harness_epoch = require("build.harness_epoch")
@@ -31,12 +33,40 @@ local function entry(name: string, digest: string): string
   return string.format("  [%q] = %q,", name, digest)
 end
 
+--- The count `epoch` holds (build/harness_epoch.tl) when it has the
+--- form the file keeps, a count, a dash and 8 lower-case hex digits
+--- ("8-072f7458"), or nil where it has another.
+local function epoch_count(epoch: string): integer | nil
+  local count = epoch:match("^(%d+)%-%x%x%x%x%x%x%x%x$")
+  if count == nil or epoch:find("%u") then return nil end
+  return math.tointeger(tonumber(count))
+end
+
+--- A value to bump `epoch` to: the next count, and a token
+--- drawn from the system's entropy, so that two bumps from one count --
+--- on two branches -- differ, and conflict in git rather than merge as
+--- one edit whose verdicts either branch's alone earned.
+local function bumped(epoch: string): string
+  local token = assert(Rand.entropy(4))
+  local count = math.tointeger(tonumber(epoch:match("^%d+") or "0")) or 0
+  return string.format("%d-%s", count + 1, Codec.hex(token))
+end
+
+--- The words that tell how to bump `epoch` from `epoch`, with a fresh
+--- value to paste.
+local function how_to_bump(epoch: string): string
+  return string.format("To bump it, set `epoch = %q` -- a fresh token each time, " ..
+    "never one copied from another branch; where two bumps conflict in a merge, keep " ..
+    "neither: draw another, as this prints one on each run.", bumped(epoch))
+end
+
 --- What differs between the harness's modules as `found` has them (a
 --- digest per module, `build.test`'s `harness`) and `acknowledged`:
 --- nil where they agree, or a message naming each module that moved,
 --- that has no entry, and each entry that names no module of the
 --- harness, with the lines that acknowledge the first two.
-local function unacknowledged(found: {string:string}, acknowledged: {string:string}): string | nil
+local function unacknowledged(found: {string:string}, acknowledged: {string:string},
+                              epoch: string): string | nil
   local moved: {string} = {}
   local stale: {string} = {}
   for name, digest in pairs(found) do
@@ -54,8 +84,8 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
     "the change can alter a pass or a fail -- what a worker is given, how it is " ..
     "judged, how a key is computed; a sandbox's hold or bind tightened, too, which " ..
     "moves no other part of a key, so a pass earned through the hole does not " ..
-    "stand -- which runs every test again; otherwise keep it. Either way, in " ..
-    "`acknowledged`:",
+    "stand -- which runs every test again; otherwise keep it. " .. how_to_bump(epoch) ..
+    " Either way, in `acknowledged`:",
   }
   for _, name in ipairs(moved) do
     out[#out + 1] = acknowledged[name] == nil and
@@ -74,7 +104,8 @@ local function test_the_harness_is_acknowledged()
   local found, trouble = test.harness(db)
   db:close()
   assert(found ~= nil, trouble)
-  local complaint = unacknowledged(found.modules, harness_epoch.acknowledged)
+  local complaint = unacknowledged(found.modules, harness_epoch.acknowledged,
+    harness_epoch.epoch)
   assert(complaint == nil, complaint)
 end
 
@@ -83,18 +114,45 @@ end
 --- harness does not hold is stale.
 local function test_unacknowledged_names_each_module()
   local acknowledged = { ["build.a"] = "1", ["build.b"] = "2" }
-  assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2" }, acknowledged) == nil)
-  local moved = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "3" }, acknowledged))
+  local epoch = "8-072f7458"
+  assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2" }, acknowledged, epoch) == nil)
+  local moved = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "3" }, acknowledged,
+    epoch))
   assert(moved:find("moved: build.b; set its line to\n" .. entry("build.b", "3"), 1, true), moved)
   assert(not moved:find("build.a", 1, true), moved)
   assert(moved:find("Bump `epoch`", 1, true), moved)
+  assert(moved:find('set `epoch = "9%-%x%x%x%x%x%x%x%x"`'), moved)
   local added = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2", ["build.c"] = "4" },
-    acknowledged))
+    acknowledged, epoch))
   assert(added:find("no entry for build.c; add this line, in its place by name, between " ..
     "blank lines\n" .. entry("build.c", "4"), 1, true), added)
-  local gone = assert(unacknowledged({ ["build.a"] = "1" }, acknowledged))
+  local gone = assert(unacknowledged({ ["build.a"] = "1" }, acknowledged, epoch))
   assert(gone:find("stale entry: build.b", 1, true), gone)
   assert(not gone:find("build.a", 1, true), gone)
+end
+
+--- `epoch` is a count and a token, as build/harness_epoch.tl says: a
+--- bare count, as it once was, is two branches' one edit.
+local function test_the_epoch_is_a_count_and_a_token()
+  assert(epoch_count(harness_epoch.epoch) ~= nil, string.format("build/harness_epoch.tl's " ..
+    "`epoch` is %q, not a count, a dash and 8 lower-case hex digits. %s",
+    harness_epoch.epoch, how_to_bump(harness_epoch.epoch)))
+end
+
+--- The form is held exactly, and a bump the guard prints has it, counts
+--- one on, and differs from another drawn from the same count.
+local function test_the_guard_holds_the_epoch_form()
+  assert(epoch_count("8-072f7458") == 8)
+  assert(epoch_count("12-00000000") == 12)
+  for _, malformed in ipairs({ "8", "", "8-", "-072f7458", "8-072f745", "8-072f74581",
+    "8-072F7458", "8-072g7458", "x-072f7458", "8_072f7458", " 8-072f7458" }) do
+    assert(epoch_count(malformed) == nil, string.format("%q was taken as an epoch", malformed))
+  end
+  local one, two = bumped("8-072f7458"), bumped("8-072f7458")
+  assert(epoch_count(one) == 9 and epoch_count(two) == 9, one .. ", " .. two)
+  assert(one ~= two, "two bumps from one count drew one token: " .. one)
+  -- A bare count, as the file held before its token, counts on too.
+  assert(epoch_count(bumped("7")) == 8, "a bare count's bump did not count on")
 end
 
 --- The lines the guard prints are the lines build/harness_epoch.tl

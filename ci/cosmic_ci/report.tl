@@ -12,7 +12,8 @@
 -- - each suite's row: ran, stood, the share that stood, elapsed;
 -- - whether it qualifies: it moved neither the core nor what every key
 --   holds of the harness (its epoch and the workers' timeout, which
---   `cosmic test` says as `harness e<epoch>t<timeout ms>`, build/test.tl).
+--   `cosmic test` says as `harness e<epoch>-t<timeout ms>`, the epoch a
+--   count and a token, build/test.tl).
 --   Its checked and native suites show that when their runtime and
 --   harness key parts are among those the verdict cache it restored held,
 --   as `cosmic test --census` says them. For a row from before the census

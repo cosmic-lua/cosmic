@@ -113,7 +113,11 @@
    same edit where the change can alter a pass or a fail: what a worker
    is given, how it is judged, how a key is computed, and a sandbox's
    hold or bind tightened (a soundness fix that moves no other part of a
-   key, so a pass earned through the hole does not stand). A
+   key, so a pass earned through the hole does not stand). `epoch` is
+   a count and a random token (`"8-072f7458"`), so two branches'
+   bumps conflict in git rather than merge as one edit that stands on
+   verdicts either branch earned alone: paste the fresh value the
+   guard prints, and resolve a conflict on it by drawing another. A
    merge-queue run whose change moves that file runs every test
    (`--all`). `COSMIC_TEST_HARNESS_EPOCH` stands in for a bump in the
    tests of the runner alone (`build/sandboxed_verdicts_test.tl`);

@@ -1932,9 +1932,9 @@ end
 --- the one COSMIC_TEST_HARNESS_EPOCH names in its place, for a test
 --- alone, which stands in for a bump without a binary of its own
 --- (build/sandboxed_verdicts_test.tl).
-local function harness_epoch_of(): integer
-  local named = math.tointeger(tonumber(Env.get("COSMIC_TEST_HARNESS_EPOCH") or ""))
-  return named or harness_epoch.epoch
+local function harness_epoch_of(): string
+  local named = Env.get("COSMIC_TEST_HARNESS_EPOCH") or ""
+  return named ~= "" and named or harness_epoch.epoch
 end
 
 --- Everything a finished job's verdict is recorded into.
@@ -2021,7 +2021,7 @@ local record Recording
   --- holds in place of the harness's code, and the timeout each worker
   --- runs under (`Limits.timeout_ms`), which every key holds too: a
   --- pass reached under a longer one need not come under a shorter.
-  epoch: integer
+  epoch: string
   timeout_ms: integer
   --- Sandboxed, the program a test that runs this program runs
   --- (`declared_key.program_identity`).
@@ -3671,7 +3671,7 @@ local function run(argv: {integer:string}): integer
       { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },
       { "compiler", (rec.compiler or ""):sub(1, 12) },
       -- The key's harness parts, its epoch and timeout, as one word.
-      { "harness", string.format("e%dt%d", rec.epoch, rec.timeout_ms) },
+      { "harness", string.format("e%s-t%d", rec.epoch, rec.timeout_ms) },
     }
     if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
     if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(root):sub(1, 12) } end
