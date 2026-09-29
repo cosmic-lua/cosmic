@@ -4,15 +4,15 @@
 --- or a plain, gzip, xz or bzip2 tar from the file's first bytes, not
 --- its name, and refuses a member that would land outside the target),
 --- `cosmic.tar`, `cosmic.zip` and `cosmic.compress` behind a command
---- line, and nothing of its own.
+--- line.
 ---
 --- Like `cosmic json` it ends in no verdict line: its standard output
 --- is data (a listing, the paths written) for a pipe or a `$(...)`.
 --- Its exit status is the verdict: 0 done, 1 a member or an input path
 --- that is not there, or files that `extract` would overwrite without
 --- `--force`, 2 a command line, or an archive or input it cannot read
---- or will not unpack. Complaints go to standard error. build/dispatch.tl's
---- `bare` names it.
+--- or will not unpack. Complaints go to standard error. Its spec's
+--- `bare = true` makes it one of the bare verbs (build/bare.tl).
 
 local Archive = require("cosmic.archive")
 local Cli = require("cosmic.cli")
@@ -156,11 +156,10 @@ end
 
 --- Runs `on_path` on a file holding the archive to read: `file` itself,
 --- or, for a zip on standard input, that written out to a temporary
---- file (removed after), since a zip is read by seeking. Any other
---- archive on standard input is handed to `on_stream` as it arrives,
---- with the bytes sniffed for the format put back.
---- A zip on standard input still spools, a limit that stays: its
---- central directory is at its end, so it cannot be read in one pass.
+--- file (removed after): a zip's central directory is at its end, so it
+--- is read by seeking, not in one pass. Any other archive on standard
+--- input is handed to `on_stream` as it arrives, with the bytes sniffed
+--- for the format put back.
 local function with_archive(file: string, to: verb.Io, on_path: function(string): Outcome,
     on_stream: function(Stream.Reader): Outcome): Outcome
   if file ~= "-" then return on_path(file) end
