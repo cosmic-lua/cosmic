@@ -67,7 +67,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "8beec2912c9583fe4d30987adc85c146c718272a9407ae6ac6ce38ec3b74306c",
 
-  ["build.confine"] = "4057adcd6b637b411dad278ecbdc841dd0ae47a58867610fcb173b4e877fc3a1",
+  ["build.confine"] = "f807dd222d7e28a51ef0431f38d4c6cb1f2a86f801baf7baf35affbaba678e98",
 
   ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
 
@@ -87,11 +87,11 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
-  ["build.test"] = "669cdc4852df355731a1946c08b0a826fb9d743b6117fbcc9b9ae1b8b8ea9063",
+  ["build.test"] = "0d6eef116e5a61a00d152edb09de5e968b8660353d0efe7c712e501551657154",
 
   ["build.test_inputs"] = "309b687417091781ed335c2b7378163882bf0803574fa2954f4a5b9f48cf2cc8",
 
-  ["build.test_sandbox"] = "4c43fb04b87440ba53ec355ee8b58a9b05b33d474e17fe713cbfb558573ac625",
+  ["build.test_sandbox"] = "445524c549a618008e76878a74aeb914b7538eab35ca5258fde4699c5ab72255",
 
   ["build.test_worker"] = "fa3fcb2b65ccb759bb3df97dfb6335d0476d0468503540115e94aa0825bacb81",
 

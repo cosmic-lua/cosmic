@@ -50,10 +50,9 @@ local function test_a_file_is_read_and_a_bad_text_exits_2(tmp: string)
 end
 
 local function test_a_failed_standard_output_write_exits_2(tmp: string)
-  -- /dev/full is where a write fails with ENOSPC, on Linux.
-  -- TODO: give a sandboxed worker /dev/full beside /dev/null and
-  -- /dev/zero (build/test_sandbox.tl): it has none, so on a Linux leg,
-  -- where every worker is sandboxed, this returns having checked nothing.
+  -- /dev/full is where a write fails with ENOSPC, on Linux: a sandboxed
+  -- worker has none (build/confine.tl's TODO beside `runtime_paths`),
+  -- nor has macOS, so only an unsandboxed Linux run checks this.
   if Fs.stat("/dev/full") == nil then return end
   local full = assert(Fs.open_write("/dev/full"))
   local started = this_program.program({ "codec", "hex" }, {
