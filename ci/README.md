@@ -104,9 +104,13 @@ ended (`timeout` where the driver ended it, which keeps only the key
 parts; `fail` for any other nonzero exit, a PASS line notwithstanding;
 else `pass`, or `unreported` where it printed no summary), its exit
 status, its tests, `ran`, `stood`, `shared` and
-elapsed ms from `cosmic test`'s summary line, and the key parts
+elapsed ms from `cosmic test`'s summary line, the key parts
 (host features, host, system, runtime, compiler, harness, ...) its
-`--census` line says, which every suite of the tree is run with. A
+`--census` key-parts line says, which every suite of the tree is run
+with, and, in `held`, what its `test: census:` line says the verdict
+cache it restored held: each set of key parts the cache's rows were
+kept under, and how many rows (`1994 rows under host features ...,
+harness e1t60000; 3 rows under no parts named`, or `no rows`). A
 fixture's run is keyed by nothing and says none. `summarize` appends
 these rows as a second table. The driver's self-check (`cosmic-driver
 test cosmic_ci`) is a step of its own and writes none.
@@ -140,11 +144,15 @@ newest first, the wall time of its slowest platform job
 (`started_at`..`completed_at`, which leaves out queueing), the sum of
 its jobs' times, each leg's time and slowest steps, each suite's row
 (ran, stood, the share stood, ms), and whether it qualifies: its
-checked and native suites keyed their tests by the runtime and harness
-the same leg's did in the next older run with such rows that was not
-cancelled, so the commit moved neither the core nor the harness. Up to
-ten runs older than the N shown are listed for that, and fetched only
-until one has rows, so each of the N can qualify. Then the medians over the qualifying
+checked and native suites keyed their tests by a runtime and harness
+that rows of the verdict cache it restored were kept under too, as its
+`held` census says them, so the commit moved neither the core nor the
+harness from what the cache held. A row from before the census, or
+whose restored rows name no parts (kept before rows named them), is
+compared instead with the same leg's in the next older run with such
+rows that was not cancelled, only the likeliest to have saved that
+cache. Up to ten runs older than the N shown are listed for that, and
+fetched only until one has rows, so each of the N can qualify. Then the medians over the qualifying
 runs that succeeded. A run from before `suite_runs`, or whose artifacts
 have expired, is reported from its step times alone and qualifies for
 nothing. `cosmic_ci/report_test.tl` drives it against a fake `gh`

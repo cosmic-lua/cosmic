@@ -65,6 +65,47 @@ local function test_the_unmatched_line_says_the_parts()
   assert(figures.ran == 1994 and figures.stood == 0)
 end
 
+--- Under `--census` a run says, after its key parts, what the verdict
+--- cache held: each set of parts its rows name, and how many.
+local function test_the_census_line_says_what_the_cache_held(tmp: string)
+  local figures, status = SuiteOutput.read(key_parts .. "\n" ..
+    "test: census: 1990 rows under host features 01, runtime bbbbbbbbbbbb, " ..
+    "harness e1t60000; 1 row under no parts named\n" ..
+    "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n", 0)
+  assert(status == "pass" and figures.stood == 1994)
+  local held = SuiteOutput.held(assert(figures.held))
+  assert(#held == 2 and held[1].rows == 1990 and held[2].rows == 1)
+  assert(held[1].parts.runtime == "bbbbbbbbbbbb" and held[1].parts.harness == "e1t60000")
+  assert(held[1].parts["host features"] == "01" and next(held[2].parts) == nil)
+  -- An empty cache, said so; a run that said nothing has none.
+  local empty = SuiteOutput.parse("test: census: no rows\n")
+  assert(empty.held == "" and #SuiteOutput.held(empty.held) == 0)
+  assert(SuiteOutput.parse(key_parts .. "\n").held == nil)
+  -- Timed out, it keeps the census, said before its tests ran.
+  local timed = SuiteOutput.read("test: census: 3 rows under runtime r, harness h\n", 124)
+  assert(timed.held == "3 rows under runtime r, harness h", timed.held)
+  -- Kept in its row, and read back; a row from before the column has none.
+  local path = tmp .. "/operations.db"
+  State.suite(path, { worker = "w", run = "1", attempt = "1", phase = "build",
+    suite = "local", status = "pass", held = figures.held })
+  local db = assert(Sqlite.open(path))
+  assert(State.suite_rows(db)[1].held == figures.held)
+  assert(db:close())
+  local old = tmp .. "/old.db"
+  local handle = assert(Sqlite.open(old, true))
+  assert(handle:exec("CREATE TABLE suite_runs (id INTEGER PRIMARY KEY, worker TEXT, " ..
+    "run TEXT, attempt TEXT, phase TEXT, suite TEXT, status TEXT, exit_code INTEGER, " ..
+    "tests INTEGER, modules INTEGER, ran INTEGER, stood INTEGER, every INTEGER, " ..
+    "assumed INTEGER, shared INTEGER, failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, " ..
+    "host_features TEXT, host TEXT, system TEXT, runtime TEXT, compiler TEXT, " ..
+    "harness TEXT, launcher TEXT, program TEXT)"))
+  assert(handle:exec("INSERT INTO suite_runs (worker, run, attempt, phase, suite, status, " ..
+    "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))
+  local rows = State.suite_rows(handle)
+  assert(#rows == 1 and rows[1].held == nil and rows[1].parts.runtime == "r")
+  assert(handle:close())
+end
+
 --- Timed out, or stopped before its summary: a status, no figures.
 local function test_a_run_without_its_summary()
   local timed = SuiteOutput.parse("test: sandbox: each worker is held to its inputs\n")
