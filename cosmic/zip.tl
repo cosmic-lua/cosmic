@@ -746,7 +746,9 @@ end
 -- writing
 ------------------------------------------------------------------
 
-local UNIX_MADE_BY <const> = (3 << 8) | 20 -- Unix, version 2.0
+--- The "version made by" field: host system 3 (Unix) in the high byte,
+--- specification version 2.0 in the low.
+local UNIX_MADE_BY <const> = (3 << 8) | 20
 local DOS_DIR_ATTR <const> = 0x10
 
 local function zip64_extra(values: {integer}): string

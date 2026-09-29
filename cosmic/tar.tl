@@ -83,7 +83,8 @@ local BLOCK <const> = 512
 
 --- The most of an entry's body read at once, as `cosmic.stream` reads.
 local chunk_size <const> = 1 << 16
-local OCTAL_11_LIMIT <const> = 1 << 33 -- 8^11, what 11 octal digits hold
+--- 8^11, what 11 octal digits hold.
+local OCTAL_11_LIMIT <const> = 1 << 33
 --- The largest `L`/`K`/`x`/`g` body read into memory. Real ones are a
 --- path or a handful of records; a header claiming more is refused
 --- rather than allocated.

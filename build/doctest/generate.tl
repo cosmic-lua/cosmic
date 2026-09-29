@@ -34,7 +34,8 @@ local record Example
 end
 
 local record Item
-  kind: string -- "comment" | "example"
+  --- `"comment"` or `"example"`.
+  kind: string
   text: string | nil
   example: Example | nil
 end
