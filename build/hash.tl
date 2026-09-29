@@ -32,8 +32,8 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
+local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic hash` verb: `run` is what `build/dispatch.tl` calls.
@@ -261,7 +261,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
     end
   end
   for _, name in ipairs(request.files) do
-    if name == "" then return nil, "an empty file name" end
+    if name == "" then return nil, bare.empty_file end
   end
   return request, ""
 end
@@ -269,20 +269,12 @@ end
 --- The Reader over standard input, refusing a terminal, where nothing
 --- would ever end the bytes.
 local function open_stdin(): Stream.Reader | nil, string
-  if Proc.is_tty(Fs.stdin) then
-    return nil, "no file given and standard input is a terminal; give a file, or pipe bytes in"
-  end
-  -- `Stream.from_fd` borrows the descriptor, which stays open.
-  return Stream.from_fd(Fs.stdin), ""
+  return bare.stdin_reader("no file given and standard input is a terminal; give a file, or pipe bytes in")
 end
 
 local standard: verb.Io = {
-  out = function(text: string): boolean, string
-    return Fs.put(Fs.stdout, text)
-  end,
-  err = function(line: string)
-    local _, _ = Fs.put(Fs.stderr, line .. "\n")
-  end,
+  out = bare.out,
+  err = bare.err,
   stdin = open_stdin,
 }
 
@@ -320,17 +312,15 @@ end
 --- @param io where the text is read and written; the process's own when nil
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
-  local function complain(line: string)
-    to.err("cosmic: hash: " .. line)
-  end
+  local complain = bare.complainer("hash", to.err)
   local request, trouble = arguments(argv)
   if request == nil then
     complain(trouble .. "; " .. usage)
-    return 2
+    return bare.refused
   end
   if request.warning ~= "" then complain(request.warning) end
   local label = request.key ~= nil and "hmac-" .. request.algorithm or request.algorithm
-  local code = 0
+  local code = bare.ok
 
   if request.check == nil then
     local rows: {string} = {}
@@ -338,29 +328,25 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       local digest, why = digest_named(to, request, name)
       if digest == nil then
         complain(why)
-        code = 2
+        code = bare.refused
       elseif request.json then
         local row, refused = Json.encode({ path = name, algorithm = label, digest = digest }, { pretty = false })
         if row == nil then
           complain(Json.quote(name) .. ": --json cannot write this path: " .. refused)
-          code = 2
+          code = bare.refused
         else
           rows[#rows + 1] = "  " .. row
         end
       else
-        local ok, lost = to.out(verb.format_line(digest, name) .. "\n")
-        if not ok then
-          complain("standard output: " .. lost)
-          return 2
+        if not bare.delivered(complain, to.out(verb.format_line(digest, name) .. "\n")) then
+          return bare.refused
         end
       end
     end
     if request.json then
       local text = #rows == 0 and "[]\n" or "[\n" .. table.concat(rows, ",\n") .. "\n]\n"
-      local ok, lost = to.out(text)
-      if not ok then
-        complain("standard output: " .. lost)
-        return 2
+      if not bare.delivered(complain, to.out(text)) then
+        return bare.refused
       end
     end
     return code
@@ -373,19 +359,19 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local reader, why = to.stdin()
     if reader == nil then
       complain(why)
-      return 2
+      return bare.refused
     end
     text, why = Stream.read_all(reader)
     if text == nil then
       complain("standard input: " .. why)
-      return 2
+      return bare.refused
     end
   else
     local why: string
     text, why = Fs.read(sums_name)
     if text == nil then
       complain(why)
-      return 2
+      return bare.refused
     end
   end
   local sums = verb.parse_sums(text, SIZE[request.algorithm])
@@ -394,7 +380,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   if #sums.entries == 0 then
     if #sums.bad == 0 then complain((sums_name == "-" and "standard input" or sums_name) .. ": no checksum lines found") end
-    return 2
+    return bare.refused
   end
   local failed, unread = 0, 0
   for _, entry in ipairs(sums.entries) do
@@ -421,10 +407,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       line = shown .. ": OK\n"
     end
     if line ~= nil then
-      local ok, lost = to.out(line)
-      if not ok then
-        complain("standard output: " .. lost)
-        return 2
+      if not bare.delivered(complain, to.out(line)) then
+        return bare.refused
       end
     end
   end
@@ -435,7 +419,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     complain(unread .. " listed " .. (unread == 1 and "file" or "files") .. " could not be read")
   end
   if #sums.bad > 0 then return 2 end
-  return (failed > 0 or unread > 0) and 1 or 0
+  return (failed > 0 or unread > 0) and bare.failed or bare.ok
 end
 
 --- The `hash` verb as `build/verb_list.tl` lists it. Reads the files it
