@@ -533,11 +533,12 @@ end
 --- beneath `root` or `scratch` -- but one beneath a path of `kept`,
 --- bound at its own name over them -- and any other where the host has
 --- it already.
--- TODO: refuse a host path given beneath `test_sandbox.scratch`, as
--- one above it is, and drop `kept` for it: a read beside one is put
--- back in the scratch directory, whose own it could as well be. None
--- can be there but the host's own padded scratch name, which no test
--- declares.
+--- One given beneath `test_sandbox.scratch` is kept, not refused as one
+--- above it is: a sandbox planned inside a sandboxed worker (a
+--- `cosmic test` it starts, this module's own tests) is given paths of
+--- the worker's own directory, which is beneath that same name. A read
+--- beside such a path, in the scratch directory it shares a name with,
+--- is put back in the scratch directory.
 local function host_path(path: string, root: string, scratch: string, kept: {string}): string
   for _, own in ipairs(kept) do
     if Fs.within(path, own) then return path end
