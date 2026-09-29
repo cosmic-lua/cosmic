@@ -20,11 +20,11 @@ local Compress = require("cosmic.compress")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
+local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic archive` verb: `run` is what `build/dispatch.tl` calls.
@@ -166,9 +166,9 @@ end
 local function with_archive(file: string, to: verb.Io, body: function(string): Outcome): Outcome
   if file ~= "-" then return body(file) end
   local source, why = to.stdin()
-  if source == nil then return fail(2, why) end
+  if source == nil then return fail(bare.refused, why) end
   local dir, spool_why = spool(source)
-  if dir == nil then return fail(2, spool_why) end
+  if dir == nil then return fail(bare.refused, spool_why) end
   local outcome = body(dir .. "/stdin")
   local _, _ = Fs.remove_tree(dir)
   return outcome
@@ -181,30 +181,30 @@ local function with_entries(file: string, to: verb.Io,
     body: function({Archive.Entry}): Outcome): Outcome
   if file ~= "-" then
     local entries, why = Archive.list(file)
-    if entries == nil then return fail(2, trouble_of(file, file, why)) end
+    if entries == nil then return fail(bare.refused, trouble_of(file, file, why)) end
     return body(entries)
   end
   local source, why = to.stdin()
-  if source == nil then return fail(2, why) end
+  if source == nil then return fail(bare.refused, why) end
   local head, peek_why = peek(source, 4)
-  if head == nil then return fail(2, trouble_of(file, file, peek_why)) end
+  if head == nil then return fail(bare.refused, trouble_of(file, file, peek_why)) end
   local replay = Stream.prepend(head, source)
   if head == "PK\3\4" or head == "PK\5\6" then
     local dir, spool_why = spool(replay)
-    if dir == nil then return fail(2, spool_why) end
+    if dir == nil then return fail(bare.refused, spool_why) end
     local entries, list_why = Archive.list(dir .. "/stdin")
     local _, _ = Fs.remove_tree(dir)
-    if entries == nil then return fail(2, trouble_of(file, dir .. "/stdin", list_why)) end
+    if entries == nil then return fail(bare.refused, trouble_of(file, dir .. "/stdin", list_why)) end
     return body(entries)
   end
   local reader, open_why = Archive.open_stream(replay)
-  if reader == nil then return fail(2, trouble_of(file, file, open_why)) end
+  if reader == nil then return fail(bare.refused, trouble_of(file, file, open_why)) end
   local entries: {Archive.Entry} = {}
   while true do
     local entry, next_why = reader:next()
     if entry == nil then
       local _, _ = reader:close()
-      if next_why ~= "" then return fail(2, trouble_of(file, file, next_why)) end
+      if next_why ~= "" then return fail(bare.refused, trouble_of(file, file, next_why)) end
       break
     end
     entries[#entries + 1] = entry
@@ -212,17 +212,12 @@ local function with_entries(file: string, to: verb.Io,
   return body(entries)
 end
 
---- Text with a backslash, tab, newline or return as \\, \t, \n or \r
---- and any other control byte as \xHH, so a name never breaks a line
---- or a column (`cosmic sql` escapes a cell the same way).
+--- A name written as `bare.escape` does with `named`: a backslash, tab,
+--- newline or return as \\, \t, \n or \r and any other control byte as
+--- \xHH, so a name never breaks a line or a column (`cosmic sql` escapes a
+--- cell the same way).
 local function escaped(text: string): string
-  return (text:gsub("[%c\\]", function(c: string): string
-    if c == "\\" then return "\\\\" end
-    if c == "\t" then return "\\t" end
-    if c == "\n" then return "\\n" end
-    if c == "\r" then return "\\r" end
-    return string.format("\\x%02X", c:byte())
-  end))
+  return bare.escape(text, { named = true })
 end
 
 ------------------------------------------------------------------
@@ -243,7 +238,7 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
         rows[#rows + 1] = row
       end
       local encoded, encode_why = Json.encode(rows, { pretty = true })
-      if encoded == nil then return fail(2, encode_why) end
+      if encoded == nil then return fail(bare.refused, encode_why) end
       text = encoded .. "\n"
     else
       local lines: {string} = {}
@@ -256,8 +251,8 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
       text = #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
     end
     local ok, out_why = to.out(text)
-    if not ok then return fail(2, "standard output: " .. out_why) end
-    return fail(0, "")
+    if not ok then return fail(bare.refused, bare.lost(out_why)) end
+    return fail(bare.ok, "")
   end)
 end
 
@@ -275,7 +270,7 @@ local function extract(file: string, dest: string, force: boolean, members: {str
   local wanted: {string} = {}
   for _, member in ipairs(members) do
     local name = normal(member)
-    if name == "" then return fail(2, "an empty member name; " .. usage) end
+    if name == "" then return fail(bare.refused, "an empty member name; " .. usage) end
     wanted[#wanted + 1] = name
   end
   local function selected(name: string): boolean
@@ -289,7 +284,7 @@ local function extract(file: string, dest: string, force: boolean, members: {str
     -- One look first, for what a walk that writes would find too late:
     -- a member that is not in the archive, and files it would replace.
     local entries, why = Archive.list(path)
-    if entries == nil then return fail(2, trouble_of(file, path, why)) end
+    if entries == nil then return fail(bare.refused, trouble_of(file, path, why)) end
     local missing: {string} = {}
     for _, member in ipairs(wanted) do
       local found = false
@@ -302,7 +297,7 @@ local function extract(file: string, dest: string, force: boolean, members: {str
       if not found then missing[#missing + 1] = member end
     end
     if #missing > 0 then
-      return fail(1, file .. ": no such member: " .. table.concat(missing, ", "))
+      return fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", "))
     end
     if not force then
       local clashes: {string} = {}
@@ -319,7 +314,7 @@ local function extract(file: string, dest: string, force: boolean, members: {str
         end
       end
       if #clashes > 0 then
-        return fail(1, "would overwrite " .. #clashes .. " existing " ..
+        return fail(bare.failed, "would overwrite " .. #clashes .. " existing " ..
           (#clashes == 1 and "path" or "paths") .. " under " .. dest .. " (" ..
           table.concat(clashes, ", ", 1, math.min(#clashes, 5)) ..
           (#clashes > 5 and ", ..." or "") .. "); nothing written, use --force to replace")
@@ -337,13 +332,13 @@ local function extract(file: string, dest: string, force: boolean, members: {str
       links = "create",
       filter = selected,
     })
-    if written == nil then return fail(2, trouble_of(file, path, extract_why)) end
+    if written == nil then return fail(bare.refused, trouble_of(file, path, extract_why)) end
     local lines: {string} = {}
     for _, name in ipairs(written) do lines[#lines + 1] = escaped(name) end
     local text = #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
     local ok, out_why = to.out(text)
-    if not ok then return fail(2, "standard output: " .. out_why) end
-    return fail(0, "")
+    if not ok then return fail(bare.refused, bare.lost(out_why)) end
+    return fail(bare.ok, "")
   end)
 end
 
@@ -388,7 +383,7 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
   local by_name: {string:Item} = {}
   local function add(name: string, full: string): Outcome | nil
     local st, why = sys.lstat(full)
-    if st == nil then return fail(1, full .. ": " .. why) end
+    if st == nil then return fail(bare.failed, full .. ": " .. why) end
     local item: Item = { name = name, full = full, kind = st.kind, mode = st.mode & 0x1ff,
       mtime = st.mtime, size = st.size, target = "" }
     if st.kind == "file" then
@@ -398,13 +393,13 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
       end
     elseif st.kind == "link" then
       if format == "zip" then
-        return fail(2, full .. ": a symlink, which zip does not hold; use .tar.gz")
+        return fail(bare.refused, full .. ": a symlink, which zip does not hold; use .tar.gz")
       end
       local target, target_why = Fs.readlink(full)
-      if target == nil then return fail(2, target_why) end
+      if target == nil then return fail(bare.refused, target_why) end
       item.target = target
     elseif st.kind ~= "dir" then
-      return fail(2, full .. ": neither a file, a directory nor a symlink")
+      return fail(bare.refused, full .. ": neither a file, a directory nor a symlink")
     end
     by_name[name] = item
     return nil
@@ -412,7 +407,7 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
   for _, given in ipairs(paths) do
     local name = normal(given)
     if given == "" or given:sub(1, 1) == "/" or has_dotdot(given) then
-      return nil, fail(2, given .. ": an absolute path or one with .. would extract outside its " ..
+      return nil, fail(bare.refused, given .. ": an absolute path or one with .. would extract outside its " ..
         "directory; run from the directory it is under")
     end
     -- `.` is the working directory itself: its contents, named from it.
@@ -435,9 +430,9 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
         end
         return false
       end)
-      if listed == nil then return nil, fail(2, walk_why) end
+      if listed == nil then return nil, fail(bare.refused, walk_why) end
       if odd ~= nil then
-        return nil, fail(2, given .. "/" .. odd .. ": neither a file, a directory nor a symlink")
+        return nil, fail(bare.refused, given .. "/" .. odd .. ": neither a file, a directory nor a symlink")
       end
       for _, relative in ipairs(listed) do seen[#seen + 1] = { relative, "file" } end
       for _, pair in ipairs(seen) do
@@ -451,12 +446,12 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
   table.sort(names)
   local items: {Item} = {}
   for _, name in ipairs(names) do items[#items + 1] = by_name[name] end
-  return items, fail(0, "")
+  return items, fail(bare.ok, "")
 end
 
 local function create(out: string, paths: {string}, reproducible: boolean, to: verb.Io): Outcome
   local format, format_why = format_of(out)
-  if format == nil then return fail(2, format_why) end
+  if format == nil then return fail(bare.refused, format_why) end
   local skip_file: string | nil
   local present, _ = Fs.exists(out)
   if present then
@@ -467,7 +462,7 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   if items == nil then return trouble end
   local packed: {Item} = items
   local file, file_why = Stream.create(out)
-  if file == nil then return fail(2, file_why) end
+  if file == nil then return fail(bare.refused, file_why) end
   local add_file: function(string, string, integer, integer, integer): boolean, string
   local add_dir: function(string, integer, integer): boolean, string
   local add_link: function(string, string, integer): boolean, string
@@ -495,7 +490,7 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
     local codec, codec_why = Compress.deflater("gzip")
     if codec == nil then
       local _, _ = file:abort()
-      return fail(2, codec_why)
+      return fail(bare.refused, codec_why)
     end
     local writer = Tar.writer(Stream.transform_writer(file, codec), { deterministic = reproducible })
     add_file = function(name: string, full: string, mode: integer, mtime: integer, size: integer): boolean, string
@@ -537,16 +532,16 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
     end
     if not ok then
       local _, _ = abort()
-      return fail(2, item.full .. ": " .. why)
+      return fail(bare.refused, item.full .. ": " .. why)
     end
   end
   local closed, close_why = close()
-  if not closed then return fail(2, out .. ": " .. close_why) end
+  if not closed then return fail(bare.refused, out .. ": " .. close_why) end
   local lines: {string} = {}
   for _, item in ipairs(packed) do lines[#lines + 1] = escaped(item.name) end
   local ok, out_why = to.out(#lines > 0 and (table.concat(lines, "\n") .. "\n") or "")
-  if not ok then return fail(2, "standard output: " .. out_why) end
-  return fail(0, "")
+  if not ok then return fail(bare.refused, bare.lost(out_why)) end
+  return fail(bare.ok, "")
 end
 
 ------------------------------------------------------------------
@@ -556,20 +551,12 @@ end
 --- The Reader over standard input, refusing a terminal, where nothing
 --- would ever end the bytes.
 local function open_stdin(): Stream.Reader | nil, string
-  if Proc.is_tty(Fs.stdin) then
-    return nil, "no file given and standard input is a terminal; give a file or pipe an archive in"
-  end
-  -- `Stream.from_fd` borrows the descriptor, which stays open.
-  return Stream.from_fd(Fs.stdin), ""
+  return bare.stdin_reader("no file given and standard input is a terminal; give a file or pipe an archive in")
 end
 
 local standard: verb.Io = {
-  out = function(text: string): boolean, string
-    return Fs.put(Fs.stdout, text)
-  end,
-  err = function(line: string)
-    local _, _ = Fs.put(Fs.stderr, line .. "\n")
-  end,
+  out = bare.out,
+  err = bare.err,
   stdin = open_stdin,
 }
 
@@ -580,13 +567,11 @@ local standard: verb.Io = {
 --- @param io where the text is read and written; the process's own when nil
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
-  local function complain(line: string)
-    to.err("cosmic: archive: " .. line)
-  end
+  local complain = bare.complainer("archive", to.err)
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then
     complain(trouble .. "; " .. usage)
-    return 2
+    return bare.refused
   end
   local flags: Flags.Parsed = parsed
   local words = flags.words
@@ -602,31 +587,31 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if action ~= "list" and action ~= "extract" and action ~= "create" then
     complain((action == nil and "name list, extract or create" or ("no such action: " .. action)) ..
       "; " .. usage)
-    return 2
+    return bare.refused
   end
   if not (only("--json", { "list" }) and only("-C", { "extract" }) and
       only("--force", { "extract" }) and only("--reproducible", { "create" })) then
-    return 2
+    return bare.refused
   end
   local outcome: Outcome
   if action == "list" then
     if #words ~= 2 then
       complain("give one file, or - for standard input; " .. usage)
-      return 2
+      return bare.refused
     end
     if words[2] == "" then
-      complain("an empty file name; " .. usage)
-      return 2
+      complain(bare.empty_file .. "; " .. usage)
+      return bare.refused
     end
     outcome = list(words[2], flags.set["--json"] or false, to)
   elseif action == "extract" then
     if #words < 2 then
       complain("give a file, or - for standard input; " .. usage)
-      return 2
+      return bare.refused
     end
     if words[2] == "" then
-      complain("an empty file name; " .. usage)
-      return 2
+      complain(bare.empty_file .. "; " .. usage)
+      return bare.refused
     end
     local members: {string} = {}
     for slot = 3, #words do members[#members + 1] = words[slot] end
@@ -635,7 +620,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   else
     if #words < 3 then
       complain("give an output file and at least one path; " .. usage)
-      return 2
+      return bare.refused
     end
     local paths: {string} = {}
     for slot = 3, #words do paths[#paths + 1] = words[slot] end

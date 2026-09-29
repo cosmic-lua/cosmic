@@ -66,6 +66,13 @@ function bare.complainer(name: string, err: function(line: string)): function(li
   end
 end
 
+--- The complaint for a write to standard output that did not go, for a
+--- run that answers its complaint later than it makes it.
+--- @param why what stopped the bytes
+function bare.lost(why: string): string
+  return "standard output: " .. why
+end
+
 --- Whether a write to standard output went: true, or false after a
 --- complaint of `standard output: <why>`. Takes what `out` answers.
 --- @param complain the run's complaint function
@@ -73,7 +80,7 @@ end
 --- @param why what stopped them, when they did not
 function bare.delivered(complain: function(line: string), ok: boolean, why: string): boolean
   if ok then return true end
-  complain("standard output: " .. why)
+  complain(bare.lost(why))
   return false
 end
 
