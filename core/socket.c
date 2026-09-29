@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -150,11 +151,15 @@ static int address_of (lua_State *L, int index, struct target *out) {
  * returns -- no Lua runs between, and the Lua state is this process's
  * one thread, so nothing else meets the directory changed. Neither
  * macOS nor Linux has bindat and connectat (FreeBSD's) to name the
- * directory by its descriptor instead. */
-static int reach (int fd, const struct target *target, bool binding) {
+ * directory by its descriptor instead. A unix bind given `made` reads
+ * the file it made into it, from the same directory, before it
+ * returns. */
+static int reach (int fd, const struct target *target, bool binding, struct stat *made) {
   const struct sockaddr *address = (const struct sockaddr *)&target->address;
+  const char *name = ((const struct sockaddr_un *)&target->address)->sun_path;
   if (target->directory[0] == '\0') {
     int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
+    if (done == 0 && made != NULL) done = lstat(name, made);
     return done == 0 ? 0 : errno;
   }
   int here = open(".", DIRECTORY_FLAGS);
@@ -170,6 +175,7 @@ static int reach (int fd, const struct target *target, bool binding) {
     failure = errno;
   } else {
     int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
+    if (done == 0 && made != NULL) done = lstat(name, made);
     if (done != 0) failure = errno;
     if (fchdir(here) != 0 && failure == 0) failure = errno;
   }
@@ -211,6 +217,110 @@ static int stream_socket (int family) {
     return -1;
   }
   return fd;
+}
+
+#define SOCKET_TYPE "cosmic.socket"
+
+/* What a `Socket` owns: its descriptor, -1 once closed, and for a unix
+ * listener the socket file it made -- `path`, absolute, while the name
+ * is the file `device` and `inode` identify. */
+struct owned {
+  int fd;
+  bool made;
+  dev_t device;
+  ino_t inode;
+  char path[];
+};
+
+/* Closes the descriptor `owned` holds, then removes the file it made
+ * while its name is still that file, each once: 0, or the first
+ * failure. */
+static int released (struct owned *owned) {
+  int failure = 0;
+  if (owned->fd >= 0) {
+    if (close(owned->fd) != 0) failure = errno;
+    owned->fd = -1;
+  }
+  if (owned->made) {
+    owned->made = false;
+    struct stat now;
+    if (lstat(owned->path, &now) == 0 && now.st_dev == owned->device &&
+        now.st_ino == owned->inode && unlink(owned->path) != 0 && failure == 0) {
+      failure = errno;
+    }
+  }
+  return failure;
+}
+
+static int socket_fd (lua_State *L) {
+  struct owned *owned = luaL_checkudata(L, 1, SOCKET_TYPE);
+  luaL_argcheck(L, owned->fd >= 0, 1, "the socket is closed");
+  lua_pushinteger(L, owned->fd);
+  return 1;
+}
+
+static int socket_close (lua_State *L) {
+  int failure = released(luaL_checkudata(L, 1, SOCKET_TYPE));
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  return cosmic_ok(L);
+}
+
+/* __close and __gc: what `close` does, with nowhere to say it failed. */
+static int socket_release (lua_State *L) {
+  released(luaL_checkudata(L, 1, SOCKET_TYPE));
+  return 0;
+}
+
+/* Pushes a `Socket` that owns nothing yet, with `size` bytes for its
+ * path, to be handed what the caller acquires next, so a raise from
+ * then on leaves it to the collector. The push may raise; nothing is
+ * held yet if so. The metatable is registered only once it is whole, as
+ * core/guard.h's is. */
+static struct owned *owner_push (lua_State *L, size_t size) {
+  struct owned *owned = lua_newuserdatauv(L, sizeof *owned + size, 0);
+  owned->fd = -1;
+  owned->made = false;
+  if (luaL_getmetatable(L, SOCKET_TYPE) == LUA_TNIL) {
+    lua_pop(L, 1);
+    lua_createtable(L, 0, 6);
+    lua_pushcfunction(L, socket_fd);
+    lua_setfield(L, -2, "fd");
+    lua_pushcfunction(L, socket_close);
+    lua_setfield(L, -2, "close");
+    lua_pushcfunction(L, socket_release);
+    lua_setfield(L, -2, "__close");
+    lua_pushcfunction(L, socket_release);
+    lua_setfield(L, -2, "__gc");
+    lua_pushliteral(L, SOCKET_TYPE);
+    lua_setfield(L, -2, "__name");
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -2, "__index");
+    lua_pushvalue(L, -1);
+    lua_setfield(L, LUA_REGISTRYINDEX, SOCKET_TYPE);
+  }
+  lua_setmetatable(L, -2);
+  return owned;
+}
+
+/* Pushes the `Socket` a listener at the unix `target` is made in, its
+ * path the address at `index`'s made absolute, so its file is removed
+ * wherever the process has moved to since: NULL, with errno set, when
+ * the working directory cannot be read. */
+static struct owned *unix_owner_push (lua_State *L, int index) {
+  lua_getfield(L, index, "path");
+  int at = lua_gettop(L);
+  size_t size = 0;
+  const char *path = lua_tolstring(L, at, &size);
+  char cwd[PATH_MAX] = "";
+  if (path[0] != '/' && getcwd(cwd, sizeof cwd) == NULL) return NULL;
+  size_t cwd_size = strlen(cwd);
+  size_t lead = cwd_size > 0 ? cwd_size + 1 : 0;
+  struct owned *owned = owner_push(L, lead + size + 1);
+  memcpy(owned->path, cwd, cwd_size);
+  if (lead > 0) owned->path[cwd_size] = '/';
+  memcpy(owned->path + lead, path, size + 1);
+  lua_remove(L, at);
+  return owned;
 }
 
 /* Milliseconds on the monotonic clock. */
@@ -292,48 +402,65 @@ COSMIC_SYSCALL(listen, 2) {
   int backlog = cosmic_checkint(L, 2);
   luaL_argcheck(L, backlog >= 1, 2, "backlog must be at least 1");
   if (failure != 0) return cosmic_fail(L, failure);
-  int fd = stream_socket(target.address.ss_family);
-  if (fd < 0) return cosmic_fail(L, errno);
+  bool unix_socket = target.address.ss_family == AF_UNIX;
+  struct owned *owned = unix_socket ? unix_owner_push(L, 1) : owner_push(L, 0);
+  if (owned == NULL) return cosmic_fail(L, errno);
+  owned->fd = stream_socket(target.address.ss_family);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
 #if defined(__linux__)
   /* A port left in TIME_WAIT by a listener before this one is taken
    * again, as every server does. Linux alone: on macOS the same option
    * also lets a bind to one address take a port another socket holds
    * on every address, and its traffic with it. */
   int on = 1;
-  if (target.address.ss_family != AF_UNIX &&
-      setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on) != 0) {
+  if (!unix_socket && setsockopt(owned->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on) != 0) {
     failure = errno;
-    close(fd);
+    released(owned);
     return cosmic_fail(L, failure);
   }
 #endif
-  failure = reach(fd, &target, true);
-  if (failure == 0 && listen(fd, backlog) != 0) failure = errno;
+  struct stat made;
+  failure = reach(owned->fd, &target, true, unix_socket ? &made : NULL);
+  /* The file the bind made, read back at once: a file of another kind
+   * has taken its name already, and is not the socket's to remove. A
+   * process that replaced it with a socket file in that moment would
+   * have its file taken for this one's, and removed at close; that
+   * stays, since only one that may remove this file from its directory
+   * can put another in its place (none can in a sticky one, /tmp, but
+   * its owner), and it could remove it any time. Binding at another name
+   * and linking it into place would close the moment, but the kernel
+   * keeps the name a socket was bound at: `ss`, `lsof` and a peer's
+   * `getpeername` would name the other one. */
+  if (failure == 0 && unix_socket && !S_ISSOCK(made.st_mode)) failure = EEXIST;
+  if (failure == 0 && unix_socket) {
+    owned->made = true;
+    owned->device = made.st_dev;
+    owned->inode = made.st_ino;
+  }
+  if (failure == 0 && listen(owned->fd, backlog) != 0) failure = errno;
   if (failure != 0) {
-    close(fd);
+    released(owned);
     return cosmic_fail(L, failure);
   }
-  lua_pushinteger(L, fd);
   return 1;
 }
 
 COSMIC_SYSCALL(accept, 1) {
   int listener = cosmic_checkfd(L, 1);
-  int fd;
+  struct owned *owned = owner_push(L, 0);
   do {
 #if defined(SOCK_CLOEXEC)
-    fd = accept4(listener, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
+    owned->fd = accept4(listener, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
 #else
-    fd = accept(listener, NULL, NULL);
+    owned->fd = accept(listener, NULL, NULL);
 #endif
-  } while (fd < 0 && errno == EINTR);
-  if (fd < 0) return cosmic_fail(L, errno);
-  int failure = made(fd);
+  } while (owned->fd < 0 && errno == EINTR);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
+  int failure = made(owned->fd);
   if (failure != 0) {
-    close(fd);
+    released(owned);
     return cosmic_fail(L, failure);
   }
-  lua_pushinteger(L, fd);
   return 1;
 }
 
@@ -342,28 +469,28 @@ COSMIC_SYSCALL(connect, 2) {
   int failure = address_of(L, 1, &target);
   int64_t deadline = deadline_of(L, 2);
   if (failure != 0) return cosmic_fail(L, failure);
-  int fd = stream_socket(target.address.ss_family);
-  if (fd < 0) return cosmic_fail(L, errno);
+  struct owned *owned = owner_push(L, 0);
+  owned->fd = stream_socket(target.address.ss_family);
+  if (owned->fd < 0) return cosmic_fail(L, errno);
   /* A unix socket connects at once or answers EAGAIN, its listener's
    * backlog full, where a blocking one would wait: this waits in
    * slices, asking again, as `wait` does. A TCP one answers EINPROGRESS
    * and connects over time, which `settled` waits out. */
   int64_t pause = 1;
   for (;;) {
-    failure = reach(fd, &target, false);
+    failure = reach(owned->fd, &target, false, NULL);
     if (failure == EAGAIN) {
       failure = paused(deadline, &pause);
       if (failure == 0) continue;
     } else if (failure == EINPROGRESS) {
-      failure = settled(fd, deadline);
+      failure = settled(owned->fd, deadline);
     }
     break;
   }
   if (failure != 0) {
-    close(fd);
+    released(owned);
     return cosmic_fail(L, failure);
   }
-  lua_pushinteger(L, fd);
   return 1;
 }
 

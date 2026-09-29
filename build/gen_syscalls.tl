@@ -42,6 +42,10 @@ end
 
 local record Class
   name: string
+  --- Whether it is a userdata (`@class Name: userdata`) rather than a
+  --- table: its `fun(...)` fields are methods, and those named `__*`
+  --- metamethods.
+  userdata: boolean
   summary: string
   prose: {string}
   fields: {Field}
@@ -98,8 +102,15 @@ function generator.descriptor(parameter: Parameter): boolean
 end
 
 --- Turns a LuaCATS type into a Teal one. The two agree on everything
---- this header uses except the spelling of a union.
+--- this header uses except the spelling of a union and of a function:
+--- a field's type is one word, so `fun(self:Socket):boolean,string`
+--- is written without spaces, and becomes
+--- `function(self: Socket): boolean, string`.
 local function teal_type(text: string): string
+  if text:sub(1, 4) == "fun(" then
+    local spaced = text:sub(5):gsub(":", ": "):gsub(",", ", ")
+    return "function(" .. spaced
+  end
   local parts: {string} = {}
   for piece in text:gmatch("[^|]+") do
     parts[#parts + 1] = piece
@@ -220,11 +231,17 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
 end
 
 local function parse_class(lines: {string}, at: {integer}): Class | nil, string
-  local class: Class = { name = "", summary = "", prose = {}, fields = {}, line = 0 }
+  local class: Class = { name = "", userdata = false, summary = "", prose = {}, fields = {},
+    line = 0 }
   for index, line in ipairs(lines) do
     local tag, rest = line:match("^@(%a+)%s+(.*)$")
     if tag == "class" then
-      class.name = rest:match("^(%S+)") or ""
+      local name, parent = rest:match("^([%w_]+)%s*:?%s*(%S*)")
+      if name == nil or (parent ~= "" and parent ~= "userdata") then
+        return nil, "a class block names no class, or a parent other than userdata"
+      end
+      class.name = name
+      class.userdata = parent == "userdata"
       class.line = at[index]
     elseif tag == "field" then
       local fname, kind, description = rest:match("^([%w_]+)%s+(%S+)%s*(.*)$")
@@ -484,9 +501,12 @@ function generator.declaration(header: string, target?: Target): string | nil, s
     if class.name ~= "Constants" then
       comment(out, "  ", class.prose)
       out[#out + 1] = "  record " .. class.name
+      if class.userdata then out[#out + 1] = "    userdata" end
       for _, field in ipairs(class.fields) do
         comment(out, "    ", { field.description })
-        out[#out + 1] = "    " .. field.name .. ": " .. field.kind
+        local metamethod = class.userdata and field.name:sub(1, 2) == "__"
+        out[#out + 1] = "    " .. (metamethod and "metamethod " or "") .. field.name .. ": " ..
+          field.kind
       end
       out[#out + 1] = "  end"
       out[#out + 1] = ""
