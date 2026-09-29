@@ -291,8 +291,8 @@ the merge queue to `--all` (M1's second measurement: 6 of 13 runs).
      Every key's hash runs through it, build.test's included;
      `worker.loads` 19 → 18.
   3. The value-only walk, the sandbox probe out of `harness_own`,
-     `cosmic.test` off `cosmic.errors`, and the library-list test: in
-     review (#2359). The walk keeps an `imports` edge unless the
+     `cosmic.test` off `cosmic.errors`, and the library-list test: landed
+     (#2359). The walk keeps an `imports` edge unless the
      importer's bytecode lacks the name (a source regex missed
      `require"x"` and split requires). `cosmic.child`, which turns a
      worker's sandbox plan into spawn options, is digested alone
