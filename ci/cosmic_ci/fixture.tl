@@ -77,8 +77,17 @@ function Fixture.hash(path: string): string
   return Hash.hex_sha256(Fixture.read(path))
 end
 
+--- The fixture's own environment, for a child it starts, with `extra`
+--- set over it. The child takes none of the compiles and parses a build
+--- shares (COSMIC_BUILD_CACHE=0) unless `extra` says otherwise: the
+--- fixture's own run shares one file with the leg's other fixtures
+--- (`Orchestration.fixture`), but a tree a child builds -- a fresh
+--- checkout's boot, the product rebuilding itself -- is what a fixture
+--- checks it compiles (fixed_point_test, self_rebuild_test), which work
+--- another child, or another fixture, left there would stand for.
 function Fixture.environment(extra?: {string:string}): {string:string}
   local environment = Env.all()
+  environment.COSMIC_BUILD_CACHE = "0"
   if extra then
     for name, value in pairs(extra) do environment[name] = value end
   end

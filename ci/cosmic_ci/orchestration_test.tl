@@ -402,8 +402,9 @@ end
 --- A fixture reads inputs its environment names (COSMIC_FIXTURE_*),
 --- which no verdict's key holds, so it stands on no verdict another run
 --- reached, and keeps none for one, even in a Linux branch push's run,
---- where every other suite shares them. Nor does it share compiles: what
---- a fresh tree compiles is what some fixtures check.
+--- where every other suite shares them. Its compiles are the file the
+--- leg's fixtures share with one another alone, not the leg's cache,
+--- which ci.yml saves.
 local function test_a_fixture_neither_reads_nor_writes_shared_verdicts(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local env: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push",
@@ -411,9 +412,10 @@ local function test_a_fixture_neither_reads_nor_writes_shared_verdicts(tmp: stri
     COSMIC_BUILD_CACHE = tmp .. "/build.db", COSMIC_FIXTURE_ROOT = tmp .. "/root" }
   Orchestration.shares(env)
   assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
-  local fixture = Orchestration.fixture(env, tmp .. "/tmp")
+  local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
   assert(fixture.COSMIC_VERDICT_CACHE == "0", "the fixture may keep shared verdicts")
-  assert(fixture.COSMIC_BUILD_CACHE == "0", "the fixture may take shared compiles")
+  assert(fixture.COSMIC_BUILD_CACHE == tmp .. "/fixture-compiles.db",
+    "the fixture shares the leg's compiles, not its fixtures' own")
   assert(fixture.COSMIC_TEST_NO_SHARED == "1", "the fixture may stand on shared verdicts")
   assert(fixture.COSMIC_TEST_SANDBOX == "0" and fixture.TMPDIR == tmp .. "/tmp")
   assert(fixture.COSMIC_FIXTURE_ROOT == tmp .. "/root")
@@ -880,7 +882,7 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
     "the macOS leg's scheduled run")
   local _, pushed = Orchestration.suite_run({ COSMIC_CI_EVENT = "push",
     COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
-  local fixture = Orchestration.fixture(pushed, tmp .. "/tmp")
+  local fixture = Orchestration.fixture(pushed, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
   assert(fixture.COSMIC_TEST_KEY == nil, "a fixture was keyed by declarations")
   assert(fixture.COSMIC_TEST_NO_SHARED == "1" and fixture.COSMIC_VERDICT_CACHE == "0")
 end
