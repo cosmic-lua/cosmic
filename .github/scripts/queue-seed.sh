@@ -10,8 +10,9 @@
 # of ci.yml whose head_sha is SHA, and writes to $GITHUB_OUTPUT
 # `run=<id>` and `url=<its page>` of the newest whose head_sha is SHA,
 # on a gh-readonly-queue/main/ branch, that completed with success and
-# holds an unexpired seed-<leg> artifact for each of LEGS (the platform
-# legs' names, blank-separated; a re-run a day later finds them
+# holds an unexpired seed-<leg> artifact for each of LEGS (the names of
+# the platform legs and of the checked job, blank-separated, each a job
+# that keeps a cache; a re-run a day later finds them
 # expired); `run=` and `url=` where it did not, and the push runs the
 # full scope. The queue lands its merge the moment the `ci` check
 # passes, a moment before its run completes, so while such a run is
@@ -29,8 +30,10 @@
 # under: `verdicts` (from $RUNNER_TEMP/verdicts) and `compiles` (from
 # $RUNNER_TEMP/build-cache), each as <X>_PREFIX and <X>_DIGEST, where
 # the digest is not empty and the key is not <X>_RESTORED, the entry the
-# run restored; and `driver-checked` (from $RUNNER_TEMP/driver-checked),
-# the key its marker holds, where the driver check ran and passed.
+# run restored (a job that saves no compiles, ci.yml's `checked`, sets
+# no COMPILES_*); and `driver-checked` (from
+# $RUNNER_TEMP/driver-checked), the key its marker holds, where the
+# driver check ran and passed.
 set -eu
 
 usage="usage: queue-seed.sh find|stage"
@@ -111,8 +114,8 @@ stage() {
   rm -rf "$seed"
   mkdir -p "$seed"
   : > "$seed/seed.keys"
-  entry verdicts verdicts "$VERDICTS_PREFIX" "$VERDICTS_DIGEST" "${VERDICTS_RESTORED-}"
-  entry compiles build-cache "$COMPILES_PREFIX" "$COMPILES_DIGEST" "${COMPILES_RESTORED-}"
+  entry verdicts verdicts "${VERDICTS_PREFIX-}" "${VERDICTS_DIGEST-}" "${VERDICTS_RESTORED-}"
+  entry compiles build-cache "${COMPILES_PREFIX-}" "${COMPILES_DIGEST-}" "${COMPILES_RESTORED-}"
   if [ -f "$RUNNER_TEMP/driver-checked/key" ]; then
     cp -R "$RUNNER_TEMP/driver-checked" "$seed/driver-checked"
     echo "driver-checked=$(cat "$RUNNER_TEMP/driver-checked/key")" >> "$seed/seed.keys"

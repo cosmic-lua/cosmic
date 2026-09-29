@@ -342,6 +342,28 @@ local function test_a_file_reader_skips_by_seeking_and_refuses_to_pass_the_end(t
   assert(r:close())
 end
 
+local function test_prepend_yields_the_prefix_then_the_reader()
+  local r = Stream.prepend("abc", Stream.from_string("defg"))
+  assert(r:read(2) == "ab")
+  assert(r:read() == "c")
+  assert(r:read(3) == "def")
+  assert(r:read() == "g")
+  local done, trouble = r:read()
+  assert(done == nil and trouble == "", trouble)
+  assert(r:close())
+  local none, why = r:read()
+  assert(none == nil and why ~= "")
+end
+
+local function test_prepend_of_nothing_is_the_reader_and_close_closes_it()
+  local inner = Stream.from_string("xy")
+  local r = Stream.prepend("", inner)
+  assert(Stream.read_all(r) == "xy")
+  assert(r:close())
+  local none, why = inner:read()
+  assert(none == nil and why ~= "")
+end
+
 local function test_skip_falls_back_to_reading_for_a_reader_that_cannot_seek()
   local r = Stream.limit(Stream.from_string("abcdef"), 6)
   assert(r.skip == nil)
@@ -409,6 +431,24 @@ local function test_tee_feeds_a_hashing_writer_beside_the_real_one()
   assert(assert(h:digest()) == Hash.sha256("hello world"))
   assert(assert(h:digest()) == Hash.sha256("hello world")) -- asking again is fine
   assert(not h:write("more"))
+end
+
+local function test_hashing_with_a_key_answers_the_hmac_and_none_means_plain()
+  local Hash = require("cosmic.hash")
+  local algorithms: {Hash.Algorithm} = { "sha256", "sha512", "sha3-256" }
+  for _, algorithm in ipairs(algorithms) do
+    for _, key in ipairs({ "", "k", string.rep("\xaa", 200) }) do
+      local h = assert(Stream.hashing(algorithm, key))
+      assert(h:write("hello "))
+      assert(h:write("world"))
+      assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world"), algorithm .. " " .. #key)
+      assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world")) -- again
+      assert(not h:write("more"))
+    end
+    local plain = assert(Stream.hashing(algorithm, nil))
+    assert(plain:write("abc"))
+    assert(assert(plain:digest()) == Hash.digest(algorithm, "abc"))
+  end
 end
 
 local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_finish(tmp: string)

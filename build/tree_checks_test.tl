@@ -164,6 +164,40 @@ local function test_a_quieted_method_no_record_declares_is_refused(dir: string)
   assert(found[2]:find("^cosmic%.gone Gone is quieted") ~= nil, found[2])
 end
 
+--- A declaration that requires only declarations, in any spelling a
+--- closure store follows, passes; one that requires a module is refused.
+local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["build/base.d.tl"] = source("local record base", "  x: integer", "end", "return base"),
+    ["build/quoted.d.tl"] = source(
+      "local type base = require 'build.base'",
+      "local record quoted",
+      "  b: base",
+      "end",
+      "return quoted"),
+    ["build/long.d.tl"] = source(
+      "local type base = require [[build.base]]",
+      "local record long",
+      "  b: base",
+      "end",
+      "return long"),
+  })
+  local found = tree_checks.declarations(db)
+  assert(#found == 0, table.concat(found, "\n"))
+  db = fixture.database(dir, {
+    ["build/thing.tl"] = source("local record thing", "  x: integer", "end", "return thing"),
+    ["build/raw.d.tl"] = source(
+      "local type thing = require(\"build.thing\")",
+      "local record raw",
+      "  t: thing",
+      "end",
+      "return raw"),
+  })
+  found = tree_checks.declarations(db)
+  assert(#found == 1 and found[1]:find("^build%.raw requires build%.thing, which is no " ..
+    "declaration") ~= nil, table.concat(found, "\n"))
+end
+
 --- Only the public standard library's files are held to earn no note.
 local function test_the_standard_library_is_the_public_cosmic_tree()
   assert(tree_checks.standard("cosmic/fs.tl"))

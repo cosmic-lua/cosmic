@@ -73,13 +73,30 @@ local record sqlite
     --- this connection: 0 before any has run on it, and a table
     --- declared `WITHOUT ROWID` never changes it.
     last_insert_rowid: function(Handle): integer
+    --- Sets one of the connection's limits, named as SQLite's
+    --- `SQLITE_LIMIT_*` without the prefix, lower-cased (`"attached"`,
+    --- `"sql_length"`, `"length"`, `"column"`, `"expr_depth"`,
+    --- `"compound_select"`, `"vdbe_op"`, `"function_arg"`,
+    --- `"like_pattern_length"`, `"variable_number"`, `"trigger_depth"`,
+    --- `"worker_threads"`), and answers the value it had. A negative
+    --- `value` changes nothing, so it reads the limit; a value above the
+    --- library's own ceiling is lowered to it. An unknown name raises.
+    limit: function(Handle, name: string, value: integer): integer
   end
 
   --- `writable` opens for reading and writing, creating the file when it
   --- is missing; without it the database is read-only. Every handle
   --- knows `sha256(X)`, `digest(A, X)` and `hmac(A, K, X)`, the digests
-  --- the core provides, so a query hashes in place.
-  open: function(path: string, writable?: boolean): Handle | nil, string
+  --- the core provides, so a query hashes in place. `immutable` opens
+  --- read-only a file nothing will change while it is open (SQLite's
+  --- `immutable=1`): no lock is taken and no `-wal`, `-shm` or journal
+  --- file is made or read, so a WAL-mode database with its `-wal` gone
+  --- opens without leaving either beside it, and a statement holds
+  --- nothing another process's write waits on. A `-wal` is never read,
+  --- so a database with commits still in its `-wal` shows without them:
+  --- open it the ordinary read-only way instead. Giving it with
+  --- `writable` raises.
+  open: function(path: string, writable?: boolean, immutable?: boolean): Handle | nil, string
   --- Turns on or off recording the files SQLite opens or asks after,
   --- while it is on, through a connection `open` made -- the database,
   --- its journal and WAL, an attached one; never a temporary file it

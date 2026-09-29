@@ -24,8 +24,12 @@ local tree = require("build.tree")
 
 local log = require("build.verdict").log
 local bind = require("build.bind")
+local verb_spec = require("build.verb_spec")
 
 local record docs
+  --- The verbs' registrations: see build/verb_spec.tl.
+  spec: verb_spec.Spec
+  uses_spec: verb_spec.Spec
   --- The databases a lookup reads, in order, and which of them, by
   --- index, are public sources: what `view` takes.
   record Sources
@@ -260,17 +264,19 @@ end
 --- in. A private helper function is left out -- a reader scanning the
 --- module wants what they can call -- but `cosmic docs <name>` still
 --- finds it.
--- TODO: `cosmic.sys`'s calls are missing here: each is a row of kind
--- `field` (`lstat`, signature `lstat: function(...)`) declared in the
--- `syscalls` record, and the `d.kind NOT IN ('field', 'value')` test
--- drops it, so `cosmic docs cosmic.sys` lists none though `cosmic.fs`
--- says it lists every one. Keep a `field` row whose signature is a
--- function type when the module's own record declares it, and show it
--- as a function row in `listed`.
+--- A call the module's own record declares as a field of function type
+--- (`lstat: function(...)` in `cosmic.sys`'s syscall table) is listed
+--- too, as a function; a record's plain data field, and any field of a
+--- nested record (its symbol is dotted), is not. Nor is a field typed
+--- `function` without parentheses, a generic one (`function<T>(...)`),
+--- or an alias of a function type: only the literal `name: function(`
+--- form is.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
-    "AND d.symbol <> '' AND d.kind NOT IN ('field', 'value') AND " ..
+    "AND d.symbol <> '' AND (d.kind NOT IN ('field', 'value') OR " ..
+    "(d.kind = 'field' AND d.symbol NOT LIKE '%.%' AND " ..
+    "d.signature GLOB d.symbol || ': function(*')) AND " ..
     "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
     symbols.public_only("d.module", public) .. " ORDER BY d.id",
     { text(module) })
@@ -870,13 +876,6 @@ local function first_sentence(documented: string): string
   return paragraph
 end
 
---- Whether `entry`'s comment opens its file: a record's, standing in
---- for the module's own row when a file's opening comment sits on it.
-local function opens_its_file(entry: docs.Entry): boolean
-  local _, breaks = entry.text:gsub("\n", "")
-  return entry.line - (breaks + 1) == 1
-end
-
 --- Every module `view` holds, by name, with the first sentence of its
 --- documentation ("" for one it does not document) -- no test or
 --- example, which a reader never calls: what `cosmic docs` lists when
@@ -886,11 +885,9 @@ function docs.index(view: docs.View): {docs.Summary} | nil, string
   if found == nil then
     return nil, trouble
   end
-  -- The module's own row when it has one, else the record its opening
-  -- comment sits on.
   local said: {string: string} = {}
   for _, entry in ipairs(found) do
-    if entry.symbol == "" or (said[entry.module] == nil and opens_its_file(entry)) then
+    if entry.symbol == "" then
       said[entry.module] = first_sentence(entry.text)
     end
   end
@@ -955,8 +952,10 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
 end
 
 --- One declared symbol as a module's listing shows it: a function or
---- method by its signature, anything else (a record's signature spans
---- lines) by kind and name, then its uses and examples.
+--- method by its signature (a function-typed field as `function` and its
+--- name, then the signature's parameters and results), anything else (a
+--- record's signature spans lines) by kind and name, then its uses and
+--- examples.
 local function listed(item: docs.Entry): string
   local marks: {string} = {}
   if item.uses > 0 then
@@ -970,6 +969,11 @@ local function listed(item: docs.Entry): string
   if (item.kind == "function" or item.kind == "method") and
      item.signature ~= "" and not item.signature:find("\n", 1, true) then
     shown = item.signature
+  elseif item.kind == "field" then
+    local rest = item.signature:match("^[%w_]+: function(%(.*)$")
+    if rest ~= nil then
+      shown = "function " .. item.source_symbol .. rest
+    end
   end
   return shown .. (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
 end
@@ -1189,7 +1193,7 @@ end
 --- `cosmic uses <symbol> [path...]`: every place that refers to the
 --- symbol, one `file:line` per line -- only those in a file under one
 --- of the paths, when there are any -- and a verdict line.
-function docs.run_uses(argv: {integer:string}): integer
+local function run_uses(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("uses: " .. parse_trouble)
@@ -1240,5 +1244,21 @@ function docs.run_uses(argv: {integer:string}): integer
   log:verdict("uses", true, shown .. " places, " .. clock.took(started))
   return 0
 end
+
+--- The `docs` verb as `build/verb_list.tl` lists it.
+docs.spec = {
+  name = "docs",
+  run = function(argv: {integer:string}): integer return docs.run(argv) end,
+  bare = false,
+  takes = "words to search for",
+}
+
+--- The `uses` verb as `build/verb_list.tl` lists it.
+docs.uses_spec = {
+  name = "uses",
+  run = run_uses,
+  bare = false,
+  takes = "paths after its symbol",
+}
 
 return docs

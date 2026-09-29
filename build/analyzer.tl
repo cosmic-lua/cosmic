@@ -166,24 +166,27 @@ local function doc_before(comments: {compiler.Comment}, line: integer): string
   return table.concat(parts, "\n")
 end
 
---- Whether a statement is one whose own doc comment sits directly
---- above it: a function or a type declaration. A `local x = ...`
---- opening the file directly under a comment run is not documented
---- by it; the run is the module's.
+--- Whether a statement is a function declaration, whose own doc comment
+--- sits directly above it. A run of comments ending right above a
+--- record or a type is the module's as well as that declaration's, when
+--- it opens the file; above a function it is the function's alone.
 local function takes_a_doc_comment(stmt: ast.Node): boolean
   local kind = stmt.kind
   return kind == "local_function" or kind == "record_function"
-    or kind == "global_function" or kind == "local_type" or kind == "global_type"
+    or kind == "global_function"
 end
 
 --- The module's own documentation: the run of comment lines that opens
 --- the file, read off the first token, which carries every comment
 --- before it (a statement is handed only the run adjacent to it). A
---- run that ends right above a function or type declaration is that
---- declaration's, not the module's.
+--- run that ends right above a function declaration is that function's,
+--- not the module's; above a record or a type it is both's.
 local function module_doc(parsed: ast.Parsed): string
   local first_token = parsed.tokens[1]
   local comments = first_token ~= nil and first_token.comments or nil
+  -- TODO: read the run after a leading shebang line or blank lines as
+  -- the module's too: a script opening with `#!` and a comment lists
+  -- blank in `cosmic docs`, and its record or function keeps the run alone.
   if comments == nil or #comments == 0 or comments[1].y ~= 1 then
     return ""
   end
@@ -192,11 +195,6 @@ local function module_doc(parsed: ast.Parsed): string
     last = last + 1
   end
   local first_stmt = parsed.node[1]
-  -- TODO: keep an opening comment as the module's own row too when it
-  -- sits on the first statement (a record, a `local type ... = require`):
-  -- `cosmic docs` with no query lists such a module blank, or by its
-  -- record's comment only when that record is the file's first line
-  -- (build.docs `opens_its_file`), which could then go.
   if first_stmt ~= nil and takes_a_doc_comment(first_stmt)
      and comments[last].y == first_stmt.y - 1 then
     return ""
@@ -377,10 +375,85 @@ local function definition_of(typedecl: ast.TypeNode): ast.TypeNode
   return def
 end
 
+--- The tokens' index of the one at `y`, `x`, or nil when none starts there.
+local function token_at(tokens: {compiler.Token}, y: integer, x: integer): integer | nil
+  local low, high = 1, #tokens
+  while low <= high do
+    local mid = (low + high) // 2
+    local token = tokens[mid]
+    if token.y == y and token.x == x then
+      return mid
+    elseif token.y < y or (token.y == y and token.x < x) then
+      low = mid + 1
+    else
+      high = mid - 1
+    end
+  end
+  return nil
+end
+
+--- A record field's declaration on one line, however many the source
+--- spent on it: from the field's name to the end of its type. `field`
+--- is the type; its tokens run until one at bracket depth 0 opens a new
+--- line without the previous token asking for more (a `,` or `|`, or
+--- itself a `|`), which is the next field or the record's `end`.
+local function field_signature(lines: {string}, tokens: {compiler.Token},
+                               field: ast.TypeNode): string
+  local first = token_at(tokens, field.y, field.x)
+  if first == nil then
+    return line_at(lines, field.y)
+  end
+  local depth = 0
+  local last = first
+  -- Where a comment starts on each line the type spans: a comment inside
+  -- a signature is left out, as it would swallow the words after it
+  -- once the lines are joined.
+  local comment_at: {integer: integer} = {}
+  for at = first, #tokens do
+    local token = tokens[at]
+    local tk = token.tk
+    local previous = tokens[at - 1]
+    if at > first and depth <= 0 and token.y > previous.y and tk ~= "|"
+       and previous.tk ~= "," and previous.tk ~= "|" and previous.tk ~= ":" then
+      break
+    end
+    if token.comments ~= nil and at > first then
+      for _, comment in ipairs(token.comments) do
+        if comment_at[comment.y] == nil then
+          comment_at[comment.y] = comment.x
+        end
+      end
+    end
+    if tk == "(" or tk == "{" or tk == "[" or tk == "<" then
+      depth = depth + 1
+    elseif tk == ")" or tk == "}" or tk == "]" or tk == ">" then
+      depth = depth - 1
+    elseif tk == ">>" then
+      depth = depth - 2
+    end
+    last = at
+  end
+  local end_token = tokens[last]
+  if end_token.y == field.y then
+    return line_at(lines, field.y)
+  end
+  local parts: {string} = {}
+  for line_no = field.y, end_token.y do
+    local line = lines[line_no] or ""
+    local to = line_no == end_token.y and end_token.x + #end_token.tk - 1 or #line
+    local cut = comment_at[line_no]
+    if cut ~= nil and line_no ~= end_token.y and cut - 1 < to then
+      to = cut - 1
+    end
+    parts[#parts + 1] = line:sub(1, to)
+  end
+  return String.trim((table.concat(parts, " "):gsub("%s+", " ")))
+end
+
 --- Adds the entries for one record, interface, or enum body under
 --- `symbol`: one per field, in declaration order, with a nested
 --- record or enum recursing under its own name.
-local function record_docs(lines: {string}, symbol: string,
+local function record_docs(lines: {string}, tokens: {compiler.Token}, symbol: string,
                            def: ast.TypeNode, out: {analyzer.DocEntry})
   if def.typename == "enum" then
     local value_comments = def.value_comments
@@ -399,6 +472,13 @@ local function record_docs(lines: {string}, symbol: string,
     end
     return
   end
+  -- TODO: a comment trailing a field on its own line (`s: string -- why`)
+  -- becomes the doc text of the next field, since `field_comments` holds
+  -- every comment run above a field; keep a run that starts on the line
+  -- of the field before it out of this one's text.
+  -- TODO: a record's `metamethod` fields (`def.meta_fields`) have no row
+  -- here, so `cosmic docs` never lists a documented `__call` or `__index`;
+  -- walk them as the fields are walked.
   local order = def.field_order
   local fields = def.fields
   local field_comments = def.field_comments
@@ -416,6 +496,9 @@ local function record_docs(lines: {string}, symbol: string,
         end
       end
       local field_symbol = symbol .. "." .. name
+      if field.typename == "generic" and field.t ~= nil then
+        field = field.t
+      end
       local nested = field.typename == "typedecl" and definition_of(field) or nil
       if nested ~= nil and (nested.typename == "record"
          or nested.typename == "interface" or nested.typename == "enum") then
@@ -423,11 +506,11 @@ local function record_docs(lines: {string}, symbol: string,
           exported = false, kind = nested.typename,
           signature = line_at(lines, field.y),
           text = doc_before(comments, field.y), line = field.y }
-        record_docs(lines, field_symbol, nested, out)
+        record_docs(lines, tokens, field_symbol, nested, out)
       else
         out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
           exported = false, kind = "field",
-          signature = line_at(lines, field.y),
+          signature = field_signature(lines, tokens, field),
           text = doc_before(comments, field.y), line = field.y }
       end
     end
@@ -484,7 +567,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
           signature = line_at(lines, stmt.y),
           text = doc_before(stmt.comments, stmt.y), line = stmt.y }
         if kind ~= "type" and def ~= nil then
-          record_docs(lines, symbol, def, out)
+          record_docs(lines, parsed.tokens, symbol, def, out)
         end
       end
     elseif stmt.kind == "local_declaration" and stmt.vars ~= nil

@@ -143,6 +143,18 @@ local record Time
     zone: Time.Zone
   end
 
+  --- A span of time as people write it, `1y2mo3d4h5m6s`: a calendar
+  --- part, which `add_calendar` moves along a calendar, and an exact
+  --- part in nanoseconds. Every field has the duration's one sign: a
+  --- negative duration has each field at most zero.
+  record Duration
+    years: integer
+    months: integer
+    days: integer
+    --- The hours, minutes and seconds, as nanoseconds.
+    nanoseconds: integer
+  end
+
   --- Coordinated Universal Time, the zone every other is an offset from.
   UTC: Time.Zone
 end
@@ -831,14 +843,24 @@ local function name_problem(name: string): string
   return nil
 end
 
---- Whether RFC 9557 can write `name` in a suffix: a zone name each of
---- whose parts begins with a letter, `.` or `_` (its `time-zone-initial`).
-local function writable(name: string): boolean
-  if name_problem(name) ~= nil then return false end
+--- Why RFC 9557 cannot write `name` in a suffix, or nil when it can: a
+--- zone name each of whose parts begins with a letter, `.` or `_` (its
+--- `time-zone-initial`).
+local function writable_problem(name: string): string
+  local problem = name_problem(name)
+  if problem ~= nil then return problem end
   for part in (name .. "/"):gmatch("([^/]*)/") do
-    if part:find("^[A-Za-z._]") == nil then return false end
+    if part:find("^[A-Za-z._]") == nil then
+      return ("zone name %q has a part that does not begin with a letter, \".\" or \"_\""):format(
+        name)
+    end
   end
-  return true
+  return nil
+end
+
+--- Whether RFC 9557 can write `name` in a suffix (`writable_problem`).
+local function writable(name: string): boolean
+  return writable_problem(name) == nil
 end
 
 --- Every zone `zone` has loaded, by name.
@@ -983,14 +1005,12 @@ end
 --- UTC in silence: `local_zone` answers no reason on this path today;
 --- a warning, or a way to ask why, would carry `NEWER_ZONES`.
 local function host_zone(localtime: string, timezone: string): Time.Zone
-  for _, find in ipairs({ linked_name, written_name }) do
-    local name = find(find == linked_name and localtime or timezone)
-    if name ~= nil then
-      local zone, _ = Time.zone(name)
-      if zone ~= nil then return zone end
-    end
+  local function carried(name: string): Time.Zone
+    if name == nil then return nil end
+    local zone, _ = Time.zone(name)
+    return zone
   end
-  return Time.UTC
+  return carried(linked_name(localtime)) or carried(written_name(timezone)) or Time.UTC
 end
 
 --- The zone name a `TZ` of `:name` or `:/path` gives: a name as it is,
@@ -1488,11 +1508,7 @@ local function parse(text: string): Time.Zoned | nil, string
       end
       zoned.zone = fixed_zone(annotated)
     else
-      local problem = name_problem(body)
-      if problem == nil and not writable(body) then
-        problem = ("zone name %q has a part that does not begin with a letter, \".\" or \"_\""):format(
-          body)
-      end
+      local problem = writable_problem(body)
       if problem ~= nil then return nil, ("suffix at byte %d: %s"):format(at, problem) end
       local zone, zone_why = Time.zone(body)
       if zone == nil then return nil, ("suffix at byte %d: %s"):format(at, zone_why) end
@@ -1680,6 +1696,220 @@ function Time.parse_http(text: string): integer | nil, string
     return nil, ("unexpected text at byte %d"):format(stop + 1)
   end
   return moment(c, 0)
+end
+
+--- The most seconds a duration's exact part holds, so its nanoseconds
+--- still fit an integer.
+local MAX_SPAN_S <const> = math.maxinteger // NS
+
+--- The duration `text` spells, or nil and why. It is an optional sign
+--- and then each of `y`, `mo`, `d`, `h`, `m` and `s` at most once, in
+--- that order, after a whole number (the seconds may have a fraction
+--- of one to nine digits): `1y2mo3d4h5m6s`, `90m`, `-1d12h`, `+0.5s`.
+--- The sign belongs to the whole duration. A number has at most nine
+--- digits and the exact part is at most what nanoseconds hold, about
+--- 292 years; a calendar part the range of `add_calendar` refuses is
+--- refused there, not here.
+function Time.parse_duration(text: string): Time.Duration | nil, string
+  local at = 1
+  local sign = 1
+  local first = text:sub(1, 1)
+  if first == "-" or first == "+" then
+    sign = first == "-" and -1 or 1
+    at = 2
+  end
+  if at > #text then return nil, "expected a duration such as 1y2mo3d4h5m6s, not nothing" end
+  local units = { "y", "mo", "d", "h", "m", "s" }
+  local seen = 0
+  local values: {integer} = { 0, 0, 0, 0, 0, 0 }
+  local fraction = 0
+  while at <= #text do
+    local digits = text:match("^%d+", at)
+    if digits == nil then
+      return nil, ("expected a number at byte %d of the duration"):format(at)
+    end
+    if #digits > 9 then
+      return nil, ("the number at byte %d has %d digits: at most 9"):format(at, #digits)
+    end
+    local number = digits_at(text, at, #digits)
+    at = at + #digits
+    local unit = 0
+    if text:sub(at, at + 1) == "mo" then
+      unit = 2
+    else
+      for index, name in ipairs(units) do
+        if text:sub(at, at) == name then unit = index end
+      end
+    end
+    if text:sub(at, at) == "." then
+      local frac = text:match("^%.(%d+)s", at)
+      if frac == nil or #frac > 9 then
+        return nil, ("expected 1 to 9 digits of fraction and then \"s\" at byte %d"):format(at)
+      end
+      fraction = digits_at(text, at + 1, #frac)
+      for _ = #frac + 1, 9 do fraction = fraction * 10 end
+      at = at + 1 + #frac
+      unit = 6
+    end
+    if unit == 0 then
+      return nil, ("expected a unit y, mo, d, h, m or s at byte %d of the duration"):format(at)
+    end
+    if unit <= seen then
+      return nil, ("unit %s at byte %d is repeated or out of order: y, mo, d, h, m, s"):format(
+        units[unit], at)
+    end
+    seen = unit
+    values[unit] = number
+    at = at + #units[unit]
+  end
+  local seconds = values[4] * 3600 + values[5] * 60 + values[6]
+  if seconds > MAX_SPAN_S or (seconds == MAX_SPAN_S and fraction > math.maxinteger % NS) then
+    return nil, "the hours, minutes and seconds are more than 292 years"
+  end
+  return {
+    years = sign * values[1], months = sign * values[2], days = sign * values[3],
+    nanoseconds = sign * (seconds * NS + fraction),
+  }, ""
+end
+
+--- `d` as `parse_duration` reads it, so the two round trip: `1y2mo3d4h5m6.5s`,
+--- a `-` before a negative one, and `0s` for nothing. Each calendar field is
+--- written as it is, `14mo` not `1y2mo`. Raises for a duration whose
+--- fields are not all of one sign.
+function Time.format_duration(d: Time.Duration): string
+  local years, months, days, ns = d.years or 0, d.months or 0, d.days or 0, d.nanoseconds or 0
+  local negative = years < 0 or months < 0 or days < 0 or ns < 0
+  if negative and (years > 0 or months > 0 or days > 0 or ns > 0) then
+    error("time: a duration's fields are all of one sign", 2)
+  end
+  local parts: {string} = {}
+  local function put(n: integer, unit: string)
+    if n ~= 0 then parts[#parts + 1] = ("%d%s"):format(math.abs(n), unit) end
+  end
+  put(years, "y")
+  put(months, "mo")
+  put(days, "d")
+  local span = math.abs(ns)
+  put(span // (3600 * NS), "h")
+  put(span % (3600 * NS) // (60 * NS), "m")
+  local seconds, nanos = span % (60 * NS) // NS, span % NS
+  if seconds ~= 0 or nanos ~= 0 then
+    local text = ("%d"):format(seconds)
+    if nanos ~= 0 then
+      local trimmed = ("%09d"):format(nanos):gsub("0+$", "")
+      text = text .. "." .. trimmed
+    end
+    parts[#parts + 1] = text .. "s"
+  end
+  if #parts == 0 then return "0s" end
+  return (negative and "-" or "") .. table.concat(parts)
+end
+
+--- What the text `parse_input` reads may spell.
+local INPUT_FORMS <const> = "expected RFC 3339 (2026-09-25T04:09:21Z), a date (2026-09-25), " ..
+  "a local time (2026-09-25T04:09[:21]) or @<epoch seconds>"
+
+-- `parse_input` less the forms' names in its failures.
+local function read_input(text: string, zone: Time.Zone | nil,
+    how: Time.Disambiguation): Time.Zoned | nil, string
+  if text:sub(1, 1) == "@" then
+    local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
+    if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
+      return nil, "@ and seconds since 1970, as @1700000000 or @-1.5, at most 10 digits " ..
+        "(the calendar ends in 2262) and 9 of fraction"
+    end
+    local start = sign == "" and 2 or 3
+    local s = digits_at(text, start, #whole)
+    local n = 0
+    if #frac > 0 then n = digits_at(text, start + #whole + 1, #frac) end
+    for _ = #frac + 1, 9 do n = n * 10 end
+    if sign == "-" then
+      s = -s
+      if n > 0 then s, n = s - 1, NS - n end
+    end
+    local ns, why = instant(s, n)
+    if ns == nil then return nil, why end
+    return { ns = ns }, ""
+  end
+  if text:match("^%d%d%d%d%-%d%d%-%d%d$") then
+    local ns, why = Time.parse_date(text, zone)
+    if ns == nil then return nil, why end
+    return { ns = ns }, ""
+  end
+  local tail = text:match("^%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d(.*)$")
+  if tail ~= nil and (tail == "" or tail:match("^:%d%d$") or tail:match("^:%d%d%.%d+$")) then
+    local c: Time.Civil = { second = 0, nanosecond = 0 }
+    local why = date_into(text, c)
+    if why ~= nil then return nil, why end
+    c.hour, c.minute = digits_at(text, 12, 2), digits_at(text, 15, 2)
+    if tail ~= "" then
+      c.second = digits_at(text, 18, 2)
+      if c.second == 60 then
+        return nil, "second 60 is not 0 through 59: cosmic time has no leap seconds"
+      end
+      if #tail > 3 then
+        local digits = #tail - 4
+        if digits > 9 then
+          return nil, ("fraction: expected 1 to 9 digits, not %d"):format(digits)
+        end
+        c.nanosecond = digits_at(text, 21, digits)
+        for _ = digits + 1, 9 do c.nanosecond = c.nanosecond * 10 end
+      end
+    end
+    local ns, from_why = Time.from_civil(c, zone, { disambiguation = how })
+    if ns == nil then return nil, from_why end
+    return { ns = ns }, ""
+  end
+  -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
+  local zoned, why: Time.Zoned | nil, string
+  local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
+  if minutes ~= nil then
+    zoned, why = parse(minutes .. ":00" .. rest)
+    if zoned == nil then
+      -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
+      why = why:gsub("byte (%d+)", function(n: string): string
+        local at = math.tointeger(n) or 0
+        return "byte " .. (at >= 17 and at - 3 or at)
+      end)
+    end
+  else
+    zoned, why = parse(text)
+  end
+  if zoned == nil then return nil, why end
+  if zoned.zone == nil then
+    local head = text:match("^[^%[]*")
+    local sign, hh, mm = head:match("([+-])(%d%d):(%d%d)$")
+    if sign ~= nil and not (sign == "-" and hh == "00" and mm == "00") then
+      local offset = digits_at(head, #head - 4, 2) * 3600 + digits_at(head, #head - 1, 2) * 60
+      zoned.zone = fixed_zone(sign == "-" and -offset or offset)
+    else
+      zoned.zone = Time.UTC
+    end
+  end
+  return zoned, ""
+end
+
+--- The moment a user's text names, in whichever form they wrote it, or
+--- nil and why: RFC 3339 as `parse_rfc3339_zoned` reads it, whose zone is
+--- the suffix's, or else the text's own offset (`Z` is UTC); a date
+--- `2026-09-25`, its first moment on the calendar of `zone` (UTC's when
+--- nil), as `parse_date` has it; a local time `2026-09-25T04:09` or
+--- `2026-09-25T04:09:21.5`, without `Z` or an offset, on the calendar of
+--- `zone`, resolved as `opts.disambiguation` says ("compatible" when
+--- absent, as a wall clock would: a time in a gap lands after the gap,
+--- and a time passed twice is the earlier); and `@` and seconds since
+--- 1970, an integer with an optional sign and fraction, `@1700000000`,
+--- `@-1.5`. Seconds are optional in the clock of RFC 3339 text as in
+--- local text (`2026-09-25T04:09Z`), and a failure names the forms, then
+--- the fault. The zone returned is nil for the last three, which name none.
+--- Any text answers a moment or a failure. Raises for a `disambiguation`
+--- that is none of its type's or a `zone` no function here made.
+function Time.parse_input(text: string, zone?: Time.Zone,
+    opts?: Time.CivilOptions): Time.Zoned | nil, string
+  local how = disambiguation_of(opts ~= nil and opts.disambiguation or "compatible")
+  local zoned, why = read_input(text, zone, how)
+  if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
+  return zoned, ""
 end
 
 --- The wall clock in nanoseconds, which can step backwards when the host

@@ -31,12 +31,14 @@ end
 
 --- A push to main that reuses the queue's run has no platform legs but
 --- `reuse` and the `seed` legs, which are none: its wall is no seed's,
---- and it adds no row to the legs' medians.
+--- and it adds no row to the legs' medians. The checked job, beside the
+--- legs, is one, and a run's wall where it is the slowest.
 local function test_reuse_and_seed_are_no_platform_jobs()
-  for _, name in ipairs({ "ci", "reuse", "seed", "seed (macos-aarch64, macos-15)" }) do
+  for _, name in ipairs({ "ci", "reuse", "seed", "seed (macos-aarch64, macos-15)",
+      "seed (linux-x86_64-checked, ubuntu-24.04, true)" }) do
     assert(not Report.is_platform_job(name), name)
   end
-  for _, name in ipairs({ "linux-x86_64", "macos-aarch64", "seeder" }) do
+  for _, name in ipairs({ "linux-x86_64", "macos-aarch64", "linux-x86_64-checked", "seeder" }) do
     assert(Report.is_platform_job(name), name)
   end
   local run: Report.Run = { id = "1", event = "push", branch = "main", sha = "a", conclusion = "success",
@@ -48,6 +50,8 @@ local function test_reuse_and_seed_are_no_platform_jobs()
   assert(Report.slowest(run) == nil, "a seeded run's slowest platform job")
   table.insert(run.jobs, { name = "linux-x86_64", seconds = 60, steps = {} })
   assert((Report.slowest(run) as Report.Job).name == "linux-x86_64")
+  table.insert(run.jobs, { name = "linux-x86_64-checked", seconds = 61, steps = {} })
+  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64-checked")
 end
 
 --- A run whose rows say what its restored cache held qualifies by

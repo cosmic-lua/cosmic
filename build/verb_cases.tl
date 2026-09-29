@@ -5,6 +5,8 @@
 --- so the test that classifies every verb and the tests that run each
 --- one read the same tables.
 
+local verb_list = require("build.verb_list")
+
 local record verb_cases
   --- One command line that passes and one that fails, each run in `tree`
   --- unless it names another directory; a string for a failure no command
@@ -23,16 +25,20 @@ end
 --- file are the program's own, so no option or argument is theirs to
 --- refuse, and whose output is the program's; `--version`, whose
 --- one line is all it prints (build/version_tool_test.tl holds it); and
---- `json`, which does refuse options and arguments, held to that in
---- build/json_test.tl, but whose standard output is the value asked for.
+--- every listed verb that is `bare` (build/verb_spec.tl), which does refuse
+--- options and arguments, held to that in its own test, but whose standard
+--- output is the value asked for; its reason is its spec's `passthrough`.
 verb_cases.passthrough = {
   run = "the words after the file are its program's argv",
   standalone = "the words after the file are its program's argv",
   eval = "the words after the chunk are its `...`",
   version = "it prints one line and no verdict",
-  json = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
-  codec = "its output is data for a pipe, so its exit status is the verdict (build/codec_test.tl)",
 }
+for _, spec in ipairs(verb_list.specs()) do
+  if spec.passthrough ~= nil then
+    verb_cases.passthrough[spec.name] = spec.passthrough
+  end
+end
 
 --- A command line with one argument more than each verb takes, or why
 --- the verb has none: it takes any number of words.

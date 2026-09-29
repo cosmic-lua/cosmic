@@ -45,10 +45,13 @@ local Time = require("cosmic.time")
 local bind = require("build.bind")
 local clock = require("build.clock")
 local log = require("build.verdict").log
+local verb_spec = require("build.verb_spec")
 
 local text = bind.text
 
 local record bom
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- One `notice` line: a file under the component's directory, and
   --- the lines of it to keep; `first` is nil for the whole file.
   record Notice
@@ -476,5 +479,16 @@ function bom.run(argv: {integer:string}): integer
   end
   return finish(0, #rows .. " components")
 end
+
+--- The `bom` verb as `build/verb_list.tl` lists it. The rows are the
+--- running binary's, so in cosmic's own tree a tool older than the tree
+--- rebuilds first, as `docs` does.
+bom.spec = {
+  name = "bom",
+  run = function(argv: {integer:string}): integer return bom.run(argv) end,
+  bare = false,
+  takes = "nothing",
+  fresh = true,
+}
 
 return bom

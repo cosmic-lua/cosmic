@@ -198,6 +198,88 @@ local function test_a_module_listing_shows_signatures(dir: string)
   assert(listing ~= nil and prose ~= nil and listing < prose, text)
 end
 
+--- A module whose own record declares its calls as function-typed
+--- fields (as `cosmic.sys` does) lists each with its signature, as a
+--- function, ahead of the prose.
+local function test_a_module_listing_shows_function_typed_fields(dir: string)
+  local db = built(dir, { ["cosmic/calls.tl"] = source(
+    "--- A table of calls.",
+    "---",
+    "--- Long prose after the first paragraph.",
+    "",
+    "local record calls",
+    "  --- What a path is.",
+    "  record Stat",
+    "    size: integer",
+    "    visit: function(path: string): boolean",
+    "  end",
+    "",
+    "  --- Whether a path exists.",
+    "  exists: function(path: string): boolean, string, integer",
+    "  --- No parameters, no results.",
+    "  tick: function()",
+    "end",
+    "",
+    "return calls") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  assert(text:find("\n  function calls.exists(path: string): boolean, string, integer",
+    1, true), text)
+  assert(text:find("\n  function calls.tick()", 1, true), text)
+  local listing = text:find("  function calls.exists(", 1, true)
+  local prose = text:find("Long prose after", 1, true)
+  assert(listing ~= nil and prose ~= nil and listing < prose, text)
+  -- A function-typed field of a nested record is that record's, not
+  -- the module's call.
+  assert(not text:find("visit", 1, true), text)
+end
+
+--- A function-typed field written over several lines is listed with its
+--- whole signature.
+local function test_a_module_listing_shows_a_multi_line_field_signature(dir: string)
+  local db = built(dir, { ["cosmic/calls.tl"] = source(
+    "--- A table of calls.",
+    "",
+    "local record calls",
+    "  gen: function(input: string, env: string,",
+    "                options: any): string",
+    "  exists: function(path: string): boolean",
+    "end",
+    "",
+    "return calls") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  assert(text:find("  function calls.exists(path: string): boolean", 1, true), text)
+  assert(text:find("\n  function calls.gen(input: string, env: string, options: any): string",
+    1, true), text)
+  assert(not text:find("field calls.gen", 1, true), text)
+end
+
+--- A record's plain data field is not a function: only a field whose
+--- type is a function is listed as one.
+local function test_a_module_listing_leaves_out_data_fields(dir: string)
+  local db = built(dir, { ["cosmic/calls.tl"] = source(
+    "--- A table of calls.",
+    "",
+    "local record calls",
+    "  limit: integer",
+    "  name: string",
+    "  callbacks: {function(): boolean}",
+    "  exists: function(path: string): boolean",
+    "end",
+    "",
+    "return calls") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  assert(text:find("  function calls.exists(path: string): boolean", 1, true), text)
+  assert(not text:find("limit", 1, true) and not text:find("name: string", 1, true), text)
+  assert(not text:find("calls.limit", 1, true) and not text:find("calls.name", 1, true), text)
+  assert(not text:find("callbacks", 1, true), text)
+end
+
 --- A bare lowercase name that ends a public module's name is that
 --- module, not an internal record or symbol of the same name; a name
 --- that is no module's still finds its symbols.
@@ -290,6 +372,11 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
       "--- Reads, e.g. a file, with `a. b` inside. Then more.",
       "",
       "return {}"),
+    ["lib/ontype.tl"] = source(
+      "--- Said on a type. More.",
+      "local type Fs = require(\"cosmic.fs\")",
+      "",
+      "return {}"),
     ["lib/onrecord.tl"] = source(
       "--- Said on the record. More.",
       "local record onrecord",
@@ -308,6 +395,7 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
   assert(all == "build.boot|\nbuild.test|\nbuild.tree|The tree, read by position.\n" ..
     "cosmic.fs|Files and directories.\n" ..
     "cosmic.hash|Digests.\nlib.bare|\nlib.onrecord|Said on the record.\n" ..
+    "lib.ontype|Said on a type.\n" ..
     "lib.sentence|Reads, e.g. a file, with `a. b` inside.\nlib.tworec|", all)
   local public = assert(docs.index((assert(docs.view({ db }, { true })))))
   assert(#public == 2 and public[1].module == "cosmic.fs" and

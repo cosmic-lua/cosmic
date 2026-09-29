@@ -20,6 +20,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local closure_store = require("build.closure_store")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
@@ -49,6 +50,21 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
+for _, name in ipairs({ "docs", "fix", "test" }) do
+  allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
+    "which its own module holds; kept a member because ci/fixtures/self_rebuild_test.tl " ..
+    "rewrites the line that declares it"
+end
+-- TODO: let an exported `spec` count as a module's entry point in
+-- `unearned`, as `run` and `main` do; then these four `run`s, and the
+-- three above once the fixture rewrites another line, can be local and
+-- their entries here go.
+for _, name in ipairs({ "bom", "embed", "refresh", "todos" }) do
+  allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
+    "which its own module holds; kept a member because a module that exports `run` is a " ..
+    "program's entry, and its other exports may be used by its test alone (see `unearned`)"
+end
+allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
   "in the compiler's identity or left out of it with a reason"
@@ -110,8 +126,6 @@ allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path 
   "a tool was started as, which the running one cannot change"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
   "as an older binary would"
-allowed["cosmic.http.open"] = "the public way to read a response as it arrives: " ..
-  "the tree's own callers read theirs whole, through Http.get and Http.download"
 
 --- Every export the projection `db` holds that nothing earns, as
 --- `<file>:<line>: <module>.<member>`, sorted.
@@ -527,6 +541,33 @@ function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
   return out
 end
 
+--- Each declaration of `db` that requires a name no declaration of `db`
+--- answers for, as `<declaration> requires <name>`: a closure store
+--- follows a declaration's requires among declarations alone
+--- (`build.closure_store`'s `declared`), so a module one required would
+--- be neither carried nor in the store's address.
+function tree_checks.declarations(db: Sqlite.Handle): {string}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, CAST(inflate(source) AS TEXT) FROM decls ORDER BY path")
+  if rows == nil then
+    return { "reading the declarations: " .. trouble }
+  end
+  local declared: {string:boolean} = {}
+  for _, row in ipairs(rows) do declared[row[1]] = true end
+  local out: {string} = {}
+  for _, row in ipairs(rows) do
+    for _, name in ipairs(closure_store.required_by(row[2])) do
+      if not declared[name] then
+        out[#out + 1] = row[1] .. " requires " .. name .. ", which is no declaration: " ..
+          "a closure store follows a declaration's requires among declarations alone " ..
+          "(build/closure_store.tl's `declared`), so declare what it needs of " .. name ..
+          " in a declaration, or teach the store to follow a module"
+      end
+    end
+  end
+  return out
+end
+
 --- Whether `path`, relative to the tree's root, is a source of the
 --- public standard library: `cosmic/` outside `cosmic/internal/`. A
 --- note `build.fix.near` makes on one fails the whole tree's check: the
@@ -586,6 +627,7 @@ function tree_checks.run(db: Sqlite.Handle): {string}
     { name = "stand-ins", lines = tree_checks.stand_ins(db) },
     { name = "docs queries", lines = tree_checks.queries(db) },
     { name = "quieted", lines = tree_checks.quieted(db) },
+    { name = "declarations", lines = tree_checks.declarations(db) },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

@@ -105,8 +105,15 @@ end
 --- `Compress.deflate("raw", X)` writes it, and `inflate(X)` what such a
 --- stream decodes to, as a blob: the shipped database stores each
 --- module's source that way, so `CAST(inflate(source) AS TEXT)` reads it.
-function Sqlite.open(path: string, writable?: boolean): Sqlite.Handle | nil, string
-  return sqlite.open(path, writable)
+--- `immutable` opens a database nothing will change while it is open
+--- read-only and takes no lock: no `-wal`, `-shm` or journal file is
+--- made beside it, even for a WAL-mode database whose `-wal` is gone,
+--- and a running statement holds nothing a writer waits on. Giving it
+--- with `writable` raises. A `-wal` is never read: commits still in one
+--- do not show, so a database being written is opened without it. `handle:limit(name, value)` sets one of the
+--- connection's limits, `"attached"` among them, and answers the old one.
+function Sqlite.open(path: string, writable?: boolean, immutable?: boolean): Sqlite.Handle | nil, string
+  return sqlite.open(path, writable, immutable)
 end
 
 --- A database held in memory, which is where a build assembles one

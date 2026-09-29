@@ -50,7 +50,10 @@ end
 local function run(root: string, words: {string}): integer, Written
   local written: Written = { out = {}, err = {}, verdict = "" }
   local code = sql.run(argv_of(words), root, {
-    out = function(line: string) written.out[#written.out + 1] = line end,
+    out = function(line: string): boolean, string
+      written.out[#written.out + 1] = line
+      return true, ""
+    end,
     err = function(line: string) written.err[#written.err + 1] = line end,
     verdict = function(passed: boolean, detail: string)
       assert(written.verdict == "", "a second verdict: " .. written.verdict)

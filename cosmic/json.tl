@@ -64,6 +64,10 @@
 ---
 --- `Json.quote` and `Json.child_path` spell a key or a path (`$.rows[2]`)
 --- in a message of your own, and `Json.parse_path` reads one back.
+--- `Json.flatten` lists every leaf of a value as such a path and its
+--- value, gron-style, and `Json.flat_line` prints one as `$.a[1] = 2`;
+--- `Json.parse_pattern` reads a path with `*` and `..` in it, and
+--- `Json.select` lists what it matches.
 ---
 --- Duplicate keys are allowed, and the last one stands. Encoded
 --- objects list their keys in byte order unless `sorted = false`, so
@@ -167,6 +171,46 @@ local record Json
     --- rest is shown as `...` (default 6). 0 shows only the outermost
     --- value's kind.
     max_depth: integer
+  end
+
+  --- What kind of step a pattern step is: `key` and `index` are the
+  --- steps of a plain path (`.name`, `["a key"]`, `[3]`); `any` is `*`,
+  --- every member of an object or element of an array; the `deep_`
+  --- kinds are `..`: the same key, index or `*` at any depth below,
+  --- the current level included.
+  enum StepKind
+    "key"
+    "index"
+    "any"
+    "deep_key"
+    "deep_index"
+    "deep_any"
+  end
+
+  --- One step of a pattern (`Json.parse_pattern`): `key` is set for
+  --- `key` and `deep_key`, `index` for `index` and `deep_index`.
+  record Step
+    kind: StepKind
+    key: string
+    index: integer
+  end
+
+  --- A value and the path it was found at, spelled as `child_path`
+  --- spells it: what `flatten` and `select` answer.
+  record Located
+    path: string
+    value: any
+  end
+
+  --- What `flatten` and `select` may be told. Every field is optional.
+  record WalkOptions
+    --- How many arrays and objects may nest below the value walked,
+    --- 1 to `Json.depth_limit` (default `Json.default_depth`, 64), as
+    --- `EncodeOptions.max_depth` counts. Deeper fails the walk.
+    max_depth: integer
+    --- The path to spell for the value itself (default `"$"`): give
+    --- the path a value was found at, so its leaves spell in full.
+    root: string
   end
 
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a
@@ -482,59 +526,63 @@ local function hex_value(digits: string): integer
   error("json: not hex digits: " .. digits)
 end
 
---- The steps of a path written as `child_path` spells one, for a
---- caller that takes a path as text (`cosmic json`): the steps for
---- `Json.get`, and "", or nil and a message naming the column where
---- the text stopped being a path. `$` is the document and may start
---- the text; then each step is `.name` (a key, up to the next `.` or
---- `[`), `[3]` (an array index, counted from 1 as `get` counts) or
---- `["a key"]` (a key in a JSON string, with JSON's escapes). Without
---- a leading `$`, the first step may drop its dot: `a.b` is `$.a.b`.
---- Whitespace is part of a key: `.a b` is the key `a b`.
---- `parse_path(Json.child_path(...))` gives back the steps that built
---- it, for any keys and integers. A path that is empty, or ends in a
---- `.`, or has an unclosed `[`, or an index that does not fit an
---- integer, or a lone surrogate escape, is refused; it never raises.
---- `*` (as `.*` or `[*]`) and `..` are refused too, by name, and not
---- read as keys: they are kept for wildcards and recursive descent, so
---- a key named `*` is `["*"]`.
----
----     local steps = assert(Json.parse_path('$.rows[2]["a key"]'))
----     assert(steps[1] == "rows" and steps[2] == 2 and steps[3] == "a key")
-function Json.parse_path(text: string): {string | integer} | nil, string
-  local steps: {string | integer} = {}
+--- The steps of a path or a pattern, for `parse_path` and
+--- `parse_pattern`: `wild` says whether `*` and `..` are read, or refused
+--- as belonging to a pattern.
+local function read_steps(text: string, wild: boolean): {Json.Step} | nil, string
+  local steps: {Json.Step} = {}
   local size = #text
   local function refuse(at: integer, what: string): nil, string
     return nil, "path column " .. at .. ": " .. what
   end
   if size == 0 then
-    return nil, "path is empty; `$` is the whole document"
+    return nil, "path is empty; `$` is the document"
   end
   local at = 1
   local rooted = text:sub(1, 1) == "$"
   if rooted then at = 2 end
   local first = true
   while at <= size do
+    local begin = at
     local c = text:sub(at, at)
-    if c == "." or (first and not rooted and c ~= "[") then
-      local from = c == "." and at + 1 or at
+    local deep = false
+    if c == "." and text:sub(at + 1, at + 1) == "." then
+      if not wild then
+        return refuse(begin, "`..` (recursive descent) is a pattern, not a path: " ..
+          "read it with Json.parse_pattern")
+      end
+      deep = true
+      at = at + 2
+      c = text:sub(at, at)
+    end
+    local key: string | nil
+    local index: integer | nil
+    local any = false
+    local named = false
+    local from = at
+    if deep then
+      named = c ~= "["
+    elseif c == "." then
+      named = true
+      from = at + 1
+    elseif first and not rooted and c ~= "[" then
+      named = true
+    end
+    if named then
       local stop = text:find("[.%[]", from) or size + 1
       if stop == from then
-        if c == "." and text:sub(from, from) == "." then
-          -- TODO: read `..` once the wildcard and flatten change (the
-          -- next) implements recursive descent; refused until then.
-          return refuse(at, "`..` (recursive descent) is not supported yet")
-        end
-        return refuse(from, "expected a key" .. (c == "." and " after `.`" or ""))
+        return refuse(from, "expected a key after `" .. (deep and ".." or ".") .. "`")
       end
       local name = text:sub(from, stop - 1)
       if name == "*" then
-        -- TODO: read `*` once the wildcard and flatten change (the next)
-        -- implements wildcards; refused until then.
-        return refuse(at, "`*` (a wildcard) is not supported yet; " ..
-          'a key named * is `["*"]`')
+        if not wild then
+          return refuse(begin, "`*` (a wildcard) is a pattern, not a path: " ..
+            'read it with Json.parse_pattern; a key named * is `["*"]`')
+        end
+        any = true
+      else
+        key = name
       end
-      steps[#steps + 1] = name
       at = stop
     elseif c == "[" then
       if text:sub(at + 1, at + 1) == '"' then
@@ -593,32 +641,132 @@ function Json.parse_path(text: string): {string | integer} | nil, string
         if text:sub(here, here) ~= "]" then
           return refuse(here, "expected `]` after the key")
         end
-        steps[#steps + 1] = table.concat(parts)
+        key = table.concat(parts)
         at = here + 1
       else
         local digits = text:match("^(%-?%d+)%]", at + 1)
         if text:sub(at + 1, at + 2) == "*]" then
-          -- TODO: read `[*]` once the wildcard and flatten change (the
-          -- next) implements wildcards; refused until then.
-          return refuse(at, "`[*]` (a wildcard) is not supported yet; " ..
-            'a key named * is `["*"]`')
+          if not wild then
+            return refuse(begin, "`[*]` (a wildcard) is a pattern, not a path: " ..
+              'read it with Json.parse_pattern; a key named * is `["*"]`')
+          end
+          any = true
+          at = at + 3
+        else
+          if digits == nil then
+            return refuse(at, "expected an integer or a quoted key inside [ ]")
+          end
+          local number = tonumber(digits)
+          if not (number is integer) then
+            return refuse(at, "index " .. digits .. " does not fit an integer")
+          end
+          index = number
+          at = at + #digits + 2
         end
-        if digits == nil then
-          return refuse(at, "expected an integer or a quoted key inside [ ]")
-        end
-        local number = tonumber(digits)
-        if not (number is integer) then
-          return refuse(at, "index " .. digits .. " does not fit an integer")
-        end
-        steps[#steps + 1] = number
-        at = at + #digits + 2
       end
     else
       return refuse(at, "expected `.` or `[`, got " .. Json.quote(c))
     end
+    local step_kind: Json.StepKind
+    if any then
+      step_kind = deep and "deep_any" or "any"
+    elseif key ~= nil then
+      step_kind = deep and "deep_key" or "key"
+    else
+      step_kind = deep and "deep_index" or "index"
+    end
+    steps[#steps + 1] = { kind = step_kind, key = key, index = index }
     first = false
   end
   return steps, ""
+end
+
+--- The steps of a path written as `child_path` spells one, for a
+--- caller that takes a path as text (`cosmic json`): the steps for
+--- `Json.get`, and "", or nil and a message naming the column where
+--- the text stopped being a path. `$` is the document and may start
+--- the text; then each step is `.name` (a key, up to the next `.` or
+--- `[`), `[3]` (an array index, counted from 1 as `get` counts) or
+--- `["a key"]` (a key in a JSON string, with JSON's escapes). Without
+--- a leading `$`, the first step may drop its dot: `a.b` is `$.a.b`.
+--- Whitespace is part of a key: `.a b` is the key `a b`.
+--- `parse_path(Json.child_path(...))` gives back the steps that built
+--- it, for any keys and integers. A path that is empty, or ends in a
+--- `.`, or has an unclosed `[`, or an index that does not fit an
+--- integer, or a lone surrogate escape, is refused; it never raises.
+--- `*` (as `.*` or `[*]`) and `..` are refused too, by name, since a
+--- path names one value: `parse_pattern` reads them. A key named `*`
+--- is `["*"]`.
+---
+---     local steps = assert(Json.parse_path('$.rows[2]["a key"]'))
+---     assert(steps[1] == "rows" and steps[2] == 2 and steps[3] == "a key")
+function Json.parse_path(text: string): {string | integer} | nil, string
+  local read, err = read_steps(text, false)
+  if read == nil then return nil, err end
+  local steps: {string | integer} = {}
+  for i, step in ipairs(read) do
+    local plain: string | integer | nil = step.key
+    if plain == nil then plain = step.index end
+    if plain == nil then error("json: a plain step has neither a key nor an index") end
+    steps[i] = plain
+  end
+  return steps, ""
+end
+
+--- A path that may name many values, as text: every form
+--- `parse_path` reads, and `*` (as `.*` or `[*]`), every member of an
+--- object or element of an array, and `..` (recursive descent):
+--- `..name`, `..["a key"]`, `..[3]` and `..*` are that key, index or
+--- every value at any depth below, the level the pattern has reached
+--- included. `$..id` is every `id` in a document, wherever it is, and
+--- `$.users[*].name` every user's name. A key named `*` is `["*"]`, and
+--- a `*` inside a longer name is a key (`.a*`). The steps carry a kind
+--- (`Json.Step`), and `Json.select` matches them. A text that is
+--- no pattern is refused as `parse_path` refuses it, and it never
+--- raises. `Json.spell_pattern` writes steps as text that reads back as
+--- themselves.
+---
+--- Only what is spelled above: JSONPath's filters (`[?(@.price < 10)]`),
+--- slices (`[1:3]`) and unions (`[1,2]`) are left out on purpose, as
+--- `cosmic json` is a lookup and no query language; `cosmic json --flat`
+--- with `grep`, or a script over `Json.select`, does what they would.
+---
+---     local pattern = assert(Json.parse_pattern("$..price"))
+---     assert(pattern[1].kind == "deep_key" and pattern[1].key == "price")
+function Json.parse_pattern(text: string): {Json.Step} | nil, string
+  return read_steps(text, true)
+end
+
+--- `pattern` as text `parse_pattern` reads back as the same steps, for
+--- any keys and integers: `$.users[*]..["a key"]`, and `$` for no steps.
+--- It is `child_path` for a plain step, `.*` for `any`, and for a `deep_`
+--- step `..name` (or `..["a key"]` for a key that is not a word), `..[3]`
+--- and `..*`. Raises for a step whose kind is not one of `Json.StepKind`,
+--- or that lacks the key or index its kind needs.
+function Json.spell_pattern(pattern: {Json.Step}): string
+  local text = "$"
+  for _, step in ipairs(pattern) do
+    local step_kind = step.kind
+    local key = step.key
+    local index = step.index
+    if step_kind == "key" and key ~= nil then
+      text = Json.child_path(text, key)
+    elseif step_kind == "index" and index ~= nil then
+      text = Json.child_path(text, index)
+    elseif step_kind == "any" then
+      text = text .. ".*"
+    elseif step_kind == "deep_any" then
+      text = text .. "..*"
+    elseif step_kind == "deep_key" and key ~= nil then
+      local named = Json.child_path("", key)
+      text = text .. (named:sub(1, 1) == "." and "." or "..") .. named
+    elseif step_kind == "deep_index" and index ~= nil then
+      text = text .. ".." .. Json.child_path("", index)
+    else
+      error("json: a pattern step of kind " .. tostring(step_kind) .. " lacks what it needs", 2)
+    end
+  end
+  return text
 end
 
 --- Where `descend` got to: the value, the message ("" on success) and
@@ -652,8 +800,17 @@ local function descend(value: any, path: {string | integer}): Reached
         return { err = at .. ": expected an array to look up " .. Json.child_path("", step_value)
           .. ", got " .. shape_kind(here), at = at }
       end
-      if step_value < 1 or step_value > rawlen(here) then
-        return { err = at .. ": index " .. step_value .. " out of range, the array has " .. rawlen(here), at = at }
+      local size = rawlen(here)
+      if step_value > size and raw.is_array(here) then
+        -- A decoded array with holes: `rawlen` is any border of it, so the
+        -- extent is its highest integer key.
+        for key in pairs(here) do
+          local k: any = key
+          if k is integer and k > size then size = k end
+        end
+      end
+      if step_value < 1 or step_value > size then
+        return { err = at .. ": index " .. step_value .. " out of range, the array has " .. size, at = at }
       end
       here = here[step_value]
     elseif step_value is string then
@@ -761,6 +918,294 @@ function Json.items(value: any, path?: {string | integer}): {any} | nil, string
     return here, ""
   end
   return nil, at .. "expected a JSON array, got " .. shape_kind(here)
+end
+
+--- `opts` of `flatten` and `select`, checked: the depth limit and the
+--- path spelled for the value itself.
+local function walk_options(opts: Json.WalkOptions | nil): integer, string
+  local limit = Json.default_depth
+  local root = "$"
+  if opts ~= nil then
+    if opts.max_depth ~= nil then
+      local given: any = opts.max_depth
+      if not (given is integer) or given < 1 or given > Json.depth_limit then
+        error("json: max_depth must be an integer from 1 to " .. Json.depth_limit, 3)
+      end
+      limit = given
+    end
+    if opts.root ~= nil then root = opts.root end
+  end
+  return limit, root
+end
+
+--- What the container `v` is, by the rules `table_kind` applies ("array",
+--- "object", "hole" or "mixed"), and for an object the string keys it has,
+--- sorted, or for a hole the integer keys it has, sorted: the order
+--- `flatten` and `select` visit its members in. An array's elements are
+--- 1 to the third answer, its extent, so no list is made for one; the
+--- extent of a marked array (a decoded one, which may hold holes where a
+--- `null` was dropped, so that `rawlen` is any border of it) is its
+--- highest integer key, found by a pass over the keys. The keys of a
+--- hole are its elements' indexes, so a hole is not visited and its
+--- neighbours keep theirs. One pass over the keys, where `table_kind` is
+--- another.
+local function layout(v: {any:any}): string, {string | integer}, integer
+  if raw.is_array(v) then
+    local extent = 0
+    for key in pairs(v) do
+      local k: any = key
+      if k is integer and k > extent then extent = k end
+    end
+    return "array", {}, extent
+  end
+  local keys: {string | integer} = {}
+  local strings, numbers = 0, 0
+  for key in pairs(v) do
+    local k: any = key
+    if k is string then
+      strings = strings + 1
+      keys[strings + numbers] = k
+    elseif k is integer and k >= 1 then
+      numbers = numbers + 1
+      keys[strings + numbers] = k
+    else
+      return "mixed", {}, 0
+    end
+  end
+  if strings > 0 and numbers > 0 then return "mixed", {}, 0 end
+  if numbers > 0 and numbers == rawlen(v) then return "array", {}, numbers end
+  table.sort(keys)
+  return numbers > 0 and "hole" or "object", keys, 0
+end
+
+--- Every leaf of `value` as a path and its value, in a list, and "":
+--- a scalar, `Json.null`, or an empty object or array, which is itself
+--- a leaf (that value, whose `flat_line` is `{}` or `[]`). The paths
+--- are `child_path`'s, from `$` (`opts.root`), so each one is what
+--- `parse_path` reads and `get` follows back to its leaf. The order is
+--- fixed: an object's keys sorted, an array's elements by index, and a
+--- container's leaves before the next one's, so the same value always
+--- flattens to the same list. A hole in an array (a decoded `null`
+--- without `null_value`) is not a leaf, and its neighbours keep their
+--- indexes. A scalar `value` is one leaf, at `$`. nil and a message
+--- naming the path when nesting passes `max_depth` (default
+--- `Json.default_depth`), a table contains itself, or a table's keys mix
+--- strings and integers or are neither, as `encode` would refuse it.
+--- Raises when `max_depth` is not an integer from 1 to `Json.depth_limit`.
+---
+---     local doc = assert(Json.decode('{"a": [1, {"b": []}]}'))
+---     for _, leaf in ipairs((assert(Json.flatten(doc)))) do
+---       print(assert(Json.flat_line(leaf.path, leaf.value)))
+---     end
+---     -- $.a[1] = 1
+---     -- $.a[2].b = []
+function Json.flatten(value: any, opts?: Json.WalkOptions): {Json.Located} | nil, string
+  local limit, root = walk_options(opts)
+  local leaves: {Json.Located} = {}
+  local open: {any:boolean} = {}
+  local failed: string | nil
+  local function walk(v: any, path: string, depth: integer)
+    if not (v is {any:any}) then
+      leaves[#leaves + 1] = { path = path, value = v }
+      return
+    end
+    local shape, keys, extent = layout(v)
+    if shape == "mixed" then
+      failed = path .. ": expected an object or an array, got " .. shape_kind(v)
+      return
+    end
+    if depth >= limit then
+      failed = path .. ": nested deeper than max_depth " .. limit
+      return
+    end
+    if open[v] then
+      failed = path .. ": the table contains itself"
+      return
+    end
+    open[v] = true
+    local before = #leaves
+    if shape == "array" then
+      for i = 1, extent do
+        local child = v[i]
+        if child ~= nil and failed == nil then walk(child, path .. "[" .. i .. "]", depth + 1) end
+      end
+    else
+      for _, step in ipairs(keys) do
+        if failed == nil then walk(v[step], Json.child_path(path, step), depth + 1) end
+      end
+    end
+    open[v] = nil
+    if failed == nil and #leaves == before then
+      leaves[#leaves + 1] = { path = path, value = v }
+    end
+  end
+  walk(value, root, 0)
+  if failed ~= nil then return nil, failed end
+  return leaves, ""
+end
+
+--- One line of `flatten`'s output: `path`, ` = `, and `value` as
+--- compact `Json.encode` writes it, so `$.a[1].b = 1200.5`. The path is
+--- what `Json.parse_path` reads and `cosmic json` takes, so a line found
+--- with `grep` gives its path back to `cosmic json '<path>'`, and a
+--- path ends where the first ` = ` outside a quoted key does. nil and
+--- the message of `encode` when `value` cannot be encoded.
+function Json.flat_line(path: string, value: any): string | nil, string
+  local text, err = Json.encode(value)
+  if text == nil then return nil, path .. ": " .. err end
+  return path .. " = " .. text, ""
+end
+
+--- Whether `sk` is one of the `deep_` kinds.
+local function is_deep(sk: Json.StepKind): boolean
+  return sk == "deep_key" or sk == "deep_index" or sk == "deep_any"
+end
+
+--- Every value `pattern` (from `parse_pattern`) matches under `value`, as
+--- a path and the value, in a list, and "": `[]` when nothing matches,
+--- with no failure. Paths are concrete (`$.users[2].name`, never `*`),
+--- as `flatten`'s are, and each value is listed once however many ways
+--- the pattern reaches it. The order is document order: a value before
+--- what is inside it, an object's keys sorted, an array's elements by
+--- index, and a hole in an array matches nothing. The empty pattern
+--- (`$`, no steps) selects `value` itself, once, and no other pattern
+--- does. A step that meets a scalar, or a container of the other kind,
+--- matches nothing there. The walk visits each value once, and each step
+--- at most once per value, so `..` over a large document costs the size
+--- of the document, however the pattern is spelled. nil and a message
+--- naming the path when nesting passes `max_depth` where the pattern
+--- goes, a table contains itself, or a table's keys mix strings and
+--- integers, as `flatten` fails. Raises when `max_depth` is not an
+--- integer from 1 to `Json.depth_limit`, or a step is not one
+--- `parse_pattern` makes.
+---
+---     local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
+---     local found = assert(Json.select(doc, assert(Json.parse_pattern("$..id"))))
+---     assert(found[1].path == "$.a.id" and found[2].path == "$.b[1].id")
+function Json.select(value: any, pattern: {Json.Step}, opts?: Json.WalkOptions): {Json.Located} | nil, string
+  local limit, root = walk_options(opts)
+  local count = #pattern
+  if count > 62 then
+    return nil, "a pattern has at most 62 steps, not " .. count
+  end
+  -- The steps still to match below a value are a set of positions in
+  -- the pattern, kept as the bits of an integer (position p is bit p - 1,
+  -- and bit `count` is "matched entirely"), so that advancing to a child
+  -- allocates nothing.
+  local keys: {string} = {}
+  local indexes: {integer} = {}
+  local deep: {boolean} = {}
+  local kinds: {integer} = {}
+  for position, step in ipairs(pattern) do
+    local sk = step.kind
+    local name, index = step.key, step.index
+    deep[position] = is_deep(sk)
+    keys[position] = ""
+    indexes[position] = 0
+    if (sk == "key" or sk == "deep_key") and name ~= nil then
+      kinds[position] = 1
+      keys[position] = name
+    elseif (sk == "index" or sk == "deep_index") and index ~= nil then
+      kinds[position] = 2
+      indexes[position] = index
+    elseif sk == "any" or sk == "deep_any" then
+      kinds[position] = 3
+    else
+      error("json: a pattern step of kind " .. tostring(sk) .. " lacks what it needs", 2)
+    end
+  end
+  local accepted = 1 << count
+  local found: {Json.Located} = {}
+  local open: {any:boolean} = {}
+  local failed: string | nil
+  local stack: {string | integer} = {}
+  -- `spelled_at[d]` is the path of the value `d` steps down, good for
+  -- the first `cached` levels of `stack`: a path is spelled from the last
+  -- one that was, a step at a time, and not again from the root.
+  local spelled_at: {integer:string} = { [0] = root }
+  local cached = 0
+  local function spelled(): string
+    for d = cached + 1, #stack do
+      spelled_at[d] = Json.child_path(spelled_at[d - 1], stack[d])
+    end
+    cached = #stack
+    return spelled_at[cached]
+  end
+  local visit: function(v: any, mask: integer, depth: integer)
+  --- Visits `child`, at `step` below a value that has matched up to
+  --- `mask`, with the positions still to match below it: the steps
+  --- `step` satisfies, each one's successor, and a `deep_` step itself,
+  --- since it stays for everything below. A scalar is visited only to
+  --- be listed, when the pattern is matched entirely at it.
+  local function enter(mask: integer, step: string | integer, child: any, depth: integer)
+    local following = 0
+    for position = 1, count do
+      local bit = 1 << (position - 1)
+      if mask & bit ~= 0 then
+        local kd = kinds[position]
+        if kd == 3 or (kd == 1 and step == keys[position]) or (kd == 2 and step == indexes[position]) then
+          following = following | (bit << 1)
+        end
+        if deep[position] then following = following | bit end
+      end
+    end
+    if following & accepted ~= 0 or (following ~= 0 and type(child) == "table") then
+      stack[#stack + 1] = step
+      visit(child, following, depth + 1)
+      stack[#stack] = nil
+      if cached > #stack then cached = #stack end
+    end
+  end
+  visit = function(v: any, mask: integer, depth: integer)
+    if mask & accepted ~= 0 then found[#found + 1] = { path = spelled(), value = v } end
+    local active = mask & (accepted - 1)
+    if active == 0 or not (v is {any:any}) then return end
+    if depth >= limit then
+      failed = spelled() .. ": nested deeper than max_depth " .. limit
+      return
+    end
+    if open[v] then
+      failed = spelled() .. ": the table contains itself"
+      return
+    end
+    open[v] = true
+    local only = 0
+    if active & (active - 1) == 0 then
+      for position = 1, count do
+        if active == 1 << (position - 1) then only = position end
+      end
+    end
+    if only ~= 0 and not deep[only] and kinds[only] ~= 3 and not raw.is_array(v) and table_kind(v) == "mixed" then
+      failed = spelled() .. ": expected an object or an array, got " .. shape_kind(v)
+    elseif only ~= 0 and not deep[only] and kinds[only] == 1 then
+      -- One plain step: look it up, as `get` does.
+      local key = keys[only]
+      local child = v[key]
+      if child ~= nil then enter(mask, key, child, depth) end
+    elseif only ~= 0 and not deep[only] and kinds[only] == 2 then
+      local index = indexes[only]
+      local child = v[index]
+      if child ~= nil then enter(mask, index, child, depth) end
+    else
+      local shape, ordered, extent = layout(v)
+      if shape == "mixed" then
+        failed = spelled() .. ": expected an object or an array, got " .. shape_kind(v)
+      elseif shape == "array" then
+        for i = 1, extent do
+          local child = v[i]
+          if child ~= nil and failed == nil then enter(mask, i, child, depth) end
+        end
+      else
+        for _, step in ipairs(ordered) do
+          if failed == nil then enter(mask, step, v[step], depth) end
+        end
+      end
+    end
+    open[v] = nil
+  end
+  visit(value, 1, 0)
+  if failed ~= nil then return nil, failed end
+  return found, ""
 end
 
 --- What the values seen at one place look like, merged.

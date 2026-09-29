@@ -140,8 +140,11 @@ local type compiler = require("build.compiler")
 
 local log = require("build.verdict").log
 local bind = require("build.bind")
+local verb_spec = require("build.verb_spec")
 
 local record test
+  --- The verb's registration: see build/verb_spec.tl.
+  spec: verb_spec.Spec
   --- A verdict's key, and whether every read it was computed from
   --- still answers as it did when recorded: a key from an unstable
   --- read describes no run, so no verdict is kept or looked up under it.
@@ -3685,5 +3688,13 @@ function test.run(argv: {integer:string}): integer
     clock.took(started) .. sandbox_summary)
   return 1
 end
+
+--- The `test` verb as `build/verb_list.tl` lists it.
+test.spec = {
+  name = "test",
+  run = function(argv: {integer:string}): integer return test.run(argv) end,
+  bare = false,
+  takes = "exact module names, source paths and directories",
+}
 
 return test

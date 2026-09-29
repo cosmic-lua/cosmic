@@ -644,11 +644,13 @@ local function checked_suite(c: Context, target: string, work: string,
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
     "checked artifact did not execute the checked raw core: " .. read(context))
-  -- The suite on the checked core costs a leg two to three minutes. Most
-  -- of what it checks is the same on every platform, so the workflow runs
-  -- it on one leg, and the others set COSMIC_CI_CHECKED_SUITE=skip; the
-  -- checked core is still built and verified above, and the fixtures
-  -- still use it.
+  -- The suite on the checked core takes three to six minutes. Most of
+  -- what it checks is the same on every platform, so the workflow runs
+  -- it once, in a job of its own on linux-x86_64's host (ci.yml's
+  -- `checked`: phases `boot`, `checked-build` and this one), beside the
+  -- legs rather than after one of them; every leg sets
+  -- COSMIC_CI_CHECKED_SUITE=skip, and still builds and verifies the
+  -- checked core above, which its fixtures use.
   -- TODO: the core's platform-conditional C (__APPLE__, __aarch64__ in
   -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
   -- off linux-x86_64: a leg that skips the suite runs the checked cosmic
@@ -659,6 +661,17 @@ local function checked_suite(c: Context, target: string, work: string,
   if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
     Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
       "(COSMIC_CI_CHECKED_SUITE=skip)\n")
+    -- Nor does such a leg keep the suite's verdicts, which the job that
+    -- runs it keeps in a cache entry of its own: left in the leg's
+    -- (linux-x86_64's, from when the suite ran there), a file none of
+    -- whose rows a run reaches would ride along whole in every save
+    -- (cosmic_ci/verdicts.tl).
+    local stale = Orchestration.suite_verdicts(Env.all(), "checked")
+    if stale ~= "0" and exists(stale) then
+      local removed, trouble = Fs.remove(stale)
+      Fs.put(Fs.stderr, removed and ("checked suite: removed this leg's " .. stale .. "\n") or
+        ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
+    end
     return 0
   end
   -- The checked cosmic's first file in the tree, `tool.tl entry`, whose
@@ -819,10 +832,12 @@ local record PlatformContext
   fresh: string
 end
 
-local function phase_build(p: PlatformContext): integer
+--- The candidate's cores and boot, on a fresh checkout: the build
+--- phase without its native suite, and all of it the `boot` phase runs,
+--- for a job that runs no native suite (ci.yml's `checked`).
+local function boot(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
-  local local_d = p.local_diagnostics
   assert(not exists(root .. "/o"), "build requires fresh checkout without o")
   -- zig's caches are used where CI restored them: its global cache
   -- (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl) and the project cache, the
@@ -845,9 +860,35 @@ local function phase_build(p: PlatformContext): integer
     end)
     if copied ~= 0 then return copied end
   end
-  local s = checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
+  return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
+end
+
+local function phase_build(p: PlatformContext): integer
+  local s = boot(p)
   if s ~= 0 then return s end
-  return suite(c, "local", root .. "/o/bin/cosmic", local_d)
+  return suite(p.operation, "local", p.root .. "/o/bin/cosmic", p.local_diagnostics)
+end
+
+--- What the `checked` phase reads, on a booted tree, where assemble
+--- does not run first (ci.yml's `checked` job): the checked build, and
+--- the target's format decoder where the format-contract fixture would
+--- leave it in the contract. The decoder is only built here, not
+--- checked: that is the fixture's, on every leg.
+local function phase_checked_build(p: PlatformContext): integer
+  local c = p.operation
+  local root = p.root
+  local s = checked(c, "checked build", { root .. "/bin/zig", "build", "sanitized" })
+  if s ~= 0 then return s end
+  s = checked(c, "format decoder build", { root .. "/bin/zig", "build", "portable-format-" .. p.target })
+  if s ~= 0 then return s end
+  local format = p.contract .. "/format"
+  local decoder = format .. "/format-test-" .. p.target
+  assert(not exists(decoder), "format decoder already exists: " .. decoder)
+  mkdir(format)
+  write(decoder, read(root .. "/o/portable-fixture/format/format-test-" .. p.target))
+  return step(c, "format decoder mode", function(): boolean, string
+    return Fs.chmod(decoder, 0x1ed)
+  end)
 end
 
 local function phase_local_boundary(p: PlatformContext): integer
@@ -1087,10 +1128,13 @@ end
 local function platform_impl(phase: string, p: PlatformContext): integer
   assert(targets[p.target], "unsupported target"); mkdir(p.work)
   if phase == "build" then return phase_build(p)
+  elseif phase == "boot" then return boot(p)
   elseif phase == "local-boundary" then return phase_local_boundary(p)
   elseif phase == "format" then return format_check(p)
+  elseif phase == "checked-build" then return phase_checked_build(p)
   -- Assemble's checked core, verified and (COSMIC_CI_CHECKED_SUITE) its
-  -- suite run, alone, on a checked build already there.
+  -- suite run, alone, on a checked build already there: assemble's, or
+  -- `checked-build`'s.
   elseif phase == "checked" then
     return checked_suite(p.operation, p.target, p.work,
       p.contract .. "/format/format-test-" .. p.target)

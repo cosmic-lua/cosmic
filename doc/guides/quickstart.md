@@ -60,20 +60,47 @@ style the JSON messages print, with indices counted from 1; quote it in
 single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
 out to read standard input, so `curl ... | cosmic json '.items[1]'`
 works. Numbers print as `Json.encode` writes them, so `1e2` reads
-`100.0`. It is only a lookup, with no filters: to count or sum, use
-`cosmic sql --from` (next section), and for anything else write the
-script with `cosmic.json`. `cosmic help json` has the rest.
+`100.0`.
+
+When you do not know where a value lives, list them all: `cosmic json
+--flat export.json` prints every leaf as a `path = value` line, keys
+sorted, and `cosmic json --flat export.json | grep -i email` finds the
+one you want, say `$.users[2].contact.email = "bo@example.com"`. That
+path is exactly what `cosmic json` takes, so paste it back: `cosmic json
+'$.users[2].contact'` shows what is around it. A `*` stands for every
+member or element, and `..` for any depth: `cosmic json '$.users[*].name'
+export.json` prints each user's name as such a line, `cosmic json -r
+'$..email' export.json` every email in the file, bare (a string with a
+newline in it takes more than one line), and `cosmic json
+--exists '$..error' export.json` asks whether any `error` key is there.
+`--keys` and `--shape` take one path, not a pattern. There are no
+JSONPath filters or slices, on purpose: it is only a lookup, and `grep`
+over `--flat` covers the simple cases. To count or sum, use `cosmic sql
+--from` (next section); for anything else write the script with
+`cosmic.json`, whose `Json.flatten` and `Json.select` are these two.
+`cosmic help json` has the rest.
+
+## a random id, token or number
+
+`cosmic rand uuid` prints a UUID (`--v7` for a time-ordered one, by RFC 9562's
+method 3 clock precision, `-n 5` for five, at most ten million); `cosmic rand token` a 32-byte base64url token; `cosmic rand int
+1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines. All
+of it comes from the operating system's entropy, unless you name `--seed`
+to replay `int`, `pick` or `shuffle`, which is not secret. `cosmic help
+rand` has the rest.
 
 ## questions about a data file
 
 A question about a data file -- what is in it, how many of these it
-holds -- takes two steps, and neither is a script. Stop at the first that
+holds -- takes three steps, and none is a script. Stop at the first that
 answers:
 
 1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
    what is in the file, and `cosmic json '.users[1]' export.json` prints
    one value.
-2. Count, filter, join and sum with `cosmic sql --from`, which loads the
+2. Find where something is with `cosmic json --flat export.json | grep
+   needle`, and paste the path it prints back into `cosmic json`.
+3. Count, filter, join and sum with `cosmic sql --from`, which loads the
    file as a table of an in-memory SQLite database and runs one
    read-only statement on it:
 
@@ -102,6 +129,14 @@ objects and arrays are JSON text, so `json_extract(owner, '$.name')`
 reaches into them; a boolean is 0 or 1. A column or table that does not
 exist is answered with the ones that do. `cosmic help sql` has the rest.
 
+`cosmic fetch <url>` is a small curl: it prints the body, fails on a
+non-2xx, and takes `-o file` and `--sha256 hex`, so `cosmic fetch <url> |
+cosmic json '.items'` works. `cosmic help fetch` has the rest.
+
+## the digest of a file
+
+`cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
+
 ## bytes to text and back
 
 `cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
@@ -111,6 +146,31 @@ a bad character or padding with exit 2 and its byte offset: `printf hi
 | cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
 write it; `--lenient` accepts the other padding. It prints no verdict
 line.
+
+## a quick look inside an archive
+
+`cosmic archive list release.tar.gz` prints one entry per line (path, size,
+mode, type), and `--json` an array of objects for `cosmic json` or
+`cosmic sql --from -`; `cosmic archive extract release.zip -C out [member...]` unpacks
+all or some of it, refusing a path that escapes `out` and a file it would
+overwrite (unless `--force`) -- only that and a missing member write
+nothing; an unsafe entry stops extraction after the entries before it, which
+stay written; `cosmic archive create out.tar.gz dir
+--reproducible` packs a tree (fixed times, file modes kept), as a zip or a gzip tar. The format is read from
+the file's bytes, not its name; `-` reads standard input. `cosmic help archive`
+has the rest.
+
+## a quick question about a time
+
+For a clock or calendar question, `cosmic time` answers the same on every
+host, where GNU and BSD `date` differ, with zones from the binary's own tz
+database. `cosmic time now --zone Asia/Tokyo`; `cosmic time convert
+2026-03-08T12:00Z --to America/New_York`; `cosmic time between 2026-01-01
+2026-09-28 --days`; `cosmic time add 2026-01-31 1mo --clamp` (a duration is
+`1y2mo3d4h5m6s`, negative with a leading `-`). A time is RFC 3339, a date,
+a local `2026-03-08T02:30` (read in `--from`; a gap or overlap resolved by
+`--disambiguate`) or `@<epoch>`. `--json` prints the fields. `cosmic help
+time` has the rest.
 
 ## below cosmic.fs
 
