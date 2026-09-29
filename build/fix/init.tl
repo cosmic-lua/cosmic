@@ -641,7 +641,11 @@ function fix.run(argv: {integer:string}): integer
     if db == nil then
       findings[#findings + 1] = "tree checks: " .. projection_trouble
     else
-      local found = tree_checks.run(db)
+      local guide, guide_trouble = Fs.read(root .. "/doc/guides/quickstart.md")
+      if guide == nil then
+        findings[#findings + 1] = "tree checks: " .. guide_trouble
+      end
+      local found = tree_checks.run(db, guide or "")
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
       end
@@ -704,6 +708,8 @@ end
 --- The `fix` verb as `build/verb_list.tl` lists it.
 fix.spec = {
   name = "fix",
+  guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",
+  tests = { "build.fix.fix_test" },
   run = function(argv: {integer:string}): integer return fix.run(argv) end,
   bare = false,
   takes = "the files or directories to act on",

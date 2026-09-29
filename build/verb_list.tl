@@ -5,7 +5,9 @@
 --- (build/verb_spec.tl) only when asked, so a command line loads the one
 --- verb it runs. Adding a verb is a module with a `spec`, a line here, and
 --- its `Cli.<name>` prose, options and place in `Cli.order`
---- (build/verb_list_test.tl holds the four to agree).
+--- (build/verb_list_test.tl holds the four to agree), and a `guide` and
+--- `tests` in the spec (build/tree_checks.tl's `verbs` holds them to the
+--- quickstart and the tree's tests).
 
 local verb_spec = require("build.verb_spec")
 

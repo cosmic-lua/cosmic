@@ -453,6 +453,8 @@ end
 --- The `build` verb as `build/verb_list.tl` lists it.
 embed.spec = {
   name = "build",
+  guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
+  tests = { "build.embed_test", "build.embed_tool_test" },
   run = function(argv: {integer:string}): integer return embed.run(argv) end,
   bare = false,
   takes = "the files or directories to act on",

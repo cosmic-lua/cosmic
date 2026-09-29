@@ -620,9 +620,82 @@ function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | 
   return Sqlite.open(path, false)
 end
 
+--- Each verb's registration (build/verb_spec.tl) that its module leaves
+--- short: a module of `db` that assigns a `spec` but that
+--- build/verb_list.tl does not require, so nothing dispatches to it; a
+--- `guide` that names no `## ` heading of `quickstart` (the text of
+--- doc/guides/quickstart.md) nor gives a reason ("none: ..."); and
+--- `tests` that is empty or names a module that is no test of `db`. A
+--- spec is read from its module's source, a table assigned to `<x>.spec`
+--- or `<x>.<y>_spec` with `name`, `guide` and `tests` as literals: the
+--- listing module cannot be loaded here (it reaches `build.fix`, which
+--- runs this). A verb's `Cli` prose is held by build/verbs_store_test.tl,
+--- and a bare verb's `passthrough` by build/verb_list_test.tl.
+function tree_checks.verbs(db: Sqlite.Handle, quickstart: string): {string}
+  local out: {string} = {}
+  local required, trouble = Sqlite.text_rows(db,
+    "SELECT requires FROM imports WHERE path = 'build.verb_list'")
+  if required == nil then
+    return { "reading the imports: " .. trouble }
+  end
+  local listed: {string:boolean} = {}
+  for _, row in ipairs(required) do listed[row[1]] = true end
+  local modules, module_trouble = Sqlite.text_rows(db,
+    "SELECT path, kind, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
+  if modules == nil then
+    return { "reading the modules: " .. module_trouble }
+  end
+  local kinds: {string:string} = {}
+  for _, row in ipairs(modules) do kinds[row[1]] = row[2] end
+  local headings: {string:boolean} = {}
+  for line in (quickstart .. "\n"):gmatch("([^\n]*)\n") do
+    local heading = line:match("^## (.+)$")
+    if heading ~= nil then headings[heading] = true end
+  end
+  for _, row in ipairs(modules) do
+    if row[2] ~= "test" then
+      for block in row[3]:gmatch("\n[%w_]+%.[%w_]*spec = (%b{})") do
+        local name = block:match("name = \"([^\"]*)\"") or "?"
+        if not listed[row[1]] then
+          out[#out + 1] = "`" .. name .. "` (" .. row[1] .. ") assigns a `spec` but " ..
+            "build/verb_list.tl does not list its module, so no verb dispatches to it -- " ..
+            "list it there"
+        end
+        local guide = block:match("guide = \"([^\"]*)\"")
+        if guide == nil then
+          out[#out + 1] = "`" .. name .. "` has no guide: name its `## ` heading in " ..
+            "doc/guides/quickstart.md, or \"none: <why>\", as a string literal"
+        elseif guide:sub(1, 6) == "none: " then
+          if guide:sub(7):match("^%s*$") then
+            out[#out + 1] = "`" .. name .. "` has no guide and gives no reason after \"none: \""
+          end
+        elseif not headings[guide] then
+          out[#out + 1] = "`" .. name .. "`'s guide is \"" .. guide .. "\", which is no `## ` " ..
+            "heading of doc/guides/quickstart.md -- name one, or \"none: <why>\""
+        end
+        local tests = block:match("tests = (%b{})")
+        local count = 0
+        if tests ~= nil then
+          for test in tests:gmatch("\"([^\"]*)\"") do
+            count = count + 1
+            if kinds[test] ~= "test" then
+              out[#out + 1] = "`" .. name .. "`'s tests name " .. test ..
+                ", which is no test module of the tree"
+            end
+          end
+        end
+        if count == 0 then
+          out[#out + 1] = "`" .. name .. "` names no test module in `tests`, as string literals"
+        end
+      end
+    end
+  end
+  return out
+end
+
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
-function tree_checks.run(db: Sqlite.Handle): {string}
+function tree_checks.run(db: Sqlite.Handle, quickstart: string): {string}
   local out: {string} = {}
   for _, check in ipairs({
     { name = "exports", lines = tree_checks.exports(db) },
@@ -632,6 +705,7 @@ function tree_checks.run(db: Sqlite.Handle): {string}
     { name = "docs queries", lines = tree_checks.queries(db) },
     { name = "quieted", lines = tree_checks.quieted(db) },
     { name = "declarations", lines = tree_checks.declarations(db) },
+    { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

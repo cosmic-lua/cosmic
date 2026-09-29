@@ -207,6 +207,52 @@ local function test_the_standard_library_is_the_public_cosmic_tree()
   assert(not tree_checks.standard("ci/cosmic/thing.tl"))
 end
 
+--- A module assigning a spec of a verb `name` whose guide and tests are as
+--- given (`tests` as the source's own list).
+local function verb(name: string, guide: string, tests: string): string
+  return source("local m = {}", "m.spec = {", "  name = \"" .. name .. "\",",
+    "  guide = \"" .. guide .. "\",", "  tests = { " .. tests .. " },", "}", "return m")
+end
+
+--- A verb is held to its whole registration: its module listed, its
+--- guide a heading of the quickstart (or a reason), its tests modules of
+--- the tree. Each defect is named with its verb; the tree without any
+--- passes.
+local function test_a_verb_is_held_to_its_registration(dir: string)
+  local quickstart = "# quickstart\n\n## a thing\n\ntext\n"
+  local function found_with(thing: string, extra?: {string:string}): {string}
+    local files: {string:string} = {
+      ["build/verb_list.tl"] = source("local thing = require(\"build.thing\")", "return {}"),
+      ["build/thing.tl"] = thing,
+      ["build/thing_test.tl"] = source("return {}"),
+    }
+    for path, text in pairs(extra or {}) do files[path] = text end
+    return tree_checks.verbs(fixture.database(dir, files), quickstart)
+  end
+  local ok = "\"build.thing_test\""
+  local found = found_with(verb("thing", "a thing", ok))
+  assert(#found == 0, table.concat(found, "\n"))
+  found = found_with(verb("thing", "none: a maintainer's verb", ok))
+  assert(#found == 0, table.concat(found, "\n"))
+
+  found = found_with(verb("thing", "a thing", ok), { ["build/spare.tl"] = verb("spare", "a thing", ok) })
+  assert(#found == 1 and found[1]:find("^`spare` %(build%.spare%) assigns a `spec` but " ..
+    "build/verb_list%.tl does not list its module") ~= nil, table.concat(found, "\n"))
+  found = found_with(verb("thing", "a missing heading", ok))
+  assert(#found == 1 and found[1]:find("^`thing`'s guide is \"a missing heading\", which is no `## ` heading")
+    ~= nil, table.concat(found, "\n"))
+  found = found_with(verb("thing", "none: ", ok))
+  assert(#found == 1 and found[1]:find("^`thing` has no guide and gives no reason") ~= nil,
+    table.concat(found, "\n"))
+  found = found_with(verb("thing", "a thing", ""))
+  assert(#found == 1 and found[1]:find("^`thing` names no test module in `tests`") ~= nil,
+    table.concat(found, "\n"))
+  found = found_with(verb("thing", "a thing", "\"build.gone_test\", \"build.thing\", " .. ok))
+  assert(#found == 2 and found[1]:find("^`thing`'s tests name build%.gone_test, which is no test module")
+    ~= nil and found[2]:find("name build%.thing, which is no test module") ~= nil,
+    table.concat(found, "\n"))
+end
+
 --- Every check runs, each line named by its check: a projection with
 --- none of the tree's own anchors, stand-ins, docs or quieted records
 --- fails each check that expects them.
@@ -215,7 +261,7 @@ local function test_a_run_names_each_check(dir: string)
     ["build/thing.tl"] = source("local record thing", "end", "return thing"),
   })
   local seen: {string: boolean} = {}
-  for _, line in ipairs(tree_checks.run(db)) do
+  for _, line in ipairs(tree_checks.run(db, "")) do
     seen[line:match("^([^:]+): ") or line] = true
   end
   for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "stand-ins",

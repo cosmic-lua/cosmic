@@ -634,6 +634,8 @@ end
 --- it is given, never the tree: not stale-checked.
 verb.spec = {
   name = "archive",
+  guide = "a quick look inside an archive",
+  tests = { "build.archive_test", "build.archive_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its paths",

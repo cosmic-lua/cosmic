@@ -33,6 +33,14 @@ local record verb_spec
     --- Why build/verb_cases.tl holds the verb to no verdict-line case, when
     --- it has none.
     passthrough: string | nil
+    --- The verb's section of doc/guides/quickstart.md: the text of its `## `
+    --- heading, without the marks, or a string beginning "none: " that says
+    --- why the quickstart has none. `build.tree_checks`' `verbs` holds it to
+    --- a heading the guide has.
+    guide: string
+    --- The test modules of the verb ("build.json_test"), at least one, each a
+    --- test of the tree, so a verb is never listed with nothing to hold it.
+    tests: {string}
   end
 end
 
