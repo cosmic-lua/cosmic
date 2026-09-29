@@ -63,6 +63,16 @@ works. Numbers print as `Json.encode` writes them, so `1e2` reads
 `100.0`. It is only a lookup, with no filters: for more, write the
 script with `cosmic.json`. `cosmic help json` has the rest.
 
+## bytes to text and back
+
+`cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
+standard input on one line (`--wrap N` wraps it; GNU base64's 76 is not
+the default) and with `-d` decodes it, ignoring whitespace and refusing
+a bad character or padding with exit 2 and its byte offset: `printf hi
+| cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
+write it; `--lenient` accepts the other padding. It prints no verdict
+line.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function
