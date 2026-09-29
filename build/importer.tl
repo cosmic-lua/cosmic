@@ -1323,7 +1323,7 @@ local function names_by_hash(db: Sqlite.Handle,
 end
 
 --- A module's key, and its `graph_key`: the same digest less the
---- compiler.
+--- module's own file and the compiler.
 local record Keys
   key: string
   graph: string
@@ -1365,13 +1365,6 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
   -- A module's own compile is keyed from its implementation. Imports of
   -- that same path still resolve through `dependencies`, and therefore
   -- through its declaration when it has one.
-  -- TODO: key a module's own compile by its file too (`m.file`), not
-  -- its import path alone: `x.tl` and `x/init.tl` are both `x`, and
-  -- build.contracts names its exemptions by file, so a module moved
-  -- from one to the other keeps a compile its new file's rules might
-  -- refuse. Waits on a change that may move every local key at once, one
-  -- of its own; build.shared_compiles' `key` salts the shared key with
-  -- the file meanwhile, and drops that salt then.
   for _, m in ipairs(modules) do
     dependencies["\0" .. m.path] = {
       kind = m.kind, source_hash = m.source_hash, requires = m.requires,
@@ -1412,7 +1405,14 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
   -- order part of the key. When a declaration shadows an implementation,
   -- both matter: the checker reads the declaration, while the generated
   -- `require` loads the implementation at runtime.
-  local identify = function(name: string): Keys | nil, string
+  -- A module's own compile is keyed by its file as well as its import
+  -- path (`file` below): `x.tl` and `x/init.tl` are both `x`, and
+  -- build.contracts names its exemptions by file, so a module moved
+  -- from one to the other is compiled again under its new file's rules.
+  -- Only the key holds it: the graph key (`build.positions`'
+  -- `graph_key`) is the import graph's by name and content, and a
+  -- dependency's file decides nothing of this compile.
+  local identify = function(name: string, file: string): Keys | nil, string
     local seen: {string:boolean} = {}
     local graph: {string} = {}
     local visit: function(string, string): boolean, string
@@ -1456,13 +1456,13 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
     end
     table.sort(graph)
     local sources = table.concat(graph, "\n\0\n")
-    return { key = Hash.hex_sha256(sources .. "\n" .. tool),
+    return { key = Hash.hex_sha256(sources .. "\n\0\nfile\n" .. file .. "\n" .. tool),
       graph = Hash.hex_sha256(sources) }, ""
   end
 
   local out: {string:Keys} = {}
   for _, m in ipairs(modules) do
-    local keys, trouble = identify(m.path)
+    local keys, trouble = identify(m.path, m.file)
     if keys == nil then
       return nil, trouble
     end
