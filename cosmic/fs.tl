@@ -81,10 +81,11 @@ local function write_all(fd: integer, data: string): boolean, string
   return true, ""
 end
 
---- Writes all bytes, replacing the path. This is the whole-file alternative
---- to io.open/io.write. Replaces a file atomically for readers, and leaves the old contents in
---- place if anything before the rename fails. This provides atomic visibility,
---- not crash durability: neither the file nor its directory is synchronized.
+--- Writes `data` to `path` through a temporary file and a rename, in
+--- place of io.open/io.write: a reader sees the old contents or the new,
+--- never a mix, and a failure before the rename leaves the old file. A
+--- new file gets `mode` (default 0644, subject to the umask). Nothing is
+--- synced, so a crash can still lose the write.
 function Fs.write(path: string, data: string, mode?: integer): boolean, string
   local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
   if temporary == nil then
