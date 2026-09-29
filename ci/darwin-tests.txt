@@ -1,0 +1,52 @@
+# The test modules whose code under test takes a path only macOS takes,
+# one a line from the checkout's root. On the macOS leg's gating runs,
+# which stand on verdicts keyed by what each test declares, these run
+# every time all the same (cosmic_ci/orchestration.tl's `darwin_words`):
+# a Linux leg's verdict stands for the same key on macOS, but it never
+# ran their macOS branch. The scheduled run's `--all` is the backstop
+# for every other test. cosmic_ci/orchestration_test.tl holds each line
+# to a test module of the tree.
+#
+# The core's platform-conditional C: darwin and aarch64 C is neither
+# sanitized (orchestration.tl's `checked_suite` runs the checked core on
+# linux-x86_64 alone) nor checked by `fix` (build/c/init.tl compiles
+# each file for the host's target alone). Nor are build/c_functions.tl's
+# Darwin exemptions tallied here: only a whole run, the scheduled one's,
+# tallies which C functions a test entered.
+#
+# spawn by fork where Linux clones; confine, unveil, offline and
+# subreaper refused ENOSYS; descriptors closed without close_range
+# (core/syscalls.c).
+core/syscalls_test.tl
+core/syscalls_tool_test.tl
+cosmic/child_test.tl
+# Signals a child starts with restored to default up to Darwin's
+# SIGNAL_LIMIT of 32 (core/syscalls.c's `default_signals`).
+cosmic/child_signal_test.tl
+# The artifact's descriptor refused without openat2, and the executable
+# found by _NSGetExecutablePath rather than /proc/self/exe
+# (core/syscalls_fs.c, core/executable.c).
+core/artifact_fd_test.tl
+core/artifact_fd_tool_test.tl
+cosmic/proc_tool_test.tl
+# A portable launch adopted through cosmic_executable_fd
+# (_NSGetExecutablePath) and cosmic_environment_clear_reserved
+# (_NSGetEnviron) (core/startup.c).
+core/startup_test.tl
+# Times from st_mtimespec and st_atimespec, and mkdtemp under
+# _DARWIN_C_SOURCE (core/syscalls_fs.c).
+cosmic/fs_test.tl
+#
+# Teal that branches on the host's system name ("Darwin"): the host's
+# identity and system sources (build/declared_key.tl), a run keyed by
+# declarations with no sandbox, and codesign's real check
+# (build/verify_codesign.tl).
+build/declared_key_test.tl
+build/declared_unenforced_test.tl
+build/verify_codesign_test.tl
+# .github/scripts/host-features.sh's Darwin branch runs everywhere
+# (the test passes SYSNAME); listed for its default, `uname`'s answer.
+build/host_features_test.tl
+# The launcher's Darwin shell: `stat -f` (portable_lstat), `ln -h`
+# (portable_link) and the $HOME/Library/Caches leaf (build/launcher.tl).
+core/launcher_cache_test.tl
