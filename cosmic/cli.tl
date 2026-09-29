@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, hash, codec, archive, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, hash, codec, archive, time, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -250,6 +250,32 @@ local record Cli
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
   archive: string
+  --- `cosmic time <now|convert|between|add> ...`: the clock and calendar
+  --- the same on every host, where GNU and BSD `date` differ. Zones are
+  --- the IANA names of the tz database the binary carries. `now` prints
+  --- the time (RFC 3339 in the host's zone, or `--zone`; `--format`
+  --- rfc3339, date, http or epoch); `convert <time>` writes a time in
+  --- `--to`'s zone; `between <a> <b>` is `1y2mo3d4h5m6s` from a to b, or
+  --- with `--days`, `--months` or `--seconds` one number; `add <time>
+  --- <duration>` moves a time by `1y2mo3d4h5m6s` (negative with a leading
+  --- `-`, which follows the time: `add 2026-03-31 -1d`). A time is RFC 3339
+  --- (`2026-09-25T04:09:21Z`, with an optional `[Zone]` suffix), a date,
+  --- a local `2026-09-25T04:09[:21]` read in `--from` (or `--zone`), or
+  --- `@<epoch seconds>`. A local time a zone skipped (a spring-forward
+  --- gap) or has twice (an overlap) is read as `--disambiguate` says:
+  --- "compatible" by default, a gap landing after the gap and an overlap
+  --- taking the earlier moment; "earlier", "later" or "reject" (which fails)
+  --- choose otherwise. `add` moves years and months first, keeping the
+  --- day of the month, then days on the calendar, then hours, minutes and
+  --- seconds exactly; a day the month lacks (January 31 plus 1mo) is an
+  --- error, exit 1, unless `--clamp` takes the month's last day. `between`'s
+  --- duration reads months as `--clamp` does, on `--zone`'s calendar or the
+  --- first time's own; `--seconds` is elapsed time.
+  --- `--json` prints one record: epoch, rfc3339, zone, offset and the
+  --- civil fields. It prints no verdict line, as `json` does: exit 0
+  --- done, 1 an `add` with no answer, 2 a command line, time, duration
+  --- or zone it cannot read
+  time: string
   --- `cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [file|-]`:
   --- bytes to text and back, for a token or a checksum, with no script
   --- to write. It reads the file, or standard input when the file is `-`
@@ -332,7 +358,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", hash = "hash", codec = "codec", archive = "archive", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", hash = "hash", codec = "codec", archive = "archive", time = "time", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -408,6 +434,19 @@ local module: Module = {
       ["--wrap"] = { value = "n", about = "wrap encoded text at n columns; no wrapping by default" },
       ["--lenient"] = { about = "with -d, accept missing base64 padding, or base64url padding" },
     },
+    time = {
+      ["--zone"] = { value = "IANA", about = "the zone to show, or to run the calendar in (default: the host's)" },
+      ["--from"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
+      ["--to"] = { value = "IANA", about = "the zone to write in (default: the host's)" },
+      ["--format"] = { value = "form", about = "rfc3339 (default), date, http or epoch" },
+      ["--days"] = { about = "between: whole calendar days" },
+      ["--months"] = { about = "between: whole calendar months" },
+      ["--seconds"] = { about = "between: whole seconds" },
+      ["--clamp"] = { about = "add: a day the month lacks takes its last day, not an error" },
+      ["--disambiguate"] = { value = "how", about = "a local time in a gap or overlap: " ..
+        "compatible (default), earlier, later or reject" },
+      ["--json"] = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" },
+    },
     bom = {
       ["--licenses"] = { about = "print each component's license notices" },
       ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
@@ -422,7 +461,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "hash", "codec", "archive", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "hash", "codec", "archive", "time", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 

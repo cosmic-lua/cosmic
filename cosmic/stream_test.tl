@@ -433,6 +433,24 @@ local function test_tee_feeds_a_hashing_writer_beside_the_real_one()
   assert(not h:write("more"))
 end
 
+local function test_hashing_with_a_key_answers_the_hmac_and_none_means_plain()
+  local Hash = require("cosmic.hash")
+  local algorithms: {Hash.Algorithm} = { "sha256", "sha512", "sha3-256" }
+  for _, algorithm in ipairs(algorithms) do
+    for _, key in ipairs({ "", "k", string.rep("\xaa", 200) }) do
+      local h = assert(Stream.hashing(algorithm, key))
+      assert(h:write("hello "))
+      assert(h:write("world"))
+      assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world"), algorithm .. " " .. #key)
+      assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world")) -- again
+      assert(not h:write("more"))
+    end
+    local plain = assert(Stream.hashing(algorithm, nil))
+    assert(plain:write("abc"))
+    assert(assert(plain:digest()) == Hash.digest(algorithm, "abc"))
+  end
+end
+
 local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_finish(tmp: string)
   local codec: Fake = {}
   codec.pending = function(_self: Fake): boolean return false end

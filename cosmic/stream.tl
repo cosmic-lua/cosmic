@@ -669,18 +669,32 @@ end
 
 --- A Writer that digests what is written to it under `algorithm`,
 --- for checking a body against a published digest as it streams past
---- -- `tee` it beside the Writer the body is really going to.
-function Stream.hashing(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
-  local made, trouble = Hash.hasher(algorithm)
-  if made == nil then return nil, trouble end
-  local hasher: Hash.Hasher = made
+--- -- `tee` it beside the Writer the body is really going to. Given a
+--- `key`, it is the HMAC under that key (`Hash.hmac_hasher`) that
+--- `digest` answers, not the plain digest.
+function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing | nil, string
+  local feed: function(data: string)
+  local finish: function(): string | nil, string
+  if key == nil then
+    local made, trouble = Hash.hasher(algorithm)
+    if made == nil then return nil, trouble end
+    local hasher: Hash.Hasher = made
+    feed = function(data: string) hasher:update(data) end
+    finish = function(): string | nil, string return hasher:digest() end
+  else
+    local made, trouble = Hash.hmac_hasher(algorithm, key)
+    if made == nil then return nil, trouble end
+    local mac: Hash.Mac = made
+    feed = function(data: string) mac:update(data) end
+    finish = function(): string | nil, string return mac:digest() end
+  end
   local result: string
   local failure = ""
   local closed = false
   local h: Stream.Hashing = {}
   h.write = function(_self: Stream.Writer, data: string): boolean, string
     if closed or result ~= nil then return false, closed_message end
-    hasher:update(data)
+    feed(data)
     return true, ""
   end
   h.close = function(_self: Stream.Writer): boolean, string
@@ -691,7 +705,7 @@ function Stream.hashing(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
   h.digest = function(_self: Stream.Hashing): string | nil, string
     if result == nil and failure == "" then
       closed = true
-      local digest, digest_trouble = hasher:digest()
+      local digest, digest_trouble = finish()
       if digest == nil then
         failure = digest_trouble
         return nil, failure
