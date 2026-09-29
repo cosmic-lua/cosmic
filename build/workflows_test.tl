@@ -778,6 +778,16 @@ local function test_a_main_push_reuses_the_queue_run()
   local find = step_running(reuse.steps as {{string: any}}, "queue-seed.sh find")
   assert(find.id == "find" and find.run == "sh .github/scripts/queue-seed.sh find", tostring(find.run))
   assert((find.env as {string: string}).SHA == "${{ github.sha }}", "reuse looks up another commit")
+  -- A lookup that fails is none: the legs run, and the join reads theirs.
+  assert(find["continue-on-error"] == true, "a failed lookup fails reuse")
+  -- Its budget, from the script's defaults, is under the job's timeout
+  -- with a minute to spare for the checkout.
+  local script = assert(Fs.read(".github/scripts/queue-seed.sh"))
+  local tries, wait, call = script:match("\ntries=%${TRIES:%-(%d+)} wait=%${WAIT_SECONDS:%-(%d+)} call=%${CALL_SECONDS:%-(%d+)}\n")
+  assert(tries ~= nil, "queue-seed.sh's budget moved")
+  local budget = math.tointeger(tonumber(tries) * (tonumber(wait) + 2 * tonumber(call)))
+  assert(budget + 60 <= (reuse["timeout-minutes"] as integer) * 60, "reuse times out within its lookup's budget, " ..
+    budget .. " s: " .. tostring(reuse["timeout-minutes"]))
   assert((reuse.outputs as {string: string}).run == "${{ steps.find.outputs.run }}", "reuse's output")
 
   assert(platform.needs == "reuse" and platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
@@ -800,6 +810,13 @@ local function test_a_main_push_reuses_the_queue_run()
   end
   for name in pairs(ours) do assert(theirs[name] ~= nil, "seed has a leg the platform job has not: " .. name) end
   assert(count == 4, "legs: " .. count)
+  -- The lookup asks for every leg's seed.
+  local named: {string} = {}
+  for _, leg in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}) do
+    named[#named + 1] = leg.name
+  end
+  assert((find.env as {string: string}).LEGS == table.concat(named, " "),
+    "reuse asks for other legs' seeds: " .. tostring((find.env as {string: string}).LEGS))
 
   local steps = seed.steps as {{string: any}}
   local downloads: {string: boolean} = {}
@@ -825,8 +842,10 @@ local function test_a_main_push_reuses_the_queue_run()
   end
   assert(relayed == 1, "the platform legs upload their product under another name")
 
+  -- Each key the leg's own, of the shape its save takes.
   local keys = step_running(steps, "seed.keys")
-  assert(keys.id == "keys" and (keys.run as string):find("^(verdicts|compiles|driver-checked)=", 1, true) ~= nil,
+  assert(keys.id == "keys" and keys.run == "grep -E '^(verdicts=verdicts|compiles=compiles|driver-checked=" ..
+    "driver-checked-v2)-${{ matrix.name }}-[A-Za-z0-9._-]+$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
     "seed reads other keys: " .. tostring(keys.run))
   local ours_saved, theirs_saved, saved = saves_of(steps), saves_of(platform.steps as {{string: any}}), 0
   for path, step in pairs(ours_saved) do
@@ -842,10 +861,17 @@ local function test_a_main_push_reuses_the_queue_run()
   local join = jobs.ci
   local needs = join.needs as {string}
   assert(table.concat(needs, ",") == "reuse,platform,seed", "the join needs " .. table.concat(needs, ","))
+  -- The join passes on the legs that ran, `seed`'s where a queue run
+  -- was found, and on nothing of `reuse`'s but its output.
   local check = (join.steps as {{string: any}})[1]
-  assert((check.env as {string: string}).RESULT ==
-    "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
-    "the join reads the legs that ran: " .. tostring((check.env as {string: string}).RESULT))
+  local check_env = check.env as {string: string}
+  assert(check_env.RESULT == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
+    "the join reads the legs that ran: " .. tostring(check_env.RESULT))
+  assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT\"; [ \"$RESULT\" = success ]",
+    "the join passes on more than the legs: " .. tostring(check.run))
+  for name, value in pairs(check_env) do
+    assert(name == "RESULT" or name == "QUEUE_RUN", "the join reads " .. name .. ": " .. value)
+  end
 end
 
 --- A leg of the queue's run that passed keeps what main would have
@@ -862,6 +888,9 @@ local function test_the_queue_keeps_what_main_would_save()
   local stage, at = step_running(steps, "queue-seed.sh stage")
   local QUEUE <const> = "success() && github.event_name == 'merge_group'"
   assert(stage["if"] == QUEUE, "the queue's legs keep their seed on other runs: " .. tostring(stage["if"]))
+  -- On the host, from the checkout's root, where the script is.
+  assert(stage.shell == "sh" and stage["working-directory"] == ".",
+    "the seed is kept elsewhere than on the host from the root")
   local env = stage.env as {string: string}
   local saves = saves_of(steps)
   for cache, path in pairs({ VERDICTS = "${{ runner.temp }}/verdicts", COMPILES = "${{ runner.temp }}/build-cache" }) do

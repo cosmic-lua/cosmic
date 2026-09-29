@@ -8,15 +8,20 @@
 # find, ci.yml's `reuse` job on a push to main: asks the API, through
 # `gh` (GH_TOKEN, with actions: read), for REPOSITORY's merge_group runs
 # of ci.yml whose head_sha is SHA, and writes to $GITHUB_OUTPUT
-# `run=<id>` and `url=<its page>` of one whose head_sha is SHA, on a
-# gh-readonly-queue/main/ branch, that completed with success and
-# uploaded a seed-<leg> artifact not yet expired (a re-run a day
-# later finds none); `run=` and `url=` where none did, and the push
-# runs the full scope. The queue lands its merge the moment the
-# `ci` check passes, a moment before its run completes, so while such a
-# run is still queued or in progress it asks again, every WAIT_SECONDS
-# (10), up to TRIES (18) times; an API that fails every time finds none.
-# Either way it exits 0: a full run costs time, never a result.
+# `run=<id>` and `url=<its page>` of the newest whose head_sha is SHA,
+# on a gh-readonly-queue/main/ branch, that completed with success and
+# holds an unexpired seed-<leg> artifact for each of LEGS (the platform
+# legs' names, blank-separated; a re-run a day later finds them
+# expired); `run=` and `url=` where it did not, and the push runs the
+# full scope. The queue lands its merge the moment the `ci` check
+# passes, a moment before its run completes, so while such a run is
+# still queued or in progress, or while the API fails, it asks again,
+# every WAIT_SECONDS, up to TRIES times. Each call to `gh` is cut off
+# after CALL_SECONDS where there is a `timeout`, and a round makes at
+# most two, so the lookup takes at most
+# TRIES * (WAIT_SECONDS + 2 * CALL_SECONDS), under the `reuse` job's
+# timeout-minutes (build/workflows_test.tl holds the defaults below to
+# it). Either way it exits 0: a full run costs time, never a result.
 #
 # stage, a merge_group run's platform leg that passed: copies into
 # $RUNNER_TEMP/seed what a push to main would have saved, and writes
@@ -32,22 +37,28 @@ usage="usage: queue-seed.sh find|stage"
 [ $# -eq 1 ] || { echo "$usage" >&2; exit 2; }
 out=${GITHUB_OUTPUT:-/dev/stdout}
 
+tries=${TRIES:-6} wait=${WAIT_SECONDS:-20} call=${CALL_SECONDS:-15}
+
+# gh's API, cut off after CALL_SECONDS where the system has a timeout.
+api() {
+  if command -v timeout >/dev/null 2>&1; then timeout "$call" gh api "$@"; else gh api "$@"; fi
+}
+
 find_run() {
-  tries=0
+  [ -n "${LEGS-}" ] || { echo "queue-seed.sh find: no LEGS" >&2; exit 2; }
+  round=0
   while :; do
-    tries=$((tries + 1))
-    found= url= pending=
-    if runs=$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$SHA&per_page=20" \
+    round=$((round + 1))
+    found= url= pending= candidate= candidate_url=
+    if runs=$(api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$SHA&per_page=20" \
         --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "none") \(.head_sha) \(.head_branch) \(.html_url)"'); then
       while read -r id status conclusion sha branch page; do
         [ "$sha" = "$SHA" ] || continue
         case $branch in gh-readonly-queue/main/*) ;; *) continue ;; esac
         if [ "$status" != completed ]; then
           pending=1
-        elif [ "$conclusion" = success ] && [ -z "$found" ] &&
-            gh api "repos/$REPOSITORY/actions/runs/$id/artifacts?per_page=100" \
-              --jq '.artifacts[] | select(.expired | not) | .name' | grep -q '^seed-'; then
-          found=$id url=$page
+        elif [ "$conclusion" = success ] && [ -z "$candidate" ]; then
+          candidate=$id candidate_url=$page
         fi
       done <<EOF
 $runs
@@ -55,15 +66,32 @@ EOF
     else
       pending=1
     fi
-    if [ -n "$found" ] || [ -z "$pending" ] || [ "$tries" -ge "${TRIES:-18}" ]; then break; fi
-    sleep "${WAIT_SECONDS:-10}"
+    # The newest passing run, where it holds every leg's seed.
+    if [ -n "$candidate" ]; then
+      if names=$(api "repos/$REPOSITORY/actions/runs/$candidate/artifacts?per_page=100" \
+          --jq '.artifacts[] | select(.expired | not) | .name'); then
+        missing=
+        for leg in $LEGS; do
+          printf '%s\n' "$names" | grep -qx "seed-$leg" || missing="$missing $leg"
+        done
+        if [ -z "$missing" ]; then
+          found=$candidate url=$candidate_url
+        else
+          echo "run $candidate has no seed for:$missing"
+        fi
+      else
+        pending=1
+      fi
+    fi
+    if [ -n "$found" ] || [ -z "$pending" ] || [ "$round" -ge "$tries" ]; then break; fi
+    sleep "$wait"
   done
   echo "run=$found" >> "$out"
   echo "url=$url" >> "$out"
   if [ -n "$found" ]; then
     said="$SHA passed the merge queue in $url: its legs' caches and products are reused."
   else
-    said="$SHA has no passing merge queue run to reuse: the full scope runs."
+    said="$SHA has no passing merge queue run with every leg's seed to reuse: the full scope runs."
   fi
   echo "$said"
   [ -z "${GITHUB_STEP_SUMMARY-}" ] || echo "$said" >> "$GITHUB_STEP_SUMMARY"

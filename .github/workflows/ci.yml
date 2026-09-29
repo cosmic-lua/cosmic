@@ -53,12 +53,15 @@
     # first looks for that run (queue-seed.sh find): found, `seed` saves
     # the queue's caches and relays its products in place of `platform`.
     # Every push runs it, a branch's with its steps skipped, so a branch
-    # push shows it run rather than skipped; the queue, the scheduled and
-    # a manual run skip it.
+    # push shows it run rather than skipped (its runner's start delays
+    # the legs, by up to about 100 s in a burst); the queue, the
+    # scheduled and a manual run skip it. A lookup that fails is none,
+    # and the legs run: its timeout is above the lookup's budget
+    # (queue-seed.sh's TRIES * (WAIT_SECONDS + 2 * CALL_SECONDS)).
     reuse: {
       if: "github.event_name == 'push'",
       "runs-on": "ubuntu-24.04",
-      "timeout-minutes": 5,
+      "timeout-minutes": 8,
       permissions: {contents: "read", actions: "read"},
       outputs: {run: "${{ steps.find.outputs.run }}"},
       steps: [
@@ -75,7 +78,14 @@
           name: "find the merge queue's passing run of this commit",
           id: "find",
           if: "github.ref == 'refs/heads/main'",
-          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}"},
+          "continue-on-error": true,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            SHA: "${{ github.sha }}",
+            # The platform legs, each of which must have left a seed.
+            LEGS: "linux-x86_64 linux-aarch64 macos-aarch64 alpine-x86_64",
+          },
           run: "sh .github/scripts/queue-seed.sh find",
         },
       ],
@@ -650,7 +660,7 @@
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts|compiles|driver-checked)=[A-Za-z0-9._-]+$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts|compiles=compiles|driver-checked=driver-checked-v2)-${{ matrix.name }}-[A-Za-z0-9._-]+$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
         {
           name: "save test verdicts",
@@ -700,7 +710,8 @@
     },
 
     # The one check a ruleset requires, whatever the scope: it fails when
-    # any leg failed or was cancelled (a seeded run's `seed` legs), and
+    # any leg failed or was cancelled (a seeded run's `seed` legs; a
+    # `reuse` that failed found nothing, and the platform legs ran), and
     # on a full run it is also the provenance join, proving every leg
     # attested identical bytes. Steps, not a job of its own, which a
     # branch push would show as skipped.
@@ -714,11 +725,10 @@
         {
           name: "every leg passed",
           env: {
-            REUSE: "${{ needs.reuse.result }}",
             QUEUE_RUN: "${{ needs.reuse.outputs.run }}",
             RESULT: "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
           },
-          run: "echo \"reuse: $REUSE ${QUEUE_RUN:-(none)}; legs: $RESULT\"; [ \"$REUSE\" != failure ] && [ \"$REUSE\" != cancelled ] && [ \"$RESULT\" = success ]",
+          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT\"; [ \"$RESULT\" = success ]",
         },
         # Only a full run's legs attest and upload a product.
         {
