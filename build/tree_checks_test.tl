@@ -3,6 +3,7 @@
 --- tree with the defect it is for planted in it, and passes the same
 --- tree without it.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
@@ -402,7 +403,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
       "function thing.b() end",
       "--- Does it through core/thing.c and cosmic.internal.thing.",
       "function thing.c() end",
-      "--- Does it as build.thing does, or vendor/thing.",
+      "--- Does it as build.thing does, or vendor/thing, not build.zig.",
       "function thing.d() end",
       "--- Does it plainly (127.a.b.c, <errno.h>, e.g. `o/build.db`, and the build.then it did).",
       "function thing.e() end",
@@ -413,6 +414,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
       "local function g() end",
       "return thing"),
     ["build/thing.tl"] = source("local record thing", "end", "return thing"),
+    ["build/zig.tl"] = source("local record zig", "end", "return zig"),
   })
   local found = tree_checks.public_docs(db, {})
   local text = table.concat(found, "\n")
@@ -423,7 +425,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
   assert(found[3]:find("^cosmic/thing%.tl:9: .*`core/thing%.c`") ~= nil, text)
   assert(found[4]:find("^cosmic/thing%.tl:9: .*`cosmic%.internal%.thing%.`") ~= nil, text)
   assert(found[5]:find("^cosmic/thing%.tl:11: .*`build%.thing`") ~= nil, text)
-  assert(found[6]:find("^cosmic/thing%.tl:11: .*`vendor/thing%.`") ~= nil, text)
+  assert(found[6]:find("^cosmic/thing%.tl:11: .*`vendor/thing,`") ~= nil, text)
   local excused = {
     ["cosmic.thing a path"] = "a",
     ["cosmic.thing b todo"] = "b",
@@ -509,6 +511,24 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
     ["build/fine.tl:tests"] = "unneeded" })
   assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil
     and found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+end
+
+--- The `ci/` sources the plural check reads are the modules of
+--- `ci/cosmic_ci`, tests left out; `ci/fixtures` are all tests.
+local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string)
+  local base = dir .. "/tree/ci/cosmic_ci"
+  assert(Fs.mkdirs(base .. "/sub"))
+  assert(Fs.write(base .. "/b.tl", "return 2\n"))
+  assert(Fs.write(base .. "/a.tl", "return 1\n"))
+  assert(Fs.write(base .. "/a_test.tl", "return 3\n"))
+  assert(Fs.write(base .. "/sub/c.tl", "return 4\n"))
+  assert(Fs.write(base .. "/notes.md", "no\n"))
+  local found = tree_checks.ci_sources(dir .. "/tree")
+  local names: {string} = {}
+  for _, row in ipairs(found) do names[#names + 1] = row[1] .. "=" .. row[2]:gsub("\n", "") end
+  assert(table.concat(names, ",") == "ci/cosmic_ci/a.tl=return 1,ci/cosmic_ci/b.tl=return 2,ci/cosmic_ci/sub/c.tl=return 4",
+    table.concat(names, ","))
+  assert(#tree_checks.ci_sources(dir .. "/nowhere") == 0)
 end
 
 --- A guide under doc/guides that is neither a user guide nor named

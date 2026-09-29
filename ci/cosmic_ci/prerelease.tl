@@ -447,7 +447,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   -- releases with authentication also finds an interrupted draft.
   local ids = Prerelease.release_ids(gh(p, { "api", "--paginate", "--slurp", "--method", "GET",
     "repos/" .. p.repository .. "/releases?per_page=100" }, "capture"), tag)
-  assert(#ids <= 1, Plural.count(#ids, "release") .. " are tagged " .. tag)
+  assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
   if #ids == 1 then
     verify_tag(p)
     local state = view(p, "isDraft,isPrerelease")

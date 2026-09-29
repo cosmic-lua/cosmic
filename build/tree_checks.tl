@@ -921,10 +921,15 @@ local record DocRule
   fix: string
 end
 
+--- The `build.<name>` modules whose name is also a file a reader knows:
+--- `build.zig` is zig's build script, not build/zig.tl.
+local FILE_NAMES: {string: boolean} = { zig = true }
+
 --- Whether `hit`, a `build.<name>` found in prose, names a module of the
 --- tree (or a package under one): `build.this_program`, not "the build."
 local function names_a_module(hit: string, modules: {string: boolean}): boolean
   local name = hit:match("^build%.([%w_.]*[%w_])")
+  if name ~= nil and FILE_NAMES[name] then return false end
   while name ~= nil and name ~= "" do
     if modules["build." .. name] then return true end
     name = name:match("^(.*)%.[^.]*$")
@@ -987,7 +992,7 @@ local doc_rules: {DocRule} = {
 --- what a caller can rely on. The paths refused are `build/`, a
 --- `build.<module>` the tree has, `core/`, `cosmic.internal`,
 --- `cosmic/internal/`, `vendor/` and a C file's name (`foo.c`, not a
---- header in angle brackets).
+--- header in angle brackets). `build.zig` is a file name, not a module.
 function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}): {string}
   excused = excused or doc_exempt
   local rows, trouble = Sqlite.text_rows(db,
