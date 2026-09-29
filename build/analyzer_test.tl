@@ -501,6 +501,50 @@ local function test_an_opening_comment_above_a_require_is_the_modules()
   assert(by_symbol["count"].text == "How many.")
 end
 
+--- A comment opening the file on its first record is the module's row
+--- too, and stays the record's own text.
+local function test_an_opening_comment_on_a_record_is_the_modules_too()
+  local by_symbol = docs(lines({
+    "--- The thing module.",
+    "local record Thing",
+    "  size: integer",
+    "end",
+    "return Thing",
+  }))
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
+  assert(by_symbol["Thing"].text == "The thing module.", by_symbol["Thing"].text)
+end
+
+--- The same for a `local type ... = require` opening the file.
+local function test_an_opening_comment_on_a_type_is_the_modules_too()
+  local by_symbol = docs(lines({
+    "--- The thing module.",
+    "local type Fs = require(\"cosmic.fs\")",
+    "return {}",
+  }))
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
+end
+
+--- A field's stored signature runs to the end of its type, however many
+--- lines the source spent on it, and stops at the next field.
+local function test_a_multi_line_field_keeps_its_whole_signature()
+  local by_symbol = docs(lines({
+    "local record Calls",
+    "  gen: function(input: string, env: string,",
+    "                options: any): string | nil,",
+    "                               string",
+    "  exists: function(path: string): boolean",
+    "  name: string",
+    "end",
+    "return Calls",
+  }))
+  assert(by_symbol["gen"].signature ==
+    "gen: function(input: string, env: string, options: any): string | nil, string",
+    by_symbol["gen"].signature)
+  assert(by_symbol["exists"].signature == "exists: function(path: string): boolean")
+  assert(by_symbol["name"].signature == "name: string")
+end
+
 --- A file that is only a comment documents its module.
 local function test_a_comment_only_file_documents_the_module()
   local by_symbol = docs(lines({ "--- Nothing but words." }))
@@ -554,8 +598,9 @@ local function test_documents_a_record_and_its_fields()
   for _, entry in ipairs(all) do
     order[#order + 1] = entry.symbol
   end
+  -- The opening comment sits on the record, so it is the module's row too.
   assert(table.concat(order, " ") ==
-    "Thing path Options Options.create Kind Kind.dir Kind.file read",
+    " Thing path Options Options.create Kind Kind.dir Kind.file read",
     table.concat(order, " "))
 end
 
