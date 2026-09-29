@@ -112,7 +112,7 @@ for name, value in pairs(relaunch.env) do env[name] = value end
 local argv = { table.unpack(relaunch.argv) }
 for _, word in ipairs({ "build", "--host", "cmd/hi" }) do argv[#argv + 1] = word end
 local built = assert(Child.run(argv,
-  { env = env, fds = relaunch.fds, stdout = "capture", timeout_ms = 60000 }))
+  { env = env, fds = relaunch.fds, cwd = tmp, stdout = "capture", timeout_ms = 60000 }))
 print("exit " .. tostring(built.code))
 local hi, _ = Fs.exists(tmp .. "/o/bin/hi")
 local bye, _ = Fs.exists(tmp .. "/o/bin/bye")
