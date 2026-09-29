@@ -889,6 +889,8 @@ exit 0
         TARGET = "x86_64-linux-musl", SEEN = seen,
         COSMIC_CI_EVENT = case.event, COSMIC_CI_REQUIRE_SANDBOX = "1",
         COSMIC_CI_HARNESS_MOVED = "0",
+        -- As on a leg that runs it, whatever the leg running this test sets.
+        COSMIC_CI_PORTABLE_SUITE = "run",
         COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
         XDG_CACHE_HOME = tmp .. "/cache",
       }))
