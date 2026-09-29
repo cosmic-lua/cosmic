@@ -32,7 +32,8 @@ local function test_a_refused_read_is_noted_and_a_read_is_not(tmp: string)
   local store = tmp .. "/o/cosmic.db"
   assert(Fs.write(tmp .. "/here.txt", "here\n"))
   local open, stat = sys.open, sys.stat
-  local recording = refusals.start(store)
+  -- The test's own directory stands for the tree.
+  local recording = refusals.start(tmp)
   assert(sys.open ~= open and sys.stat ~= stat, "the recording stands in for the calls")
   assert(Fs.read(tmp .. "/here.txt") == "here\n")
   assert(Fs.read(tmp .. "/missing.txt") == nil)
@@ -41,6 +42,8 @@ local function test_a_refused_read_is_noted_and_a_read_is_not(tmp: string)
   assert(not sys.access(tmp .. "/gone too", 0))
   -- A listing, whatever it answers; the store, whatever it answers.
   assert(sys.readdir(tmp) ~= nil)
+  -- One outside the tree, which a sandbox gives whole or not at all.
+  local _, _ = sys.readdir("/")
   assert(Fs.mkdirs(tmp .. "/o"))
   assert(Fs.write(store, ""))
   assert(sys.stat(store) ~= nil)
@@ -58,6 +61,7 @@ local function test_a_refused_read_is_noted_and_a_read_is_not(tmp: string)
   assert(holds(found, "l", tmp .. "/gone"))
   assert(holds(found, "s", tmp .. "/gone too"))
   assert(holds(found, "d", tmp))
+  assert(not holds(found, "d", "/"), "a listing outside the tree is none")
   assert(holds(found, "s", store))
   local stores = 0
   for _, each in ipairs(found) do
@@ -78,7 +82,7 @@ local function test_a_start_refused_notes_the_program_and_its_interpreter(tmp: s
   local script = tmp .. "/script"
   assert(Fs.write(script, "#!/refusals-test/interpreter\n"))
   assert(sys.chmod(script, 0x1ed))
-  local recording = refusals.start(tmp .. "/o/cosmic.db")
+  local recording = refusals.start(tmp)
   local ran, _ = Child.run({ script })
   local found = recording.stop()
   assert(ran == nil or not ran.ok, "a script whose interpreter is not there does not run")
@@ -90,7 +94,7 @@ end
 --- is read in C, past the syscall table.
 local function test_a_database_opened_is_noted(tmp: string)
   local path = tmp .. "/data.db"
-  local recording = refusals.start(tmp .. "/o/cosmic.db")
+  local recording = refusals.start(tmp)
   local db = assert(Sqlite.open(path, true))
   db:close()
   local found = recording.stop()
@@ -101,7 +105,7 @@ end
 --- connects nowhere: a scripted one, or one of a scheme curl is not let
 --- speak.
 local function test_a_request_is_noted_unless_it_connects_nowhere(tmp: string)
-  local recording = refusals.start(tmp .. "/o/cosmic.db")
+  local recording = refusals.start(tmp)
   local _, _ = Http.open("http://127.0.0.1:1/refused", { timeout_ms = 2000 })
   local scripted, _ = Http.get("http://scripted.test/", {
     script = { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" } })
@@ -111,4 +115,44 @@ local function test_a_request_is_noted_unless_it_connects_nowhere(tmp: string)
   assert(holds(found, "x", "http://127.0.0.1:1/refused"))
   assert(not holds(found, "x", "http://scripted.test/"))
   assert(not holds(found, "x", "ftp://127.0.0.1:1/never"))
+end
+
+--- The calls of `cosmic.sys`, by name, as a test that hands one what
+--- it refuses reaches them.
+local function calls(value: any): {string:any}
+  if value is {string:any} then return value end
+  return {}
+end
+
+--- What `stat` raises for a missing path, and `open` for a path with
+--- no flags, each a line.
+local function refused_argument(): string
+  local held = calls(sys)
+  local stat, open = held.stat, held.open
+  if not stat is function(...: any): any... or not open is function(...: any): any... then
+    return "no stat or open"
+  end
+  local _, stat_why = pcall(function(): any
+    local answer = stat()
+    return answer
+  end)
+  local _, open_why = pcall(function(): any
+    local answer = open("refusals-test-no-flags")
+    return answer
+  end)
+  return tostring(stat_why) .. "\n" .. tostring(open_why)
+end
+
+--- A call handed what it refuses raises as it would with no recording,
+--- naming itself and where it was called: a missing path, which its
+--- stand-in hands on as it is, and a missing flag after a path, which it
+--- records the call of.
+local function test_a_refused_argument_is_named_as_without_a_recording(tmp: string)
+  local without = refused_argument()
+  local recording = refusals.start(tmp)
+  local with = refused_argument()
+  local _ = recording.stop()
+  assert(with == without, with .. "\n" .. without)
+  assert(without:find("refusals_test:%d+: bad argument #1 to 'stat'"), without)
+  assert(without:find("refusals_test:%d+: bad argument #2 to 'open'"), without)
 end

@@ -187,7 +187,7 @@ worker.loads = {
   "build.cache_names", "build.confine", "build.digest", "build.filesystem_observations",
   "build.key_parts", "build.refusals", "build.test_inputs", "build.test_worker", "build.this_program",
   "cmd.cosmic.main", "cosmic.coverage", "cosmic.env", "cosmic.fs", "cosmic.proc",
-  "cosmic.removed", "cosmic.test",
+  "cosmic.removed", "cosmic.sqlite", "cosmic.test",
 }
 
 -- Taken at load, ahead of any test that could replace them on the
@@ -584,7 +584,7 @@ local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = 
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
---- <held> [--open | --store <store>] <closure>... --tree <tree>...
+--- <held> [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
 --- --declared <declared>...` (`run`), with the report captured at `report_fd`,
 --- and its environment `env` with `start`'s variables added and
 --- coverage collected from its first instruction (core/coverage.c,
@@ -609,6 +609,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
                            given.scratch .. "/children", given.needs, given.held }) do
     argv[#argv + 1] = value
   end
+  if given.sandbox ~= nil then argv[#argv + 1] = "--sandboxed" end
   if given.open then
     argv[#argv + 1] = "--open"
   elseif given.store ~= nil then
@@ -712,7 +713,7 @@ end
 --- else means there is no report to read.
 ---
 --- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>
---- <needs> <held> [--open | --store <store>] <closure>... --tree <tree>...
+--- <needs> <held> [--sandboxed] [--open | --store <store>] <closure>... --tree <tree>...
 --- --declared <declared>...`:
 ---
 --- - `children` is a directory, not yet there, to collect the coverage
@@ -723,6 +724,8 @@ end
 --- - `held` is what this worker's own sandbox holds a process it starts
 ---   to, one path a line (`test_sandbox.Plan`'s `held`), "" or absent
 ---   where it runs unsandboxed (`observations.Resolving`'s `held`).
+--- - `--sandboxed` says the worker runs in a sandbox: what its module's
+---   load and its test are refused is recorded (build.refusals).
 --- - `closure` is the names of the module's import closure
 ---   (`test_inputs.modules`), one argument each. Its load and its test
 ---   may `require` these of the tree and nothing else of it
@@ -772,16 +775,18 @@ function worker.run(argv: {integer:string}): integer
   -- The closure's names start after `--open`, or `--store` and its
   -- path, where either is given.
   local first = 10
-  local open = argv[10] == "--open"
+  local sandboxed = argv[first] == "--sandboxed"
+  if sandboxed then first = first + 1 end
+  local open = argv[first] == "--open"
   local db_path = root .. "/o/cosmic.db"
   if open then
-    first = 11
-  elseif argv[10] == "--store" then
-    if argv[11] == nil then
+    first = first + 1
+  elseif argv[first] == "--store" then
+    if argv[first + 1] == nil then
       complain("test --worker: --store needs a path")
       return 2
     end
-    db_path, first = argv[11], 12
+    db_path, first = argv[first + 1], first + 2
   end
   local attached, attach_trouble = store.attach(db_path)
   if not attached then
@@ -854,8 +859,17 @@ function worker.run(argv: {integer:string}): integer
   if hold ~= nil then hold() end
   -- Sandboxed, what the module's load and its test are refused is what
   -- they read undeclared (build.refusals): for the audit, and the
-  -- message of a test that fails.
-  local recording = held_paths ~= "" and refusals.start(root .. "/o/cosmic.db") or nil
+  -- message of a test that fails. Each file SQLite itself opens, which
+  -- no stand-in sees, it hears from the capture's record of them.
+  -- TODO: note the files SQLite opens as refusals from its VFS itself
+  -- (core/sqlite.c's open, a refused one noted beside the handle, which
+  -- a stand-in for `cosmic.sqlite`'s calls could drain) before the
+  -- observed VFS goes (plan 4.2's PR 5): today an ATTACH or a VACUUM
+  -- INTO is heard only through the observation log's record of SQLite's
+  -- opens, and the observed path's removal would lose it.
+  local recording = sandboxed and refusals.start(root) or nil
+  local stop_hearing_sqlite = recording ~= nil and
+    observations.hear_sqlite(function(path: string) recording.note("o", path) end) or nil
   local captured = observations.capture(function(): any
     return held(function(): any return require(module_path) end)
   end, resolving)
@@ -900,6 +914,7 @@ function worker.run(argv: {integer:string}): integer
       report.elapsed_ns = finished - started
     end
   end
+  if stop_hearing_sqlite ~= nil then stop_hearing_sqlite() end
   if recording ~= nil then report.refusals = recording.stop() end
   if children ~= nil then
     local into = report.test_hits or report.load_hits
