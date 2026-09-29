@@ -47,9 +47,9 @@
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
-local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Time = require("cosmic.time")
+local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic time` verb: `run` is what `build/dispatch.tl` calls.
@@ -183,23 +183,17 @@ end
 --- @param io where the text is written and the clock read; the process's own when nil
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to: verb.Io = io or {
-    out = function(text: string): boolean, string
-      return Fs.put(Fs.stdout, text)
-    end,
-    err = function(line: string)
-      local _, _ = Fs.put(Fs.stderr, line .. "\n")
-    end,
+    out = bare.out,
+    err = bare.err,
     now = Time.now_ns,
     local_zone = function(): Time.Zone | nil, string
       return Time.local_zone()
     end,
   }
-  local function complain(line: string)
-    to.err("cosmic: time: " .. line)
-  end
+  local complain = bare.complainer("time", to.err)
   local function refuse(line: string): integer
     complain(line .. "; " .. usage)
-    return 2
+    return bare.refused
   end
   local got, trouble = arguments(argv)
   if got == nil then return refuse(trouble) end
@@ -259,17 +253,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return zone
   end
   local function written(text: string): integer
-    local ok, why = to.out(text)
-    if ok then return 0 end
-    complain("standard output: " .. why)
-    return 2
+    return bare.written(complain, to.out(text))
   end
   local function print_seen(seen: Seen, digits?: integer): integer
     if as_json then
       local encoded, why = Json.encode(record_of(seen), { pretty = true })
       if encoded == nil then
         complain(why)
-        return 2
+        return bare.refused
       end
       return written(encoded .. "\n")
     end
@@ -287,34 +278,34 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   if sub == "now" then
     local zone = zone_of("--zone")
-    if zone == nil then return 2 end
+    if zone == nil then return bare.refused end
     local now = to.now()
     return print_seen({ ns = now - now % NS, zone = zone }, 0)
   end
 
   if sub == "convert" then
     local from = zone_of("--from")
-    if from == nil then return 2 end
+    if from == nil then return bare.refused end
     local zoned = read_time(parsed.words[2], from)
-    if zoned == nil then return 2 end
+    if zoned == nil then return bare.refused end
     local target = zone_of("--to")
-    if target == nil then return 2 end
+    if target == nil then return bare.refused end
     return print_seen({ ns = zoned.ns, zone = target })
   end
 
   -- The calendar the arithmetic runs on: --zone, else the first time's
   -- own zone, else the host's.
   local fallback = zone_of("--zone")
-  if fallback == nil then return 2 end
+  if fallback == nil then return bare.refused end
   local first = read_time(parsed.words[2], fallback)
-  if first == nil then return 2 end
+  if first == nil then return bare.refused end
   local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback
 
   if sub == "add" then
     local duration, why = Time.parse_duration(parsed.words[3])
     if duration == nil then
       complain(("%q: %s"):format(parsed.words[3], why))
-      return 2
+      return bare.refused
     end
     local moved, moved_why = Time.add_calendar(first.ns,
       { years = duration.years, months = duration.months, days = duration.days }, {
@@ -323,19 +314,19 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       })
     if moved == nil then
       complain((moved_why:gsub('overflow "clamp" takes its last', "--clamp takes its last")))
-      return 1
+      return bare.failed
     end
     local exact = moved + duration.nanoseconds
     if (duration.nanoseconds > 0 and exact < moved) or (duration.nanoseconds < 0 and exact > moved) then
       complain("outside 1677-09-21T00:12:43.145224192Z through 2262-04-11T23:47:16.854775807Z, " ..
         "what an integer of nanoseconds holds")
-      return 1
+      return bare.failed
     end
     return print_seen({ ns = exact, zone = calendar })
   end
 
   local second = read_time(parsed.words[3], calendar)
-  if second == nil then return 2 end
+  if second == nil then return bare.refused end
   local modes: {string} = {}
   for _, name in ipairs({ "--days", "--months", "--seconds" }) do
     if parsed.set[name] then modes[#modes + 1] = name end
@@ -358,7 +349,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local anchor, why = Time.add_calendar(first.ns, { months = months }, options)
     if anchor == nil then
       complain(why)
-      return 1
+      return bare.failed
     end
     local days = Time.days_between(anchor, second.ns, calendar)
     local moved, days_why = Time.add_calendar(anchor, { days = days }, options)
@@ -369,7 +360,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     if moved == nil then
       complain(days_why)
-      return 1
+      return bare.failed
     end
     local sign = (months < 0 or days < 0 or second.ns < moved) and -1 or 1
     local years = sign * (math.abs(months) // 12)
@@ -386,7 +377,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     }, { pretty = true })
     if encoded == nil then
       complain(why)
-      return 2
+      return bare.refused
     end
     return written(encoded .. "\n")
   end
