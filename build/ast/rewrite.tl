@@ -1,35 +1,25 @@
 --- Structural rewrite over `build.ast.match` patterns: find every match
---- in a whole tree and splice a replacement template over the
---- ORIGINAL source bytes.
+--- in a tree and splice a replacement template over the original
+--- source bytes.
 ---
---- What this module returns is the RAW spliced source: byte-exact over
---- the original everywhere a hit did not land, and the replacement
---- template's own bytes where one did. It reflows nothing.
+--- The result is the raw spliced source: byte-exact wherever no hit
+--- landed, the template's bytes where one did, nothing reflowed.
+--- Rendering belongs to the caller. `build.fix` parses the spliced
+--- source again and writes the file through `build.fix.render`, and
+--- rendering here as well would render twice.
 ---
---- Rendering happens one layer out instead, in `build.fix`, which is
---- the only caller that rewrites a file people read: it parses the
---- spliced source again and writes the whole file back out through
---- `build.fix.render`, so a rewrite's result reads the same as source
---- that was never rewritten at all. Piping `out` through that renderer
---- HERE would be the wrong place for it -- this module is reached with
---- a source and a pattern by callers that want the splice itself, and
---- `build.fix` would then render twice.
+--- A `keep` predicate narrows the hits before anything is spliced;
+--- `build.fix.spill` uses it to name its sites by position.
 ---
---- A `keep` predicate narrows the hits to the nodes a caller already
---- knows it wants -- `build.fix.spill` names its sites by position --
---- before anything is spliced.
+--- One pass over one file: no fixpoint (a rewrite that creates a new
+--- match), no project-wide loop. A rewrite that would delete a comment
+--- is refused instead of applied (`dropped_comments`).
 ---
---- Single-pass, single-file: no fixpoint (a rewrite creating a new
---- match of itself or another rule), no project-wide loop. A rewrite
---- that would silently delete a comment is refused instead of applied
---- -- see `dropped_comments` below.
----
---- A replacement of exactly `""` against a hit whose own node is a
---- call-statement (see `is_call_statement`) removes the STATEMENT --
---- its whole line range, not just its own byte span -- so deleting
---- `test_a()` leaves no blank line behind. `dropped_comments` is
---- reused unchanged over that WIDER range, so a trailing comment on
---- the same line still refuses the hit rather than vanishing with it.
+--- A replacement of exactly `""` against a call-statement hit
+--- (`is_call_statement`) removes the whole line range, not just the
+--- node's byte span, so deleting `test_a()` leaves no blank line.
+--- `dropped_comments` checks that wider range, so a trailing comment
+--- on the same line still refuses the hit.
 local type compiler = require("build.compiler")
 local node_mod = require("build.ast.node")
 local ast_walk = require("build.ast.walk")
@@ -43,8 +33,8 @@ local record Hit
   caps: {string: Node}
 end
 
---- One hit left unmodified because applying its replacement would
---- silently delete a comment -- reported, never applied.
+--- One hit left unmodified because its replacement would delete a
+--- comment. It is reported, never applied.
 local record Refusal
   node: Node
   --- The comment text(s) that would have been dropped.
@@ -65,11 +55,9 @@ end
 --- Every node in `ast`'s tree that `pattern` matches, sorted by source
 --- position.
 ---
---- The sort is load-bearing, not cosmetic: `build.ast.walk`'s own
---- traversal falls back to `pairs()` over a node's non-array fields
---- once its array part is exhausted (`if_blocks`, `body`), and Lua's
---- hash-part iteration order is not guaranteed stable across runs --
---- so search and splice order must not depend on it.
+--- The sort makes the order deterministic: `build.ast.walk` visits a
+--- node's non-array fields (`if_blocks`, `body`) with `pairs()`, whose
+--- order Lua does not fix across runs.
 --- @param ast Node The tree to search
 --- @param pattern Node A compiled pattern (`build.ast.match.compile_pattern`)
 --- @return {Hit} Every match, in source order
@@ -107,9 +95,8 @@ local function line_starts(source: string): {integer}
   return starts
 end
 
---- The 1-based byte offset of 1-based line `y`, column `x` -- tl's own
---- columns are 1-based, confirmed empirically (a line's first
---- character is `x = 1`), not assumed from reading the grammar alone.
+--- The 1-based byte offset of 1-based line `y`, column `x`. tl's
+--- columns are 1-based: a line's first character is `x = 1`.
 --- @param starts {integer} `line_starts`'s own result, for the same source
 --- @param y integer
 --- @param x integer
@@ -137,14 +124,13 @@ local function byte_span(node: Node, tokens: {compiler.Token},
   return offset_of(starts, sy, sx), offset_of(starts, ey, ex)
 end
 
---- The byte range `[a, b]` of the next WHOLE-identifier occurrence of
---- `name` in `text` at or after `init`, or nil if there is none.
---- "Whole-identifier" means not immediately preceded or followed by
---- an identifier character (`[%w_]`): a plain substring search would
---- let a capture name that is a literal prefix of another's
---- (`_X`/`_XS`, `_N`/`_NAME`) match INSIDE the longer name's own
---- spelling, corrupting it. Shared by `kept_ranges` and `substitute`
---- so the two can never disagree about what counts as an occurrence.
+--- The byte range `[a, b]` of the next whole-identifier occurrence of
+--- `name` in `text` at or after `init`, or nil if there is none. A
+--- whole identifier has no identifier character (`[%w_]`) before or
+--- after it. A plain substring search would match a capture name that
+--- prefixes another (`_X` in `_XS`, `_N` in `_NAME`) inside the longer
+--- name and corrupt it. `kept_ranges` and `substitute` share this so
+--- they agree on what counts as an occurrence.
 --- @param text string
 --- @param name string A capture's own desugared name (`_X`, `___XS`, ...)
 --- @param init integer 1-based byte offset to start searching from
@@ -168,10 +154,8 @@ local function find_name(text: string, name: string,
   return nil, nil
 end
 
---- Every whole-identifier occurrence of `name` in `text` replaced with
---- `value`, verbatim (no pattern-substitution escaping: `value` is
---- spliced in as literal bytes, never reinterpreted as a `gsub`
---- replacement pattern).
+--- `text` with every whole-identifier occurrence of `name` replaced by
+--- `value`, spliced as literal bytes (not as a `gsub` replacement).
 --- @param text string
 --- @param name string A capture's own desugared name
 --- @param value string The literal bytes to splice in for each occurrence
@@ -192,12 +176,10 @@ local function substitute(text: string, name: string, value: string): string
   return table.concat(out)
 end
 
---- Byte ranges `[a, b]` (inclusive) whose capture's OWN span the
---- `replacement` template actually reuses, checked literally
---- (`find_name`, a whole-identifier occurrence) rather than by
---- re-parsing the template -- exactly the source text a rewrite
---- carries forward verbatim, as opposed to a captured span the
---- template discards.
+--- Byte ranges `[a, b]` (inclusive) of the captures the `replacement`
+--- template reuses: the source text a rewrite carries forward, as
+--- opposed to a captured span it discards. A capture counts as reused
+--- when `find_name` finds its name in the template text.
 --- @param caps {string: Node} A hit's capture bindings
 --- @param replacement string The (already desugared) replacement template
 --- @param tokens {compiler.Token} The token stream from the SAME parse as `caps`' nodes
@@ -215,12 +197,11 @@ local function kept_ranges(caps: {string: Node}, replacement: string,
   return kept
 end
 
---- Comment texts inside `[a, b]` that no `kept` range covers -- exactly
---- the comments a rewrite over this range would silently delete: one
---- attached to a token in the match's own "connective tissue" (its
---- pattern's literal text, or the gaps between captures) rather than
---- inside a capture the replacement actually reuses. A comment attaches
---- to the token that FOLLOWS it, per `tl.lex`.
+--- Comment texts inside `[a, b]` that no `kept` range covers: the
+--- comments a rewrite over this range would delete. They sit in the
+--- match's connective text (the pattern's literals and the gaps
+--- between captures), not inside a capture the replacement reuses.
+--- `tl.lex` attaches a comment to the token that follows it.
 --- @param tokens {compiler.Token} The full token stream, comments and all
 --- @param starts {integer} `line_starts`'s own result, for the same source
 --- @param a integer Match's start byte offset
@@ -253,23 +234,24 @@ local function dropped_comments(tokens: {compiler.Token}, starts: {integer},
   return dropped
 end
 
---- Is `node` a call-statement -- `f(...)` or `t:m(...)` used bare, as
---- its own statement, rather than nested inside a larger expression?
---- The only tl AST shape a call takes at all: an "op" node whose own
---- operator is "@funcall"/"@method" -- position in a "statements" list
---- is what makes one a statement, not a different node shape.
+--- Is `node` a call, `f(...)` or `t:m(...)`? Calls are "op" nodes with
+--- operator "@funcall" or "@method". A statement has no node kind of
+--- its own, and this does not check that `node` stands alone in a
+--- "statements" list.
 --- @param node Node
 --- @return boolean
+-- TODO: require that `node` is a statement. As it is, `rewrite` with a
+-- replacement of `""` removes the whole line of a call nested in a
+-- larger statement: `f($X)` over `local x = f(1)` deletes that line.
 local function is_call_statement(node: Node): boolean
   local op = node.op
   return node.kind == "op" and op ~= nil and (op.op == "@funcall" or op.op == "@method")
 end
 
---- The byte range `[a, b]` (inclusive) of every WHOLE LINE `node`'s own
---- span touches: `span_start`'s line through `span_end`'s line,
---- including each line's own leading indentation and, except at
---- end-of-file, its trailing newline -- so removing exactly this range
---- leaves no blank line where the statement was.
+--- The byte range `[a, b]` (inclusive) of every whole line `node`'s
+--- span touches, from `span_start`'s line through `span_end`'s. It
+--- includes each line's indentation and, except at end of file, its
+--- trailing newline, so removing it leaves no blank line.
 --- @param node Node
 --- @param tokens {compiler.Token} The token stream from the SAME parse as `node`
 --- @param starts {integer} `line_starts`'s own result, for the same source
@@ -288,19 +270,17 @@ end
 --- Find every match of `pattern` in `source` and splice `replacement`
 --- over each one.
 ---
---- `replacement` uses the pattern's own `$NAME`/`$$$NAME` surface
---- syntax; each capture name is substituted with `source:sub(a, b)` of
---- its own span -- the ORIGINAL bytes of whatever it matched, verbatim,
---- comments and all. Splicing runs back-to-front so earlier offsets in
---- the same file stay valid across multiple hits. A hit that would
---- silently drop a comment (see `dropped_comments`) is refused: left
---- unmodified at its own byte range, and reported in the result rather
---- than applied.
+--- `replacement` uses the pattern's `$NAME`/`$$$NAME` surface syntax;
+--- each capture name becomes the original bytes of its span, comments
+--- included. Splicing runs back to front so earlier offsets stay valid
+--- across hits. A hit that would drop a comment (`dropped_comments`)
+--- is refused: its bytes stay as they were and the result reports it.
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string The file's source text
 --- @param name string Filename, for parse diagnostics
 --- @param pattern Node A compiled pattern (`build.ast.match.compile_pattern`)
 --- @param replacement string A replacement template, `$NAME`/`$$$NAME` surface syntax
+--- @param keep function(Node): boolean Optional: only hits whose node it accepts are applied
 --- @return RewriteResult|nil The spliced result plus any refused hits, or nil on failure
 --- @return string Error message on failure, "" on success
 local function rewrite(built: compiler, source: string, name: string, pattern: Node,

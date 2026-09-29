@@ -4,9 +4,10 @@
 --- Each rule is a promise AGENTS.md's C checklist makes, narrowed to what
 --- can be decided from one function's tree in source order:
 ---
---- - "narrowed-integer": an integer taken from Lua is cast straight to a
----   narrower type. A `lua_Integer` that does not fit wraps silently;
----   `cosmic_checkint` and `cosmic_optint` (core/check.h) refuse it.
+--- - "narrowed-integer": an integer taken from Lua is cast to a narrower
+---   type without first being compared against a bound. A `lua_Integer`
+---   that does not fit wraps silently; `cosmic_checkint` and
+---   `cosmic_optint` (core/check.h) refuse it.
 --- - "above-buffer": a value sits above an open `luaL_Buffer` when a
 ---   buffer call other than `luaL_addvalue` is made. Every other buffer
 ---   call needs the buffer's own slot on top.
@@ -18,8 +19,9 @@
 ---   counted from the top, is read after the string has left the stack.
 ---   Nothing keeps a popped string alive; copy it first.
 --- - "returned-shape": a binding of the syscall table returns a count of
----   values its declaration in core/syscalls.h (or core/process.h) does not, or a fallible
----   one returns two -- a failure without its errno (core/fail.h).
+---   values its declaration in core/syscalls.h (or core/process.h) does
+---   not, or a fallible one returns two -- a failure without its errno
+---   (core/fail.h).
 --- - "failure-shape": a fallible binding fails in the other shape than
 ---   its declaration's: one declared `boolean`, an effect, fails through
 ---   `cosmic_fail_effect` (false, error, errno); one declared a value
@@ -40,16 +42,16 @@
 --- - "true-alone": a `lua_CFunction` returns `true` and nothing else on
 ---   every path (`lua_pushboolean(L, 1); return 1;` or `cosmic_ok`), so
 ---   it returns no values.
---- - "descriptor-argument": a binding of the syscall table whose
----   declaration takes a descriptor (build.gen_syscalls's `descriptor`) does not
----   take it
----   through `cosmic_checkfd` or `cosmic_argfd`
+--- - "descriptor-argument": either a binding of the syscall table whose
+---   declaration takes a descriptor (build.gen_syscalls's `descriptor`)
+---   does not take it through `cosmic_checkfd` or `cosmic_argfd`
 ---   (core/check.h), directly or through a helper of the file it hands
 ---   the argument's position to; or any function takes a descriptor --
 ---   a local named `fd`, `dirfd`, `sock`, `*_fd` or `fd_*`, declared
----   with or assigned -- straight from `cosmic_checkint` or the like. Either would pass the descriptor a
----   portable start retains on the artifact, through which every module
----   the program carries could be read.
+---   with or assigned -- straight from `cosmic_checkint` or the like.
+---   Either would pass the descriptor a portable start retains on the
+---   artifact, through which every module the program carries could be
+---   read.
 --- - "single-file": a function a header declares is referred to by no
 ---   translation unit but the one defining it, so it belongs to that file,
 ---   static, out of the header. It is decided over a whole tree at once
@@ -57,10 +59,10 @@
 ---   every C file is checked together.
 ---
 --- "pass-fail-int", "constant-return" and "true-alone" read the code
---- one platform's preprocessor leaves (build.c compiles for the host): a
---- function whose returns differ under an `#ifdef` is judged by the
---- branch compiled, and one the other branch makes a real answer is
---- exempted in `exempt`, with the reason.
+--- one platform's preprocessor leaves (build.c compiles for
+--- x86_64-linux-musl): a function whose returns differ under an `#ifdef`
+--- is judged by the branch compiled, and one the other branch makes a
+--- real answer is exempted in `exempt`, with the reason.
 ---
 --- The walk is source order, not a flow analysis. A branch that ends --
 --- in a `return`, a `goto`, or a call that never returns -- leaves what
@@ -103,9 +105,9 @@ local record rules
     refers: {string: boolean}
   end
 
-  --- What core/syscalls.h or core/process.h declares a binding returns: how many values,
-  --- and whether the last is an errno or a code, so that a failure is
-  --- three of them.
+  --- What core/syscalls.h or core/process.h declares a binding returns:
+  --- how many values, and whether the last is an errno or a code, so
+  --- that a failure is three of them.
   record Declared
     count: integer
     fallible: boolean
@@ -1015,10 +1017,9 @@ local function truthful(fns: {Function}): {string: boolean}
   return known.functions
 end
 
---- A function of external linkage whose every `return` returns one
---- constant is a function that returns nothing; one declared in a header
---- to return `int` that returns only truths is a pass or a fail, which
---- is a `bool`.
+--- Reports a function of external linkage whose every `return` is one
+--- constant ("constant-return"), and one declared in a header to return
+--- `int` that returns only truths ("pass-fail-int").
 local function returned_constant(ctx: Context, fn: Function)
   if fn.static or fn.name == "main" or state_first(fn) then return end
   local returns = returns_in(fn.body)
@@ -1276,8 +1277,9 @@ function rules.unit(decls: {Node}, file: string,
                     declared?: {string: rules.Declared}): rules.Unit
   local u: rules.Unit = { file = file, defines = {}, refers = {} }
   for _, fn in ipairs(functions(decls)) do
-    -- A binding's declaration in core/syscalls.h or core/process.h carries the annotation
-    -- the Teal declaration is made from, whoever refers to it.
+    -- A binding's declaration in core/syscalls.h or core/process.h
+    -- carries the annotation the Teal declaration is made from, whoever
+    -- refers to it.
     local call = fn.name:match("^cosmic_sys_(.+)$")
     local binding = call ~= nil and declared ~= nil and declared[call] ~= nil
     if fn.prototype ~= nil and not fn.static and not fn.inline and not binding then
@@ -1329,7 +1331,8 @@ end
 
 --- Every finding in `decls`, a translation unit's own declarations, that
 --- `exempt` does not excuse, sorted by place. `declared` is what
---- core/syscalls.h and core/process.h declare each binding returns, by the binding's name.
+--- core/syscalls.h and core/process.h declare each binding returns, by
+--- the binding's name.
 function rules.check(decls: {Node}, file: string,
                      declared: {string: rules.Declared}): {rules.Finding}
   local fns = functions(decls)

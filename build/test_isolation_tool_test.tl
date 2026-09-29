@@ -37,14 +37,13 @@ local function environment(): {string:string}
   return env
 end
 
---- Whether a run that said `text`, its workers sandboxed where they can
---- be, sandboxed none, where that is allowed. Its workers are nested in
---- this test's own sandbox, which a host may refuse them (the kernel lets
---- root nest one only two deep: core/syscalls.c's `map_ids`), and then
---- the sandboxed case checks only what the unsandboxed one does -- unless
---- this run is held to sandboxing (COSMIC_TEST_SANDBOX=1, as CI's suites
---- set it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
---- unprivileged runners nest them, and there it fails.
+--- Whether the run that said `text` sandboxed none of its workers, where
+--- that is allowed. The workers nest in this test's own sandbox, which a
+--- host may refuse (the kernel lets root nest one only two deep:
+--- core/syscalls.c's `map_ids`); the sandboxed case then checks only what
+--- the unsandboxed one does. A run held to sandboxing fails instead
+--- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
+--- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return false end
   assert(not confine.held_to_sandbox(),

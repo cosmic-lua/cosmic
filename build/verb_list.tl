@@ -3,11 +3,14 @@
 --- (`run`, `standalone`, `eval`, `version`) and before `help`, which
 --- build/dispatch.tl holds itself. Each entry loads its module's `spec`
 --- (build/verb_spec.tl) only when asked, so a command line loads the one
---- verb it runs. Adding a verb is a module with a `spec`, a line here, and
---- its `Cli.<name>` prose, options and place in `Cli.order`
---- (build/verb_list_test.tl holds the four to agree), and a `guide` and
---- `tests` in the spec (build/tree_checks.tl's `verbs` holds them to the
---- quickstart and the tree's tests).
+--- verb it runs.
+---
+--- Adding a verb takes a module with a `spec`, a line here, its
+--- `Cli.<name>` prose and options, and its place in `Cli.order`
+--- (build/verb_list_test.tl holds the list, `Cli.order` and the verbs
+--- dispatch reaches to agree). The spec also names a `guide` and `tests`
+--- (build/tree_checks.tl's `verbs` holds them to the quickstart and the
+--- tree's tests).
 
 local verb_spec = require("build.verb_spec")
 

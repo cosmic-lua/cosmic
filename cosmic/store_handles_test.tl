@@ -48,9 +48,9 @@ end
 --- A borrowed handle on a store database reads, and nothing else: a
 --- read-only open still leaves a connection a writable temp schema and
 --- ATTACH, and a temp `modules` stands in front of the rows `require`
---- loads -- a planted row once replaced `cosmic.compress` for every
---- later require, and a temp view of that name made the next require
---- end the process. Each is refused, and require is unaffected.
+--- loads: a planted row would replace `cosmic.compress` for every later
+--- require, and a temp view of that name would end the process at the
+--- next one. Each is refused, and require is unaffected.
 local function test_a_store_database_handle_only_reads()
   local databases = Store.databases()
   assert(#databases >= 1, "the store searches the binary's own database")

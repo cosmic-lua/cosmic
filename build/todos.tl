@@ -1,17 +1,16 @@
 --- `cosmic todos`: every `TODO:` comment in the tree, each with the
---- commit that last touched its line and when -- what `git blame` says
---- about it.
+--- commit that last touched its line and when, as `git blame` says.
 ---
---- The index is built by the build itself: `build.work.stage` scans
---- each file it stages (`build.todo_scan`) in the moment it reads it,
---- into `todos` in `o/build.db`, so the one walk covers every file in
---- the tree: what the build consumes -- Teal, and in cosmic's own tree
---- the C core, build.zig and bin/zig -- and, fingerprinted in `scanned`
---- and read only when it moves, everything else it walks past: scripts,
---- and in cosmic's own tree `bin/`, `eval/`, `ci/` and `.github/`: its
---- workflows, actions and scripts. Blame is kept beside it, in
---- `blames`, and only this verb runs git. With no git, or outside a
---- repository, TODOs are still listed, with no commit.
+--- The index is built by the build itself: `build.work.stage` scans each
+--- file it stages (`build.todo_scan`) as it reads it, into `todos` in
+--- `o/build.db`. That covers what the build consumes (Teal and, in
+--- cosmic's own tree, the C core, build.zig and bin/zig) and, through
+--- `scanned`, everything else the walk passes: scripts and, in cosmic's
+--- own tree, `bin/`, `eval/`, `ci/` and `.github/` (workflows, actions
+--- and scripts). `scanned` fingerprints those files, which are read only
+--- when the fingerprint moves. Blame is kept in `blames`, and only this
+--- verb runs git. With no git, or outside a repository, TODOs are still
+--- listed, with no commit.
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
@@ -170,8 +169,8 @@ end
 
 --- Blame for the first line of each TODO in several files, by file,
 --- running the calls `blame_jobs` at a time; a file git has nothing to
---- say about maps to an empty table. Stops once `guard` has caught a
---- signal, every git ended.
+--- say about maps to an empty table. Once `guard` has caught a signal,
+--- it ends every git and stops.
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
                          guard: Child.Guard | nil): {string:{integer:todos.Blame}}
   local out: {string:{integer:todos.Blame}} = {}
@@ -255,15 +254,17 @@ local function uncommitted(commit: string): boolean
   return commit:match("^0+$") ~= nil
 end
 
---- Every TODO in the staged tree with what is known of its blame, in
---- file and line order: a row with no blame for `head` has `commit` ""
---- and `blamed` false.
+--- One TODO with the digest of the file text it was found in, and whether
+--- `blames` holds its blame for the current `HEAD`.
 local record Row
   todo: todos.Todo
   sha256: string
   blamed: boolean
 end
 
+--- Every TODO in the staged tree with what is known of its blame, in
+--- file and line order: a row with no blame for `head` has `commit` ""
+--- and `blamed` false.
 local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
@@ -470,7 +471,7 @@ end
 --- The TODOs whose text matches `query`, as the rank of each by `id`,
 --- best first from 1. The query is FTS5's own syntax -- a "phrase",
 --- OR, a prefix* -- when it parses as that, and its words, each quoted
---- and every one required, when it does not (`cosmic.sys`).
+--- and every one required, when it does not (as `cosmic.sys` does not).
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
   local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
@@ -496,11 +497,11 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
   return out
 end
 
---- The command line's words split into paths, which narrow the listing
---- as `build.narrow` reads them for every verb, and the words to search
---- the TODOs for: a word is a path when it names one that can be looked
---- at, relative to `root` (the working directory `run` resolves), or
---- absolutely. `.` names the whole tree, so it narrows nothing.
+--- The command line's words split into paths and words to search the
+--- TODOs for. A word is a path when it names one that can be looked at,
+--- absolutely or relative to `root` (the working directory `run`
+--- resolves). Paths narrow the listing as `build.narrow` reads them for
+--- every verb; `.` names the whole tree, so it narrows nothing.
 function todos.arguments(root: string, argv: {string}): todos.Arguments
   local named: {string} = {}
   local words: {string} = {}
@@ -532,10 +533,10 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   -- TODO: list TODOs when only the core is stale, since nothing here
-  -- runs it: after a C edit build.reboot's guard boots before any verb goes on
-  -- (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb could go
-  -- on once the Teal side is fresh, which build.reboot's state_of would have to
-  -- tell apart from both.
+  -- runs it: after a C edit build.reboot's guard boots before any verb
+  -- goes on (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb
+  -- could go on once the Teal side is fresh, which build.reboot's
+  -- state_of would have to tell apart from both.
   local code = reboot.stale_exit(argv)
   if code ~= nil then
     return code

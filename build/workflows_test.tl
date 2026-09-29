@@ -145,10 +145,10 @@ end
 --- Each input an action's expressions read is one it declares: a
 --- misspelt input reads as empty.
 -- TODO: hold the other expressions in the workflows and actions, as
--- the pinned actionlint the tree used to run did: that each context one names
--- is available where it stands, that `needs.<job>` names a job its job
--- needs, that `steps.<id>` names a step before it, and that `with`
--- passes a local action only inputs it declares. Only an action's
+-- actionlint would: that each context one names is available where it
+-- stands, that `needs.<job>` names a job its job needs, that
+-- `steps.<id>` names a step before it, and that `with` passes a local
+-- action only inputs it declares. Only an action's
 -- `inputs` are held today, so such a mistake fails at the run.
 local function test_an_action_reads_only_the_inputs_it_declares()
   local count = 0
@@ -542,8 +542,7 @@ end
 --- declared-key verdict's key holds them (build/declared_key.tl's
 --- `host_identity`), and a leg's runners do not share one set, so a
 --- cache named by the container alone could restore another host's
---- verdicts, none of which stood (main's run 36320764857 on
---- linux-x86_64).
+--- verdicts, none of which would stand.
 local function test_the_verdict_cache_is_named_by_the_host_too()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
@@ -752,13 +751,11 @@ end
 --- of its own.
 --- Main's pushes share one concurrency group that cancels nothing in
 --- progress, so their saves land in commit order and a restore's newest
---- entry is never an older commit's saved late (3c6df8333's
---- alpine-x86_64 leg saved after b6508ab77's, and the two main runs
---- after stood on none of 1892 verdicts), with no lookup of the newest
---- entry before a save. A save's key is the restore's own, or, for the
---- caches a trim cuts to one run's rows, the restore's prefix and the
---- digest of those rows that the trim names: a run that kept only what
---- was saved already saves nothing new.
+--- entry is never an older commit's saved late, with no lookup of the
+--- newest entry before a save. A save's key is the restore's own, or,
+--- for the caches a trim cuts to one run's rows, the restore's prefix
+--- and the digest of those rows that the trim names: a run that kept
+--- only what was saved already saves nothing new.
 local function test_only_main_saves_a_cache_every_run_restores()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local concurrency = ci.concurrency as {string: string}
@@ -1353,12 +1350,11 @@ local function test_the_scope_is_decided_once()
 end
 
 --- A leg saves only the verdicts its run relied on or reached,
---- where it passed: a file saved whole carried some four runs' rows,
---- most under keys no later run reaches, 41-43 MB a leg each main
---- push. The trim runs where the suites do (a Linux leg's container,
---- the macOS runner itself), after every suite that
---- shares the file and before the save, and counts from a time taken
---- before the first suite.
+--- where it passed: a file saved whole would carry several runs' rows,
+--- most under keys no later run reaches. The trim runs where the suites
+--- do (a Linux leg's container, the macOS runner itself), after every
+--- suite that shares the file and before the save, and counts from a
+--- time taken before the first suite.
 local function test_a_leg_trims_its_verdicts_before_it_saves_them()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}

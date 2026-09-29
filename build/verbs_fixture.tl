@@ -52,11 +52,11 @@ function verbs_fixture.run(dir: string, args: {string}): invoke.Result
   if needs_a_process(args) == nil then
     return invoke.run(args, { cwd = dir })
   end
-  -- What of the environment the program needs, its temporary files --
-  -- the directory of a test `cosmic test bad` fails, which it keeps --
-  -- in this test's own directory; and a `cosmic test`'s workers
-  -- unsandboxed, since its command line is what is held here and a
-  -- sandbox nested in this test's own is one a host may refuse.
+  -- The environment the program needs, with its temporary files (the
+  -- directory of a test `cosmic test bad` fails, which it keeps) in this
+  -- test's own directory. A `cosmic test`'s workers run unsandboxed: its
+  -- command line is what is held here, and a sandbox nested in this
+  -- test's own is one a host may refuse.
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
   local started = this_program.program(args, {

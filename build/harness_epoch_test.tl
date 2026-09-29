@@ -79,8 +79,8 @@ local function test_the_harness_is_acknowledged()
 end
 
 --- A module that moved is named alone, with the one line to set; one
---- the harness gained has a line to add; an entry for a module it no
---- longer holds is stale.
+--- the harness gained has a line to add; an entry for a module the
+--- harness does not hold is stale.
 local function test_unacknowledged_names_each_module()
   local acknowledged = { ["build.a"] = "1", ["build.b"] = "2" }
   assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2" }, acknowledged) == nil)
@@ -131,9 +131,9 @@ local unfollowed: {string:{string:boolean}} = {
 
 --- Every module of the tree a module the harness runs requires by value
 --- (what every worker loads, and the sandbox's maker, `harness_own`) is
---- in the harness's digest, or an edit to it moves neither a key nor
---- the digest: build.caches reached build/zig.tl so, which decides
---- where a declared cache is bound from.
+--- in the harness's digest. Otherwise an edit to it moves neither a key
+--- nor the digest. build/zig.tl, which build.caches requires, is such a
+--- module: it decides where a declared cache is bound from.
 local function test_the_harness_holds_what_it_runs_requires()
   local db = assert(Sqlite.open("o/cosmic.db", false))
   local found, trouble = test.harness(db)

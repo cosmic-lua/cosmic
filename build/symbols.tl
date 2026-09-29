@@ -1,10 +1,9 @@
---- What names an exact query as a symbol, and what is a use of it --
---- one rule, shared by `cosmic docs` and `cosmic uses` (`build.docs`)
---- and the compiler's own hint for a name it could not resolve
---- (`build.importer`), so a compile-time pointer can never name a row
---- `cosmic docs <word>` itself would disagree with. Kept in its own
---- module rather than in either of those: `build.importer` already
---- requires it directly (for the hint), so `build.docs` requiring
+--- What names an exact query as a symbol, and what is a use of it: one
+--- rule, shared by `cosmic docs` and `cosmic uses` (`build.docs`) and by
+--- the compiler's hint for a name it could not resolve
+--- (`build.importer`), so a hint never names a row `cosmic docs <word>`
+--- would disagree with. It is a module of its own because
+--- `build.importer` requires it for the hint, and `build.docs` requiring
 --- `build.importer` back for this rule would be a cycle. This module
 --- requires neither.
 
@@ -109,14 +108,13 @@ function symbols.used_where(alias: string): string
 end
 
 --- Every symbol `query` names exactly, across `databases` (searched in
---- order, the tree's own last projection ahead of the binary's),
---- named the way `symbol` itself already reads -- `Removed.io`,
---- already qualified by its own record -- or the bare module name for
---- a module's own row (`symbol` is `""` there). This is what a name a
---- compile could not resolve might have meant, so a database this
---- database view does not carry `docs` in, or a query that fails
---- outright, answers as no match rather than a trouble: a hint is
---- never a reason to fail the compile it is explaining.
+--- order, the tree's own last projection ahead of the binary's), each
+--- as the `symbol` column reads, already qualified by its record
+--- (`Removed.io`), or as the bare module name for a module's own row
+--- (`symbol` is `""` there). It is what a name the compiler could not
+--- resolve might have meant. A database with no `docs` table, or a
+--- query that fails, answers as no match rather than a trouble: a hint
+--- is never a reason to fail the compile it explains.
 function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
                        query: string): {string}
   local seen: {string: boolean} = {}
@@ -142,17 +140,16 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
   return out
 end
 
---- Whether a worked-example name, comment, or checked source answers a query
---- in any visible database.
---- Compiler diagnostics use this before printing a docs command, so an old or
---- incomplete binary never advertises documentation it cannot answer. Query
---- failures are deliberately just false: a secondary hint cannot replace the
---- compiler's original diagnostic.
+--- Whether a worked-example name, comment, or checked source answers a
+--- query in any of `databases`. Compiler diagnostics ask before printing
+--- a docs command, so an old or incomplete binary never advertises
+--- documentation it cannot answer. A query that fails is false: a hint
+--- cannot replace the compiler's own diagnostic.
 function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean},
                                    name: string): boolean
   local owners: {string: integer} = {}
   for index, db in ipairs(databases) do
-    -- A query that fails is no owner, and so no example: see above.
+    -- A query that fails is no owner, and so no example.
     local modules, _ = Sqlite.text_rows(db, "SELECT path FROM modules")
     if modules ~= nil then
       for _, row in ipairs(modules) do
@@ -171,7 +168,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
           "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
           symbols.public_only("e.module", public[index] == true), phrase },
     }) do
-      -- A query that fails is no match: see above.
+      -- A query that fails is no match.
       local rows, _ = Sqlite.text_rows(db, lookup[1], { { text = lookup[2] } })
       if rows ~= nil then
         for _, row in ipairs(rows) do

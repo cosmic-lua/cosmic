@@ -2,15 +2,14 @@
 ---
 --- Every operator, separator and bracket here comes from the node's
 --- kind: a call is a `(` because the node says `@funcall`, an index is
---- a `[` because it says `@index`. Nothing is decided by looking at
---- which two tokens ended up next to each other, which is the class of
---- bug this whole module exists to be incapable of.
+--- a `[` because it says `@index`. Nothing is decided by which two
+--- tokens ended up next to each other.
 ---
---- One thing IS read off the source: where a line break goes, and where
---- one does not (`ctx.lead`). The renderer never adds a break and never
---- removes one, because doing either means deciding where to wrap, and
---- a wrap is a judgement about the whole line that no rule here is in a
---- position to make. Everything a line HOLDS is the renderer's.
+--- One thing is read off the source: where a line break goes, and where
+--- one does not (`ctx.lead`). The renderer never adds or removes a
+--- break, because that means deciding where to wrap, a judgement about
+--- the whole line that no rule here can make. Everything a line holds
+--- is the renderer's.
 ---
 --- Type syntax is written as original bytes: `x as {string: any}` keeps
 --- its own spelling, since tl's parser keeps a type's meaning and not
@@ -109,20 +108,19 @@ end
 
 --- A function literal, signature and body.
 ---
---- This is the one construct that opens a block from inside an
---- expression, and so the one whose block does not necessarily open on
---- the grid its enclosing statement sits on. Its body is indented from
---- the column the `function` keyword is actually being WRITTEN at --
---- the indentation of the output line in progress, whether that line
---- was opened by the statement itself or is a continuation of it -- and
---- its `end` lines up with that same column.
+--- This is the one construct that opens a block inside an expression,
+--- so its block need not open on the grid its enclosing statement sits
+--- on. Its body is indented from the column the `function` keyword is
+--- written at, the indentation of the output line in progress, whether
+--- the statement or a continuation of it opened that line. Its `end`
+--- lines up with that column.
 ---
---- Taking the enclosing statement's own indentation instead is wrong
---- exactly where a literal opens a line of its own: an argument on its
---- own line, a table value, a callback nested inside another. The body
---- would then be written level with its own `function` keyword and the
---- `end` two columns further left again, which for a top-level call
---- means an `end` in column zero in the middle of an argument list.
+--- The enclosing statement's indentation is wrong where a literal opens
+--- a line of its own: an argument on its own line, a table value, a
+--- callback nested in another. The body would be level with its own
+--- `function` keyword and the `end` two columns further left, which for
+--- a top-level call is an `end` in column zero in the middle of an
+--- argument list.
 local function literal_function(c: Ctx, n: Node)
   local args, body, rets = n.args, n.body, n.rets
   if args == nil or body == nil or rets == nil then

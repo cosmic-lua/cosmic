@@ -152,8 +152,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
     dir = tmp,
     gen = gen_extraction,
     -- "linked": links are what containment is most about, and an
-    -- archive of several hostile entries almost never makes one (none
-    -- of 64 inputs, 10 of 2000, before entries were drawn well formed).
+    -- archive of several hostile entries almost never makes one.
     requires = { "built", "extracted", "linked" },
     check = function(input: string): boolean, string
       Fs.remove_tree(case)

@@ -134,8 +134,8 @@ local function test_sqlite_refuses_every_write()
   assert(Fs.remove_tree(root))
 end
 
---- A read-only open used to make <db>-wal and <db>-shm beside a WAL-mode
---- database whose -wal was gone, and leave them there.
+--- A read-only open must not make <db>-wal and <db>-shm beside a WAL-mode
+--- database whose -wal is gone, nor leave them there.
 local function test_a_query_leaves_no_wal_or_shm_beside_the_database()
   local root = assert(Fs.mkdtemp("cosmic-sql-wal-test-"))
   local path = root .. "/wal.db"

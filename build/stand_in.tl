@@ -1,13 +1,12 @@
 --- A stand-in program for a test that needs an outside program to start
 --- -- a fake zig, codesign or cosmic, a process to leave running --
---- without the system's shell: a host program of this core, laid out
---- as `cosmic build --host` lays one out, a static executable of the
---- core and a small database, which the
---- kernel runs directly and which reads only itself. A caller that
---- starts it with no environment and no descriptors of its own, as
---- bin/zig, codesign's verifier and the eval grader start theirs, starts
---- it all the same, which this program past its launcher
---- (`Proc.relaunch`) could not be.
+--- without the system's shell. It is a host program of this core, laid
+--- out as `cosmic build --host` lays one out: a static executable of
+--- the core and a small database, which the kernel runs directly and
+--- which reads only itself. A caller that starts it with no environment
+--- and no descriptors of its own, as bin/zig, codesign's verifier and
+--- the eval grader start theirs, starts it all the same. This program,
+--- past its launcher (`Proc.relaunch`), could not be started so.
 ---
 --- `build` makes one, in a few milliseconds past reading the core, and
 --- `place` copies it where a test needs one, with the script it runs.
@@ -16,13 +15,15 @@
 --- its test's import closure holds (build/stand_in_probe.tl, which the
 --- stand-in runs, and what that requires).
 ---
---- The script is `<its path>.do`; or, with none there, the body of the
---- file its first argument names, past its first line, where that is a
---- regular file whose first line is a `#!` one -- so a file starting
---- `#!<stand-in>` and nothing more runs its body, as a shell script
---- runs, on every system, however one splits the words after `#!` --
---- or else its first argument itself; its arguments are then the rest. Commands are split on `;`
---- and newlines, each a verb and its words:
+--- The script is `<its path>.do` when that exists. Failing that, it is
+--- the body of the file its first argument names, past its first line,
+--- where that is a regular file whose first line starts `#!`: a file
+--- starting `#!<stand-in>` and nothing more runs its body, as a shell
+--- script does, on every system, however one splits the words after
+--- `#!`. Failing both, it is the first argument itself. Its arguments
+--- are the rest: every one for a `.do` script, and those after the
+--- first otherwise. Commands are split on `;` and newlines, each a verb
+--- and its words:
 ---
 ---     print T          T and a newline, to stdout
 ---     eprint T         T and a newline, to stderr
@@ -139,16 +140,18 @@ local main_module <const> = "stand_in.main"
 --- module (see the requires above).
 local core_requires <const>: {string} = { "cosmic.errors", "cosmic.removed" }
 
---- The modules `probe_module` loads, itself first, then
---- `core_requires`, each no more than once: the ones this program's own `imports`
---- rows record it requiring, and theirs in turn. A raw
---- `cosmic.internal.*` value is no row of any database, and the core
---- hands each wrapper its own (core/store.c's `raw_modules`). Each
---- with what it requires.
+--- One module the stand-in carries, with what it requires.
 local record Carried
   name: string
   requires: {string}
 end
+
+--- The modules `probe_module` loads, itself first, then
+--- `core_requires`, each once: the ones this program's own `imports`
+--- rows record it requiring, and theirs in turn. A raw
+--- `cosmic.internal.*` value is no row of any database, since the core
+--- hands each wrapper its own (core/store.c's `raw_modules`), so those
+--- are left out.
 local function carried(): {Carried} | nil, string
   local order: {Carried} = {}
   local seen: {string:boolean} = {}
@@ -239,10 +242,10 @@ end
 --- `cosmic build --host` lays one out (`artifact.host_program`), with a
 --- database of `probe_module`, its main under `main_module`, and the
 --- modules it and the core require, taken from the ones this program
---- carries (`database`) -- nothing compiled, and
---- nothing of this program run, so a test that builds one needs no
---- `tool`: what it carries is its test's import closure's, and the core
---- is the runtime its verdict is keyed by.
+--- carries (`database`). Nothing is compiled and nothing of this program
+--- runs, so a test that builds one needs no `tool`: what it carries is
+--- its test's import closure, and the core is the runtime its verdict is
+--- keyed by.
 function stand_in.build(dir: string): string | nil, string
   local made, trouble = Fs.mkdirs(dir)
   if not made then return nil, trouble end

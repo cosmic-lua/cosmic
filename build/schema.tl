@@ -102,7 +102,7 @@ local tables: {{string}} = {
   -- certificate a row: filled and carried as the bill of materials is.
   -- A rowid table, unlike the rest: a row of a WITHOUT ROWID table
   -- past about a thousand bytes spills onto an overflow page of its
-  -- own, which more than doubled this one's size. Rows go in in
+  -- own, which would more than double this one's size. Rows go in in
   -- `sha256` order, which keeps the file the same on every build, and
   -- `build.roots` never writes one certificate twice.
   { "ca_roots", [[(sha256 BLOB NOT NULL,
@@ -121,8 +121,8 @@ local tables: {{string}} = {
 
 --- Each FTS5 virtual table's name and its `USING fts5(...)` clause, in
 --- creation order, after every ordinary table. External-content mode
---- (`content=`) keeps the searchable text in `catalog` itself rather
---- than duplicating it into the index's own shadow storage.
+--- (`content=`) keeps the searchable text in the content table itself
+--- rather than duplicating it into the index's own shadow storage.
 local virtual_tables: {{string}} = {
   { "docs_fts",
     "USING fts5(symbol, signature, text, content=docs, content_rowid=id)" },
@@ -156,10 +156,10 @@ function schema.create(qualifier: string): {string}
 end
 
 --- The statements that rebuild each FTS5 index from its content table's
---- current rows, under `qualifier` as `create` names them, run once
---- that table is filled: the documented way to bulk-load an
---- external-content FTS5 table (`content=`) without keeping the two in
---- sync through triggers a read-only, write-once database has no use
+--- current rows, under `qualifier` as `create` names them. Run them
+--- once the tables are filled: it is the documented way to bulk-load an
+--- external-content FTS5 table, and needs none of the triggers that
+--- would keep the two in sync, which a write-once database has no use
 --- for.
 function schema.rebuild(qualifier: string): {string}
   local out: {string} = {}

@@ -8,10 +8,10 @@ local confine = require("build.confine")
 local type Child = require("cosmic.child")
 
 local record this_program
-  --- The variables `environment` passes on: what a process of this
-  --- very program reads of its environment to run at all, and whether a
-  --- `cosmic test` it runs sandboxes its workers, as the run around it
-  --- was asked to, and whether it can.
+  --- The variables `environment` passes on: those a process of this
+  --- very program reads to run at all (caches, temporary directory, PATH,
+  --- whether it may boot) and those that decide whether a `cosmic test`
+  --- it runs sandboxes its workers.
   runtime_environment: {string}
 
   --- How to start this very program (`program`): the command line and
@@ -27,18 +27,14 @@ this_program.runtime_environment = {
   "COSMIC_BUILD_CACHE", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX", confine.held_variable,
 }
 
---- What of the environment a process of this very program needs, for a
---- test to start one with rather than all of its own: where its caches
---- are, where temporary files go and programs are found, which shared
---- verdicts and compiles it keeps, whether it may boot, whether a `cosmic test`
---- sandboxes its workers and whether it can (`confine.held_variable`)
---- -- each of `runtime_environment` this process
---- has, read by name, so the test reads no more of the environment than
---- these -- but for TMPDIR, which, while a test runs, is its own
---- directory (build.confine's `test_directory`): what the process
---- leaves there goes with it, not into the host's temporary directory.
---- The core hands a child the directory its coverage goes to whatever
---- environment it is given.
+--- The environment to start a process of this very program with, for a
+--- test that would otherwise pass all of its own: each of
+--- `runtime_environment` this process has, read by name, so the test
+--- reads no more of the environment than these. TMPDIR is the exception
+--- while a test runs: it names the test's own directory (build.confine's
+--- `test_directory`), so what the process leaves there goes with the
+--- test, not into the host's temporary directory. The core hands a child
+--- the directory its coverage goes to whatever environment it is given.
 function this_program.environment(): {string:string}
   local out: {string:string} = {}
   local own = confine.test_directory()
@@ -61,18 +57,20 @@ local handshake: {string} = {
 }
 
 --- How to start this very program with `args` after it, skipping its
---- launcher, as `cosmic test` starts a worker: the core it runs on,
+--- launcher as `cosmic test` starts a worker: the core it runs on,
 --- handed its artifact, database and startup contract directly
 --- (`Proc.relaunch`), so starting it takes no shell and lands on no
---- other core; or, with no artifact to relaunch, the program as
---- `Proc.executable` names it. The options are a copy of `opts`, whose
---- tables are left as they were, but for its `env`: the caller's
---- variables, or, where it gives none, the whole of this process's (a
---- child given none inherits them, and nothing can be added to an
---- inherited environment), with the relaunch's added and the startup
---- test's handshake taken out; and its `fds`, with the relaunch's
---- descriptors beside them. `opts.fds` naming a number the relaunch
---- hands the child its artifact or core as raises.
+--- other core. With no artifact to relaunch, the program is as
+--- `Proc.executable` names it.
+---
+--- The options are a copy of `opts`, its tables left as they were except
+--- `env` and `fds`. `env` is the caller's variables or, where it gives
+--- none, the whole of this process's (a child given none inherits them,
+--- and nothing can be added to an inherited environment), with the
+--- relaunch's added and the startup test's handshake removed. `fds` is
+--- the caller's with the relaunch's descriptors beside them; `opts.fds`
+--- naming a number the relaunch hands the child its artifact or core as
+--- raises.
 ---
 --- What the launcher does, a program started this way never sees: it
 --- makes no core cache under XDG_CACHE_HOME or HOME, nor checks the one
