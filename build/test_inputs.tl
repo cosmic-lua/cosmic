@@ -536,8 +536,9 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
   if #names == 0 then return {} end
   table.sort(names)
   local lines: {string} = {
-    string.format("audit: %s (%s): %d of %d tests read what they do not declare",
-      m.path, m.file, #names, #m.tests),
+    -- Not `plural.noun`: every worker loads this module, and none loads build.plural.
+    string.format("audit: %s (%s): %d of %d %s read what they do not declare",
+      m.path, m.file, #names, #m.tests, #m.tests == 1 and "test" or "tests"),
   }
   local declared: analyzer.Declared = m.inputs or {
     line = 0, reads = {}, host = {}, env = {}, network = {},

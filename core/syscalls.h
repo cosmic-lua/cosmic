@@ -484,7 +484,7 @@ COSMIC_SYSCALL(clock_gettime, 1);
 COSMIC_SYSCALL(nanosleep, 1);
 
 /*
- * --- The symbolic name of an errno, the name <errno.h> gives it: the
+ * --- The symbolic name of an errno, the name C's errno header gives it: the
  * --- third slot of a failure is this OS's number (`EAGAIN` is 11 on
  * --- Linux and 35 on macOS), and its name is the same on both. On
  * --- Linux, where `EOPNOTSUPP` and `ENOTSUP` share a number, it is

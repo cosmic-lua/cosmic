@@ -42,6 +42,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
+local plural = require("build.plural")
 local shrink = require("build.fuzz.shrink")
 local type Budget = require("cosmic.internal.budget")
 
@@ -267,8 +268,8 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string): in
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     if not held then
-      error(("fuzz %s: corpus input %s: %s\n  input (hex, %d bytes): %s"):
-        format(p.name, path, why, #input, shown(input)), 0)
+      error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
+        format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
     end
     checked = checked + 1
     ::continue::
@@ -291,7 +292,7 @@ local function label_counts(counts: {string: integer}, required: {string},
   for i, name in ipairs(names) do
     parts[i] = ("%s %d"):format(name, counts[name] or 0)
   end
-  return ("%s (of %d inputs)"):format(table.concat(parts, ", "), iters)
+  return ("%s (of %s)"):format(table.concat(parts, ", "), plural.count(iters, "input"))
 end
 
 --- Builds the input `values` replay to, with the draws that built it.
@@ -374,8 +375,8 @@ local function run(p: Fuzz.Property): integer
       if again then
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
-          "  input (%d bytes, hex): %s\n  %s\n  reproduce: %s"):
-           format(p.name, where, why, #input, shown(input),
+          "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
+           format(p.name, where, why, plural.count(#input, "byte"), shown(input),
             kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
             reproduce), 0)
       end
@@ -400,10 +401,11 @@ local function run(p: Fuzz.Property): integer
       if kept ~= nil then local _, _ = Fs.write(kept, small) end
       local keep = corpus_of(p) .. "/" .. corpus_name(small)
       error(("fuzz %s: %s: %s\n" ..
-        "  shrunk in %d tries from %d draws and %d bytes to %d draws and %d bytes; input (hex): %s%s\n" ..
+        "  shrunk in %s from %s and %s to %s and %s; input (hex): %s%s\n" ..
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
-         format(p.name, where, why, tries, #draws, #input, #smallest, #small, shown(small), flaky,
+         format(p.name, where, why, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
+          plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
           kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
           reproduce,
           kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep)
@@ -434,8 +436,8 @@ local function run(p: Fuzz.Property): integer
       local reached_by = counts[name] or 0
       if reached_by < p.shares[name] * iters then
         if kept ~= nil then local _, _ = Fs.remove(kept) end
-        error(("fuzz %s: seed=%d: %d inputs of %d reached %q, under the share of %g the property " ..
-          "requires: its inputs exercise it too rarely"):format(p.name, seed, reached_by, iters, name,
+        error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
+          "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
           p.shares[name]), 0)
       end
     end

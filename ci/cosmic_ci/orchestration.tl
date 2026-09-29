@@ -14,6 +14,7 @@ local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Time = require("cosmic.time")
+local Plural = require("cosmic_ci.plural")
 
 local record Orchestration
   stands: function(env: {string:string}): boolean
@@ -1283,7 +1284,7 @@ local function provenance_impl(c: Context, products: string): integer
       if baseline then assert(baseline == digest, "worker artifact hashes differ") else baseline = digest end
       count = count + 1
     end end
-  assert(expected and count == expected, "expected " .. tostring(expected) .. " products, found " .. count)
+  assert(expected and count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. count)
   return step(c, "provenance comparison", function(): boolean, string
     return true
   end)

@@ -46,6 +46,7 @@ local bind = require("build.bind")
 local clock = require("build.clock")
 local log = require("build.verdict").log
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 local text = bind.text
 
@@ -180,7 +181,7 @@ local function notice_text(directory: string, notice: bom.Notice): string | nil,
     end
   end
   if number < notice.last then
-    return nil, path .. ": has " .. number .. " lines, not " .. notice.last
+    return nil, path .. ": has " .. plural.count(number, "line") .. ", not " .. notice.last
   end
   return table.concat(kept, "\n") .. "\n"
 end
@@ -458,7 +459,7 @@ local function run(argv: {integer:string}): integer
       return finish(1, "the binary's own database")
     end
     log:say(notices)
-    return finish(0, #rows .. " components")
+    return finish(0, plural.count(#rows, "component"))
   end
   local path = parsed.values["--json"]
   if path ~= nil then
@@ -472,12 +473,12 @@ local function run(argv: {integer:string}): integer
       log:complain("bom: " .. path .. ": " .. write_trouble)
       return finish(1, path)
     end
-    return finish(0, #rows .. " components written to " .. path)
+    return finish(0, plural.count(#rows, "component") .. " written to " .. path)
   end
   for _, line in ipairs(lines_of(rows)) do
     log:say(line)
   end
-  return finish(0, #rows .. " components")
+  return finish(0, plural.count(#rows, "component"))
 end
 
 --- The `bom` verb as `build/verb_list.tl` lists it. The rows are the

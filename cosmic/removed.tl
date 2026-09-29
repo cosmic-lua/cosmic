@@ -41,11 +41,6 @@ local record Module
   --- Where to look for a removed name, or a field of it `replacements`
   --- has no entry for.
   names: {string:string}
-  --- What to write instead of a member a `cosmic.*` module no longer
-  --- has, by the module's name and the member's (`cosmic.hash.hex`).
-  --- The compiler says it after its `invalid key` for the member, or,
-  --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
-  --- after its `unknown type`.
   -- TODO: a field removed from a record a caller builds as a table
   -- literal (cosmic.archive's ExtractOptions.strip, replaced by
   -- strip_prefix and strip_components) has no entry: the checker says only `unknown
@@ -57,6 +52,12 @@ local record Module
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as `core/surface.c` does for a
   -- removed global, once a module's record can answer a missing field.
+
+  --- What to write instead of a member a `cosmic.*` module no longer
+  --- has, by the module's name and the member's (`cosmic.hash.hex`).
+  --- The compiler says it after its `invalid key` for the member, or,
+  --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
+  --- after its `unknown type`.
   members: {string:string}
   --- What to write instead of `name`, or of its field `field`.
   message: function(name: string, field?: string): string

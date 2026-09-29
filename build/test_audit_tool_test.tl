@@ -60,7 +60,7 @@ local function test_an_undeclared_read_fails_the_audit_until_it_is_declared(tmp:
   project(root, false)
   local ok, text = audit(root, tmp .. "/first.out")
   assert(not ok, text)
-  assert(text:find("audit: suite.reads_test (suite/reads_test.tl): 1 of 1 tests read " ..
+  assert(text:find("audit: suite.reads_test (suite/reads_test.tl): 1 of 1 test read " ..
     "what they do not declare\n  test_reads:\n    reads        data/extra.txt\n" ..
     '  declare: Test.needs { reads = { "data/extra.txt" } }\n', 1, true), text)
   assert(not text:find("helper.tl", 1, true) and not text:find("missing", 1, true), text)
