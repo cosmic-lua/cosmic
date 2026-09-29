@@ -656,14 +656,15 @@ Items, in order:
    - Shows: main runs under 2 min with none cancelled; runner-minutes
      per landed change from about 65 to about 38; the queue's suites
      stand more (its restores one commit behind).
-3. **The checked suite in its own gating job (M): next.** M1's second
-   measurement: linux-x86_64 is the gate in 9 of 13 runs, its checked
-   suite 178 to 345 s. Standing more does not shorten it much (the
-   tests left to run are the slow ones).
-   Re-measure after item 2. If linux-x86_64 still runs more than a
-   minute over the other legs, the checked suite moves to a job of its
-   own (a native-suite skip on the build, then `platform checked`).
-   - Shows: the median queue run at 8 min or less.
+3. **The checked suite in its own gating job (M): landed (#2340).**
+   `checked` (linux-x86_64-checked) runs `platform boot`,
+   `platform checked-build` and `platform checked` beside the legs,
+   with verdicts and a seed of its own. Its first queue run
+   (36522185988, cold) took 7.0 min; the legs took 9.2 to 9.8, so
+   linux-x86_64 is no longer the pole. The gate is now each leg's
+   fixtures step, 2.8 to 4.1 min: items 4 and 5 are next. The main
+   push (36523159537) took 57 s and saved the job's verdicts.
+   - Shows: the median queue run at 8 min or less (after items 4, 5).
 4. **Fixtures compile their project once per leg (S),** through one
    `COSMIC_BUILD_CACHE` in the work directory (`orchestration.tl:489`).
    This is 4.1's bullet, done without sandboxing. About 20 s a leg.
@@ -671,12 +672,22 @@ Items, in order:
    macOS, every leg in the scheduled run, as the fixed-point
    regression does (`COSMIC_CI_SELF_REBUILD`). About 3 runner-minutes a
    full run.
-6. **No tree put-back around the cache saves (S–M).** Keep
-   `$GITHUB_WORKSPACE` a directory and link only the working directory
-   into the moved tree, so `ci.yml:738` and `:773` go.
+6. **No tree put-back around the cache saves (S–M).** The tree is
+   placed exactly one level deep, varying only its name by commit and
+   leg, so actions/cache's `../../_temp` paths resolve with the tree
+   moved and the mid-job put-back and re-move go. The absolute path
+   still moves, which is what catches a test that depends on it; the
+   depth no longer varies. (Linking only `ci` and `.github` into a
+   moved tree, with a `COSMIC_CI_ROOT` for the driver, is the fuller
+   form, kept in reserve.)
 7. **A branch restores from its merge base (M).** Main's saves also
    take a key by SHA, kept a day or two; a branch run looks up
    `git merge-base HEAD origin/main`'s key first, then the newest.
+   The base comes from the compare API (`contents: read`, no deeper
+   fetch); verdicts only, since compiles cost about 20 s. The aliases
+   take about 2.3 GB a day, so a main push prunes `-sha-` entries
+   older than 24 h. A doc-only skip is not safe: `doc/guides/*.md`
+   compile into tests.
    - Shows: a branch five commits behind main stands on verdicts.
 8. **The portable suite narrowed:** re-decided after item 2, with its
    numbers.
