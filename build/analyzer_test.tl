@@ -1428,3 +1428,192 @@ local function test_a_comment_before_the_next_local_is_not_carried()
   assert(found[1].source:find("Fs.setup{ key = 1 }\n\nfunction Example.read()", 1, true),
     found[1].source)
 end
+
+--- A file-local helper the body calls is carried above the function,
+--- after the requires, with the comment above it; one nothing calls is
+--- not, and neither is the `Example` record.
+local function test_an_example_carries_the_helpers_it_calls()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "--- A scratch path.",
+    "local function scratch(): string",
+    "  return assert(Fs.mkdtemp(\"x-\"))",
+    "end",
+    "",
+    "local function unused(): string",
+    "  return \"never\"",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(scratch())",
+    "end",
+  }))
+  assert(#found == 1, tostring(#found))
+  assert(found[1].source == lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "--- A scratch path.",
+    "local function scratch(): string",
+    "  return assert(Fs.mkdtemp(\"x-\"))",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(scratch())",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A helper another helper calls is carried too, and the require only
+--- that one names, all in source order.
+local function test_an_example_carries_a_helpers_helper()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "local BASE <const> = \"x-\"",
+    "",
+    "local function inner(): string",
+    "  return BASE .. Hash.hex(\"y\")",
+    "end",
+    "",
+    "local function outer(): string",
+    "  return inner()",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(outer())",
+    "end",
+  }))
+  assert(found[1].source == lines({
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "local BASE <const> = \"x-\"",
+    "",
+    "local function inner(): string",
+    "  return BASE .. Hash.hex(\"y\")",
+    "end",
+    "",
+    "local function outer(): string",
+    "  return inner()",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(outer())",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A `local record` only a type annotation names is a helper.
+local function test_an_example_carries_a_record_named_only_in_a_type()
+  local found = examples(lines({
+    "local record Release",
+    "  tag: string",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local value: Release = { tag = \"v1\" }",
+    "  print(value.tag)",
+    "end",
+  }))
+  assert(found[1].source:find("^local record Release\n  tag: string\nend\n\nfunction Example%.read"),
+    found[1].source)
+end
+
+--- A helper longer than the cap is left out, and so is one that would
+--- take the carried helpers over their total.
+local function test_a_long_helper_is_not_carried()
+  local long: {string} = { "local function long(): integer" }
+  for at = 1, 15 do long[#long + 1] = "  local v" .. at .. " = " .. at end
+  long[#long + 1] = "  return v1"
+  long[#long + 1] = "end"
+  local source = lines(long) .. lines({
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(long())",
+    "end",
+  })
+  local found = examples(source)
+  assert(found[1].source == "function Example.read()\n  print(long())\nend", found[1].source)
+end
+
+--- A helper is carried by a free name of the body alone: a body-local
+--- of the same name, a word in a string and one in a comment carry
+--- nothing, and neither does a plain `--` note above a carried helper.
+local function test_helpers_are_carried_by_free_names_only()
+  local found = examples(lines({
+    "local function text(): string",
+    "  return \"x\"",
+    "end",
+    "",
+    "local function quoted(): string",
+    "  return \"y\"",
+    "end",
+    "",
+    "local function noted(): string",
+    "  return \"z\"",
+    "end",
+    "",
+    "-- TODO: a note that stays in the file.",
+    "--- Really used.",
+    "local function used(): string",
+    "  return \"u\"",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local text = \"mine\"",
+    "  -- noted() is only in this comment",
+    "  print(text, \"quoted()\", used())",
+    "end",
+  }))
+  assert(found[1].source == lines({
+    "--- Really used.",
+    "local function used(): string",
+    "  return \"u\"",
+    "end",
+    "",
+    "function Example.read()",
+    "  local text = \"mine\"",
+    "  -- noted() is only in this comment",
+    "  print(text, \"quoted()\", used())",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A name that is bound before the helper's name would be read, in a
+--- nested function's parameter, does not carry the helper either; a
+--- multi-name `local` is carried whole.
+local function test_a_parameter_shadows_a_helper_and_a_multi_name_local_is_whole()
+  local found = examples(lines({
+    "local A <const>, B <const> = 1, 2",
+    "",
+    "local function shadowed(): string",
+    "  return \"s\"",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local f = function(shadowed: string): string return shadowed end",
+    "  print(f(\"a\"), B)",
+    "end",
+  }))
+  assert(found[1].source:find("^local A <const>, B <const> = 1, 2\n\nfunction Example%.read"),
+    found[1].source)
+end

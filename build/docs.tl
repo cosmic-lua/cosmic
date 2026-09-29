@@ -246,21 +246,61 @@ local function example_body(source: string): string
   return source:match("function Example%..*$") or source
 end
 
+--- Whether `line` closes the statement above it rather than begins one.
+local function closes(line: string): boolean
+  return line:match("^[})%]]") ~= nil or line:match("^end%f[^%w_]") ~= nil
+end
+
+--- What the analyzer put above an example's function, cut into its
+--- top-level pieces: a `require`, a helper (any other `local`) or a
+--- call (`Test.needs{...}`), each with the comment lines above it. The
+--- text is in the layout `cosmic fix` writes, so a piece begins at a
+--- line in column one that does not close the one before. `code` is a
+--- piece's first line that is not a comment.
+local function pieces_of(head: string): {{string}}
+  local out: {{string}} = {}
+  local lines: {string} = {}
+  local code = ""
+  local function finish()
+    while #lines > 0 and lines[#lines] == "" do lines[#lines] = nil end
+    if #lines > 0 then out[#out + 1] = { table.concat(lines, "\n"), code } end
+    lines = {}
+    code = ""
+  end
+  for line in (head .. "\n"):gmatch("(.-)\n") do
+    local comment = line:match("^%-%-") ~= nil
+    if line ~= "" and line:match("^%s") == nil and not closes(line) then
+      if code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
+        finish()
+      end
+      if not comment then code = line end
+    end
+    lines[#lines + 1] = line
+  end
+  finish()
+  return out
+end
+
 --- An example's source as its page for `symbol` shows it. The analyzer
---- puts above the function the `require` lines it needs and, for a
+--- puts above the function the `require` lines it needs, the short
+--- helpers it uses (`local function`, `local record`, ...) and, for a
 --- file's first example, the file's top-level calls (`Test.needs{...}`).
 --- Those calls are shown only on the page of a symbol they call; any
---- other page gets the function and the `require` lines its body names.
+--- other page gets the function, the helpers and the `require` lines
+--- its body and helpers name.
 local function shown_source(source: string, symbol: string): string
   local body = example_body(source)
   local head = source:sub(1, #source - #body)
   local requires: {string} = {}
+  local helpers: {string} = {}
   local calls: {string} = {}
-  for line in head:gmatch("[^\n]+") do
-    if line:match("^local [%w_]+ = require%(") ~= nil then
-      requires[#requires + 1] = line
+  for _, piece in ipairs(pieces_of(head)) do
+    if piece[2]:match("^local [%w_]+ = require%(") ~= nil then
+      requires[#requires + 1] = piece[1]
+    elseif piece[2]:match("^local ") ~= nil then
+      helpers[#helpers + 1] = piece[1]
     else
-      calls[#calls + 1] = line
+      calls[#calls + 1] = piece[1]
     end
   end
   if #calls == 0 then
@@ -270,20 +310,24 @@ local function shown_source(source: string, symbol: string): string
   if calls_of(call_text, symbol) > 0 then
     return source
   end
+  local wanted = body .. "\n" .. table.concat(helpers, "\n")
   local kept: {string} = {}
   for _, line in ipairs(requires) do
     local name = line:match("^local ([%w_]+)")
     local found = false
     local from = 1
     while name ~= nil and not found do
-      local at, to = body:find(name, from, true)
+      local at, to = wanted:find(name, from, true)
       if at == nil then break end
-      found = starts_name(body, at) and body:sub(to + 1, to + 1):match("[%w_]") == nil
+      found = starts_name(wanted, at) and wanted:sub(to + 1, to + 1):match("[%w_]") == nil
       from = to + 1
     end
     if found then kept[#kept + 1] = line end
   end
-  return (#kept > 0 and table.concat(kept, "\n") .. "\n\n" or "") .. body
+  local out = ""
+  if #kept > 0 then out = table.concat(kept, "\n") .. "\n\n" end
+  if #helpers > 0 then out = out .. table.concat(helpers, "\n\n") .. "\n\n" end
+  return out .. body
 end
 
 --- `found` in the order a reader wants them: an example named for the
