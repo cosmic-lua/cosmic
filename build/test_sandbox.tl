@@ -188,6 +188,26 @@ function test_sandbox.environment(environment: {string:string},
   return out
 end
 
+--- The environment of a worker keyed as a sandboxed one is but run
+--- unsandboxed (COSMIC_TEST_KEY=declared), with `environment` the
+--- runner's view of a worker's: what `environment` gives one of
+--- `effective`, but with TMPDIR `scratch`, its own scratch directory on
+--- the host, and COSMIC_PORTABLE_CACHE as the view has it. The cores of
+--- its own a sandbox gives it are at a path only a sandbox has, and a
+--- process confined to them (build/c/init.tl's compilers) would find no
+--- directory there and not start; nothing here keeps it from writing
+--- over this program's core in the host's anyway.
+function test_sandbox.unenforced_environment(environment: {string:string},
+                                             effective: test_inputs.Effective,
+                                             scratch: string): {string:string}
+  local out = test_sandbox.environment(environment, effective)
+  out.TMPDIR = scratch
+  if out.COSMIC_PORTABLE_CACHE == own_cores then
+    out.COSMIC_PORTABLE_CACHE = environment.COSMIC_PORTABLE_CACHE
+  end
+  return out
+end
+
 --- The host caches a sandboxed worker of `effective` writes, with
 --- `environment` the runner's view of a worker's: each it declares
 --- (`effective.cache_paths`) but the cores a portable cosmic extracts

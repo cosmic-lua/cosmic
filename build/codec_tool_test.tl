@@ -51,11 +51,16 @@ end
 
 local function test_a_failed_standard_output_write_exits_2(tmp: string)
   -- /dev/full is where a write fails with ENOSPC, on Linux.
+  -- TODO: give a sandboxed worker /dev/full beside /dev/null and
+  -- /dev/zero (build/test_sandbox.tl): it has none, so on a Linux leg,
+  -- where every worker is sandboxed, this returns having checked nothing.
   if Fs.stat("/dev/full") == nil then return end
+  local full = assert(Fs.open_write("/dev/full"))
   local started = this_program.program({ "codec", "hex" }, {
-    cwd = tmp, stdout = "/dev/full", stderr = "capture", input = "abc", timeout_ms = 30000,
+    cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ms = 30000,
   })
   local result = assert(Child.run(started.argv, started.options))
+  assert(Fs.close(full))
   assert(result.code == 2, tostring(result.code))
   assert((result.stderr or ""):find("cosmic: codec: standard output: ", 1, true), result.stderr)
 end

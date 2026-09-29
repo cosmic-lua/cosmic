@@ -2778,9 +2778,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- holds only by the closure store's address, and only a lookup
     -- through `Store` is held to its closure (build.test_worker's
     -- `hold_store`); a Linux leg's sandbox enforces what macOS trusts.
-    env = {}
-    for name, value in pairs(view_of(rec, job.m) or {}) do env[name] = value end
-    env.TMPDIR = scratch
+    env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch)
   end
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000

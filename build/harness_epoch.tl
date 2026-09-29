@@ -56,7 +56,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = 4
+harness_epoch.epoch = 5
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
@@ -87,11 +87,11 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
-  ["build.test"] = "a4442afa7a71d82ab9fff9ee1e554ba82dfbf24c2f634c408de2afea0d111e83",
+  ["build.test"] = "669cdc4852df355731a1946c08b0a826fb9d743b6117fbcc9b9ae1b8b8ea9063",
 
   ["build.test_inputs"] = "309b687417091781ed335c2b7378163882bf0803574fa2954f4a5b9f48cf2cc8",
 
-  ["build.test_sandbox"] = "e2dc150a1bc4401879766319a8b2532b42d57b65fa8980c156ae8ad69ae2bb5b",
+  ["build.test_sandbox"] = "4c43fb04b87440ba53ec355ee8b58a9b05b33d474e17fe713cbfb558573ac625",
 
   ["build.test_worker"] = "fa3fcb2b65ccb759bb3df97dfb6335d0476d0468503540115e94aa0825bacb81",
 
