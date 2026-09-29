@@ -765,11 +765,11 @@ COSMIC_SYSCALL(access, 2) {
   luaL_argcheck(L, (mode & ~(R_OK | W_OK | X_OK)) == 0, 2,
                 "not 0 or R_OK, W_OK and X_OK or'd together");
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  /* Noted as a stat of the path, which holds its mode and owner.
-   * TODO: key what else the answer turns on -- the process's ids, a
-   * mount's noexec or read-only flag, an ACL -- which no stat record
-   * holds, and the shared verdict cache keys a stat by its kind, size
-   * and mode alone. */
+  /* Noted as a stat of the path, which holds its mode and owner. The
+   * shared cache keys a stat by kind, size and mode alone, but the host
+   * identity every sandboxed key holds names the process's ids, groups and
+   * capabilities, and the sandbox fixes each path's mount flags: only an
+   * ACL, which nothing a test is given carries, is left -- accepted. */
   if (cosmic_observing &&
       !cosmic_observed_ask(L, COSMIC_OBSERVED_STAT, cosmic_query_stat)) {
     return cosmic_fail_effect(L, ENOMEM);

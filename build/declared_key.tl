@@ -271,6 +271,9 @@ local record declared_key
     own_proc: boolean
     host_id: string
     uid: integer
+    --- The system's paths `system_identity` walks, where it walks them:
+    --- by default `confine.system_paths`, less /etc (`walked_paths`).
+    walked: {string}
   end
 end
 
@@ -705,7 +708,7 @@ end
 --- key could hold by what it holds: a directory is refused before any
 --- key is made (`test_inputs.resolve`). What the system's own
 --- directories hold, which a module that declares `system` is given, is
---- keyed by the package database (the TODO on `system_identity`).
+--- keyed by the package database and a walk of them (`system_identity`).
 local function host(digests: declared_key.Digests, path: string): string
   return once(digests, "h\0" .. path, function(): string
     local _, answer = entry(digests, path, true)
@@ -1106,38 +1109,164 @@ function declared_key.host_identity(digests: declared_key.Digests,
   return hex_sha256(table.concat(lines, "\n"))
 end
 
+--- The system's paths the walk of what is installed covers: `paths`,
+--- by default those a sandbox gives a module that declares `system`
+--- (`confine.system_paths`), but /etc, and any other named `etc`. /etc
+--- is the host's configuration, not what it has installed, and changes
+--- with it -- a user added (every CI leg adds one as it starts), the
+--- clock's drift saved -- so walking it would run every `system` module
+--- again on every host, every time; what of it a key needs, the system
+--- it says it is, is read by name. That stays.
+local function walked_paths(paths: {string}): {string}
+  local out: {string} = {}
+  for _, path in ipairs(paths) do
+    if path:match("[^/]+$") ~= "etc" then out[#out + 1] = path end
+  end
+  return out
+end
+
+--- What `paths` hold, by a walk of each: every file beneath it by its
+--- name, what it is, its mode, size and modification time, a link by
+--- where it leads, and a directory by its name and mode -- what a file
+--- changed by hand, or a package installed from source, moves, and
+--- that a copy of the same image or disk answers alike on every host
+--- it runs on, as the inode, device and change time, which the walk
+--- leaves out, do not: a file rewritten with its size and modification
+--- time put back is not told apart, for good, as a key of the tree
+--- holds no times at all. A directory's own size and modification
+--- time are left out too: what they say of it, its entries added,
+--- removed or renamed, its names say, and they move besides with every
+--- cache written beneath it and removed again. A path that is a link
+--- is walked no further (a merged /usr's /bin is walked as /usr/bin); a
+--- directory it cannot list is said so; an entry on another device than
+--- its path, bound there, by its name alone. Answers the digest, each
+--- directory walked with what `lstat` said of it, and the latest time
+--- one of them was modified, in nanoseconds.
+-- TODO: walk in C, as `sys.tree_digest` walks by stamps, once it can
+-- digest by these fields alone, leaving out the inode, device and
+-- change time: here each entry's `lstat` crosses into Lua, which takes
+-- about twice its walk (a second of /usr's 85,000 entries on an idle
+-- host), paid wherever `remembered_walk` cannot answer.
+local function walk_system(paths: {string}): string, {string}, integer
+  local lines: {string} = {}
+  local directories: {string} = {}
+  local latest = 0
+  local function walk(path: string, dev: integer | nil)
+    local st, trouble = sys.lstat(path)
+    if st == nil then
+      lines[#lines + 1] = path .. " missing " .. tostring(trouble)
+      return
+    end
+    if dev ~= nil and st.dev ~= dev then
+      lines[#lines + 1] = path .. " mounted"
+      return
+    end
+    if st.kind == "dir" then
+      lines[#lines + 1] = path .. " dir " .. tostring(st.mode)
+      directories[#directories + 1] = path .. "\t" .. signature(st)
+      latest = math.max(latest, st.mtime * 1000000000 + st.mtime_ns)
+    else
+      local line = path .. " " .. st.kind .. " " .. tostring(st.mode) .. " " ..
+        tostring(st.size) .. " " .. tostring(st.mtime) .. "." .. tostring(st.mtime_ns)
+      if st.kind == "link" then
+        local target, _ = sys.readlink(path)
+        line = line .. " " .. tostring(target)
+      end
+      lines[#lines + 1] = line
+      return
+    end
+    local entries, refused = sys.readdir(path)
+    if entries == nil then
+      lines[#lines + 1] = path .. " unlisted " .. tostring(refused)
+      return
+    end
+    local names: {string} = {}
+    for name in pairs(entries) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do walk(path .. "/" .. name, st.dev) end
+  end
+  for _, path in ipairs(paths) do walk(path, nil) end
+  return hex_sha256(table.concat(lines, "\n")), directories, latest
+end
+
+--- The walk of `paths` (`walk_system`), remembered in `digests` as a
+--- file's hash is, under a name no file has, by what `lstat` says of
+--- each directory it walked and of `packages`, the package database:
+--- answered from there while none of them moved, and walked again
+--- otherwise. A package manager, or `install`, puts each file in place
+--- by a rename, which moves its directory; a file written in place, its
+--- directory untouched, is not seen until something else moves one --
+--- a remembered walk stands on that, where a walk of every run would
+--- not, for a second and a half. A directory that moved too recently
+--- for `lstat` to tell another move apart is not remembered.
+local function remembered_walk(digests: declared_key.Digests, paths: {string},
+                               packages: string): string
+  local name = "\1walked\0" .. table.concat(paths, "\0")
+  digests.used[name] = true
+  local was = digests.hashed[name]
+  local said, hash = (was or ""):match("^([^\0]*)\0(%x+)$")
+  if said ~= nil then
+    local still = said:sub(1, #packages + 1) == packages .. "\n"
+    if still then
+      for line in said:sub(#packages + 2):gmatch("[^\n]+") do
+        local path, stamp = line:match("^(.*)\t(.*)$")
+        local st, _ = sys.lstat(path or "")
+        if st == nil or st.kind ~= "dir" or signature(st) ~= stamp then
+          still = false
+          break
+        end
+      end
+    end
+    if still then return hash end
+  end
+  local walked, directories, latest = walk_system(paths)
+  digests.read = digests.read + 1
+  if latest < now_ns() - settle_ns then
+    digests.hashed[name] = packages .. "\n" .. table.concat(directories, "\n") .. "\0" .. walked
+  else
+    digests.hashed[name] = nil
+  end
+  return walked
+end
+
 --- What the host has installed, as the key of a module given the
 --- system's paths (`Test.needs`'s `system`) holds it: the database of
 --- the packages it has installed (`package_databases`), by contents,
 --- where there is one, hashed only when its `lstat` moves; the system
 --- it says it is (/etc/os-release; on macOS, the system volume's
---- SystemVersion.plist, `darwin_system`); and what it names of itself
---- besides (`system_variable`). `sources` moves where it looks
---- (`packages`, `system`'s first path, `system_id`), for a test.
--- TODO: key what a package database does not say: a file under /usr,
--- /etc or /lib changed by hand or by a tool other than the package
--- manager, a package installed from source into /usr/local, and a
--- container image's own layers where no `host_variable` names the
--- image. Wants a walk of the system's paths cheap enough to take every
--- run (/usr's stamps take half a second). Nor is the clock keyed: a
--- test whose verdict turns on the date stands on one reached another
--- day, which only a forced run (CI's scheduled one) catches.
--- TODO: key what a developer's Mac has installed beyond the sealed
--- system volume -- Xcode or its command line tools, /opt/homebrew,
--- /usr/local, the programs a test finds on PATH there -- where no
--- COSMIC_SYSTEM_ID names it, as CI's macOS leg names its image: wants
--- a digest of each cheap enough to take every run (Xcode's version,
--- Homebrew's installed list). Today such a Mac keys a `system` module
--- by the OS build alone, so a verdict stands across an update of them.
+--- SystemVersion.plist, `darwin_system`); what it names of itself
+--- besides (`system_variable`); and, with `walk`, which a run holding
+--- such a module asks for once, what the system's paths hold beneath
+--- them but /etc (`walk_system`, remembered by `remembered_walk`),
+--- which a package database does not say: a file under /usr or /lib
+--- changed by hand or by a tool other than the package manager, a package installed from source into /usr/local, a
+--- container image's own layers. `sources` moves where it looks
+--- (`packages`, `system`'s first path, `system_id`, `walked`), for a
+--- test.
+---
+--- On macOS, the system's paths are the sealed system volume's, which
+--- the OS build names, and walking them adds nothing; what a
+--- developer's Mac has installed beyond it -- Xcode or its command line
+--- tools, /opt/homebrew, /usr/local -- is keyed by nothing here, and
+--- stays so: macOS runs its workers unsandboxed, whose verdicts are
+--- keyed by what each test was seen to read and shared with no other
+--- checkout, and keys them by what they declare only under
+--- COSMIC_TEST_KEY=declared, as CI's macOS leg does, whose
+--- COSMIC_SYSTEM_ID names its runner image.
+-- TODO: key the clock: a test whose verdict turns on the date stands on
+-- one reached another day, which only a forced run (CI's scheduled one)
+-- catches.
 function declared_key.system_identity(digests: declared_key.Digests,
-                                      sources?: declared_key.HostSources): string
+                                      sources?: declared_key.HostSources, walk?: boolean): string
   local started = monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
+  local packages = "none"
   for _, path in ipairs(from.packages or package_databases) do
     local st, _ = sys.stat(path)
     if st ~= nil and st.kind == "file" then
       lines[#lines + 1] = "packages " .. path .. " " .. contents(digests, path, st)
+      packages = path .. " " .. signature(st)
       break
     end
   end
@@ -1149,6 +1278,10 @@ function declared_key.system_identity(digests: declared_key.Digests,
   local system_id = from.system_id
   if system_id == nil then system_id = sys.getenv(system_variable) or "" end
   lines[#lines + 1] = "system " .. system_id
+  if walk then
+    lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
+      packages)
+  end
   digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
   return hex_sha256(table.concat(lines, "\n"))
 end

@@ -3442,7 +3442,15 @@ local function run(argv: {integer:string}): integer
     end
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
-    rec.system = declared_key.system_identity(rec.digests)
+    -- What the system's paths hold is walked only for a run that holds
+    -- a module given them, whose key alone holds it: half a second of
+    -- /usr's entries otherwise spent for nothing.
+    local holds_system = false
+    for _, m in ipairs(selected_modules) do
+      local effective = rec.effective[m.path]
+      if effective ~= nil and effective.system then holds_system = true end
+    end
+    rec.system = declared_key.system_identity(rec.digests, nil, holds_system)
     rec.tool = rec.tool or confine.itself()
     rec.program = declared_key.program_identity(rec.digests, rec.tool)
     -- The runtime identity holds the core an artifact selects, not the

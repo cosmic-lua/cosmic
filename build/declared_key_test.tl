@@ -369,13 +369,13 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
       sysname = "Linux", system_id = "s1",
       cpuinfo = write("cpuinfo", "flags : aes pclmulqdq asimd\n"), machine = "x86_64",
       status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
-      own_proc = true, host_id = "h1", uid = 1,
+      own_proc = true, host_id = "h1", uid = 1, walked = { write("walked", "w1") },
     }
   end
   local function key(sources: declared_key.HostSources): string
     local digests = declared_key.digests(tmp)
     return declared_key.host_identity(digests, sources) .. " " ..
-      declared_key.system_identity(digests, sources)
+      declared_key.system_identity(digests, sources, true)
   end
   local function set(field: string, value: any): Change<declared_key.HostSources>
     return { change = function(s: declared_key.HostSources)
@@ -391,6 +391,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     system_id = set("system_id", "s2"), cpuinfo = set("cpuinfo", tmp .. "/cpuinfo2"),
     machine = set("machine", "aarch64"), status = set("status", tmp .. "/status2"),
     own_proc = set("own_proc", false), host_id = set("host_id", "h2"), uid = set("uid", 2),
+    walked = set("walked", { write("walked2", "w22") }),
   }
   each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
     function(s: declared_key.HostSources): any return s end, key, changes, {})
@@ -733,6 +734,130 @@ local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed
     "a module given /proc, which no package installs")
   assert(key_on(one, true, {}) ~= key_on(other, true, {}), "a module given the system")
   assert(key_on(one, true, {}) ~= key_on(one, false, {}), "declaring the system")
+end
+
+--- What the system's paths hold beneath them moves what is installed
+--- where a run walks them, as one holding a module given them does:
+--- a file changed by hand, one added, a link that leads elsewhere --
+--- none of which a package database says -- but not a walk of the same
+--- entries again. A run that holds no such module walks nothing, and
+--- nothing beneath them moves it.
+local function test_a_change_outside_a_package_moves_what_is_installed(tmp: string)
+  local usr = tmp .. "/usr"
+  assert(Fs.mkdirs(usr .. "/bin"))
+  assert(Fs.mkdirs(usr .. "/local"))
+  assert(Fs.write(usr .. "/bin/tool", "one\n"))
+  assert(sys.symlink("usr/bin", tmp .. "/bin"))
+  local sources: declared_key.HostSources = {
+    packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+    walked = { usr, tmp .. "/bin", tmp .. "/no-lib" },
+  }
+  local function installed(walk: boolean): string
+    return declared_key.system_identity(declared_key.digests(tmp), sources, walk)
+  end
+  local seen: {string:string} = {}
+  local function differs(what: string)
+    local id = installed(true)
+    assert(seen[id] == nil, what .. " is installed as " .. tostring(seen[id]) .. " was")
+    seen[id] = what
+  end
+  local unwalked = installed(false)
+  differs("the start")
+  assert(installed(true) == installed(true), "the same entries")
+  assert(Fs.write(usr .. "/bin/tool", "two, longer\n"))
+  differs("a file changed by hand")
+  assert(Fs.write(usr .. "/local/installed", "from source\n"))
+  differs("a file added beside every package")
+  assert(Fs.remove(tmp .. "/bin"))
+  assert(sys.symlink("usr/local", tmp .. "/bin"))
+  differs("a link that leads elsewhere")
+  assert(installed(false) == unwalked, "a run that walks nothing moved")
+  -- A directory's own modification time is no part of it: a cache
+  -- written beneath one and removed again moves only that.
+  local before = installed(true)
+  assert(Fs.write(usr .. "/bin/__pycache__", "x"))
+  assert(Fs.remove(usr .. "/bin/__pycache__"))
+  assert(installed(true) == before, "a directory's modification time moved it")
+end
+
+--- The walk of what is installed leaves out /etc, the host's
+--- configuration, which a user added or the clock's drift saved
+--- rewrites: a /etc/passwd whose modification time alone moved, or
+--- whose contents did, moves nothing.
+local function test_the_walk_of_what_is_installed_leaves_out_etc(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/usr"))
+  assert(Fs.mkdirs(tmp .. "/etc"))
+  assert(Fs.write(tmp .. "/etc/passwd", "root:x:0:0\n"))
+  local function installed(): string
+    return declared_key.system_identity(declared_key.digests(tmp), {
+      packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+      walked = { tmp .. "/usr", tmp .. "/etc" },
+    }, true)
+  end
+  local before = installed()
+  assert(Fs.set_mtime(tmp .. "/etc/passwd", 1000000000))
+  assert(installed() == before, "/etc/passwd's modification time moved it")
+  assert(Fs.write(tmp .. "/etc/passwd", "root:x:0:0\nrunner:x:1001:1001\n"))
+  assert(installed() == before, "a user added moved it")
+end
+
+--- A walk is remembered, in this run and, through `kept`, the next, by
+--- what `lstat` says of each directory it walked: while none moved it is
+--- not walked again, even where a file was written in place, which moves
+--- no directory; a file added moves its directory, and it is.
+local function test_a_walk_is_remembered_while_no_directory_moves(tmp: string)
+  local usr = tmp .. "/usr"
+  assert(Fs.mkdirs(usr .. "/bin"))
+  assert(Fs.write(usr .. "/bin/tool", "one\n"))
+  local long_ago = 1000000000
+  for _, dir in ipairs({ usr, usr .. "/bin" }) do assert(Fs.set_mtime(dir, long_ago)) end
+  local sources: declared_key.HostSources = {
+    packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" }, walked = { usr },
+  }
+  local digests = declared_key.digests(tmp)
+  local first = declared_key.system_identity(digests, sources, true)
+  assert(digests.read == 1, "the first walk read " .. digests.read)
+  assert(declared_key.system_identity(digests, sources, true) == first)
+  assert(digests.read == 1, "a walk no directory moved since was walked again")
+  local next_run = declared_key.digests(tmp, declared_key.kept(digests))
+  local fd = assert(Fs.open_write(usr .. "/bin/tool"))
+  assert(Fs.put(fd, "two, written in place\n"))
+  assert(Fs.close(fd))
+  assert(declared_key.system_identity(next_run, sources, true) == first,
+    "a remembered walk was not remembered in the next run")
+  assert(next_run.read == 0, "the next run walked again")
+  assert(Fs.write(usr .. "/bin/added", "new\n"))
+  assert(declared_key.system_identity(next_run, sources, true) ~= first,
+    "a file added, which moved its directory, moved nothing")
+  assert(next_run.read == 1)
+end
+
+--- The host programs a test's processes run from the system's paths --
+--- the `sh`, `sed`, `wc` and `tr` bin/zig's scripts run for the C check
+--- (build/c/init.tl) -- are what the key of a module given those paths
+--- holds: a `wc` replaced on the PATH they are found on moves it, where
+--- the module declares `system`, and a module not given them, whose
+--- processes cannot run them, does not move.
+local function test_a_changed_tool_moves_a_system_modules_key(tmp: string)
+  tree(tmp .. "/tree")
+  local bin = tmp .. "/host/usr/bin"
+  assert(Fs.mkdirs(bin))
+  for _, tool in ipairs({ "sh", "sed", "wc", "tr" }) do
+    assert(Fs.write(bin .. "/" .. tool, tool .. "\n"))
+  end
+  local function key_on(declares_system: boolean): string
+    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PATH = bin })
+    s.system = declared_key.system_identity(declared_key.digests(tmp), {
+      packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+      walked = { tmp .. "/host/usr" },
+    }, declares_system)
+    s.effective.system = declares_system
+    return key_of(tmp .. "/tree", s)
+  end
+  local given, not_given = key_on(true), key_on(false)
+  assert(Fs.write(bin .. "/wc", "another wc\n"))
+  assert(key_on(true) ~= given, "a changed wc moved no key of a module given the system")
+  assert(key_on(false) == not_given, "a module not given the system moved")
 end
 
 --- The program's identity is its files' contents, but for the stamp
