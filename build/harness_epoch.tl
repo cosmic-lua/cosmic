@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.store"] = "8a1dbc071ec185961b3771dd60ea362a4b62c720f96991f1d048989c5b07491c",
 
-  ["cosmic.stream"] = "f096a19e655719573d27b6a24ceea4677a92099fdf1fc38ad2a5e9d9245e931b",
+  ["cosmic.stream"] = "c9b4ab66256f49636e94a0600100d64b075cfe86808db524d6d62bfae7448a13",
 
   ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
 

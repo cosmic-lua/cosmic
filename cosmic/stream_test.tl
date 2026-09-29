@@ -342,6 +342,28 @@ local function test_a_file_reader_skips_by_seeking_and_refuses_to_pass_the_end(t
   assert(r:close())
 end
 
+local function test_prepend_yields_the_prefix_then_the_reader()
+  local r = Stream.prepend("abc", Stream.from_string("defg"))
+  assert(r:read(2) == "ab")
+  assert(r:read() == "c")
+  assert(r:read(3) == "def")
+  assert(r:read() == "g")
+  local done, trouble = r:read()
+  assert(done == nil and trouble == "", trouble)
+  assert(r:close())
+  local none, why = r:read()
+  assert(none == nil and why ~= "")
+end
+
+local function test_prepend_of_nothing_is_the_reader_and_close_closes_it()
+  local inner = Stream.from_string("xy")
+  local r = Stream.prepend("", inner)
+  assert(Stream.read_all(r) == "xy")
+  assert(r:close())
+  local none, why = inner:read()
+  assert(none == nil and why ~= "")
+end
+
 local function test_skip_falls_back_to_reading_for_a_reader_that_cannot_seek()
   local r = Stream.limit(Stream.from_string("abcdef"), 6)
   assert(r.skip == nil)

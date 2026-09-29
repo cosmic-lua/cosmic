@@ -313,6 +313,33 @@ function Stream.limit(reader: Stream.Reader, n: integer): Stream.Reader
   return r
 end
 
+--- A Reader that yields `prefix` first and then whatever `reader` has:
+--- bytes already read from `reader` put back, so a caller can look at the
+--- start of a stream (to tell its format) without losing them. Closing it
+--- closes `reader`. It cannot `skip`.
+function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
+  local at = 1
+  local closed = false
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    if closed then return nil, closed_message end
+    if at <= #prefix then
+      local want = max or (#prefix - at + 1)
+      if want <= 0 then return nil, "" end
+      local chunk = prefix:sub(at, at + want - 1)
+      at = at + #chunk
+      return chunk, ""
+    end
+    return reader:read(max)
+  end
+  r.close = function(_self: Stream.Reader): boolean, string
+    if closed then return true, "" end
+    closed = true
+    return reader:close()
+  end
+  return r
+end
+
 --- Reads exactly `n` bytes, or nil and an error when the stream ends
 --- first.
 function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, string
