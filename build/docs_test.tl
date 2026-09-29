@@ -1813,3 +1813,77 @@ local function test_a_public_source_lists_and_finds_a_user_guide(_: string)
   assert(lines:find("## first step", 1, true) ~= nil, lines)
   assert(#assert(docs.lookup(public, "portable-runtime")) == 0, "an internal guide is public")
 end
+
+--- The helpers an example carries show between its requires and its
+--- function, on the page of a symbol it calls and on another's, and only
+--- the function counts toward "the shorter" in the ranking.
+local function test_an_example_page_shows_its_helpers_above_the_function(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "local function path(): string",
+      "  return \"x\"",
+      "end",
+      "",
+      "--- Reads a file back.",
+      "function Example.read()",
+      "  print(Fs.read(path()))",
+      "end",
+      "",
+      "return Example"),
+  }))
+  local looked = view({ db })
+  local page = table.concat(assert(docs.render(looked,
+    assert(docs.lookup(looked, "Fs.read"))[1])), "\n")
+  assert(page:find('    local Fs = require("cosmic.fs")\n\n    local function path(): string\n' ..
+    '      return "x"\n    end\n\n    function Example.read()', 1, true), page)
+end
+
+--- With a top-level call also carried, a page of a symbol the call is
+--- not about keeps the helpers and drops the call.
+local function test_helpers_stay_when_the_calls_are_dropped(dir: string)
+  local db = built(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "",
+      "local record Thing",
+      "end",
+      "",
+      "--- Declares something.",
+      "function Thing.declare(value: string)",
+      "end",
+      "",
+      "--- Does another thing.",
+      "function Thing.other()",
+      "end",
+      "",
+      "return Thing"),
+    ["cosmic/thing_example.tl"] = source(
+      "local Thing = require(\"cosmic.thing\")",
+      "",
+      "Thing.declare{ value = \"x\" }",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "local function again()",
+      "  Thing.other()",
+      "end",
+      "",
+      "--- The call at the top.",
+      "function Example.first()",
+      "  again()",
+      "end",
+      "",
+      "return Example"),
+  })
+  local looked = view({ db })
+  local other = table.concat(assert(docs.render(looked,
+    assert(docs.lookup(looked, "Thing.other"))[1])), "\n")
+  assert(not other:find("Thing.declare", 1, true), other)
+  assert(other:find('    local Thing = require("cosmic.thing")\n\n    local function again()', 1, true), other)
+end

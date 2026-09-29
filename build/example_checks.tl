@@ -63,11 +63,39 @@ local function chunk(name: string, source: string): string
   return head .. "local Example = {} " .. rest .. "\nExample." .. name .. "()\n"
 end
 
+--- The name a finding says is unknown (`unknown variable: X`,
+--- `unknown type: X`), or nil.
+local function unknown_name(finding: string): string
+  return finding:match("unknown variable: ([%w_]+)") or finding:match("unknown type: ([%w_]+)")
+end
+
+--- Whether `file` (an example file's text) declares `name` at its top
+--- level as a helper: a `local function`, `local record`, `local type`
+--- or `local NAME`. The analyzer carries such a declaration above an
+--- example that uses it when it is short (`build.analyzer`), so one
+--- still unknown to a shown example was too long to carry.
+local function declares_helper(file: string, name: string): boolean
+  for line in file:gmatch("[^\n]+") do
+    for _, keyword in ipairs({ "function", "record", "type", "enum", "interface" }) do
+      if line:match("^local " .. keyword .. " " .. name .. "%f[^%w_]") ~= nil then
+        return true
+      end
+    end
+    if line:match("^local " .. name .. "%f[^%w_]") ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
 --- Every public example's rendered source, compiled as it is copied.
+--- A name the text lacks that its file declares as a helper is said to
+--- be one too long to carry.
 --- @param env the checker's environment: `require` of a module the
 ---   examples name is answered from it
+--- @param root the tree, whose example files are read for that
 local function examples(db: Sqlite.Handle, built: compiler,
-                                 env: compiler.Env): {string}
+                                 env: compiler.Env, root: string): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, line, name, source FROM examples WHERE " ..
     symbols.public_only("module", true) .. " ORDER BY file, line")
@@ -77,8 +105,20 @@ local function examples(db: Sqlite.Handle, built: compiler,
   local out: {string} = {}
   for _, row in ipairs(rows) do
     local where = row[1] .. ":" .. row[2] .. ": example " .. row[3]
+    local file, _ = Fs.read(root .. "/" .. row[1])
+    file = file or ""
+    local told: {string: boolean} = {}
     for _, line in ipairs(problems(built, env, where, chunk(row[3], row[4]))) do
-      out[#out + 1] = line
+      local name = unknown_name(line)
+      if name ~= nil and declares_helper(file, name) then
+        if not told[name] then
+          told[name] = true
+          out[#out + 1] = where .. ": uses helper " .. name ..
+            ", too long to carry: inline it"
+        end
+      else
+        out[#out + 1] = line
+      end
     end
   end
   return out
@@ -119,7 +159,7 @@ function example_checks.run(db: Sqlite.Handle, root: string, built: compiler,
   if env == nil then
     return { env_trouble }
   end
-  local out = examples(db, built, env)
+  local out = examples(db, built, env, root)
   for _, name in ipairs(guides or symbols.guides) do
     local file = "doc/guides/" .. name .. ".md"
     local text, read_trouble = Fs.read(root .. "/" .. file)

@@ -925,13 +925,32 @@ local function mentions(code: string, word: string): boolean
   end
 end
 
+--- A file-local declaration an example may use: a `local function`,
+--- `local record`, `local type` or `local NAME <const> = ...` that is
+--- not a `require`, whole, with the comment lines directly above it.
+--- `names` are what it binds; `lines` is its length in lines.
+local record Helper
+  names: {string}
+  code: string
+  lines: integer
+end
+
+--- The longest helper an example carries above its function, in lines,
+--- and the most all its helpers together carry. A longer one is not
+--- carried: the example then does not compile as shown, and
+--- `build.example_checks` asks its author to inline it.
+local MAX_HELPER_LINES <const> = 15
+local MAX_HELPER_TOTAL <const> = 30
+
 --- What an example file's top level holds outside its examples, as
---- text: each `local Name = require("...")` with the name it binds, and
---- each call statement (`Test.needs{...}`), in file order. Their text
---- is what an example needs above its function to be copied whole.
+--- text: each `local Name = require("...")` with the name it binds,
+--- each call statement (`Test.needs{...}`) and each helper, in file
+--- order. Their text is what an example needs above its function to be
+--- copied whole.
 local record Preamble
   requires: {{string}}
   calls: {string}
+  helpers: {Helper}
 end
 
 --- `code`, a statement's text cut at the next statement's start, less
@@ -960,7 +979,7 @@ local function leftmost(stmt: ast.Node): ast.Node
 end
 
 local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
-  local out: Preamble = { requires = {}, calls = {} }
+  local out: Preamble = { requires = {}, calls = {}, helpers = {} }
   for index, stmt in ipairs(nodes) do
     local after = nodes[index + 1]
     local next_start = after ~= nil and leftmost(after) or nil
@@ -981,6 +1000,34 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
       if name ~= nil then
         out.requires[#out.requires + 1] = { name, code }
       end
+    end
+    if stmt.kind == "local_function" or stmt.kind == "local_type"
+       or stmt.kind == "local_declaration" then
+      local names: {string} = {}
+      if stmt.kind == "local_function" and stmt.name ~= nil and stmt.name.tk ~= nil then
+        names[1] = stmt.name.tk
+      elseif stmt.kind == "local_type" and stmt.var ~= nil and stmt.var.tk ~= nil then
+        names[1] = stmt.var.tk
+      elseif stmt.kind == "local_declaration" then
+        for _, var in ipairs(stmt.vars or {}) do
+          if var.tk ~= nil then names[#names + 1] = var.tk end
+        end
+      end
+      local first = stmt.y
+      while first > 1 and lines[first - 1]:match("^%-%-") ~= nil do
+        first = first - 1
+      end
+      local code = own_text(block_text(lines, first, 1, until_y, until_x))
+      local is_require = code:match("^local%s+[%w_]+%s*=%s*require%s*%(") ~= nil
+        or code:match("^local%s+type%s+[%w_]+%s*=%s*require%s*%(") ~= nil
+      local plain = #names > 0
+      for _, name in ipairs(names) do
+        if name == "Example" then plain = false end
+      end
+      if plain and not is_require then
+        local _, breaks = code:gsub("\n", "\n")
+        out.helpers[#out.helpers + 1] = { names = names, code = code, lines = breaks + 1 }
+      end
     elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" then
       local start = leftmost(stmt)
       local code = block_text(lines, start.y, start.x, until_y, until_x)
@@ -992,7 +1039,8 @@ end
 
 --- The text an example's own `function` is shown below: the top-level
 --- `require` lines its body (or a top-level call carried with it)
---- names, then those calls. An example is a function copied out of its
+--- names, the short file-local helpers (`Helper`) its body names, and
+--- those they name, then those calls. An example is a function copied out of its
 --- file, and without these lines it does not run. The file's top-level
 --- calls (a `Test.needs{...}` a test module makes once, at its top) are
 --- carried by the file's first example, since they are not inside any
@@ -1003,11 +1051,45 @@ local function preamble_text(pre: Preamble, body: string, first: boolean): strin
     calls = pre.calls
   end
   local wanted = body .. "\n" .. table.concat(calls, "\n")
+  -- Helpers the body names, and those they name in turn, until no
+  -- more is asked for. One too long to carry is left out, and so is
+  -- what only it names.
+  local carried: {boolean} = {}
+  local refused: {boolean} = {}
+  local total = 0
+  local changed = true
+  while changed do
+    changed = false
+    for at, helper in ipairs(pre.helpers) do
+      if not carried[at] and not refused[at] then
+        for _, name in ipairs(helper.names) do
+          if not carried[at] and not refused[at] and mentions(wanted, name) then
+            if helper.lines <= MAX_HELPER_LINES and total + helper.lines <= MAX_HELPER_TOTAL then
+              carried[at] = true
+              total = total + helper.lines
+              wanted = wanted .. "\n" .. helper.code
+              changed = true
+            else
+              refused[at] = true
+            end
+          end
+        end
+      end
+    end
+  end
   local out: {string} = {}
   for _, required in ipairs(pre.requires) do
     if mentions(wanted, required[1]) then
       out[#out + 1] = required[2]
     end
+  end
+  local helpers: {string} = {}
+  for at, helper in ipairs(pre.helpers) do
+    if carried[at] then helpers[#helpers + 1] = helper.code end
+  end
+  if #helpers > 0 then
+    if #out > 0 then out[#out + 1] = "" end
+    out[#out + 1] = table.concat(helpers, "\n\n")
   end
   if #out > 0 and #calls > 0 then
     out[#out + 1] = ""
