@@ -40,7 +40,7 @@ int cosmic_open_socket (lua_State *L);
  * --- Where a socket is, read by its `kind`.
  * ---@class Address
  * ---@field kind string "unix": a socket file named by `path`
- * ---@field path string the socket file's path, for "unix": at most the platform's limit (107 bytes on Linux, 103 on macOS), which a longer one fails with ENAMETOOLONG rather than being cut short, and never empty
+ * ---@field path string the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes, which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
  */
 
 /*
@@ -104,12 +104,16 @@ COSMIC_SYSCALL(shutdown, 2);
 COSMIC_SYSCALL(wait, 3);
 
 /*
- * --- The error numbers the calls above answer that a caller acts on, from this libc.
+ * --- The error numbers the calls above answer that a caller acts on, and the bound on a socket file's name, from this libc.
  * ---@class Constants
  * ---@field EAGAIN integer nothing to take or send now: wait, then ask again
  * ---@field EINTR integer a guard caught a signal while `wait` waited
  * ---@field ETIMEDOUT integer `wait`'s time ran out
+ * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
+ * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
  */
 COSMIC_CONSTANT(EAGAIN)
 COSMIC_CONSTANT(EINTR)
 COSMIC_CONSTANT(ETIMEDOUT)
+COSMIC_CONSTANT(ENAMETOOLONG)
+COSMIC_CONSTANT(SOCKET_NAME_MAX)

@@ -46,9 +46,10 @@ local record Net
   --- Where a socket is.
   record Address
     kind: Kind
-    --- For "unix": the socket file's path. The platform bounds it (107
-    --- bytes on Linux, 103 on macOS); a longer one fails, "Filename too
-    --- long", rather than naming another file.
+    --- For "unix": the socket file's path, of any length a path may
+    --- have. The platform bounds the file's own name, past the last "/"
+    --- (107 bytes on Linux, 103 on macOS); a longer one fails, "Filename
+    --- too long", naming the bound, rather than naming another file.
     path: string
   end
 
@@ -136,10 +137,15 @@ local function milliseconds(timeout_ms: integer | nil): integer
   return timeout_ms
 end
 
---- What a failed wait says: its own words for a deadline or a signal.
+--- What a failed call says: its own words for a deadline or a signal,
+--- and the bound a name too long ran past.
 local function said(trouble: string, errno: integer): string
   if errno == raw.ETIMEDOUT then return "timed out" end
   if errno == raw.EINTR then return "interrupted" end
+  if errno == raw.ENAMETOOLONG then
+    return trouble .. " (a socket file's own name may be at most " ..
+      raw.SOCKET_NAME_MAX .. " bytes here)"
+  end
   return trouble
 end
 
@@ -319,8 +325,8 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     if cwd == nil then return nil, named(address) .. ": " .. cwd_trouble end
     absolute = cwd .. "/" .. absolute
   end
-  local fd, trouble = raw.listen(raw_address(address), backlog)
-  if fd == nil then return nil, named(address) .. ": " .. trouble end
+  local fd, trouble, errno = raw.listen(raw_address(address), backlog)
+  if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
   -- The socket file the bind made, to remove at close. A process that
   -- replaces the name in the moment since would have its file taken
   -- for this one's, and removed at close.

@@ -232,15 +232,21 @@ local function test_connecting_where_there_is_no_socket_file_fails(tmp: string)
   assert(conn == nil and why == path .. ": No such file or directory", why)
 end
 
---- A path the platform cannot hold whole fails rather than naming a
---- shorter one, and so does one with a NUL in it; an empty one is no
---- address at all.
+--- A socket file's own name the platform cannot hold fails rather than
+--- naming a shorter one, saying the bound; so does a path with a NUL in
+--- it, and one that names a directory; an empty one is no address.
 local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
-  local long = tmp .. "/" .. string.rep("x", 120)
-  local server, why = Net.listen(Net.unix(long))
-  assert(server == nil and why == long .. ": Filename too long", why)
-  local conn, conn_why = Net.connect(Net.unix(long))
-  assert(conn == nil and conn_why == long .. ": Filename too long", conn_why)
+  local too_long = ": Filename too long (a socket file's own name may be at most "
+  for _, long in ipairs({ tmp .. "/" .. string.rep("x", 120), string.rep("y", 120) }) do
+    local server, why = Net.listen(Net.unix(long))
+    assert(server == nil and why:find(long .. too_long, 1, true) == 1, why)
+    local conn, conn_why = Net.connect(Net.unix(long))
+    assert(conn == nil and conn_why:find(long .. too_long, 1, true) == 1, conn_why)
+  end
+  local directory = tmp .. "/" .. string.rep("d", 120) .. "/"
+  assert(Fs.mkdirs(directory))
+  local ended, ended_why = Net.listen(Net.unix(directory))
+  assert(ended == nil and ended_why == directory .. ": Is a directory", ended_why)
   local nul = tmp .. "/a\0b"
   local held, held_why = Net.listen(Net.unix(nul))
   assert(held == nil and held_why == nul .. ": Invalid argument", held_why)
@@ -248,4 +254,35 @@ local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
   assert(not pcall(Net.listen, Net.unix("")))
   assert(not pcall(Net.connect, Net.unix("")))
   assert(not pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { backlog = 0 }))
+end
+
+--- A path past the platform's bound on a socket address is reached
+--- from its directory, absolute or relative: only the file's own name
+--- is bounded, and the working directory is where it was after.
+local function test_a_long_path_is_reached_from_its_directory(tmp: string)
+  local deep = tmp .. "/" .. string.rep("d", 100) .. "/" .. string.rep("e", 100)
+  assert(Fs.mkdirs(deep))
+  local was = assert(sys.getcwd())
+  local path = deep .. "/" .. string.rep("s", 100)
+  do
+    local server <close> = assert(Net.listen(Net.unix(path), { timeout_ms = 5000 }))
+    assert(sys.getcwd() == was)
+    local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+    local accepted <close> = assert(server:accept())
+    assert(client:write("far"))
+    assert(assert(accepted:read()) == "far")
+    assert(sys.getcwd() == was)
+  end
+  assert(Fs.stat(path) == nil, "the socket file was left")
+  local missing = tmp .. "/" .. string.rep("m", 120) .. "/s.sock"
+  local conn, why = Net.connect(Net.unix(missing))
+  assert(conn == nil and why == missing .. ": No such file or directory", why)
+  assert(sys.chdir(tmp))
+  local relative = string.rep("d", 100) .. "/" .. string.rep("e", 100) .. "/r.sock"
+  local server, trouble = Net.listen(Net.unix(relative))
+  assert(sys.chdir(was))
+  assert(server ~= nil, trouble)
+  assert(Fs.stat(deep .. "/r.sock") ~= nil, "no socket file")
+  assert(server:close())
+  assert(Fs.stat(deep .. "/r.sock") == nil, "the socket file was left")
 end

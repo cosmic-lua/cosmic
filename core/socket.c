@@ -29,15 +29,29 @@
 #include "process.h"
 #include "socket.h"
 
-/* Where the table at `index` says a socket is, in `*out` and `*length`:
- * 0, or the errno a caller meets at runtime (a path too long, or holding
- * a NUL). An address no correct program passes -- a kind the table does
- * not read, a path that is no string or is empty -- raises. Nothing is
- * left on the stack, and nothing of it is kept but the copy in `*out`. */
-static int address_of (lua_State *L, int index, struct sockaddr_storage *out,
-                       socklen_t *length) {
-  memset(out, 0, sizeof *out);
-  *length = 0;
+/* The longest name a socket file's own name (past its path's last "/")
+ * may be: sun_path's size, less the NUL the kernel is handed after it. */
+#define SOCKET_NAME_MAX ((lua_Integer)(sizeof ((struct sockaddr_un *)0)->sun_path - 1))
+
+/* Where a socket is. A unix path too long for sun_path is reached from
+ * its directory: `directory` names it, and `address` holds the file's
+ * own name; `directory` is "" where `address` holds the path whole. */
+struct target {
+  struct sockaddr_storage address;
+  socklen_t length;
+  char directory[PATH_MAX];
+};
+
+/* Where the table at `index` says a socket is, in `*out`: 0, or the
+ * errno a caller meets at runtime (a path holding a NUL, a directory
+ * past PATH_MAX, a file's own name past SOCKET_NAME_MAX). An address no
+ * correct program passes -- a kind the table does not read, a path that
+ * is no string or is empty -- raises. Nothing is left on the stack, and
+ * nothing of it is kept but the copies in `*out`. */
+static int address_of (lua_State *L, int index, struct target *out) {
+  memset(&out->address, 0, sizeof out->address);
+  out->length = 0;
+  out->directory[0] = '\0';
   luaL_checktype(L, index, LUA_TTABLE);
   lua_getfield(L, index, "kind");
   const char *kind = lua_tostring(L, -1);
@@ -50,25 +64,77 @@ static int address_of (lua_State *L, int index, struct sockaddr_storage *out,
   const char *path = cosmic_path(L, lua_gettop(L));
   size_t size = lua_rawlen(L, -1);
   if (size == 0) return luaL_argerror(L, index, "path must not be empty");
-  struct sockaddr_un *unix_address = (struct sockaddr_un *)out;
+  struct sockaddr_un *unix_address = (struct sockaddr_un *)&out->address;
+  const char *name = path;
+  size_t name_size = size;
   int failure = 0;
   if (path == NULL) {
     failure = EINVAL;
-  } else if (size >= sizeof unix_address->sun_path) {
-    /* The kernel would take one that fills sun_path with no NUL after
-     * it, which no other program could name back.
-     * TODO: reach a socket file whose path is past sun_path through a
-     * descriptor of its directory (bindat and connectat on macOS, the
-     * directory's /proc/self/fd name on Linux), once a caller meets
-     * one: a temporary directory under macOS's $TMPDIR leaves a name
-     * there some 50 bytes. */
-    failure = ENAMETOOLONG;
-  } else {
+  } else if (size > (size_t)SOCKET_NAME_MAX) {
+    /* The kernel would take a path that fills sun_path with no NUL after
+     * it, which no other program could name back; one past it is
+     * reached from its directory instead. */
+    size_t slash = size;
+    while (slash > 0 && path[slash - 1] != '/') slash--;
+    name = path + slash;
+    name_size = size - slash;
+    size_t directory_size = slash > 1 ? slash - 1 : slash;
+    if (slash == 0 || name_size > (size_t)SOCKET_NAME_MAX ||
+        directory_size >= sizeof out->directory) {
+      failure = ENAMETOOLONG;
+    } else if (name_size == 0) {
+      failure = EISDIR;
+    } else {
+      memcpy(out->directory, path, directory_size);
+      out->directory[directory_size] = '\0';
+    }
+  }
+  if (failure == 0) {
     unix_address->sun_family = AF_UNIX;
-    memcpy(unix_address->sun_path, path, size);
-    *length = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + size + 1);
+    memcpy(unix_address->sun_path, name, name_size);
+    out->length = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + name_size + 1);
   }
   lua_pop(L, 1);
+  return failure;
+}
+
+#if defined(O_PATH)
+#define DIRECTORY_FLAGS (O_PATH | O_DIRECTORY | O_CLOEXEC)
+#else
+#define DIRECTORY_FLAGS (O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+#endif
+
+/* Binds `fd` to `target`, or connects it there: 0, or why not. A
+ * target reached from its directory is bound or connected with the
+ * process in that directory, and back where it was before this
+ * returns -- no Lua runs between, and the Lua state is this process's
+ * one thread, so nothing else meets the directory changed. Neither
+ * macOS nor Linux has bindat and connectat (FreeBSD's) to name the
+ * directory by its descriptor instead. */
+static int reach (int fd, const struct target *target, bool binding) {
+  const struct sockaddr *address = (const struct sockaddr *)&target->address;
+  if (target->directory[0] == '\0') {
+    int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
+    return done == 0 ? 0 : errno;
+  }
+  int here = open(".", DIRECTORY_FLAGS);
+  if (here < 0) return errno;
+  int there = open(target->directory, DIRECTORY_FLAGS);
+  if (there < 0) {
+    int failure = errno;
+    close(here);
+    return failure;
+  }
+  int failure = 0;
+  if (fchdir(there) != 0) {
+    failure = errno;
+  } else {
+    int done = binding ? bind(fd, address, target->length) : connect(fd, address, target->length);
+    if (done != 0) failure = errno;
+    if (fchdir(here) != 0 && failure == 0) failure = errno;
+  }
+  close(there);
+  close(here);
   return failure;
 }
 
@@ -154,16 +220,16 @@ static int paused (int64_t deadline, int64_t *pause) {
 }
 
 COSMIC_SYSCALL(listen, 2) {
-  struct sockaddr_storage address;
-  socklen_t length = 0;
-  int failure = address_of(L, 1, &address, &length);
+  struct target target;
+  int failure = address_of(L, 1, &target);
   int backlog = cosmic_checkint(L, 2);
   luaL_argcheck(L, backlog >= 1, 2, "backlog must be at least 1");
   if (failure != 0) return cosmic_fail(L, failure);
-  int fd = stream_socket(address.ss_family);
+  int fd = stream_socket(target.address.ss_family);
   if (fd < 0) return cosmic_fail(L, errno);
-  if (bind(fd, (struct sockaddr *)&address, length) != 0 || listen(fd, backlog) != 0) {
-    failure = errno;
+  failure = reach(fd, &target, true);
+  if (failure == 0 && listen(fd, backlog) != 0) failure = errno;
+  if (failure != 0) {
     close(fd);
     return cosmic_fail(L, failure);
   }
@@ -192,12 +258,11 @@ COSMIC_SYSCALL(accept, 1) {
 }
 
 COSMIC_SYSCALL(connect, 2) {
-  struct sockaddr_storage address;
-  socklen_t length = 0;
-  int failure = address_of(L, 1, &address, &length);
+  struct target target;
+  int failure = address_of(L, 1, &target);
   int64_t deadline = deadline_of(L, 2);
   if (failure != 0) return cosmic_fail(L, failure);
-  int fd = stream_socket(address.ss_family);
+  int fd = stream_socket(target.address.ss_family);
   if (fd < 0) return cosmic_fail(L, errno);
   /* A unix socket connects at once or answers EAGAIN, its listener's
    * backlog full, where a blocking one would wait: this waits in
@@ -208,8 +273,8 @@ COSMIC_SYSCALL(connect, 2) {
    * ("tcp") is read. */
   int64_t pause = 1;
   for (;;) {
-    if (connect(fd, (struct sockaddr *)&address, length) == 0) break;
-    failure = errno;
+    failure = reach(fd, &target, false);
+    if (failure == 0) break;
     if (failure == EAGAIN) failure = paused(deadline, &pause);
     if (failure != 0 && failure != EINTR) {
       close(fd);
