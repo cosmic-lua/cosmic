@@ -330,11 +330,10 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
   -- The socket file the bind made, to remove at close. A process that
   -- replaces the name in the moment since would have its file taken
   -- for this one's, and removed at close.
-  -- TODO: bind at a temporary name beside the path, lstat that, and
-  -- link it to the path (EEXIST where the name is taken, never
+  -- TODO: bind at a short temporary name beside the path, lstat that,
+  -- and link it to the path (EEXIST where the name is taken, never
   -- replacing it) before removing the temporary name, so the file
-  -- recorded is the one bound; the temporary name must fit the
-  -- platform's bound too, which a path near it leaves no room for.
+  -- recorded is the one bound.
   local made, why = sys.lstat(absolute)
   if made == nil or made.kind ~= "other" then
     local _, _ = sys.close(fd)
