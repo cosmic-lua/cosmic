@@ -641,6 +641,9 @@ local function envs_of(job: {string: any}): {{string: string}}
   return out
 end
 
+--- The condition on which a step of the checked job runs: a full run's.
+local FULL <const> = "env.COSMIC_CI_SCOPE == 'full'"
+
 --- The condition on which a push to main and the scheduled run, and
 --- no other, save a cache: ci.yml's COSMIC_CI_SAVES, which each save's
 --- condition reads.
@@ -648,36 +651,9 @@ local MAIN_SAVES <const> = "${{ github.ref == 'refs/heads/main' && " ..
   "(github.event_name == 'push' || github.event_name == 'schedule') }}"
 local SAVES <const> = "env.COSMIC_CI_SAVES == 'true'"
 
---- Every cache the platform job saves, it saves from main alone -- a
---- push or the scheduled run, never a branch's push nor the merge
---- queue's run -- and restores on every run, whatever its event or ref,
---- so a branch stands on what main saved and saves nothing of its own.
---- Main's pushes share one concurrency group that cancels nothing in
---- progress, so their saves land in commit order and a restore's newest
---- entry is never an older commit's saved late (3c6df8333's
---- alpine-x86_64 leg saved after b6508ab77's, and the two main runs
---- after stood on none of 1892 verdicts), with no lookup of the newest
---- entry before a save. A save's key is the restore's own, or, for the
---- caches a trim cuts to one run's rows, the restore's prefix and the
---- digest of those rows that the trim names: a run that kept only what
---- was saved already saves nothing new.
-local function test_only_main_saves_a_cache_every_run_restores()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local concurrency = ci.concurrency as {string: string}
-  assert(not concurrency.group:find("github.sha", 1, true),
-    "main's pushes run in a group of each commit's own: " .. concurrency.group)
-  assert(concurrency["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}",
-    "a run of main cancels another: " .. concurrency["cancel-in-progress"])
-  local saves_env = (ci.env as {string: string}).COSMIC_CI_SAVES
-  assert(saves_env == MAIN_SAVES, "COSMIC_CI_SAVES is not main's push and schedule: " ..
-    tostring(saves_env))
-  local jobs = ci.jobs as {string: {string: any}}
-  for name, job in pairs(jobs) do
-    for _, env in ipairs(envs_of(job)) do
-      assert(env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
-    end
-  end
-  local steps = jobs.platform.steps as {{string: any}}
+--- Holds each cache save of `steps`, a job's, to main's saves (below),
+--- and counts them.
+local function main_saves(steps: {{string: any}}): integer
   local restores: {string: {string: any}} = {}
   local trims: {string: string} = {}
   local saves = 0
@@ -695,11 +671,14 @@ local function test_only_main_saves_a_cache_every_run_restores()
     if uses:find("actions/cache/restore@", 1, true) ~= nil and step.id ~= nil then
       local path = with.path as string
       -- The one restore that turns on the ref: another vendor part's zig
-      -- outputs, which main never takes.
-      if step["if"] ~= nil then
+      -- outputs, which main never takes. The checked job restores only
+      -- on a full run, as it does all else (`FULL`).
+      local condition = step["if"] as string or ""
+      if condition:find(FULL, 1, true) == 1 then condition = condition:sub(#FULL + 5) end
+      if condition ~= "" then
         assert(path == "${{ runner.temp }}/zig-build" and
-          (step["if"] as string):find("github.ref != 'refs/heads/main'", 1, true) == 1,
-          path .. " is restored only on some runs: " .. (step["if"] as string))
+          condition:find("github.ref != 'refs/heads/main'", 1, true) == 1,
+          path .. " is restored only on some runs: " .. condition)
       else
         restores[path] = step
       end
@@ -733,7 +712,42 @@ local function test_only_main_saves_a_cache_every_run_restores()
       end
     end
   end
-  assert(saves == 4, "the verdicts, compiles, zig outputs and driver marker: " .. saves)
+  return saves
+end
+
+--- Every cache the platform job and the checked job save, they save
+--- from main alone -- a push or the scheduled run, never a branch's push
+--- nor the merge queue's run -- and restore on every run, whatever its
+--- event or ref, so a branch stands on what main saved and saves nothing
+--- of its own.
+--- Main's pushes share one concurrency group that cancels nothing in
+--- progress, so their saves land in commit order and a restore's newest
+--- entry is never an older commit's saved late (3c6df8333's
+--- alpine-x86_64 leg saved after b6508ab77's, and the two main runs
+--- after stood on none of 1892 verdicts), with no lookup of the newest
+--- entry before a save. A save's key is the restore's own, or, for the
+--- caches a trim cuts to one run's rows, the restore's prefix and the
+--- digest of those rows that the trim names: a run that kept only what
+--- was saved already saves nothing new.
+local function test_only_main_saves_a_cache_every_run_restores()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local concurrency = ci.concurrency as {string: string}
+  assert(not concurrency.group:find("github.sha", 1, true),
+    "main's pushes run in a group of each commit's own: " .. concurrency.group)
+  assert(concurrency["cancel-in-progress"] == "${{ github.ref != 'refs/heads/main' }}",
+    "a run of main cancels another: " .. concurrency["cancel-in-progress"])
+  local saves_env = (ci.env as {string: string}).COSMIC_CI_SAVES
+  assert(saves_env == MAIN_SAVES, "COSMIC_CI_SAVES is not main's push and schedule: " ..
+    tostring(saves_env))
+  local jobs = ci.jobs as {string: {string: any}}
+  for name, job in pairs(jobs) do
+    for _, env in ipairs(envs_of(job)) do
+      assert(env.COSMIC_CI_SAVES == nil, "job " .. name .. " sets COSMIC_CI_SAVES again")
+    end
+  end
+  assert(main_saves(jobs.platform.steps as {{string: any}}) == 4,
+    "the verdicts, compiles, zig outputs and driver marker")
+  assert(main_saves(jobs.checked.steps as {{string: any}}) == 1, "the checked job's verdicts")
 end
 
 --- The cache saves among `steps`, by the path each saves.
@@ -761,11 +775,11 @@ end
 --- (its steps only on main's, so a branch push shows it run, not
 --- skipped), the platform legs run exactly where it found none, and
 --- `seed` exactly where it found one, on the platform legs' own
---- runners, an entry's version hashing its path. What `seed` downloads
---- is the queue run's, and what it saves it saves at the platform legs'
---- paths under the keys the queue's leg named; it relays the leg's
---- product under the platform leg's name, and the join reads its result
---- in place of theirs.
+--- runners and the checked job's, an entry's version hashing its path.
+--- What `seed` downloads is the queue run's, and what it saves it saves
+--- at the platform legs' paths under the keys the queue's leg named; it
+--- relays each leg's product under the platform leg's name (the checked
+--- job has none), and the join reads its result in place of theirs.
 local function test_a_main_push_reuses_the_queue_run()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
@@ -803,18 +817,30 @@ local function test_a_main_push_reuses_the_queue_run()
     return out
   end
   local ours, theirs, count = legs(seed), legs(platform), 0
+  local checked = jobs.checked
+  local checked_name = (checked.env as {string: string}).COSMIC_WORKER
+  theirs[checked_name] = checked["runs-on"] as string
   assert(seed["runs-on"] == platform["runs-on"], "seed runs on another runner than its leg")
   for name, runner in pairs(theirs) do
     count = count + 1
     assert(ours[name] == runner, "seed's " .. name .. " runs on " .. tostring(ours[name]) .. ", its leg on " .. runner)
   end
   for name in pairs(ours) do assert(theirs[name] ~= nil, "seed has a leg the platform job has not: " .. name) end
-  assert(count == 4, "legs: " .. count)
-  -- The lookup asks for every leg's seed.
+  assert(count == 5, "legs: " .. count)
+  -- Only the checked job's seed relays no product.
+  local marked: {string: any} = {}
+  for _, leg in ipairs(((seed.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
+    marked[leg.name as string] = leg.checked
+  end
+  for name in pairs(ours) do
+    assert(marked[name] == (name == checked_name or nil), "seed's " .. name .. " is marked checked: " .. tostring(marked[name]))
+  end
+  -- The lookup asks for every leg's seed, and the checked job's.
   local named: {string} = {}
   for _, leg in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}) do
     named[#named + 1] = leg.name
   end
+  named[#named + 1] = checked_name
   assert((find.env as {string: string}).LEGS == table.concat(named, " "),
     "reuse asks for other legs' seeds: " .. tostring((find.env as {string: string}).LEGS))
 
@@ -824,6 +850,13 @@ local function test_a_main_push_reuses_the_queue_run()
   for _, step in ipairs(steps) do
     local uses = step.uses as string or ""
     local with = step.with as {string: string}
+    local artifact = uses:find("actions/download-artifact@", 1, true) ~= nil or
+      uses:find("actions/upload-artifact@", 1, true) ~= nil
+    if artifact then
+      local product = with.name == "portable-product-${{ matrix.name }}"
+      assert(step["if"] == (product and "!matrix.checked" or nil),
+        "seed relays a product on the checked job's leg, or skips its seed there: " .. tostring(step["if"]))
+    end
     if uses:find("actions/download-artifact@", 1, true) ~= nil then
       assert(with["run-id"] == "${{ needs.reuse.outputs.run }}" and with["github-token"] == "${{ github.token }}",
         "seed downloads " .. with.name .. " from another run than the queue's")
@@ -860,17 +893,21 @@ local function test_a_main_push_reuses_the_queue_run()
 
   local join = jobs.ci
   local needs = join.needs as {string}
-  assert(table.concat(needs, ",") == "reuse,platform,seed", "the join needs " .. table.concat(needs, ","))
-  -- The join passes on the legs that ran, `seed`'s where a queue run
-  -- was found, and on nothing of `reuse`'s but its output.
+  assert(table.concat(needs, ",") == "reuse,platform,checked,seed", "the join needs " .. table.concat(needs, ","))
+  -- The join passes on the legs and the checked job that ran, `seed`'s
+  -- where a queue run was found, and on nothing of `reuse`'s but its
+  -- output.
   local check = (join.steps as {{string: any}})[1]
   local check_env = check.env as {string: string}
   assert(check_env.RESULT == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
     "the join reads the legs that ran: " .. tostring(check_env.RESULT))
-  assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT\"; [ \"$RESULT\" = success ]",
-    "the join passes on more than the legs: " .. tostring(check.run))
+  assert(check_env.CHECKED == "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
+    "the join reads another checked suite than the one that ran: " .. tostring(check_env.CHECKED))
+  assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; " ..
+    "[ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ]",
+    "the join passes on more or less than the legs and the checked suite: " .. tostring(check.run))
   for name, value in pairs(check_env) do
-    assert(name == "RESULT" or name == "QUEUE_RUN", "the join reads " .. name .. ": " .. value)
+    assert(name == "RESULT" or name == "CHECKED" or name == "QUEUE_RUN", "the join reads " .. name .. ": " .. value)
   end
 end
 
@@ -923,17 +960,151 @@ local function test_the_queue_keeps_what_main_would_save()
     if w ~= nil and w.name == "seed-${{ matrix.name }}" then download = w end
   end
   assert(download.path == "${{ runner.temp }}", "the seed is laid out elsewhere than it was kept: " .. download.path)
+
+  -- The checked job keeps its verdicts alone, as a leg keeps its own,
+  -- after its trim and with its container gone, under its own name.
+  local cjob = jobs.checked
+  local csteps = cjob.steps as {{string: any}}
+  local cstage, cat = step_running(csteps, "queue-seed.sh stage")
+  assert(cstage["if"] == QUEUE and cstage.shell == "sh" and cstage["working-directory"] == ".",
+    "the checked job keeps its seed on other runs, or elsewhere: " .. tostring(cstage["if"]))
+  local cenv = cstage.env as {string: string}
+  local csaves = saves_of(csteps)
+  local vsave = csaves["${{ runner.temp }}/verdicts"]
+  assert(cenv.VERDICTS_PREFIX .. cenv.VERDICTS_DIGEST == (vsave.with as {string: string}).key,
+    "the checked job's verdicts are seeded under another key than main saves them under")
+  assert((vsave["if"] as string):find(cenv.VERDICTS_RESTORED:match("^%${{ (.-) }}$"), 1, true) ~= nil,
+    "the checked job's seed is compared with another entry than main's save is")
+  assert(cenv.COMPILES_PREFIX == nil and csaves["${{ runner.temp }}/build-cache"] == nil,
+    "the checked job keeps compiles, which linux-x86_64's leg saves")
+  local _, ctrim = step_running(csteps, "driver.tl verdicts-trim")
+  local removed: integer
+  for i, step in ipairs(csteps) do
+    if step.name == "remove the leg's container" then removed = i end
+  end
+  assert(ctrim < cat and removed < cat, "the checked job's seed is kept before its trim, or beside its container")
+  local cupload = csteps[cat + 1]
+  local cwith = cupload.with as {string: string}
+  assert(cupload["if"] == QUEUE and cwith.path == "${{ runner.temp }}/seed" and
+    cwith.name == "seed-" .. (cjob.env as {string: string}).COSMIC_WORKER,
+    "the checked job's seed is not uploaded as its own: " .. tostring(cwith.name))
 end
 
---- Only two jobs save a cache every run restores: the platform legs,
---- where COSMIC_CI_SAVES (main's push and the scheduled run), and
---- `seed`, which runs only on a push to main that found the queue's run.
+--- The checked suite runs in a job of its own (`checked`), beside the
+--- platform legs rather than after linux-x86_64's own suites, where the
+--- legs run (a run that reuses the queue's run has neither), and no leg
+--- runs it. It runs on that leg's host: its runner, its image and its
+--- builder, with its zig build outputs and compiles restored under that
+--- leg's names (which that leg saves, and this job does not), and its
+--- verdicts under a name of its own on the same COSMIC_HOST_ID. Every
+--- step it runs only on a full run, so a branch push shows it run with
+--- nothing done rather than skipped: a step's `if` names the scope, or
+--- what a step skipped on a light run leaves unmet.
+local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_host()
+  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
+  local jobs = ci.jobs as {string: {string: any}}
+  local platform, checked = jobs.platform, jobs.checked
+  assert(checked.needs == platform.needs and checked["if"] == platform["if"],
+    "the checked job runs other than where the legs do: " .. tostring(checked["if"]))
+  local penv, cenv = platform.env as {string: string}, checked.env as {string: string}
+  assert(penv.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " .. penv.COSMIC_CI_CHECKED_SUITE)
+  local leg: {string: string}
+  for _, entry in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: string}}) do
+    if entry.name == "linux-x86_64" then leg = entry end
+  end
+  assert(leg ~= nil, "no linux-x86_64 leg")
+  local name = checked.name as string
+  assert(name == leg.name .. "-checked" and cenv.COSMIC_WORKER == name, "the checked job's name: " .. name)
+  assert(checked["runs-on"] == leg.runner, "the checked job runs on " .. tostring(checked["runs-on"]))
+  local shell = ((checked.defaults as {string: any}).run as {string: string}).shell
+  assert(shell == leg.shell, "the checked job's steps run through " .. shell)
+  assert(cenv.TARGET == leg.target and cenv.COSMIC_CI_CHECKED_SUITE == "run" and
+    cenv.COSMIC_CI_REQUIRE_SANDBOX == "1" and cenv.COSMIC_CI_DECLARED_KEYS == "0",
+    "the checked job's switches are not linux-x86_64's with the checked suite on")
+  for _, same in ipairs({ "COSMIC_CI_EVENT", "COSMIC_CI_BASE_SHA" }) do
+    assert(cenv[same] == penv[same], "the checked job's " .. same .. " is not the legs': " .. tostring(cenv[same]))
+  end
+  -- Its steps, by name, as the leg's are with the leg's matrix put in.
+  local function as_leg(value: string, own_name?: string): string
+    local values: {string: string} = { name = own_name or leg.name, image = leg.image,
+      runner = leg.runner, prepare = leg.prepare }
+    local out = value:gsub("%${{ matrix%.(%w+) }}", function(field: string): string
+      return (assert(values[field], "the leg's matrix has no " .. field))
+    end)
+    return out
+  end
+  local function by_name(steps: {{string: any}}): {string: {string: any}}
+    local out: {string: {string: any}} = {}
+    for _, step in ipairs(steps) do
+      if step.name ~= nil then out[step.name as string] = step end
+    end
+    return out
+  end
+  local theirs, ours = by_name(platform.steps as {{string: any}}), by_name(checked.steps as {{string: any}})
+  for _, step_name in ipairs({ "start the leg's container", "create the unprivileged builder",
+      "name the zig build cache, and the run's start", "restore zig build outputs",
+      "restore zig build outputs of another vendor part", "name the leg's host",
+      "restore test verdicts", "restore compiles and parses" }) do
+    local their, our = theirs[step_name], ours[step_name]
+    assert(their ~= nil and our ~= nil, "no step " .. step_name)
+    local own = step_name == "name the leg's host" and name or nil
+    if their.run ~= nil then
+      assert(our.run == as_leg(their.run as string, own), step_name .. " runs otherwise than on the leg: " ..
+        tostring(our.run))
+    end
+    if their.with ~= nil then
+      for key, value in pairs(their.with as {string: any}) do
+        local mine = (our.with as {string: any})[key]
+        if key ~= "lookup-only" then
+          assert(mine == (value is string and as_leg(value) or value), step_name .. "'s " .. key ..
+            " is not the leg's: " .. tostring(mine))
+        end
+      end
+    end
+    if their.env ~= nil then
+      for key, value in pairs(their.env as {string: string}) do
+        assert((our.env as {string: string})[key] == as_leg(value), step_name .. "'s " .. key .. " is not the leg's")
+      end
+    end
+  end
+  -- It boots, builds the checked core, and runs its suite, and no more.
+  local steps = checked.steps as {{string: any}}
+  local ran: {string} = {}
+  for _, step in ipairs(steps) do
+    local run = step.run
+    local phase = run is string and run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)$") or nil
+    if phase ~= nil then ran[#ran + 1] = phase end
+  end
+  assert(table.concat(ran, " ") == "boot checked-build checked", "the checked job runs " .. table.concat(ran, " "))
+  local at = verdict_steps(steps)
+  local _, suite = step_running(steps, "platform checked")
+  for _, pair in ipairs({ { at["host-id"], at["verdicts-restore"] }, { at["verdicts-restore"], suite },
+      { suite, at.trim }, { at.trim, at.save } }) do
+    assert(pair[1] ~= nil and pair[2] ~= nil and pair[1] < pair[2], "the checked job's verdict steps are out of order")
+  end
+  -- Nothing runs on a light run.
+  local unmet <const> = { FULL, "failure()", "steps.driver.outcome == 'success'",
+    "github.event_name == 'merge_group'", "steps.verdicts-trim.outputs.digest != ''" }
+  for _, step in ipairs(steps) do
+    local condition = step["if"] as string or ""
+    local held = false
+    for _, text in ipairs(unmet) do held = held or condition:find(text, 1, true) ~= nil end
+    assert(held, "the checked job runs " .. tostring(step.name or step.uses) .. " on a light run: " .. condition)
+  end
+  assert(ours["bootstrap the pinned CI driver"].id == "driver" and
+    ours["bootstrap the pinned CI driver"]["if"] == FULL, "the checked job's driver runs on a light run")
+end
+
+--- Only three jobs save a cache every run restores: the platform legs
+--- and the checked job, where COSMIC_CI_SAVES (main's push and the
+--- scheduled run), and `seed`, which runs only on a push to main that
+--- found the queue's run.
 local function test_only_the_legs_and_their_seed_save()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   for name, job in pairs(ci.jobs as {string: {string: any}}) do
     local saves = 0
     for _ in pairs(saves_of(job.steps as {{string: any}} or {})) do saves = saves + 1 end
-    assert(saves == 0 or name == "platform" or name == "seed", "job " .. name .. " saves a cache")
+    assert(saves == 0 or name == "platform" or name == "checked" or name == "seed", "job " .. name .. " saves a cache")
   end
 end
 

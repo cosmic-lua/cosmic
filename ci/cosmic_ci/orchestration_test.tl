@@ -453,7 +453,9 @@ end
 --- checked build leaves the tree's database as the tools find it, so
 --- there is no rebuild to pay. Only the leg that runs the checked suite
 --- (COSMIC_CI_CHECKED_SUITE) runs the checked cosmic on a file in the
---- tree, whose entry must agree with the decoder's.
+--- tree, whose entry must agree with the decoder's. One that skips it
+--- keeps none of its verdicts: a `checked.db` beside the leg's verdict
+--- cache is the checked job's, and goes.
 local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosmic_in_the_tree(tmp: string)
   local base, project = command(tmp)
   local core = "the checked core"
@@ -504,21 +506,29 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
   end
   for _, case in ipairs({
     { name = "skip", switch = "skip", image = digest, checked = right,
-      ok = true, ran = "-e\n" },
+      ok = true, ran = "-e\n", removed = true },
     { name = "run", switch = "run", image = digest, checked = right,
-      ok = true, ran = "-e\n/tool.tl\ntest\n" },
+      ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false },
     { name = "another-core", switch = "skip", image = string.rep("0", 64),
-      checked = right, ok = false, ran = "-e\n" },
+      checked = right, ok = false, ran = "-e\n", removed = false },
     { name = "checked-disagrees", switch = "run", image = digest,
-      checked = wrong, ok = false, ran = "-e\n/tool.tl\n" },
+      checked = wrong, ok = false, ran = "-e\n/tool.tl\n", removed = false },
   }) do
     local fake, runner_temp = candidate(case.name, case.image, case.checked)
+    local verdicts = runner_temp .. "/verdicts"
+    assert(Fs.mkdirs(verdicts))
+    assert(Fs.write(verdicts .. "/verdicts.db", "native\n"))
+    assert(Fs.write(verdicts .. "/checked.db", "checked\n"))
     local outcome = Fixture.call("checked-" .. case.name, append(base, { "platform", "checked" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = target, COSMIC_CI_CHECKED_SUITE = case.switch,
+        COSMIC_VERDICT_CACHE = verdicts .. "/verdicts.db",
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the checked phase answered " ..
       tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
+    assert(Fs.read(verdicts .. "/verdicts.db") == "native\n", case.name .. ": the native verdicts moved")
+    assert((Fs.read(verdicts .. "/checked.db") == nil) == case.removed,
+      case.name .. ": the checked verdicts were " .. (case.removed and "kept" or "removed"))
     local ran = Fs.read(fake .. "/o/sanitized/bin/cosmic.ran")
     if ran then ran = ran:gsub("[^\n]*/test/portable/tool%.tl", "/tool.tl") end
     assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. tostring(ran))
@@ -539,6 +549,49 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       assert(#rows == 0, case.name .. ": a suite that did not run wrote a row")
     end
   end
+end
+
+--- ci.yml's `checked` job runs the checked suite apart from every leg:
+--- `boot` builds the cores and boots, and runs no native suite;
+--- `checked-build` then builds the checked core and the target's format
+--- decoder, and lays the decoder out where assemble's format-contract
+--- fixture would, in the contract, for the `checked` phase to read.
+local function test_the_checked_job_boots_and_builds_what_the_checked_phase_reads(tmp: string)
+  local base, project = command(tmp)
+  local target = "x86_64-linux-musl"
+  local fake = tmp .. "/checked-job"
+  local runner_temp = fake .. "-runner-temp"
+  assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(runner_temp))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  -- bin/zig logs each build, and leaves what it names.
+  Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o\nprintf '%s\\n' \"$*\" >> o/zig.ran\n" ..
+    "case \"$*\" in\n" ..
+    "'build cores boot') mkdir -p o/bin && printf '#!/bin/sh\\necho ran >> \"$0.ran\"\\n' > o/bin/cosmic && " ..
+    "chmod 755 o/bin/cosmic ;;\n" ..
+    "'build sanitized') mkdir -p o/sanitized/bin ;;\n" ..
+    "'build portable-format-" .. target .. "') mkdir -p o/portable-fixture/format && " ..
+    "printf decoder > o/portable-fixture/format/format-test-" .. target .. " ;;\n" ..
+    "*) exit 9 ;;\nesac\n", 493)
+  local env = context(fake, runner_temp, { TARGET = target })
+  for _, phase in ipairs({ "boot", "checked-build" }) do
+    local outcome = Fixture.call("checked-job-" .. phase, append(base, { "platform", phase }),
+      project, tmp .. "/logs", env)
+    assert(outcome.result.ok, phase .. " failed: " .. Fixture.read(outcome.err))
+  end
+  assert(Fs.read(fake .. "/o/zig.ran") == "build cores boot\nbuild sanitized\n" ..
+    "build portable-format-" .. target .. "\n", tostring((Fs.read(fake .. "/o/zig.ran"))))
+  assert(Fs.read(fake .. "/o/bin/cosmic.ran") == nil, "boot ran the native suite")
+  local decoder = runner_temp .. "/cosmic-ci/platform/contract/format/format-test-" .. target
+  assert(Fs.read(decoder) == "decoder", "the decoder is not where the checked phase reads it")
+  local st = assert(Fs.stat(decoder))
+  assert(st.mode & 0x49 == 0x49, "the decoder is not executable: " .. st.mode)
+  local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
+  assert(#State.suite_rows(db) == 0, "a suite ran")
+  assert(db:close())
+  -- Again on the same work directory, it refuses to lay over a decoder.
+  local again = Fixture.call("checked-job-again", append(base, { "platform", "checked-build" }),
+    project, tmp .. "/logs", env)
+  assert(not again.result.ok, "checked-build laid a decoder over another")
 end
 
 --- The native suite (`build`) writes its row, with what its output
@@ -595,34 +648,43 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
   end
 end
 
---- The checked core's suite and the format check each run on one leg
---- of ci.yml's platform job (COSMIC_CI_CHECKED_SUITE, COSMIC_CI_FORMAT),
---- and not on the same one: the checked suite makes its leg one of the
---- run's longest, and the format check, which answers the same on every
---- leg, would only lengthen it.
-local function test_the_checked_suite_and_the_format_check_run_on_different_legs()
+--- The checked core's suite runs on no leg of ci.yml's platform job
+--- (COSMIC_CI_CHECKED_SUITE=skip) but in its `checked` job, which runs
+--- the phases that build what it reads and then it, beside the legs:
+--- after a leg's own suites it made that leg the run's longest. The
+--- format check, which answers the same on every leg, runs on one.
+local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_on_one_leg()
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
-  local platform = (ci.jobs as {string: {string: any}}).platform
+  local jobs = ci.jobs as {string: {string: any}}
+  local platform = jobs.platform
   local legs: {string: boolean} = {}
   local strategy = platform.strategy as {string: {string: any}}
   for _, leg in ipairs(strategy.matrix.include as {{string: string}}) do
     legs[leg.name] = true
   end
   local env = platform.env as {string: string}
-  local function leg(name: string): string
-    local value = assert(env[name], "ci.yml's platform job sets no " .. name)
-    local one = value:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
-    assert(one and legs[one], name .. " runs on no one leg of the matrix: " .. value)
-    return one
+  assert(env.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " ..
+    tostring(env.COSMIC_CI_CHECKED_SUITE))
+  local format = assert(env.COSMIC_CI_FORMAT, "ci.yml's platform job sets no COSMIC_CI_FORMAT")
+  local one = format:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
+  assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix: " .. format)
+  local checked = assert(jobs.checked, "ci.yml has no checked job")
+  assert((checked.env as {string: string}).COSMIC_CI_CHECKED_SUITE == "run",
+    "the checked job does not run the checked suite")
+  local phases: {string} = {}
+  for _, step in ipairs(checked.steps as {{string: any}}) do
+    local run = step.run
+    local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
+    if phase ~= nil then phases[#phases + 1] = phase end
   end
-  local checked, format = leg("COSMIC_CI_CHECKED_SUITE"), leg("COSMIC_CI_FORMAT")
-  assert(checked ~= format, "the checked suite and the format check both run on " .. checked)
+  assert(table.concat(phases, " ") == "boot checked-build checked",
+    "the checked job runs the phases " .. table.concat(phases, " "))
 end
 
 --- The fixed-point regression, the slowest fixture on every leg, runs
---- on one leg of a gating run (COSMIC_CI_FIXED_POINT), not the one the
---- checked suite lengthens, and on every leg of the scheduled run.
+--- on one leg of a gating run (COSMIC_CI_FIXED_POINT), and on every leg
+--- of the scheduled run.
 local function test_the_fixed_point_fixture_runs_on_one_leg_and_on_every_scheduled_one()
   local text = assert(Fs.read(checkout_root() .. "/.github/workflows/ci.yml"))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
@@ -638,8 +700,6 @@ local function test_the_fixed_point_fixture_runs_on_one_leg_and_on_every_schedul
     "github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
   assert(one and legs[one], "the fixed-point fixture runs on no one leg of the matrix, " ..
     "or not on every leg of the scheduled run: " .. value)
-  local checked = assert(env.COSMIC_CI_CHECKED_SUITE):match("matrix%.name == '([%w_-]+)'")
-  assert(one ~= checked, "the fixed-point fixture and the checked suite both run on " .. one)
 end
 
 --- A gating suite's workers are given none of what names the run --
@@ -834,10 +894,11 @@ local sets_what_it_reads: {string:{string:boolean}} = {
   ["build/place_tree_test.tl"] = { GITHUB_SHA = true, GITHUB_WORKSPACE = true },
   ["build/queue_seed_test.tl"] = { GITHUB_OUTPUT = true, GITHUB_STEP_SUMMARY = true,
     RUNNER_TEMP = true },
-  -- As the platform job's env sets it, and the workflow's; RUNNER_TEMP
-  -- and GITHUB_OUTPUT as a step's `run` names them.
+  -- As the platform and checked jobs' env set it, and the workflow's;
+  -- RUNNER_TEMP and GITHUB_OUTPUT as a step's `run` names them.
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
-    COSMIC_CI_SCOPE = true, GITHUB_OUTPUT = true, RUNNER_TEMP = true },
+    COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_EVENT = true,
+    COSMIC_CI_BASE_SHA = true, GITHUB_OUTPUT = true, RUNNER_TEMP = true },
 }
 
 --- No tree source names a variable a gating suite's workers are not

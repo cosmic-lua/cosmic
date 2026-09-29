@@ -324,8 +324,9 @@ the release product independently on Linux x86-64, Linux ARM64, macOS ARM64, and
 Alpine x86-64 -- the last running as a job container on an Ubuntu runner,
 building and testing natively on musl/BusyBox like every other leg. In a full
 run (merge queue, main, or a manual run) every matrix leg runs the runtime
-fixtures, identity proof, and delayed database boundaries; the Linux x86-64 leg
-also runs the checked core's suite. Each producer records the product hash
+fixtures, identity proof, and delayed database boundaries, and a job of its
+own on the Linux x86-64 leg's host runs the checked core's suite beside them.
+Each producer records the product hash
 before and after execution; the provenance join requires all four uploaded
 `cosmic` files to match those attestations and each other.
 
