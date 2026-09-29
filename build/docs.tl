@@ -260,17 +260,16 @@ end
 --- in. A private helper function is left out -- a reader scanning the
 --- module wants what they can call -- but `cosmic docs <name>` still
 --- finds it.
--- TODO: `cosmic.sys`'s calls are missing here: each is a row of kind
--- `field` (`lstat`, signature `lstat: function(...)`) declared in the
--- `syscalls` record, and the `d.kind NOT IN ('field', 'value')` test
--- drops it, so `cosmic docs cosmic.sys` lists none though `cosmic.fs`
--- says it lists every one. Keep a `field` row whose signature is a
--- function type when the module's own record declares it, and show it
--- as a function row in `listed`.
+--- A call the module's own record declares as a field of function type
+--- (`lstat: function(...)` in `cosmic.sys`'s syscall table) is listed
+--- too, as a function; a record's plain data field, and any field of a
+--- nested record (its symbol is dotted), is not.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
-    "AND d.symbol <> '' AND d.kind NOT IN ('field', 'value') AND " ..
+    "AND d.symbol <> '' AND (d.kind NOT IN ('field', 'value') OR " ..
+    "(d.kind = 'field' AND d.symbol NOT LIKE '%.%' AND " ..
+    "d.signature GLOB d.symbol || ': function(*')) AND " ..
     "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
     symbols.public_only("d.module", public) .. " ORDER BY d.id",
     { text(module) })
@@ -955,7 +954,8 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
 end
 
 --- One declared symbol as a module's listing shows it: a function or
---- method by its signature, anything else (a record's signature spans
+--- method by its signature (a function-typed field as `function` and its
+--- name, then the signature's parameters and results), anything else (a record's signature spans
 --- lines) by kind and name, then its uses and examples.
 local function listed(item: docs.Entry): string
   local marks: {string} = {}
@@ -970,6 +970,12 @@ local function listed(item: docs.Entry): string
   if (item.kind == "function" or item.kind == "method") and
      item.signature ~= "" and not item.signature:find("\n", 1, true) then
     shown = item.signature
+  elseif item.kind == "field" and item.signature ~= "" and
+         not item.signature:find("\n", 1, true) then
+    local rest = item.signature:match("^[%w_]+: function(%(.*)$")
+    if rest ~= nil then
+      shown = "function " .. item.source_symbol .. rest
+    end
   end
   return shown .. (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
 end
