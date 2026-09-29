@@ -68,18 +68,6 @@ local record Http
   --- a header name or value holding CR, LF or NUL (or a name that is
   --- empty or holds ':'), a URL holding NUL or one curl rejects.
   record Options is raw_http.Options
-    method: string
-    headers: {string:string}
-    body: string
-    body_size: integer
-    follow: boolean
-    max_redirects: integer
-    connect_timeout_ms: integer
-    timeout_ms: integer
-    low_speed_bytes: integer
-    low_speed_seconds: integer
-    verbose: boolean
-    script: {string}
     --- Http.download only: the expected sha256, as lowercase hex.
     sha256: string
   end
