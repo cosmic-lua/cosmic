@@ -8,6 +8,24 @@
 --- it. `epoch` moves every key, and is bumped by hand for a change that
 --- can alter a pass or a fail.
 ---
+--- `epoch` is a count and a token of 8 random hex digits,
+--- "N-xxxxxxxx": the token makes each bump its own value. Were it a
+--- count alone, two branches that each bumped 7 to 8 would make the one
+--- edit, which git merges cleanly, and the merged tree, holding both
+--- changes, would stand on the verdicts either branch earned under 8
+--- alone (the shared verdict cache is keyed without the tree's
+--- location). Two tokens conflict on the line instead. `retired` holds
+--- every token `epoch` held before, in the order they were retired
+--- (the counts 1 to 7 for the epochs that had none), and the count is
+--- one more than how many it holds: a bump appends the old token there
+--- and draws a new one, so a bump of the count alone fails, and two
+--- branches that bump from one value append the same line, which
+--- merges, while their `epoch` lines conflict. On a conflict, keep
+--- neither side: set `epoch` to the bare count and run
+--- build/harness_epoch_test.tl, which fails and prints a fresh value.
+--- That test holds `epoch` and `retired` to all this, and prints both
+--- edits of a bump when the harness moves.
+---
 --- `acknowledged` holds a digest per module of that code as it was when
 --- the choice was last made (`build.test`'s `harness`, over each
 --- module's source and bytecode). It is one module to a line, sorted,
@@ -49,14 +67,16 @@
 --- as a pass. What a module of the harness calls through a library table
 --- a test can replace, it takes as a local when it loads.
 local record harness_epoch
-  epoch: integer
+  epoch: string
+  --- Every token `epoch` held before its current one, oldest first.
+  retired: {string}
   acknowledged: {string:string}
   --- The standard-library modules the harness's modules may reach, each
   --- by why it must.
   library: {string:string}
 end
 
-harness_epoch.epoch = 8
+harness_epoch.epoch = "9-757b1277" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
@@ -67,11 +87,11 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "8beec2912c9583fe4d30987adc85c146c718272a9407ae6ac6ce38ec3b74306c",
 
-  ["build.confine"] = "b4ab5b3448e320ba28831eaa258d12b6d3e194614765e0ee51aa3d186cb2e885",
+  ["build.confine"] = "3622734b110dbe953f2d67a2114ae25c8c1fe869cd9bd4001f37b64c5f072dac",
 
   ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
 
-  ["build.declared_key"] = "56b5985329572940edafcfe646cdf72992c815d0d8e5c5c8bb467628af3786bf",
+  ["build.declared_key"] = "1955426fbf2600d23f377d9fc00e5abad47b30ae759c94439940f340df9898c4",
 
   ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
 
@@ -87,13 +107,13 @@ harness_epoch.acknowledged = {
 
   ["build.shared_sqlite"] = "d1a6f3376ebfb4eaa5b96a0bfd283e34e07a250f984f2f2e3b7f1fe978d18047",
 
-  ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
+  ["build.shared_verdicts"] = "a618d99e7a14fc72b74fda26dbf73d988a8473dda34be888b86e530bf752e5d0",
 
-  ["build.test"] = "8cd033b826b501eec3e829da0cd95fc865dc0e8c2fcb7a3f1e05ebb6586fcc01",
+  ["build.test"] = "3ab679baae0070f0809108ef209fa397afb90b75cd31063cdbe247c133a28a1e",
 
   ["build.test_inputs"] = "73600e0ad4cc72061f59bb556723015e07bc6f76345f6e405f4a8d4510b960aa",
 
-  ["build.test_sandbox"] = "ada0359bd0e9c066a85a4281911cc048debafeca531a3eb86971026a225cbfe1",
+  ["build.test_sandbox"] = "f29cac9cdbaffe6e4fd4fdc166decbbbfb34af629b13946eab31c28d98df17a4",
 
   ["build.test_worker"] = "41aa5af6578846176263f084532dd9c35d46917b53b48bb54b6ef2a17547d910",
 
@@ -103,7 +123,7 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "7e1aeb6507bc43ed66bff90de92beb0dcc983087452924d87f08be72ddc9e7a8",
 
-  ["cosmic.child"] = "5c0f7a989026e03619684487477e998f48f7b28dd62a348d103039c199d282e4",
+  ["cosmic.child"] = "308ccd0ba594f1904cd44af9e5ba1841f4a1bb39e1cccd227569301d6499f62e",
 
   ["cosmic.coverage"] = "c35155708d621fa76ddcaf1799f79d16ccc28cdfba385c8d5501ce33f3da9c79",
 
@@ -147,6 +167,17 @@ harness_epoch.library = {
     "through it (`build.launcher`)",
   ["cosmic.test"] = "a test's declaration (`Test.needs`), which the worker judges, and " ..
     "the runner's hook into it",
+}
+
+harness_epoch.retired = {
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "072f7458",
 }
 
 return harness_epoch

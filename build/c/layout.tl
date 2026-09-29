@@ -27,6 +27,11 @@
 local String = require("cosmic.string")
 
 local record layout
+  --- One comment of a C file and the line it starts on.
+  record Comment
+    line: integer
+    text: string
+  end
 end
 
 --- One lexical piece of a C file. Every byte belongs to exactly one, so
@@ -126,6 +131,21 @@ local function lex(s: string): {Token}
     out[#out + 1] = { kind = kind, text = s:sub(i, stop) }
     line_start = kind == "newline" or (line_start and kind == "space")
     i = stop + 1
+  end
+  return out
+end
+
+--- Every comment of `s`, `//` or `/* */`, markers and all, with the
+--- line it starts on: what `build.links` reads links from.
+function layout.comments(s: string): {layout.Comment}
+  local out: {layout.Comment} = {}
+  local line = 1
+  for _, t in ipairs(lex(s)) do
+    if t.kind == "comment" then
+      out[#out + 1] = { line = line, text = t.text }
+    end
+    local _, breaks = t.text:gsub("\n", "")
+    line = line + breaks
   end
   return out
 end

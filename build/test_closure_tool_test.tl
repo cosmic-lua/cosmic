@@ -15,7 +15,8 @@ Test.needs{ tool = true }
 --- it printed. Its workers run unsandboxed (`COSMIC_TEST_SANDBOX=0`):
 --- the worker holds `require` and the store to the closure sandboxed or
 --- not, and a sandbox nested in this test's own is one a host may
---- refuse (root nests one only two deep), so the run means the same
+--- refuse (root nests one only two deep, where its runner cannot run
+--- its workers as a user of their own), so the run means the same
 --- everywhere.
 local function run(root: string, output: string): boolean, string
   local fd = assert(Fs.open_write(output))

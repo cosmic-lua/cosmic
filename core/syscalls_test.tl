@@ -281,6 +281,37 @@ local function test_chmod(tmp: string)
   failed_with(sys.ENOENT, sys.chmod(tmp .. "/missing", 384))
 end
 
+--- chown sets a path's owner and group -- here to what they are, which
+--- any owner may -- or leaves either at -1; an id past a 32-bit one's
+--- range raises.
+local function test_chown(tmp: string)
+  sys.close(create(tmp .. "/a"))
+  local own = assert(sys.stat(tmp .. "/a"))
+  local changed, trouble = sys.chown(tmp .. "/a", own.uid, own.gid)
+  assert(changed == true, trouble)
+  assert(sys.chown(tmp .. "/a", -1, -1))
+  local after = assert(sys.stat(tmp .. "/a"))
+  assert(after.uid == own.uid and after.gid == own.gid)
+  failed_with(sys.ENOENT, sys.chown(tmp .. "/missing", own.uid, own.gid))
+  raises(sys.chown, tmp .. "/a", -2, own.gid)
+  raises(sys.chown, tmp .. "/a", own.uid, 4294967295)
+end
+
+--- dumpable answers whether this process may be dumped, 0, 1 or 2,
+--- and sets it to 0 or 1 first where asked; any other value raises. Off
+--- Linux it is ENOSYS.
+local function test_dumpable()
+  local now, trouble, errno = sys.dumpable()
+  if now == nil then
+    assert(errno == sys.ENOSYS, trouble)
+    return
+  end
+  assert(now == 0 or now == 1 or now == 2, tostring(now))
+  if now ~= 2 then assert(sys.dumpable(now) == now) end
+  raises(sys.dumpable, 2)
+  raises(sys.dumpable, -1)
+end
+
 local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(sys.mkdir(tmp .. "/d"))
   sys.close(create(tmp .. "/d/a"))
@@ -789,6 +820,7 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.rename(nul, tmp .. "/moved"))
   failed_with(sys.EINVAL, sys.rename(file, tmp .. "/moved\0x"))
   failed_with(sys.EINVAL, sys.chmod(nul, 511))
+  failed_with(sys.EINVAL, sys.chown(nul, -1, -1))
   failed_with(sys.EINVAL, sys.readdir(tmp .. "\0x"))
   failed_with(sys.EINVAL, sys.tree_digest(tmp .. "\0x", false))
   failed_with(sys.EINVAL, sys.chdir(tmp .. "\0x"))

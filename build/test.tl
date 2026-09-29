@@ -1932,10 +1932,25 @@ end
 --- The harness's epoch every key holds (build/harness_epoch.tl), or
 --- the one COSMIC_TEST_HARNESS_EPOCH names in its place, for a test
 --- alone, which stands in for a bump without a binary of its own
---- (build/sandboxed_verdicts_test.tl).
-local function harness_epoch_of(): integer
-  local named = math.tointeger(tonumber(Env.get("COSMIC_TEST_HARNESS_EPOCH") or ""))
-  return named or harness_epoch.epoch
+--- (build/sandboxed_verdicts_test.tl): a count, a dash and hex digits,
+--- as the file's is, so the census and key-parts lines, which say it
+--- as one word, stay parseable. Nil and why for another.
+local function harness_epoch_of(): string | nil, string
+  local named = Env.get("COSMIC_TEST_HARNESS_EPOCH") or ""
+  if named == "" then return harness_epoch.epoch, "" end
+  if not named:match("^%d+%-%x+$") then
+    return nil, string.format("COSMIC_TEST_HARNESS_EPOCH is %q, not a count, a dash and " ..
+      "hex digits, as build/harness_epoch.tl's `epoch` is", named)
+  end
+  return named, ""
+end
+
+--- The word the census and key-parts lines say a key's harness parts
+--- as (`cosmic test --census`): its epoch and the workers' timeout, one
+--- word, which ci/cosmic_ci/report.tl compares whole, so a bump from
+--- the same count says a moved harness.
+function test.harness_word(epoch: string, timeout_ms: integer): string
+  return string.format("e%s-t%d", epoch, timeout_ms)
 end
 
 --- Everything a finished job's verdict is recorded into.
@@ -2017,12 +2032,15 @@ local record Recording
   --- (`declared_key.system_identity`), and why each module whose tests
   --- have no key has none, but for the network, by module path.
   host: string
+  --- The host's identity with a worker run as a user of its own in
+  --- place of the runner's (`test_sandbox.worker_user`), else `host`.
+  worker_host: string
   system: string
   --- The harness's epoch (build/harness_epoch.tl), which every key
   --- holds in place of the harness's code, and the timeout each worker
   --- runs under (`Limits.timeout_ms`), which every key holds too: a
   --- pass reached under a longer one need not come under a shorter.
-  epoch: integer
+  epoch: string
   timeout_ms: integer
   --- Sandboxed, the program a test that runs this program runs
   --- (`declared_key.program_identity`).
@@ -2238,7 +2256,9 @@ local function declared_of(rec: Recording, m: importer.Module, id: string): stri
   local effective = rec.effective[m.path]
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
-    compiler = reads_compiler(rec, m) and rec.compiler or "", host = rec.host,
+    compiler = reads_compiler(rec, m) and rec.compiler or "",
+    host = rec.sandbox and test_sandbox.worker_user(effective) ~= nil and rec.worker_host or
+      rec.host,
     system = rec.system,
     epoch = rec.epoch, timeout_ms = rec.timeout_ms, program = rec.program,
     launcher = rec.launcher,
@@ -2875,7 +2895,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     env = given
   end
   local command = worker.invocation({
-    start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
+    start = job.plan ~= nil and job.plan.start or start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), held = held,
     hold = hold,
     open = declared ~= nil and declared.store, store = attached,
@@ -3433,6 +3453,13 @@ local function run(argv: {integer:string}): integer
     log:complain(records_path .. ": " .. verdicts_trouble)
     return 1
   end
+  local epoch, epoch_trouble = harness_epoch_of()
+  if epoch == nil then
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
+    log:complain(epoch_trouble)
+    return 1
+  end
   local credited: test.Credited = {}
 
   local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0, every = 0,
@@ -3464,7 +3491,7 @@ local function run(argv: {integer:string}): integer
     origin = checkout_id(records, root, run_at_ns),
     sandbox = sandboxed, keyed = keyed, views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    epoch = harness_epoch_of(), timeout_ms = limits.timeout_ms,
+    epoch = epoch, timeout_ms = limits.timeout_ms,
     store_salt = harness.store_salt, carried = harness.carried,
     closure_sets = {},
     rerun_prefix = (sandbox_mode == "on" and (test_sandbox.switch .. "=1 ") or
@@ -3567,6 +3594,14 @@ local function run(argv: {integer:string}): integer
     end
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
+    rec.worker_host = rec.host
+    if rec.sandbox then
+      local worker_user, _ = test_sandbox.runs_as()
+      if worker_user ~= nil then
+        rec.worker_host = declared_key.host_identity(rec.digests,
+          { worker_uid = worker_user.uid, worker_gid = worker_user.gid })
+      end
+    end
     -- What the system's paths hold is walked only for a run that holds
     -- a module given them, whose key alone holds it: half a second of
     -- /usr's entries otherwise spent for nothing.
@@ -3672,7 +3707,7 @@ local function run(argv: {integer:string}): integer
       { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },
       { "compiler", (rec.compiler or ""):sub(1, 12) },
       -- The key's harness parts, its epoch and timeout, as one word.
-      { "harness", string.format("e%dt%d", rec.epoch, rec.timeout_ms) },
+      { "harness", test.harness_word(rec.epoch, rec.timeout_ms) },
     }
     if rec.launcher ~= nil then parts[#parts + 1] = { "launcher", rec.launcher:sub(1, 12) } end
     if not sandboxed then parts[#parts + 1] = { "tree", hex_sha256(root):sub(1, 12) } end

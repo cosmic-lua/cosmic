@@ -78,8 +78,11 @@ local record Cli
   --- again would change nothing further, and refusing a file it does
   --- not. It also builds the tree and parenthesizes every `assert(...)`
   --- the type checker says passes on more values than its place can
-  --- take -- `(assert(...))` keeps only the first. The tree is found as
-  --- `test` finds it
+  --- take -- `(assert(...))` keeps only the first. It fails a link in a
+  --- comment or a Markdown file -- `` [`x`] ``, `[text](target)` or
+  --- `[text][label]` -- that names nothing, or more than one thing, and
+  --- reads Markdown and Zig files for their links alone, never
+  --- rewriting them. The tree is found as `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable under o/bin/ for each

@@ -20,6 +20,8 @@ local Fs = require("cosmic.fs")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
+local type links = require("build.links")
+local type docs = require("build.docs")
 local render_mod = require("build.fix.render")
 local teal = require("build.teal")
 
@@ -176,7 +178,7 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       what .. " should be reported as missing, not judged on its suffix: " ..
       picked.refused[i])
   end
-  assert(picked.refused[3]:find("not a Teal or C source, or YAML", 1, true) ~= nil,
+  assert(picked.refused[3]:find("not a Teal or C source, YAML, Markdown or Zig", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
     picked.refused[3])
 end
@@ -344,4 +346,154 @@ local function test_yaml_is_laid_out_in_place(tmp: string)
   changed = {}
   fix.lay_out({ path }, true, changed, {})
   assert(#changed == 0, "a laid-out file is left alone")
+end
+
+--- Markdown and Zig are taken to have their links checked, named or
+--- under a directory named, past the build's output; they are not Teal
+--- to render.
+local function test_markdown_and_zig_are_taken_to_be_checked(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/doc"))
+  assert(Fs.mkdirs(tmp .. "/o"))
+  assert(Fs.write(tmp .. "/build.zig", "const x = 1;\n"))
+  assert(Fs.write(tmp .. "/doc/a.md", "# A\n"))
+  assert(Fs.write(tmp .. "/o/b.md", "# B\n"))
+  local all = assert(fix.chosen(tmp, {}))
+  assert(table.concat(all.checked, " ") == "build.zig doc/a.md", table.concat(all.checked, " "))
+  assert(#all.files == 0, "Markdown is no Teal source")
+  local named = assert(fix.chosen(tmp, { tmp .. "/doc/a.md", tmp .. "/doc" }))
+  assert(#named.refused == 0, table.concat(named.refused, "\n"))
+  assert(#named.checked == 2 and named.checked[1] == tmp .. "/doc/a.md", table.concat(named.checked, " "))
+end
+
+--- A world on disk under `root`, where no symbol is known but `known`.
+local function on_disk(root: string, known: {string: {string}}): links.Context
+  return {
+    root = root,
+    kind = function(path: string): string | nil
+      local st, _ = Fs.stat(path)
+      if st == nil then return nil end
+      return st.kind == "dir" and "dir" or "file"
+    end,
+    read = function(path: string): string | nil
+      local text, _ = Fs.read(path)
+      return text
+    end,
+    symbols = function(query: string): {string} | nil, string
+      return known[query] or {}, ""
+    end,
+    member = function(_: string, _: string): {string} | nil, string
+      return {}, ""
+    end,
+    real = function(path: string): string | nil
+      local real, _ = Fs.absolute(path)
+      return real
+    end,
+    unbuilt = function(): string | nil return nil end,
+  }
+end
+
+--- A link that resolves passes and one that does not fails, naming its
+--- file, line and target, in each kind of file fix reads links in.
+local function test_a_broken_link_fails_in_each_kind_of_file(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.mkdirs(root .. "/doc"))
+  assert(Fs.write(root .. "/doc/guide.md", table.concat({
+    "# Guide",
+    "",
+    "See [the design](design.md), [`Known.thing`] and [`build.zig`].",
+    "Not [here](#nowhere), nor [there](missing.md).",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/doc/design.md", "# Design\n"))
+  assert(Fs.write(root .. "/a.tl", table.concat({
+    "--- Calls [`helper`], documented in [the guide](doc/guide.md#guide).",
+    "local function helper()",
+    "end",
+    "",
+    "-- Not [`nothing`].",
+    "return helper",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/b.c", table.concat({
+    "/* [`count`] counts; [`uncounted`] is not here. */",
+    "static int count (int n) {",
+    "  return n;",
+    "}",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/build.zig", table.concat({
+    "/// Builds with [`step`]; see [the guide](doc/guide.md).",
+    "const step = \"// [`not_a_comment`]\";",
+    "const text = \\\\ a line // [`nor_this`]",
+    "// But [`no_step`].",
+    "",
+  }, "\n")))
+  local context = on_disk(root, { ["Known.thing"] = { "known.Known.thing" } })
+  local files = { root .. "/doc/guide.md", root .. "/a.tl", root .. "/b.c", root .. "/build.zig" }
+  local found = table.concat(fix.links(context, built, files).broken, "\n")
+  local want = table.concat({
+    root .. "/doc/guide.md:4: link: #nowhere does not resolve (no heading of guide.md has the anchor #nowhere)",
+    root .. "/doc/guide.md:4: link: missing.md does not resolve (no declaration, symbol or file by that name)",
+    root .. "/a.tl:5: link: nothing does not resolve (no declaration, symbol or file by that name)",
+    root .. "/b.c:1: link: uncounted does not resolve (no declaration, symbol or file by that name)",
+    root .. "/build.zig:4: link: no_step does not resolve (no declaration, symbol or file by that name)",
+  }, "\n")
+  assert(found == want, "got:\n" .. found .. "\nwant:\n" .. want)
+end
+
+--- A run over part of the tree builds the project before it reads what
+--- a link names, and only once; a whole run reads the projection it
+--- just wrote; a run that meets no symbol link opens nothing.
+local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/a.md", "[`one`] [`two`]\n"))
+  assert(Fs.write(root .. "/b.md", "[b](b.md)\n"))
+  for _, whole in ipairs({ false, true }) do
+    local rebuilt, opened = 0, 0
+    local source = fix.link_context(root, whole, true,
+      function(_: string): boolean, string
+        rebuilt = rebuilt + 1
+        return true, ""
+      end,
+      function(): docs.Sources
+        opened = opened + 1
+        return { handles = {}, public = {}, opened = {} }
+      end)
+    fix.links(source.context, built, { root .. "/b.md" })
+    assert(opened == 0 and rebuilt == 0, "a file with no symbol link opened the databases")
+    local found = fix.links(source.context, built, { root .. "/a.md" })
+    source.close()
+    assert(#found.broken == 2, table.concat(found.broken, "\n"))
+    assert(opened == 1, "opened " .. opened .. " times")
+    assert(rebuilt == (whole and 0 or 1), (whole and "whole" or "part") .. ": rebuilt " .. rebuilt)
+  end
+end
+
+--- A project that has not been built checks no link against symbols,
+--- and says so once as a note rather than failing each.
+local function test_links_to_symbols_wait_for_a_build(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/a.md", "[`one`] [`two`] [gone](gone.md)\n"))
+  local source = fix.link_context(root, false, false,
+    function(_: string): boolean, string return true, "" end,
+    function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
+  local found = fix.links(source.context, built, { root .. "/a.md" })
+  source.close()
+  assert(#found.broken == 1 and found.broken[1]:find("gone.md", 1, true), table.concat(found.broken, "\n"))
+  assert(#found.notes == 1 and found.notes[1]:find("2 links to a symbol not checked", 1, true),
+    table.concat(found.notes, "\n"))
+end
+
+--- A Markdown or Zig file is never among what fix renders or lays out,
+--- however it is named, so no run rewrites one.
+local function test_markdown_and_zig_are_never_rewritten(tmp: string)
+  assert(Fs.write(tmp .. "/a.md", "#  Messy   heading\n"))
+  assert(Fs.write(tmp .. "/b.zig", "const   x = 1;\n"))
+  for _, named in ipairs({ {}, { tmp }, { tmp .. "/a.md", tmp .. "/b.zig" } }) do
+    local picked = assert(fix.chosen(tmp, named))
+    local rewritten = table.concat(picked.files, " ") .. table.concat(picked.c_files, " ") ..
+      table.concat(picked.flow_files, " ")
+    assert(rewritten == "", rewritten)
+    assert(#picked.checked == 2, table.concat(picked.checked, " "))
+  end
 end

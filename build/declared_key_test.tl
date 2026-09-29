@@ -48,7 +48,7 @@ local function spec(env?: {string:string}): declared_key.Spec
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
     runtime = "runtime sandboxed", compiler = "compiler", host = "host",
-    epoch = 1, timeout_ms = 30000,
+    epoch = "1-00000000", timeout_ms = 30000,
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = env or { DECLARED = "d", TMPDIR = "/tmp" },
   }
@@ -132,8 +132,13 @@ local function test_each_input_moves_it(tmp: string)
   s.host = "another host"
   differs("the host", s)
   s = spec()
-  s.epoch = 2
+  s.epoch = "2-00000000"
   differs("the harness's epoch", s)
+  -- Two bumps from one count, as two branches make: each draws its own
+  -- token, and the two keys differ (build/harness_epoch.tl).
+  s = spec()
+  s.epoch = "1-3f9c2a1b"
+  differs("another bump's token", s)
   s = spec()
   s.timeout_ms = 60000
   differs("the timeout its worker runs under", s)
@@ -263,7 +268,7 @@ local function full_spec(hostdir: string): declared_key.Spec
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
-    runtime = "runtime sandboxed", compiler = "compiler", epoch = 1, timeout_ms = 30000,
+    runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ms = 30000,
     program = "program", host = "host", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
@@ -289,7 +294,7 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   local spec_changes: {string:Change<declared_key.Spec>} = {
     id = append("id"), module_key = append("module_key"), runtime = append("runtime"),
     compiler = append("compiler"), host = append("host"),
-    epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch + 1 end },
+    epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch .. "0" end },
     timeout_ms = { change = function(s: declared_key.Spec) s.timeout_ms = s.timeout_ms + 1000 end },
     launcher = append("launcher"), declaration = append("declaration"),
     -- Keyed only for an unsandboxed worker, which sees the tree there.
@@ -370,9 +375,15 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
       system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
       sysname = "Linux", system_id = "s1",
       cpuinfo = write("cpuinfo", "flags : aes pclmulqdq asimd\n"), machine = "x86_64",
-      status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
+      status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\nGid: 1 1 1 1\n"),
       own_proc = true, host_id = "h1", uid = 1, walked = { write("walked", "w1") },
+      worker_uid = 65532, worker_gid = 65532,
     }
+  end
+  -- The runner's own user and status, which a worker run as a user of
+  -- its own is not keyed by, but for what it keeps of the runner's.
+  local function as_runner(s: declared_key.HostSources)
+    s.worker_uid, s.worker_gid = nil, nil
   end
   local function key(sources: declared_key.HostSources): string
     local digests = declared_key.digests(tmp)
@@ -391,12 +402,52 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     sysname = { from = function(s: declared_key.HostSources) s.system = nil end,
       change = function(s: declared_key.HostSources) s.sysname = "Darwin" end },
     system_id = set("system_id", "s2"), cpuinfo = set("cpuinfo", tmp .. "/cpuinfo2"),
-    machine = set("machine", "aarch64"), status = set("status", tmp .. "/status2"),
-    own_proc = set("own_proc", false), host_id = set("host_id", "h2"), uid = set("uid", 2),
+    machine = set("machine", "aarch64"),
+    status = { from = as_runner, change = set("status", tmp .. "/status2").change },
+    own_proc = set("own_proc", false), host_id = set("host_id", "h2"),
+    uid = { from = as_runner, change = set("uid", 2).change },
+    worker_uid = set("worker_uid", 65533), worker_gid = set("worker_gid", 65533),
     walked = set("walked", { write("walked2", "w22") }),
   }
   each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
     function(s: declared_key.HostSources): any return s end, key, changes, {})
+end
+
+--- A worker a root runner runs as a user of its own is keyed as that
+--- user, with no group and no capability but the bounding set, which
+--- it keeps, whatever groups and capabilities root had -- but apart
+--- from that user's own runner's worker, which its sandbox could give
+--- nothing only root may read, and from a worker run as root, or as
+--- another user.
+local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp: string)
+  local function status(name: string, text: string): string
+    assert(Fs.write(tmp .. "/" .. name, text))
+    return tmp .. "/" .. name
+  end
+  local tail = "CapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\n" ..
+    "NoNewPrivs:\t0\nSeccomp:\t0\n"
+  local root = status("root", "Name:\tx\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n" ..
+    "Groups:\t0 \nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\n" ..
+    "CapEff:\t000001ffffffffff\n" .. tail)
+  local user = status("user", "Name:\tx\nUid:\t65532\t65532\t65532\t65532\n" ..
+    "Gid:\t65532\t65532\t65532\t65532\nGroups:\t \nCapInh:\t0000000000000000\n" ..
+    "CapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n" .. tail)
+  local function host(sources: declared_key.HostSources): string
+    sources.system = { "", "", "" }
+    sources.cpuinfo, sources.machine, sources.own_proc, sources.host_id =
+      status("cpuinfo", "flags : aes\n"), "x86_64", true, "h"
+    return declared_key.host_identity(declared_key.digests(tmp), sources)
+  end
+  local dropped = host({ status = root, uid = 0, worker_uid = 65532, worker_gid = 65532 })
+  assert(dropped ~= host({ status = user, uid = 65532 }),
+    "keyed as that user's own runner's worker, which reads what root's could not give it")
+  assert(dropped ~= host({ status = root, uid = 0 }), "keyed as root")
+  assert(dropped ~= host({ status = root, uid = 0, worker_uid = 65533, worker_gid = 65533 }))
+  local other_root = status("other-root", "Name:\tx\nUid:\t0\t0\t0\t0\n" ..
+    "Gid:\t0\t0\t0\t0\nGroups:\t0 10 \nCapInh:\t0000000000000000\n" ..
+    "CapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\n" .. tail)
+  assert(dropped == host({ status = other_root, uid = 0, worker_uid = 65532,
+    worker_gid = 65532 }), "keyed by the groups and capabilities of the root it left")
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,

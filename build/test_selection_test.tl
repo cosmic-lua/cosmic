@@ -15,7 +15,8 @@ local function invoke(root: string, output: string, selector: string): Child.Res
   -- Unsandboxed, whatever this run's switch: what is chosen, and what
   -- a choice runs and reports, is the same either way, and a sandbox
   -- nested in this test's own is one a host may refuse (root nests one
-  -- only two deep), where the run would go unsandboxed only there. The
+  -- only two deep, where its runner cannot run its workers as a user of
+  -- their own), where the run would go unsandboxed only there. The
   -- rerun line it prints repeats the switch.
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"

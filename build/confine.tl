@@ -663,7 +663,9 @@ end
 --- `COSMIC_CI_REQUIRE_SANDBOX=1`. A test whose assertion is about a
 --- sandbox the host refuses it -- the sandboxed workers of a `cosmic
 --- test` it starts, nested in its own sandbox, which the kernel lets root
---- nest only two deep (core/syscalls.c's `map_ids`) -- says it is
+--- nest only two deep (core/syscalls.c's `map_ids`), where a root
+--- runner cannot run its workers as a user of their own
+--- (build.test_sandbox's `runs_as`) -- says it is
 --- skipped (`Test.skip`) and returns unchecked, and `cosmic test` fails
 --- a skipped test where this answers true, so a run held to sandboxing
 --- proves the host checked it. Read through the log, so an unsandboxed
@@ -744,6 +746,9 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
     return nil
   end
   plain.offline = rawget(raw, "offline") == true
+  local user, group = rawget(raw, "user"), rawget(raw, "group")
+  if user is integer then plain.user = user elseif user ~= nil then return nil end
+  if group is integer then plain.group = group elseif group ~= nil then return nil end
   local pledge = rawget(raw, "pledge")
   if pledge ~= nil then
     local promises = raw_strings(pledge)

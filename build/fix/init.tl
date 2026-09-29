@@ -43,6 +43,10 @@
 --- checks need its projection, and a note on the standard library
 --- fails the run instead of being a note. A run over some paths does
 --- none of this.
+---
+--- In any project it also holds the links in comments and Markdown to
+--- resolving (`build.links`): each Teal and C file it covers, and each
+--- Markdown and Zig file, which it checks and never rewrites.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -52,13 +56,16 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local flow = require("build.flow")
+local links = require("build.links")
 local near = require("build.fix.near")
 local analyzer = require("build.analyzer")
 local reboot = require("build.reboot")
+local rebuild = require("build.rebuild")
 local render_mod = require("build.fix.render")
 local rule = require("build.fix.rule")
 local spill = require("build.fix.spill")
@@ -90,12 +97,28 @@ local record fix
   --- handles. A refused path is carried here rather than ending the verb,
   --- so it is reported and counted like any other refused file and the
   --- run still ends in the verb's verdict line.
+  --- What `links` found: each link that does not resolve, and notes
+  --- on what it could not check.
+  record Linked
+    broken: {string}
+    notes: {string}
+  end
+
+  --- Where links' names are read, and how to close what that opened.
+  record LinkSource
+    context: links.Context
+    close: function()
+  end
+
   record Chosen
     files: {string}
     --- The C files, which only cosmic's own tree has checked.
     c_files: {string}
     --- The YAML files in flow style, laid out by `build.flow`.
     flow_files: {string}
+    --- The Markdown and Zig files, whose links are checked and which
+    --- are never rewritten.
+    checked: {string}
     refused: {string}
     --- Whether `files` are every Teal source of cosmic's own tree, as
     --- `cosmic fix --check .` covers it: only then does the run hold
@@ -140,6 +163,30 @@ local function sources(root: string): {string} | nil, string
       out[#out + 1] = file
     end
   end
+  return out
+end
+
+--- Whether `path` is a file whose links are checked and nothing more.
+local function check_only(path: string): boolean
+  return String.ends_with(path, ".md") or String.ends_with(path, ".zig")
+end
+
+--- Every Markdown and Zig file under `root`, as paths relative to it,
+--- past what `skip` passes over but the core: its C is checked apart,
+--- and its Zig is the tree's own.
+local function checked_sources(root: string): {string} | nil, string
+  local files, trouble = Fs.walk(root, function(entry: string): boolean
+    return (entry:match("^([^/]+)") or entry) ~= "core" and skip(entry) or
+      Fs.basename(entry):sub(1, 1) == "."
+  end)
+  if files == nil then
+    return nil, trouble
+  end
+  local out: {string} = {}
+  for _, file in ipairs(files) do
+    if check_only(file) then out[#out + 1] = file end
+  end
+  table.sort(out)
   return out
 end
 
@@ -305,6 +352,10 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
     if all == nil then
       return nil, trouble
     end
+    local checked, checked_trouble = checked_sources(root)
+    if checked == nil then
+      return nil, checked_trouble
+    end
     local c_files: {string} = {}
     local flow_files: {string} = {}
     if own then
@@ -319,12 +370,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       end
       flow_files = workflows
     end
-    return { files = all, c_files = c_files, flow_files = flow_files, refused = {},
-             whole = own }
+    return { files = all, c_files = c_files, flow_files = flow_files, checked = checked,
+             refused = {}, whole = own }
   end
   local out: {string} = {}
   local c_out: {string} = {}
   local flow_out: {string} = {}
+  local checked_out: {string} = {}
   local refused: {string} = {}
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
@@ -337,6 +389,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       end
       for _, file in ipairs(under) do
         out[#out + 1] = path .. "/" .. file
+      end
+      local checked, checked_trouble = checked_sources(path)
+      if checked == nil then
+        return nil, checked_trouble
+      end
+      for _, file in ipairs(checked) do
+        checked_out[#checked_out + 1] = path .. "/" .. file
       end
       if own then
         local c_under, c_trouble = c_check.sources(path)
@@ -363,14 +422,16 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       end
     elseif is_yaml(path) then
       flow_out[#flow_out + 1] = path
+    elseif check_only(path) then
+      checked_out[#checked_out + 1] = path
     elseif not String.ends_with(path, ".tl") then
-      refused[#refused + 1] = path .. ": not a Teal or C source, or YAML"
+      refused[#refused + 1] = path .. ": not a Teal or C source, YAML, Markdown or Zig"
     else
       out[#out + 1] = path
     end
   end
-  return { files = out, c_files = c_out, flow_files = flow_out, refused = refused,
-           whole = own and covers(root, out) }
+  return { files = out, c_files = c_out, flow_files = flow_out, checked = checked_out,
+           refused = refused, whole = own and covers(root, out) }
 end
 
 --- Lays out each YAML file of `files` (`build.flow`), writing it back
@@ -402,6 +463,79 @@ function fix.lay_out(files: {string}, checking: boolean, changed: {string}, fail
       end
     end
   end
+end
+
+--- What is wrong with the links of `files` (`build.links`), each line
+--- `file:line: link: ...`, the file as named; a file that cannot be
+--- read is one line of its own. What each link names is looked up in
+--- `context`, once for every file. A note says how many links were not
+--- checked against symbols the context did not have.
+--- @param built compiler The loaded compiler, which lexes Teal
+function fix.links(context: links.Context, built: compiler, files: {string}): fix.Linked
+  local resolver = links.resolver(context)
+  local out: {string} = {}
+  for _, file in ipairs(files) do
+    local kind = links.kind_of(file)
+    local source, read_trouble = Fs.read(file)
+    local absolute, absolute_trouble = Fs.absolute(file)
+    if source == nil then
+      out[#out + 1] = file .. ": " .. read_trouble
+    elseif absolute == nil then
+      out[#out + 1] = file .. ": " .. absolute_trouble
+    elseif kind ~= nil then
+      for _, line in ipairs(links.check(resolver, file, absolute, kind, source, built)) do
+        out[#out + 1] = line
+      end
+    end
+  end
+  if resolver.trouble ~= nil then
+    out[#out + 1] = "links: reading the symbols: " .. resolver.trouble
+  end
+  local notes: {string} = {}
+  if resolver.unchecked > 0 then
+    notes[1] = "links: " .. plural.count(resolver.unchecked, "link") ..
+      " to a symbol not checked: " .. tostring(context.unbuilt())
+  end
+  return { broken = out, notes = notes }
+end
+
+--- Where `fix` reads what links name, over the project at `root`: its
+--- databases (`databases`, as `docs.databases` answers), opened when
+--- a link first names a symbol. A run over part of the tree builds the
+--- project first (`rebuild_here`), so an edit is seen; a `whole` run
+--- reads the projection its tree checks just wrote. Outside cosmic's
+--- own tree (`own`), a project with no `o/cosmic.db` has no symbols of
+--- its own yet, which the context says rather than failing links to
+--- them. `close` closes what was opened.
+function fix.link_context(root: string, whole: boolean, own: boolean,
+                          rebuild_here: function(string): boolean, string,
+                          databases: function(): docs.Sources): fix.LinkSource
+  local opened: docs.Sources | nil = nil
+  local function open(): docs.View | nil, string
+    if not whole then
+      local rebuilt, rebuild_trouble = rebuild_here("fix")
+      if not rebuilt then
+        log:complain("fix: links: not rebuilt, resolving from the last build: " .. rebuild_trouble)
+      end
+    end
+    local found = databases()
+    opened = found
+    return docs.view(found.handles, found.public)
+  end
+  local function unbuilt(): string | nil
+    if own then return nil end
+    local built_before, _ = Fs.exists(root .. "/o/cosmic.db")
+    if built_before then return nil end
+    return "the project has no o/cosmic.db yet (`cosmic build` or `cosmic test` makes one)"
+  end
+  local function close()
+    if opened ~= nil then
+      for _, handle in ipairs(opened.opened or {}) do
+        local _, _ = handle:close()
+      end
+    end
+  end
+  return { context = links.context(root, open, unbuilt), close = close }
 end
 
 --- `near`'s notes on the exported functions of `files`, each line
@@ -504,7 +638,8 @@ local function run(argv: {integer:string}): integer
   -- covers, so the verdict says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
   local files = picked.files
-  local counted = #files + #picked.c_files + #picked.flow_files + #picked.refused
+  local counted = #files + #picked.c_files + #picked.flow_files + #picked.checked +
+    #picked.refused
   local changed: {string} = {}
   local failures: {string} = {}
   for _, why in ipairs(picked.refused) do
@@ -678,6 +813,28 @@ local function run(argv: {integer:string}): integer
     end
   end
 
+  -- Every link, once the files are as the run leaves them. What a link
+  -- names is read from the project's databases, rebuilt first so a
+  -- narrowed run sees the tree as it stands; over the whole tree, the
+  -- tree checks just wrote them.
+  local linked: {string} = {}
+  for _, file in ipairs(files) do linked[#linked + 1] = file end
+  for _, file in ipairs(c_files) do linked[#linked + 1] = file end
+  for _, file in ipairs(picked.checked) do linked[#linked + 1] = file end
+  -- TODO: resolve against the project's root found from a
+  -- subdirectory, as `cosmic test` finds its tree (build.tree), rather
+  -- than the working directory; build.rebuild's `here` and
+  -- build.docs's `databases` take the working directory too.
+  local own, _ = tree.is_own(root)
+  local source = fix.link_context(root, picked.whole, own == true, rebuild.here,
+    function(): docs.Sources return docs.databases() end)
+  local linked_out = fix.links(source.context, built, linked)
+  source.close()
+  local broken = linked_out.broken
+  for _, line in ipairs(linked_out.notes) do
+    log:say("fix: note  " .. line)
+  end
+
   -- A note is a heuristic's, and names what to look at; only one on the
   -- standard library, in a run over the whole tree, is a failure: the
   -- library as it stands earns no note against itself. The notes compare
@@ -705,16 +862,22 @@ local function run(argv: {integer:string}): integer
   for _, line in ipairs(findings) do
     log:say("fix: FAIL  " .. line)
   end
+  for _, line in ipairs(broken) do
+    log:say("fix: FAIL  " .. line)
+  end
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
-  if #failures > 0 or #findings > 0 then
+  if #failures > 0 or #findings > 0 or #broken > 0 then
     local said: {string} = {}
     if #failures > 0 then
       said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
     end
     if #findings > 0 then
       said[#said + 1] = #findings .. " found by the tree checks"
+    end
+    if #broken > 0 then
+      said[#said + 1] = plural.count(#broken, "link") .. " not resolving"
     end
     log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(started))
     return 1
