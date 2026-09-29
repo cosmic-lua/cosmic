@@ -665,14 +665,14 @@ Items, in order:
    fixtures step, 2.8 to 4.1 min: items 4 and 5 are next. The main
    push (36523159537) took 57 s and saved the job's verdicts.
    - Shows: the median queue run at 8 min or less (after items 4, 5).
-4. **Fixtures compile their project once per leg (S),** through one
+4. **Fixtures compile their project once per leg (S): landed (#2346).** The first fixture compiles the 40 modules, the other seven take them (about 33 s a leg). Done through one
    `COSMIC_BUILD_CACHE` in the work directory (`orchestration.tl:489`).
    This is 4.1's bullet, done without sandboxing. About 20 s a leg.
-5. **Self-rebuild on two legs in gating runs (S–M):** linux-x86_64 and
+5. **Self-rebuild on two legs in gating runs (S–M): landed (#2350).** linux-x86_64 and
    macOS, every leg in the scheduled run, as the fixed-point
    regression does (`COSMIC_CI_SELF_REBUILD`). About 3 runner-minutes a
    full run.
-6. **No tree put-back around the cache saves (S–M).** The tree is
+6. **No tree put-back around the cache saves (S–M): landed (#2353).** The tree is
    placed exactly one level deep, varying only its name by commit and
    leg, so actions/cache's `../../_temp` paths resolve with the tree
    moved and the mid-job put-back and re-move go. The absolute path
@@ -680,7 +680,7 @@ Items, in order:
    depth no longer varies. (Linking only `ci` and `.github` into a
    moved tree, with a `COSMIC_CI_ROOT` for the driver, is the fuller
    form, kept in reserve.)
-7. **A branch restores from its merge base (M).** Main's saves also
+7. **A branch restores from its merge base (M): in review (#2356).** Main's saves also
    take a key by SHA, kept a day or two; a branch run looks up
    `git merge-base HEAD origin/main`'s key first, then the newest.
    The base comes from the compare API (`contents: read`, no deeper
