@@ -76,11 +76,11 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
 end
 
 --- Which of `product`'s files differs from `recorded`, the text of the
---- hashes.sha256 `build` wrote for it -- "hashes.sha256" where that
---- record is not the same -- or nil where none does. A file differs
---- where it is not a regular file, or its bytes are not the ones
---- recorded, or, for the programs (cosmic and apps/), where it is no
---- longer executable by everyone.
+--- hashes.sha256 `build` wrote for it. Answers "hashes.sha256" where
+--- that file does not hold `recorded`, the name of the first file that
+--- differs, or nil where none does. A file differs where it is not a
+--- regular file, or its bytes are not the ones recorded, or, for the
+--- programs (cosmic and apps/), where it is not executable by everyone.
 function ProductSetup.changed(product: string, recorded: string): string | nil
   local now = Fs.read(product .. "/hashes.sha256")
   if now ~= recorded then return "hashes.sha256" end

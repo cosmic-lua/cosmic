@@ -223,7 +223,7 @@
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",
             # v2: installs are named by the pin's sha too (build/zig.tl's
-            # install_name); bump it when that name's shape changes again.
+            # install_name); bump it when that name's shape changes.
             key: "zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}",
           },
         },
@@ -726,9 +726,9 @@
 
     # linux-x86_64's checked suite, the whole suite on the sanitized core
     # (orchestration.tl's checked_suite), in a job of its own on that
-    # leg's host, beside the legs: after that leg's own suites it made
-    # the leg the run's longest by some three to six minutes. It boots
-    # and builds only what the suite reads, and keeps the suite's
+    # leg's host, beside the legs: run after that leg's own suites, it
+    # would make the leg the run's longest by some three to six minutes.
+    # It boots and builds only what the suite reads, and keeps the suite's
     # verdicts under a cache name of its own (`linux-x86_64-checked`),
     # saved and seeded as a leg's are; it restores linux-x86_64's zig
     # build outputs and compiles, which that leg saves. Its tree moves

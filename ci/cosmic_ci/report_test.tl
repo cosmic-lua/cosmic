@@ -86,9 +86,9 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
   assert(not runs[3].qualifies and
     runs[3].why:find("linux-x86_64 local: the restored cache held no rows", 1, true), runs[3].why)
   assert(not runs[4].qualifies and runs[4].why:find("harness moved", 1, true), runs[4].why)
-  -- Restored rows that name no parts, kept before rows named them, as
-  -- on the first run after they did, tell nothing: the earlier run
-  -- decides, and the reason says so.
+  -- Restored rows that name no parts (a cache kept from before rows
+  -- named them) tell nothing: the earlier run decides, and the reason
+  -- says so.
   local unnamed = "7 rows under no parts named"
   runs = { run("70", "h1", unnamed), run("60", "h1"), run("55", "h1", unnamed), run("50", "h0") }
   Report.qualify(runs, 3)

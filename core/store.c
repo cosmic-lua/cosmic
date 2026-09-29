@@ -92,20 +92,21 @@ static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
  * wrapper named here, and any `build.*` name not named here stays
  * project first. `open` builds that value; it is NULL where other
  * code registers it -- `cosmic_store_install` the store, core/surface.c
- * the coverage collector (despite its raw name, a holdover from when it
- * carried the real `debug` library), and `cosmic_store_open_raw` all
- * the others, a raw value shared by several wrappers once, at its first
- * entry. `build.test_worker` gets the store's to put a hold up
- * (`store_hold`), which `cosmic.store` does not offer. `build.fuzz` gets the instruction budget alone, which shares
- * the coverage collector's hook but none of its collection. The
- * process table is `cosmic.child`'s, `cosmic.proc`'s and
- * `build.confine`'s, whose stand-in for its `spawn` confines each child
- * a test starts; `build.filesystem_observations` is handed SQLite's
- * table and the syscall table's log together (`open_observations`).
- * `build.digest` shares `cosmic.hash`'s, so the code that computes a
- * verdict key hashes through no raw function a test can replace: it
- * takes them as it loads, and only a hasher's `update` and `digest`,
- * in the runner alone, are still looked up on its metatable. */
+ * the coverage collector (its raw name, `cosmic.internal.debug`, holds no
+ * debug library), and `cosmic_store_open_raw` all the others, a raw
+ * value shared by several wrappers once, at its first entry.
+ * `build.test_worker` gets the store's to put a hold up (`store_hold`),
+ * which `cosmic.store` does not offer. `build.fuzz` gets the instruction
+ * budget alone, which shares the coverage collector's hook but none of
+ * its collection. The process table is `cosmic.child`'s,
+ * `cosmic.proc`'s and `build.confine`'s, whose stand-in for its `spawn`
+ * confines each child a test starts; `build.filesystem_observations` is
+ * handed SQLite's table and the syscall table's log together
+ * (`open_observations`). `build.digest` shares `cosmic.hash`'s, so the
+ * code that computes a verdict key hashes through no raw function a
+ * test can replace: it takes them as it loads, and only a hasher's
+ * `update` and `digest`, in the runner alone, are still looked up on
+ * its metatable. */
 static int open_observations (lua_State *L);
 
 static const struct raw_module {

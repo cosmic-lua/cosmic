@@ -63,10 +63,10 @@ local function joined(from: {string}, limit: integer): string
   return table.concat(out)
 end
 
---- Calls `each` with every line `next_chunk` answers, as grep reads
---- them -- a last line without a newline is a line too -- each cut to
---- `cut` bytes, so a line of any length takes no more than that; until
---- `next_chunk` answers "" or `each` answers true.
+--- Calls `each` with every line `next_chunk` answers, as grep reads them
+--- (a last line without a newline is a line too), each cut to `cut`
+--- bytes so that a line of any length takes no more than that. Stops
+--- when `next_chunk` answers "" or `each` answers true.
 local function each_line(next_chunk: function(): string,
     each: function(string): boolean)
   local line: {string} = {}
@@ -199,13 +199,13 @@ end
 
 --- Runs `argv` with both its streams written to `out`, copying what it
 --- writes there to `log` as it goes, and answers its status as a shell
---- would: its exit code, 128 and the signal that ended it, or, when it
+--- would: its exit code, 128 plus the signal that ended it, or, when it
 --- could not start, 127 for an executable that is not there and 126 for
 --- one that is. A SIGINT or SIGTERM this process gets meanwhile is
 --- passed on to the child, and caught until `guard` closes. Each round
 --- copies at most `round_chunks` chunks before it looks for a signal
 --- and the child's exit again, so a child that writes faster than the
---- copy keeps up cannot hold a signal back; it sleeps only once the
+--- copy keeps up cannot hold a signal back. It sleeps only once the
 --- copy has caught up, and copies the rest once the child has exited.
 -- TODO: copy the child's output from a pipe as it arrives, rather than
 -- polling the file it writes every `poll_ns`, once ci/cosmic-driver.pin

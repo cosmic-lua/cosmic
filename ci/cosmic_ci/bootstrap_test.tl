@@ -7,8 +7,8 @@ local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
 --- The environment a test's child runs with: this one's, less what
---- would change which cosmic bin/cosmic-bootstrap answers -- a
---- COSMIC_BOOTSTRAP exported where the tests run is no part of them --
+--- would change which cosmic bin/cosmic-bootstrap answers (a
+--- COSMIC_BOOTSTRAP exported where the tests run is no part of them),
 --- with `extra` over it.
 local function environment(extra?: {string:string}): {string:string}
   local values = Env.all()
@@ -71,13 +71,12 @@ local function bootstrap(tmp: string, root: string, output: string,
 end
 
 --- A curl on a PATH of its own that writes `$DOWNLOAD_SOURCE` wherever
---- it is asked to, whatever URL it is given -- unless `$FAIL_ONCE`
---- names a file that is there, when it removes that file, leaves a
---- scrap of a transfer at the output and fails, as a dropped
---- connection would, or `$WRONG_ONCE` names one, when it removes that
---- file and writes other bytes than the source's, succeeding, as a
---- transfer cut short without an error would. Each call appends a line
---- to `$CALLS` when set.
+--- it is asked to, whatever URL it is given. Where `$FAIL_ONCE` names a
+--- file that is there, it removes that file, leaves a scrap of a
+--- transfer at the output and fails, as a dropped connection would.
+--- Where `$WRONG_ONCE` names one, it removes that file and writes other
+--- bytes than the source's, succeeding, as a transfer cut short without
+--- an error would. Each call appends a line to `$CALLS` when set.
 local function fake_curl(tmp: string): string
   local fake = tmp .. "/fake bin"
   assert(Fs.mkdirs(fake))
@@ -480,8 +479,8 @@ local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: stri
     driver_timeout)
   local why = assert(Fs.read(tmp .. "/unknown.out"))
   assert(refused.code == 2 and why:find("no such command: platfrom", 1, true), why)
-  -- The form before "--" was needed is refused with the usage that
-  -- shows where it goes.
+  -- The form without "--" is refused with the usage that shows where it
+  -- goes.
   local old = call({ runner, driver, "run", "p", "100", "/bin/sh", "-c", "exit 0" }, project,
     tmp .. "/old-run.out", env, driver_timeout)
   local told = assert(Fs.read(tmp .. "/old-run.out"))

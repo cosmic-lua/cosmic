@@ -14,8 +14,8 @@ local function require_file(path: string)
     "portable runtime build: prebuilt input is missing: " .. path)
 end
 
--- Return the id and name from the single target whose uname fields match this
--- host. Reading both from one row prevents mismatched results.
+-- The id and name of the single target whose uname fields match this host.
+-- Both come from one row, so they cannot mismatch.
 local function host_target_row(targets_path: string, work: string,
     diagnostics: string): string, string
   local function host_uname(flag: string, label: string): string
@@ -130,10 +130,9 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   Fixture.write(out .. "/sanitized-target", target .. "\n")
   Fixture.write(out .. "/sanitized-core-name", sanitized_name .. "\n")
 
-  -- Every raw core gets a single deterministic byte flip: the byte at
-  -- 0-indexed offset 128 becomes "X" (0x58) and every other byte is left
-  -- alone. In 1-indexed Lua substring terms, the untouched prefix is
-  -- indices 1..128, the replaced byte is index 129, and the untouched
+  -- Every raw core gets one byte flipped: the byte at 0-indexed offset
+  -- 128 becomes "X" (0x58). In 1-indexed Lua substring terms, the
+  -- prefix is indices 1..128, the replaced byte is index 129, and the
   -- suffix resumes at index 130.
   Fixture.mkdir(out .. "/incompatible-cores")
   for _, one in ipairs(targets) do
@@ -149,9 +148,8 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
     out .. "/new.db", out .. "/runtime.incompatible", "test" }, root,
     diagnostics)
 
-  -- Derives hashes, prefixes, and the runtime.corrupt-<target> deterministic
-  -- corruptions; tool.tl's own prepare_artifacts already implements all of
-  -- that logic, so this is a single pass-through call.
+  -- tool.tl's own prepare-artifacts derives the hashes, the prefixes and
+  -- the deterministic runtime.corrupt-<target> corruptions.
   Fixture.run("prepare-artifacts", { writer, root .. "/test/portable/tool.tl",
     "prepare-artifacts", out, targets_path }, root, diagnostics)
 

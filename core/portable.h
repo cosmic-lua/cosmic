@@ -38,10 +38,10 @@
  *
  * It runs only where its core does, and cannot make portable programs.
  *
- * The target authority remains build.zig.  It compiles the release target
+ * build.zig is the authority on targets.  It compiles the release target
  * mask and release configuration id into portable.c; they are not repeated
- * here.  A later prefix may add (for example) a sanitized entry while the
- * three release entries remain required.
+ * here.  A prefix may carry entries beyond the required release ones (a
+ * sanitized core, say).
  */
 
 #ifndef COSMIC_PORTABLE_H

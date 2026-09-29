@@ -201,9 +201,9 @@ local record Handle
   --- the Result says `timed_out`; `Child.wait_any`'s timeout instead
   --- leaves every child running. While a `Child.guard` is open, a
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
-  --- way: a child that has not exited is ended and the wait answers nil and "cancelled
-  --- by signal N"; the guard keeps the signal, and a later wait answers
-  --- the ended child's Result.
+  --- way: a child that has not exited is ended and the wait answers nil
+  --- and "cancelled by signal N"; the guard keeps the signal, and a
+  --- later wait answers the ended child's Result.
   wait: function(Handle, timeout_ms?: integer): Result | nil, string
   try_wait: function(Handle): TryWait | nil, string
   stop: function(Handle, signal?: integer): boolean, string
@@ -878,10 +878,11 @@ end
 --- Only `h:wait` reads the guard -- it ends its child and answers
 --- "cancelled by signal N" once a signal is caught -- and a stream's
 --- read or write, which fails with the same message and leaves the
---- child running; `Child.wait_any` and `h:try_wait` do not, so a loop over them asks `g:cancelled()`
---- each round. `g:take()` answers the last signal delivered since the
---- previous take, or 0, and clears it, so a caller that passes signals
---- on to its child passes each one on, a repeat included; signals
+--- child running; `Child.wait_any` and `h:try_wait` do not, so a loop
+--- over them asks `g:cancelled()` each round. `g:take()` answers the
+--- last signal delivered since the previous take, or 0, and clears it,
+--- so a caller that passes signals on to its child passes each one on,
+--- a repeat included; signals
 --- delivered between two takes answer as the last of them. A signal
 --- this process ignores stays ignored.
 --- Closing the guard -- `g:close()`, or leaving the scope of a
@@ -1287,11 +1288,12 @@ end
 --- environment; a table replaces it exactly. Standard streams inherit by
 --- default, or accept caller-owned descriptors (which remain open here),
 --- "null", or "capture"; "stream" is refused, as nothing could read or
---- write it before the run returns. Children own a new process group by default so
---- timeout cleanup includes descendants. start returns that ownership as a
---- Handle; run additionally holds SIGINT and SIGTERM in a `Child.guard`
---- while the child runs: either one ends the child and its group, then
---- the caller's dispositions are restored and the signal delivered again.
+--- write it before the run returns. Children own a new process group by
+--- default so timeout cleanup includes descendants. `Child.start` returns
+--- that ownership as a Handle; run additionally holds SIGINT and SIGTERM
+--- in a `Child.guard` while the child runs: either one ends the child
+--- and its group, then the caller's dispositions are restored and the
+--- signal delivered again.
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
   opts = opts or {}
   validate(argv, opts)

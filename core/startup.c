@@ -362,7 +362,7 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
   bool stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
                             stamp_directory, sizeof stamp_directory);
-  /* Hashed before, and not written since. */
+  /* A stamp that holds says the entry was hashed and not written since. */
   bool fresh = stamped && stamp_holds(stamp, &core_stat);
   if (!fresh && !cosmic_sha256_range_matches(startup->core_fd, 0,
                                              selected->length,
