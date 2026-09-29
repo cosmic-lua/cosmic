@@ -70,6 +70,12 @@ local Csv = require("cosmic.csv")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 
+-- TODO: share one plural helper with build.plural once the library has an
+-- internal Teal module to hold it: cosmic.* cannot require build.plural.
+local function counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+end
+
 local record Dataset
   --- One row: a column name's key to its value. A value is a string, a
   --- number, a boolean, `Json.null`, or a table (a nested object or
@@ -423,8 +429,8 @@ function Dataset.load(handle: Sqlite.Handle, name: string, rows: Dataset.Rows,
   end
   local names, key_of, renamed = columns_of(rows, json_column, columns_given)
   if #names + (json_column and 1 or 0) > max_columns then
-    return nil, "too many columns: " .. #names .. " distinct keys, and SQLite holds at most " ..
-      max_columns .. " columns in a table" .. (json_column and " (one is `_json`)" or "")
+    return nil, "too many columns: " .. counted(#names, "distinct key") .. ", and SQLite holds at most " ..
+      counted(max_columns, "column") .. " in a table" .. (json_column and " (one is `_json`)" or "")
   end
   local declared: {string} = {}
   local marks: {string} = {}

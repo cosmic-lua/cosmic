@@ -595,7 +595,7 @@ local function test_extract_stops_at_max_bytes_and_max_entries(tmp: string)
   assert(written == nil and trouble:find("more than 1000 bytes", 1, true) ~= nil, trouble)
   assert(Fs.exists(tmp .. "/o1/b") == false)
   written, trouble = Archive.extract(archive, tmp .. "/o2", { max_entries = 1 })
-  assert(written == nil and trouble:find("more than 1 entries", 1, true) ~= nil, trouble)
+  assert(written == nil and trouble:find("more than 1 entry", 1, true) ~= nil, trouble)
   assert(Archive.extract(archive, tmp .. "/o3", { max_bytes = 1200, max_entries = 2 }))
   -- A limit with no byte past it to count still extracts everything.
   assert(Archive.extract(archive, tmp .. "/o4", { max_bytes = math.maxinteger }))

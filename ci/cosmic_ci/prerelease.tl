@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Plural = require("cosmic_ci.plural")
 
 local record Prerelease
   --- The platform legs, in the byte order of their products'
@@ -142,7 +143,7 @@ end
 --- published prerelease holds.
 function Prerelease.complete_assets(names: {string}): boolean, string
   if #names ~= #Prerelease.assets then
-    return false, "the release holds " .. #names .. " assets, not " .. #Prerelease.assets
+    return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. #Prerelease.assets
   end
   local seen: {string:boolean} = {}
   for _, name in ipairs(names) do seen[name] = true end
@@ -214,8 +215,8 @@ end
 --- notes. Raises on the first product that fails a check.
 function Prerelease.stage(s: Prerelease.Stage)
   local found = product_directories(s.products)
-  assert(#found == #Prerelease.lanes, "expected " .. #Prerelease.lanes ..
-    " product directories, found " .. #found)
+  assert(#found == #Prerelease.lanes, "expected " .. Plural.count(#Prerelease.lanes, "product directory", "product directories") ..
+    ", found " .. #found)
   for i, lane in ipairs(Prerelease.lanes) do
     assert(found[i] == "portable-product-" .. lane,
       "expected portable-product-" .. lane .. ", found " .. found[i])
@@ -446,7 +447,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   -- releases with authentication also finds an interrupted draft.
   local ids = Prerelease.release_ids(gh(p, { "api", "--paginate", "--slurp", "--method", "GET",
     "repos/" .. p.repository .. "/releases?per_page=100" }, "capture"), tag)
-  assert(#ids <= 1, #ids .. " releases are tagged " .. tag)
+  assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
   if #ids == 1 then
     verify_tag(p)
     local state = view(p, "isDraft,isPrerelease")

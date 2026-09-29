@@ -29,6 +29,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 --- The `cosmic json` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
@@ -120,7 +121,7 @@ local function arguments(argv: {integer:string}): verb.Request | nil, string
   elseif #words == 1 then
     if is_path(words[1]) and not ended then path = words[1] else request.file = words[1] end
   elseif #words > 2 then
-    return nil, "give a path and a file at most, not " .. #words .. " words"
+    return nil, "give a path and a file at most, not " .. plural.count(#words, "word")
   end
   if request.file == "" then return nil, bare.empty_file end
   if request.file == "-" then request.file = nil end

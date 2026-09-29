@@ -203,6 +203,15 @@ local conn_mt: metatable<Net.Conn> = {
 }
 
 --- The connection over `fd`, which it owns from here on.
+-- TODO: a descriptor `raw.accept`, `raw.connect` or `raw.listen`
+-- answers is a bare integer until `new_conn` or `new_listener` wraps
+-- it, so running out of memory in between -- `listen`'s `raw.bound`
+-- and address table, its lstat of the file it made, or the wrap's own
+-- table and closures -- leaks the descriptor and, for a unix listener,
+-- leaves its socket file behind. Have core/socket.c answer a userdata
+-- that owns the descriptor (and a unix listener's path, to unlink),
+-- releasing both at collection until `new_conn` or `new_listener`
+-- takes it over.
 local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
   local open = true
   -- Each direction's sticky failure: once a read or a write fails for

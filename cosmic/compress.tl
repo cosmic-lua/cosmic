@@ -7,6 +7,12 @@
 -- indirection exists.
 local type raw_compress = require("cosmic.internal.compress")
 
+-- TODO: share one plural helper with build.plural once the library has an
+-- internal Teal module to hold it: cosmic.* cannot require build.plural.
+local function counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+end
+
 local extra: any = select(2, ...)
 local raw: raw_compress
 if type(extra) == "table" then
@@ -102,7 +108,7 @@ function Compress.inflate(format: Compress.Format, data: string, max?: integer):
     if out == nil then return nil, utrouble end
     total = total + #out
     if max ~= nil and total > max then
-      return nil, "expanded data is larger than " .. tostring(max) .. " bytes"
+      return nil, "expanded data is larger than " .. counted(max, "byte")
     end
     parts[#parts + 1] = out
     if not dec:pending() then break end

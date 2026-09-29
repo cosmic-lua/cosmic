@@ -2750,8 +2750,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     local plan = test_sandbox.plan(rec.root, scratch, rec.effective[job.m.path], worker_view(),
       store)
     if plan.over > 0 then
-      finish(rec, job, nil, string.format("its sandbox would give it %d paths more than " ..
-        "the most one holds", plan.over), limits)
+      finish(rec, job, nil, "its sandbox would give it " .. plural.count(plan.over, "path") ..
+        " more than the most one holds", limits)
       return false
     end
     if plan.trouble ~= "" then
@@ -2917,6 +2917,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
+      -- TODO: spare a stray in the process group of a worker still
+      -- running, which a test of its own may be waiting on (an orphan it
+      -- left to outlive a process it started, as build/stand_in_test.tl's
+      -- test_what_start_and_run_leave_running_runs_on does), rather than
+      -- end it the moment any other worker ends; that test then drops
+      -- the grouped run it makes to adopt its orphans itself.
       if not rec.sandbox then Child.end_strays() end
       sweep(rec, running)
     end
@@ -3784,8 +3790,8 @@ local function run(argv: {integer:string}): integer
       for _, line in ipairs(lines) do log:say(line) end
     end
     if undeclared > 0 then
-      log:say(string.format("audit: %d of %d tests, in %s, read what they do not " ..
-        "declare; see cosmic.test", undeclared, audited_tests,
+      log:say(string.format("audit: %d of %d %s, in %s, read what they do not " ..
+        "declare; see cosmic.test", undeclared, audited_tests, plural.noun(audited_tests, "test"),
         plural.count(modules_undeclared, "module")))
     else
       log:say(string.format("audit: %s read only %s inputs",
@@ -3794,8 +3800,8 @@ local function run(argv: {integer:string}): integer
   end
 
   local cov_pct = cov_total > 0 and (cov_hit * 100.0 / cov_total) or 0.0
-  local cov_line = string.format("test: coverage %.1f%% (%d/%d lines; informational, never a failure)",
-    cov_pct, cov_hit, cov_total)
+  local cov_line = string.format("test: coverage %.1f%% (%d/%d %s; informational, never a failure)",
+    cov_pct, cov_hit, cov_total, plural.noun(cov_total, "line"))
 
   if #failures == 0 and #errors == 0 then
     if total == 0 then
