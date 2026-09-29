@@ -72,6 +72,29 @@ local tables: {{string}} = {
                      line INTEGER NOT NULL,
                      PRIMARY KEY (module, symbol, from_module, line)) WITHOUT ROWID]] },
 
+  -- Each link of a module's comments that resolves (`build.link_index`):
+  -- where it is, its form ("shortcut", "inline" or "reference"), its
+  -- source ("comment" or "doc", a doc comment), its text, and what it
+  -- names by `kind`: a "symbol" of `module` (`symbol` as `docs` holds
+  -- it, "" for the module's own row), a "file" or directory at `path`
+  -- from the root, or an "anchor" of the file at `path`. A column that
+  -- does not apply is "". Keyed by target first, as `uses` is, since a
+  -- reader asks what links to a target.
+  { "links", [[(module TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                path TEXT NOT NULL,
+                anchor TEXT NOT NULL,
+                from_file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                column INTEGER NOT NULL,
+                from_module TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                form TEXT NOT NULL,
+                source TEXT NOT NULL,
+                text TEXT NOT NULL,
+                PRIMARY KEY (module, symbol, path, anchor, from_file, line, column))
+                WITHOUT ROWID]] },
+
   { "examples", [[(id INTEGER PRIMARY KEY,
                    module TEXT NOT NULL,
                    name TEXT NOT NULL,

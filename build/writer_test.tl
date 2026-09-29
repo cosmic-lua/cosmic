@@ -348,6 +348,13 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
     "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
       "('cosmic.fs', 'read', 'Reads.', 'f', 1, 'Fs.read(p)'), " ..
       "('build.tree', 'own', 'Owns.', 'f', 1, 'tree.is_own(r)')",
+    "INSERT INTO links (module, symbol, path, anchor, from_file, line, column, from_module, " ..
+      "kind, form, source, text) VALUES " ..
+      "('cosmic.fs', 'read', '', '', 'f', 5, 1, 'cosmic.fs', 'symbol', 'shortcut', 'doc', 'r'), " ..
+      "('cosmic.fs', 'read', '', '', 'f', 6, 1, 'build.work', 'symbol', 'shortcut', 'doc', 'r'), " ..
+      "('', '', 'doc/a.md', '', 'f', 7, 1, 'cosmic.fs', 'file', 'inline', 'doc', 'a'), " ..
+      "('cosmic.fs', 'read', '', '', 'f', 8, 1, 'cosmic.fs_example', 'symbol', 'shortcut', " ..
+      "'doc', 'r')",
   }) do
     assert(db:exec(statement))
   end
@@ -363,6 +370,8 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   local uses = column("SELECT from_module || '>' || module AS v FROM uses " ..
     "ORDER BY module, symbol, from_module, line")
   local examples = column("SELECT module AS v FROM examples ORDER BY id")
+  local linked = column("SELECT from_module || ':' || line || '>' || module || path AS v " ..
+    "FROM links ORDER BY from_file, line")
   local indexed = column("SELECT d.module AS v FROM docs_fts JOIN docs d " ..
     "ON d.id = docs_fts.rowid WHERE docs_fts MATCH 'opens OR reads' ORDER BY d.id")
   assert(out:close())
@@ -372,6 +381,8 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
     "the docs carried: " .. docs)
   assert(uses == "cosmic.fs>cosmic.fs", "the uses carried: " .. uses)
   assert(examples == "cosmic.fs", "the examples carried: " .. examples)
+  -- A link to a file names one of the tree's own, which a project lacks.
+  assert(linked == "cosmic.fs:5>cosmic.fs", "the links carried: " .. linked)
   assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)
 end
 

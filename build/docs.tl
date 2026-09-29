@@ -1,5 +1,5 @@
 --- What the database says about a symbol: `cosmic docs` and `cosmic
---- uses`, read off the shipped `docs` and `uses` tables of every
+--- uses`, read off the shipped `docs`, `uses` and `links` tables of every
 --- database the store searches, and of a project's own `o/cosmic.db`
 --- when the working directory holds one.
 ---
@@ -55,6 +55,8 @@ local record docs
     --- `effective_counts`, and cached here so several entries or
     --- renders naming the same symbol query `uses` only once.
     use_counts: {string: integer}
+    --- How many links name a module/symbol pair, as `use_counts`.
+    link_counts: {string: integer}
   end
 
   --- One worked example, matched to a symbol by content rather than by
@@ -80,6 +82,8 @@ local record docs
     line: integer
     --- How many places in shipped modules refer to it.
     uses: integer
+    --- How many links in their comments name it (`links`).
+    links: integer
     --- How many worked examples match it -- see `examples_for`. A
     --- listing count, not the examples themselves: `render` fetches
     --- those separately, only for the one entry it is showing.
@@ -106,13 +110,18 @@ local record docs
     text: string
   end
 
-  --- One row of `uses`.
+  --- One row of `uses`, or of `links` (`link`): a link names the
+  --- symbol `module` and `symbol` name, or the file at `path` and, when
+  --- it is not "", the heading `anchor` of it.
   record Use
     module: string
     symbol: string
     from_module: string
     from_file: string
     line: integer
+    link: boolean
+    path: string
+    anchor: string
   end
 end
 
@@ -168,7 +177,7 @@ local function entries_of(rows: {{string}}): {docs.Entry}
       module = row[1], symbol = row[2], source_symbol = row[3],
       exported = row[4] == "1", kind = row[5], signature = row[6],
       text = row[7], file = row[8], line = math.tointeger(tonumber(row[9])) or 0,
-      uses = math.tointeger(tonumber(row[10])) or 0,
+      uses = math.tointeger(tonumber(row[10])) or 0, links = 0,
       examples = math.tointeger(tonumber(row[11])) or 0,
       related = {},
     }
@@ -372,11 +381,8 @@ end
 --- name means what a user of a library means by it.
 local function modules_ending(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT " .. columns .. " FROM docs d WHERE d.symbol = '' AND " ..
-    "substr(d.module, -length(?1) - 1) = '.' || ?1 AND " ..
-    "d.module NOT LIKE 'cosmic.internal.%' AND substr(d.module, -5) <> '_test' AND " ..
-    "substr(d.module, -8) <> '_example' " ..
-    "ORDER BY d.module LIKE 'cosmic.%', d.module, d.id",
+    "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.module_ending_where("d") ..
+    " ORDER BY d.module LIKE 'cosmic.%', d.module, d.id",
     { text(query) })
   if rows == nil then
     return nil, trouble
@@ -798,7 +804,7 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
       source_symbol = "Example." .. row[2], exported = true, kind = "example",
       signature = "", text = row[3],
       file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
-      uses = 0, examples = 0,
+      uses = 0, links = 0, examples = 0,
       related = { { name = row[2], text = row[3], file = row[4],
         line = math.tointeger(tonumber(row[5])) or 0, source = row[6] } },
     }
@@ -811,6 +817,15 @@ end
 local function has_docs(db: Sqlite.Handle): boolean | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
+  if rows == nil then return nil, trouble end
+  return #rows > 0, ""
+end
+
+--- Whether `db` holds `links`: a database built before it existed has
+--- no links to answer with.
+local function has_links(db: Sqlite.Handle): boolean | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'links'")
   if rows == nil then return nil, trouble end
   return #rows > 0, ""
 end
@@ -837,7 +852,13 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
 end
 
 --- The places that refer to what `query` names, by the rule
---- `symbols.used_where` keeps.
+--- `symbols.used_where` keeps: the uses, then the links, which also
+--- answer a query that is a file's path from the root, alone or with
+--- `#` and a heading's anchor (`doc/meta.md#every-example-runs`). A
+--- path alone finds the links to its headings too, and a bare lowercase
+--- name the links to each module it is the last name of, as
+--- `docs.exact` reads one (`plural` for `build.plural`). A public source
+--- has no link to a file of its own tree.
 local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs.Use} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, from_module, from_file, line FROM uses u WHERE " ..
@@ -851,7 +872,40 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
   local out: {docs.Use} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { module = row[1], symbol = row[2], from_module = row[3],
-      from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0 }
+      from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
+      link = false, path = "", anchor = "" }
+  end
+  local linked, linked_trouble = has_links(db)
+  if linked == nil then
+    return nil, linked_trouble
+  end
+  if not linked then
+    return out
+  end
+  local path = query:gsub("^%./", ""):gsub("/$", "")
+  local anchor: string | nil = nil
+  local before, after = path:match("^([^#]*)#(.+)$")
+  if before ~= nil then
+    path, anchor = before, after:lower()
+  end
+  local link_rows, link_trouble = Sqlite.text_rows(db,
+    "SELECT module, symbol, from_module, from_file, line, path, anchor FROM links l WHERE " ..
+    "((kind = 'symbol' AND (" .. symbols.used_where("l") .. " OR (l.symbol = '' AND " ..
+    "l.module = ?1) OR (?5 = 1 AND " .. symbols.module_ending_where("l") .. ")) AND " ..
+    symbols.public_only("l.module", public) .. ") OR " ..
+    "(kind <> 'symbol' AND ?4 = 0 AND l.path = ?2 AND (?3 = '' OR lower(l.anchor) = ?3))) AND " ..
+    symbols.public_only("l.from_module", public) ..
+    " ORDER BY module, symbol, path, anchor, from_file, line, column",
+    { text(query), text(path), text(anchor or ""),
+      { integer = public and 1 or 0 },
+      { integer = query:match("^%l[%w_]*$") ~= nil and 1 or 0 } })
+  if link_rows == nil then
+    return nil, link_trouble
+  end
+  for _, row in ipairs(link_rows) do
+    out[#out + 1] = { module = row[1], symbol = row[2], from_module = row[3],
+      from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
+      link = true, path = row[6], anchor = row[7] }
   end
   return out
 end
@@ -987,6 +1041,48 @@ local function count_uses(view: docs.View, module: string,
   return total, ""
 end
 
+--- How many links name `module`/`symbol`, across `view.databases`,
+--- counted as `count_uses` counts uses, and cached on `view` the same
+--- way.
+local function count_links(view: docs.View, module: string,
+                           symbol: string): integer | nil, string
+  local key = use_key(module, symbol)
+  local cached = view.link_counts[key]
+  if cached ~= nil then
+    return cached, ""
+  end
+  local seen: {string: boolean} = {}
+  local total = 0
+  for index, db in ipairs(view.databases) do
+    local linked, linked_trouble = has_links(db)
+    if linked == nil then
+      return nil, linked_trouble
+    end
+    if linked then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT from_module, from_file, line FROM links " ..
+        "WHERE kind = 'symbol' AND module = ?1 AND symbol = ?2",
+        { text(module), text(symbol) })
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, row in ipairs(rows) do
+        local from_module = row[1]
+        local counted = not view.public[index] or
+          (symbols.is_public_module(module) and symbols.is_public_module(from_module))
+        -- One place per line, as `docs.uses` lists them.
+        local position = row[2] .. "\n" .. row[3]
+        if counted and view.owners[from_module] == index and not seen[position] then
+          seen[position] = true
+          total = total + 1
+        end
+      end
+    end
+  end
+  view.link_counts[key] = total
+  return total, ""
+end
+
 local function effective_counts(view: docs.View, entries: {docs.Entry}): boolean, string
   for _, entry in ipairs(entries) do
     local uses, trouble = count_uses(view, entry.module, entry.symbol)
@@ -994,6 +1090,11 @@ local function effective_counts(view: docs.View, entries: {docs.Entry}): boolean
       return false, trouble
     end
     entry.uses = uses
+    local linked, link_trouble = count_links(view, entry.module, entry.symbol)
+    if linked == nil then
+      return false, link_trouble
+    end
+    entry.links = linked
   end
   return true, ""
 end
@@ -1026,7 +1127,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
     end
   end
   return { databases = databases, public = scope, owners = owners,
-           use_counts = {} }
+           use_counts = {}, link_counts = {} }
 end
 
 --- `entries` as a lookup's answer.
@@ -1392,8 +1493,7 @@ function docs.member(view: docs.View, module: string, name: string): {docs.Entry
     return {}, ""
   end
   local rows, trouble = Sqlite.text_rows(view.databases[owner],
-    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.symbol <> '' AND " ..
-    "(replace(d.symbol, ':', '.') = ?2 OR replace(d.source_symbol, ':', '.') = ?2) AND " ..
+    "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.member_where("d") .. " AND " ..
     symbols.shown_docs("d", view.public[owner] == true) .. " ORDER BY d.id",
     { text(module), text((name:gsub(":", "."))) })
   if rows == nil then
@@ -1411,7 +1511,8 @@ function docs.member(view: docs.View, module: string, name: string): {docs.Entry
   return aliased_members(view, owners, last)
 end
 
---- Every place across `databases` that refers to what `query` names.
+--- Every place across `databases` that refers to what `query` names,
+--- in file and line order: one per line for each thing it names there.
 function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   local found, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Use} | nil, string
@@ -1424,12 +1525,24 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   local seen: {string: boolean} = {}
   for _, use in ipairs(found) do
     local key = use.module .. "\n" .. use.symbol .. "\n" .. use.from_module ..
-      "\n" .. use.from_file .. "\n" .. use.line
+      "\n" .. use.from_file .. "\n" .. use.line .. "\n" .. tostring(use.link) ..
+      "\n" .. use.path .. "\n" .. use.anchor
     if not seen[key] then
       seen[key] = true
       out[#out + 1] = use
     end
   end
+  -- Uses and links together, by where they are; at one place, a use
+  -- before a link.
+  table.sort(out, function(a: docs.Use, b: docs.Use): boolean
+    if a.from_file ~= b.from_file then return a.from_file < b.from_file end
+    if a.line ~= b.line then return a.line < b.line end
+    if a.link ~= b.link then return b.link end
+    if a.module ~= b.module then return a.module < b.module end
+    if a.symbol ~= b.symbol then return a.symbol < b.symbol end
+    if a.path ~= b.path then return a.path < b.path end
+    return a.anchor < b.anchor
+  end)
   return out
 end
 
@@ -1463,6 +1576,9 @@ local function listed(item: docs.Entry): string
   local marks: {string} = {}
   if item.uses > 0 then
     marks[#marks + 1] = plural.count(item.uses, "use")
+  end
+  if item.links > 0 then
+    marks[#marks + 1] = plural.count(item.links, "link")
   end
   if item.examples > 0 then
     marks[#marks + 1] = plural.count(item.examples, "example")
@@ -1880,10 +1996,22 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       lines[#lines + 1] = "  " .. line
     end
   end
+  if entry.links > 0 and entry.symbol == "" then
+    lines[#lines + 1] = "  linked from " .. plural.count(entry.links, "place") ..
+      "; cosmic uses " .. entry.module
+  end
   if entry.symbol ~= "" then
-    if entry.uses > 0 then
-      lines[#lines + 1] = "  used in " .. plural.count(entry.uses, "place") ..
-        "; cosmic uses " .. entry.source_symbol
+    if entry.uses > 0 or entry.links > 0 then
+      local said: {string} = {}
+      if entry.uses > 0 then
+        said[#said + 1] = "used in " .. plural.count(entry.uses, "place")
+      end
+      if entry.links > 0 then
+        said[#said + 1] = (entry.uses > 0 and "linked from " .. entry.links or
+          "linked from " .. plural.count(entry.links, "place"))
+      end
+      lines[#lines + 1] = "  " .. table.concat(said, " and ") .. "; cosmic uses " ..
+        entry.source_symbol
     end
     local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string
@@ -2006,7 +2134,9 @@ end
 
 --- `cosmic uses <symbol> [path...]`: every place that refers to the
 --- symbol, one `file:line` per line -- only those in a file under one
---- of the paths, when there are any -- and a verdict line.
+--- of the paths, when there are any -- and a verdict line. A link is
+--- marked `link`; the symbol may be a file instead, which only links
+--- name (`doc/meta.md`, `doc/meta.md#every-example-runs`).
 local function run_uses(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
@@ -2015,7 +2145,8 @@ local function run_uses(argv: {integer:string}): integer
   end
   local query = parsed.words[1] or ""
   if query == "" then
-    log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
+    log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read), " ..
+      "or which file (doc/meta.md, doc/meta.md#heading)")
     return 2
   end
   local exit = reboot.stale_exit(argv)
@@ -2049,7 +2180,11 @@ local function run_uses(argv: {integer:string}): integer
   local shown = 0
   for _, use in ipairs(found) do
     if narrow.holds(paths, use.from_file) then
-      log:say(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
+      local target = use.symbol ~= "" and use.module .. " " .. use.symbol or use.module
+      if use.link and use.module == "" then
+        target = use.path .. (use.anchor ~= "" and "#" .. use.anchor or "")
+      end
+      log:say(use.from_file .. ":" .. use.line .. ": " .. (use.link and "link " or "") .. target)
       shown = shown + 1
     end
   end

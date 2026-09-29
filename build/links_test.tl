@@ -2,6 +2,8 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
+local link_resolve = require("build.link_resolve")
+local link_text = require("build.link_text")
 local links = require("build.links")
 local teal = require("build.teal")
 
@@ -18,7 +20,7 @@ end
 --- The links `text` holds, each as `line form target`.
 local function parsed(text: string): {string}
   local out: {string} = {}
-  for _, link in ipairs(links.parse(text)) do
+  for _, link in ipairs(link_text.parse(text)) do
     out[#out + 1] = link.line .. " " .. link.form .. " " .. link.target
   end
   return out
@@ -118,11 +120,22 @@ local function test_an_escaped_bracket_is_text()
   same(parsed("not \\[`x`] a link\n"), {})
 end
 
+--- Symbols spelled in full, each split at its first `.`: the module a
+--- message names is the whole spelling either way.
+local function symbols_of(spelled: {string}): {link_resolve.Symbol}
+  local out: {link_resolve.Symbol} = {}
+  for _, name in ipairs(spelled) do
+    local module, symbol = name:match("^([^.]+)%.(.+)$")
+    out[#out + 1] = { module = module or name, symbol = symbol or "" }
+  end
+  return out
+end
+
 --- A world for `links.check`: the files at their absolute paths under
 --- `/p`, every directory above them, and what each query names.
 local function world(files: {string: string}, symbols?: {string: {string}},
                      members?: {string: {string}}, links_to?: {string: string},
-                     unbuilt?: string): links.Context
+                     unbuilt?: string): link_resolve.Context
   local dirs: {string: boolean} = { ["/p"] = true }
   for path in pairs(files) do
     local dir = Fs.dirname(path)
@@ -148,24 +161,18 @@ local function world(files: {string: string}, symbols?: {string: {string}},
       return path
     end,
     unbuilt = function(): string | nil return unbuilt end,
-    symbols = function(query: string): {string} | nil, string
-      local found = (symbols or {})[query] or {}
-      local copy: {string} = {}
-      for index, name in ipairs(found) do copy[index] = name end
-      return copy, ""
+    symbols = function(query: string): {link_resolve.Symbol} | nil, string
+      return symbols_of((symbols or {})[query] or {}), ""
     end,
-    member = function(module: string, member: string): {string} | nil, string
-      local found = (members or {})[module .. "." .. member] or {}
-      local copy: {string} = {}
-      for index, name in ipairs(found) do copy[index] = name end
-      return copy, ""
+    member = function(module: string, member: string): {link_resolve.Symbol} | nil, string
+      return symbols_of((members or {})[module .. "." .. member] or {}), ""
     end,
   }
 end
 
 --- What `links.check` finds in `source`, a file of `kind` at `path`.
-local function checked(context: links.Context, path: string, kind: string, source: string): {string}
-  return links.check(links.resolver(context), path, path, kind, source, built)
+local function checked(context: link_resolve.Context, path: string, kind: string, source: string): {string}
+  return links.check(link_resolve.resolver(context), path, path, kind, source, built)
 end
 
 local function test_a_name_the_file_declares_resolves_and_shadows_a_symbol()
@@ -260,7 +267,7 @@ end
 --- no symbol it has is not failed, but counted; a path is still checked.
 local function test_symbols_go_unchecked_in_a_project_not_built()
   local context = world({}, {}, {}, {}, "not built")
-  local resolver = links.resolver(context)
+  local resolver = link_resolve.resolver(context)
   local source = lines("local x = 1", "-- [`x`], [`thing`] and [gone](gone.md)", "return x")
   same(links.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source, built), {
     "/p/a.tl:2: link: gone.md does not resolve (no declaration, symbol or file by that name)",
@@ -297,6 +304,26 @@ local function test_only_the_roots_output_and_the_outside_are_refused()
     "/p/a.md:1: link: out/z.md does not resolve (a symbolic link leads it out of the project)",
     "/p/a.md:1: link: ../ does not resolve (it lies outside the project's root)",
   })
+end
+
+--- The root's `o/` is refused before anything is asked of it, so what
+--- the build writes there never enters what a projection is signed by
+--- (`build.link_index`), whether or not the path is there.
+local function test_the_roots_output_is_never_looked_at()
+  local context = world({ ["/p/o/y.md"] = "" })
+  local kind = context.kind
+  local asked: {string} = {}
+  context.kind = function(path: string): string | nil
+    asked[#asked + 1] = path
+    return kind(path)
+  end
+  same(checked(context, "/p/a.md", "markdown", "[y](o/y.md) [z](o/z.md)\n"), {
+    "/p/a.md:1: link: o/y.md does not resolve (it is under o/, the build's output)",
+    "/p/a.md:1: link: o/z.md does not resolve (it is under o/, the build's output)",
+  })
+  for _, path in ipairs(asked) do
+    assert(path:sub(1, 5) ~= "/p/o/", "asked after " .. path)
+  end
 end
 
 --- Underlined headings, `<a id>` and `<a name>` give anchors too, and
