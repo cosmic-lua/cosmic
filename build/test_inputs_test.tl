@@ -1,3 +1,4 @@
+local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local test_inputs = require("build.test_inputs")
 local type analyzer = require("build.analyzer")
@@ -99,34 +100,6 @@ local function test_a_declaration_adds_to_the_defaults()
   assert(effective.processes)
 end
 
---- A worker runs offline when its module declares no network, or only
---- hosts each `localhost`, `::1` or a strict dotted-quad `127.a.b.c`,
---- spelled as a request's host is; any other spelling, a port,
---- brackets, a range, `0.0.0.0`, a name or `*` among them puts it
---- online.
-local function test_a_worker_is_offline_when_it_declares_loopback_hosts_alone()
-  local function only(hosts: {string}): boolean
-    local effective: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {},
-      network = {}, processes = false, tool = false, store = false }
-    for _, host in ipairs(hosts) do effective.network[host] = true end
-    return test_inputs.offline(effective)
-  end
-  assert(only({}), "no network is offline")
-  for _, host in ipairs({ "127.0.0.1", "127.0.0.2", "127.255.255.255", "127.1.20.0",
-    "localhost", "::1" }) do
-    assert(only({ host }), host)
-  end
-  assert(only({ "127.0.0.1", "127.0.0.2", "::1", "localhost" }))
-  for _, host in ipairs({ "*", "0.0.0.0", "128.0.0.1", "10.0.0.1", "127.1", "127.0.1",
-    "1270.0.0.1", "127.0.0.256", "127.0.0.1000", "127.0.0.01", "127.00.0.1", "0127.0.0.1",
-    "127.0.0.1:8080", "127.0.0.0/8", "127.0.0.1.", " 127.0.0.1", "127.0.0.1 ", "::",
-    "::ffff:127.0.0.1", "[::1]", "[::1]:80", "0:0:0:0:0:0:0:1", "LOCALHOST", "localhost.",
-    "localhost:80", "a.localhost", "example.com", "no-host-here", "" }) do
-    assert(not only({ host }), host)
-  end
-  assert(not only({ "127.0.0.1", "example.com" }), "a mixed set")
-end
-
 --- Every fuzz corpus is a default input of a test whose closure runs
 --- properties, where `build.fuzz` looks for one -- a property's name
 --- may be computed -- and of no other test.
@@ -214,6 +187,30 @@ local function test_a_host_path_that_cannot_be_given_is_named()
   assert(trouble({ "$PRODUCT/f" }, { PRODUCT = "/fixture/product/" }) == "")
 end
 
+--- A `host` path that is a directory where the host has it, written
+--- out or where a variable says, fails its module's tests, naming the
+--- declaration: a key holds a host path by what the file holds, and none
+--- walks a directory (R3). A path that is not there is given, as a file
+--- of another platform's is (/proc, which no key could hold by what it
+--- holds: build/declared_key_test.tl, which declares it).
+local function test_a_host_directory_is_refused_but_proc(tmp: string)
+  local dir = assert(Fs.absolute(tmp)) .. "/dir"
+  assert(Fs.mkdirs(dir))
+  assert(Fs.write(dir .. "/f", "f"))
+  local function trouble(host: {string}): string
+    local m, by_path = tree(declaring({ host = host }))
+    local effective = test_inputs.effective(m, by_path, staged)
+    test_inputs.resolve(effective, { D = dir }, { "/fixture/tree" })
+    return effective.unresolved
+  end
+  for _, declared in ipairs({ dir, "$D", "$D/" }) do
+    local said = trouble({ dir .. "/f", declared })
+    assert(said == string.format("Test.needs host %q: %s is a directory; host names files, " ..
+      "or /proc: declare the files the tests read", declared, dir), said)
+  end
+  assert(trouble({ dir .. "/f", "$D/f", dir .. "/missing" }) == "")
+end
+
 --- A path as a declaration spells it.
 local function test_a_path_is_spelled_plainly()
   assert(test_inputs.plain("./not/there/") == "not/there")
@@ -251,9 +248,29 @@ local function test_a_report_groups_tests_and_suggests_a_declaration()
   assert(#test_inputs.report(m, { test_one = {}, test_two = {} }) == 0)
 end
 
+--- A request to a loopback address is suggested as a declaration; one to
+--- any other host is none a module may make (`cosmic.test`'s `network`),
+--- so the audit names the rule instead.
+local function test_a_report_suggests_loopback_and_names_the_rule_beyond_it()
+  local m = tree(declaring({}))
+  local lines = test_inputs.report(m, { test_one = {
+    { field = "network", value = "http://127.0.0.1:8080/x" },
+    { field = "network", value = "https://example.com/" },
+    { field = "network", value = "http://[::1]:80/" },
+  } })
+  local text = table.concat(lines, "\n")
+  assert(text:find('  declare: Test.needs { network = { "127.0.0.1" } }\n', 1, true), text)
+  assert(text:find("  reaches ::1, beyond loopback, which no test may: serve what it needs " ..
+    "on 127.0.0.1 instead\n", 1, true), text)
+  assert(lines[#lines] == "  reaches example.com, beyond loopback, which no test may: " ..
+    "serve what it needs on 127.0.0.1 instead", text)
+  assert(not text:find('"example.com"', 1, true) and not text:find("network = true", 1, true),
+    text)
+end
+
 --- A declaration's canonical text is one for each declaration: what the
---- build reads and what `needs` is handed agree on `network = true` and
---- `{ "*" }`, a flag `false` and none, an empty list and none; the
+--- build reads and what `needs` is handed agree on a flag `false` and
+--- none, an empty list and none; the
 --- literal's order and its duplicates are kept; and a value is quoted,
 --- so no two declarations share a text.
 local function test_canonical_text_names_one_declaration()
@@ -261,9 +278,9 @@ local function test_canonical_text_names_one_declaration()
     return test_inputs.canonical(test_inputs.as_declared(needs))
   end
   assert(test_inputs.canonical(nil) == "" and of(nil) == "")
-  assert(of({}) == "" and of({ reads = {}, tool = false, network = false }) == "")
-  assert(of({ network = true }) == of({ network = { "*" } }))
-  assert(of({ network = true }) == test_inputs.canonical(declaring({ network = { "*" } })))
+  assert(of({}) == "" and of({ reads = {}, tool = false, network = {} }) == "")
+  assert(of({ network = { "127.0.0.1" } }) ==
+    test_inputs.canonical(declaring({ network = { "127.0.0.1" } })))
   assert(of({ reads = { "a", "b" } }) ~= of({ reads = { "b", "a" } }))
   assert(of({ reads = { "a", "a" } }) ~= of({ reads = { "a" } }))
   assert(of({ reads = { "a\nreads \"b\"" } }) ~= of({ reads = { "a", "b" } }))

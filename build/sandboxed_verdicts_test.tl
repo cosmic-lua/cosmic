@@ -2,9 +2,8 @@
 --- declared inputs (build/declared_key.tl). A verdict stands while
 --- nothing declared changes -- whatever else of the tree does -- and in
 --- another checkout of the same content, through the shared cache; a
---- test runs again when what it declares changes, always when it
---- declares a host of the network beyond the loopback, and every test
---- runs under `--all`. Where this host cannot sandbox a worker -- one
+--- test runs again when what it declares changes, and every test runs
+--- under `--all`. Where this host cannot sandbox a worker -- one
 --- nested in this test's own confinement, three deep, which the kernel
 --- refuses root (core/syscalls.c's `map_ids`) -- the run says so, and
 --- there is nothing more to check, unless the run is held to
@@ -25,12 +24,13 @@ local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
 local Test = require("cosmic.test")
 
---- What a sandboxed run of `cosmic test` needs of the host, and the
---- program it runs.
+--- What a sandboxed run of `cosmic test` needs of the host, the
+--- program it runs, and roots of their own for its workers (`nests`).
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 -- What these tests start is this very program.
@@ -38,8 +38,7 @@ confine.confine({ reads = confine.itself() })
 
 --- A checkout of the suite at `root`: a test that reads a declared
 --- directory, one that reads a declared variable, one that loads a
---- module of the tree, one that declares a host of the network beyond
---- the loopback, and a file nothing declares.
+--- module of the tree, and a file nothing declares.
 local function checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite/data"))
   assert(Fs.write(root .. "/suite/data/f", "one\n"))
@@ -70,15 +69,6 @@ local lib = require("suite.lib")
 
 local function test_plain()
   assert(lib.value ~= nil)
-end
-]]))
-  assert(Fs.write(root .. "/suite/net_test.tl", [[
-local Test = require("cosmic.test")
-
-Test.needs { network = { "example.com" } }
-
-local function test_net()
-  assert(true)
 end
 ]]))
 end
@@ -158,20 +148,20 @@ local function seeded(tmp: string): {string:string}, Said, string
   end
   local first = run(root, tmp .. "/first.out", env)
   if unsandboxed(first) then return env, said, nil end
-  assert(first:find("4 ran, 0 stood", 1, true) and first:find("; sandboxed", 1, true), first)
+  assert(first:find("3 ran, 0 stood", 1, true) and first:find("; sandboxed", 1, true), first)
   return env, said, root
 end
 
---- Nothing changed, or only a file no test declares: all but the test
---- that reaches the network stands, and none is assumed.
+--- Nothing changed, or only a file no test declares: every test stands,
+--- and none is assumed or runs every time.
 local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tmp: string)
   local _, said, root = seeded(tmp)
   if root == nil then return end
-  local again = said("1 ran, 3 stood")
-  assert(not again:find("assumed", 1, true), again)
+  local again = said("0 ran, 3 stood")
+  assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
   -- A file no test declares.
   assert(Fs.write(root .. "/suite/unrelated.txt", "changed\n"))
-  said("1 ran, 3 stood")
+  said("0 ran, 3 stood")
 end
 
 --- A file beneath a declared directory, or a module of a test's
@@ -180,9 +170,9 @@ local function test_a_declared_file_or_module_that_changes_runs_its_test(tmp: st
   local _, said, root = seeded(tmp)
   if root == nil then return end
   assert(Fs.write(root .. "/suite/data/f", "two\n"))
-  said("2 ran, 2 stood")
+  said("1 ran, 2 stood")
   assert(Fs.write(root .. "/suite/lib.tl", "return { value = 2 }\n"))
-  said("2 ran, 2 stood")
+  said("1 ran, 2 stood")
 end
 
 --- A declared variable's value, or the declaration itself, that changes
@@ -191,31 +181,28 @@ local function test_a_declared_variable_or_declaration_that_changes_runs_its_tes
   local env, said, root = seeded(tmp)
   if root == nil then return end
   env.FLAVOUR = "salty"
-  said("2 ran, 2 stood")
+  said("1 ran, 2 stood")
   local source = assert(Fs.read(root .. "/suite/data_test.tl"))
   assert(Fs.write(root .. "/suite/data_test.tl",
     (source:gsub('reads = { "suite/data/" }', 'reads = { "suite/data/", "suite/lib.tl" }'))))
-  said("2 ran, 2 stood")
+  said("1 ran, 2 stood")
 end
 
 --- Forced, by `--all` or COSMIC_TEST_ALL, every test runs.
 local function test_a_forced_run_runs_every_sandboxed_test(tmp: string)
   local env, said, root = seeded(tmp)
   if root == nil then return end
-  said("4 ran, 0 stood", { "--all" })
+  said("3 ran, 0 stood", { "--all" })
   env.COSMIC_TEST_ALL = "1"
-  said("4 ran, 0 stood")
+  said("3 ran, 0 stood")
 end
 
---- A test that declares only loopback hosts runs offline, in a network
---- namespace of its own, where a closed port is refused as on the
---- host's; its verdict stands as any other's, and one that declares
---- another host beside them runs every time, online -- in the namespace
---- the run itself is in, which every online worker shares. So the two
---- are told apart by their namespaces, which each names in a failure of
---- its own in a checkout that probes them: a worker keyed but left
---- online would share its sibling's.
-local function test_a_test_that_declares_only_loopback_hosts_stands(tmp: string)
+--- A test reaches loopback alone: a module that declares another host
+--- fails the build, naming its line and the rule, and one that declares
+--- loopback addresses runs offline, in a network namespace of its own --
+--- not the run's -- where a closed port is refused as on the host's,
+--- and its verdict stands as any other's.
+local function test_a_test_that_declares_loopback_addresses_runs_offline_and_stands(tmp: string)
   local source = [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
@@ -229,27 +216,28 @@ local function test_refused()
   if PROBE then error("NAME in " .. tostring((Fs.readlink("/proc/self/ns/net"))) .. " |") end
 end
 ]]
-  local function suite(root: string, probe: boolean)
+  local function suite(root: string, name: string, hosts: string, probe: boolean)
     assert(Fs.mkdirs(root .. "/suite"))
-    for name, hosts in pairs({ loopback = '"127.0.0.1", "127.0.0.2", "::1", "localhost"',
-                               mixed = '"127.0.0.1", "example.com"' }) do
-      local text = source:gsub("HOSTS", hosts):gsub("PROBE", tostring(probe)):gsub("NAME", name)
-      assert(Fs.write(root .. "/suite/" .. name .. "_test.tl", text))
-    end
+    local text = source:gsub("HOSTS", hosts):gsub("PROBE", tostring(probe)):gsub("NAME", name)
+    assert(Fs.write(root .. "/suite/" .. name .. "_test.tl", text))
   end
   local env = environment(tmp .. "/cache/verdicts.db")
-  suite(tmp .. "/root", false)
+  suite(tmp .. "/beyond", "beyond", '"127.0.0.1", "example.com"', false)
+  local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
+  assert(refused:find('suite/beyond_test.tl:5: test.needs: network "example.com": network ' ..
+    "takes loopback addresses 127.a.b.c only", 1, true) and
+    not refused:find("test: PASS", 1, true), refused)
+  suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
-  assert(first:find("2 ran, 0 stood", 1, true), first)
+  assert(first:find("1 ran, 0 stood", 1, true), first)
   local again = run(tmp .. "/root", tmp .. "/again.out", env)
-  assert(again:find("1 ran, 1 stood, 1 run every time", 1, true), again)
-  suite(tmp .. "/probe", true)
+  assert(again:find("0 ran, 1 stood", 1, true) and not again:find("every time", 1, true), again)
+  suite(tmp .. "/probe", "loopback", '"127.0.0.1"', true)
   local probed = run(tmp .. "/probe", tmp .. "/probe.out", env, nil, true)
   local offline = probed:match("loopback in (%S+) |")
-  local online = probed:match("mixed in (%S+) |")
-  assert(offline ~= nil and online ~= nil and offline:find("^net:") and offline ~= online,
-    probed)
+  local own = assert(Fs.readlink("/proc/self/ns/net"))
+  assert(offline ~= nil and offline:find("^net:") and offline ~= own, probed .. own)
 end
 
 --- A checkout of the same content stands on the verdicts another
@@ -260,15 +248,15 @@ local function test_a_sandboxed_verdict_stands_in_another_checkout(tmp: string)
   checkout(tmp .. "/first")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
-  assert(first:find("4 ran, 0 stood", 1, true), first)
+  assert(first:find("3 ran, 0 stood", 1, true), first)
   checkout(tmp .. "/second")
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
-  assert(second:find("1 ran, 3 stood, 1 run every time", 1, true) and
+  assert(second:find("0 ran, 3 stood", 1, true) and
     second:find("3 of them on another checkout's verdict", 1, true), second)
   checkout(tmp .. "/third")
   assert(Fs.write(tmp .. "/third/suite/data/f", "three\n"))
   local third = run(tmp .. "/third", tmp .. "/third.out", env)
-  assert(third:find("2 ran, 2 stood, 1 run every time", 1, true) and
+  assert(third:find("1 ran, 2 stood", 1, true) and
     third:find("2 of them on another checkout's verdict", 1, true), third)
 end
 
@@ -279,14 +267,17 @@ local function test_a_sandboxed_checkout_told_to_share_nothing_runs_everything(t
   checkout(tmp .. "/first")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   if unsandboxed(first) then return end
-  assert(first:find("4 ran, 0 stood", 1, true), first)
+  assert(first:find("3 ran, 0 stood", 1, true), first)
   checkout(tmp .. "/unshared")
   local unshared = run(tmp .. "/unshared", tmp .. "/unshared.out", env, { "--no-shared" })
-  assert(unshared:find("4 ran, 0 stood", 1, true), unshared)
+  assert(unshared:find("3 ran, 0 stood", 1, true), unshared)
 end
 
 --- A checkout whose tests run this program: one that declares `tool`,
---- and one that does not, which must find it refused.
+--- and two that do not, which must find it refused: one of them
+--- declares the `bootstrap` cache, where a portable cosmic extracts its
+--- cores, and is given cores of its own rather than the ones this
+--- program's core is among.
 local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/o/bin"))
@@ -322,7 +313,7 @@ local function test_runs_the_tool()
   assert(result.ok)
 end
 ]]))
-  assert(Fs.write(root .. "/suite/undeclared_test.tl", started .. [[
+  local refused = [[
 
 local function test_is_refused_the_tool()
   -- The program is not given it at all, and its core is refused it,
@@ -341,25 +332,35 @@ local function test_is_refused_the_tool()
   assert(exe == nil, "the program ran through /proc/self/exe")
   local _ = exe_trouble
 end
-]]))
+]]
+  assert(Fs.write(root .. "/suite/undeclared_test.tl", started .. refused))
+  assert(Fs.write(root .. "/suite/bootstrap_test.tl", started .. [[
+local Test = require("cosmic.test")
+
+Test.needs { caches = { "bootstrap" } }
+]] .. refused))
 end
 
 --- Sandboxed, a test that runs this program undeclared is refused it,
---- and one that declares `tool` runs again when the tool changes -- the
---- tool's own modules, which it runs, are none of its closure's.
+--- whether or not it declares the `bootstrap` cache, and one that
+--- declares `tool` runs again when the tool changes -- the tool's own
+--- modules, which it runs, are none of its closure's -- where the others
+--- stand, keyed by nothing of it.
 local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   local root = tmp .. "/root"
   tool_checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
+  -- The `bootstrap` cache, made where the runner can make it.
+  env.XDG_CACHE_HOME = tmp .. "/cache"
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("2 ran, 0 stood", 1, true), first)
+  assert(first:find("test: PASS", 1, true) and first:find("3 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 2 stood", 1, true), again)
+  assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
   assert(Fs.write(root .. "/o/bin/stand-in", "two\n"))
   local rebuilt = run(root, tmp .. "/rebuilt.out", env)
-  assert(rebuilt:find("1 ran, 1 stood", 1, true), rebuilt)
+  assert(rebuilt:find("1 ran, 2 stood", 1, true), rebuilt)
 end
 
 --- This program, rebuilt at `path` with `statements` run on the
@@ -564,16 +565,16 @@ local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
   local first = run(root, tmp .. "/first.out", env)
   if unsandboxed(first) then return end
   local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("1 ran, 3 stood", 1, true), again)
+  assert(again:find("0 ran, 3 stood", 1, true), again)
   env.COSMIC_TEST_HARNESS_EPOCH = tostring(harness_epoch.epoch + 1)
   local moved = run(root, tmp .. "/moved.out", env)
-  assert(moved:find("4 ran, 0 stood", 1, true), moved)
+  assert(moved:find("3 ran, 0 stood", 1, true), moved)
   -- So is the timeout a worker runs under: a pass reached under one
   -- does not stand under another.
   env.COSMIC_TEST_HARNESS_EPOCH = nil
   env.COSMIC_TEST_TIMEOUT = "31"
   local longer = run(root, tmp .. "/longer.out", env)
-  assert(longer:find("4 ran, 0 stood", 1, true), longer)
+  assert(longer:find("3 ran, 0 stood", 1, true), longer)
 end
 
 --- A compiler of another identity that makes the same bytecode --

@@ -255,7 +255,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
     env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    processes = true, tool = true, store = true, system = true,
+    processes = true, tool = true, nests = true, store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
     variables = { "DECLARED", "H" }, named = { H = true },
     spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
@@ -336,9 +336,11 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     function(): declared_key.Spec return full_spec(hostdir) end,
     function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
       env = declaration .. ", and `environment` by what the worker is given",
-      network = declaration .. ": a test that reaches beyond loopback has no key " ..
-        "(`declared_key.keyable`)",
+      network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
+        "offline worker's own loopback answers",
       processes = declaration, variables = declaration,
+      nests = declaration .. ", and, where the module does not declare `tool`, " ..
+        "`runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",
       cache_paths = "where the host keeps its caches: content-addressed, which never " ..
         "changes a result (build.caches)",
@@ -392,23 +394,6 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   }
   each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
     function(s: declared_key.HostSources): any return s end, key, changes, {})
-end
-
---- A test that declares the network has no key; one that declares none
---- does, and so does one that declares only loopback hosts, which its
---- worker, offline, reaches on a loopback of its own.
-local function test_a_test_that_reaches_the_network_has_no_key()
-  local s = spec()
-  assert(declared_key.keyable(s.effective))
-  s.effective.network = { ["example.com"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["*"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["127.0.0.1"] = true, ["example.com"] = true }
-  assert(not declared_key.keyable(s.effective))
-  s.effective.network = { ["127.0.0.1"] = true, ["127.0.0.2"] = true, ["::1"] = true,
-    ["localhost"] = true }
-  assert(declared_key.keyable(s.effective))
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,
@@ -477,12 +462,13 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(key_of(root) ~= nil)
 end
 
---- A `host` path a variable names is keyed by what it holds and by the
+--- A `host` file a variable names is keyed by what it holds and by the
 --- name it is declared by, not by where the variable says it is: the
 --- same contents at another place key the same, and the variable's
 --- value in the worker's environment is held by that name too; a
---- change to what it holds moves the key, a file beneath a directory
---- as a file; and a link beneath it that leads out of it has no key.
+--- change to what it holds moves the key, as does one to what a link
+--- declared leads to. A directory there is refused before any key is
+--- made (R3): no key walks what a host directory holds.
 local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: string)
   local root = tmp .. "/root"
   tree(root)
@@ -493,7 +479,7 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     assert(Fs.write(dir .. "/o/bin/cosmic", contents))
     return dir
   end
-  local function key_at(where: string, declared: string): string
+  local function resolved(where: string, declared: string): declared_key.Spec
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = where })
     s.effective.host = { declared }
     s.effective.env.PRODUCT = true
@@ -501,20 +487,18 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     s.effective.variables = { "DECLARED", "PRODUCT" }
     s.declaration = s.declaration .. "\nhost " .. string.format("%q", declared)
     test_inputs.resolve(s.effective, s.environment, { root })
+    return s
+  end
+  local function key_at(where: string, declared: string): string
+    local s = resolved(where, declared)
     assert(s.effective.unresolved == "", s.effective.unresolved)
     return key_of(root, s)
   end
   local one, two = product("one", "cosmic\n"), product("two", "cosmic\n")
   local file = "$PRODUCT/o/bin/cosmic"
   assert(key_at(one, file) == key_at(two, file), "the same contents elsewhere")
-  assert(key_at(one, "$PRODUCT") == key_at(two, "$PRODUCT"), "the same directory elsewhere")
-  assert(key_at(one, file) ~= key_at(one, "$PRODUCT"), "another declaration")
   assert(Fs.write(two .. "/o/bin/cosmic", "another cosmic\n"))
   assert(key_at(one, file) ~= key_at(two, file), "another file's contents")
-  assert(key_at(one, "$PRODUCT") ~= key_at(two, "$PRODUCT"), "another directory's contents")
-  local before = key_at(one, "$PRODUCT")
-  assert(Fs.write(one .. "/o/new", ""))
-  assert(key_at(one, "$PRODUCT") ~= before, "a file added beneath it")
   -- Two variables' places swapped, what each holds the same: the same key.
   local function key_of_two(a: string, b: string): string
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp", A = a, B = b })
@@ -530,17 +514,23 @@ local function test_a_host_path_a_variable_names_is_keyed_by_what_it_holds(tmp: 
     "the variables' places in another order")
   assert(key_of_two(early, late) ~= key_of_two(swapped_early, swapped_late),
     "what each holds, swapped")
-  -- A link within it is held by where it leads; one out of it has no key.
-  assert(Fs.symlink("bin/cosmic", one .. "/o/within"))
-  assert(key_at(one, "$PRODUCT") ~= nil)
-  assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/out"))
-  local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PRODUCT = one })
-  s.effective.host = { "$PRODUCT" }
-  s.effective.named = { PRODUCT = true }
-  s.effective.variables = { "PRODUCT" }
-  test_inputs.resolve(s.effective, s.environment, { root })
-  local key, why = declared_key.compute(declared_key.digests(root), s)
-  assert(key == nil and why:find("leads out of " .. one, 1, true), why)
+  -- A link declared is held by what it leads to, wherever that is.
+  assert(Fs.symlink("../../two/o/bin/cosmic", one .. "/o/linked"))
+  local before = key_at(one, "$PRODUCT/o/linked")
+  assert(Fs.write(two .. "/o/bin/cosmic", "a third cosmic\n"))
+  assert(key_at(one, "$PRODUCT/o/linked") ~= before, "what the link leads to")
+  -- A directory, the variable's whole path or beneath it, is refused;
+  -- /proc, which no key could hold by what it holds, and what is beneath
+  -- it, are given.
+  for _, declared in ipairs({ "$PRODUCT", "$PRODUCT/o" }) do
+    local refused = resolved(one, declared).effective.unresolved
+    assert(refused:find(string.format("Test.needs host %q: ", declared), 1, true) and
+      refused:find(" is a directory; host names files, or /proc", 1, true), refused)
+  end
+  local proc = spec()
+  proc.effective.host = { "/proc", "/proc/self" }
+  test_inputs.resolve(proc.effective, proc.environment, { root })
+  assert(proc.effective.unresolved == "", proc.effective.unresolved)
 end
 
 --- The host's identity is the same from one look to the next, and says
@@ -714,11 +704,10 @@ end
 --- package databases and the systems they say they are -- key a test
 --- alike where its module is given none of the system's paths, and
 --- where it names a file of the host's, keyed by its contents; apart
---- where it declares `system`, or a directory of the host's, which is
---- keyed by its name alone and stands on what is installed.
+--- where it declares `system`, whose paths stand on what is installed.
 local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed(tmp: string)
   tree(tmp .. "/tree")
-  assert(Fs.mkdirs(tmp .. "/host/dir"))
+  assert(Fs.mkdirs(tmp .. "/host"))
   assert(Fs.write(tmp .. "/host/file", "f\n"))
   local function installed(packages: string, release: string): string
     assert(Fs.write(tmp .. "/packages", packages))
@@ -743,8 +732,6 @@ local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed
   assert(key_on(one, false, { "/proc/" }) == key_on(other, false, { "/proc/" }),
     "a module given /proc, which no package installs")
   assert(key_on(one, true, {}) ~= key_on(other, true, {}), "a module given the system")
-  assert(key_on(one, false, { tmp .. "/host/dir" }) ~= key_on(other, false, { tmp .. "/host/dir" }),
-    "a module given a directory of the host's")
   assert(key_on(one, true, {}) ~= key_on(one, false, {}), "declaring the system")
 end
 

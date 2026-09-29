@@ -169,8 +169,10 @@ end
 --- reader decodes: "l" an lstat, "k" a readlink, "a" a realpath, "c"
 --- the working directory and "b" the program's own path, and "v" and
 --- "w", an lstat's or a readlink's resolution, as "r" and "t" are
---- another read's; and "z", a test's declaration that it reads stat's
---- times (`observations.reads_stat_times`), later still; and "g" and
+--- another read's; and "z", a test's declaration that it read stat's
+--- times, later still, which nothing makes now (a test depends on no
+--- file's times it did not make: see build/test.tl's `held_stat`) and
+--- nothing encodes; and "g" and
 --- "j", a `sys.tree_digest` of a path by its contents or by its stamps,
 --- after that; and "y", a program a sandboxed worker's process ran, or
 --- the interpreter its first line names, for the audit alone, after
@@ -181,7 +183,7 @@ function observations.encode(found: {observations.Observation}): string
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" or
         kind == "u" or kind == "l" or kind == "k" or kind == "a" or kind == "c" or
-        kind == "b" or kind == "v" or kind == "z" or kind == "g" or kind == "j" or
+        kind == "b" or kind == "v" or kind == "g" or kind == "j" or
         kind == "y" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
     elseif kind == "t" or kind == "w" then
@@ -275,8 +277,7 @@ local environ_path = "\0environ"
 --- permissions first, then its modification time, inode, device and
 --- link count, and its change time last. A read moves the access time,
 --- so keying on it would make every verdict that reads a file stale by
---- reading it -- a declared test's (`observations.reads_stat_times`)
---- included. The owner is left out as `sys.tree_digest`'s stamps leave
+--- reading it. The owner is left out as `sys.tree_digest`'s stamps leave
 --- it out: a change of it moves the change time, and a sandbox nested
 --- in another -- a sandboxed worker's, started by a test of a sandboxed
 --- run -- maps no ids, and answers it as the overflow id (65534) where
@@ -522,34 +523,6 @@ function observations.declared(what: string, fn: function(): boolean)
   if not held then
     for _, note in ipairs(noting) do note("x", what, "") end
   end
-end
-
---- Declares that the calling test's verdict turns on what `stat` says
---- of a file of the tree beyond what it is, its size and its
---- permissions: its modification or change time, its inode, device or
---- link count -- its owner no key holds, whose change moves the change
---- time (`stat_result_answer`) -- a staleness check comparing one file's time
---- with another's, say, or a test of `Fs.copy` keeping a source's times.
---- Noted "z" by every running capture, it keys each stat and lstat the
---- test made of a path under the tree, what `stat` says now of each file
---- of the tree it opened (which an `fstat` of its descriptor may have
---- read), and what `lstat` says of everything beneath each path of the
---- tree a confined process of it was given (`sys.tree_digest`'s stamps,
---- which leave out the link count and owner, whose change moves the
---- change time they hold), whole: in its checkout's own key, o/
---- included, and in the shared key too. The access time, which
---- the test's own reads move, no key holds. Every other test's shared
---- key keeps of a stat only what the path is, its size and permissions,
---- and its own key, under o/, which the build rewrites, the same (see
---- build/test.tl's `held_stat`).
---- Another checkout's files never share an inode or a change time with
---- this one's, so a declared test's verdict effectively never stands in
---- another checkout: it runs there itself, as it must. Called at a test
---- module's top level, it holds for each of its tests, whose capture
---- includes the module's load; called in a test, for that test. Outside
---- a capture it does nothing.
-function observations.reads_stat_times()
-  for _, note in ipairs(noting) do note("z", "", "") end
 end
 
 --- The tree each running capture resolves paths outside of, by its
@@ -922,10 +895,7 @@ end
 --- Under the tree, where it resolves and each directory between it and
 --- the tree are named by `tree_name`, and each directory above the tree
 --- by its mode alone, so every checkout of the tree answers alike.
---- Given `stamped`, one under the tree is walked as one outside it is,
---- by what `lstat` says of each entry, not by its contents: for a test
---- that declares it reads stat's times (`observations.reads_stat_times`).
-function observations.unveiled_answer(path: string, tree: string, stamped?: boolean): string
+function observations.unveiled_answer(path: string, tree: string): string
   local real, _ = realpath(path)
   if real == nil then return "missing" end
   local real_tree, _ = realpath(tree)
@@ -933,7 +903,7 @@ function observations.unveiled_answer(path: string, tree: string, stamped?: bool
   local inside = Fs.within(real, real_tree)
   -- Past the log, as `stat` below is: the walk is the key's, made
   -- while a capture may run, and none of the test's reads.
-  local walked, trouble = tree_digest(real, inside and not stamped)
+  local walked, trouble = tree_digest(real, inside)
   local parts: {string} = { walked ~= nil and walked.digest or ("error " .. trouble) }
   -- The modes of the directories above it, which the root it is bound
   -- into mirrors: a program may check them, as the launcher does its

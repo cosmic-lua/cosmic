@@ -96,9 +96,9 @@
 --- verdict, of this checkout or, by that key alone, of another
 --- (`build.shared_verdicts`), stands; any other runs, and its verdict is
 --- kept only when its inputs still digest to the same key once it has
---- run. A test that declares a network beyond loopback hosts has no
---- key, and always runs; one that declares only loopback hosts runs
---- offline and is keyed (`test_inputs.offline`).
+--- run. A test that declares loopback addresses, the only network it may
+--- (`cosmic.test`), runs offline, as every sandboxed test does, and is
+--- keyed.
 --- None is assumed, and `--all` (or `COSMIC_TEST_ALL=1`, or an audit)
 --- runs every test the run chooses, whatever stands.
 
@@ -207,8 +207,7 @@ local record test
     --- another checkout reached (`build.shared_verdicts`).
     shared: integer
     --- Of those that ran sandboxed, how many no key holds, which run
-    --- every time: one whose module declares the network beyond loopback
-    --- hosts, or reads a link out of the tree.
+    --- every time: one whose module reads a link out of the tree.
     every: integer
   end
 
@@ -606,18 +605,20 @@ local worker_view: function(): {string:string}
 --- given are no part of what the tree holds, and would keep a verdict
 --- from standing in any checkout but the one that reached it; a
 --- checkout's own key keeps them, so a file touched there runs what
---- stat'd it again -- but for one under o/, which the build rewrites. A
---- test that declares it reads them (`observations.reads_stat_times`)
---- is keyed by every field instead, in both keys, o/ included.
--- TODO: infer the declaration rather than trust a test to make it: a
--- test that reads an in-tree file's times, inode, device, link count or
--- owner without declaring it -- through a stat, or an fstat of a
--- descriptor it opened -- stands on a sibling's verdict where they
--- differ, and, for a file under o/, on its own checkout's. Have `stat`,
--- `lstat` and `fstat` note "z" themselves when a capture runs and any
--- field of what they answered but its kind, size and mode is read
--- (their answer a table whose other fields are looked up through its
--- metatable, in core/syscalls_fs.c), and retire the declaration.
+--- stat'd it again -- but for one under o/, which the build rewrites,
+--- and no sandboxed key holds them at all.
+---
+--- The rule that makes that sound (R5): a test must not depend on the
+--- times, inode, device, link count or owner of a file it did not make.
+--- One that needs them makes its own files in its temporary directory
+--- and sets them -- `utimensat` for the times, a fresh file for a new
+--- inode -- so they are the same in every checkout.
+-- TODO: enforce the rule under a worker's hold, as the store's is held:
+-- have `stat`, `lstat` and `fstat` of a path of the tree answer fixed
+-- times and inode there, once core/syscalls_fs.c's stat takes a hold
+-- from build.test_worker as core/store.c's lookups do (C, and a boot):
+-- today a test that leans on a file of the tree's times sees what its
+-- checkout gave it, and stands on a sibling's verdict where they differ.
 local function held_stat(answer: string): string
   local size, mode, kind = answer:match("^ok (%S+) (%S+) (%S+)")
   if size == nil then return answer end
@@ -638,10 +639,7 @@ end
 --- it; its `shared` key keeps of a stat only what `held_stat` does,
 --- so another checkout of the same content computes the same shared
 --- key, and a verdict one reached stands in the other
---- (`build.shared_verdicts`). A test that declares it reads stat's
---- times (`observations.reads_stat_times`) is keyed by every field of
---- each stat in both keys, and by the stat of each file of the tree it
---- opened: its shared key is effectively its checkout's alone.
+--- (`build.shared_verdicts`).
 ---
 --- Exposed as `test.verdict_key` (`standing` and `finish` use it the
 --- same as any other caller would) so `test_test.tl` can pin two
@@ -667,13 +665,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local stable = true
   local late = false
   local paths: {string} = {}
-  -- Whether the test declared it reads stat's times
-  -- (`observations.reads_stat_times`): its stats are keyed whole, and
-  -- each file of the tree it opened is keyed by its stat too.
-  local whole = false
-  for _, observation in ipairs(reads) do
-    if observation.kind == "z" then whole = true end
-  end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
     local keyed = kind == "e" or kind == "u" or kind == "c" or kind == "b"
@@ -716,11 +707,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         if before ~= nil and before ~= observation.answer then stable = false end
         answers[identified] = observation.answer
       end
-      local stated = "s " .. (relative or "")
-      if whole and kind == "o" and relative ~= nil and not seen[stated] then
-        seen[stated] = true
-        paths[#paths + 1] = stated
-      end
     end
   end
   table.sort(paths)
@@ -754,8 +740,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- capture ended.
   -- Generation 10 records a stat's change time, and keys a stat's every
   -- field, and each path a confined process was given by its entries'
-  -- stamps, for a test that declares it reads them
-  -- (`observations.reads_stat_times`): generation 9 recorded no change
+  -- stamps, for a test that declared it read them (a declaration since
+  -- retired for a rule: `held_stat`): generation 9 recorded no change
   -- time, and kept a declared test's times out of its shared key.
   -- Generation 11 notes each file a connection opened before the capture
   -- holds as it begins, which generation 10 never keyed.
@@ -765,10 +751,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local header = declared_key.key_part("i", id, declared_key.key_part("m", module_key, runtime))
   local lines: {string} = { "recording-12", "module-load-reads-v1", header }
   local shared_lines: {string} = { "shared-recording-6", "module-load-reads-v1", header }
-  if whole then
-    lines[#lines + 1] = "stat-times"
-    shared_lines[#shared_lines + 1] = "stat-times"
-  end
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -781,17 +763,14 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     elseif kind == "u" then
       -- A path a confined process was given may be a whole directory,
       -- one most of a run's tests give theirs (the system's own), so
-      -- what it holds is walked once a run. For a declared test, one
-      -- under the tree is walked a second time, by what `lstat` says of
-      -- each entry beneath it -- its times and inode -- and remembered
-      -- apart from the walk of its contents every other test shares.
-      local function walk(tag: string, stamped: boolean): string
-        local memo_key = "\1u" .. tag .. "\0" .. relative
+      -- what it holds is walked once a run.
+      local function walk(): string
+        local memo_key = "\1u\0" .. relative
         local walked_answer = key_parts[memo_key]
         if walked_answer == nil then
-          walked_answer = observations.unveiled_answer(relative, root, stamped)
+          walked_answer = observations.unveiled_answer(relative, root)
           key_parts[memo_key] = walked_answer
-          key_parts["\2u" .. tag .. "\0" .. relative] = tostring(Time.monotonic_ns())
+          key_parts["\2u\0" .. relative] = tostring(Time.monotonic_ns())
         end
         -- Walked only after the test started, the answer may be of what
         -- the path became since its process read it: such a verdict is
@@ -802,15 +781,11 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         -- start one (a digest remembered by what `lstat` says, say):
         -- today a test that starts a process keeps no verdict until its
         -- second run.
-        local walked = math.tointeger(key_parts["\2u" .. tag .. "\0" .. relative]) or 0
+        local walked = math.tointeger(key_parts["\2u\0" .. relative]) or 0
         if started_ns ~= nil and walked >= started_ns then late = true end
         return walked_answer
       end
-      current = walk("", false)
-      if whole then
-        local stamps = walk("s", true)
-        if stamps ~= current then current = current .. "\0" .. stamps end
-      end
+      current = walk()
       if current:sub(1, 10) == "unkeyable " then stable = false end
     elseif kind == "o" then
       current = hashes[relative]
@@ -835,9 +810,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     elseif kind == "g" or kind == "j" then
       -- The walk itself, again: by contents for "g", and by what
       -- `lstat` says of each entry for "j" -- stamps a test that walks
-      -- by them reads, so keyed whole in both keys, declared
-      -- (`observations.reads_stat_times`) or not, and never standing in
-      -- another checkout, whose inodes and times are its own.
+      -- by them reads, so keyed whole in both keys, and never standing
+      -- in another checkout, whose inodes and times are its own.
       -- TODO: key a link beneath the path whose target names the tree
       -- by `tree_name` in the shared key, as a readlink's answer is,
       -- once `sys.tree_digest` can answer its entries' lines rather
@@ -871,8 +845,6 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         key_parts[memo_held] = held
       end
       answer = held
-    elseif (kind == "s" or kind == "l") and whole then
-      -- Declared: whole in both keys, o/ included.
     elseif (kind == "s" or kind == "l") and output(relative) then
       -- When the build last wrote a file is its own, not the tree's:
       -- held as the shared key holds it here too, lest a test that
@@ -1159,9 +1131,13 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
       -- held by its sandbox, and an unsandboxed one's run never stands
       -- (`cosmic.test`'s `processes`) -- but for what it runs, above.
     elseif kind == "x" then
-      -- A request's URL, which names its scheme; any other is what no
-      -- observation could account for, which a process is handed.
-      if path:match("^%s*%a[%w+.-]*:") ~= nil then
+      -- A start refused a root of its own, which a worker a Landlock
+      -- ruleset holds cannot make (`confine.nests_note`); a request's
+      -- URL, which names its scheme; any other is what no observation
+      -- could account for, which a process is handed.
+      if path:sub(1, #confine.nests_note) == confine.nests_note then
+        if not effective.nests then add("nests", path:sub(#confine.nests_note + 1)) end
+      elseif path:match("^%s*%a[%w+.-]*:") ~= nil then
         if not test_inputs.covers_network(effective, path) then add("network", path) end
       elseif not effective.processes and not sandboxed then
         add("processes", "unobservable: " .. path)
@@ -2089,19 +2065,18 @@ end
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
 --- this program where its module does not declare `tool`
 --- (`confine.forbid_running`): not where it may write a directory
---- the program is in -- the cores a portable cosmic extracts, which the
---- `bootstrap` cache names (`build.caches`) -- since a core another
+--- the program is in (`test_sandbox.forbiddable`), since a core another
 --- cosmic extracts there after the worker holds itself could not be
---- run. Such a worker is keyed as if it declared `tool` instead.
--- TODO: hold such a worker too, once the core it runs is kept apart
--- from the cores a test's own cosmic extracts (a directory of the
--- worker's own for it, bound by the sandbox): today its verdict holds
--- o/bin in its key, but nothing keeps it from running a stale program.
+--- run. The cores a portable cosmic extracts, where the program's own
+--- core is, are none of them: a worker that declares the `bootstrap`
+--- cache has cores of its own (`test_sandbox.cache_writes`). Such a
+--- worker is keyed as if it declared `tool` instead.
 local function can_forbid(rec: Recording, m: importer.Module): boolean
   local found = rec.forbiddable[m.path]
   if found ~= nil then return found end
   rec.tool = rec.tool or confine.itself()
-  found = test_sandbox.forbiddable(rec.effective[m.path].cache_paths or {}, rec.tool)
+  found = test_sandbox.forbiddable(test_sandbox.cache_writes(rec.effective[m.path],
+    worker_view()), rec.tool)
   rec.forbiddable[m.path] = found
   return found
 end
@@ -2109,9 +2084,10 @@ end
 --- How a sandboxed worker of `m`'s tests stands to running this
 --- program: "declared" where its module declares `tool`, "forbidden"
 --- where it is kept from running it (`can_forbid`), and "allowed" where
---- it cannot be, which its key holds as if its module declared `tool`
---- (`Spec.runs_tool`). Its key and its command line (`--worker-no-tool`)
---- both take it from here.
+--- it is not -- its module declares `nests`, whose worker no Landlock
+--- ruleset holds, or it cannot be -- which its key holds as if its
+--- module declared `tool` (`Spec.runs_tool`). Its key and its command
+--- line (`hold_of`) both take it from here.
 local enum ToolUse
   "declared"
   "forbidden"
@@ -2119,8 +2095,28 @@ local enum ToolUse
 end
 
 local function tool_use(rec: Recording, m: importer.Module): ToolUse
-  if rec.effective[m.path].tool then return "declared" end
+  local effective = rec.effective[m.path]
+  if effective.tool then return "declared" end
+  if effective.nests then return "allowed" end
   return can_forbid(rec, m) and "forbidden" or "allowed"
+end
+
+-- TODO: have `--audit` name a `nests` its tests never used -- no start
+-- in a root of its own among what they did -- once the capture notes such
+-- a start that succeeded, as it notes one refused (`confine.nests_note`):
+-- an unneeded `nests` is sound, but leaves the worker unheld and keys it
+-- as running the program, so its module runs again on every change to a
+-- module the program carries.
+--- How a worker of `m`'s tests is held by a Landlock ruleset
+--- (`worker.Hold`): not at all unsandboxed, nor where its module declares
+--- `nests`, which lets its tests confine a process in a root of its own;
+--- to running anything but this program where it may not run it
+--- (`tool_use`); and otherwise to running anything, which holds it to
+--- making no root of its own, since the kernel refuses every mount under
+--- a ruleset.
+local function hold_of(rec: Recording, m: importer.Module): worker.Hold
+  if not rec.sandbox or rec.effective[m.path].nests then return "none" end
+  return tool_use(rec, m) == "forbidden" and "forbid" or "mounts"
 end
 
 --- Whether a worker of `m`'s tests can read the compiler's identity,
@@ -2133,12 +2129,10 @@ local function reads_compiler(rec: Recording, m: importer.Module): boolean
 end
 
 --- A sandboxed test's key, over its declared inputs as they are now
---- (`build.declared_key`): nil for one that reaches a network beyond
---- loopback, or reads a link out of the tree, which no key holds -- the
---- second said once in `rec.unkeyed`.
+--- (`build.declared_key`): nil for one that reads a link out of the
+--- tree, which no key holds, said once in `rec.unkeyed`.
 local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
   local effective = rec.effective[m.path]
-  if not declared_key.keyable(effective) then return nil end
   local key, why = declared_key.compute(rec.digests, {
     id = id, group = m.path, module_key = m.graph_key, runtime = rec.runtime,
     compiler = reads_compiler(rec, m) and rec.compiler or "", host = rec.host,
@@ -2678,11 +2672,10 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- sandbox gives it at /tmp; the key names that /tmp, not this path,
     -- which is new every run. Nothing holds it to the rest of what it
     -- declares.
-    -- A test that declares only loopback hosts is keyed as offline
-    -- (`declared_key.keyable`, `test_inputs.offline`), but here runs
-    -- online, in the host's network namespace: a reach past loopback
-    -- goes unnoticed here, and a Linux leg's sandbox, which runs it
-    -- offline, is what fails it.
+    -- A test that declares loopback addresses is keyed as offline, as
+    -- a sandbox runs it, but here runs online, in the host's network
+    -- namespace: a reach past loopback goes unnoticed here, and a Linux
+    -- leg's sandbox, which runs it offline, is what fails it.
     -- TODO: give an unenforced worker the tree at a path no checkout
     -- moves, as a sandbox gives it /tree -- a chdir into a link or a
     -- bind mount of the tree at a fixed name where the host allows one,
@@ -2705,15 +2698,26 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program (`confine.forbid_running`): what it would run
-  -- is no input of its test's key. A module whose key holds the whole
-  -- projection, or the program and the modules it carries, has no hold
-  -- on the store (`build.test_worker`).
+  -- is no input of its test's key; and one whose module does not
+  -- declare `nests` may not make a root of its own (`hold_of`), which
+  -- every process it starts learns from its environment
+  -- (`confine.held_variable`). Only a module whose key holds the whole
+  -- projection has no hold on the store (`build.test_worker`): one
+  -- that declares `tool` is keyed by the program's modules, not by
+  -- the rest of the tree's.
   local declared = job.m.inputs
+  local hold = hold_of(rec, job.m)
+  if rec.sandbox then
+    local given: {string:string} = {}
+    for name, value in pairs(env) do given[name] = value end
+    given[confine.held_variable] = hold ~= "none" and job.m.path or nil
+    env = given
+  end
   local command = worker.invocation({
     start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), held = held,
-    no_tool = rec.sandbox and tool_use(rec, job.m) == "forbidden",
-    open = declared ~= nil and (declared.store or declared.tool),
+    hold = hold,
+    open = declared ~= nil and declared.store,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
     sandbox = sandbox,
   })
@@ -3077,6 +3081,19 @@ function test.run(argv: {integer:string}): integer
   local declared = key_choice == "declared"
   local unenforced = "each test is keyed by what it declares, which nothing holds it to"
   local sandboxed, sandbox_summary = false, ""
+  -- A run started, however deep, in a worker a Landlock ruleset holds
+  -- can sandbox none of its own, whose roots are made of mounts: it
+  -- fails, naming what lets that worker's test nest one, rather than
+  -- run them unsandboxed and pass having confined nothing.
+  local holder = Env.get(confine.held_variable)
+  if sandbox_mode ~= "off" and holder ~= nil and holder ~= "" then
+    local _, _ = work.close(handle)
+    log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
+      "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
+      "worker's sandbox: declare nests = true in its Test.needs, or start the run with " ..
+      test_sandbox.switch .. "=0")
+    return 1
+  end
   if sandbox_mode ~= "off" then
     local why: string
     sandboxed, why = sandbox_here()

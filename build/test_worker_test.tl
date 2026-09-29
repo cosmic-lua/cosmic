@@ -76,7 +76,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
     start = { argv = { "/bin/cosmic", "--relaunched" }, env = { COVERAGE = "1" },
       fds = { [254] = 7 } },
     env = { PATH = "/bin", COVERAGE = "0" }, root = "/tree", module_path = "suite.a_test",
-    name = "test_x", scratch = "/tmp", needs = "", held = "", no_tool = true, open = true,
+    name = "test_x", scratch = "/tmp", needs = "", held = "", hold = "forbid", open = true,
     closure = { "suite.a_test" }, tree = { "suite.a_test", "suite.b" }, declared = { "d" },
   })
   local argv, options = command.argv, command.options
@@ -89,4 +89,13 @@ local function test_a_worker_is_started_as_its_command_line_says()
   assert(options.env.COSMIC_COVERAGE_STARTUP == "1")
   assert(options.fds[worker.report_fd] == "capture" and options.fds[254] == 7)
   assert(options.process_group and options.sandbox == nil and options.stdin == "null")
+  -- Held by a ruleset that forbids running nothing, or by none.
+  for hold, flag in pairs({ mounts = "--worker-held", none = "--worker" } as {string:string}) do
+    local held = worker.invocation({
+      start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
+      module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "", held = "",
+      hold = hold as worker.Hold, open = false, closure = {}, tree = {}, declared = {},
+    })
+    assert(held.argv[3] == flag, hold .. ": " .. table.concat(held.argv, " "))
+  end
 end

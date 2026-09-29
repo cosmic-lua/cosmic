@@ -18,11 +18,13 @@ local type raw_process = require("cosmic.internal.process")
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What a sandboxed worker of this very program reads: /proc, where the
 --- stand-in it starts finds itself, and the program itself, which its
---- tests start again as that worker.
+--- tests start again as that worker; and `nests`, since they confine
+--- what they start in a root of its own.
 Test.needs{
   host = { "/proc" },
   env = { "COSMIC_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 local type Searcher = function(string): any, any

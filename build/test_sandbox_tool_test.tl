@@ -17,18 +17,19 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
-local declared_key = require("build.declared_key")
 local stand_in = require("build.stand_in")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
---- What a worker's plan gives it of the host, the program it runs, and
+--- What a worker's plan gives it of the host, the program it runs,
+--- roots of their own for the sandboxed workers it starts (`nests`), and
 --- what holds a run to sandboxing (`unsandboxed`).
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 --- Makes `root`, a tree for a suite, with a stand-in program
@@ -60,20 +61,22 @@ end
 
 --- A worker is given the tree's store, its closure's files and what its
 --- module declares of the tree, each at its name under /tree; its
---- scratch directory to write, at /tmp; the host paths it declares at
---- their own names; and no network unless it declares some. A path
---- that is not there is not given: a read of it finds nothing either way.
+--- scratch directory to write, at /tmp; the host files it declares at
+--- their own names; and no network but its own loopback. A path that is
+--- not there is not given: a read of it finds nothing either way.
 local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: string)
-  local root, scratch, host = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
-  for _, dir in ipairs({ root .. "/o", root .. "/a", root .. "/data", scratch, host }) do
-    assert(Fs.mkdirs(dir))
+  local root, scratch, dir = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
+  for _, made in ipairs({ root .. "/o", root .. "/a", root .. "/data", scratch, dir }) do
+    assert(Fs.mkdirs(made))
   end
   for _, file in ipairs({ "o/cosmic.db", "a/x.tl", "data/f" }) do
     assert(Fs.write(root .. "/" .. file, "x"))
   end
+  local host = dir .. "/given"
+  assert(Fs.write(host, "h"))
   local inputs = effective({ "a/x.tl", "a/missing.tl" })
   inputs.reads = { "data/", "../outside" }
-  inputs.host = { host .. "/" }
+  inputs.host = { host }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   local unveil = plan.sandbox.unveil
   assert(plan.over == 0 and plan.sandbox.offline == true)
@@ -149,10 +152,24 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(holds(nested.sandbox.unveil.writes, tmp .. "/caches/cores") and
     not holds(nested.sandbox.unveil.reads, stamp))
   assert(holds(nested.held, stamp))
-  inputs.cache_paths = {}
+  -- The `bootstrap` cache: cores of its own, made in its scratch
+  -- directory before it starts -- a ruleset that holds it walks what is
+  -- there then -- and named to it, not the host's, which the cores
+  -- directory this program's core is in stays.
+  inputs.caches, inputs.cache_paths = { "bootstrap" }, { tmp .. "/caches/cores" }
+  local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
+    tmp .. "/caches/cores" })
+  assert(own_cores.trouble == "", own_cores.trouble)
+  assert(own_cores.env.COSMIC_PORTABLE_CACHE == "/tmp/cores",
+    tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
+  local cores = assert(sys.stat(scratch .. "/cores"))
+  assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
+  assert(not holds(own_cores.sandbox.unveil.writes, tmp .. "/caches/cores") and
+    holds(own_cores.sandbox.unveil.reads, stamp))
+  inputs.caches, inputs.cache_paths = {}, {}
   local alone = test_sandbox.plan(root, scratch, inputs, {})
   assert(holds(alone.sandbox.unveil.reads, stamp))
-  inputs.host = { host .. "/" }
+  inputs.host = { host }
   -- A host path where the sandbox has its own -- its scratch directory,
   -- or above it, or /tmp or /tree themselves -- cannot be given, and
   -- one a variable names is named as declared.
@@ -169,26 +186,21 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   local linked = test_sandbox.plan(root, scratch, inputs, {})
   assert(linked.trouble:find("is where its sandbox has its scratch directory", 1, true),
     linked.trouble)
-  inputs.host, inputs.spelled = { host .. "/" }, {}
+  inputs.host, inputs.spelled = { host }, {}
   assert(test_sandbox.plan(root, scratch, inputs, {}).trouble == "")
-  -- Only loopback hosts: offline, its own loopback answering for them.
-  -- Keyed exactly when offline: a worker keyed but online would stand
-  -- on what the host's network answered.
-  local offline_for: {string:boolean} = { [""] = true, ["127.0.0.1 ::1 localhost"] = true,
-    ["127.0.0.1 example.com"] = false, ["example.com"] = false, ["*"] = false }
-  for hosts, offline in pairs(offline_for) do
+  -- Offline, whatever it declares: the loopback addresses it may
+  -- declare, its own loopback answers.
+  for _, hosts in ipairs({ "", "127.0.0.1 127.0.0.2" }) do
     inputs.network = {}
     for name in hosts:gmatch("%S+") do inputs.network[name] = true end
     local planned = test_sandbox.plan(root, scratch, inputs, {})
-    assert(planned.sandbox.offline == offline, hosts)
-    assert(declared_key.keyable(inputs) == offline, hosts)
+    assert(planned.sandbox.offline == true, hosts)
   end
-  inputs.network = { ["example.com"] = true }
+  inputs.network = {}
   inputs.tool = true
-  local online = test_sandbox.plan(root, scratch, inputs, {})
-  assert(online.sandbox.offline == false)
+  local tooled = test_sandbox.plan(root, scratch, inputs, {})
   -- No o/bin here to give.
-  assert(not holds(online.sandbox.unveil.reads, root .. "/o/bin"))
+  assert(not holds(tooled.sandbox.unveil.reads, root .. "/o/bin"))
 end
 
 --- Whether a run that printed `text`, its workers sandboxed where they
@@ -424,11 +436,9 @@ end
 --- module declares. Run again, the test stands; a change to a file of
 --- the tree it does not declare leaves it standing; a change to one it
 --- declares runs it again, and so does making one it declares that was
---- not there when it last ran. A module that declares a host of the
---- network, not a loopback one, has no verdict a key holds: it runs
---- every time, and none is assumed. One that does not declare `store`
---- stands too: what it starts can read only the store of its closure,
---- which its key holds.
+--- not there when it last ran; none is assumed, and none runs every
+--- time. One that does not declare `store` stands too: what it starts
+--- can read only the store of its closure, which its key holds.
 local function test_a_process_a_sandboxed_test_starts_is_keyed_by_what_it_declares(tmp: string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)
@@ -458,16 +468,6 @@ local function test_child_reads_the_closure_store()
   assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
 end
 ]]))
-  assert(Fs.write(root .. "/suite/online_test.tl", [[
-local Child = require("cosmic.child")
-local Test = require("cosmic.test")
-
-Test.needs { network = { "example.com" }, store = true, reads = { "bin/probe" } }
-
-local function test_child_could_reach_the_network()
-  assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
-end
-]]))
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
@@ -482,16 +482,16 @@ end
     assert(text:find(wanted, 1, true), step .. ": " .. text)
     return text
   end
-  local first = said("3 ran, 0 stood")
+  local first = said("2 ran, 0 stood")
   if unsandboxed(first) then return end
   assert(first:find("; sandboxed)", 1, true), first)
-  local again = said("1 ran, 2 stood, 1 run every time (no key holds them)")
-  assert(not again:find("assumed", 1, true), again)
+  local again = said("0 ran, 2 stood")
+  assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
   assert(Fs.write(root .. "/suite/unrelated.txt", "two"))
-  said("1 ran, 2 stood, 1 run every time")
+  said("0 ran, 2 stood")
   assert(Fs.write(root .. "/suite/data.txt", "two"))
-  said("2 ran, 1 stood, 1 run every time")
-  said("1 ran, 2 stood, 1 run every time")
+  said("1 ran, 1 stood")
+  said("0 ran, 2 stood")
   -- Made since, what the child reads is there, and the test fails.
   assert(Fs.write(root .. "/suite/later.txt", "made"))
   said("FAIL  suite.child_test test_child_reads: ", false)

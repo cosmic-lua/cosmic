@@ -28,9 +28,11 @@
 --- with what observation saw (`build.filesystem_observations`), test
 --- by test.
 
+local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local cache_names = require("build.cache_names")
+local Test = require("cosmic.test")
 local type analyzer = require("build.analyzer")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -45,17 +47,20 @@ local record test_inputs
     --- Paths of the tree, each a file or a directory and all beneath
     --- it: the fuzz corpora, and what the module declares.
     reads: {string}
-    --- Absolute paths outside the tree, the same way: as the module
-    --- declares them until `resolve` puts each it declares by a variable
-    --- (`$NAME/path`) where that variable's value says.
+    --- Absolute paths outside the tree, each a file or /proc: as the
+    --- module declares them until `resolve` puts each it declares by a
+    --- variable (`$NAME/path`) where that variable's value says.
     host: {string}
     --- Environment variables, pinned or declared, by name; `"*"` for
     --- the whole environment.
     env: {string:boolean}
-    --- Hosts the tests may reach, by name; `"*"` for any.
+    --- The loopback addresses the tests may reach, by address.
     network: {string:boolean}
     processes: boolean
     tool: boolean
+    --- Whether its worker is left unheld by Landlock, so a process it
+    --- starts may have a root of its own (`cosmic.test`'s `nests`).
+    nests: boolean
     store: boolean
     --- Whether its worker is given the system's own paths
     --- (`confine.worker_unveil`), and its key the host's packages
@@ -82,8 +87,8 @@ local record test_inputs
 
   --- One input a test read that its effective inputs do not hold,
   --- named by the field of `cosmic.test`'s `Needs` that would declare it:
-  --- "reads", "host", "env", "network", "processes", "tool", "store"
-  --- or "system".
+  --- "reads", "host", "env", "network", "processes", "tool", "nests",
+  --- "store" or "system".
   record Finding
     field: string
     value: string
@@ -182,7 +187,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, system = false, caches = {},
+    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations)
@@ -214,6 +219,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     table.sort(out.variables)
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.processes, out.tool, out.store = declared.processes, declared.tool, declared.store
+    out.nests = declared.nests == true
     out.system = declared.system == true
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
@@ -304,13 +310,25 @@ end
 --- variable's value in `environment` says (`resolved`), spelling it as
 --- declared in `spelled`, notes where each variable it declares is
 --- (`located`), and says why one cannot be given in `unresolved`: see
---- `resolved`, whose `roots` this takes.
+--- `resolved`, whose `roots` this takes -- or a directory there, but for
+--- /proc, which `cosmic.test`'s `host` never names.
 function test_inputs.resolve(effective: test_inputs.Effective, environment: {string:string},
                              roots: {string})
   local host: {string} = {}
   effective.spelled, effective.located, effective.unresolved = {}, {}, ""
   for _, declared in ipairs(effective.host) do
     local path, trouble = test_inputs.resolved(declared, environment, roots)
+    -- A file, or /proc: a directory no key holds by what it holds (R3).
+    -- One not there is none, as a file of another platform's is not.
+    local st: sys.Stat = nil
+    if path ~= nil then
+      local found, _ = sys.stat(path)
+      st = found
+    end
+    if st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
+      path, trouble = nil, string.format("Test.needs host %q: %s is a directory; host names " ..
+        "files, or /proc: declare the files the tests read", declared, path)
+    end
     if path == nil then
       if effective.unresolved == "" then effective.unresolved = trouble end
     else
@@ -421,65 +439,10 @@ local function host_of(url: string): string
   return host:lower()
 end
 
---- Whether `effective` holds a request for `url`.
+--- Whether `effective` holds a request for `url`: one to a loopback
+--- address it declares (`cosmic.test`'s `network`).
 function test_inputs.covers_network(effective: test_inputs.Effective, url: string): boolean
-  return effective.network["*"] == true or effective.network[host_of(url)] == true
-end
-
---- Whether `host`, as a `network` declaration names one, is a loopback
---- address or name: `localhost`, `::1`, or a dotted-quad `127.a.b.c`,
---- each part decimal, 0 to 255, with no leading zero. Strict: a name a
---- lookup might answer elsewhere, a shortened or octal spelling,
---- `0.0.0.0`, a range or `*` is not one; nor is a spelling no request's
---- host is (`host_of`, which `covers_network` matches a declaration
---- against whole): not `127.0.0.1:8080`, whose port a request's host
---- leaves out, nor `[::1]`, whose brackets it does.
-local function loopback_host(host: string): boolean
-  if host == "localhost" or host == "::1" then return true end
-  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if a ~= "127" then return false end
-  for _, part in ipairs({ b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
-      return false
-    end
-  end
-  return true
-end
-
---- Whether a sandboxed worker of `effective` runs offline, in a network
---- namespace of its own with nothing but its loopback, which is up:
---- when it declares no network, or only loopback hosts
---- (`loopback_host`), which that loopback answers as the host's would.
---- The one answer both the sandbox (`build.test_sandbox`'s `plan`) and
---- the key (`build.declared_key`'s `keyable`) take, since a worker
---- keyed but online would stand on what the host's network answered.
---- Keying a loopback-only worker is sound:
----
---- - a new network namespace reaches only the worker's own processes,
----   and an abstract unix socket is its namespace's alone (core/process.h's
----   `Sandbox`), so what a test reaches there is what it started;
---- - its `lo` carries 127/8, so a connection to a closed port there
----   (127.0.0.1:1, 127.0.0.2:1) is refused as on the host's, and a bind
----   finds no host listener or socket in TIME_WAIT in its way;
---- - whether `::1` is there turns on how the kernel sets up a new
----   namespace's IPv6, which the key holds only in part: the kernel's
----   release (`declared_key.host_identity`), not its boot parameters or
----   sysctls; and
---- - `localhost`, `localhost.` and any name under `.localhost` are
----   answered by curl itself (vendor/curl/lib/vdns/hostip.c), never
----   looked up, for a request of `cosmic.http`; a child program that
----   resolves through libc reads /etc/hosts, a system path only a
----   worker whose module declares `system` is given, and whose key
----   holds the host's system (`declared_key.system_identity`).
----
---- A test that needed a service of the host's on its loopback now fails,
---- rather than standing on a verdict that service gave. Unsandboxed, a
---- request is still an observation no key holds (`build.test`).
-function test_inputs.offline(effective: test_inputs.Effective): boolean
-  for host in pairs(effective.network) do
-    if not loopback_host(host) then return false end
-  end
-  return true
+  return effective.network[host_of(url)] == true
 end
 
 --- Paths, as `reads` or `host` would declare them: each directory that
@@ -548,7 +511,7 @@ end
 --- The fields of `cosmic.test`'s `Needs`, in the order a suggestion
 --- writes them.
 local field_order: {string} = {
-  "reads", "host", "env", "network", "processes", "tool", "store", "system",
+  "reads", "host", "env", "network", "processes", "tool", "nests", "store", "system",
 }
 
 --- The audit of one test module, as lines to print: what its tests read
@@ -578,7 +541,7 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
   }
   local declared: analyzer.Declared = m.inputs or {
     line = 0, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, system = false, caches = {},
+    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
   }
   -- Each value by the tests that read it, and those tests by the set of
   -- them, so tests that read alike share a line.
@@ -646,25 +609,37 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
     parts[#parts + 1] = field .. " = " .. literal_list(all)
   end
   list_field("reads", declared.reads, true)
-  list_field("host", declared.host, true)
+  -- A host path is a file, or /proc, whatever beneath it was read.
+  local host_files: {string} = {}
+  for _, path in ipairs(wanted.host or {}) do
+    host_files[#host_files + 1] = beneath(path, "/proc") and "/proc" or path
+  end
+  if wanted.host ~= nil then wanted.host = host_files end
+  list_field("host", declared.host, false)
   list_field("env", declared.env, false)
+  -- A loopback address is declared; any other host is one no test may
+  -- reach (`cosmic.test`'s `network`), which the declaration cannot hold.
   local hosts: {string} = {}
-  for _, url in ipairs(wanted.network or {}) do hosts[#hosts + 1] = host_of(url) end
-  local any_host = false
-  for _, host in ipairs(declared.network) do
-    if host == "*" then any_host = true end
+  local beyond: {string:boolean} = {}
+  for _, url in ipairs(wanted.network or {}) do
+    local host = host_of(url)
+    if Test.network_trouble(host) == "" then
+      hosts[#hosts + 1] = host
+    else
+      beyond[host] = true
+    end
   end
-  if any_host then
-    parts[#parts + 1] = "network = true"
-  else
-    local was = wanted.network
-    wanted.network = hosts
-    list_field("network", declared.network, false)
-    wanted.network = was
-  end
-  for _, flag in ipairs({ "processes", "tool", "store", "system" }) do
+  local was = wanted.network
+  wanted.network = hosts
+  list_field("network", declared.network, false)
+  wanted.network = was
+  local refused: {string} = {}
+  for host in pairs(beyond) do refused[#refused + 1] = host end
+  table.sort(refused)
+  for _, flag in ipairs({ "processes", "tool", "nests", "store", "system" }) do
     local on = flag == "processes" and declared.processes or flag == "tool" and declared.tool or
-      flag == "store" and declared.store or flag == "system" and declared.system
+      flag == "nests" and declared.nests or flag == "store" and declared.store or
+      flag == "system" and declared.system
     if on or wanted[flag] ~= nil then parts[#parts + 1] = flag .. " = true" end
   end
   if #(declared.caches or {}) > 0 then
@@ -673,13 +648,17 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
   if #parts > 0 then
     lines[#lines + 1] = "  declare: Test.needs { " .. table.concat(parts, ", ") .. " }"
   end
+  for _, host in ipairs(refused) do
+    lines[#lines + 1] = string.format("  reaches %s, beyond loopback, which no test may: " ..
+      "serve what it needs on 127.0.0.1 instead", host)
+  end
   return lines
 end
 
 --- One declaration as text two can be compared by, and one text for
 --- each declaration: each field's values in the literal's order,
 --- duplicates kept, each quoted (`%q`, which marks where it ends),
---- `network = true` as `"*"`, a flag set as `true`, one line each; ""
+--- a flag set as `true`, one line each; ""
 --- for none. `line` plays no part.
 function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   if maybe == nil then return "" end
@@ -696,6 +675,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   list("network", declared.network)
   if declared.processes then lines[#lines + 1] = "processes true" end
   if declared.tool then lines[#lines + 1] = "tool true" end
+  if declared.nests then lines[#lines + 1] = "nests true" end
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   list("caches", declared.caches or {})
@@ -706,16 +686,9 @@ end
 --- (`build.analyzer`), for `canonical`: nil for none.
 function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared | nil
   if needs == nil then return nil end
-  local network: {string} = {}
-  local asked = needs.network
-  if asked is {string} then
-    network = asked
-  elseif asked == true then
-    network = { "*" }
-  end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
-    env = needs.env or {}, network = network, processes = needs.processes == true,
-    tool = needs.tool == true, store = needs.store == true, system = needs.system == true,
+    env = needs.env or {}, network = needs.network or {}, processes = needs.processes == true,
+    tool = needs.tool == true, nests = needs.nests == true, store = needs.store == true, system = needs.system == true,
     caches = needs.caches or {} }
 end
 

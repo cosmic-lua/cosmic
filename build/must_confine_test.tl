@@ -14,11 +14,12 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- What these tests start is this very program, which runs the
---- tool's own modules besides the closure's; and what holds a run to
---- sandboxing (`unsandboxed`).
+--- tool's own modules besides the closure's, in a root of its own
+--- (`nests`); and what holds a run to sandboxing (`unsandboxed`).
 Test.needs{
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 -- What these tests start is this very program.
@@ -91,7 +92,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" } }
+Test.needs { reads = { "bin/probe" }, nests = true }
 
 local record Run
   passed: boolean
@@ -136,9 +137,15 @@ local function refusing(fn: function())
 end
 ]]
 
---- The line a run printed for one failing test, from its message on.
+--- The line a run printed for one failing test of `module`, from its
+--- message on.
+local function failure_of(text: string, module: string, name: string): string | nil
+  return text:match("FAIL  suite%." .. module .. " " .. name .. ": ([^\n]*)")
+end
+
+--- The line a run printed for one failing test of the refused suite.
 local function failure(text: string, name: string): string | nil
-  return text:match("FAIL  suite%.refused_test " .. name .. ": ([^\n]*)")
+  return failure_of(text, "refused_test", name)
 end
 
 --- A spawn `must_confine` refuses does not start, and fails the test
@@ -244,7 +251,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" } }
+Test.needs { reads = { "bin/probe" }, nests = true }
 
 local record Confine
   confine: function(declared: {string:{string}} | nil)
@@ -293,7 +300,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
-Test.needs { reads = { "bin/probe" } }
+Test.needs { reads = { "bin/probe" }, nests = true }
 
 local record Confine
   confine: function(declared: {string:{string}} | nil)
@@ -325,4 +332,95 @@ end
     "%S*bin/probe could not start confined: unveil could not be applied: "), text)
   text, ok = run(root, tmp .. "/misspelt", environment("Must"))
   assert(not ok and text:find('COSMIC_SANDBOX is "Must"', 1, true), text)
+end
+
+--- A worker a Landlock ruleset holds -- one whose module does not
+--- declare `nests` -- cannot give a process a root of its own, whose
+--- mounts the kernel refuses under the ruleset: a start in one, through
+--- `confine` or a sandbox of its own that unveils, is refused outright,
+--- naming `nests`, and fails the test however it took the refusal,
+--- rather than fall back to running the process unconfined; so does
+--- a run of `cosmic test` that such a worker's process starts, asked to
+--- sandbox its workers, and the audit names `nests`. Every process of
+--- the worker's learns of the hold from its environment
+--- (`confine.held_variable`), which an unsandboxed run is given here to
+--- stand for it, the same on every host; sandboxed, the worker is held
+--- by a ruleset in fact.
+local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: string)
+  local root = tmp .. "/root"
+  suite_tree(tmp, root)
+  assert(Fs.write(root .. "/suite/held_test.tl", [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+local type raw_process = require("cosmic.internal.process")
+
+Test.needs { reads = { "bin/probe" } }
+
+local record Confine
+  confine: function(declared: {string:{string}} | nil)
+end
+-- The worker's own, which a suite outside the tree cannot require.
+local confine = package.loaded["build.confine"] as Confine
+local type Searcher = function(string): any, any
+
+local function raw(): raw_process
+  for _, searcher in ipairs(package.searchers as {Searcher}) do
+    local loader, extra = searcher("build.confine")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_process
+    end
+  end
+  error("no raw table")
+end
+
+local function test_confined(tmp: string)
+  confine.confine({ reads = { "bin/probe" } })
+  local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
+  confine.confine(nil)
+  assert(ran == nil, "an unconfined process ran in its place")
+  assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
+end
+
+local function test_own_sandbox()
+  local pid, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil,
+    false, nil, { unveil = { reads = { "bin/probe" } }, offline = true })
+  assert(pid == nil, "a process started in a root of its own")
+end
+
+local function test_plain()
+  assert(Child.run({ "bin/probe", "exit 0" }))
+end
+]]))
+  local env = environment(nil)
+  env.COSMIC_TEST_SANDBOX = "0"
+  env[confine.held_variable] = "suite.outer_test"
+  local text, ok = run(root, tmp .. "/held", env, { "--all" })
+  assert(not ok and text:find("(2 of 3 failed", 1, true), text)
+  local function refusal(module: string): string
+    return "bin/probe cannot start in a root of its own: " .. module .. "'s worker is held " ..
+      "by a Landlock ruleset, under which the kernel refuses every mount; declare " ..
+      "nests = true in its Test.needs"
+  end
+  local refused = refusal("suite.outer_test")
+  assert(failure_of(text, "held_test", "test_confined") == refused, text)
+  assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)
+  local audited, _ = run(root, tmp .. "/audit", env, { "--audit" })
+  assert(audited:find("    nests        bin/probe", 1, true), audited)
+  assert(audited:find("  declare: Test.needs { reads = { \"bin/probe\" }, nests = true }", 1,
+    true), audited)
+  -- Asked to sandbox its workers, a run started there refuses to.
+  env.COSMIC_TEST_SANDBOX = nil
+  text, ok = run(root, tmp .. "/nested", env)
+  assert(not ok and text:find("test: this run was started in suite.outer_test's worker, " ..
+    "which a Landlock ruleset holds", 1, true) and
+    text:find("declare nests = true in its Test.needs", 1, true), text)
+  -- Sandboxed, its own worker is held so.
+  env[confine.held_variable] = nil
+  text, ok = run(root, tmp .. "/sandboxed", env, { "--all" })
+  if unsandboxed(text) then return end
+  assert(not ok and text:find("(2 of 3 failed", 1, true), text)
+  refused = refusal("suite.held_test")
+  assert(failure_of(text, "held_test", "test_confined") == refused, text)
+  assert(failure_of(text, "held_test", "test_own_sandbox") == refused, text)
 end

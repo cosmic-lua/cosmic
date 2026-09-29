@@ -66,8 +66,9 @@ end
 
 --- In a project of its own, a test that reads its helper through the
 --- store by hand -- its bytecode, or a searcher called itself --
---- rather than by `require` fails, naming `store`; one whose module
---- declares `store`, whose key holds the whole projection, reads it.
+--- rather than by `require` fails, naming `store`, whether its module
+--- declares `tool` or not; one whose module declares `store`, whose key
+--- holds the whole projection, reads it.
 local function test_a_project_test_reading_the_store_outside_its_closure_needs_store(
     tmp: string)
   local root = tmp .. "/project"
@@ -99,16 +100,23 @@ local function test_a_project_test_reading_the_store_outside_its_closure_needs_s
     'local Test = require("cosmic.test")',
     "Test.needs{ store = true }",
   }, "\n") .. "\n" .. reads))
+  -- `tool` gives the program, not the rest of the store.
+  assert(Fs.write(root .. "/suite/tool_test.tl", table.concat({
+    'local Test = require("cosmic.test")',
+    "Test.needs{ tool = true }",
+  }, "\n") .. "\n" .. reads))
   local ok, text = run(root, tmp .. "/run.out")
   assert(not ok, text)
-  for _, name in ipairs({ "test_bytecode", "test_searcher" }) do
-    assert(text:find("test: FAIL  suite.held_test " .. name .. ": ", 1, true), text)
+  for _, module in ipairs({ "held_test", "tool_test" }) do
+    for _, name in ipairs({ "test_bytecode", "test_searcher" }) do
+      assert(text:find("test: FAIL  suite." .. module .. " " .. name .. ": ", 1, true), text)
+    end
+    assert(text:find("module 'suite.helper' is held from the store: suite." .. module .. "'s " ..
+      "verdict is keyed by what the store holds of its import closure alone", 1, true), text)
   end
-  assert(text:find("module 'suite.helper' is held from the store: suite.held_test's " ..
-    "verdict is keyed by what the store holds of its import closure alone", 1, true), text)
   assert(text:find("declare store = true in its Test.needs", 1, true), text)
   assert(not text:find("suite.whole_test", 1, true), text)
-  assert(text:find("(2 of 4 failed", 1, true), text)
+  assert(text:find("(4 of 6 failed", 1, true), text)
 end
 
 --- A finalizer a test leaves runs after it -- whenever the worker

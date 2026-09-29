@@ -3,8 +3,8 @@
 --- for the process table's `spawn` that holds each process it starts to
 --- that (`enter`); and what a sandboxed worker of this very
 --- program is given and held to (`worker_unveil`, `forbid_running`,
---- `itself`), with the paths every sandbox gives (`in_system`,
---- `in_runtime`) and where a path leads as one binds it (`resolution`).
+--- `itself`), with the system's paths a sandbox gives (`in_system`)
+--- and where a path leads as one binds it (`resolution`).
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -109,6 +109,10 @@ local record confine
 
   --- The most paths a sandbox unveils, its reads and writes together.
   unveil_max: integer
+
+  --- See below.
+  held_variable: string
+  nests_note: string
 end
 
 --- The calls this module makes with nothing observing them.
@@ -182,15 +186,6 @@ end
 -- TODO there asks, once no container the tree is tested in masks /proc.
 local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
 
---- Whether `path`, absolute, is one of `runtime_paths` or beneath one:
---- what every sandboxed worker is given, and no package installs.
-function confine.in_runtime(path: string): boolean
-  for _, runtime_path in ipairs(runtime_paths) do
-    if Fs.within(path, runtime_path) then return true end
-  end
-  return false
-end
-
 --- What a confined process has without its test naming it, each where
 --- this host has it (and, in a sandboxed worker, where the worker was
 --- given it): the system's paths and the runtime's.
@@ -221,6 +216,51 @@ local function must_everywhere(): boolean
   if mode == nil or mode == "" then return false end
   if mode == "must" then return true end
   error(string.format("%s is %q: set it to \"must\", or leave it unset", SANDBOX_MODE, mode), 3)
+end
+
+--- The variable a sandboxed worker held by a Landlock ruleset is
+--- started with (`forbid_running`), naming its module: every process it
+--- starts inherits the hold, and, through `this_program.environment`,
+--- the variable, so a `cosmic test` one of them runs refuses to sandbox
+--- its workers (`build.test`) as a spawn here refuses a root of its own
+--- (`enter`), naming `nests`, rather than falling back to confining
+--- nothing.
+-- TODO: refuse a root of its own, naming `nests`, to a process a held
+-- worker starts that unveils one itself -- a raw spawn in a program it
+-- runs, which no stand-in wraps -- once core/process.h's spawn reads
+-- this variable (C, and a boot): today such a spawn fails EPERM as the
+-- kernel refuses its mounts, which a test that passes over a kernel
+-- that cannot confine (test/coverage_children_test.tl's parent, say)
+-- takes for one, and passes unchecked where the run is not held to
+-- sandboxing. So too a `cosmic test` a held worker's process starts
+-- with an environment that drops this variable: its probe of the
+-- sandbox fails EPERM, and it runs its workers unsandboxed, saying only
+-- that the host may be refusing a user namespace or holding it by a
+-- ruleset (`test_sandbox.refusal`).
+confine.held_variable = "COSMIC_TEST_HELD"
+
+--- The module whose worker's Landlock ruleset holds this process
+--- (`held_variable`), or nil where none does. Read past the log, as
+--- `must_everywhere` is: it decides whether a test fails, never what a
+--- standing verdict read.
+local function held_by(): string | nil
+  local module = calls().getenv(confine.held_variable)
+  if module == nil or module == "" then return nil end
+  return module
+end
+
+--- What leads what an observer hears as `unkeyed` of a start refused
+--- a root of its own (`refuse_nesting`), the program after it: what the
+--- audit names `nests` for (`build.test`).
+confine.nests_note = "nests "
+
+--- Why a process cannot start in a root of its own where the worker of
+--- `module` is held by a Landlock ruleset: what the start fails with,
+--- naming the declaration that lets it.
+local function nests_refusal(program: string, module: string): string
+  return string.format("%s cannot start in a root of its own: %s's worker is held by a " ..
+    "Landlock ruleset, under which the kernel refuses every mount; declare nests = true " ..
+    "in its Test.needs", program, module)
 end
 
 --- `confine`'s work, with `must` naming the call that asked for no
@@ -434,16 +474,18 @@ end
 --- link to it, /proc/self/exe among them, runs nothing either. A link
 --- on the way that leads above one of them is left out too. For good:
 --- nothing lets it off, and it may not confine a process of its own in a
---- root of its own after. False and why where there is no Landlock.
--- TODO: let a test that confines a process in a root of its own
--- declare that on its own rather than through `tool`, which it declares
--- today only to leave its worker unheld -- the kernel refuses every
--- mount under a Landlock domain, and a root of its own is made of
--- mounts -- once a worker can be held to running anything but this
--- program by other means than Landlock, or can confine what it starts
--- before it is held: build/filesystem_observations_tool_test.tl,
+--- root of its own after: the kernel refuses every mount under a
+--- Landlock domain, and a root of its own is made of mounts. With no
+--- `programs`, it forbids running nothing, and holds the process only
+--- to that: a sandboxed worker whose module declares `tool` but not
+--- `nests` (`cosmic.test`). False and why where there is no Landlock.
+-- TODO: let build/filesystem_observations_tool_test.tl,
 -- build/test_sandbox_system_test.tl and core/syscalls_tool_test.tl
--- declare `tool` so.
+-- declare `nests` alone, dropping the `tool` they declare only to
+-- start what they confine, once a confined process is given only what
+-- its worker has (the TODO above build/test.tl's `the_tool`): today
+-- `itself` is given to the process it confines, and a worker without
+-- the program fails the start EACCES.
 -- TODO: hold a copy of the program as the program -- one a test copies
 -- or links elsewhere and runs, or a core it loads some other way than
 -- by exec -- once a ruleset can name a file by its contents: today a
@@ -737,6 +779,23 @@ local function refuse(must: string, program: string, part: string, why: string,
   return message
 end
 
+--- Refuses a start of `program` in a root of its own -- a sandbox that
+--- unveils, its own or `confine`'s -- where the worker of `module` is
+--- held by a Landlock ruleset (`held_by`), which would refuse its
+--- mounts: not tried, so it never falls back to running unconfined.
+--- Every running stand-in hears it, which fails its test whatever the
+--- test made of the answer, and its observer, for the audit. Answers
+--- the message the spawn fails with.
+local function refuse_nesting(program: string, module: string): string
+  local message = nests_refusal(program, module)
+  for _, each in ipairs(entered) do
+    local observer = each.observer
+    if observer ~= nil then observer.unkeyed(confine.nests_note .. program) end
+    if refusals[each] == nil then refusals[each] = message end
+  end
+  return message
+end
+
 --- Stands in for the process table's `spawn` until the function this
 --- answers is called, which puts back what it stood in for and answers
 --- the first spawn `must_confine` refused meanwhile, or nil. `own` is
@@ -790,6 +849,13 @@ function confine.enter(own: string | nil, observer?: confine.Observer): function
     -- read as the core reads it, raw, and a plain copy is what the core
     -- is given, so what is heard of is what holds the process.
     local plain = sandbox ~= nil and plain_sandbox(sandbox) or nil
+    -- A root of its own, which a worker held by a Landlock ruleset
+    -- cannot make: refused outright, naming `nests`.
+    local holder = held_by()
+    if holder ~= nil and not declared_elsewhere and ((plain ~= nil and plain.unveil ~= nil) or
+        (sandbox == nil and confinement ~= nil)) then
+      return nil, refuse_nesting(path, holder), sys.EPERM
+    end
     local must = not declared_elsewhere and confinement ~= nil and strict or nil
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true and
         not declared_elsewhere then

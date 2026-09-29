@@ -82,8 +82,8 @@ local record analyzer
   --- a fallible return may declare at most two slots -- the extras
   --- ride on the value's record instead.
   --- A test module's `needs` declaration (`cosmic.test`), read as
-  --- data -- see `inputs_of`. `network` holds `"*"` for `true`, and a
-  --- flag declared `false` reads as one never declared.
+  --- data -- see `inputs_of`. A flag declared `false` reads as one never
+  --- declared.
   record Declared
     --- The line the declaration starts on.
     line: integer
@@ -93,6 +93,7 @@ local record analyzer
     network: {string}
     processes: boolean
     tool: boolean
+    nests: boolean
     store: boolean
     system: boolean
     caches: {string}
@@ -993,8 +994,8 @@ local function references_of(built: compiler, parsed: ast.Parsed): {analyzer.Ref
 end
 
 --- What each field of a `needs` declaration takes: a list of string
---- literals ("list"), `true` or `false` ("flag"), or either ("either"),
---- as `cosmic.test` holds a call's argument to it as it runs.
+--- literals ("list") or `true` or `false` ("flag"), as `cosmic.test`
+--- holds a call's argument to it as it runs.
 local input_fields: {string:string} = Test.fields
 
 --- The fields `input_fields` names, sorted, as a message lists them.
@@ -1002,12 +1003,19 @@ local input_field_order: {string} = {}
 for name in pairs(input_fields) do input_field_order[#input_field_order + 1] = name end
 table.sort(input_field_order)
 
+--- What a `host` path that names a directory is refused with: the rule.
+local HOST_FILES <const> = "host names files, or /proc: declare the files the tests read"
+
 --- A path of `reads` or `host` that names something a prefix can hold:
 --- relative to the tree for `reads`, absolute for `host` -- or, for
---- `host`, starting with `$NAME`, the path the variable NAME holds
---- (`build.test_inputs`' `variable_of`) -- and never climbing with "..",
---- nor spelled with "." or an empty name, which a match by prefix would
---- read as another path. "" when it is one, else why not.
+--- `host`, starting with `$NAME`, a path beneath the one the variable
+--- NAME holds (`build.test_inputs`' `variable_of`) -- and never climbing
+--- with "..", nor spelled with "." or an empty name, which a match by
+--- prefix would read as another path. A `host` path names a file, or
+--- /proc (R3): not one written as a directory, with a "/" after it, nor
+--- a variable's whole path; one that is a directory on the host fails
+--- its tests as they start (`build.test_inputs`' `resolve`). "" when it
+--- is one, else why not.
 local function input_path_trouble(field: string, path: string): string
   if path == "" then return "an empty path" end
   local quoted = "\"" .. path .. "\""
@@ -1020,9 +1028,14 @@ local function input_path_trouble(field: string, path: string): string
       return quoted .. " names no variable: write $NAME or $NAME/path, NAME of letters, " ..
         "digits and _, not starting with a digit"
     end
-    -- The variable's whole path.
-    if rest == "" or rest == "/" then return "" end
+    -- The variable's whole path, a directory by intent.
+    if rest == "" or rest == "/" then
+      return quoted .. " names all " .. name .. " holds, a directory; " .. HOST_FILES
+    end
     path, absolute = rest, true
+  end
+  if field == "host" and path:sub(-1) == "/" and path:sub(1, 6) ~= "/proc/" then
+    return quoted .. " names a directory; " .. HOST_FILES
   end
   if path:find("/$", 1, true) ~= nil then
     if field == "reads" then
@@ -1136,7 +1149,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   end
   local out: analyzer.Declared = {
     line = found.y, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, system = false, caches = {},
+    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
   }
   local seen: {string:boolean} = {}
   for _, item in ipairs(value) do
@@ -1155,14 +1168,18 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
     if seen[field] then return nil, where .. field .. " is declared twice" end
     seen[field] = true
     local given = item.value
+    if field == "network" and given ~= nil and given.kind == "boolean" and given.tk == "true" then
+      -- Any host: what `cosmic.test` refuses, as its rule says.
+      return nil, where .. Test.any_host_refusal
+    end
     if given ~= nil and given.kind == "boolean" and takes ~= "list" then
       local on = given.tk == "true"
-      if field == "network" then
-        if on then out.network = { "*" } end
-      elseif field == "processes" then
+      if field == "processes" then
         out.processes = on
       elseif field == "tool" then
         out.tool = on
+      elseif field == "nests" then
+        out.nests = on
       elseif field == "system" then
         out.system = on
       else
@@ -1187,6 +1204,11 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         local path_trouble = (field == "reads" or field == "host") and
           input_path_trouble(field, text.conststr) or ""
         if field == "env" and text.conststr == "" then path_trouble = "an empty name" end
+        if field == "network" then
+          -- The rule's own words, which name the field and the host.
+          local refused = Test.network_trouble(text.conststr)
+          if refused ~= "" then return nil, at(entry) .. refused end
+        end
         if field == "caches" and cache_names.names[text.conststr] == nil then
           local known: {string} = {}
           for name in pairs(cache_names.names) do known[#known + 1] = name end
@@ -1212,8 +1234,7 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
         out.network = list
       end
     else
-      local wanted = takes == "list" and "a list of string literals" or
-        takes == "flag" and "true or false" or "true, false or a list of hosts"
+      local wanted = takes == "list" and "a list of string literals" or "true or false"
       return nil, where .. field .. " takes " .. wanted .. ", written out"
     end
   end
