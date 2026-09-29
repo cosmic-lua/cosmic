@@ -48,7 +48,7 @@ int cosmic_open_socket (lua_State *L);
  */
 
 /*
- * --- A socket this table made, which owns its descriptor, and a unix listener's socket file: `close`, `<close>` or the collector closes the descriptor and then removes the file while its name is still the file the listener made, so one that has taken the name since is left alone.
+ * --- A socket this table made, which owns its descriptor, and a unix listener's socket file: `close`, `<close>` or the collector closes the descriptor and then removes the file while its name is still the file the listener made, so one that has taken the name since is left alone. A unix listener holds a second descriptor for its life, of the file's directory, which it removes the file from wherever the process has moved to and whatever the length of its path; the directory cannot be unmounted while it is held.
  * ---@class Socket: userdata
  * ---@field fd fun(self:Socket):integer the descriptor, for the calls that take one; raises once the socket is closed
  * ---@field close fun(self:Socket):boolean,string,integer closes it: true, or false, what went wrong and the error number, the descriptor closed even so; true again once closed

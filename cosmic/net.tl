@@ -351,16 +351,17 @@ local PROBE_MS <const> = 1000
 --- on Linux and macOS.
 local SOCKET_TYPE <const> = 0xC000
 
---- What `reclaim` finds at `absolute`, which a bind found taken:
---- "refused", a socket file connecting to which (`address`) is refused,
---- to take over; "gone", nothing there any longer, to bind again; or
---- "", anything else, to leave alone.
+--- What `reclaim` finds at `address`'s path, which a bind found taken,
+--- read from the working directory the bind was: "refused", a socket
+--- file connecting to which is refused, to take over; "gone", nothing
+--- there any longer, to bind again; or "", anything else, to leave
+--- alone.
 -- TODO: take a lock beside the path (a file of its own, held while
 -- the check, the removal and the bind run) so two `reclaim`s starting
 -- at once cannot each take the other's socket for one left behind,
 -- once cosmic.sys carries flock.
-local function left_behind(address: Net.Address, absolute: string): string
-  local st, _, lstat_errno = sys.lstat(absolute)
+local function left_behind(address: Net.Address): string
+  local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
   if st.mode & 0xF000 ~= SOCKET_TYPE then return "" end
   local probe, _, errno = raw.connect(raw_address(address), PROBE_MS)
@@ -393,17 +394,11 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     end
     return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ms), ""
   end
-  local absolute = address.path
-  if absolute:sub(1, 1) ~= "/" then
-    local cwd, cwd_trouble = sys.getcwd()
-    if cwd == nil then return nil, named(address) .. ": " .. cwd_trouble end
-    absolute = cwd .. "/" .. absolute
-  end
   local socket, trouble, errno = raw.listen(raw_address(address), backlog)
   if socket == nil and errno == raw.EADDRINUSE and opts.reclaim then
-    local found = left_behind(address, absolute)
+    local found = left_behind(address)
     if found == "refused" then
-      local removed, why, number = sys.unlink(absolute)
+      local removed, why, number = sys.unlink(address.path)
       if not removed and number ~= sys.ENOENT then
         return nil, named(address) .. ": " .. why
       end

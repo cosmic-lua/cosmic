@@ -175,7 +175,8 @@ local function test_a_socket_file_past_path_max_is_removed(tmp: string)
       assert(left == nil, "the socket file was left, collected: " .. tostring(collected))
     end
   end)
-  remove_deep(tmp)
+  local removed, trouble: boolean, any = pcall(remove_deep, tmp)
   assert(sys.chdir(was))
   assert(ok, tostring(failure))
+  assert(removed, tostring(trouble))
 end

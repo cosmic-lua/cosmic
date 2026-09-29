@@ -139,9 +139,16 @@ static int address_of (lua_State *L, int index, struct target *out) {
   return failure;
 }
 
+/* A directory opened only to be searched: as a bind or an unlink in it
+ * needs, with no permission to read it. */
 #if defined(O_PATH)
 #define DIRECTORY_FLAGS (O_PATH | O_DIRECTORY | O_CLOEXEC)
+#elif defined(O_SEARCH)
+#define DIRECTORY_FLAGS (O_SEARCH | O_DIRECTORY | O_CLOEXEC)
 #else
+/* TODO: a directory that can be searched but not read fails EACCES
+ * here, where a bind by its whole path would not; open it to search
+ * alone once the platform has O_PATH or O_SEARCH. */
 #define DIRECTORY_FLAGS (O_RDONLY | O_DIRECTORY | O_CLOEXEC)
 #endif
 
@@ -312,11 +319,13 @@ static struct owned *owner_push (lua_State *L, size_t size) {
   return owned;
 }
 
-/* Pushes the `Socket` a listener at the unix `target` is made in,
- * holding the directory its file is made in and the file's own name
- * there, read from `target` alone -- the bytes the bind is handed: 0,
- * or why not, a path that ends in "/" failing EISDIR as `address_of`'s
- * long one does. */
+/* Makes the `Socket` for a listener at the unix `target`, in `*out`:
+ * it holds the directory its file is to be made in and the file's own
+ * name there, both read from `target` alone, the bytes the bind is
+ * handed. 0, with the socket pushed; or why not: EISDIR, nothing pushed,
+ * for a path that ends in "/", as `address_of`'s long one fails; or
+ * why its directory could not be opened, the socket pushed, holding
+ * nothing, and `*out` untouched. */
 static int unix_owner_push (lua_State *L, const struct target *target, struct owned **out) {
   const char *path = ((const struct sockaddr_un *)&target->address)->sun_path;
   char split[sizeof ((struct sockaddr_un *)0)->sun_path];
@@ -448,7 +457,10 @@ COSMIC_SYSCALL(listen, 2) {
   }
 #endif
   /* A long path is bound from the directory the socket holds, the one
-   * its file is then read back and removed from. */
+   * its file is then read back and removed from. A short one is bound
+   * whole, so the kernel keeps its whole name for `ss`, `lsof` and a
+   * peer's `getpeername`, which a name alone, bound from the
+   * directory, would not give them. */
   failure = unix_socket && target.directory[0] != '\0'
     ? reach_from(owned->fd, owned->directory, &target, true)
     : reach(owned->fd, &target, true);
@@ -461,7 +473,15 @@ COSMIC_SYSCALL(listen, 2) {
    * its owner), and it could remove it any time. Binding at another name
    * and linking it into place would close the moment, but the kernel
    * keeps the name a socket was bound at: `ss`, `lsof` and a peer's
-   * `getpeername` would name the other one. */
+   * `getpeername` would name the other one. So does a short path whose
+   * directory was replaced -- renamed away, a symlink on the way
+   * retargeted -- between its open and the bind: the file is read back
+   * from the directory opened, finds another file or none there, and the
+   * bind's own file is left to whoever moved the directory, as it is
+   * left where the read back fails at all, or the bind's return to the
+   * working directory does: a file whose identity was not read is not
+   * told from one that took its name, and removing it could remove
+   * another's. */
   struct stat st;
   if (failure == 0 && unix_socket) {
     if (fstatat(owned->directory, owned->name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
