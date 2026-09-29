@@ -97,6 +97,19 @@ local record fix
   --- handles. A refused path is carried here rather than ending the verb,
   --- so it is reported and counted like any other refused file and the
   --- run still ends in the verb's verdict line.
+  --- What `links` found: each link that does not resolve, and notes
+  --- on what it could not check.
+  record Linked
+    broken: {string}
+    notes: {string}
+  end
+
+  --- Where links' names are read, and how to close what that opened.
+  record LinkSource
+    context: links.Context
+    close: function()
+  end
+
   record Chosen
     files: {string}
     --- The C files, which only cosmic's own tree has checked.
@@ -158,17 +171,13 @@ local function check_only(path: string): boolean
   return String.ends_with(path, ".md") or String.ends_with(path, ".zig")
 end
 
---- Every Markdown and Zig file under `root`, as paths relative to it:
---- past the build's output (a directory named `o` anywhere), the
---- upstream sources and their patches, and anything hidden.
+--- Every Markdown and Zig file under `root`, as paths relative to it,
+--- past what `skip` passes over but the core: its C is checked apart,
+--- and its Zig is the tree's own.
 local function checked_sources(root: string): {string} | nil, string
   local files, trouble = Fs.walk(root, function(entry: string): boolean
-    local first = entry:match("^([^/]+)") or entry
-    if first == "vendor" or first == "patch" or first == "bin" or
-        ("/" .. entry .. "/"):find("/o/", 1, true) ~= nil then
-      return true
-    end
-    return Fs.basename(entry):sub(1, 1) == "."
+    return (entry:match("^([^/]+)") or entry) ~= "core" and skip(entry) or
+      Fs.basename(entry):sub(1, 1) == "."
   end)
   if files == nil then
     return nil, trouble
@@ -459,9 +468,10 @@ end
 --- What is wrong with the links of `files` (`build.links`), each line
 --- `file:line: link: ...`, the file as named; a file that cannot be
 --- read is one line of its own. What each link names is looked up in
---- `context`, once for every file.
+--- `context`, once for every file. A note says how many links were not
+--- checked against symbols the context did not have.
 --- @param built compiler The loaded compiler, which lexes Teal
-function fix.links(context: links.Context, built: compiler, files: {string}): {string}
+function fix.links(context: links.Context, built: compiler, files: {string}): fix.Linked
   local resolver = links.resolver(context)
   local out: {string} = {}
   for _, file in ipairs(files) do
@@ -481,7 +491,51 @@ function fix.links(context: links.Context, built: compiler, files: {string}): {s
   if resolver.trouble ~= nil then
     out[#out + 1] = "links: reading the symbols: " .. resolver.trouble
   end
-  return out
+  local notes: {string} = {}
+  if resolver.unchecked > 0 then
+    notes[1] = "links: " .. plural.count(resolver.unchecked, "link") ..
+      " to a symbol not checked: " .. tostring(context.unbuilt())
+  end
+  return { broken = out, notes = notes }
+end
+
+--- Where `fix` reads what links name, over the project at `root`: its
+--- databases (`databases`, as `docs.databases` answers), opened when
+--- a link first names a symbol. A run over part of the tree builds the
+--- project first (`rebuild_here`), so an edit is seen; a `whole` run
+--- reads the projection its tree checks just wrote. Outside cosmic's
+--- own tree (`own`), a project with no `o/cosmic.db` has no symbols of
+--- its own yet, which the context says rather than failing links to
+--- them. `close` closes what was opened.
+function fix.link_context(root: string, whole: boolean, own: boolean,
+                          rebuild_here: function(string): boolean, string,
+                          databases: function(): docs.Sources): fix.LinkSource
+  local opened: docs.Sources | nil = nil
+  local function open(): docs.View | nil, string
+    if not whole then
+      local rebuilt, rebuild_trouble = rebuild_here("fix")
+      if not rebuilt then
+        log:complain("fix: links: not rebuilt, resolving from the last build: " .. rebuild_trouble)
+      end
+    end
+    local found = databases()
+    opened = found
+    return docs.view(found.handles, found.public)
+  end
+  local function unbuilt(): string | nil
+    if own then return nil end
+    local built_before, _ = Fs.exists(root .. "/o/cosmic.db")
+    if built_before then return nil end
+    return "the project has no o/cosmic.db yet (`cosmic build` or `cosmic test` makes one)"
+  end
+  local function close()
+    if opened ~= nil then
+      for _, handle in ipairs(opened.opened or {}) do
+        local _, _ = handle:close()
+      end
+    end
+  end
+  return { context = links.context(root, open, unbuilt), close = close }
 end
 
 --- `near`'s notes on the exported functions of `files`, each line
@@ -767,18 +821,18 @@ local function run(argv: {integer:string}): integer
   for _, file in ipairs(files) do linked[#linked + 1] = file end
   for _, file in ipairs(c_files) do linked[#linked + 1] = file end
   for _, file in ipairs(picked.checked) do linked[#linked + 1] = file end
-  local context = links.context(root, function(): docs.View | nil, string
-    if not picked.whole then
-      local rebuilt, rebuild_trouble = rebuild.here("fix")
-      if not rebuilt then
-        log:complain("fix: links: not rebuilt, resolving from the last build: " .. rebuild_trouble)
-      end
-    end
-    local databases = docs.databases()
-    return docs.view(databases.handles, databases.public)
-  end)
-  for _, line in ipairs(fix.links(context, built, linked)) do
-    failures[#failures + 1] = line
+  -- TODO: resolve against the project's root found from a
+  -- subdirectory, as `cosmic test` finds its tree (build.tree), rather
+  -- than the working directory; build.rebuild's `here` and
+  -- build.docs's `databases` take the working directory too.
+  local own, _ = tree.is_own(root)
+  local source = fix.link_context(root, picked.whole, own == true, rebuild.here,
+    function(): docs.Sources return docs.databases() end)
+  local linked_out = fix.links(source.context, built, linked)
+  source.close()
+  local broken = linked_out.broken
+  for _, line in ipairs(linked_out.notes) do
+    log:say("fix: note  " .. line)
   end
 
   -- A note is a heuristic's, and names what to look at; only one on the
@@ -808,16 +862,22 @@ local function run(argv: {integer:string}): integer
   for _, line in ipairs(findings) do
     log:say("fix: FAIL  " .. line)
   end
+  for _, line in ipairs(broken) do
+    log:say("fix: FAIL  " .. line)
+  end
   for _, file in ipairs(changed) do
     log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
-  if #failures > 0 or #findings > 0 then
+  if #failures > 0 or #findings > 0 or #broken > 0 then
     local said: {string} = {}
     if #failures > 0 then
       said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
     end
     if #findings > 0 then
       said[#said + 1] = #findings .. " found by the tree checks"
+    end
+    if #broken > 0 then
+      said[#said + 1] = plural.count(#broken, "link") .. " not resolving"
     end
     log:verdict("fix", false, table.concat(said, ", ") .. ", " .. clock.took(started))
     return 1
