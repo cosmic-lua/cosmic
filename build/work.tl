@@ -537,15 +537,9 @@ local not_input: {string:boolean} = {
   [".github"] = true,
 }
 
---- The trees and files the tool is made of, in cosmic's own tree.
--- TODO: the tool carries every module of the tree but its tests and
--- examples (build.writer's `dropped_modules`), eval/'s and test/'s
--- included (eval/arena.tl, eval/check/notes.tl, eval/summarize.tl,
--- test/portable/init.tl and tool.tl), yet neither is a tool tree here,
--- so an edit to one moves no `boot_hash` and leaves a stale tool
--- carrying the old module. Either filter `carry` to the modules under
--- these trees (and what they require), or hash what the tool carries
--- rather than what sits under these trees.
+--- The trees and files the tool is made of, in cosmic's own tree,
+--- beside the Teal it carries from anywhere else in the tree
+--- (`carried_teal`).
 local tool_trees: {string:boolean} = {
   ["build"] = true,
   ["core"] = true,
@@ -673,10 +667,29 @@ local function is_input(file: string, own_tree: boolean): boolean
   return false
 end
 
+--- Whether a Teal file is one the tool carries wherever it sits in
+--- the tree: every module the `inputs` view reads (`build.analysis_schema`:
+--- Teal outside a `testdata/` directory) but a test, which
+--- `is_tool` has left out already. The tool carries every module of
+--- the tree but its tests and examples (`build.writer`'s
+--- `dropped_modules`), so eval/'s and test/portable's are carried as
+--- much as build/'s, and a tree that holds none of the tool's C still
+--- moves `boot_hash` when one of its modules does. An example outside
+--- the tool trees is taken too, as one inside them is: a carried
+--- module may require it, and one more reboot costs less than a stale
+--- tool.
+local function carried_teal(file: string, own_tree: boolean): boolean
+  if not String.ends_with(file, ".tl") or not is_input(file, own_tree) then
+    return false
+  end
+  return file:sub(1, 9) ~= "testdata/" and file:find("/testdata/", 1, true) == nil
+end
+
 --- Whether a file is one the tool is made of, in cosmic's own tree: a
---- file under one of its trees, one of its named files, or a vendored
---- tree's pin -- but a Teal test (`*_test.tl`, the `inputs` view's
---- `test` kind), which no binary carries: the tool leaves every test
+--- file under one of its trees, one of its named files, a module it
+--- carries from elsewhere (`carried_teal`), or a vendored tree's pin
+--- -- but a Teal test (`*_test.tl`, the `inputs` view's `test` kind),
+--- which no binary carries: the tool leaves every test
 --- out (`build.writer`'s `carried`), and in cosmic's own tree only a
 --- test may require one (`build.positions`), so none is carried for
 --- being required either. So an edit to a test moves neither
@@ -694,6 +707,7 @@ local function is_tool(file: string, own_tree: boolean): boolean
     return false
   end
   return tool_trees[first] == true or tool_files[file] == true
+    or carried_teal(file, own_tree)
 end
 
 --- What a stat said about a file the last time it was staged, read

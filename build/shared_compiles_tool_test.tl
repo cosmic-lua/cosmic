@@ -219,9 +219,9 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   local keys: {string:string} = {}
   local db = assert(Sqlite.open(tmp .. "/first/o/cosmic.db", false))
-  local rows = assert(Sqlite.text_rows(db, "SELECT path, file, CAST(key AS TEXT) FROM modules"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
-    keys[row[1]] = shared_compiles.key(row[3], false, false, row[2])
+    keys[row[1]] = shared_compiles.key(row[2], false, false)
   end
   assert(db:close())
   local cache = assert(Sqlite.open(path, true))

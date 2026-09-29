@@ -165,6 +165,35 @@ local function test_implementation_edit_invalidates_a_declared_dependent()
     "the implementation edit left its declared dependent cached")
 end
 
+--- A module's own compile is keyed by its file as well as its import
+--- path: `x.tl` moved to `x/init.tl`, the same module of the same source,
+--- is compiled again (build.contracts' exemptions are by file), while a
+--- module that requires it, whose compile no file of its dependency
+--- decides, stands, and so does the graph key a test's verdict is kept by.
+local function test_a_module_moved_to_its_init_file_is_compiled_again()
+  local root, write_trouble = write_fixture("moved-to-init", {
+    ["x.tl"] = "return { value = 1 }\n",
+    ["main.tl"] = 'local x = require("x")\nreturn x.value\n',
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local first = assert(compile_fixture(root))
+  assert(Fs.mkdirs(root .. "/x"))
+  assert(Fs.rename(root .. "/x.tl", root .. "/x/init.tl"))
+  local result = assert(compile_fixture(root))
+  assert(result.compiled == 1 and result.cached == 1,
+    result.compiled .. " compiled, " .. result.cached .. " cached")
+  local function by_path(modules: {importer.Module}, path: string): importer.Module
+    for _, m in ipairs(modules) do
+      if m.path == path then return m end
+    end
+    error(path .. ": not among the modules")
+  end
+  local before, after = by_path(first.modules, "x"), by_path(result.modules, "x")
+  assert(after.file == "x/init.tl", after.file)
+  assert(before.key ~= after.key, "the move kept x's compile key")
+  assert(before.graph_key == after.graph_key, "the move moved x's graph key")
+end
+
 --- Mutually recursive declaration types are valid input to the checker. A
 --- cache key closes over the graph without rejecting that cycle itself.
 local function test_declaration_dependency_keys_allow_cycles()
@@ -1541,7 +1570,7 @@ local function test_an_unjudged_refused_compile_is_not_shared()
   local shared: {string:boolean} = {}
   for _, m in ipairs(result.modules) do
     local found, look_trouble = shared_compiles.look(cache,
-      shared_compiles.key(m.key, true, m.generated, m.file))
+      shared_compiles.key(m.key, true, m.generated))
     assert(look_trouble == "", look_trouble)
     shared[m.path] = found ~= nil
   end

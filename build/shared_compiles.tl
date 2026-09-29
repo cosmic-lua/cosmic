@@ -12,11 +12,11 @@
 --- A row is keyed by more than the local key (`key`): what else decides
 --- whether a compile is accepted, which a checkout's own cache leaves
 --- out -- whether the tree is cosmic's own (`build.contracts` runs only
---- there), whether the module was extracted from a doc, the file the
---- module is read from -- so a row never stands where a compile of the
---- module here would refuse it. A compile refused and kept only for
---- the run that made it (an unjudged run's, `seen = -1`) is never
---- shared.
+--- there) and whether the module was extracted from a doc -- so a row
+--- never stands where a compile of the module here would refuse it.
+--- The file the module is read from is in the local key already. A
+--- compile refused and kept only for the run that made it (an unjudged
+--- run's, `seen = -1`) is never shared.
 ---
 --- A row holds what a local compile writes: the Lua, the bytecode and
 --- the record-field uses its checker found (`typed_refs`), so a
@@ -172,13 +172,14 @@ end
 --- (`importer.Module.key`) and what else decides whether it is
 --- accepted, and the format it is kept in: `format` the format's
 --- table, by default this one's.
--- The file is a salt only because the local key lacks it: see the TODO
--- in build.importer's `dependency_keys`.
+-- The file the module is read from is no salt here: the module's own
+-- key holds it already (build.importer's `dependency_keys`), so a
+-- compile is never taken across a moved file.
 function shared_compiles.key(key: string, own_tree: boolean, generated: boolean,
-                             file: string, format?: string): string
+                             format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
     (own_tree and "own" or "project") .. "\n" ..
-    (generated and "doctest" or "tree") .. "\n" .. file)
+    (generated and "doctest" or "tree"))
 end
 
 local schema <const> = {
@@ -662,7 +663,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
   return {
     look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile | nil
       if cache == nil then return nil end
-      local key = shared_compiles.key(m.key, own_tree, m.generated, m.file)
+      local key = shared_compiles.key(m.key, own_tree, m.generated)
       local found, look_trouble = shared_compiles.look(cache, key)
       if found == nil then
         if look_trouble ~= "" then drop(look_trouble) end
@@ -674,7 +675,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     keep = function(m: importer.Module, own_tree: boolean, made: importer.Shared.Compile)
       if cache == nil then return end
       owed.kept[#owed.kept + 1] = {
-        key = shared_compiles.key(m.key, own_tree, m.generated, m.file),
+        key = shared_compiles.key(m.key, own_tree, m.generated),
         lua = made.lua, bytecode = made.bytecode, references = made.references,
       }
     end,
