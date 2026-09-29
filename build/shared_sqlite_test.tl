@@ -29,12 +29,22 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   local db = assert(shared_sqlite.open(path, prepare))
   local mode = assert(Sqlite.text_rows(db, "PRAGMA journal_mode"))
   assert(mode[1][1] == "wal", mode[1][1])
+  local timeout = assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))
+  assert(timeout[1][1] == "10000", "busy timeout " .. timeout[1][1])
   assert(Sqlite.text_rows(db, "SELECT key FROM kept"))
   db:close()
+  local waiting = assert(shared_sqlite.open(path, prepare, 50))
+  timeout = assert(Sqlite.text_rows(waiting, "PRAGMA busy_timeout"))
+  assert(timeout[1][1] == "50", "busy timeout " .. timeout[1][1])
+  waiting:close()
+  -- The last connection closed, SQLite removes the log; one left open
+  -- by a failed open would keep it.
+  assert(Fs.stat(path .. "-wal") == nil, "the log outlived its connections")
   local refused, trouble = shared_sqlite.open(path, function(_: Sqlite.Handle): boolean, string
     return false, "no shape of mine"
   end)
   assert(refused == nil and trouble == path .. ": no shape of mine", trouble)
+  assert(Fs.stat(path .. "-wal") == nil, "a failed open left its connection open")
 end
 
 --- A broken file is answered as corrupt, and set aside with its log and
@@ -70,24 +80,50 @@ local function test_setting_aside_no_file_says_why(tmp: string)
   assert(aside == nil and trouble ~= "", trouble)
 end
 
---- A cache another connection holds locked, before it is in write-ahead
---- mode, is tried again for as long as the wait allows, then answered
---- busy, not corrupt: no build sets aside a file another is writing.
-local function test_a_locked_cache_waits_then_answers_busy(tmp: string)
-  local path = tmp .. "/cache.db"
+--- How long an open of the rollback-mode cache at `path` took, in
+--- nanoseconds, and why it failed, while another connection holds it by
+--- `statements`, with a wait of `wait_ms`. The cache opens once the
+--- holder lets go.
+local function held_open(path: string, statements: {string},
+                         wait_ms: integer): integer, string
   local holder = assert(Sqlite.open(path, true))
   assert(holder:exec("CREATE TABLE held (x)"))
-  assert(holder:exec("BEGIN EXCLUSIVE"))
+  for _, statement in ipairs(statements) do assert(holder:exec(statement)) end
   local started = Time.monotonic_ns()
-  local db, trouble = shared_sqlite.open(path, prepare, 50)
+  local db, trouble = shared_sqlite.open(path, prepare, wait_ms)
   local waited = Time.monotonic_ns() - started
-  assert(db == nil and trouble:find("locked", 1, true) ~= nil, trouble)
-  assert(not shared_sqlite.corrupt(trouble), trouble)
-  assert(waited >= 50 * 1000000, "answered busy after " .. waited .. " ns")
+  assert(db == nil, "opened a cache another holds")
   assert(holder:exec("COMMIT"))
   holder:close()
-  local opened = assert(shared_sqlite.open(path, prepare, 50))
+  local opened = assert(shared_sqlite.open(path, prepare, wait_ms))
   opened:close()
+  return waited, trouble
+end
+
+--- A cache another connection is writing, before it is in write-ahead
+--- mode, is answered locked at once by SQLite, which calls no busy
+--- handler: the switch is tried again until the wait has passed, then
+--- answered busy, not corrupt, so no build sets aside a file another is
+--- writing.
+local function test_a_cache_being_written_is_tried_again_then_answered_busy(tmp: string)
+  local wait_ms = 100
+  local waited, trouble = held_open(tmp .. "/cache.db",
+    { "BEGIN IMMEDIATE", "INSERT INTO held (x) VALUES (1)" }, wait_ms)
+  assert(trouble:find("locked", 1, true) ~= nil, trouble)
+  assert(not shared_sqlite.corrupt(trouble), trouble)
+  assert(waited >= wait_ms * 1000000, "answered busy after " .. waited .. " ns")
+  assert(waited < 5 * wait_ms * 1000000, "answered busy after " .. waited .. " ns")
+end
+
+--- A cache another connection holds whole, before it is in write-ahead
+--- mode, is waited on no longer than the wait in all: no try sits out a
+--- busy timeout of its own, so the wait never grows with the tries.
+local function test_a_cache_held_whole_is_waited_on_no_longer_than_the_wait(tmp: string)
+  local wait_ms = 100
+  local waited, trouble = held_open(tmp .. "/cache.db", { "BEGIN EXCLUSIVE" }, wait_ms)
+  assert(trouble:find("locked", 1, true) ~= nil, trouble)
+  assert(waited >= wait_ms * 1000000, "answered busy after " .. waited .. " ns")
+  assert(waited < 5 * wait_ms * 1000000, "answered busy after " .. waited .. " ns")
 end
 
 --- A cache already in write-ahead mode opens while another connection

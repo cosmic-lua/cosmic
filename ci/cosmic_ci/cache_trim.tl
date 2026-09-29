@@ -103,14 +103,14 @@ end
 --- the answer's `unstamped`. Answers nil and "" for a file that is not
 --- there, and nil and why where the file could not be trimmed.
 -- TODO: ask the tool to trim its caches to what one run used, rather
--- than reach into their tables here, once the tree has a verb that does
--- (through build/shared_sqlite.tl, beside build/shared_compiles.tl's and
--- build/shared_verdicts.tl's formats) and ci/cosmic-driver.pin names a
--- release that carries it: the trims run where the tree's o/bin/cosmic
--- may never have been built (ci.yml's steps need only the driver), and
--- this module, on the pinned release, cannot require the tree's. This
--- reads every table of their formats by its `used_ns` column, and leaves
--- a table without one whole.
+-- than reach into their tables here, once ci/cosmic-driver.pin names a
+-- release with a verb that does (through build/shared_sqlite.tl, beside
+-- build/shared_compiles.tl's and build/shared_verdicts.tl's formats),
+-- which the tree has yet to add: the trims run where the tree's
+-- o/bin/cosmic may never have been built (ci.yml's steps need only the
+-- driver), and this module, on the pinned release, cannot require the
+-- tree's. This reads every table of their formats by its `used_ns`
+-- column, and leaves a table without one whole.
 function CacheTrim.trim(path: string, since_ns: integer,
                         tables: CacheTrim.Tables): CacheTrim.Trimmed | nil, string
   if not Predicate.exists(path) then return nil, "" end

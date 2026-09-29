@@ -4,9 +4,11 @@
 --- busy timeout, tell a busy answer from a broken file, and move a
 --- broken file aside so the next run starts a fresh one.
 ---
---- It is a module of the test harness, through build.shared_verdicts,
---- so an edit to it is acknowledged in build/harness_epoch.tl; its
---- clock is the raw binding's, since the harness reaches no cosmic.time.
+--- It is a module of the test harness, through build.shared_verdicts:
+--- an edit to it is acknowledged in build/harness_epoch.tl, and a
+--- change to that file makes the merge queue run every test (`--all`),
+--- which is what sharing it with the compile cache costs. Its clock is the raw binding's,
+--- since the harness reaches no cosmic.time.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -64,27 +66,39 @@ end
 --- another's write. The switch is one statement that reads the file's
 --- header, then writes it. When another connection holds the write lock
 --- between those two, as two runs meeting a fresh cache do, SQLite
---- answers "database is locked" at once and calls no busy handler. So a
---- locked answer is tried again, up to `wait_ms`; once the other's
---- switch is written, this one reads the header and has nothing to
---- write.
+--- answers "database is locked" at once and calls no busy handler; when
+--- another holds the file whole, the busy handler would wait out the
+--- busy timeout on each try. So the switch runs with no busy timeout,
+--- and a locked answer is tried again every ten milliseconds until
+--- `wait_ms` have passed since the first try, on the monotonic clock;
+--- once the other's switch is written, this one reads the header and
+--- has nothing to write. Any mode but "wal" answered is a failure.
 local function to_wal(db: Sqlite.Handle, wait_ms: integer): boolean, string
-  local waited_ms = 0
+  local started, clock_trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
+  if started == nil then return false, clock_trouble end
+  local deadline = started + wait_ms * 1000000
   while true do
     local rows, trouble = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
-    if rows ~= nil then return true, "" end
-    if not busy(trouble) or waited_ms >= wait_ms then return false, trouble end
-    local _, _ = sys.nanosleep(10 * 1000000)
-    waited_ms = waited_ms + 10
+    if rows ~= nil then
+      local mode = rows[1] ~= nil and rows[1][1] or ""
+      if mode ~= "wal" then return false, "journal mode is " .. mode .. ", not wal" end
+      return true, ""
+    end
+    if not busy(trouble) then return false, trouble end
+    local now, now_trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
+    if now == nil then return false, now_trouble end
+    if now >= deadline then return false, trouble end
+    local _, _ = sys.nanosleep(math.min(10 * 1000000, deadline - now))
   end
 end
 
 --- Opens the cache at `path`, which the caller has made ready (its
---- directory, and whatever it holds of the file's mode), waiting up to
---- `wait_ms` (ten seconds when nil) on another run's lock,
---- in write-ahead mode, and `prepare`d: the caller's tables made or
---- checked. Answers the handle, or nil and why, prefixed with `path`,
---- having closed what it opened.
+--- directory, and whatever it holds of the file's mode), in write-ahead
+--- mode (`to_wal`, which waits up to `wait_ms` in all on another run's
+--- lock), then `prepare`d, the caller's tables made or checked, under a
+--- busy timeout of `wait_ms` a statement. `wait_ms` is ten seconds when
+--- nil. Answers the handle, or nil and why, prefixed with `path`, having
+--- closed what it opened.
 function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boolean, string),
                             wait_ms?: integer): Sqlite.Handle | nil, string
   wait_ms = wait_ms or busy_ms
@@ -95,10 +109,12 @@ function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boo
     local _, _ = db:close()
     return nil, path .. ": " .. why
   end
-  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. wait_ms)
-  if not timed then return fail(time_trouble) end
+  local untimed, untimed_trouble = db:exec("PRAGMA busy_timeout = 0")
+  if not untimed then return fail(untimed_trouble) end
   local journal, journal_trouble = to_wal(db, wait_ms)
   if not journal then return fail(journal_trouble) end
+  local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. wait_ms)
+  if not timed then return fail(time_trouble) end
   local prepared, prepare_trouble = prepare(db)
   if not prepared then return fail(prepare_trouble) end
   return db, ""
