@@ -701,3 +701,61 @@ local function test_extract_walks_a_zip_and_a_tar_to_the_same_tree(tmp: string)
     assert(Fs.read(tmp .. "/z/" .. want) == "body " .. tostring(i))
   end
 end
+
+local function test_extract_reader_unpacks_a_stream_as_extract_unpacks_the_file(tmp: string)
+  local path = tmp .. "/a.tar"
+  make_tar(path)
+  local want = assert(Archive.extract(path, tmp .. "/file", { links = "create" }))
+  local reader = assert(Archive.open_stream(Stream.from_string((assert(Fs.read(path))))))
+  local got = assert(Archive.extract_reader(reader, tmp .. "/stream", { links = "create" }))
+  assert(table.concat(got, ",") == table.concat(want, ","), table.concat(got, ","))
+  assert(Fs.read(tmp .. "/stream/adir/short.txt") == "hello there")
+  assert(Fs.readlink(tmp .. "/stream/adir/link") == "short.txt")
+  assert(Fs.read(tmp .. "/stream/bin/tool") == "#!/bin/sh\necho hi\n")
+end
+
+local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string)
+  local sink = Stream.collect()
+  local tw = Tar.writer(sink)
+  assert(tw:add_file("ok", "1"))
+  assert(tw:add_file("../out", "2"))
+  assert(tw:close())
+  local inner = assert(Archive.open_stream(Stream.from_string(sink:result())))
+  local closes = 0
+  local counting: Archive.Reader = {
+    next = function(_self: Archive.Reader): Archive.Entry | nil, string return inner:next() end,
+    close = function(_self: Archive.Reader): boolean, string
+      closes = closes + 1
+      return inner:close()
+    end,
+  }
+  local written, why = Archive.extract_reader(counting, tmp .. "/dest")
+  assert(written == nil and why:find("unsafe entry path", 1, true), why)
+  assert(closes == 1, "closed " .. closes .. " times")
+  assert(not pcall(Archive.extract_reader, counting, tmp .. "/dest", { max_bytes = -1 }))
+end
+
+local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_destination(tmp: string)
+  local sink = Stream.collect()
+  local tw = Tar.writer(sink)
+  assert(tw:add_symlink("via", "held/inner"))
+  assert(tw:close())
+  local bytes = sink:result()
+  -- Staged apart, `held` is nowhere: refused, unless the real
+  -- destination it will be moved into holds it.
+  local function unpack(stage: string, opts: Archive.ExtractOptions): {string} | nil, string
+    return Archive.extract_reader((assert(Archive.open_stream(Stream.from_string(bytes)))), stage,
+      opts)
+  end
+  local written, why = unpack(tmp .. "/s1", { links = "create" })
+  assert(written == nil and why:find("missing directory", 1, true), why)
+  assert(Fs.mkdirs(tmp .. "/real/held"))
+  assert(unpack(tmp .. "/s2", { links = "create", resolve_in = tmp .. "/real" }))
+  assert(Fs.readlink(tmp .. "/s2/via") == "held/inner")
+  -- A link the real destination holds in that place is no directory.
+  assert(Fs.symlink(".", tmp .. "/real2held"))
+  assert(Fs.mkdirs(tmp .. "/real2"))
+  assert(Fs.symlink(".", tmp .. "/real2/held"))
+  written, why = unpack(tmp .. "/s3", { links = "create", resolve_in = tmp .. "/real2" })
+  assert(written == nil and why:find("missing directory", 1, true), why)
+end

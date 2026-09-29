@@ -745,3 +745,253 @@ local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: 
   assert(dir_link.code == 2, dir_link.err)
   assert(not Fs.exists(tmp .. "/three/dest/f.txt"))
 end
+
+--- The names under `dir`, recursively, sorted: what a destination holds.
+local function tree_of(dir: string): {string}
+  local out: {string} = {}
+  local function walk(at: string, prefix: string)
+    local listed = Fs.list(at)
+    if listed == nil then return end
+    for _, name in ipairs(listed) do
+      out[#out + 1] = prefix .. name
+      local st = sys.lstat(at .. "/" .. name)
+      if st ~= nil and st.kind == "dir" then walk(at .. "/" .. name, prefix .. name .. "/") end
+    end
+  end
+  walk(dir, "")
+  return out
+end
+
+--- Runs `body` with `Fs.mkdtemp` counted: how many temporary
+--- directories it made, which is how many copies of standard input.
+local function counting_mkdtemp(body: function()): integer
+  local made = 0
+  local real = Fs.mkdtemp
+  local patched = Fs as {string:any}
+  patched.mkdtemp = function(prefix: string): string | nil, string
+    made = made + 1
+    return real(prefix)
+  end
+  local ok, err = pcall(function(): string
+    body()
+    return ""
+  end)
+  patched.mkdtemp = real
+  assert(ok, err)
+  return made
+end
+
+local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
+  for _, gzip in ipairs({ false, true }) do
+    local bytes = assert(Fs.read(make_tar(tmp .. "/t.tar", SAMPLE, gzip)))
+    local dest = tmp .. (gzip and "/tgz" or "/tar")
+    local made = counting_mkdtemp(function()
+      local ran = run({ "extract", "-", "-C", dest }, bytes)
+      assert(ran.code == 0 and ran.err == "", ran.err)
+      assert(ran.out:find("proj/sub/b.txt", 1, true), ran.out)
+    end)
+    assert(made == 0, "a tar stream was written to a temporary file")
+    assert(Fs.read(dest .. "/proj/sub/b.txt") == "bravo!")
+    assert(#Fs.list(tmp .. "/") >= 1 and not Fs.exists(dest .. "/stdin"))
+  end
+  local zip = assert(Fs.read(make_zip(tmp .. "/z.zip", SAMPLE)))
+  local made = counting_mkdtemp(function()
+    local ran = run({ "extract", "-", "-C", tmp .. "/zdest" }, zip)
+    assert(ran.code == 0, ran.err)
+  end)
+  assert(made == 1, "a zip still needs its file")
+end
+
+--- Extracting `bytes` from standard input and from a file named `name`,
+--- into `before`-prepared destinations: the two runs, each with the
+--- destination's tree after.
+local function both_ways(tmp: string, name: string, bytes: string, words: {string},
+    prepare: function(string)): Ran, Ran, {string}, {string}
+  assert(Fs.mkdirs(tmp))
+  assert(Fs.write(tmp .. "/" .. name, bytes))
+  local results: {Ran} = {}
+  local trees: {{string}} = {}
+  for slot, from in ipairs({ "file", "stdin" }) do
+    local dest = tmp .. "/" .. from .. "/dest"
+    assert(Fs.mkdirs(tmp .. "/" .. from))
+    prepare(dest)
+    local argv: {string} = { "extract", from == "file" and (tmp .. "/" .. name) or "-", "-C", dest }
+    for _, word in ipairs(words) do argv[#argv + 1] = word end
+    results[slot] = run(argv, from == "stdin" and bytes or nil)
+    trees[slot] = tree_of(tmp .. "/" .. from)
+  end
+  return results[1], results[2], trees[1], trees[2]
+end
+
+--- A complaint with the input's name and its temporary directory's
+--- read as one.
+local function anonymous(err: string, tmp: string, name: string): string
+  return (err:gsub(tmp:gsub("%p", "%%%0") .. "/" .. name .. ": ", "standard input: "):gsub(
+    tmp:gsub("%p", "%%%0") .. "/[%w/]*dest", "DEST"))
+end
+
+local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouched(tmp: string)
+  local hostile: {{string}} = {
+    { "unsafe", "dots" }, { "escape", "link" }, { "hard", "hard" },
+  }
+  local archives: {string:{Member}} = {
+    unsafe = { file_member("first.txt", "1"), file_member("../evil.txt", "2"), file_member("last.txt", "3") },
+    escape = { file_member("first.txt", "1"), link_member("out", "../../x"), file_member("last.txt", "3") },
+    thru = { file_member("first.txt", "1"), link_member("l", "sub"), file_member("l/f.txt", "2") },
+  }
+  for _, pair in ipairs(hostile) do
+    if archives[pair[1]] ~= nil then
+      local bytes = assert(Fs.read(make_tar(tmp .. "/" .. pair[1] .. ".tgz", archives[pair[1]], true)))
+      -- No destination yet, and one that holds a file of its own.
+      for _, holds in ipairs({ false, true }) do
+        local case = tmp .. "/" .. pair[1] .. (holds and "-holds" or "-new")
+        assert(Fs.mkdirs(case))
+        local dest = case .. "/deep/dest"
+        if holds then
+          assert(Fs.mkdirs(dest))
+          assert(Fs.write(dest .. "/mine.txt", "mine"))
+        end
+        local ran = run({ "extract", "-", "-C", dest }, bytes)
+        assert(ran.code == 2 and ran.out == "", pair[1] .. ": " .. ran.code .. ran.err)
+        local seen = tree_of(case)
+        local want = holds and "deep,deep/dest,deep/dest/mine.txt" or ""
+        assert(table.concat(seen, ",") == want, pair[1] .. " left " .. table.concat(seen, ","))
+      end
+    end
+  end
+  -- A stream that ends early.
+  local whole = assert(Fs.read(make_tar(tmp .. "/whole.tgz", { file_member("a", "1"),
+    file_member("b", string.rep("x", 200000)) }, true)))
+  local ran = run({ "extract", "-", "-C", tmp .. "/cut/dest" }, whole:sub(1, #whole // 2))
+  assert(ran.code == 2 and ran.err:find("standard input: ", 1, true), ran.err)
+  assert(not Fs.exists(tmp .. "/cut"), "a truncated stream wrote " .. table.concat(tree_of(tmp .. "/cut"), ","))
+  -- The same failure from a file leaves what was written before it.
+  local direct = run({ "extract", tmp .. "/unsafe.tgz", "-C", tmp .. "/direct" })
+  assert(direct.code == 2 and Fs.read(tmp .. "/direct/first.txt") == "1", direct.err)
+end
+
+local function test_a_stream_and_a_file_are_refused_alike(tmp: string)
+  local cases: {string:{Member}} = {
+    unsafe = { file_member("first.txt", "1"), file_member("../evil.txt", "2") },
+    escape = { file_member("first.txt", "1"), link_member("out", "../../x") },
+  }
+  for name, members in pairs(cases) do
+    local bytes = assert(Fs.read(make_tar(tmp .. "/" .. name .. ".tar", members)))
+    local file, stdin = both_ways(tmp .. "/" .. name .. ".d", name .. ".tar", bytes, {},
+      function(_dest: string) end)
+    assert(file.code == stdin.code and file.out == stdin.out, name)
+    assert(anonymous(file.err, tmp .. "/" .. name .. ".d", name .. ".tar") ==
+      anonymous(stdin.err, tmp .. "/" .. name .. ".d", name .. ".tar"), file.err .. stdin.err)
+  end
+end
+
+local function test_a_stream_overwrite_refusal_writes_nothing(tmp: string)
+  -- The clash is the last member: everything before it has been read
+  -- by then, and none of it may reach the destination.
+  local members: {Member} = { file_member("new1.txt", "1"), dir_member("sub"),
+    file_member("sub/new2.txt", "2"), file_member("mine.txt", "theirs") }
+  local bytes = assert(Fs.read(make_tar(tmp .. "/c.tgz", members, true)))
+  local dest = tmp .. "/dest"
+  assert(Fs.mkdirs(dest))
+  assert(Fs.write(dest .. "/mine.txt", "mine"))
+  local ran = run({ "extract", "-", "-C", dest }, bytes)
+  assert(ran.code == 1 and ran.out == "", ran.out)
+  assert(ran.err:find("would overwrite 1 existing path under", 1, true) and ran.err:find("(mine.txt)", 1, true), ran.err)
+  assert(table.concat(tree_of(tmp), ",") ==
+    "c.tgz,dest,dest/mine.txt", table.concat(tree_of(tmp), ","))
+  assert(Fs.read(dest .. "/mine.txt") == "mine")
+  local direct = run({ "extract", tmp .. "/c.tgz", "-C", dest })
+  assert(direct.code == 1 and direct.err:gsub("[^\n]*: would", "would") == ran.err:gsub("[^\n]*: would", "would"),
+    direct.err)
+  -- Forced, it moves in and replaces.
+  local forced = run({ "extract", "--force", "-", "-C", dest }, bytes)
+  assert(forced.code == 0, forced.err)
+  assert(Fs.read(dest .. "/mine.txt") == "theirs" and Fs.read(dest .. "/sub/new2.txt") == "2")
+  assert(table.concat(tree_of(tmp), ",") ==
+    "c.tgz,dest,dest/mine.txt,dest/new1.txt,dest/sub,dest/sub/new2.txt", table.concat(tree_of(tmp), ","))
+end
+
+local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: string)
+  local bytes = assert(Fs.read(make_tar(tmp .. "/m.tar", SAMPLE, false)))
+  local dest = tmp .. "/dest"
+  assert(Fs.mkdirs(dest .. "/proj"))
+  assert(Fs.write(dest .. "/proj/keep.txt", "kept"))
+  assert(Fs.write(dest .. "/other.txt", "other"))
+  local ran = run({ "extract", "-", "-C", dest }, bytes)
+  assert(ran.code == 0, ran.err)
+  assert(Fs.read(dest .. "/proj/keep.txt") == "kept" and Fs.read(dest .. "/other.txt") == "other")
+  assert(Fs.read(dest .. "/proj/a.txt") == "alpha" and Fs.read(dest .. "/proj/sub/b.txt") == "bravo!")
+  assert(Fs.read(dest .. "/top.txt") == "top")
+  assert(table.concat(tree_of(tmp), ",") == "dest,dest/other.txt,dest/proj,dest/proj/a.txt," ..
+    "dest/proj/keep.txt,dest/proj/sub,dest/proj/sub/b.txt,dest/top.txt,m.tar", table.concat(tree_of(tmp), ","))
+  -- A link may lead through a directory only the destination holds.
+  local via = assert(Fs.read(make_tar(tmp .. "/v.tar", { link_member("via", "proj/keep.txt") })))
+  assert(run({ "extract", "-", "-C", dest }, via).code == 0)
+  assert(Fs.readlink(dest .. "/via") == "proj/keep.txt")
+  -- A path through a symlink the destination holds is refused, and
+  -- nothing else moves.
+  local out = tmp .. "/outdir"
+  assert(Fs.mkdirs(out))
+  assert(Fs.symlink(out, dest .. "/lnk"))
+  local hostile = assert(Fs.read(make_tar(tmp .. "/h.tar", { file_member("aaa.txt", "1"),
+    file_member("lnk/f.txt", "x") })))
+  local refused_run = run({ "extract", "--force", "-", "-C", dest }, hostile)
+  assert(refused_run.code == 2 and refused_run.err:find("through a symlink", 1, true), refused_run.err)
+  assert(not Fs.exists(dest .. "/aaa.txt") and not Fs.exists(out .. "/f.txt"))
+  assert(#tree_of(out) == 0)
+  for _, name in ipairs(Fs.list(dest) or {}) do assert(not name:find("cosmic-extract", 1, true), name) end
+end
+
+local function test_a_move_that_fails_partway_is_undone(tmp: string)
+  local bytes = assert(Fs.read(make_tar(tmp .. "/f.tar", { file_member("a.txt", "new a"),
+    file_member("b.txt", "new b"), file_member("c.txt", "new c") })))
+  local dest = tmp .. "/dest"
+  assert(Fs.mkdirs(dest))
+  for _, name in ipairs({ "a", "b", "c" }) do assert(Fs.write(dest .. "/" .. name .. ".txt", "old " .. name)) end
+  local real = Fs.rename
+  local patched = Fs as {string:any}
+  local into = 0
+  patched.rename = function(from: string, to: string): boolean, string
+    if to:find(dest .. "/", 1, true) == 1 then
+      into = into + 1
+      if into == 3 then return false, to .. ": injected failure" end
+    end
+    return real(from, to)
+  end
+  local ok, ran = pcall(run, { "extract", "--force", "-", "-C", dest }, bytes)
+  patched.rename = real
+  assert(ok, ran)
+  local result = ran as Ran
+  assert(result.code == 2 and result.err:find("injected failure", 1, true), result.err)
+  for _, name in ipairs({ "a", "b", "c" }) do
+    assert(Fs.read(dest .. "/" .. name .. ".txt") == "old " .. name, name .. " not restored")
+  end
+  assert(table.concat(tree_of(tmp), ",") == "dest,dest/a.txt,dest/b.txt,dest/c.txt,f.tar",
+    table.concat(tree_of(tmp), ","))
+end
+
+local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: string)
+  local total = write_big_tgz(tmp .. "/big.tar.gz", 24)
+  collectgarbage()
+  collectgarbage()
+  local base = collectgarbage("count")
+  local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
+  local reads, peak = 0, 0.0
+  local piped: Stream.Reader = {}
+  piped.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    collectgarbage()
+    peak = math.max(peak, collectgarbage("count"))
+    reads = reads + 1
+    return inner:read(max)
+  end
+  piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
+  local dest = tmp .. "/dest"
+  local ran = run({ "extract", "-", "-C", dest }, piped)
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  local st = assert(sys.stat(dest .. "/big.bin"))
+  assert(st.size == total, "extracted " .. tostring(st.size) .. " of " .. tostring(total))
+  assert(reads >= 100, "standard input was read " .. tostring(reads) .. " times")
+  local grown = (peak - base) / 1024
+  assert(grown < 4, ("memory grew %.1f MiB extracting %d MiB"):format(grown, total >> 20))
+  assert(table.concat(tree_of(tmp), ",") == "big.tar.gz,dest,dest/big.bin", table.concat(tree_of(tmp), ","))
+end

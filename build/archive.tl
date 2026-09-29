@@ -154,22 +154,25 @@ local function spool(source: Stream.Reader): string | nil, string
   return dir, ""
 end
 
---- Runs `body` on a file holding the archive to read: `file` itself, or
---- standard input written out, chunk by chunk, to a temporary one, for
---- what has to read it twice or seek in it. The temporary directory is
---- removed after.
--- TODO: once Archive.extract can take a Stream.Reader (it opens a path),
--- extract a tar from standard input in one pass instead of spooling it:
--- `extract` looks the whole archive over first (a missing member, files
--- it would overwrite) before it writes anything, which needs a second
--- read of the input.
-local function with_archive(file: string, to: verb.Io, body: function(string): Outcome): Outcome
-  if file ~= "-" then return body(file) end
+--- Runs `on_path` on a file holding the archive to read: `file` itself,
+--- or, for a zip on standard input, that written out to a temporary
+--- file (removed after), since a zip is read by seeking. Any other
+--- archive on standard input is handed to `on_stream` as it arrives,
+--- with the bytes sniffed for the format put back.
+--- A zip on standard input still spools, a limit that stays: its
+--- central directory is at its end, so it cannot be read in one pass.
+local function with_archive(file: string, to: verb.Io, on_path: function(string): Outcome,
+    on_stream: function(Stream.Reader): Outcome): Outcome
+  if file ~= "-" then return on_path(file) end
   local source, why = to.stdin()
   if source == nil then return fail(bare.refused, why) end
-  local dir, spool_why = spool(source)
+  local head, peek_why = peek(source, 4)
+  if head == nil then return fail(bare.refused, trouble_of(file, file, peek_why)) end
+  local replay = Stream.prepend(head, source)
+  if head ~= "PK\3\4" and head ~= "PK\5\6" then return on_stream(replay) end
+  local dir, spool_why = spool(replay)
   if dir == nil then return fail(bare.refused, spool_why) end
-  local outcome = body(dir .. "/stdin")
+  local outcome = on_path(dir .. "/stdin")
   local _, _ = Fs.remove_tree(dir)
   return outcome
 end
@@ -265,6 +268,349 @@ local function under(name: string, member: string): boolean
   return name == member or name:sub(1, #member + 1) == member .. "/"
 end
 
+--- What `extract` refuses for files that are in the way: how many, and
+--- the first five.
+local record Clashes
+  count: integer
+  first: {string}
+end
+
+--- The path under `dest` that writing `entry` would replace, if any: not
+--- a directory it would only be put into.
+local function clash_of(entry: Archive.Entry, dest: string, selected: function(string): boolean): string | nil
+  local name = normal(entry.path)
+  -- A path that escapes is for `Archive.extract` to refuse, by
+  -- name; it is not looked up outside `dest` here.
+  if name == "" or entry.path:sub(1, 1) == "/" or has_dotdot(entry.path) or
+      not selected(entry.path) then
+    return nil
+  end
+  local st, _ = sys.lstat(dest .. "/" .. name)
+  if st ~= nil and not (st.kind == "dir" and entry.kind == "dir") then return name end
+  return nil
+end
+
+local function note_clash(clashes: Clashes, name: string)
+  clashes.count = clashes.count + 1
+  if #clashes.first < 5 then clashes.first[#clashes.first + 1] = name end
+end
+
+local function overwrite_refusal(dest: string, clashes: Clashes): Outcome
+  return fail(bare.failed, "would overwrite " .. clashes.count .. " existing " ..
+    (clashes.count == 1 and "path" or "paths") .. " under " .. dest .. " (" ..
+    table.concat(clashes.first, ", ") .. (clashes.count > 5 and ", ..." or "") ..
+    "); nothing written, use --force to replace")
+end
+
+--- `text` with each `from` in it read as `to`.
+local function replaced(text: string, from: string, to: string): string
+  local out: {string} = {}
+  local at = 1
+  while true do
+    local start, stop = text:find(from, at, true)
+    if start == nil then break end
+    out[#out + 1] = text:sub(at, start - 1)
+    out[#out + 1] = to
+    at = stop + 1
+  end
+  out[#out + 1] = text:sub(at)
+  return table.concat(out)
+end
+
+local function print_written(written: {string}, to: verb.Io): Outcome
+  local lines: {string} = {}
+  for _, name in ipairs(written) do lines[#lines + 1] = escaped(name) end
+  local text = #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
+  local ok, out_why = to.out(text)
+  if not ok then return fail(bare.refused, bare.lost(out_why)) end
+  return fail(bare.ok, "")
+end
+
+------------------------------------------------------------------
+-- a staged extraction: a stream, all or nothing
+------------------------------------------------------------------
+
+--- One change to `dest` that moving a staged tree into it makes: a
+--- path moved in (`rel`), replacing what a forced extraction finds
+--- there (`replace`), or a directory the destination already holds
+--- (`keep`) that takes the archive's time once what is in it has moved.
+local record Step
+  rel: string
+  replace: boolean
+  keep: boolean
+  mtime: integer
+  before: integer
+  backup: string
+end
+
+--- The names in the directory `path`, sorted, and nil and why when it
+--- cannot be read.
+local function names_in(path: string): {string} | nil, string
+  local entries, why = sys.readdir(path)
+  if entries == nil then return nil, path .. ": " .. why end
+  local names: {string} = {}
+  for name in pairs(entries) do names[#names + 1] = name end
+  table.sort(names)
+  return names, ""
+end
+
+--- Looks the staged tree `tree` over against `dest` -- what is there
+--- now -- for everything a move into place would meet, and appends what
+--- the move is to do to `steps`; nothing is moved. Returns nil, or the
+--- refusal a direct extraction would have made at that path: through a
+--- symlink the destination holds, onto a directory or over a file.
+--- `rel` is the directory of `tree` looked at, "" for the top.
+local function plan_move(tree: string, dest: string, force: boolean, rel: string,
+    steps: {Step}, why_of: function(string): string): Outcome | nil
+  local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel))
+  if names == nil then return fail(bare.refused, list_why) end
+  for _, name in ipairs(names) do
+    local child = rel == "" and name or (rel .. "/" .. name)
+    local staged, staged_why = sys.lstat(tree .. "/" .. child)
+    if staged == nil then return fail(bare.refused, tree .. "/" .. child .. ": " .. staged_why) end
+    local target = dest .. "/" .. child
+    local there, there_why, errno = sys.lstat(target)
+    if there == nil then
+      if errno ~= sys.ENOENT then return fail(bare.refused, target .. ": " .. there_why) end
+      steps[#steps + 1] = { rel = child, replace = false, keep = false, mtime = 0, before = 0, backup = "" }
+    elseif staged.kind == "dir" then
+      if there.kind == "link" then
+        return fail(bare.refused, why_of("archive: refusing to write through a symlink: " .. child .. "/"))
+      elseif there.kind ~= "dir" then
+        return fail(bare.refused, why_of("archive: " .. target .. " is not a directory"))
+      end
+      local trouble = plan_move(tree, dest, force, child, steps, why_of)
+      if trouble ~= nil then return trouble end
+      steps[#steps + 1] = { rel = child, replace = false, keep = true, mtime = staged.mtime,
+        before = there.mtime, backup = "" }
+    elseif not force then
+      -- Decided already from the listing; a path that appeared since is
+      -- one more that would be overwritten.
+      return fail(bare.failed, "would overwrite 1 existing path under " .. dest .. " (" ..
+        child .. "); nothing written, use --force to replace")
+    elseif there.kind == "dir" then
+      return fail(bare.refused, why_of(staged.kind == "link" and ("archive: " .. target .. " is a directory") or
+        (target .. ": Is a directory")))
+    else
+      steps[#steps + 1] = { rel = child, replace = true, keep = false, mtime = 0, before = 0, backup = "" }
+    end
+  end
+  return nil
+end
+
+--- How a move ended: `why` is "" when it was done, else what failed;
+--- `whole` is false when a failed move could not be entirely undone.
+local record Moved
+  why: string
+  whole: boolean
+end
+
+--- Does `steps`, moving each staged path from `tree` to `dest`, an
+--- existing file or link it replaces going aside under `aside` first.
+--- On a failure every step done is undone, in reverse.
+local function apply_steps(tree: string, dest: string, aside: string, steps: {Step}): Moved
+  local done = 0
+  local trouble = ""
+  for slot, step in ipairs(steps) do
+    local from, target = tree .. "/" .. step.rel, dest .. "/" .. step.rel
+    if step.keep then
+      local _, _ = Fs.set_mtime(target, step.mtime)
+    else
+      if step.replace then
+        local _, _ = sys.mkdir(aside)
+        step.backup = aside .. "/" .. slot
+        local moved, why = Fs.rename(target, step.backup)
+        if not moved then
+          trouble = why
+          break
+        end
+      end
+      local moved, why = Fs.rename(from, target)
+      if not moved then
+        trouble = why
+        if step.replace then local _, _ = Fs.rename(step.backup, target) end
+        break
+      end
+    end
+    done = slot
+  end
+  if trouble == "" then return { why = "", whole = true } end
+  local whole = true
+  for slot = done, 1, -1 do
+    local step = steps[slot]
+    local target = dest .. "/" .. step.rel
+    if step.keep then
+      local _, _ = Fs.set_mtime(target, step.before)
+    else
+      local back, _ = Fs.rename(target, tree .. "/" .. step.rel)
+      if step.replace then
+        local restored, _ = Fs.rename(step.backup, target)
+        back = back and restored
+      end
+      whole = whole and back
+    end
+  end
+  return { why = trouble, whole = whole }
+end
+
+--- The directories above `dir` that do not exist yet, deepest first.
+local function missing_above(dir: string): {string}
+  local out: {string} = {}
+  local at = dir
+  while true do
+    local present, _ = Fs.is_dir(at)
+    if present ~= false then break end
+    out[#out + 1] = at
+    local up = Fs.dirname(at)
+    if up == at then break end
+    at = up
+  end
+  return out
+end
+
+--- An archive read once, as it arrives: unpacked into a staging
+--- directory (inside `dest` when that exists, else beside it), with
+--- every check `extract` makes of a file made as the members go by, and
+--- moved into `dest` only when the stream has ended cleanly and every
+--- check passed. A failure removes the staging directory and leaves
+--- `dest` as it was, the directories above a `dest` it would have made
+--- included.
+--
+-- What stays non-atomic: the move is one rename per path (one for the
+-- whole tree when `dest` does not exist, which is all or nothing), and
+-- a move that fails partway is undone, but a process killed in the
+-- middle of one leaves the paths moved so far, and a staging directory
+-- named `.cosmic-extract-*` to remove. The kernel has no rename of many
+-- paths at once, and journalling the move would cost more than a kill
+-- at that instant is worth. A kill before the move leaves only the
+-- staging directory.
+local function extract_streamed(file: string, source: Stream.Reader, dest: string, force: boolean,
+    wanted: {string}, selected: function(string): boolean, to: verb.Io): Outcome
+  local reader, open_why = Archive.open_stream(source)
+  if reader == nil then return fail(bare.refused, trouble_of(file, file, open_why)) end
+  local inner: Archive.Reader = reader
+
+  local dest_exists = false
+  local is_dir, _ = Fs.is_dir(dest)
+  if is_dir == true then dest_exists = true end
+  local made: {string} = {}
+  local parent = dest_exists and dest or Fs.dirname(dest)
+  if not dest_exists then made = missing_above(parent) end
+  local function undo_made()
+    for _, dir in ipairs(made) do local _, _ = sys.rmdir(dir) end
+  end
+  local parents_made, parents_why = Fs.mkdirs(parent)
+  if not parents_made then
+    local _, _ = inner:close()
+    return fail(bare.refused, trouble_of(file, file, parents_why))
+  end
+  local stage, stage_why = sys.mkdtemp(parent .. "/.cosmic-extract-XXXXXX")
+  if stage == nil then
+    local _, _ = inner:close()
+    undo_made()
+    return fail(bare.refused, trouble_of(file, file, parent .. ": " .. stage_why))
+  end
+  local tree = stage .. "/tree"
+  local function give_up(outcome: Outcome): Outcome
+    local _, _ = Fs.remove_tree(stage)
+    undo_made()
+    return outcome
+  end
+  --- A message from the staged tree, as it would read of `dest`.
+  local function why_of(message: string): string
+    return trouble_of(file, file, replaced(message, tree, dest))
+  end
+
+  -- What the whole listing tells: which members were seen, and the
+  -- files in the way. Read as the entries pass; the entries are not kept.
+  local found: {boolean} = {}
+  local clashes: Clashes = { count = 0, first = {} }
+  local halted = false
+  local finished, finish_why = false, ""
+  local function record(entry: Archive.Entry)
+    local name = normal(entry.path)
+    for slot, member in ipairs(wanted) do
+      if not found[slot] and under(name, member) then found[slot] = true end
+    end
+    if not force then
+      local clash = clash_of(entry, dest, selected)
+      if clash ~= nil then note_clash(clashes, clash) end
+    end
+  end
+  local function advance(): Archive.Entry | nil
+    if finished then return nil end
+    local entry, why = inner:next()
+    if entry == nil then
+      finished, finish_why = true, why
+      return nil
+    end
+    record(entry)
+    return entry
+  end
+  local watched: Archive.Reader = {
+    next = function(_self: Archive.Reader): Archive.Entry | nil, string
+      if halted then return nil, "" end
+      local entry = advance()
+      if entry == nil then return nil, finish_why end
+      -- Files are already in the way and nothing will be written: read
+      -- on for the rest of the listing without unpacking any more.
+      if clashes.count > 0 then
+        halted = true
+        return nil, ""
+      end
+      return entry, ""
+    end,
+    -- Whatever ends the extraction, the input is read to its end below
+    -- and closed once there.
+    close = function(_self: Archive.Reader): boolean, string return true, "" end,
+  }
+
+  local written, extract_why = Archive.extract_reader(watched, tree, {
+    links = "create",
+    filter = selected,
+    resolve_in = dest_exists and dest or nil,
+  })
+  -- The rest of the stream, as `Archive.list` would have read it whole
+  -- before anything was written: its trouble comes first.
+  while advance() ~= nil do end
+  local _, _ = inner:close()
+  if finish_why ~= "" then return give_up(fail(bare.refused, trouble_of(file, file, finish_why))) end
+  local missing: {string} = {}
+  for slot, member in ipairs(wanted) do
+    if not found[slot] then missing[#missing + 1] = member end
+  end
+  if #missing > 0 then
+    return give_up(fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", ")))
+  end
+  if clashes.count > 0 then return give_up(overwrite_refusal(dest, clashes)) end
+  if written == nil then return give_up(fail(bare.refused, why_of(extract_why))) end
+
+  if not dest_exists then
+    local moved, move_why = Fs.rename(tree, dest)
+    if not moved then
+      -- `dest` is a file or a directory that appeared since: say what
+      -- a direct extraction would have.
+      local made_dest, made_why = Fs.mkdirs(dest)
+      return give_up(fail(bare.refused, trouble_of(file, file, made_dest and move_why or made_why)))
+    end
+    local _, _ = Fs.remove_tree(stage)
+    return print_written(written, to)
+  end
+  local steps: {Step} = {}
+  local trouble = plan_move(tree, dest, force, "", steps, why_of)
+  if trouble ~= nil then return give_up(trouble) end
+  local moved = apply_steps(tree, dest, stage .. "/aside", steps)
+  if moved.why ~= "" then
+    if not moved.whole then
+      return fail(bare.refused, trouble_of(file, file, moved.why .. "; the paths it had moved could not all be put back, " ..
+        "and are under " .. stage))
+    end
+    return give_up(fail(bare.refused, trouble_of(file, file, moved.why)))
+  end
+  local _, _ = Fs.remove_tree(stage)
+  return print_written(written, to)
+end
+
 local function extract(file: string, dest: string, force: boolean, members: {string},
     to: verb.Io): Outcome
   local wanted: {string} = {}
@@ -300,45 +646,30 @@ local function extract(file: string, dest: string, force: boolean, members: {str
       return fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", "))
     end
     if not force then
-      local clashes: {string} = {}
+      local clashes: Clashes = { count = 0, first = {} }
       for _, entry in ipairs(entries) do
-        local name = normal(entry.path)
-        -- A path that escapes is for `Archive.extract` to refuse, by
-        -- name; it is not looked up outside `dest` here.
-        if name ~= "" and entry.path:sub(1, 1) ~= "/" and not has_dotdot(entry.path) and
-            selected(entry.path) then
-          local st, _ = sys.lstat(dest .. "/" .. name)
-          if st ~= nil and not (st.kind == "dir" and entry.kind == "dir") then
-            clashes[#clashes + 1] = name
-          end
-        end
+        local clash = clash_of(entry, dest, selected)
+        if clash ~= nil then note_clash(clashes, clash) end
       end
-      if #clashes > 0 then
-        return fail(bare.failed, "would overwrite " .. #clashes .. " existing " ..
-          (#clashes == 1 and "path" or "paths") .. " under " .. dest .. " (" ..
-          table.concat(clashes, ", ", 1, math.min(#clashes, 5)) ..
-          (#clashes > 5 and ", ..." or "") .. "); nothing written, use --force to replace")
-      end
+      if clashes.count > 0 then return overwrite_refusal(dest, clashes) end
     end
     -- No rollback: `Archive.extract` streams entries out as it reads
     -- them, so a refusal partway (an escaping link, a path through a
     -- symlink, a corrupt body) leaves the entries before it written.
-    -- Undoing them would mean unpacking into a staging directory and
-    -- moving it into place, which breaks extracting into a directory
-    -- that already holds files, as `tar -x` does; only what a look at
-    -- the listing can settle first (a missing member, an overwrite) is
-    -- checked before anything is written.
+    -- A file is read twice anyway (the look above, then this), and an
+    -- archive that arrives as a stream is staged instead
+    -- (`extract_streamed`); a file, which is the caller's own, keeps
+    -- `tar -x`'s way of extracting into a directory that already holds
+    -- files, with only what a look at the listing can settle first (a
+    -- missing member, an overwrite) checked before anything is written.
     local written, extract_why = Archive.extract(path, dest, {
       links = "create",
       filter = selected,
     })
     if written == nil then return fail(bare.refused, trouble_of(file, path, extract_why)) end
-    local lines: {string} = {}
-    for _, name in ipairs(written) do lines[#lines + 1] = escaped(name) end
-    local text = #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
-    local ok, out_why = to.out(text)
-    if not ok then return fail(bare.refused, bare.lost(out_why)) end
-    return fail(bare.ok, "")
+    return print_written(written, to)
+  end, function(source: Stream.Reader): Outcome
+    return extract_streamed(file, source, dest, force, wanted, selected, to)
   end)
 end
 
