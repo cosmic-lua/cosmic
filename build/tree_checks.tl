@@ -909,8 +909,6 @@ local doc_exempt: {string: string} = {}
 
 doc_exempt["cosmic.cli Cli.todos todo"] = "`cosmic todos` lists the tree's " ..
   "`TODO:` comments: the marker is the verb's subject"
-doc_exempt["cosmic.coverage native_lines path"] = "the doc shows the shape of a hit's " ..
-  "path (`core/syscalls.c`) as an example of the data a caller reads"
 
 --- The rules a public doc is held to: a name, the Lua pattern that
 --- finds a candidate, whether the candidate breaks the rule (given the
