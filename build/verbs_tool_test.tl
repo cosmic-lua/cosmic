@@ -31,6 +31,8 @@ Test.needs{
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
   tool = true,
+  -- `store`: the verbs it runs in this process (`build.invoke`) read every module's rows.
+  store = true,
 }
 
 local passthrough = verb_cases.passthrough

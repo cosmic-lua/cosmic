@@ -17,7 +17,8 @@ local Test = require("cosmic.test")
 --- Requests to a closed local port, which a loopback alone answers:
 --- the worker runs offline, and is keyed. And the program itself, which
 --- its tests start, and whose own database holds the roots they read.
-Test.needs{ network = { "127.0.0.1" }, tool = true }
+--- `store`: the carried roots are read through `Store.databases()`.
+Test.needs{ network = { "127.0.0.1" }, tool = true, store = true }
 
 --- A TLS 1.2 server's first flight, as a script can send it: a
 --- ServerHello choosing ECDHE-RSA with AES-128-GCM, then its

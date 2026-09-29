@@ -13,7 +13,8 @@ local invoke = require("build.invoke")
 
 --- The tool itself, whose digest the version is, and whose store
 --- holds the docs help reads.
-Test.needs{ tool = true }
+--- `store`: `help version`, run in this process, reads the docs.
+Test.needs{ tool = true, store = true }
 
 local function test_version_is_the_digest_of_the_binarys_own_file(tmp: string)
   local path = assert(Proc.executable())

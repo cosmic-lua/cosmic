@@ -13,7 +13,8 @@ local Test = require("cosmic.test")
 --- The program itself, which a test starts, and the store's handles,
 --- which the rest read and which the hold refuses a module declaring
 --- neither `tool` nor `store`.
-Test.needs{ tool = true }
+--- `store`: `Store.databases()` hands handles to every module's rows.
+Test.needs{ tool = true, store = true }
 
 --- A path is a filename, never a URI: one whose `vfs=` would pick a
 --- VFS no capture observes names no file, and nothing is attached.

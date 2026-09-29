@@ -10,7 +10,8 @@ local exit_status = require("build.exit_status")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+--- `store`: `embed.tree` joins every `cosmic.*` module's rows.
+Test.needs{ tool = true, store = true }
 
 local function run_program(path: string): Child.Result
   return (assert(Child.run({ path }, {

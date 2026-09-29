@@ -26,7 +26,8 @@ local refresh = require("build.refresh")
 --- The vendored bundle and zones a refresh replaces, and the tool it
 --- refreshes, run as a host program of this program's core: the kernel
 --- runs it, with no launcher of the system's `sh` to run.
-Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true }
+--- `store`: `embed.database` reads every `cosmic.*` module's rows, and `docs` searches them.
+Test.needs{ reads = { "vendor/cacert/", "vendor/tzdata/" }, tool = true, store = true }
 
 local bundle <const> = "vendor/cacert/cacert.pem"
 local zones <const> = "vendor/tzdata/zoneinfo"
