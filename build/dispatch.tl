@@ -82,15 +82,6 @@ local function verb_help(verbs: {string}): string
   return table.concat(lines, "\n")
 end
 
--- TODO: state the rest of what each verb takes (the first paragraph's
--- verbs, `docs`, `help`, `refresh` and `bom`) as `Spec.takes` too, once
--- `cosmic help` may change: they are grouped and ordered by hand here
--- (`fix`, `build` and `todos` share a phrase, `help` comes before `bom`),
--- so a byte-identical help keeps them prose.
--- TODO: drop `Spec.prose_rank` and the line breaks inside `Spec.exits`
--- once `cosmic help` may change: the sentences keep the order (`time`,
--- `rand`, `fetch`) and wrapping they were written with, which a rewrap
--- in verb_list order would move.
 local help_head = [[
 Lua's `io`, `os`, and `debug` are not present; code that reaches for
 one is told the replacement for the very field it used -- by the
@@ -101,16 +92,10 @@ and `cosmic.proc`. `debug` is `cosmic.errors.trace`. `print` still
 works, an ordinary global written over the same syscall table
 `cosmic.fs` uses.
 
-A verb takes paths to narrow it: `test` exact module names, source
-paths and directories; `fix`, `build` and `todos` the files or
-directories to act on; `uses` paths after its symbol; `db` the
-sources whose rows to count. `docs` takes words to search for instead,
 ]]
 
-local help_tail = [[
-`help` a verb, `refresh` the datasets to fetch,
-and `bom` nothing.
-]]
+--- The paragraph's opening: the rest of it is each verb's `Spec.takes`.
+local help_takes_intro = "A verb takes paths to narrow it:"
 
 local help_middle = [[
 
@@ -135,15 +120,9 @@ tool's.
 
 ]]
 
-local help_verdict = [[
- ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
-(...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
-its command line was refused -- an option, an argument or a verb it
-does not know; 3 when the tool is older than the tree and did not
-rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file
-run, `--standalone` and `-e` are not verbs of that kind: each prints
-only what its program prints and exits with what it returns.
-`--version` is not one either: it prints its one line.]]
+--- What follows the list of bare verbs in the paragraph that names them,
+--- before the sentence each bare verb's spec gives for its exit codes.
+local help_verdict = "ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
@@ -158,35 +137,71 @@ local function listed(names: {string}): string
   return table.concat(quoted, ", ") .. " and " .. last
 end
 
---- The closing prose of `cosmic help`: the parts of it that say what
---- each verb takes and how a bare one exits come from the specs
---- (build/verb_spec.tl), the rest is written here.
---- @param specs every listed verb's spec, in help's order
+--- `text` broken into lines of at most `width` characters at its spaces
+--- (a word longer than that keeps its own line), with no line ending.
+local function wrapped(text: string, width: integer): string
+  local lines: {string} = {}
+  local line = ""
+  for word in text:gmatch("%S+") do
+    if line == "" then
+      line = word
+    elseif #line + 1 + #word <= width then
+      line = line .. " " .. word
+    else
+      lines[#lines + 1] = line
+      line = word
+    end
+  end
+  if line ~= "" then
+    lines[#lines + 1] = line
+  end
+  return table.concat(lines, "\n")
+end
+
+--- The width `cosmic help` wraps the prose it generates to, as the prose
+--- written by hand is.
+local help_width <const> = 70
+
+--- The clause of `cosmic help`'s paragraph on what verbs take: verbs that take
+--- the same share one clause, at the place of the first.
+local function takes_clauses(specs: {verb_spec.Spec}): {string}
+  local order: {string} = {}
+  local names: {string:{string}} = {}
+  for _, spec in ipairs(specs) do
+    if names[spec.takes] == nil then
+      order[#order + 1] = spec.takes
+      names[spec.takes] = {}
+    end
+    local group = names[spec.takes]
+    group[#group + 1] = spec.name
+  end
+  local clauses: {string} = {}
+  for _, takes in ipairs(order) do
+    clauses[#clauses + 1] = listed(names[takes]) .. " " .. takes
+  end
+  return clauses
+end
+
+--- The closing prose of `cosmic help`: the paragraphs that say what each
+--- verb takes and how the bare ones exit are written from the specs
+--- (build/verb_spec.tl) and wrapped here; the rest is prose about no one
+--- verb in particular, written by hand.
+--- @param specs every verb's spec, in help's order
 local function help_suffix(specs: {verb_spec.Spec}): string
-  local takes: {string} = {}
-  local bare: {verb_spec.Spec} = {}
-  local rank: {verb_spec.Spec:integer} = {}
-  for place, spec in ipairs(specs) do
-    if spec.takes ~= nil then
-      takes[#takes + 1] = "`" .. spec.name .. "` " .. spec.takes
-    end
+  local clauses = takes_clauses(specs)
+  clauses[#clauses] = "and " .. clauses[#clauses]
+  local bare: {string} = {}
+  local sentences: {string} = {}
+  for _, spec in ipairs(specs) do
     if spec.bare then
-      bare[#bare + 1] = spec
-      rank[spec] = spec.prose_rank or place
+      bare[#bare + 1] = spec.name
+      sentences[#sentences + 1] = spec.exits or ""
     end
   end
-  table.sort(bare, function(a: verb_spec.Spec, b: verb_spec.Spec): boolean
-    return rank[a] < rank[b]
-  end)
-  local names: {string} = {}
-  local sentences = ""
-  for _, spec in ipairs(bare) do
-    names[#names + 1] = spec.name
-    local sentence = spec.exits or ""
-    sentences = sentences .. (sentence:sub(1, 1) == "\n" and "" or " ") .. sentence
-  end
-  return help_head .. table.concat(takes, ", ") .. ", " .. help_tail .. help_middle
-    .. "Every verb but " .. listed(names) .. help_verdict .. sentences .. "\n"
+  return help_head .. wrapped(help_takes_intro .. " " .. table.concat(clauses, "; ") .. ".",
+      help_width) .. "\n" .. help_middle
+    .. wrapped("Every verb but " .. listed(bare) .. " " .. help_verdict .. " " ..
+      table.concat(sentences, " "), help_width) .. "\n"
 end
 
 --- The directory a path sits in, absolute.
@@ -437,6 +452,10 @@ local function evaluate(argv: {integer:string}): integer
   return exit_status.of("-e", (loaded(table.unpack(arguments))))
 end
 
+--- `help` is dispatch's own spec (below): it prints the specs of every other
+--- verb, so it is declared here and set once `help` exists.
+local help_spec: verb_spec.Spec
+
 --- `cosmic help [verb]`: the whole discovery surface, or one verb's line
 --- of it, and a verdict line.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
@@ -492,18 +511,20 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     log:verdict("help", true, "1 verb, " .. clock.took(started))
     return 0
   end
-  log:say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix(verb_list.specs()))
+  local specs = verb_list.specs()
+  specs[#specs + 1] = help_spec
+  log:say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix(specs))
   log:verdict("help", true, #Cli.order .. " verbs, " .. clock.took(started))
   return 0
 end
 
---- `help` is dispatch's own: it prints the specs of every other verb.
-local help_spec: verb_spec.Spec = {
+help_spec = {
   name = "help",
   run = function(argv: {integer:string}): integer
     return help(argv, nil)
   end,
   bare = false,
+  takes = "a verb",
 }
 
 --- The spec of the verb a command line's first word names, loading the

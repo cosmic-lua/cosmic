@@ -445,7 +445,7 @@ verb.spec = {
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the files to digest",
-  exits = "`hash` prints digests,\nand exits 1 when a `--check` fails.",
+  exits = "`hash` prints digests, and exits 1 when a `--check` fails.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
 }
 

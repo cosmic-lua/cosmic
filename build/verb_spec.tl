@@ -23,22 +23,16 @@ local record verb_spec
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
     --- What the verb takes after its name, as `cosmic help` phrases it ("a
-    --- path and a file"), or nil for a verb whose arguments that prose
-    --- states in its own words.
-    takes: string | nil
+    --- path and a file"); verbs that take the same share one clause there.
+    takes: string
     --- The sentence `cosmic help` gives a bare verb's output and exit codes
     --- ("`json` prints its value ... and exits 0 when it ..."), starting
-    --- with its name in backticks. A line break inside it is kept where the
-    --- help prose has always broken, so the help text stays byte for byte;
-    --- one at its start stands in for the space that joins it to the
-    --- sentence before.
+    --- with its name in backticks, on one line: help wraps it. Nil for a
+    --- verb that ends in a verdict line.
     exits: string | nil
     --- Why build/verb_cases.tl holds the verb to no verdict-line case, when
     --- it has none.
     passthrough: string | nil
-    --- Where `exits` falls among the sentences, when not at the verb's
-    --- place in build/verb_list.tl: a rank above every place puts it last.
-    prose_rank: integer | nil
   end
 end
 

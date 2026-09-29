@@ -644,6 +644,7 @@ todos.spec = {
   name = "todos",
   run = function(argv: {integer:string}): integer return todos.run(argv) end,
   bare = false,
+  takes = "the files or directories to act on",
 }
 
 return todos

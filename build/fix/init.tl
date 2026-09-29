@@ -706,6 +706,7 @@ fix.spec = {
   name = "fix",
   run = function(argv: {integer:string}): integer return fix.run(argv) end,
   bare = false,
+  takes = "the files or directories to act on",
 }
 
 return fix

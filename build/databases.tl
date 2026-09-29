@@ -351,6 +351,7 @@ databases.spec = {
   name = "db",
   run = function(argv: {integer:string}): integer return databases.run(argv) end,
   bare = false,
+  takes = "the sources whose rows to count",
 }
 
 return databases

@@ -444,7 +444,7 @@ verb.spec = {
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "an encoding and a file",
-  exits = "`codec`\nprints its text or bytes and nothing after, and exits 0 or 2.",
+  exits = "`codec` prints its text or bytes and nothing after, and exits 0 or 2.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/codec_test.tl)",
 }
 

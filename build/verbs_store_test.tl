@@ -132,12 +132,13 @@ end
 --- help` prints: what it takes, and how a bare verb exits.
 local function test_help_prints_what_each_spec_says(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
+  -- Help wraps what the specs say, so it is read with its lines joined.
+  local joined = " " .. all:gsub("%s+", " ") .. " "
   for _, spec in ipairs(verb_list.specs()) do
-    if spec.takes ~= nil then
-      assert(all:find("`" .. spec.name .. "` " .. spec.takes, 1, true), spec.name .. ": takes")
-    end
+    assert(joined:find(" `" .. spec.name .. "` ", 1, true), spec.name .. ": named")
+    assert(joined:find(spec.takes, 1, true), spec.name .. ": takes")
     if spec.exits ~= nil then
-      assert(all:find(spec.exits, 1, true), spec.name .. ": exits")
+      assert(joined:find(spec.exits, 1, true), spec.name .. ": exits")
     end
   end
 end

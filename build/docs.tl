@@ -1250,6 +1250,7 @@ docs.spec = {
   name = "docs",
   run = function(argv: {integer:string}): integer return docs.run(argv) end,
   bare = false,
+  takes = "words to search for instead",
 }
 
 --- The `uses` verb as `build/verb_list.tl` lists it.
@@ -1257,6 +1258,7 @@ docs.uses_spec = {
   name = "uses",
   run = function(argv: {integer:string}): integer return docs.run_uses(argv) end,
   bare = false,
+  takes = "paths after its symbol",
 }
 
 return docs

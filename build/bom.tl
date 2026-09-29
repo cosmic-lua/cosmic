@@ -487,6 +487,7 @@ bom.spec = {
   name = "bom",
   run = function(argv: {integer:string}): integer return bom.run(argv) end,
   bare = false,
+  takes = "nothing",
   fresh = true,
 }
 

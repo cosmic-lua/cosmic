@@ -19,6 +19,8 @@ local function test_every_listed_module_has_its_spec()
     local run: any = spec.run
     local bare: any = spec.bare
     assert(type(run) == "function", entry.name .. ": no run")
+    local takes: any = spec.takes
+    assert(type(takes) == "string", entry.name .. ": say what it takes")
     assert(type(bare) == "boolean", entry.name .. ": say whether it is bare")
   end
 end

@@ -483,7 +483,7 @@ verb.spec = {
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its words",
-  exits = "\n`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its\ncommand line or a write fails.",
+  exits = "`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its command line or a write fails.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/rand_test.tl)",
 }
 

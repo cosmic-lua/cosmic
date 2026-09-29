@@ -332,7 +332,7 @@ verb.spec = {
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a path and a file",
-  exits = "`json` prints its\nvalue and nothing after, for a pipe, and exits 0 when it found the path, 1\nwhen the path is not there, 2 for a command line or a text it refused.",
+  exits = "`json` prints its value and nothing after, for a pipe, and exits 0 when it found the path, 1 when the path is not there, 2 for a command line or a text it refused.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
 }
 

@@ -455,6 +455,7 @@ embed.spec = {
   name = "build",
   run = function(argv: {integer:string}): integer return embed.run(argv) end,
   bare = false,
+  takes = "the files or directories to act on",
 }
 
 return embed

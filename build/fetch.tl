@@ -280,9 +280,8 @@ verb.spec = {
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a URL",
-  exits = "\n`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when\nthe fetch failed, 2 for a command line or URL it refused.",
+  exits = "`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when the fetch failed, 2 for a command line or URL it refused.",
   passthrough = "its output is the body for a pipe, so its exit status is the verdict (build/fetch_test.tl)",
-  prose_rank = 99,
 }
 
 return verb

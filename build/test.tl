@@ -3694,6 +3694,7 @@ test.spec = {
   name = "test",
   run = function(argv: {integer:string}): integer return test.run(argv) end,
   bare = false,
+  takes = "exact module names, source paths and directories",
 }
 
 return test

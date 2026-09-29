@@ -622,6 +622,7 @@ refresh.spec = {
   name = "refresh",
   run = function(argv: {integer:string}): integer return refresh.run(argv) end,
   bare = false,
+  takes = "the datasets to fetch",
   fresh = true,
 }
 
