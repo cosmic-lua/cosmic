@@ -29,6 +29,27 @@ local function test_median()
   assert(Report.median({ 4, 1, 3, 2 }) == 2.5)
 end
 
+--- A push to main that reuses the queue's run has no platform legs but
+--- `reuse` and the `seed` legs, which are none: its wall is no seed's,
+--- and it adds no row to the legs' medians.
+local function test_reuse_and_seed_are_no_platform_jobs()
+  for _, name in ipairs({ "ci", "reuse", "seed", "seed (macos-aarch64, macos-15)" }) do
+    assert(not Report.is_platform_job(name), name)
+  end
+  for _, name in ipairs({ "linux-x86_64", "macos-aarch64", "seeder" }) do
+    assert(Report.is_platform_job(name), name)
+  end
+  local run: Report.Run = { id = "1", event = "push", branch = "main", sha = "a", conclusion = "success",
+    attempt = "1", suites = {}, missing = {}, qualifies = false, why = "", jobs = {
+      { name = "reuse", seconds = 20, steps = {} },
+      { name = "seed (macos-aarch64, macos-15)", seconds = 90, steps = {} },
+      { name = "ci", seconds = 120, steps = {} },
+    } }
+  assert(Report.slowest(run) == nil, "a seeded run's slowest platform job")
+  table.insert(run.jobs, { name = "linux-x86_64", seconds = 60, steps = {} })
+  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64")
+end
+
 --- A fake GitHub: a gh on PATH answering from `state` (testdata/report/gh.tl).
 local record Fake
   state: string
