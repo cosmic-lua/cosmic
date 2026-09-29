@@ -1359,3 +1359,72 @@ local function test_a_malformed_needs_call_is_refused()
     assert(trouble:find(line, 1, true) ~= nil, trouble)
   end
 end
+
+--- An example's source starts with the file's top-level `require` lines
+--- its body names, and, for the first example only, the top-level calls.
+local function test_an_example_carries_the_requires_it_uses()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+    "",
+    "function Example.hash()",
+    "  print(Hash.hex(\"x\"))",
+    "end",
+    "",
+    "return Example",
+  }))
+  assert(#found == 2, tostring(#found))
+  assert(found[1].source == lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+  assert(found[2].source == lines({
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "function Example.hash()",
+    "  print(Hash.hex(\"x\"))",
+    "end",
+  }):gsub("\n$", ""), found[2].source)
+end
+
+--- A comment that leads the statement after a `require` or a call is
+--- that statement's, not the text of the one above it, even when the
+--- next statement is a `local`, whose own position skips its keyword.
+local function test_a_comment_before_the_next_local_is_not_carried()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "-- TODO: something about the next one.",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "-- A note on the record.",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+    "-- trailing",
+    "local later = 1",
+    "",
+    "return Example",
+  }))
+  assert(#found == 1, tostring(#found))
+  assert(not found[1].source:find("--", 1, true), found[1].source)
+  assert(found[1].source:find("Fs.setup{ key = 1 }\n\nfunction Example.read()", 1, true),
+    found[1].source)
+end

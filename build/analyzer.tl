@@ -67,7 +67,9 @@ local record analyzer
     --- way `DocEntry.text` reads one -- what the example is FOR; the
     --- source below it is how, and is documentation in its own right.
     text: string
-    --- The whole `function Example.<name>() ... end`, as written.
+    --- The whole `function Example.<name>() ... end`, as written, under
+    --- the file's top-level `require` lines it uses and, for the file's
+    --- first example, its top-level calls (`examples_of`).
     source: string
     line: integer
   end
@@ -905,6 +907,120 @@ local function block_text(lines: {string}, y: integer, x: integer,
   return table.concat(parts, "\n")
 end
 
+--- Whether `word` appears in `code` as a whole identifier, not inside a
+--- longer name.
+local function mentions(code: string, word: string): boolean
+  local from = 1
+  while true do
+    local at, to = code:find(word, from, true)
+    if at == nil then
+      return false
+    end
+    local before = at > 1 and code:sub(at - 1, at - 1) or ""
+    local after = code:sub(to + 1, to + 1)
+    if before:match("[%w_]") == nil and after:match("[%w_]") == nil then
+      return true
+    end
+    from = to + 1
+  end
+end
+
+--- What an example file's top level holds outside its examples, as
+--- text: each `local Name = require("...")` with the name it binds, and
+--- each call statement (`Test.needs{...}`), in file order. Their text
+--- is what an example needs above its function to be copied whole.
+local record Preamble
+  requires: {{string}}
+  calls: {string}
+end
+
+--- `code`, a statement's text cut at the next statement's start, less
+--- what belongs to that next statement: the `local` its position skips
+--- and the comment lines above it.
+local function own_text(code: string): string
+  local kept: {string} = {}
+  for line in (code:gsub("%s*local%s*$", "") .. "\n"):gmatch("(.-)\n") do
+    kept[#kept + 1] = line
+  end
+  while #kept > 0 and (kept[#kept]:match("^%s*$") ~= nil
+      or kept[#kept]:match("^%s*%-%-") ~= nil) do
+    kept[#kept] = nil
+  end
+  return table.concat(kept, "\n")
+end
+
+--- The node a statement's text begins at: a call node sits at its
+--- arguments, so this is the leftmost name of what it calls.
+local function leftmost(stmt: ast.Node): ast.Node
+  local start = stmt
+  while start.kind == "op" and start.e1 ~= nil do
+    start = start.e1
+  end
+  return start
+end
+
+local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
+  local out: Preamble = { requires = {}, calls = {} }
+  for index, stmt in ipairs(nodes) do
+    local after = nodes[index + 1]
+    local next_start = after ~= nil and leftmost(after) or nil
+    local until_y = next_start ~= nil and next_start.y or (#lines + 1)
+    local until_x = next_start ~= nil and next_start.x or 1
+    if stmt.kind == "local_declaration" then
+      local code = block_text(lines, stmt.y, stmt.x, until_y, until_x)
+      -- The statement's position is its first name, past `local`, and
+      -- a following `local` statement's, so the `local` that begins the
+      -- next one ends this text.
+      code = own_text(code)
+      local name = code:match("^([%w_]+)%s*=%s*require%s*%(")
+      if name ~= nil then
+        code = "local " .. code
+      else
+        name = code:match("^local%s+([%w_]+)%s*=%s*require%s*%(")
+      end
+      if name ~= nil then
+        out.requires[#out.requires + 1] = { name, code }
+      end
+    elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" then
+      local start = leftmost(stmt)
+      local code = block_text(lines, start.y, start.x, until_y, until_x)
+      out.calls[#out.calls + 1] = own_text(code)
+    end
+  end
+  return out
+end
+
+--- The text an example's own `function` is shown below: the top-level
+--- `require` lines its body (or a top-level call carried with it)
+--- names, then those calls. An example is a function copied out of its
+--- file, and without these lines it does not run. The file's top-level
+--- calls (a `Test.needs{...}` a test module makes once, at its top) are
+--- carried by the file's first example, since they are not inside any
+--- example of their own.
+local function preamble_text(pre: Preamble, body: string, first: boolean): string
+  local calls: {string} = {}
+  if first then
+    calls = pre.calls
+  end
+  local wanted = body .. "\n" .. table.concat(calls, "\n")
+  local out: {string} = {}
+  for _, required in ipairs(pre.requires) do
+    if mentions(wanted, required[1]) then
+      out[#out + 1] = required[2]
+    end
+  end
+  if #out > 0 and #calls > 0 then
+    out[#out + 1] = ""
+  end
+  for _, call in ipairs(calls) do
+    out[#out + 1] = call
+  end
+  if #out == 0 then
+    return ""
+  end
+  return table.concat(out, "\n") .. "\n\n"
+end
+
 --- Every worked example a chunk declares at its top level: a
 --- `function Example.<name>()`. The shape of the declaration is the
 --- only marker, as for the functions `docs_of` finds; `name` is a free
@@ -917,6 +1033,7 @@ end
 local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.ExampleEntry}
   local out: {analyzer.ExampleEntry} = {}
   local nodes = parsed.node
+  local pre = preamble_of(lines, nodes)
   for index, stmt in ipairs(nodes) do
     if is_example_function(stmt) then
       local name = stmt.name
@@ -925,9 +1042,10 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.Examp
         local after = nodes[index + 1]
         local until_y = after ~= nil and after.y or (#lines + 1)
         local until_x = after ~= nil and after.x or 1
+        local body = own_text(block_text(lines, stmt.y, stmt.x, until_y, until_x))
         out[#out + 1] = { name = tk,
           text = doc_before(lines, stmt.comments, stmt.y),
-          source = block_text(lines, stmt.y, stmt.x, until_y, until_x),
+          source = preamble_text(pre, body, #out == 0) .. body,
           line = stmt.y }
       end
     end
