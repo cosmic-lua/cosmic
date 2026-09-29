@@ -8,9 +8,10 @@
 --- inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
+local Codec = require("cosmic.codec")
 local codec = require("build.codec")
 
-local NAMES <const>: {string} = { "hex", "base64", "base64url" }
+local NAMES <const>: {Codec.Name} = { "hex", "base64", "base64url" }
 
 local TEXT <const> = "0123456789abcdefABCDEFxyzXYZ+/-_==\n \t\r\0\xff"
 
@@ -103,6 +104,71 @@ local function test_decoding_is_total_and_exact(tmp: string)
             if again ~= squeezed then
               return false, ("%q read as %q, which writes %q"):format(input, bytes, again)
             end
+            return true, ""
+          end,
+          requires = { "refused", "accepted" },
+        })
+      end
+    end
+  end
+end
+
+--- Draws a cutting of the input: chunk sizes, empty ones included, one
+--- byte each so that shrinking can cut any of them.
+local function gen_cuts(src: Fuzz.Source): string
+  local sizes: {string} = {}
+  while Fuzz.more(src, #sizes, 24) do
+    sizes[#sizes + 1] = string.char(src:int(0, 9))
+  end
+  return table.concat(sizes)
+end
+
+--- What decoding `text` in chunks of the sizes `cuts` bytes give, then
+--- a byte at a time, answers: the bytes, or nil and the reason.
+local function decode_cut(name: Codec.Name, text: string, lenient: boolean, cuts: string): string | nil, string
+  local coder = codec.decoding(name, lenient)
+  local out: {string} = {}
+  local at, k = 1, 0
+  while at <= #text do
+    k = k + 1
+    local size = k <= #cuts and cuts:byte(k) or 1
+    local part, why = coder:update(text:sub(at, at + size - 1))
+    if part == nil then return nil, why end
+    out[#out + 1] = part
+    at = at + size
+  end
+  local last, why = coder:finish()
+  if last == nil then return nil, why end
+  out[#out + 1] = last
+  return table.concat(out), ""
+end
+
+local function test_chunked_decoding_answers_as_the_whole_text_does(tmp: string)
+  for _, name in ipairs(NAMES) do
+    for _, lenient in ipairs({ false, true }) do
+      if not (name == "hex" and lenient) then
+        Fuzz.run({
+          name = name .. (lenient and " lenient" or "") .. " verb chunked decode",
+          dir = tmp,
+          gen = function(src: Fuzz.Source): string
+            local text = gen_text(src)
+            local shape = src:int(0, 2)
+            if shape == 0 then
+              text = Fuzz.mutate(src, codec.encode(name, Fuzz.bytes(src, 60), src:int(0, 7)), 2)
+            elseif shape == 1 then
+              text = strewn(codec.encode(name, Fuzz.bytes(src, 60), 0), Fuzz.bytes(src, 6))
+            end
+            return Fuzz.pack({ text, gen_cuts(src) })
+          end,
+          check = function(input: string): boolean, string
+            local fields = Fuzz.unpack(input)
+            local want, want_why = codec.decode(name, fields[1], lenient)
+            local got, why = decode_cut(name, fields[1], lenient, fields[2])
+            if got ~= want or why ~= want_why then
+              return false, ("%q cut %q: %s | %s, whole %s | %s"):format(
+                fields[1], fields[2], tostring(got), why, tostring(want), want_why)
+            end
+            Fuzz.label(want == nil and "refused" or "accepted")
             return true, ""
           end,
           requires = { "refused", "accepted" },

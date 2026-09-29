@@ -29,11 +29,17 @@
 --- and `=` padding on base64url. Hex has no padding, so `--lenient` with
 --- it is refused.
 ---
---- The whole input is read and held: `cosmic.codec` has no incremental
---- coder.
---- TODO: stream, once cosmic.codec carries an incremental encoder and
---- decoder that takes a chunk and keeps its leftover (up to two bytes of
---- input, or three characters of text).
+--- The input is streamed, 64 KiB at a time (a read that comes up short,
+--- as a pipe's does, is read on until the chunk is full or the input
+--- ends), through `cosmic.codec`'s incremental coders. Encoding writes
+--- each chunk's text as soon as it is made. Decoding holds one chunk's
+--- bytes back until the next chunk has decoded, so an input of at most
+--- 64 KiB writes nothing when it is refused. A padding, length or
+--- misplaced-`=` fault shows only at the end of the input, so a decoder
+--- reads all of a stream to find one -- in bounded memory, whatever its
+--- size -- and for an input of more than 64 KiB may have written most
+--- of its bytes before it refuses. An invalid character is refused as
+--- soon as its chunk is read.
 
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
@@ -51,7 +57,11 @@ local record verb
     out: function(text: string): boolean, string
     --- Writes one complaint line, without its newline.
     err: function(line: string)
-    --- The whole of standard input, or nil and why.
+    --- Standard input, or nil and why, read a chunk at a time. `run`
+    --- reads it when no file is named; `stdin` is the whole of it, in
+    --- a test's stead, and is used only when `input` is not given.
+    --- One of the two is required: `run` says so when neither is.
+    input: function(): Stream.Reader | nil, string
     stdin: function(): string | nil, string
   end
 end
@@ -61,13 +71,15 @@ local spec = Cli.options.codec
 local usage = "cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [<file>|-]"
 
 --- The encodings, by the name a command line gives.
-local names: {string} = { "hex", "base64", "base64url" }
+local names: {Codec.Name} = { "hex", "base64", "base64url" }
 
-local function known(name: string): boolean
-  for _, each in ipairs(names) do
-    if each == name then return true end
-  end
-  return false
+local by_word: {string:Codec.Name} = {}
+for _, each in ipairs(names) do
+  by_word[each] = each
+end
+
+local function known(word: string): Codec.Name | nil
+  return by_word[word]
 end
 
 --- Characters a text of each encoding may hold, as a pattern class of
@@ -97,26 +109,146 @@ local function offset_of(text: string, at: integer): integer
   return math.max(#text - 1, 0)
 end
 
+--- Bytes of input read, coded and written at a time.
+local chunk_size <const> = 1 << 16
+
+--- The whitespace `decoding` skips, as a pattern class.
+local blank <const> = "[ \t\n\r\f\v]"
+
+--- An encoder for `name` that writes its text in lines of `wrap`
+--- columns when that is positive, and ends in a newline at `finish`
+--- (so empty input writes just the newline).
+--- @param name hex, base64 or base64url
+--- @param wrap columns per line; 0 for one line
+local function encoding(name: Codec.Name, wrap: integer): Codec.Coder
+  local inner = Codec.encoder(name)
+  local column = 0
+  --- `text` with a newline wherever a line is full and more follows.
+  local function shaped(text: string): string
+    if wrap <= 0 then return text end
+    local parts: {string} = {}
+    local at = 1
+    while at <= #text do
+      if column == wrap then
+        parts[#parts + 1] = "\n"
+        column = 0
+      end
+      local take = math.min(wrap - column, #text - at + 1)
+      parts[#parts + 1] = text:sub(at, at + take - 1)
+      column = column + take
+      at = at + take
+    end
+    return table.concat(parts)
+  end
+  local coder: Codec.Coder = {}
+  coder.update = function(_self: Codec.Coder, chunk: string): string, string
+    return shaped((assert(inner:update(chunk)))), ""
+  end
+  coder.finish = function(_self: Codec.Coder): string, string
+    return shaped((assert(inner:finish()))) .. "\n", ""
+  end
+  return coder
+end
+
+--- A decoder for `name` of text with ASCII whitespace anywhere in it.
+--- `update` refuses a character outside the alphabet at once; the other
+--- faults wait for `finish`, since only the end of the text tells a
+--- length or a padding from a fault: both answer `nil` and a reason
+--- naming a byte offset, from 0, counted in the input as given.
+--- @param name hex, base64 or base64url
+--- @param lenient whether the other padding spelling is accepted
+function verb.decoding(name: Codec.Name, lenient: boolean): Codec.Coder
+  local inner = Codec.decoder(name)
+  local wrong = refused[name]
+  -- Bytes fed so far, characters that are not whitespace, and the
+  -- offset of the last of them.
+  local fed = 0
+  local seen = 0
+  local last: integer | nil
+  -- The first `=`: its offset and how many `=` and other characters
+  -- follow, which is all the padding rules need.
+  local pad_at: integer | nil
+  local pad_run = 0
+  local pad_other = false
+  local failed: string | nil
+  local function fail(why: string): nil, string
+    failed = why
+    return nil, why
+  end
+  --- `why`, a `cosmic.codec` reason, with the offset of the text's end.
+  local function at_end(why: string): nil, string
+    return fail(("%s (at offset %d)"):format(why:gsub("^codec: ", ""), last or math.max(fed - 1, 0)))
+  end
+  local coder: Codec.Coder = {}
+  coder.update = function(_self: Codec.Coder, chunk: string): string | nil, string
+    if failed ~= nil then return nil, failed end
+    local clean = squeezed(chunk)
+    local bad = clean:find(wrong)
+    if bad ~= nil then
+      return fail(("byte 0x%02x at offset %d is not in the %s alphabet"):format(
+        clean:byte(bad), fed + offset_of(chunk, bad), name))
+    end
+    if #clean > 0 then
+      seen = seen + #clean
+      last = fed + chunk:find("[^ \t\n\r\f\v]" .. blank .. "*$") - 1
+    end
+    local body = clean
+    if name ~= "hex" then
+      if pad_at == nil then
+        local pad = clean:find("=", 1, true)
+        if pad ~= nil then
+          pad_at = fed + offset_of(chunk, pad)
+          pad_run = #clean - pad + 1
+          pad_other = clean:find("[^=]", pad) ~= nil
+          if name == "base64url" then body = clean:sub(1, pad - 1) end
+        end
+      else
+        pad_run = pad_run + #clean
+        if clean:find("[^=]") ~= nil then pad_other = true end
+        if name == "base64url" then body = "" end
+      end
+    end
+    fed = fed + #chunk
+    -- A `cosmic.codec` decoder refuses only at `finish`.
+    return assert(inner:update(body)), ""
+  end
+  coder.finish = function(_self: Codec.Coder): string | nil, string
+    if failed ~= nil then return nil, failed end
+    -- Padding: `=` is only ever a run at the end, at most two long.
+    local head = ""
+    if pad_at ~= nil then
+      if pad_run > 2 or pad_other then
+        return fail(("misplaced '=' padding at offset %d"):format(pad_at))
+      end
+      if name == "base64url" and not lenient then
+        return fail(("'=' padding at offset %d is not accepted for base64url; --lenient accepts it"):format(
+          pad_at))
+      end
+      if name == "base64url" and seen % 4 ~= 0 then
+        return fail(("base64url padding at offset %d does not complete a group of four"):format(pad_at))
+      end
+    elseif name == "base64" and lenient and seen % 4 ~= 0 then
+      if seen % 4 == 1 then
+        return fail(("base64 text of length %d leaves one character over (at offset %d)"):format(
+          seen, last or 0))
+      end
+      head = assert(inner:update(("="):rep(4 - seen % 4)))
+    end
+    local out, why = inner:finish()
+    if out == nil then return at_end(why) end
+    return head .. out, ""
+  end
+  return coder
+end
+
 --- The text `name` writes for `bytes`, wrapped to `wrap` columns when
 --- that is positive, and always ending in a newline.
 --- @param name hex, base64 or base64url
 --- @param bytes what to encode
 --- @param wrap columns per line; 0 for one line
-function verb.encode(name: string, bytes: string, wrap: integer): string
-  local text: string
-  if name == "hex" then
-    text = Codec.hex(bytes)
-  elseif name == "base64" then
-    text = Codec.base64(bytes)
-  else
-    text = Codec.base64url(bytes)
-  end
-  if wrap <= 0 or #text <= wrap then return text .. "\n" end
-  local lines: {string} = {}
-  for first = 1, #text, wrap do
-    lines[#lines + 1] = text:sub(first, first + wrap - 1)
-  end
-  return table.concat(lines, "\n") .. "\n"
+function verb.encode(name: Codec.Name, bytes: string, wrap: integer): string
+  local coder = encoding(name, wrap)
+  return assert(coder:update(bytes)) .. assert(coder:finish())
 end
 
 --- The bytes `text` spells in encoding `name`, ignoring ASCII
@@ -124,62 +256,18 @@ end
 --- @param name hex, base64 or base64url
 --- @param text the encoded text
 --- @param lenient whether the other padding spelling is accepted
-function verb.decode(name: string, text: string, lenient: boolean): string | nil, string
-  local clean = squeezed(text)
-  local bad = clean:find(refused[name])
-  if bad ~= nil then
-    return nil, ("byte 0x%02x at offset %d is not in the %s alphabet"):format(
-      clean:byte(bad), offset_of(text, bad), name)
-  end
-  if name == "hex" then
-    local bytes, why = Codec.unhex(clean)
-    if bytes == nil then
-      return nil, ("%s (at offset %d)"):format(why:gsub("^codec: ", ""), offset_of(text, #clean))
-    end
-    return bytes, ""
-  end
-  -- Padding: `=` is only ever a run at the end, at most two long.
-  local pad = clean:find("=", 1, true)
-  local body = clean
-  if pad ~= nil then
-    local run = clean:sub(pad)
-    if #run > 2 or run:find("[^=]") then
-      return nil, ("misplaced '=' padding at offset %d"):format(offset_of(text, pad))
-    end
-    if name == "base64url" and not lenient then
-      return nil, ("'=' padding at offset %d is not accepted for base64url; --lenient accepts it"):format(
-        offset_of(text, pad))
-    end
-    body = clean:sub(1, pad - 1)
-  end
-  local bytes: string | nil
-  local why: string
-  if name == "base64" then
-    local spelled = clean
-    if lenient and pad == nil and #clean % 4 ~= 0 then
-      if #clean % 4 == 1 then
-        return nil, ("base64 text of length %d leaves one character over (at offset %d)"):format(
-          #clean, offset_of(text, #clean))
-      end
-      spelled = clean .. ("="):rep(4 - #clean % 4)
-    end
-    bytes, why = Codec.unbase64(spelled)
-  else
-    if pad ~= nil and #clean % 4 ~= 0 then
-      return nil, ("base64url padding at offset %d does not complete a group of four"):format(
-        offset_of(text, pad))
-    end
-    bytes, why = Codec.unbase64url(body)
-  end
-  if bytes == nil then
-    return nil, ("%s (at offset %d)"):format(why:gsub("^codec: ", ""), offset_of(text, #clean))
-  end
-  return bytes, ""
+function verb.decode(name: Codec.Name, text: string, lenient: boolean): string | nil, string
+  local coder = verb.decoding(name, lenient)
+  local head, why = coder:update(text)
+  if head == nil then return nil, why end
+  local tail, tail_why = coder:finish()
+  if tail == nil then return nil, tail_why end
+  return head .. tail, ""
 end
 
 --- What a command line asks for.
 local record Request
-  name: string
+  name: Codec.Name
   decode: boolean
   wrap: integer
   lenient: boolean
@@ -194,13 +282,14 @@ local function arguments(argv: {integer:string}): Request | nil, string
   if #words == 0 then
     return nil, "name an encoding: " .. table.concat(names, ", ")
   end
+  local name = known(words[1])
+  if name == nil then
+    return nil, ("no such encoding: %s; there are %s"):format(words[1], table.concat(names, ", "))
+  end
   local request: Request = {
-    name = words[1], decode = parsed.set["-d"] or parsed.set["--decode"] or false,
+    name = name, decode = parsed.set["-d"] or parsed.set["--decode"] or false,
     wrap = 0, lenient = parsed.set["--lenient"] or false,
   }
-  if not known(request.name) then
-    return nil, ("no such encoding: %s; there are %s"):format(request.name, table.concat(names, ", "))
-  end
   if #words > 2 then
     return nil, "give an encoding and a file at most, not " .. #words .. " words"
   end
@@ -225,14 +314,14 @@ local function arguments(argv: {integer:string}): Request | nil, string
   return request, ""
 end
 
---- The bytes of standard input, refusing a terminal, where nothing
---- would ever end them.
-local function read_stdin(): string | nil, string
+--- Standard input, refusing a terminal, where nothing would ever end
+--- the bytes.
+local function open_stdin(): Stream.Reader | nil, string
   if Proc.is_tty(Fs.stdin) then
     return nil, "no file given and standard input is a terminal; give a file or pipe bytes in"
   end
   -- `Stream.from_fd` borrows the descriptor, which stays open.
-  return Stream.read_all(Stream.from_fd(Fs.stdin))
+  return Stream.from_fd(Fs.stdin), ""
 end
 
 local standard: verb.Io = {
@@ -242,7 +331,7 @@ local standard: verb.Io = {
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end,
-  stdin = read_stdin,
+  input = open_stdin,
 }
 
 --- `cosmic codec <encoding> [options] [<file>|-]`: writes the encoding
@@ -260,31 +349,86 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     complain(trouble .. "; " .. usage)
     return 2
   end
-  local input: string | nil
+  local opened: Stream.Reader | nil
   local read_trouble: string
-  if request.file == nil then
-    input, read_trouble = to.stdin()
+  if request.file ~= nil then
+    opened, read_trouble = Stream.open(request.file)
+  elseif to.input ~= nil then
+    opened, read_trouble = to.input()
+  elseif to.stdin ~= nil then
+    local whole: string | nil
+    whole, read_trouble = to.stdin()
+    if whole ~= nil then opened = Stream.from_string(whole) end
   else
-    input, read_trouble = Fs.read(request.file)
+    read_trouble = "no standard input is given to read"
   end
-  if input == nil then
+  if opened == nil then
     complain(read_trouble)
     return 2
   end
-  local output: string
-  if request.decode then
-    local bytes, why = verb.decode(request.name, input, request.lenient)
-    if bytes == nil then
-      complain((request.file or "standard input") .. ": " .. why)
-      return 2
-    end
-    output = bytes
-  else
-    output = verb.encode(request.name, input, request.wrap)
+  local reader: Stream.Reader = opened
+  local decode = request.decode
+  local coder = decode and verb.decoding(request.name, request.lenient)
+    or encoding(request.name, request.wrap)
+  local source = request.file or "standard input"
+  -- What one chunk decoded to, kept until the next chunk shows the
+  -- text is sound so far: see the head of this file. Not used to encode.
+  local held = ""
+  --- Writes `text`, or complains of the write and answers false.
+  local function put(text: string): boolean
+    if text == "" then return true end
+    local ok, why = to.out(text)
+    if not ok then complain("standard output: " .. why) end
+    return ok
   end
-  local ok, why = to.out(output)
-  if not ok then
-    complain("standard output: " .. why)
+  --- Ends the run in failure, releasing the input.
+  local function stop(): integer
+    local _, _ = reader:close()
+    return 2
+  end
+  while true do
+    -- A read may come up short; fill the chunk, so that what is held
+    -- back is a whole chunk of input and not the last read.
+    local parts: {string} = {}
+    local have = 0
+    local ended = false
+    while have < chunk_size do
+      local piece, why = reader:read(chunk_size - have)
+      if piece == nil then
+        if why ~= "" then
+          complain(why)
+          return stop()
+        end
+        ended = true
+        break
+      end
+      parts[#parts + 1] = piece
+      have = have + #piece
+    end
+    if have > 0 then
+      local out, refusal = coder:update(table.concat(parts))
+      if out == nil then
+        complain(source .. ": " .. refusal)
+        return stop()
+      end
+      if decode then
+        if not put(held) then return stop() end
+        held = out
+      elseif not put(out) then
+        return stop()
+      end
+    end
+    if ended then break end
+  end
+  local last, refusal = coder:finish()
+  if last == nil then
+    complain(source .. ": " .. refusal)
+    return stop()
+  end
+  if not put(held .. last) then return stop() end
+  local closed, close_why = reader:close()
+  if not closed then
+    complain(close_why)
     return 2
   end
   return 0

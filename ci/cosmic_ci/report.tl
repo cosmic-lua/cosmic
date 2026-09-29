@@ -75,8 +75,8 @@ local record Report
   spec: {string:Flags.Option}
 end
 
---- The join job of ci.yml (`ci`): every other job of a run is a leg of
---- the platform matrix, named by its leg.
+--- The join job of ci.yml (`ci`): every other job of a run but `reuse`
+--- and `seed`'s legs is a leg of the platform matrix, named by its leg.
 local join_job <const> = "ci"
 --- The suites whose key parts decide whether a run qualifies: the
 --- checked suite's and each leg's native one (orchestration.tl's
@@ -218,10 +218,17 @@ function Report.driver_artifacts(text: string): {Report.Artifact}
   return out
 end
 
+--- Whether `name` is a platform leg's job: not the join, nor ci.yml's
+--- `reuse` lookup or a `seed` leg ("seed (<leg>, <runner>)"), which run
+--- in place of the legs on a push to main that reuses the queue's run.
+function Report.is_platform_job(name: string): boolean
+  return name ~= join_job and name ~= "reuse" and name ~= "seed" and not name:match("^seed %(")
+end
+
 local function platform_jobs(run: Report.Run): {Report.Job}
   local out: {Report.Job} = {}
   for _, job in ipairs(run.jobs) do
-    if job.name ~= join_job then out[#out + 1] = job end
+    if Report.is_platform_job(job.name) then out[#out + 1] = job end
   end
   return out
 end

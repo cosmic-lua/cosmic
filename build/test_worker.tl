@@ -145,12 +145,12 @@ local HEADER <const> = "cosmic-test-report-2"
 --- instead (`diagnostics`): the code a worker runs of the tree but its
 --- test's. No key holds them by what they are: every sandboxed key
 --- holds the harness's epoch in their place (build/harness_epoch.tl),
---- and the harness's digest, which build/harness_epoch_test.tl holds to
---- the one acknowledged there, holds each by its source and bytecode
+--- and the harness's digests, which build/harness_epoch_test.tl holds
+--- to those acknowledged there, hold each by its source and bytecode
 --- (`build.test`'s `harness`). `judge` fails a sandboxed test whose
 --- worker loaded a module of the tree the tool carries that is neither
 --- here nor in its closure, so what a worker runs is in its closure or
---- in that digest, and a module
+--- in those digests, and a module
 --- added to its way is named here by the first test that reaches it,
 --- rather than trusted to a walk of the `imports` table, which follows
 --- `local type` requires Teal erases and requires inside functions no
