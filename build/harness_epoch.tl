@@ -83,6 +83,8 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "52aa9695f4dffc58d017a83027ef65807b8d22b794b6d286a82ab70009250e69",
 
+  ["build.shared_verdicts"] = "347383106485bad1b4edd9138e782c159d4119f055934fcd0b3d596082a2f185",
+
   ["build.test"] = "1d7af78e289c1f55676d2c34f2ef2e17467699fd79d1992e7427b3966c82db70",
 
   ["build.test_inputs"] = "309b687417091781ed335c2b7378163882bf0803574fa2954f4a5b9f48cf2cc8",
