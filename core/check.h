@@ -25,15 +25,17 @@ static inline int cosmic_optint (lua_State *L, int arg, int otherwise) {
   return lua_isnoneornil(L, arg) ? otherwise : cosmic_checkint(L, arg);
 }
 
-/* A descriptor argument: `cosmic_checkint`'s, refused -- raised, naming
- * the argument -- where it is the descriptor a portable start retains on
- * the artifact (core/store.h's `cosmic_store_artifact`), through which
- * core/vfs.c reads the embedded database. No binding answers it but
- * `relaunch`, for `spawn` to hand on to this same program, so a caller
- * that passes it anywhere else has a number no correct program uses:
- * with it, a test would read every module the program carries, past
- * build/test_worker.tl's hold on the store and past every key. Every
- * binding that takes a descriptor takes it through one of these
+/* A descriptor argument: `cosmic_checkint`'s, but refused -- raised,
+ * naming the argument -- when it is the descriptor a portable start
+ * retains on the artifact (core/store.h's `cosmic_store_artifact`),
+ * through which core/vfs.c reads the embedded database. No binding
+ * answers that descriptor but `relaunch`, for `spawn` to hand on to this
+ * same program, so a caller that passes it anywhere else has a number no
+ * correct program uses. With it, a test would read every module the
+ * program carries, past build/test_worker.tl's hold on the store and
+ * past every key.
+ *
+ * Every binding that takes a descriptor takes it through one of these
  * (build/c/rules.tl's "descriptor-argument"): `cosmic_checkfd` for an
  * argument, `cosmic_argfd` for one read out of argument `arg`'s table
  * or checked otherwise. Defined in core/store.c, which holds the

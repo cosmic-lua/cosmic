@@ -3,13 +3,12 @@
 
 #include "lauxlib.h"
 
-/* Opens the raw `cosmic.internal.http` module: `open` and `start`,
- * each returning a userdata `Handle` with `status`, `url`, `headers`,
- * `read`, `write`, `finish`, `sent` and `close` methods, and
- * `check_certificate` -- the same "raw module
- * registered under cosmic.internal.*" shape core/sqlite.c uses, listed
- * in core/store.c's `raw_modules` the same way. See cosmic/http.tl for
- * the typed wrapper this backs. */
+/* Opens the raw `cosmic.internal.http` module: `open` and `start`, each
+ * returning a userdata `Handle` with `status`, `url`, `headers`, `read`,
+ * `write`, `finish`, `sent` and `close` methods, and `check_certificate`.
+ * It is a raw module registered under cosmic.internal.*, as core/sqlite.c
+ * is, and listed in core/store.c's `raw_modules` the same way. See
+ * cosmic/http.tl for the typed wrapper this backs. */
 int cosmic_open_http (lua_State *L);
 
 #ifdef COSMIC_CHECKED

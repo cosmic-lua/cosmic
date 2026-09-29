@@ -77,17 +77,19 @@ local tree_marker <const> = "\0tree"
 ---
 --- That is a rule, not an accident of keying: a test may not turn on
 --- where the tree is -- a path length limit, a name it prints and
---- compares. The answers that name it which a capture observes (the
---- working directory, a realpath, a readlink, a path under the tree
---- read or given) are keyed by `tree_name` in the shared key and whole
---- only in a checkout's own; one it does not (the artifact path
---- `Proc.relaunch` and the process table's `relaunch` answer) is keyed
---- nowhere. The same rule holds of where the running program is: what
---- `Proc.executable` answered is keyed nowhere (build.declared_key's
---- `program_answer`), only that it answered. Nothing here can see a
---- test break either rule; CI enforces both by moving its checkout, and
---- the tool it runs, o/bin/cosmic, with it, to a path the commit and
---- the leg choose, a new one each commit
+--- compares. The answers a capture observes that name the tree (the
+--- working directory, a realpath, a readlink, a path under the tree read
+--- or given) are keyed by `tree_name` in the shared key and whole only in
+--- a checkout's own. The artifact path (`Proc.relaunch` and the process
+--- table's `relaunch` answer) is keyed nowhere.
+---
+--- The same rule holds of where the running program is: what
+--- `Proc.executable` answered is keyed nowhere, only that it answered
+--- (build.declared_key's `program_answer`).
+---
+--- Nothing here can see a test break either rule. CI enforces both by
+--- moving its checkout, and the tool it runs, o/bin/cosmic, with it, to
+--- a path the commit and the leg choose, new for each commit
 --- (.github/scripts/place-tree.sh). That catches a test that breaks one
 --- only on a run that runs the test: every run while CI stands only on
 --- what it runs itself, and once it stands on shared verdicts, only a

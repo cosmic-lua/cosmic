@@ -340,12 +340,9 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  -- A test file elsewhere in the tree that `importer.compile` refused
-  -- (the return-collision case `analyzer.analyze` and
-  -- `with_test_tail` guard against) is silently dropped from the
-  -- database otherwise; the file the caller actually asked to run
-  -- still compiled fine and still runs below, so this is a warning,
-  -- never a reason to fail this invocation.
+  -- A file `importer.compile` refused (one whose top-level `return`
+  -- collides with the tail generated for its tests) is left out of the
+  -- database. The file asked for compiled, so this only warns.
   for _, line in ipairs(result.refused) do
     log:complain("warning: " .. line)
   end
@@ -463,10 +460,8 @@ local help_spec: verb_spec.Spec
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
   local started = Time.monotonic_ns()
-  -- Same staleness guard `test` applies: cheap (a fingerprint
-  -- compare) when the tool is already fresh, so this keeps help
-  -- fast in the ordinary case, and only rebuilds when an edit to
-  -- build.docs itself would otherwise go unseen.
+  -- The staleness guard `test` applies: a fingerprint compare when the
+  -- tool is fresh. Help reads build.docs, so an edit to it must rebuild.
   local code = require("build.reboot").stale_exit(argv)
   if code ~= nil then
     return code

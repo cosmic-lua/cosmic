@@ -227,11 +227,11 @@ local casts: {string: string} = {
     "declaration does not name, which only a map view of it lists",
 }
 
---- This module's own exemptions, which `check` holds a module to.
 --- The string fields rule 9 lets be compared with literals, each
 --- with the reason its values are not a closed set.
 local modes: {string: string} = {}
 
+--- This module's own exemptions, which `check` holds a module to.
 local own_exemptions: contracts.Exemptions = {
   exempt = exempt, parsing = parsing, casts = casts, modes = modes,
 }
@@ -994,8 +994,6 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
   for _, list in pairs(bindings) do
     table.sort(list, function(a: Binding, b: Binding): boolean return a.at < b.at end)
   end
-  --- Whether `name`, read at `at`, holds a reason. An alias is always
-  --- bound after the name it copies is read, so this only looks back.
   --- Whether the assignment `list[i]`, in a block closed before `at`,
   --- stored into a local declared in a block that has closed too: one
   --- declared before it whose scope holds the assignment's block and
@@ -1008,6 +1006,8 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
     end
     return false
   end
+  --- Whether `name`, read at `at`, holds a reason. An alias is always
+  --- bound after the name it copies is read, so this only looks back.
   local function holds_reason(name: string, at: integer): boolean
     local list = bindings[name] or {}
     for i = #list, 1, -1 do

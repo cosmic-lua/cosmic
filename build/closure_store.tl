@@ -8,14 +8,14 @@
 ---
 --- It is apart from the projection's writer because its code salts
 --- every store's address (`build.test`'s `store_writer`), and that
---- writer's need not: what it writes reaches a store only through rows
---- and orderings the address digests (`closure_store.basis`) -- each
---- module's columns, the stored (deflated) source's bytes among them,
---- and each module's own docs, catalog and examples in the order the
---- projection holds them, while the order across modules is this
---- module's (`closed`). So an edit to it -- a query of the projection,
---- a table only the projection fills -- moves only the addresses of the
---- stores whose rows it moves.
+--- writer's need not. What the writer writes reaches a store only
+--- through rows and orderings the address digests
+--- (`closure_store.basis`): each module's columns, the stored (deflated)
+--- source's bytes among them, and each module's own docs, catalog and
+--- examples in the order the projection holds them. The order across
+--- modules is this module's (`closed`). So an edit to the writer -- a
+--- query of the projection, a table only the projection fills -- moves
+--- only the addresses of the stores whose rows it moves.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -25,21 +25,24 @@ local schema = require("build.schema")
 
 local record closure_store
   --- What every closure store a projection yields is a function of,
-  --- read once from the projection (`closure_store.basis`): each module
-  --- as a line naming its path, kind, file, source hash and tests, and
-  --- the digests of its bytecode, of its source as stored (deflated, by
-  --- `build.writer`), and of the rows a store carries of it -- its
-  --- imports, docs, uses, catalog and examples, each in the order the
-  --- store takes them within the module (or file) -- each declaration
-  --- as a line naming its path and the digests of its source as stored
-  --- and of its docs, with the declarations it requires, and a digest
-  --- of what every store holds alike: the `meta` rows it keeps
-  --- (`closure_meta`). What the
-  --- compiler made of a module is so held by what it made, not by the
-  --- compiler's identity (`build.work`'s `Identities`), which moves with
-  --- every edit to any module a compile or a parse runs, most of which
-  --- change nothing it makes: an edit to the compiler that leaves every
-  --- row of a closure as it was leaves its store and its address too.
+  --- read once from the projection (`closure_store.basis`).
+  ---
+  --- Each module is a line naming its path, kind, file, source hash and
+  --- tests, then the digests of its bytecode, of its source as stored
+  --- (deflated, by `build.writer`), and of the rows a store carries of
+  --- it: its imports, docs, uses, catalog and examples, each in the
+  --- order the store takes them within the module (or file). Each
+  --- declaration is a line naming its path and the digests of its source
+  --- as stored and of its docs, and it records the declarations it
+  --- requires. A digest covers what every store holds alike: the `meta`
+  --- rows it keeps (`closure_meta`).
+  ---
+  --- What the compiler made of a module is held by what it made, not by
+  --- the compiler's identity (`build.work`'s `Identities`). That moves
+  --- with every edit to any module a compile or a parse runs, most of
+  --- which change nothing it makes. An edit to the compiler that leaves
+  --- every row of a closure as it was leaves its store and its address
+  --- too.
   record Basis
     modules: {string:string}
     shared: string
@@ -81,11 +84,11 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 --- handed to `require` -- `local type t = require("name")`, as a
 --- declaration requires another's types -- spelled `require("name")`,
 --- `require "name"`, with single quotes, or as a long string
---- (`require [[name]]`). It reads more than a parse would, a name
---- written so in a comment among them, which only makes a store carry,
---- and its address hold, a declaration more; a declaration cannot
---- require a computed name, since the checker types only a literal one.
---- A spelling it misses fails closed: the store's hold
+--- (`require [[name]]`). It reads more than a parse would: a name
+--- written so in a comment is among them, which only makes a store
+--- carry, and its address hold, one declaration more. A declaration
+--- cannot require a computed name, since the checker types only a
+--- literal one. A spelling it misses fails closed: the store's hold
 --- (`build.test_worker`'s `hold_store`) refuses a held test any
 --- declaration outside its closure's names, so one this leaves out of a
 --- store is one no held test can read, and a test that types it fails
@@ -285,14 +288,14 @@ end
 --- digest of everything its bytes follow from -- its modules' lines,
 --- the modules each example module among them could be paired with
 --- (`candidates`), its declarations' lines (`declared`), the basis's
---- shared digest, and `salt`, which names
---- the code that writes it (`build.test` passes a digest of this
---- module's and build.schema's sources and bytecode, and nothing of
---- the projection's writer, whose edits leave a store's bytes alone).
---- An edit to a module or a declaration outside the closure moves none
---- of them, and neither does adding or removing one, but for one an
---- example of the closure could be paired with: so neither the address
---- nor the store moves.
+--- shared digest, and `salt`, which names the code that writes it
+--- (`build.test` passes a digest of this module's and build.schema's
+--- sources and bytecode, and nothing of the projection's writer, whose
+--- edits leave a store's bytes alone). An edit to a module or a
+--- declaration outside the closure moves none of these, and neither
+--- does adding or removing one, except a module an example of the
+--- closure could be paired with. So neither the address nor the store
+--- moves.
 function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string): string
   local lines: {string} = { basis.shared, salt }
@@ -310,7 +313,8 @@ end
 --- as `whole`, for the modules `temp.wanted` names: their rows, the
 --- edges among them, their docs, uses (those they make), catalog, and
 --- the examples of the example files among them; the declarations
---- `temp.declared` names (`declared`) and their docs; and the `meta` rows `closure_meta` keeps. The zones, CA
+--- `temp.declared` names (`declared`) and their docs; and the `meta`
+--- rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, `cosmic.time`
 --- and `build.bom` read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
