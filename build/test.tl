@@ -2911,8 +2911,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- when the process that started them ended, which its test may
       -- still be waiting on: those in the group it leads are spared,
       -- until its end ends them with its group. An orphan in a group
-      -- the worker started is its own to adopt: starting one made it a
-      -- subreaper (`Child.start`).
+      -- the worker itself started is its own to adopt: starting one made
+      -- it a subreaper (`Child.start`).
       -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
       -- of its own, whose init ends when it does, ending everything
       -- left there, before `wait` answers for it. Nothing adopts them
@@ -2923,10 +2923,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
-      -- TODO: spare an orphan of a running worker that left its group
-      -- too (a host shell's job control puts what it starts in groups
-      -- of their own), by the worker's session, once a worker can be
-      -- started in a session of its own (`Child.Options` taking one).
+      -- TODO: spare an orphan of a running worker that is outside its
+      -- group too -- in a group a descendant started, a `Child.start`
+      -- in a process that ended first, or a session it began (setsid)
+      -- -- by the worker's session, once a worker can be started in a
+      -- session of its own (`Child.Options` taking one); setsid's
+      -- orphan would still escape.
       if not rec.sandbox then
         local groups: {integer} = {}
         for _, job in ipairs(still) do groups[#groups + 1] = job.handle.pid end

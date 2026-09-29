@@ -361,7 +361,7 @@ COSMIC_SYSCALL(getpid, 0);
 
 /*
  * --- Returns the process group a process is in.
- * ---@param pid integer the process id, or 0 for this process
+ * ---@param pid integer the process id, or 0 for this process; a negative one raises
  * ---@return integer|nil pgid the process group's identifier, or nil on failure
  * ---@return string error what went wrong, when pgid is nil
  * ---@return integer errno the error number, when pgid is nil

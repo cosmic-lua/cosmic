@@ -176,7 +176,10 @@ end
 --- after the process that started it ended, which the runner adopts,
 --- while another worker ends. `late` is orphaned to the runner from a
 --- worker that started nothing in a group of its own, and so adopts
---- nothing itself; it is let go on only once the other worker is gone.
+--- nothing itself; it is told to finish only after the other worker has
+--- ended. Started two at a time in the order of their paths, `then`
+--- starts only once `ends` has ended and the runner has ended the
+--- strays it would.
 local function test_a_running_workers_orphan_outlives_another_worker(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local root = tmp .. "/project"
@@ -199,10 +202,11 @@ local function await(path: string, seconds: integer)
   end
 end
 ]]
-  local function write(name: string, body: string)
-    local text = (await .. body):gsub("SHARED", function(): string return shared end)
+  local function place(name: string, source: string)
+    local text = source:gsub("SHARED", function(): string return shared end)
     assert(Fs.write(root .. "/suite/" .. name, text))
   end
+  local function write(name: string, body: string) place(name, await .. body) end
   write("orphans_test.tl", [[
 local Child = require("cosmic.child")
 
@@ -212,25 +216,20 @@ local function test_orphans()
     { process_group = false, timeout_ms = 30000 }))
   assert(r.ok)
   assert(Fs.write("SHARED/ready", ""))
-  await("SHARED/other", 30)
-  local other = assert(math.tointeger(tonumber((Fs.read("SHARED/other")))))
-  -- Until the runner has reaped the other worker, then a moment more for
-  -- what it does next.
-  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
-  while sys.kill(other, 0) do
-    assert(Time.monotonic_ns() < deadline, "the other worker ran on")
-    local _, _ = sys.nanosleep(5 * 1000 * 1000)
-  end
-  local _, _ = sys.nanosleep(500 * 1000 * 1000)
+  await("SHARED/then", 30)
   assert(Fs.write("SHARED/go", ""))
   await("SHARED/done", 10)
 end
 ]])
   write("ends_test.tl", [[
 local function test_ends()
-  assert(Fs.write("SHARED/other.part", tostring(sys.getpid())))
-  assert(sys.rename("SHARED/other.part", "SHARED/other"))
   await("SHARED/ready", 30)
+end
+]])
+  place("then_test.tl", [[
+local Fs = require("cosmic.fs")
+local function test_then()
+  assert(Fs.write("SHARED/then", ""))
 end
 ]])
   local output = tmp .. "/run.out"

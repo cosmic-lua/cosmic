@@ -1336,7 +1336,7 @@ function Child.end_strays(spared?: {integer}): integer
     if found ~= nil and next(groups) ~= nil then
       local ending: {integer} = {}
       for _, pid in ipairs(found) do
-        -- One gone already has no group to be spared by.
+        -- Not answered: ended as before.
         local group, _ = sys.getpgid(pid)
         if group == nil or not groups[group] then ending[#ending + 1] = pid end
       end
