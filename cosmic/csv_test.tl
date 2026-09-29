@@ -153,3 +153,41 @@ local function test_a_large_file_reads_in_full()
   assert(big_why == "after a closing quote, expected the delimiter or the end of the line at line 200001, column 2",
     big_why)
 end
+
+local function test_a_one_column_file_reads_an_interior_blank_line_as_an_empty_field()
+  local rows = assert(Csv.rows("a\n1\n\n3\n"))
+  assert(#rows == 3 and rows[1].a == "1" and rows[2].a == "" and rows[3].a == "3", #rows .. " rows")
+  -- Blank lines at the end are the file's end, however many, LF or CRLF.
+  assert(#assert(Csv.rows("a\n1\n\n3\n\n\n")) == 3)
+  assert(#assert(Csv.rows("a\r\n1\r\n\r\n3\r\n\r\n")) == 3)
+  assert(#assert(Csv.rows("a\n1\n\n\n3")) == 4)
+  assert(#assert(Csv.rows("a\n\n\n")) == 0 and #assert(Csv.rows("a\n")) == 0)
+  -- Blank lines before the header are skipped.
+  local lead = assert(Csv.rows("\n\na\n1\n"))
+  assert(#lead == 1 and lead[1].a == "1")
+  -- parse alone never yields a record of no fields.
+  assert(parsed("a\n1\n\n3\n") == "a;1;3")
+end
+
+local function test_a_file_of_two_columns_skips_blank_lines()
+  local rows = assert(Csv.rows("a,b\n1,2\n\n3,4\n\n\n"))
+  assert(#rows == 2 and rows[2].a == "3")
+  assert(#assert(Csv.rows("\na,b\r\n\r\n1,2\r\n")) == 1)
+  local none, why = Csv.rows("a,b\n1,2\n\n3\n")
+  assert(none == nil and why == "line 4, column 1: the record has 1 field, the header 2", why)
+end
+
+local function test_table_keeps_the_headers_order()
+  local made = assert(Csv.table("z,a,m\n1,2,3\n"))
+  assert(table.concat(made.columns, ",") == "z,a,m" and #made.rows == 1)
+  local header_only = assert(Csv.table("z,a\n"))
+  assert(table.concat(header_only.columns, ",") == "z,a" and #header_only.rows == 0)
+  assert(#assert(Csv.table("")).columns == 0)
+end
+
+local function test_a_lone_carriage_return_at_the_end_is_data()
+  assert(parsed("1,2\r") == "1|2\r")
+  local rows = assert(Csv.rows("a,b\n1,2\r"))
+  assert(rows[1].b == "2\r")
+  assert(parsed("1,2\r\n") == "1|2")
+end

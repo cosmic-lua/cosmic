@@ -149,7 +149,7 @@ local function test_parse_and_rows_are_total_on_any_bytes(tmp: string)
       if rows == nil then
         Fuzz.label("ragged")
         if not rows_why:find("^line %d+, column 1: the record has ") then return false, "rows said: " .. rows_why end
-      elseif #rows ~= math.max(#records - 1, 0) then
+      elseif (records[1] == nil or #records[1] > 1) and #rows ~= math.max(#records - 1, 0) then
         return false, #rows .. " rows for " .. #records .. " records"
       end
       return true, ""

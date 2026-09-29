@@ -17,9 +17,16 @@
 ---   that begins with `"` is quoted there too, and a stray `"` in one is
 ---   as much a fault as in CSV.
 --- - A UTF-8 byte order mark at the start of the text is dropped.
---- - A line with nothing on it, outside quotes, is no record: it is
----   skipped, so `a,b\n\n1,2\n` holds two. A record of one empty field is
----   therefore written `""`, which `encode` does.
+--- - A line with nothing on it, outside quotes, is no record to `parse`:
+---   it is skipped, so `a,b\n\n1,2\n` holds two. `rows` and `table`
+---   read it by the header's width: with two or more columns it is
+---   skipped, but a one-column file writes an empty cell as an empty
+---   line (as pandas and spreadsheets do), so there an interior blank
+---   line is a row of one empty field, and only the blank lines at the
+---   end of the file are dropped (`a\n1\n\n3\n\n` has rows 1, "", 3).
+---   Blank lines before the header are skipped either way. A record of
+---   one empty field is written `""`, which `encode` does, and `parse`
+---   reads back.
 --- - A trailing delimiter is an empty last field: `a,b,\n` holds three.
 ---
 --- What is refused, each naming its `line N, column M` (a line counts
@@ -31,7 +38,7 @@
 --- they seem, and padding it would answer a query wrongly without a
 --- word. It names the line the record began on.
 ---
---- `rows` names a column for each header field so that a row can be a
+--- `table` (and `rows`) names a column for each header field so that a row can be a
 --- table: the empty name is `_`, a NUL byte in a name is `_`, and a name
 --- whose lower case an earlier one has (SQLite folds ASCII case) gets
 --- `_2` after it (`a`, `A` are `a`, `A_2`), or `_3` and on (so the empty name twice is `_`, `__2`), the rule
@@ -43,6 +50,13 @@ local record Csv
     --- The one byte between fields (default `,`). It may not be `"`, CR
     --- or LF.
     delimiter: string
+  end
+
+  --- What `table` read: the column names in the header's order, and a
+  --- row per record after it.
+  record Table
+    columns: {string}
+    rows: {{string:string}}
   end
 
   --- What `read` found: the records, and the line each began on.
@@ -79,15 +93,16 @@ local function read(text: string, delimiter: string): Csv.Scan | nil, string
   local pos = text:sub(1, 3) == BOM and 4 or 1
   local line = 1
   local line_start = pos
+  local delimiter_byte = delimiter:byte()
   local class = "[" .. (delimiter:find("^%w") and delimiter or "%" .. delimiter) .. '\n"]'
   while pos <= size do
     local first = text:byte(pos)
-    if first == 10 then
-      pos = pos + 1
-      line = line + 1
-      line_start = pos
-    elseif first == 13 and text:byte(pos + 1) == 10 then
-      pos = pos + 2
+    if first == 10 or (first == 13 and text:byte(pos + 1) == 10) then
+      -- A blank line: a record of no fields, which `parse` leaves out and
+      -- `rows` reads by the header's width.
+      records[#records + 1] = {}
+      lines[#records] = line
+      pos = pos + (first == 10 and 1 or 2)
       line = line + 1
       line_start = pos
     else
@@ -126,7 +141,7 @@ local function read(text: string, delimiter: string): Csv.Scan | nil, string
           local after = text:byte(pos)
           if after == nil then
             ended = true
-          elseif after == delimiter:byte() then
+          elseif after == delimiter_byte then
             pos = pos + 1
           elseif after == 10 then
             pos = pos + 1
@@ -186,7 +201,13 @@ function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
   if scan == nil then
     return nil, trouble
   end
-  return scan.records, ""
+  local records: {{string}} = {}
+  for _, record in ipairs(scan.records) do
+    if #record > 0 then
+      records[#records + 1] = record
+    end
+  end
+  return records, ""
 end
 
 --- A column name for each of `header`'s fields, as the module comment
@@ -208,12 +229,14 @@ local function names_of(header: {string}): {string}
   return names
 end
 
---- The rows of `text`: its first record names the columns (renamed as the
---- module comment says), and each record after it is a table from column
---- name to field. Nil and why for what `parse` refuses, and for a record
---- whose field count is not the header's, naming the line it began on
---- and both counts. Text with no records, or a header alone, has no rows.
-function Csv.rows(text: string, opts?: Csv.Options): {{string:string}} | nil, string
+--- The header's names (see the module comment) and the rows of `text`:
+--- its first record names the columns, and each record after it is a
+--- table from column name to field. Nil and why for what `parse` refuses,
+--- and for a record whose field count is not the header's, naming the
+--- line it began on and both counts. Blank lines are read as the module
+--- comment says. Text with no records has no columns, and a header alone
+--- has columns and no rows.
+function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
   local delimiter, bad = delimiter_of(opts)
   if delimiter == nil then
     return nil, bad
@@ -223,24 +246,50 @@ function Csv.rows(text: string, opts?: Csv.Options): {{string:string}} | nil, st
     return nil, trouble
   end
   local records, lines = scan.records, scan.lines
-  local rows: {{string:string}} = {}
-  if records[1] == nil then
-    return rows, ""
+  local first = 1
+  while records[first] ~= nil and #records[first] == 0 do
+    first = first + 1
   end
-  local names = names_of(records[1])
-  for number = 2, #records do
+  local rows: {{string:string}} = {}
+  if records[first] == nil then
+    return { columns = {}, rows = rows }, ""
+  end
+  local names = names_of(records[first])
+  local last = #records
+  if #names == 1 then
+    -- Blank lines after the last record are the file's end.
+    while last > first and #records[last] == 0 do
+      last = last - 1
+    end
+  end
+  for number = first + 1, last do
     local record = records[number]
-    if #record ~= #names then
+    if #record == 0 then
+      if #names == 1 then
+        record = { "" }
+      end
+    elseif #record ~= #names then
       return nil, at(lines[number], 1) .. ": the record has " .. #record ..
         (#record == 1 and " field" or " fields") .. ", the header " .. #names
     end
-    local row: {string:string} = {}
-    for index, name in ipairs(names) do
-      row[name] = record[index]
+    if #record > 0 then
+      local row: {string:string} = {}
+      for index, name in ipairs(names) do
+        row[name] = record[index]
+      end
+      rows[#rows + 1] = row
     end
-    rows[#rows + 1] = row
   end
-  return rows, ""
+  return { columns = names, rows = rows }, ""
+end
+
+--- The rows `table` reads, without the header's names.
+function Csv.rows(text: string, opts?: Csv.Options): {{string:string}} | nil, string
+  local made, trouble = Csv.table(text, opts)
+  if made == nil then
+    return nil, trouble
+  end
+  return made.rows, ""
 end
 
 --- One field as it is written: quoted when it holds the delimiter, a

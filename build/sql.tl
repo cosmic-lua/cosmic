@@ -586,7 +586,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     if rows == nil then
       return fail(input.label .. ": " .. format_trouble)
     end
-    local loaded, load_trouble = Dataset.load(db, input.table, rows)
+    local loaded, load_trouble = Dataset.load(db, input.table, rows, { columns = rows.columns })
     if loaded == nil then
       return fail(input.label .. ": " .. load_trouble)
     end

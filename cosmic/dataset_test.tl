@@ -278,3 +278,38 @@ local function test_json_formats_refuse_raw()
     assert(none == nil and why:find("no raw cells", 1, true), why)
   end
 end
+
+local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
+  local rows = assert(Dataset.read("csv", "z,a,m\n1,2,3\n"))
+  local db = memory()
+  local made = assert(Dataset.load(db, "t", rows, { columns = rows.columns }))
+  assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
+  local star = Sqlite.text_rows(db, "SELECT * FROM t")
+  assert(star ~= nil and star[1][1] == "1" and star[1][2] == "2" and star[1][3] == "3")
+  -- Without the order it is byte order, as for JSON.
+  local db2 = memory()
+  assert(table.concat(assert(Dataset.load(db2, "t", rows)).columns, ",") == "a,m,z,_json")
+  local json = assert(Dataset.read("json", '[{"z": 1, "a": 2}]'))
+  assert(json.columns == nil)
+  -- A listed key no row has is still a column; others follow in byte order.
+  local extra = assert(Dataset.load(memory(), "t", assert(Dataset.read("json", '[{"b": 1, "a": 2}]')),
+    { columns = { "q", "b", "q" } }))
+  assert(table.concat(extra.columns, ",") == "q,b,a,_json", table.concat(extra.columns, ","))
+  -- A header alone is a table of empty columns.
+  local none = assert(Dataset.read("csv", "x,y\n"))
+  local empty = assert(Dataset.load(memory(), "t", none, { columns = none.columns }))
+  assert(table.concat(empty.columns, ",") == "x,y,_json" and empty.count == 0)
+end
+
+local function test_a_one_column_csv_keeps_an_interior_blank_line_as_null()
+  local rows = assert(Dataset.read("csv", "a\n1\n\n3\n\n"))
+  assert(#rows == 3)
+  local db2 = memory()
+  assert(Dataset.load(db2, "t", rows))
+  assert(#grid(db2, "SELECT 1 FROM t WHERE a IS NULL") == 1)
+end
+
+local function test_minus_zero_loads_as_the_integer_zero()
+  local got = csv_cells("a,b\n-0,-0.0\n")
+  assert(got == "integer:0|real:0.0", got)
+end

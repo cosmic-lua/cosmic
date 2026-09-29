@@ -113,8 +113,10 @@ local record Cli
   --- to the `--from` before them, and `--at` reads the rows from
   --- the array at a path, as `cosmic json` reads one (a CSV or TSV has
   --- no path). A CSV or TSV (RFC 4180, quotes and all) has a header
-  --- line naming the columns and a row per record, and a record with more
-  --- or fewer fields than the header is refused, naming its line. Its
+  --- line naming the columns, in that order, and a row per record; a record with more
+  --- or fewer fields than the header is refused, naming its line, and a
+  --- blank line is skipped, except in a one-column file, where one before
+  --- the last record is an empty cell (blank lines at the end are dropped). Its
   --- cells are typed by one rule: a cell that is plainly a number (an
   --- optional `-`, digits, an optional fraction or exponent; no `+`, no
   --- leading zero, no spaces) is an integer or a real, an empty cell is

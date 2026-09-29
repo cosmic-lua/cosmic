@@ -89,8 +89,10 @@ what to query. A table is named for its file's stem (`--from
 name=file` names it), a `.jsonl` or `.ndjson` file is one row per line,
 and `--at '$.data.rows'` takes the rows from the array at a path. A
 `.csv` file (`.tsv` or `.tab` for tabs) takes its columns from the
-header line, and a record with another number of fields is refused,
-naming its line. Its cells are typed by one rule: a plain number
+header line (`SELECT *` keeps that order), and a record with another
+number of fields is refused, naming its line. A blank line is skipped,
+except in a one-column file, where one before the last record is an
+empty cell. Its cells are typed by one rule: a plain number
 (`-12`, `3.5`, `1e5`) is an integer or a real, an empty cell is NULL,
 and anything else is text, so a ZIP code like `02134` and `007` keep
 their zeros. `--raw` after the `--from` keeps every cell text, and a CSV

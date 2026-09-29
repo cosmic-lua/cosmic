@@ -457,8 +457,8 @@ local function test_no_statement_prints_the_schema_of_a_csv()
     "people: 3 rows",
     "  id     integer",
     "  name   text",
-    "  score  integer|null|real",
     "  zip    integer|null|text",
+    "  score  integer|null|real",
     "  _json  text",
     '  sample: {"id":1,"name":"Ann, Jr.","score":9.5,"zip":"02134"}',
   }, "\n"), table.concat(written.out, "\n"))
@@ -490,5 +490,18 @@ local function test_csv_faults_name_the_file_and_the_place_and_at_is_refused()
   assert(code == 1 and written.err[1]:find("the csv format takes no path", 1, true), written.err[1])
   code, written = run(dir, { "--from", dir .. "/scores.tsv", "--at", "$.a", "SELECT 1" })
   assert(code == 1 and written.err[1]:find("the tsv format takes no path", 1, true), written.err[1])
+  assert(Fs.remove_tree(dir))
+end
+
+local function test_a_csv_keeps_its_header_order_and_a_one_column_blank_line()
+  local dir = data()
+  assert(Fs.write(dir .. "/wide.csv", "z,a,m\n1,2,3\n"))
+  local code, written = run(dir, { "--from", dir .. "/wide.csv", "SELECT * FROM wide" })
+  assert(code == 0 and written.out[1] == "z\ta\tm\t_json", table.concat(written.err, "|") .. written.out[1])
+  code, written = run(dir, { "--from", dir .. "/wide.csv" })
+  assert(written.out[2] == "  z      integer" and written.out[3] == "  a      integer", table.concat(written.out, "|"))
+  assert(Fs.write(dir .. "/one.csv", "a\n1\n\n3\n\n"))
+  code, written = run(dir, { "--from", dir .. "/one.csv", "SELECT count(*), count(a) FROM one" })
+  assert(code == 0 and written.out[2] == "3\t2", table.concat(written.err, "|") .. table.concat(written.out, "|"))
   assert(Fs.remove_tree(dir))
 end
