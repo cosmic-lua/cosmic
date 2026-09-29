@@ -145,9 +145,16 @@ end
 --- `variables` locates it. Answers the directory that zig is installed
 --- in and what outside the tree the compiler runs from, or nil when an
 --- override names a zig or a bootstrap cosmic the pins do not.
--- TODO: hash what the scripts run from the host -- `sh`, and the `sed`,
--- `wc` and `tr` `PATH` finds -- or run them from the pins too: a host
--- whose tools change keeps its verdicts.
+---
+--- What the scripts run from the host -- `sh`, the `dirname`, `sed`,
+--- `wc` and `tr` `PATH` finds, and the launcher's `uname` and `stat` --
+--- a compiler runs only from what its sandbox gives it: the system's
+--- paths, the tree's and the test's own. A test's sandboxed worker is
+--- given the system's only where its module declares `system`, whose
+--- key holds what they hold, walked (`declared_key.system_identity`); a
+--- compiler confined in an unsandboxed one is given them as every
+--- confined process is, and keyed by what `lstat` says of everything
+--- beneath each. A `PATH` directory outside those is not there for it.
 local function toolchain(root: string, variables: {string:string}):
     string | nil, {string}
   for _, name in ipairs({ "COSMIC_ZIG", "COSMIC_BOOTSTRAP" }) do

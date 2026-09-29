@@ -832,6 +832,34 @@ local function test_a_walk_is_remembered_while_no_directory_moves(tmp: string)
   assert(next_run.read == 1)
 end
 
+--- The host programs a test's processes run from the system's paths --
+--- the `sh`, `sed`, `wc` and `tr` bin/zig's scripts run for the C check
+--- (build/c/init.tl) -- are what the key of a module given those paths
+--- holds: a `wc` replaced on the PATH they are found on moves it, where
+--- the module declares `system`, and a module not given them, whose
+--- processes cannot run them, does not move.
+local function test_a_changed_tool_moves_a_system_modules_key(tmp: string)
+  tree(tmp .. "/tree")
+  local bin = tmp .. "/host/usr/bin"
+  assert(Fs.mkdirs(bin))
+  for _, tool in ipairs({ "sh", "sed", "wc", "tr" }) do
+    assert(Fs.write(bin .. "/" .. tool, tool .. "\n"))
+  end
+  local function key_on(declares_system: boolean): string
+    local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PATH = bin })
+    s.system = declared_key.system_identity(declared_key.digests(tmp), {
+      packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+      walked = { tmp .. "/host/usr" },
+    }, declares_system)
+    s.effective.system = declares_system
+    return key_of(tmp .. "/tree", s)
+  end
+  local given, not_given = key_on(true), key_on(false)
+  assert(Fs.write(bin .. "/wc", "another wc\n"))
+  assert(key_on(true) ~= given, "a changed wc moved no key of a module given the system")
+  assert(key_on(false) == not_given, "a module not given the system moved")
+end
+
 --- The program's identity is its files' contents, but for the stamp
 --- that says its core was verified, which a first run makes.
 local function test_the_program_is_keyed_by_its_contents(tmp: string)
