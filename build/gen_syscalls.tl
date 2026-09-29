@@ -428,7 +428,7 @@ local syscalls_target: Target = {
   record_name = "syscalls",
   summary = {
     "The syscall table: one C function per call, the same on Linux",
-    "and on macOS. Derived from core/syscalls.h.",
+    "and on macOS.",
   },
 }
 

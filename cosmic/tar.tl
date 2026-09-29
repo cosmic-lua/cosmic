@@ -52,7 +52,11 @@ local record Tar
   end
 
   record EntryOptions
+    --- The permission bits (the low 12 bits are written). Defaults to
+    --- 0644 for a file, 0755 for a directory and 0777 for a symlink.
     mode: integer
+    --- Modification time in Unix epoch seconds; defaults to 0. Ignored
+    --- (written as 0) when the writer is `deterministic`.
     mtime: integer
     --- Required when the body passed to `add_file` is a Stream.Reader rather
     --- than a string, since a tar header states a size before its body.
@@ -70,12 +74,22 @@ local record Tar
   --- later call, `close` included, returns that failure: a half-written
   --- archive is never committed. A call after `close` fails too.
   record Writer
-    add_file: function(Writer, string, string | Stream.Reader, opts?: EntryOptions): boolean, string
-    add_dir: function(Writer, string, opts?: EntryOptions): boolean, string
-    add_symlink: function(Writer, string, string, opts?: EntryOptions): boolean, string
-    close: function(Writer): boolean, string
+    --- Adds a regular file at `path` with `data` as its body. A
+    --- `Stream.Reader` body is read to `opts.size` bytes, which it then
+    --- requires; a string body must match `opts.size` when that is given.
+    --- The reader is not closed. Returns `true, ""`, or `false` and why.
+    add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: EntryOptions): boolean, string
+    --- Adds a directory entry at `path`, to which a trailing `/` is
+    --- added if missing. Returns `true, ""`, or `false` and why.
+    add_dir: function(self: Writer, path: string, opts?: EntryOptions): boolean, string
+    --- Adds a symbolic link at `path` pointing at `target`. Returns
+    --- `true, ""`, or `false` and why.
+    add_symlink: function(self: Writer, path: string, target: string, opts?: EntryOptions): boolean, string
+    --- Writes the archive's end blocks and closes the underlying
+    --- Stream.Writer, committing it. Returns `true, ""`, or `false` and why.
+    close: function(self: Writer): boolean, string
     --- Abandons the archive: aborts the underlying Stream.Writer.
-    abort: function(Writer): boolean, string
+    abort: function(self: Writer): boolean, string
   end
 end
 

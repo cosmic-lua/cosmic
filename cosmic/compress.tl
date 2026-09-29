@@ -1,10 +1,10 @@
---- Compression and expansion over the core's miniz, xz and bzip2
---- bindings: one-shot deflate/inflate in any deflate framing, and
---- streaming codecs for deflate/zlib/gzip, xz and bzip2.
+--- Compression and expansion: one-shot deflate and inflate in the raw,
+--- zlib and gzip framings, streaming encoders and decoders for the same
+--- three, and streaming decoders (no encoders) for xz and bzip2.
 
---- The raw module behind the streaming codecs lives under the reserved
---- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
---- indirection exists.
+-- The raw module behind the streaming codecs lives under the reserved
+-- `cosmic.internal.` namespace -- see cosmic/store.tl for why this
+-- indirection exists.
 local type raw_compress = require("cosmic.internal.compress")
 
 local extra: any = select(2, ...)
@@ -134,9 +134,9 @@ function Compress.deflater(format: Compress.Format, level?: integer): Compress.S
 end
 
 --- A streaming decoder for the .xz container: multi-stream and stream
---- padding are handled, and every filter and check the tree needs to
---- decode is supported. The decoder refuses, with "xz memory limit
---- exceeded", a stream whose headers ask for more than `memlimit`
+--- padding are handled. The filters are LZMA2, delta, x86 BCJ and
+--- ARM64 BCJ, and the checks are CRC32, CRC64 and SHA-256. The decoder
+--- refuses, with "xz memory limit exceeded", a stream whose headers ask for more than `memlimit`
 --- bytes of decoder memory (default 256 MiB; `xz -9` needs 65 MiB).
 --- Raises when `memlimit` is not positive.
 function Compress.xz_decoder(memlimit?: integer): Compress.Stream | nil, string

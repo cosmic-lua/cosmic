@@ -71,10 +71,13 @@ local record Zip
   end
 
   record EntryOptions
+    --- The Unix permission bits (the low 12 bits are recorded).
+    --- Defaults to 0644 for a file and 0755 for a directory.
     mode: integer
     --- Unix epoch seconds; zip's own resolution is two seconds, and
     --- only 1980 through 2107 is representable -- anything outside
-    --- that is clamped to its nearer end.
+    --- that is clamped to its nearer end. Defaults to 0, which is
+    --- clamped to 1980-01-01. Ignored when the writer is `deterministic`.
     mtime: integer
     --- "deflate" (the default) or "store".
     method: Method
@@ -101,7 +104,8 @@ local record Zip
   --- later call, `close` included, returns that failure. A call after
   --- `close` fails too.
   record Writer
-    --- Refuses a path ending in `/`, which zip reads as a directory.
+    --- Adds a file at `path` with `data` as its body; returns `true, ""`,
+    --- or `false` and why. Refuses a path ending in `/`, which zip reads as a directory.
     --- A `Stream.Reader` body is read in chunks through the deflater
     --- and a running CRC32, so memory stays bounded however long it
     --- is: its sizes and CRC32 follow the data in a data descriptor
@@ -110,11 +114,15 @@ local record Zip
     --- fails once it, or its compressed form, reaches 4 GiB; with
     --- `opts.size` of 2 GiB or more, it is written as zip64. The
     --- reader is read to its end but not closed.
-    add_file: function(Writer, string, string | Stream.Reader, opts?: EntryOptions): boolean, string
-    add_dir: function(Writer, string, opts?: EntryOptions): boolean, string
-    close: function(Writer): boolean, string
+    add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: EntryOptions): boolean, string
+    --- Adds a directory entry at `path`, to which a trailing `/` is
+    --- added if missing. Returns `true, ""`, or `false` and why.
+    add_dir: function(self: Writer, path: string, opts?: EntryOptions): boolean, string
+    --- Writes the central directory and closes the underlying
+    --- Stream.Writer, committing it. Returns `true, ""`, or `false` and why.
+    close: function(self: Writer): boolean, string
     --- Abandons the archive: aborts the underlying Stream.Writer.
-    abort: function(Writer): boolean, string
+    abort: function(self: Writer): boolean, string
   end
 end
 
