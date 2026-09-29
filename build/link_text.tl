@@ -522,8 +522,6 @@ function link_text.declared(root: ast.Node): link_text.Declared
   return out
 end
 
---- What C source declares at file scope, read off its lines: each
-
 --- The links of Teal `source`'s comments, parsed to `root` and lexed
 --- with `built` (which `name` is given to), as the build records
 --- them: every link but a definition, whose target a reference link

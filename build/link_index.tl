@@ -41,7 +41,6 @@ local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
 local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
-local symbols = require("build.symbols")
 
 local record link_index
   --- One link as a parse recorded it, with the module and file it is in.
@@ -68,7 +67,7 @@ local record link_index
     reals: {string: {string}}
   end
 
-  --- One row of the projection's \`links\` (\`build.schema\`).
+  --- One row of the projection's `links` (`build.schema`).
   record Row
     module: string
     symbol: string
@@ -98,11 +97,15 @@ end
 
 local text = bind.text
 
---- Every link the parse recorded in a planned module, in file and line
---- order. A declaration is never planned, and has none.
+--- Every link the parse recorded in a planned module or a declaration
+--- -- the sources whose docs a projection holds (`build.writer`'s
+--- `insert_docs`), each under the module its docs name -- in file and
+--- line order. A source under o/, the build's output (the compiler a
+--- boot puts in), is the tree's by no link.
 local raw_links =
-  "SELECT p.path, i.file, l.line, l.column, l.form, l.doc, l.text, l.target, l.own, l.alias " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "SELECT m.path, i.file, l.line, l.column, l.form, l.doc, l.text, l.target, l.own, l.alias " ..
+  "FROM (SELECT path FROM plan UNION SELECT path FROM inputs WHERE kind = 'decl') m " ..
+  "JOIN inputs i ON i.path = m.path AND i.file NOT GLOB 'o/*' " ..
   "JOIN links l ON l.source_hash = i.source_hash ORDER BY i.file, l.line, l.column"
 
 --- A context over the tree at `root` on disk that keeps each answer in
@@ -222,17 +225,84 @@ function link_index.pending(db: Sqlite.Handle, root: string): link_index.Pending
   return { root = root, rows = rows, memo = memo, digest = digest_of(root, memo) }
 end
 
---- The symbols a query to `db` answers, once each, as `module` and
---- `symbol` columns.
-local function symbols_in(db: Sqlite.Handle, sql: string,
-                          values: {Sqlite.Value}): {link_resolve.Symbol} | nil, string
-  local rows, trouble = Sqlite.text_rows(db, sql, values)
+--- The `docs` of a projection, held as `build.symbols`' conditions
+--- read them, so a link's symbol is looked up in a table rather than by
+--- a scan of every row: what `named_where` finds a query by (`exact` by
+--- symbol, source symbol and a module's own row; `named` by symbol and
+--- by each of its last few names), what `module_ending_where` finds a
+--- bare name by (`endings`), what `member_where` finds a module's
+--- member by (`members`, by module and dotted name), and each module's
+--- first row (`first`), for one with no row of its own.
+local record Index
+  modules: {string: boolean}
+  exact: {string: {link_resolve.Symbol}}
+  named: {string: {link_resolve.Symbol}}
+  endings: {string: {link_resolve.Symbol}}
+  members: {string: {link_resolve.Symbol}}
+  first: {string: link_resolve.Symbol}
+end
+
+--- Adds `symbol` to the list `map` keeps under `key`.
+local function put(map: {string: {link_resolve.Symbol}}, key: string, symbol: link_resolve.Symbol)
+  local list = map[key]
+  if list == nil then
+    list = {}
+    map[key] = list
+  end
+  list[#list + 1] = symbol
+end
+
+--- The `Index` of the projection's `docs` under `qualifier`.
+local function index_of(db: Sqlite.Handle, qualifier: string): Index | nil, string
+  local out: Index = { modules = {}, exact = {}, named = {}, endings = {}, members = {}, first = {} }
+  local modules, modules_trouble = Sqlite.text_rows(db,
+    "SELECT path FROM " .. qualifier .. "modules UNION SELECT path FROM " .. qualifier .. "decls")
+  if modules == nil then
+    return nil, modules_trouble
+  end
+  for _, row in ipairs(modules) do out.modules[row[1]] = true end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT module, symbol, source_symbol FROM " .. qualifier .. "docs " ..
+    "ORDER BY module, exported DESC, id")
   if rows == nil then
     return nil, trouble
   end
-  local out: {link_resolve.Symbol} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row[1], symbol = row[2] }
+    local module, name, source = row[1], row[2], row[3]
+    local symbol: link_resolve.Symbol = { module = module, symbol = name }
+    if out.first[module] == nil then out.first[module] = symbol end
+    put(out.exact, name, symbol)
+    if source ~= name then put(out.exact, source, symbol) end
+    if name == "" then
+      put(out.exact, module, symbol)
+      local last = module:match("%.([^.]+)$")
+      local shown = module:sub(1, 16) ~= "cosmic.internal." and module:sub(-5) ~= "_test" and
+        module:sub(-8) ~= "_example"
+      if last ~= nil and shown then put(out.endings, last, symbol) end
+    else
+      put(out.named, name, symbol)
+      for at in name:gmatch("()[.:]") do put(out.named, name:sub(at + 1), symbol) end
+      local dotted_name = name:gsub(":", ".")
+      local dotted_source = source:gsub(":", ".")
+      put(out.members, module .. "\n" .. dotted_name, symbol)
+      if dotted_source ~= dotted_name then put(out.members, module .. "\n" .. dotted_source, symbol) end
+    end
+  end
+  return out, ""
+end
+
+--- The symbols of `lists`, in order, each spelled once.
+local function once_each(lists: {{link_resolve.Symbol}}): {link_resolve.Symbol}
+  local out: {link_resolve.Symbol} = {}
+  local seen: {string: boolean} = {}
+  for _, list in ipairs(lists) do
+    for _, symbol in ipairs(list) do
+      local full = link_resolve.spelled(symbol)
+      if not seen[full] then
+        seen[full] = true
+        out[#out + 1] = symbol
+      end
+    end
   end
   return out
 end
@@ -242,18 +312,13 @@ end
 --- its `links`, in key order.
 function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
                          qualifier: string): boolean, string
-  local docs_table = qualifier .. "docs"
-  local function is_module(name: string): boolean | nil, string
-    local rows, trouble = Sqlite.text_rows(db,
-      "SELECT 1 FROM " .. qualifier .. "modules WHERE path = ?1 UNION " ..
-      "SELECT 1 FROM " .. qualifier .. "decls WHERE path = ?1", { text(name) })
-    if rows == nil then return nil, trouble end
-    return #rows > 0, ""
+  local indexed, index_trouble = index_of(db, qualifier)
+  if indexed == nil then
+    return false, index_trouble
   end
+  local index: Index = indexed
   local function member_of(module: string, name: string): {link_resolve.Symbol} | nil, string
-    return symbols_in(db, "SELECT DISTINCT module, symbol FROM " .. docs_table .. " d WHERE " ..
-      symbols.member_where("d") .. " ORDER BY module, symbol",
-      { text(module), text((name:gsub(":", "."))) })
+    return once_each({ index.members[module .. "\n" .. (name:gsub(":", "."))] or {} }), ""
   end
   -- The rule `docs.exact` answers an exact query by, over one
   -- database: a module a bare lowercase name ends, else each row the
@@ -265,48 +330,27 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
   -- build.writer cannot require (build.docs requires build.rebuild,
   -- which requires build.writer).
   local function symbols_of(query: string): {link_resolve.Symbol} | nil, string
-    if query:match("^%l[%w_]*$") ~= nil then
-      local modules, trouble = symbols_in(db, "SELECT module, symbol FROM " .. docs_table ..
-        " d WHERE " .. symbols.module_ending_where("d") .. " ORDER BY module", { text(query) })
-      if modules == nil then return nil, trouble end
-      if #modules > 0 then return modules, "" end
+    if query:match("^%l[%w_]*$") ~= nil and index.endings[query] ~= nil then
+      return once_each({ index.endings[query] }), ""
     end
-    local found, trouble = symbols_in(db, "SELECT DISTINCT module, symbol FROM " .. docs_table ..
-      " d WHERE " .. symbols.named_where("d") .. " ORDER BY module, symbol", { text(query) })
-    if found == nil then return nil, trouble end
-    if #found == 0 then
-      local module, module_trouble = is_module(query)
-      if module == nil then return nil, module_trouble end
-      if module then
-        found, trouble = symbols_in(db, "SELECT module, symbol FROM " .. docs_table ..
-          " d WHERE d.module = ?1 ORDER BY d.exported DESC, d.id LIMIT 1", { text(query) })
-        if found == nil then return nil, trouble end
-      end
+    local dotted = query:gsub(":", ".")
+    local lists: {{link_resolve.Symbol}} = { index.exact[query] or {}, index.named[query] or {},
+      index.named[dotted] or {} }
+    local found = once_each(lists)
+    if #found == 0 and index.modules[query] and index.first[query] ~= nil then
+      lists[#lists + 1] = { index.first[query] }
     end
     local at = 1
     while true do
       local dot = query:find(".", at, true)
       if dot == nil then break end
       local module = query:sub(1, dot - 1)
-      local held, held_trouble = is_module(module)
-      if held == nil then return nil, held_trouble end
-      if held then
-        local members, members_trouble = member_of(module, query:sub(dot + 1))
-        if members == nil then return nil, members_trouble end
-        for _, member in ipairs(members) do found[#found + 1] = member end
+      if index.modules[module] then
+        lists[#lists + 1] = index.members[module .. "\n" .. (query:sub(dot + 1):gsub(":", "."))] or {}
       end
       at = dot + 1
     end
-    local out: {link_resolve.Symbol} = {}
-    local seen: {string: boolean} = {}
-    for _, symbol in ipairs(found) do
-      local full = link_resolve.spelled(symbol)
-      if not seen[full] then
-        seen[full] = true
-        out[#out + 1] = symbol
-      end
-    end
-    return out, ""
+    return once_each(lists), ""
   end
   local root = pending.root
   local resolver = link_resolve.resolver(remembering(root, pending.memo, symbols_of, member_of))

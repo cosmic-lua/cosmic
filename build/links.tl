@@ -107,7 +107,7 @@ end
 
 --- Every `//` comment of Zig source `source`, with its line: past a
 --- string or character literal, and never in a multiline string's
---- line (what follows `\\`).
+--- line (what follows `\`).
 local function zig_comments(source: string): {link_text.Comment}
   local out: {link_text.Comment} = {}
   local number = 0
@@ -232,7 +232,7 @@ function links.check(resolver: link_resolve.Resolver, file: string, absolute: st
     if link.form ~= "reference" then
       local target, problem = link_resolve.resolve(resolver, absolute, link.target, declared,
         link.form ~= "shortcut")
-      -- No problem named: a symbol not checked (\`Context.unbuilt\`).
+      -- No problem named: a symbol not checked (`Context.unbuilt`).
       if target == nil and problem ~= "" then
         out[#out + 1] = file .. ":" .. link.line .. ": link: " .. link.target ..
           " does not resolve (" .. problem .. ")"
@@ -242,7 +242,7 @@ function links.check(resolver: link_resolve.Resolver, file: string, absolute: st
   return out
 end
 
---- The symbols of \`entries\`, once each.
+--- The symbols of `entries`, once each.
 local function symbols_of(entries: {docs.Entry}): {link_resolve.Symbol}
   local out: {link_resolve.Symbol} = {}
   local seen: {string: boolean} = {}
@@ -281,7 +281,7 @@ function links.context(root: string, open: function(): docs.View | nil, string,
     if ready_view == nil then return nil, why end
     local found, found_trouble = docs.exact(ready_view, query)
     if found == nil then return nil, found_trouble end
-    -- A module's member written in full: \`cosmic.fs.read\`.
+    -- A module's member written in full: `cosmic.fs.read`.
     local at = 1
     while true do
       local dot = query:find(".", at, true)

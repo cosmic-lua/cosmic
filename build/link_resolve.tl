@@ -1,10 +1,10 @@
 --- What a link names (`build.links`), from what a `Context` says of
 --- the project: the resolution `cosmic fix` checks every link by, and
---- the build indexes each link by (`build.link_index`). It reads
---- nothing itself, so each of them hands it a world of its own: `fix`
---- the disk and the project's databases, the build the disk and the
---- projection it is writing. See `build.links` for the order a target
---- is resolved in.
+--- the build indexes each link by (`build.link_index`). Resolution
+--- reads only through its context, so each of them hands it a world of
+--- its own: `fix` the disk (`on_disk`) and the project's databases, the
+--- build the disk and the projection it is writing. See `build.links`
+--- for the order a target is resolved in.
 
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
@@ -224,22 +224,22 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
   for _, base in ipairs(bases) do
     local path = normalized(base .. "/" .. target)
     local reason: string | nil = nil
+    local relative = path ~= nil and path:sub(#root + 2) or ""
     if path == nil or not within(path, root) then
       reason = "it lies outside the project's root"
+    elseif relative == "o" or relative:sub(1, 2) == "o/" then
+      -- Refused before it is looked at, so the build's output never
+      -- enters what a projection is signed by (`build.link_index`).
+      reason = "it is under o/, the build's output"
     elseif kind_at(resolver, path) ~= nil then
-      local relative = path:sub(#root + 2)
-      if relative == "o" or relative:sub(1, 2) == "o/" then
-        reason = "it is under o/, the build's output"
+      if resolver.real_root == nil then
+        resolver.real_root = resolver.context.real(root) or root
+      end
+      local real = resolver.context.real(path)
+      if real == nil or not within(real, resolver.real_root) then
+        reason = "a symbolic link leads it out of the project"
       else
-        if resolver.real_root == nil then
-          resolver.real_root = resolver.context.real(root) or root
-        end
-        local real = resolver.context.real(path)
-        if real == nil or not within(real, resolver.real_root) then
-          reason = "a symbolic link leads it out of the project"
-        else
-          return path, ""
-        end
+        return path, ""
       end
     end
     if why == nil and reason ~= nil then why = reason end
@@ -448,8 +448,8 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   return made("symbol", { module = symbol.module, symbol = symbol.symbol })
 end
 
---- A context over the project at \`root\` as it is on disk, its
---- symbols answered by \`symbols\` and \`member\`, and \`unbuilt\` saying
+--- A context over the project at `root` as it is on disk, its
+--- symbols answered by `symbols` and `member`, and `unbuilt` saying
 --- why they lack the project's own code, or nil.
 function link_resolve.on_disk(root: string,
                               symbols: function(query: string): {link_resolve.Symbol} | nil, string,

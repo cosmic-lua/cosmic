@@ -306,6 +306,26 @@ local function test_only_the_roots_output_and_the_outside_are_refused()
   })
 end
 
+--- The root's `o/` is refused before anything is asked of it, so what
+--- the build writes there never enters what a projection is signed by
+--- (`build.link_index`), whether or not the path is there.
+local function test_the_roots_output_is_never_looked_at()
+  local context = world({ ["/p/o/y.md"] = "" })
+  local kind = context.kind
+  local asked: {string} = {}
+  context.kind = function(path: string): string | nil
+    asked[#asked + 1] = path
+    return kind(path)
+  end
+  same(checked(context, "/p/a.md", "markdown", "[y](o/y.md) [z](o/z.md)\n"), {
+    "/p/a.md:1: link: o/y.md does not resolve (it is under o/, the build's output)",
+    "/p/a.md:1: link: o/z.md does not resolve (it is under o/, the build's output)",
+  })
+  for _, path in ipairs(asked) do
+    assert(path:sub(1, 5) ~= "/p/o/", "asked after " .. path)
+  end
+end
+
 --- Underlined headings, `<a id>` and `<a name>` give anchors too, and
 --- a pictograph drops out of one as GitHub drops it.
 local function test_every_kind_of_heading_gives_an_anchor()

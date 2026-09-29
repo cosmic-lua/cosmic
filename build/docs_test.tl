@@ -1171,7 +1171,8 @@ local function test_a_qualifier_names_the_module_it_is_a_use_of(dir: string)
   assert(modules("Fs.read") == "cosmic.fs", modules("Fs.read"))
   assert(modules("fs.read") == "cosmic.fs", modules("fs.read"))
   assert(modules("Csv.read") == "cosmic.csv,cosmic.csv", modules("Csv.read"))
-  assert(modules("read") == "cosmic.csv,cosmic.csv,cosmic.fs", modules("read"))
+  -- In file and line order, whatever each is a use of.
+  assert(modules("read") == "cosmic.fs,cosmic.csv,cosmic.csv", modules("read"))
   assert(modules("Sys.read") == "", modules("Sys.read"))
   -- What `docs` counts is what `uses` lists.
   local found = assert(docs.lookup(view({ db }), "Csv.read"))

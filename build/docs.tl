@@ -855,8 +855,10 @@ end
 --- `symbols.used_where` keeps: the uses, then the links, which also
 --- answer a query that is a file's path from the root, alone or with
 --- `#` and a heading's anchor (`doc/meta.md#every-example-runs`). A
---- path alone finds the links to its headings too. A public source has
---- no link to a file of its own tree.
+--- path alone finds the links to its headings too, and a bare lowercase
+--- name the links to each module it is the last name of, as
+--- `docs.exact` reads one (`plural` for `build.plural`). A public source
+--- has no link to a file of its own tree.
 local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs.Use} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, from_module, from_file, line FROM uses u WHERE " ..
@@ -889,12 +891,14 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
   local link_rows, link_trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, from_module, from_file, line, path, anchor FROM links l WHERE " ..
     "((kind = 'symbol' AND (" .. symbols.used_where("l") .. " OR (l.symbol = '' AND " ..
-    "l.module = ?1)) AND " .. symbols.public_only("l.module", public) .. ") OR " ..
+    "l.module = ?1) OR (?5 = 1 AND " .. symbols.module_ending_where("l") .. ")) AND " ..
+    symbols.public_only("l.module", public) .. ") OR " ..
     "(kind <> 'symbol' AND ?4 = 0 AND l.path = ?2 AND (?3 = '' OR lower(l.anchor) = ?3))) AND " ..
     symbols.public_only("l.from_module", public) ..
     " ORDER BY module, symbol, path, anchor, from_file, line, column",
     { text(query), text(path), text(anchor or ""),
-      { integer = public and 1 or 0 } })
+      { integer = public and 1 or 0 },
+      { integer = query:match("^%l[%w_]*$") ~= nil and 1 or 0 } })
   if link_rows == nil then
     return nil, link_trouble
   end
@@ -1056,7 +1060,7 @@ local function count_links(view: docs.View, module: string,
     end
     if linked then
       local rows, trouble = Sqlite.text_rows(db,
-        "SELECT from_module, from_file, line, column FROM links " ..
+        "SELECT from_module, from_file, line FROM links " ..
         "WHERE kind = 'symbol' AND module = ?1 AND symbol = ?2",
         { text(module), text(symbol) })
       if rows == nil then
@@ -1066,7 +1070,8 @@ local function count_links(view: docs.View, module: string,
         local from_module = row[1]
         local counted = not view.public[index] or
           (symbols.is_public_module(module) and symbols.is_public_module(from_module))
-        local position = row[2] .. "\n" .. row[3] .. "\n" .. row[4]
+        -- One place per line, as `docs.uses` lists them.
+        local position = row[2] .. "\n" .. row[3]
         if counted and view.owners[from_module] == index and not seen[position] then
           seen[position] = true
           total = total + 1
@@ -1506,7 +1511,8 @@ function docs.member(view: docs.View, module: string, name: string): {docs.Entry
   return aliased_members(view, owners, last)
 end
 
---- Every place across `databases` that refers to what `query` names.
+--- Every place across `databases` that refers to what `query` names,
+--- in file and line order: one per line for each thing it names there.
 function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   local found, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Use} | nil, string
@@ -1526,6 +1532,17 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
       out[#out + 1] = use
     end
   end
+  -- Uses and links together, by where they are; at one place, a use
+  -- before a link.
+  table.sort(out, function(a: docs.Use, b: docs.Use): boolean
+    if a.from_file ~= b.from_file then return a.from_file < b.from_file end
+    if a.line ~= b.line then return a.line < b.line end
+    if a.link ~= b.link then return b.link end
+    if a.module ~= b.module then return a.module < b.module end
+    if a.symbol ~= b.symbol then return a.symbol < b.symbol end
+    if a.path ~= b.path then return a.path < b.path end
+    return a.anchor < b.anchor
+  end)
   return out
 end
 
@@ -2163,7 +2180,7 @@ local function run_uses(argv: {integer:string}): integer
   local shown = 0
   for _, use in ipairs(found) do
     if narrow.holds(paths, use.from_file) then
-      local target = use.module .. " " .. use.symbol
+      local target = use.symbol ~= "" and use.module .. " " .. use.symbol or use.module
       if use.link and use.module == "" then
         target = use.path .. (use.anchor ~= "" and "#" .. use.anchor or "")
       end

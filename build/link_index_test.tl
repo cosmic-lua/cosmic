@@ -65,12 +65,22 @@ local function linking_tree(dir: string): Sqlite.Handle
       "local text = Fs.read(\"boot\")",
       "",
       "-- Not [here](nowhere.md), nor [`nothing`]; [the web](https://example.com).",
+      "-- Twice on a line: [`Fs.write`], [again](Fs.write).",
       "return text"),
+    ["cosmic/raw.d.tl"] = source(
+      "--- Raw calls, which [`cosmic.fs.read`] wraps.",
+      "local record raw",
+      "  --- Opens.",
+      "  open: function(path: string): integer",
+      "end",
+      "",
+      "return raw"),
   })
 end
 
 --- Each link that resolves is a row: what it names, where it is, its
---- form and its source. One to a file is kept by its path from the root.
+--- form and its source. One to a file is kept by its path from the root,
+--- and one in a declaration under the module the declaration is.
 local function test_a_resolved_link_is_a_row(dir: string)
   local db = linking_tree(dir)
   same(rows(db, "SELECT from_file, line, column, kind, module, symbol, path, anchor, " ..
@@ -78,9 +88,14 @@ local function test_a_resolved_link_is_a_row(dir: string)
     "build/boot.tl 3 15 symbol cosmic.fs read   shortcut comment `Fs.read`",
     "build/boot.tl 3 31 symbol cosmic.fs    shortcut comment `cosmic.fs`",
     "build/boot.tl 3 55 file   doc/meta.md  reference comment the notes",
+    "build/boot.tl 8 21 symbol cosmic.fs write   shortcut comment `Fs.write`",
+    "build/boot.tl 8 35 symbol cosmic.fs write   inline comment again",
     "cosmic/fs.tl 6 26 symbol cosmic.fs write   shortcut doc `Fs.write`",
     "cosmic/fs.tl 7 5 anchor   doc/meta.md every-example-runs inline doc the rule",
+    "cosmic/raw.d.tl 1 22 symbol cosmic.fs read   shortcut doc `cosmic.fs.read`",
   })
+  same(rows(db, "SELECT DISTINCT from_module FROM links WHERE from_file = 'cosmic/raw.d.tl'"),
+    { "cosmic.raw" })
   assert(db:close())
 end
 
@@ -97,11 +112,20 @@ local function test_uses_lists_links_to_a_symbol_and_a_file(dir: string)
     end
     return out
   end
+  -- Uses and links by where they are.
   same(listed("Fs.read"), {
-    "build/boot.tl:5 cosmic.fs read #",
     "build/boot.tl:3 link cosmic.fs read #",
+    "build/boot.tl:5 cosmic.fs read #",
+    "cosmic/raw.d.tl:1 link cosmic.fs read #",
+  })
+  -- Two links on one line to one symbol are one place.
+  same(listed("Fs.write"), {
+    "build/boot.tl:8 link cosmic.fs write #",
+    "cosmic/fs.tl:6 link cosmic.fs write #",
   })
   same(listed("cosmic.fs"), { "build/boot.tl:3 link cosmic.fs  #" })
+  -- A module's last name, as `cosmic docs` reads a bare name.
+  same(listed("fs"), { "build/boot.tl:3 link cosmic.fs  #" })
   same(listed("doc/meta.md#every-example-runs"), {
     "cosmic/fs.tl:7 link   doc/meta.md#every-example-runs",
   })
@@ -122,20 +146,23 @@ local function test_a_page_counts_the_links_to_its_symbol(dir: string)
     assert(#found == 1, query .. ": " .. #found)
     return table.concat(assert(docs.render(view, found[1])), "\n")
   end
+  -- Two links on one line count once, as `cosmic uses` lists them.
   local write = page("Fs.write")
-  assert(write:find("\n  linked from 1 place; cosmic uses Fs.write", 1, true) ~= nil, write)
+  assert(write:find("\n  linked from 2 places; cosmic uses Fs.write", 1, true) ~= nil, write)
   local read = page("Fs.read")
-  assert(read:find("\n  used in 1 place and linked from 1; cosmic uses Fs.read", 1, true) ~= nil,
+  assert(read:find("\n  used in 1 place and linked from 2; cosmic uses Fs.read", 1, true) ~= nil,
     read)
   local module = page("cosmic.fs")
-  assert(module:find("(1 use, 1 link)", 1, true) ~= nil, module)
+  assert(module:find("(1 use, 2 links)", 1, true) ~= nil, module)
+  assert(module:find("(2 links)", 1, true) ~= nil, module)
   assert(module:find("\n  linked from 1 place; cosmic uses cosmic.fs", 1, true) ~= nil, module)
   assert(db:close())
 end
 
 --- A project on disk at `root`: `greet`, whose comment links to
---- `target` and to a heading of notes.md.
-local function write_project(root: string, target: string)
+--- `target` and to a heading of notes.md, and whose farewell is named
+--- `bye`; and `wave`, whose comment links to `greet.bye`.
+local function write_project(root: string, target: string, bye: string)
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet.tl", source(
     "--- Greets; see [`" .. target .. "`] and [the notes](notes.md#usage).",
@@ -148,40 +175,50 @@ local function write_project(root: string, target: string)
     "end",
     "",
     "--- Says goodbye.",
-    "function greet.bye(): string",
+    "function greet." .. bye .. "(): string",
     "  return \"bye\"",
     "end",
     "",
     "return greet")))
+  assert(Fs.write(root .. "/wave.tl", source(
+    "local greet = require(\"greet\")",
+    "-- Waves as [`greet.bye`] does.",
+    "return greet.hello")))
 end
 
 --- Builds the project at `root` into `out` through `handle` and
---- answers its links, each as `line kind symbol path#anchor`.
+--- answers its links, each as `file:line kind symbol path#anchor`.
 local function build_links(handle: work.Handle, out: string): {string}
   assert(work.stage(handle, false))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   assert(writer.write_result(handle, out, result))
   local db = assert(Sqlite.open(out, false))
-  local found = rows(db, "SELECT line, kind, symbol, path || '#' || anchor FROM links " ..
-    "ORDER BY line, column")
+  local found = rows(db, "SELECT from_file || ':' || line, kind, symbol, path || '#' || anchor " ..
+    "FROM links ORDER BY from_file, line, column")
   assert(db:close())
   return found
 end
 
---- A row follows what it is a function of: a comment's link edited, and
---- a file it names coming to be, each move the projection's rows at the
+--- A row follows what it is a function of: a comment's link edited, a
+--- file it names coming to be and changing, and the symbol it names
+--- renamed in another module, each move the projection's rows at the
 --- next build, though no module's key moves for the file.
 local function test_a_row_follows_its_link_and_its_file(tmp: string)
   local root = assert(Fs.absolute(tmp)) .. "/project"
-  write_project(root, "greet.hello")
+  write_project(root, "greet.hello", "bye")
   local handle = assert(work.open(root))
   local out = root .. "/o/cosmic.db"
-  same(build_links(handle, out), { "1 symbol hello #" })
+  same(build_links(handle, out), { "greet.tl:1 symbol hello #", "wave.tl:2 symbol bye #" })
   assert(Fs.write(root .. "/notes.md", source("# Usage")))
-  same(build_links(handle, out), { "1 symbol hello #", "1 anchor  notes.md#usage" })
-  write_project(root, "greet.bye")
-  same(build_links(handle, out), { "1 symbol bye #", "1 anchor  notes.md#usage" })
+  same(build_links(handle, out), { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage",
+    "wave.tl:2 symbol bye #" })
+  write_project(root, "greet.bye", "bye")
+  same(build_links(handle, out), { "greet.tl:1 symbol bye #", "greet.tl:1 anchor  notes.md#usage",
+    "wave.tl:2 symbol bye #" })
   assert(Fs.write(root .. "/notes.md", source("# Other")))
-  same(build_links(handle, out), { "1 symbol bye #" })
+  same(build_links(handle, out), { "greet.tl:1 symbol bye #", "wave.tl:2 symbol bye #" })
+  -- `bye` renamed: wave.tl, unedited, names nothing any more.
+  write_project(root, "greet.hello", "farewell")
+  same(build_links(handle, out), { "greet.tl:1 symbol hello #" })
   assert(work.close(handle))
 end
