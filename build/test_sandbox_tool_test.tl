@@ -203,14 +203,13 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(not holds(tooled.sandbox.unveil.reads, root .. "/o/bin"))
 end
 
---- Whether a run that printed `text`, its workers sandboxed where they
---- can be, found none could be, where that is allowed. Its workers are
---- nested in this test's own sandbox, which a host may refuse them (the
---- kernel lets root nest one only two deep: core/syscalls.c's `map_ids`),
---- and a case of a sandboxed run then has nothing to check -- unless this
---- run is held to sandboxing (COSMIC_TEST_SANDBOX=1, as CI's suites set
---- it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1): CI's
---- unprivileged runners nest them, and there it fails.
+--- Whether the run that printed `text` sandboxed none of its workers,
+--- where that is allowed. The workers nest in this test's own sandbox,
+--- which a host may refuse (the kernel lets root nest one only two deep:
+--- core/syscalls.c's `map_ids`); a case of a sandboxed run then has
+--- nothing to check. A run held to sandboxing fails instead
+--- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
+--- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if not text:find("no worker can be sandboxed here", 1, true) then return false end
   assert(not confine.held_to_sandbox(),
