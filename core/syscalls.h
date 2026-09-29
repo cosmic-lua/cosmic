@@ -263,6 +263,17 @@ COSMIC_SYSCALL(rename, 2);
 COSMIC_SYSCALL(chmod, 2);
 
 /*
+ * --- Sets a path's owner and group, following a link at its last part. The program's own file named through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>) is refused, EACCES.
+ * ---@param path string the path to change
+ * ---@param uid integer the user to own it, or -1 to leave its owner
+ * ---@param gid integer the group to own it, or -1 to leave its group
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(chown, 3);
+
+/*
  * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it: "dir", "file", "link" for a symbolic link (never followed), or "other".
  * ---@param path string the directory to list
  * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure

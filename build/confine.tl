@@ -732,6 +732,9 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
     return nil
   end
   plain.offline = rawget(raw, "offline") == true
+  local user, group = rawget(raw, "user"), rawget(raw, "group")
+  if user is integer then plain.user = user elseif user ~= nil then return nil end
+  if group is integer then plain.group = group elseif group ~= nil then return nil end
   local pledge = rawget(raw, "pledge")
   if pledge ~= nil then
     local promises = raw_strings(pledge)

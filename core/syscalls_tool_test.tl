@@ -323,6 +323,53 @@ local function run_confined(tmp: string, probe: string, script: string,
   return status, said
 end
 
+--- A child given a `user` and `group` runs as them, with no
+--- supplementary group and no capability in effect, as an unprivileged
+--- caller's child does -- where this process is root, which a run of
+--- this test unsandboxed as root is. A caller that may not map them --
+--- one not root, as a sandboxed worker, which runs as a user of its own
+--- where the runner is root (build.test_sandbox's `runs_as`), always
+--- is -- is refused EPERM. Neither is 0, each needs the other, and
+--- neither is given without `unveil`.
+local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
+  local probe = probe_in(tmp)
+  local reads = probe_reads(probe)
+  local user = sys.getuid() == 65533 and 65531 or 65533
+  for _, sandbox in ipairs({
+    { unveil = { reads = reads, writes = {} }, user = 0, group = user },
+    { unveil = { reads = reads, writes = {} }, user = user },
+    { offline = true, user = user, group = user },
+  } as {raw_process.Sandbox}) do
+    assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
+      sandbox), "a user is refused unless given with its group and unveil, and not as root")
+  end
+  local report = create(tmp .. "/report")
+  local pid, trouble, errno = process.spawn(probe, { probe,
+    "status-field Uid; status-field Gid; status-field Groups; status-field CapEff" },
+    nil, nil, nil, report, report, false, nil,
+    { unveil = { reads = reads, writes = {} }, offline = true, user = user, group = user })
+  if pid == nil then
+    sys.close(report)
+    if errno ~= sys.EPERM then
+      assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
+      return
+    end
+    local status = assert(sys.open("/proc/self/status", sys.O_RDONLY))
+    local own = assert(sys.read(status, 65536))
+    sys.close(status)
+    assert(not own:find("\nUid:%s+%d+%s+0%s"), "root refused a user: " .. trouble)
+    return
+  end
+  local status = assert(process.waitpid(pid, false))
+  local said = assert(sys.pread(report, 65536, 0))
+  sys.close(report)
+  assert(status.code == 0, said)
+  local id = tostring(user)
+  assert(said:find("Uid:%s+" .. id .. "%s+" .. id .. "%s+" .. id .. "%s+" .. id), said)
+  assert(said:find("Gid:%s+" .. id .. "%s+" .. id .. "%s+" .. id .. "%s+" .. id), said)
+  assert(said:find("Groups:%s*\n") and said:find("CapEff:%s+0+%s"), said)
+end
+
 --- A path given with a name in `at` is bound there, and not at its own
 --- name: a tree given at /tree is read, and written where given to
 --- write, at /tree alone, so what a child sees of it names nothing of

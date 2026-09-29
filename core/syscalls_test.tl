@@ -283,6 +283,22 @@ local function test_chmod(tmp: string)
   failed_with(sys.ENOENT, sys.chmod(tmp .. "/missing", 384))
 end
 
+--- chown sets a path's owner and group -- here to what they are, which
+--- any owner may -- or leaves either at -1; an id past a 32-bit one's
+--- range raises.
+local function test_chown(tmp: string)
+  sys.close(create(tmp .. "/a"))
+  local own = assert(sys.stat(tmp .. "/a"))
+  local changed, trouble = sys.chown(tmp .. "/a", own.uid, own.gid)
+  assert(changed == true, trouble)
+  assert(sys.chown(tmp .. "/a", -1, -1))
+  local after = assert(sys.stat(tmp .. "/a"))
+  assert(after.uid == own.uid and after.gid == own.gid)
+  failed_with(sys.ENOENT, sys.chown(tmp .. "/missing", own.uid, own.gid))
+  raises(sys.chown, tmp .. "/a", -2, own.gid)
+  raises(sys.chown, tmp .. "/a", own.uid, 4294967295)
+end
+
 local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(sys.mkdir(tmp .. "/d"))
   sys.close(create(tmp .. "/d/a"))
