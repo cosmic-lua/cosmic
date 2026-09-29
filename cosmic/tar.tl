@@ -80,6 +80,9 @@ local record Tar
 end
 
 local BLOCK <const> = 512
+
+--- The most of an entry's body read at once, as `cosmic.stream` reads.
+local chunk_size <const> = 1 << 16
 local OCTAL_11_LIMIT <const> = 1 << 33 -- 8^11, what 11 octal digits hold
 --- The largest `L`/`K`/`x`/`g` body read into memory. Real ones are a
 --- path or a handful of records; a header claiming more is refused
@@ -377,7 +380,7 @@ Body_methods.read = function(self: Body, max: integer): string | nil, string
   end
   local left = self.left
   if left <= 0 then return nil, "" end
-  local want = max or (1 << 16)
+  local want = max or chunk_size
   if want > left then want = left end
   local chunk, rtrouble = state.raw:read(want)
   if chunk == nil then
@@ -631,33 +634,12 @@ end
 function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   opts = opts or {}
   local deterministic = opts.deterministic or false
-  local closed = false
-  local failed: string
+  local sink = Stream.sticky(w, "tar")
   local tw: Tar.Writer = {}
-
-  local function fail(trouble: string): boolean, string
-    if failed == nil then
-      failed = trouble ~= "" and trouble or "tar: write failed"
-      local _, _ = w:abort()
-    end
-    return false, failed
-  end
-
-  local function usable(): boolean, string
-    if failed then return false, failed end
-    if closed then return false, "tar: writer is closed" end
-    return true, ""
-  end
-
-  local function put(data: string): boolean, string
-    local ok, trouble = w:write(data)
-    if not ok then return fail(trouble) end
-    return true, ""
-  end
 
   local function put_entry(path: string, typeflag: string, size: integer,
       mode: integer, mtime: integer, linkname: string): boolean, string
-    local ok, trouble = usable()
+    local ok, trouble = sink:usable()
     if not ok then return false, trouble end
     if path:find("\0", 1, true) ~= nil or linkname:find("\0", 1, true) ~= nil then
       return false, "tar: NUL byte in a path"
@@ -674,7 +656,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
       if not link_fits then records[#records + 1] = pax_record("linkpath", linkname) end
       if not size_fits then records[#records + 1] = pax_record("size", tostring(size)) end
       if not mtime_fits then records[#records + 1] = pax_record("mtime", tostring(mtime)) end
-      ok, trouble = put(pax_header(path, table.concat(records)))
+      ok, trouble = sink:put(pax_header(path, table.concat(records)))
       if not ok then return false, trouble end
       if not fits then prefix, name = "", path:sub(-100) end
     end
@@ -682,7 +664,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     local header_mtime = mtime_fits and mtime or (mtime < 0 and 0 or OCTAL_11_LIMIT - 1)
     local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
       header_mtime, linkname:sub(1, 100))
-    return put(header)
+    return sink:put(header)
   end
 
   tw.add_file = function(_self: Tar.Writer, path: string, data: string | Stream.Reader,
@@ -702,26 +684,26 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     if not ok then return false, trouble end
     if data is string then
       if #data ~= size then
-        return fail("tar: add_file: body is " .. tostring(#data) .. " bytes, not " .. tostring(size))
+        return sink:fail("tar: add_file: body is " .. tostring(#data) .. " bytes, not " .. tostring(size))
       end
-      ok, trouble = put(data)
+      ok, trouble = sink:put(data)
       if not ok then return false, trouble end
     else
       local written = 0
       while written < size do
         local want = size - written
-        if want > (1 << 16) then want = 1 << 16 end
+        if want > chunk_size then want = chunk_size end
         local chunk, rtrouble = data:read(want)
         if chunk == nil then
-          if rtrouble ~= "" then return fail(rtrouble) end
-          return fail("tar: add_file: reader ended before its stated size")
+          if rtrouble ~= "" then return sink:fail(rtrouble) end
+          return sink:fail("tar: add_file: reader ended before its stated size")
         end
-        ok, trouble = put(chunk)
+        ok, trouble = sink:put(chunk)
         if not ok then return false, trouble end
         written = written + #chunk
       end
     end
-    return put(pad_bytes(size))
+    return sink:put(pad_bytes(size))
   end
 
   tw.add_dir = function(_self: Tar.Writer, path: string, fopts?: Tar.EntryOptions): boolean, string
@@ -741,23 +723,11 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   end
 
   tw.close = function(_self: Tar.Writer): boolean, string
-    if failed then return false, failed end
-    if closed then return true, "" end
-    local ok, trouble = put(string.rep("\0", 2 * BLOCK))
-    closed = true
-    if not ok then return false, trouble end
-    ok, trouble = w:close()
-    if not ok then
-      failed = trouble
-      return false, trouble
-    end
-    return true, ""
+    return sink:close(string.rep("\0", 2 * BLOCK))
   end
 
   tw.abort = function(_self: Tar.Writer): boolean, string
-    if closed or failed then return true, "" end
-    closed = true
-    return w:abort()
+    return sink:abort()
   end
 
   return tw

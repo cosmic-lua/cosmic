@@ -116,7 +116,7 @@ copied out as the bytes it was read from. Lining those up is a
 judgement about a whole line, which is the author's here, not the
 tool's.
 
-Every verb but `json`, `hash` and `codec` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
+Every verb but `json`, `hash`, `codec` and `archive` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
 (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
 its command line was refused -- an option, an argument or a verb it
 does not know; 3 when the tool is older than the tree and did not
@@ -127,7 +127,8 @@ only what its program prints and exits with what it returns.
 value and nothing after, for a pipe, and exits 0 when it found the path, 1
 when the path is not there, 2 for a command line or a text it refused. `hash` prints digests,
 and exits 1 when a `--check` fails. `codec`
-prints its text or bytes and nothing after, and exits 0 or 2.
+prints its text or bytes and nothing after, and exits 0 or 2. `archive` prints its
+listing or the paths it wrote, and exits 0, 1 or 2 as `json` does.
 ]]
 
 --- The directory a path sits in, absolute.
@@ -500,6 +501,11 @@ local verbs: {string: function({integer:string}): integer} = {
   hash = function(argv: {integer:string}): integer
     return require("build.hash").run(argv)
   end,
+  -- Reads an archive it is given, never the tree: not stale-checked,
+  -- and no verdict (`bare`).
+  archive = function(argv: {integer:string}): integer
+    return require("build.archive").run(argv)
+  end,
   -- Reads what it is given, never the tree, and prints no verdict (`bare`).
   codec = function(argv: {integer:string}): integer
     return require("build.codec").run(argv)
@@ -509,7 +515,7 @@ local verbs: {string: function({integer:string}): integer} = {
 --- The verbs that end in no verdict line, their output being data for a
 --- pipe: their exit status is the verdict, and a usage error is
 --- complained about and nothing more. build/json.tl says why.
-local bare: {string:boolean} = { json = true, hash = true, codec = true }
+local bare: {string:boolean} = { json = true, hash = true, codec = true, archive = true }
 
 --- What a verdict line a verb did not give itself says of its exit code.
 local function detail_of(code: integer): string
