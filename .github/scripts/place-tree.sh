@@ -92,10 +92,20 @@ if [ "${1-}" = --restore ]; then
     echo "the tree is back at $GITHUB_WORKSPACE from $tree"
   fi
   # The directories the move made above the tree, left empty by now, or
-  # by a restore that stopped before it removed them.
+  # by a restore that stopped before it removed them. One something wrote
+  # into while the tree sat below it is not empty: it is named, with what
+  # it holds, and left, since it is under $GITHUB_WORKSPACE's parent on a
+  # runner the job does not outlive, and the tree is back, which is what
+  # the steps after this one need.
+  # TODO: find what writes beside the tree in the checked job (a 3-deep
+  # path, runs 36523079141 and 36524071104, left the top directory not
+  # empty) and stop it, then fail here again on a directory not empty.
   above=$(dirname "$relative")
   while [ "$above" != . ]; do
-    [ ! -d "$parent/$above" ] || rmdir "$parent/$above"
+    if [ -d "$parent/$above" ] && ! rmdir "$parent/$above" 2>/dev/null; then
+      echo "place-tree.sh: left $parent/$above, which is not empty:" >&2
+      ls -la "$parent/$above" >&2 || :
+    fi
     above=$(dirname "$above")
   done
   exit 0
