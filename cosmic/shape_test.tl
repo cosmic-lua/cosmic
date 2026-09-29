@@ -52,6 +52,25 @@ local function test_the_first_failure_is_the_same_every_run()
   end
 end
 
+-- A map's values, and a list's elements, go in key order too: a map
+-- built in any order reports its least failing key. Keys are added in
+-- both orders, so `next` meets them both ways round.
+local function test_a_map_reports_its_least_failing_key()
+  local spec = Shape.map(Shape.string)
+  local forward: {string: integer} = {}
+  local backward: {string: integer} = {}
+  for i = 1, 40 do forward["k" .. string.format("%02d", i)] = i end
+  for i = 40, 1, -1 do backward["k" .. string.format("%02d", i)] = i end
+  fails(forward, spec, "$.k01: expected string, got integer")
+  fails(backward, spec, "$.k01: expected string, got integer")
+end
+
+local function test_a_list_reports_its_first_miss_in_index_order()
+  local spec = Shape.list(Shape.string)
+  fails({ [1] = 1, [3] = "c" }, spec, "$[1]: expected string, got integer")
+  fails({ [1] = "a", [3] = 3 }, spec, "$[2]: expected string, got nothing")
+end
+
 local function test_integer_takes_a_whole_float_and_nothing_else()
   local v: integer = must(Shape.into(8080.0, Shape.integer))
   assert(math.type(v) == "integer" and v == 8080)

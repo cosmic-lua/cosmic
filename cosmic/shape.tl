@@ -333,16 +333,14 @@ local function is_name(k: any): boolean
   return k is string
 end
 
---- `t`'s keys in ascending order when every one is a positive
---- integer, or nil and the first key that is not.
-local function indices(t: {any: any}): {integer}, any
-  local keys: {integer} = {}
-  for k in next, t do
-    if not (k is integer) or k < 1 then return nil, k end
-    keys[#keys + 1] = k
+--- A miss for each key in `bad`, the first of them.
+local function refuse_keys(bad: {any}, path: string, kind: string, all: {Miss}): Miss
+  local first: Miss = nil
+  for _, k in ipairs(bad) do
+    local m = miss(path, ("expected %s, got %s"):format(kind, key_named(k)), all)
+    first = first or m
   end
-  table.sort(keys)
-  return keys, nil
+  return first
 end
 
 --- What a strict record `spec` refuses in `t`, before any field is
@@ -358,7 +356,6 @@ local function unknown_keys(t: {any: any}, spec: Spec, path: string, all?: {Miss
   local refused: {any} = {}
   for k in next, t do
     if not (k is string) then
-      if all == nil then return miss(path, "expected record, got " .. key_named(k)) end
       refused[#refused + 1] = k
     elseif spec.fields[k] == nil then
       unknown[#unknown + 1] = k
@@ -366,12 +363,7 @@ local function unknown_keys(t: {any: any}, spec: Spec, path: string, all?: {Miss
   end
   if #refused > 0 then
     table.sort(refused, key_before)
-    local first: Miss = nil
-    for _, k in ipairs(refused) do
-      local m = miss(path, "expected record, got " .. key_named(k), all)
-      first = first or m
-    end
-    return first
+    return refuse_keys(refused, path, "record", all)
   end
   table.sort(unknown)
   local first: Miss = nil
@@ -413,16 +405,6 @@ local function walk_either(v: any, spec: Spec, path: string, all: {Miss}): any, 
     return nil, deepest
   end
   return nil, mismatch(path, spec, v, all)
-end
-
---- A miss for each key in `bad`, the first of them.
-local function refuse_keys(bad: {any}, path: string, kind: string, all: {Miss}): Miss
-  local first: Miss = nil
-  for _, k in ipairs(bad) do
-    local m = miss(path, ("expected %s, got %s"):format(kind, key_named(k)), all)
-    first = first or m
-  end
-  return first
 end
 
 --- `v` checked against `spec`: the copy to answer and nil, or nil and
@@ -482,74 +464,48 @@ walk = function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
       if first ~= nil then return nil, first end
       return out, nil
     elseif kind == "list" then
-      local keys: {integer}
-      if all == nil then
-        local found, bad = indices(t)
-        if found == nil then
-          return nil, miss(path, "expected list, got " .. key_named(bad))
-        end
-        keys = found
-      else
-        -- A key the list refuses fails it where it stands: every such
-        -- key is listed, and no element looked at.
-        local kept, refused = split_keys(t, is_index)
-        if #refused > 0 then return nil, refuse_keys(refused, path, "list", all) end
-        keys = {}
-        for _, k in ipairs(kept) do
-          if k is integer then keys[#keys + 1] = k end
-        end
-      end
-      -- A hole is a missing element: the first one fails a list whose
-      -- elements are not optional, as a missing field fails a record.
-      if all == nil and not spec.of.optional and #keys > 0 and keys[#keys] ~= #keys then
-        local i = 1
-        while keys[i] == i do i = i + 1 end
-        return nil, mismatch(("%s[%d]"):format(path, i), spec.of, nil)
-      end
+      -- A key the list refuses fails it where it stands, and no
+      -- element is looked at; the elements go in index order.
+      local keys, refused = split_keys(t, is_index)
+      if #refused > 0 then return nil, refuse_keys(refused, path, "list", all) end
       local out: {any} = {}
       local after = 0
-      for _, i in ipairs(keys) do
-        -- Collecting, each run of holes is one miss, at its first
-        -- index, so a sparse list cannot answer a miss per index.
-        if all ~= nil and not spec.of.optional and i > after + 1 then
-          local hole = mismatch(("%s[%d]"):format(path, after + 1), spec.of, nil, all)
-          first = first or hole
+      for _, k in ipairs(keys) do
+        if k is integer then
+          -- A hole is a missing element: it fails a list whose elements
+          -- are not optional, as a missing field fails a record, and
+          -- each run of holes is one miss, at its first index, so a
+          -- sparse list cannot answer a miss per index.
+          if not spec.of.optional and k > after + 1 then
+            local hole = mismatch(("%s[%d]"):format(path, after + 1), spec.of, nil, all)
+            if all == nil then return nil, hole end
+            first = first or hole
+          end
+          after = k
+          local got, failed = walk(rawget(t, k), spec.of, ("%s[%d]"):format(path, k), all)
+          if failed ~= nil then
+            if all == nil then return nil, failed end
+            first = first or failed
+          end
+          out[k] = got
         end
-        after = i
-        local got, failed = walk(rawget(t, i), spec.of, ("%s[%d]"):format(path, i), all)
-        if failed ~= nil then
-          if all == nil then return nil, failed end
-          first = first or failed
-        end
-        out[i] = got
       end
       if first ~= nil then return nil, first end
       return Json.array(out), nil
     elseif kind == "map" then
       -- Every key is checked before any value, so a map with a key it
-      -- refuses fails where it stands, whichever key `next` reaches
-      -- first.
-      if all == nil then
-        for k in next, t do
-          if not (k is string) then return nil, miss(path, "expected map, got " .. key_named(k)) end
-        end
-        local out: {string: any} = {}
-        for k, e in next, t do
-          if k is string then
-            local got, failed = walk(e, spec.of, field_path(path, k))
-            if failed ~= nil then return nil, failed end
-            out[k] = got
-          end
-        end
-        return out, nil
-      end
+      -- refuses fails where it stands; the values go in key order, so
+      -- the same map always reports the same miss.
       local keys, refused = split_keys(t, is_name)
       if #refused > 0 then return nil, refuse_keys(refused, path, "map", all) end
       local out: {string: any} = {}
       for _, k in ipairs(keys) do
         if k is string then
           local got, failed = walk(rawget(t, k), spec.of, field_path(path, k), all)
-          first = first or failed
+          if failed ~= nil then
+            if all == nil then return nil, failed end
+            first = first or failed
+          end
           out[k] = got
         end
       end
