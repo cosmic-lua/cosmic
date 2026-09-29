@@ -21,8 +21,11 @@ local record Proc
   --- to add, and the descriptors to hand the child (see
   --- `Child.Options.fds`).
   record Relaunch
+    --- The executable and the arguments that lead the command line.
     argv: {string}
+    --- Entries to add to the child's environment.
     env: {string:string}
+    --- Descriptors to hand the child, as `Child.Options.fds` takes them.
     fds: {integer:integer}
   end
 end

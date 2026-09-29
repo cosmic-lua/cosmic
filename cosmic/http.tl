@@ -86,6 +86,7 @@ local record Http
     --- download fails naming the algorithm, the digest wanted and the one
     --- got, leaving no file.
     sha256: string
+    --- Http.download only: see `sha256`.
     sha512: string
     --- Http.download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
@@ -111,9 +112,14 @@ local record Http
   --- fails. `sent` after close raises.
   record Response is Stream.Reader
     metamethod __close: function(Response)
+    --- The final response's HTTP status code, after any redirect taken.
     status: integer
+    --- The response's headers, keyed by lowercased name.
     headers: {string:string}
+    --- The effective URL, after every redirect taken.
     url: string
+    --- What curl wrote to the connection; for tests with a `script`.
+    --- Raises after `close`.
     sent: function(Response): string
   end
 
@@ -130,6 +136,8 @@ local record Http
   --- request, and so does a `<close>` variable left before `close`.
   record Upload is Stream.Writer
     metamethod __close: function(Upload)
+    --- The final response, once the body is closed; nil and why when
+    --- there is none.
     response: function(Upload): Response | nil, string
   end
 

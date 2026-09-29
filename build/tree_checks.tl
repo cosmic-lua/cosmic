@@ -30,6 +30,7 @@ local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
 local ast = require("build.ast")
 local docs = require("build.docs")
+local docs_checks = require("build.docs_checks")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local symbols = require("build.symbols")
@@ -908,8 +909,6 @@ local doc_exempt: {string: string} = {}
 
 doc_exempt["cosmic.cli Cli.todos todo"] = "`cosmic todos` lists the tree's " ..
   "`TODO:` comments: the marker is the verb's subject"
-doc_exempt["cosmic.coverage native_lines path"] = "the doc shows the shape of a hit's " ..
-  "path (`core/syscalls.c`) as an example of the data a caller reads"
 
 --- The rules a public doc is held to: a name, the Lua pattern that
 --- finds a candidate, whether the candidate breaks the rule (given the
@@ -1288,8 +1287,13 @@ end
 --- prefixed with the check's name; none when the tree passes them all.
 --- The plurals are checked when `built`, the compiler that parses the
 --- sources, is given, with `extra` sources besides the projection's.
+--- @param carried the database a release binary carries of `db`
+---   (`build.docs_checks`' `carried`), which the checks of what `cosmic
+---   docs` shows read; `db` itself when not given
+--- @param help what `cosmic help` prints (`docs_checks.help_texts`),
+---   whose references are checked with the docs'; none when not given
 function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: compiler,
-    extra?: {{string}}): {string}
+    extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string}): {string}
   local out: {string} = {}
   local plurals: {string} = {}
   if built ~= nil then plurals = tree_checks.plurals(db, built, extra) end
@@ -1303,6 +1307,8 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: co
     { name = "declarations", lines = tree_checks.declarations(db) },
     { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
     { name = "guides", lines = tree_checks.guides(db) },
+    { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
+    { name = "doc references", lines = docs_checks.references(carried or db, help) },
     { name = "public docs", lines = tree_checks.public_docs(db) },
     { name = "plurals", lines = plurals },
   }) do
