@@ -177,12 +177,8 @@ local function test_a_module_moved_to_its_init_file_is_compiled_again()
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local first = assert(compile_fixture(root))
-  -- Written anew and the old file removed, not renamed: under a tree in
-  -- /tmp a worker's ruleset refuses a move between its own new
-  -- directories (EXDEV; the TODO above build/confine.tl's `forbid_running`).
   assert(Fs.mkdirs(root .. "/x"))
-  assert(Fs.write(root .. "/x/init.tl", (assert(Fs.read(root .. "/x.tl")))))
-  assert(Fs.remove(root .. "/x.tl"))
+  assert(Fs.rename(root .. "/x.tl", root .. "/x/init.tl"))
   local result = assert(compile_fixture(root))
   assert(result.compiled == 1 and result.cached == 1,
     result.compiled .. " compiled, " .. result.cached .. " cached")

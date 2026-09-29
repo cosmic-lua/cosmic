@@ -55,6 +55,7 @@ local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local flow = require("build.flow")
 local near = require("build.fix.near")
+local plural = require("build.plural")
 local analyzer = require("build.analyzer")
 local reboot = require("build.reboot")
 local render_mod = require("build.fix.render")
@@ -685,7 +686,7 @@ local function run(argv: {integer:string}): integer
   if #failures > 0 or #findings > 0 then
     local said: {string} = {}
     if #failures > 0 then
-      said[#said + 1] = #failures .. " of " .. counted .. " files refused"
+      said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
     end
     if #findings > 0 then
       said[#said + 1] = #findings .. " found by the tree checks"
@@ -694,11 +695,11 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   if checking and #changed > 0 then
-    log:verdict("fix", false, #changed .. " of " .. counted .. " files to fix, " ..
+    log:verdict("fix", false, #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
       clock.took(started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  log:verdict("fix", true, counted .. " files, " .. #changed ..
+  log:verdict("fix", true, plural.count(counted, "file") .. ", " .. #changed ..
     (checking and " to fix, " or " fixed, ") .. clock.took(started))
   return 0
 end

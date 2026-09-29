@@ -29,6 +29,14 @@
 #ifndef O_PATH
 #define O_PATH 010000000
 #endif
+/* Likewise AT_EMPTY_PATH, and fchmodat2 (Linux 6.6), whose number is
+ * the same on every target here. */
+#ifndef AT_EMPTY_PATH
+#define AT_EMPTY_PATH 0x1000
+#endif
+#ifndef SYS_fchmodat2
+#define SYS_fchmodat2 452
+#endif
 #endif
 
 #include "check.h"
@@ -177,14 +185,19 @@ static bool reaches_descriptor_name (const char *path, bool follow,
  * has: /proc/<pid>/fd/<n>, /dev/fd/<n> or a link to either, which hand
  * a caller the artifact whatever the sandbox gives it by name, as the
  * retained descriptor itself would (core/check.h's `cosmic_checkfd`).
- * Asked before the call, which may write (O_TRUNC, chmod), so a refusal
- * leaves the file as it was.
+ * `reached` is the stat of the file the call holds or has opened by
+ * `path` (`probe_file`, `open`), which is the file judged; NULL judges
+ * the file `path` names now, asked before a call that may write
+ * (O_TRUNC, chmod), so a refusal leaves the file as it was.
  *
  * On Linux every such name stats as the file it reaches, so a path whose
  * stat is not the artifact's costs that stat alone. One that is: the
  * kernel says how it got there, walking it again refusing every
  * descriptor link (openat2's RESOLVE_NO_MAGICLINKS), which reaches the
- * artifact only by a name, where it could be reached as well. That
+ * artifact only by a name, where it could be reached as well -- and
+ * where it could, the name gives it anyway, so a link swapped on the
+ * path between the call and this walk gains nothing; with `reached`, a
+ * walk that fails, or reaches another file, refuses. That
  * refuses the program named through /proc/self/cwd/... or
  * /proc/self/root/... too, which are such links: this program's own
  * file is the one file refused that way, and it has a name of its own to
@@ -192,20 +205,21 @@ static bool reaches_descriptor_name (const char *path, bool follow,
  * than 5.6, a filter refusing it -- the path is walked by hand
  * (`reaches_descriptor_name`), and what resolves under /dev or /proc is
  * refused too. A walk that fails otherwise answers its own errno, which
- * the call would have met.
- * TODO: decide on the file the call then acts on, not its name again --
- * open the O_PATH probe's file by its own descriptor (/proc/self/fd/<the
- * probe>, which this check itself would then have to let through), and
- * chmod or set the times through it (fchmod, futimens) -- so a process
- * the test starts cannot swap a link on the path between this check and
- * the call. */
+ * the call would have met. */
 static int artifact_through_descriptor (const char *path, bool follow,
-                                        const struct cosmic_artifact *artifact) {
+                                        const struct cosmic_artifact *artifact,
+                                        const struct stat *reached) {
   if (artifact == NULL) return 0;
   struct stat st;
-  bool named = (follow ? stat(path, &st) : lstat(path, &st)) == 0 &&
-               (uint64_t)st.st_dev == artifact->device &&
-               (uint64_t)st.st_ino == artifact->inode;
+  bool named = false;
+  if (reached != NULL) {
+    st = *reached;
+    named = true;
+  } else {
+    named = (follow ? stat(path, &st) : lstat(path, &st)) == 0;
+  }
+  named = named && (uint64_t)st.st_dev == artifact->device &&
+          (uint64_t)st.st_ino == artifact->inode;
 #if defined(__linux__)
   if (!named) return 0;
 #endif
@@ -225,16 +239,63 @@ static int artifact_through_descriptor (const char *path, bool follow,
   /* A descriptor link on the way is refused ELOOP (or EXDEV, for one
    * that leaves the walk's root). */
   if (errno == ELOOP || errno == EXDEV) return EACCES;
-  if (errno != ENOSYS && errno != EPERM) return errno;
+  if (errno != ENOSYS && errno != EPERM) return reached != NULL ? EACCES : errno;
 #endif
   if (reaches_descriptor_name(path, follow, artifact)) return EACCES;
   if (!named) return 0;
   char resolved[PATH_MAX];
-  if (realpath(path, resolved) == NULL) return errno;
+  if (realpath(path, resolved) == NULL) return reached != NULL ? EACCES : errno;
   bool through = strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/proc/", 6) == 0 ||
                  strncmp(resolved, "/dev/", 5) == 0 || strncmp(resolved, "/proc/", 6) == 0;
   return through ? EACCES : 0;
 }
+
+#if defined(__linux__)
+/* The file `path` names -- through a link at its last part where
+ * `follow` says -- held by an O_PATH descriptor in *probe, which the
+ * caller closes, once `artifact_through_descriptor` lets a call act on
+ * it: 0, else why not, or the errno the walk met, which the call would
+ * have. The call then acts on the descriptor, never on the name again,
+ * so a link a process swaps in on the path after the check moves
+ * nothing: what was judged is what changes. */
+static int probe_file (const char *path, bool follow, const struct cosmic_artifact *artifact,
+                       int *probe) {
+  *probe = open(path, O_PATH | O_CLOEXEC | (follow ? 0 : O_NOFOLLOW));
+  if (*probe < 0) return errno;
+  struct stat st;
+  int refused = fstat(*probe, &st) != 0 ? errno
+                                         : artifact_through_descriptor(path, follow, artifact, &st);
+  if (refused != 0) {
+    close(*probe);
+    *probe = -1;
+  }
+  return refused;
+}
+
+/* `probe`'s own name in this process's /proc, where a call that takes
+ * no descriptor reaches the file it holds: false where it does not fit. */
+static bool probe_name (int probe, char *name, size_t room) {
+  int made = snprintf(name, room, "/proc/self/fd/%d", probe);
+  return made > 0 && (size_t)made < room;
+}
+#endif
+
+#if defined(__linux__)
+/* Truncates `fd`, opened by `open` from `flags` less O_TRUNC, as
+ * O_TRUNC would have: a regular file alone, and one opened only to read
+ * through its /proc name, which asks the write permission O_TRUNC does:
+ * so an open for reading alone with O_TRUNC needs /proc mounted, and
+ * fails ENOENT where it is not. 0, or an errno. */
+static int truncate_opened (int fd, int flags) {
+  struct stat st;
+  if (fstat(fd, &st) != 0) return errno;
+  if (!S_ISREG(st.st_mode)) return 0;
+  if ((flags & O_ACCMODE) != O_RDONLY) return ftruncate(fd, 0) == 0 ? 0 : errno;
+  char name[32];
+  if (!probe_name(fd, name, sizeof name)) return ENAMETOOLONG;
+  return truncate(name, 0) == 0 ? 0 : errno;
+}
+#endif
 
 COSMIC_SYSCALL(open, 3) {
   const char *path = cosmic_path(L, 1);
@@ -246,17 +307,38 @@ COSMIC_SYSCALL(open, 3) {
       !cosmic_observed_note(COSMIC_OBSERVED_OPEN, path, strlen(path))) {
     return cosmic_fail(L, ENOMEM);
   }
-  int refused = artifact_through_descriptor(path, (flags & O_NOFOLLOW) == 0,
-                                            cosmic_store_artifact(L));
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  bool follow = (flags & O_NOFOLLOW) == 0;
+  int refused = artifact_through_descriptor(path, follow, artifact, NULL);
   if (refused != 0) return cosmic_fail(L, refused);
+  /* The file opened is judged again, once it is open: a link swapped on
+   * the path since the check could have led the open to the artifact.
+   * So where there is one, a truncation waits for that judgment -- on
+   * Linux; elsewhere a process runs unsandboxed, and has the program by
+   * its name anyway. */
+  int truncating = 0;
+#if defined(__linux__)
+  if (artifact != NULL) truncating = flags & O_TRUNC;
+#endif
   int fd;
   do {
     /* Every descriptor this table opens is close-on-exec: a child
      * process is never handed a file it was not given on purpose. */
-    fd = open(path, flags | O_CLOEXEC, (mode_t)mode);
+    fd = open(path, (flags & ~truncating) | O_CLOEXEC, (mode_t)mode);
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
     return cosmic_fail(L, errno);
+  }
+  if (artifact != NULL) {
+    struct stat st;
+    refused = fstat(fd, &st) != 0 ? errno : artifact_through_descriptor(path, follow, artifact, &st);
+#if defined(__linux__)
+    if (refused == 0 && truncating) refused = truncate_opened(fd, flags);
+#endif
+    if (refused != 0) {
+      close(fd);
+      return cosmic_fail(L, refused);
+    }
   }
   lua_pushinteger(L, fd);
   return 1;
@@ -513,12 +595,44 @@ COSMIC_SYSCALL(chmod, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   int mode = cosmic_checkint(L, 2);
-  int refused = artifact_through_descriptor(path, true, cosmic_store_artifact(L));
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+#if defined(__linux__)
+  /* On the file the check held (`probe_file`): through fchmodat2, or,
+   * on a kernel older than 6.6, the probe's /proc name. Without an
+   * artifact there is nothing to check, and the call is by name. */
+  if (artifact == NULL) {
+    if (chmod(path, (mode_t)mode) != 0) return cosmic_fail_effect(L, errno);
+    return cosmic_ok(L);
+  }
+  int probe = -1;
+  int refused = probe_file(path, true, artifact, &probe);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  int number = 0;
+  if (syscall(SYS_fchmodat2, probe, "", (mode_t)mode, AT_EMPTY_PATH) != 0) {
+    number = errno;
+    char name[32];
+    /* A filter that knows no fchmodat2 may answer EPERM, which the
+     * call by name answers again where it is the file's own. Where
+     * that name is not there (no /proc), the first answer stands. */
+    if ((number == ENOSYS || number == EPERM) && probe_name(probe, name, sizeof name)) {
+      if (chmod(name, (mode_t)mode) == 0) number = 0;
+      else if (errno != ENOENT) number = errno;
+    }
+  }
+  close(probe);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+#else
+  /* Checked, then called by name: a link swapped between the two could
+   * lead the call elsewhere, but only unsandboxed, where the program
+   * is to be had by its name anyway. */
+  int refused = artifact_through_descriptor(path, true, artifact, NULL);
   if (refused != 0) return cosmic_fail_effect(L, refused);
   if (chmod(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
   }
   return cosmic_ok(L);
+#endif
 }
 
 static void release_dir (void *dir) { closedir(dir); }
@@ -735,12 +849,40 @@ COSMIC_SYSCALL(utimensat, 5) {
   /* Not followed, as the call is not: on Linux /proc/<pid>/fd/<n> is a
    * link, whose own times are the ones set, so this refuses only a name
    * that is no link -- macOS's /dev/fd/<n>. */
-  int refused = artifact_through_descriptor(path, false, cosmic_store_artifact(L));
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+#if defined(__linux__)
+  /* Without an artifact, by name, as there is nothing to check; with
+   * one, on the file the check held (`probe_file`), by an empty path from
+   * it -- which a kernel older than 5.8 refuses, EINVAL: there, by the
+   * probe's /proc name, which leads to the file the probe holds and no
+   * further, a link included. */
+  if (artifact == NULL) {
+    if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0)
+      return cosmic_fail_effect(L, errno);
+    return cosmic_ok(L);
+  }
+  int probe = -1;
+  int refused = probe_file(path, false, artifact, &probe);
+  if (refused != 0) return cosmic_fail_effect(L, refused);
+  int number = 0;
+  if (utimensat(probe, "", times, AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW) != 0) {
+    number = errno;
+    char name[32];
+    if (number == EINVAL && probe_name(probe, name, sizeof name))
+      number = utimensat(AT_FDCWD, name, times, 0) == 0 ? 0 : errno;
+  }
+  close(probe);
+  if (number != 0) return cosmic_fail_effect(L, number);
+  return cosmic_ok(L);
+#else
+  /* As `chmod`'s: checked, then called by name. */
+  int refused = artifact_through_descriptor(path, false, artifact, NULL);
   if (refused != 0) return cosmic_fail_effect(L, refused);
   if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0) {
     return cosmic_fail_effect(L, errno);
   }
   return cosmic_ok(L);
+#endif
 }
 
 COSMIC_SYSCALL(ftruncate, 2) {

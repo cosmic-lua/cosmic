@@ -480,6 +480,14 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
 
+        # The macOS leg's darwin-branch tests, which stand on no verdict
+        # (ci/darwin-tests.txt): after the boundary, and after the upload
+        # the run behind waits on. Elsewhere, and on --all, it does nothing.
+        {
+          name: "run the darwin suite",
+          run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
+        },
+
         # Fails where a part of spawn's sandbox a confined test needs did
         # not hold (COSMIC_CI_REQUIRE_SANDBOX, phase_sandbox).
         {

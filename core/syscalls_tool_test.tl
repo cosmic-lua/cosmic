@@ -162,16 +162,16 @@ end
 --- An offline child's loopback is up, as a host's is: the kernel gives
 --- lo its 127.0.0.1 only when lo comes up, so the child's own routing
 --- table (/proc/self/net is the reader's network namespace) holds that
---- address as a local route. The child is this program, reading it.
--- TODO: connect to a closed port of 127.0.0.1 and hold the child to
--- ECONNREFUSED, not ENETUNREACH, once cosmic.sys can open a socket or
--- core/http.c answers a failed request with CURLINFO_OS_ERRNO: curl's own
--- message words the two alike.
+--- address as a local route; and a connection to a closed port there is
+--- refused, as the host's would be, not unreachable. The child is this
+--- program, reading and connecting.
 local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local report = create(tmp .. "/report")
   local started = this_program.program({ "-e",
     "local t = assert(require('cosmic.fs').read('/proc/self/net/fib_trie')) " ..
-    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down')" })
+    "print(t:find('127.0.0.1', 1, true) and 'up' or 'down') " ..
+    "local Net = require('cosmic.net') " ..
+    "print(select(2, Net.connect(Net.tcp('127.0.0.1', 1), { timeout_ms = 5000 })))" })
   local pid, trouble, errno = process.spawn(started.argv[1], started.argv, started.options.env,
     tmp, nil, report, report, false,
     spawn_fds(started),
@@ -186,7 +186,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(report, 4096, 0))
   sys.close(report)
-  assert(status.code == 0 and said == "up\n", said)
+  assert(status.code == 0 and said == "up\n127.0.0.1:1: Connection refused\n", said)
 end
 
 local function test_executable_is_a_file()

@@ -128,11 +128,12 @@ promises lean on come first:
   or both back in `cosmic.sys`. They live in core/process.h today,
   `cosmic.child` their one caller; `cosmic.net` waits on one socket at a
   time through core/socket.h's own `wait`.
-- `cosmic.net` past a unix stream socket, each once a caller needs it:
-  a "tcp" `Address` (host and port, the port the kernel chose read back
-  from the listener) for the loopback servers the `TODO:`s in
-  build/fetch_test.tl, build/fetch_tool_test.tl, cosmic/http_test.tl and
-  core/syscalls*_test.tl wait on; datagrams ("udp", "unixgram") as a
+- `cosmic.net` past stream sockets over unix socket files and TCP, each
+  once a caller needs it: a host name looked up (c-ares, which curl
+  already carries) where a "tcp" `Address` takes a numeric one; an
+  accepted connection's peer address; TLS over a connection, for the
+  loopback server build/fetch_test.tl's https `TODO:` waits on;
+  datagrams ("udp", "unixgram") as a
   socket of their own with `send_to` and `receive_from` over the same
   `Address`; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it

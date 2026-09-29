@@ -590,6 +590,14 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   -- What it starts is held too: the program may not run the copy.
   assert(status_of(probe, { probe, "run " .. elsewhere .. " || exit 7" }) == 7)
   assert(sys.rename(given .. "/a/f", given .. "/b/f"))
+  -- So may one in a directory made after the hold, beneath none -- but
+  -- not into one where it could be run, which it could not before.
+  local later = tmp .. "/later"
+  assert(sys.mkdir(later, 0x1c0) and sys.mkdir(later .. "/a", 0x1c0))
+  sys.close(create(later .. "/f"))
+  assert(sys.rename(later .. "/f", later .. "/a/f"))
+  local moved, _, moved_errno = sys.rename(later .. "/a/f", given .. "/a/f")
+  assert(not moved and moved_errno == sys.EXDEV, "a file moved to where it could be run")
   -- Reading and writing are as they were.
   local written = create(tmp .. "/after")
   assert(sys.write(written, "w") == 1)
@@ -604,11 +612,9 @@ end
 --- A pledged child runs under a seccomp filter, and so does what it
 --- starts; an unpledged one runs as this process does (under a filter
 --- of its own when a container gives it one), and a promise no one keeps
---- is refused before anything starts. (That the filter refuses a socket
---- of a family not promised is seen only from outside, with strace.)
--- TODO: check a refused socket from inside the child once cosmic.sys can
--- open one: curl, the only socket maker, words a refused socket and a
--- refused connection alike.
+--- is refused before anything starts. A socket of a family not promised
+--- is refused (EPERM), where one promised is made and then refused its
+--- connection.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local probe = probe_in(tmp)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
@@ -653,6 +659,22 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
+  if pledged ~= "unsupported" then
+    local function connected(promises: {string}): string
+      local output = create(tmp .. "/connect")
+      local pid = assert(process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
+        nil, nil, nil, output, output, false, nil, { pledge = promises }))
+      assert(assert(process.waitpid(pid, false)).code == 0)
+      local said = assert(sys.pread(output, 4096, 0))
+      sys.close(output)
+      return said
+    end
+    local socket = tmp .. "/none.sock: "
+    local unpromised = connected({})
+    assert(unpromised == socket .. "Operation not permitted\n", unpromised)
+    local promised = connected({ "unix" })
+    assert(promised == socket .. "No such file or directory\n", promised)
+  end
 end
 
 --- A child starts on this process's memory rather than a copy of it,
