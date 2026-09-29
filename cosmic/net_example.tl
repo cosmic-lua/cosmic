@@ -5,6 +5,10 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
+local Test = require("cosmic.test")
+
+--- The TCP example listens on the worker's own loopback.
+Test.needs{ network = { "127.0.0.1" } }
 
 local Example = {}
 
@@ -43,6 +47,17 @@ function Example.connect()
   assert(answer == "ok", answer)
   assert(server:close())
   assert(Fs.remove_tree(dir))
+end
+
+--- A TCP server on the loopback at a port the kernel chose, which the
+--- listener's `address` names for a client to connect to.
+function Example.tcp()
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ms = 5000 }))
+  print(server.address.port > 0)
+  local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+  local conn <close> = assert(server:accept())
+  assert(client:write("hello"))
+  assert(assert(conn:read()) == "hello")
 end
 
 return Example

@@ -343,6 +343,10 @@ local function test_it_writes_to_a_descriptor_and_names_a_variable(tmp: string)
     { env = {}, fds = { [3] = fd }, stderr = "capture", timeout_ms = 30000 }))
   assert(handed.ok, tostring(handed.stderr))
   assert(assert(sys.pread(fd, 64, 0)) == "to three\n")
+  -- `connect` says why a unix socket file cannot be connected to.
+  local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
+  assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",
+    missing.stdout)
   assert(sys.close(fd))
   local unnamed = run({ probe, "write-fd x y" })
   assert(unnamed.code == 1 and assert(unnamed.stderr):find("no descriptor x", 1, true),

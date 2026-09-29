@@ -73,6 +73,9 @@
 ---                      and a newline, to stdout: unlike `$NAME`, it
 ---                      tells an empty variable from an unset one
 ---     present P        fails unless P exists, as `test -e` does
+---     connect P        connects to the unix socket file P, waiting five
+---                      seconds at most, saying `connected` or why not,
+---                      a line to stdout
 ---     writable P       fails unless file P opens to write, appending
 ---                      and writing nothing, as `: >> P` does, but never
 ---                      making it

@@ -8,7 +8,12 @@
 ---
 --- An address is a record whose `kind` says how the rest of it is read,
 --- so every call takes every kind: "unix", a socket file named by a
---- path, is the one there is so far. A connection is one object for
+--- path, or "tcp", a port of a host's numeric address.
+---
+---     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+---     local port = server.address.port -- the one the kernel chose
+---
+--- A connection is one object for
 --- both directions; `shutdown("write")` tells the peer the end of what
 --- was sent while its answer is still read, and `writer()` is a Writer
 --- whose `close` does just that, for a wrapper that closes what it
@@ -38,9 +43,11 @@ else
 end
 
 local record Net
-  --- How an `Address` is read: "unix", a socket file named by `path`.
+  --- How an `Address` is read: "unix", a socket file named by `path`,
+  --- or "tcp", a `port` of a `host`.
   enum Kind
     "unix"
+    "tcp"
   end
 
   --- Where a socket is.
@@ -51,6 +58,13 @@ local record Net
     --- (107 bytes on Linux, 103 on macOS); a longer one fails, "Filename
     --- too long", naming the bound, rather than naming another file.
     path: string
+    --- For "tcp": the host's numeric IPv4 or IPv6 address ("127.0.0.1",
+    --- "::1"). A name is not looked up, nor an IPv6 scope ("%lo") read:
+    --- either fails "Invalid argument".
+    host: string
+    --- For "tcp": the port, from 0 to 65535. A listener at 0 is at a
+    --- port the kernel chose, which its `address` names.
+    port: integer
   end
 
   record ListenOptions
@@ -63,7 +77,8 @@ local record Net
 
   record ConnectOptions
     --- How long connecting, and then any one read or write, waits, in
-    --- milliseconds, from 0; nil for no limit. A unix listener whose
+    --- milliseconds, from 0; nil for no limit. A TCP connection is
+    --- waited on until made or refused. A unix listener whose
     --- backlog is full is waited on for room on Linux; macOS refuses the
     --- connection at once, "Connection refused", as though nothing
     --- listened.
@@ -128,6 +143,11 @@ function Net.unix(path: string): Net.Address
   return { kind = "unix", path = path }
 end
 
+--- The address of TCP `port` at `host`, a numeric IPv4 or IPv6 address.
+function Net.tcp(host: string, port: integer): Net.Address
+  return { kind = "tcp", host = host, port = port }
+end
+
 --- `timeout_ms` as the raw calls take it, raising on one no wait can
 --- last, so a field set wrong is named where it is read.
 local function milliseconds(timeout_ms: integer | nil): integer
@@ -138,13 +158,17 @@ local function milliseconds(timeout_ms: integer | nil): integer
 end
 
 --- What a failed call says: its own words for a deadline or a signal,
---- and the bound a name too long ran past.
-local function said(trouble: string, errno: integer): string
+--- the bound a name too long ran past, and what a host must be.
+local function said(trouble: string, errno: integer, address?: Net.Address): string
   if errno == raw.ETIMEDOUT then return "timed out" end
   if errno == raw.EINTR then return "interrupted" end
   if errno == raw.ENAMETOOLONG then
     return trouble .. " (a socket file's own name may be at most " ..
       raw.SOCKET_NAME_MAX .. " bytes here)"
+  end
+  if errno == raw.EINVAL and address ~= nil and address.kind == "tcp" then
+    return trouble .. " (not a numeric IPv4 or IPv6 address: a name is not looked up, " ..
+      "nor an IPv6 scope read)"
   end
   return trouble
 end
@@ -263,11 +287,11 @@ local listener_mt: metatable<Net.Listener> = {
 }
 
 --- The listener over `fd`, which it owns from here on, at `address`.
---- `made` is the socket file it made there, at `absolute` -- its path
---- whatever directory the process moves to -- which `close` removes
---- only while the name is still that file.
-local function new_listener(fd: integer, address: Net.Address, absolute: string,
-    made: sys.Stat, timeout_ms: integer | nil): Net.Listener
+--- `made` is the socket file a unix one made there, at `absolute` --
+--- its path whatever directory the process moves to -- which `close`
+--- removes only while the name is still that file; nil for a TCP one.
+local function new_listener(fd: integer, address: Net.Address, absolute: string | nil,
+    made: sys.Stat | nil, timeout_ms: integer | nil): Net.Listener
   local open = true
   local listener: Net.Listener
   listener = {
@@ -288,10 +312,12 @@ local function new_listener(fd: integer, address: Net.Address, absolute: string,
       if not open then return true, "" end
       open = false
       local ok, why = sys.close(fd)
-      local now, _ = sys.lstat(absolute)
-      if now ~= nil and now.ino == made.ino and now.dev == made.dev then
-        local removed, trouble = sys.unlink(absolute)
-        if not removed and ok then return false, address.path .. ": " .. trouble end
+      if absolute ~= nil and made ~= nil then
+        local now, _ = sys.lstat(absolute)
+        if now ~= nil and now.ino == made.ino and now.dev == made.dev then
+          local removed, trouble = sys.unlink(absolute)
+          if not removed and ok then return false, address.path .. ": " .. trouble end
+        end
       end
       if not ok then return false, why end
       return true, ""
@@ -300,25 +326,40 @@ local function new_listener(fd: integer, address: Net.Address, absolute: string,
   return setmetatable(listener, listener_mt)
 end
 
---- What `address` is called in a failure.
+--- What `address` is called in a failure: its path, or its host and
+--- port, an IPv6 host in brackets.
 local function named(address: Net.Address): string
-  return address.path
+  if address.kind ~= "tcp" then return address.path end
+  local host = address.host
+  if host:find(":", 1, true) then host = "[" .. host .. "]" end
+  return host .. ":" .. tostring(address.port)
 end
 
 --- `address` as the raw table reads one.
 local function raw_address(address: Net.Address): raw_socket.Address
-  return { kind = address.kind, path = address.path }
+  return { kind = address.kind, path = address.path, host = address.host, port = address.port }
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
 --- where the path is already there -- a socket file left behind by a
 --- listener that did not close included -- rather than take the name
---- from whatever holds it.
+--- from whatever holds it. A TCP one fails "Address in use" at a port
+--- another listens at; its `address` names the port it has.
 function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listener | nil, string
   opts = opts or {}
   local backlog = opts.backlog or DEFAULT_BACKLOG
   assert(backlog >= 1, "backlog must be at least 1")
   milliseconds(opts.timeout_ms)
+  if address.kind == "tcp" then
+    local fd, trouble, errno = raw.listen(raw_address(address), backlog)
+    if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
+    local bound, why = raw.bound(fd)
+    if bound == nil then
+      local _, _ = sys.close(fd)
+      return nil, named(address) .. ": " .. why
+    end
+    return new_listener(fd, Net.tcp(bound.host, bound.port), nil, nil, opts.timeout_ms), ""
+  end
   local absolute = address.path
   if absolute:sub(1, 1) ~= "/" then
     local cwd, cwd_trouble = sys.getcwd()
@@ -347,11 +388,13 @@ end
 --- Connects to `address`. A unix one fails "No such file or directory"
 --- where there is no socket file and "Connection refused" where nothing
 --- listens at it, and waits for room at a listener whose backlog is
---- full (on Linux; see `ConnectOptions.timeout_ms`).
+--- full (on Linux; see `ConnectOptions.timeout_ms`). A TCP one waits
+--- for the connection to be made, and fails "Connection refused" where
+--- nothing listens at the port.
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
   local timeout_ms = opts ~= nil and opts.timeout_ms or nil
   local fd, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ms))
-  if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
+  if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno, address) end
   return new_conn(fd, timeout_ms), ""
 end
 

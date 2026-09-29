@@ -1,14 +1,17 @@
 --- `cosmic fetch` run as this program: no verdict line, exit 2 for a
---- refused command line and 1 for a fetch that fails, all offline (a
---- closed local port). The fetches themselves are in `fetch_test.tl`.
+--- refused command line and 1 for a fetch that fails, and a download
+--- interrupted by a signal, all offline on the loopback. The fetches
+--- themselves are in `fetch_test.tl`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
---- The program itself, which its tests start, and a closed local port.
+--- The program itself, which its tests start, and a local port: closed,
+--- or one a test serves.
 Test.needs{ tool = true, network = { "127.0.0.1" } }
 
 local function cosmic(dir: string, words: {string}): integer, string, string
@@ -41,13 +44,7 @@ end
 --- The verb's own interrupt wiring, run as a process: a `Child.guard`,
 --- `Http.download` asking it between chunks, the guard closed after. The
 --- interrupt is sent from inside the download (its second ask, so a
---- chunk is already written), which makes it deterministic where a timed
---- kill of a slow server would not be.
--- TODO: send the SIGINT to a real `cosmic fetch -o` against a local
--- server that sends one chunk and then waits, once the tree has a
--- socket module that can bind and accept; only the wiring is run
--- here, since fetch itself needs a URL to fetch, and build/fetch_test.tl
--- covers the verb's cancelled path in process.
+--- chunk is already written); the next test sends it from outside.
 local function test_an_interrupted_download_leaves_no_file_and_dies_of_the_signal(tmp: string)
   local fixture = tmp .. "/interrupted.tl"
   assert(Fs.write(fixture, [[
@@ -82,4 +79,40 @@ end
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "interrupted.tl", "left behind: " .. name)
   end
+end
+
+--- A real `cosmic fetch -o` against a local server that sends part of a
+--- body and then waits: SIGINT, sent once the part is on disk, ends it
+--- of the signal, leaving no file behind.
+local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ms = 20000 }))
+  local url = "http://127.0.0.1:" .. server.address.port .. "/big"
+  local started = this_program.program({ "fetch", "-o", tmp .. "/target", url },
+    { cwd = tmp, stdout = "null", stderr = "capture" })
+  local child <close> = assert(Child.start(started.argv, started.options))
+  local conn <close> = assert(server:accept())
+  local request = ""
+  while not request:find("\r\n\r\n", 1, true) do
+    request = request .. assert(conn:read())
+  end
+  assert(request:find("GET /big HTTP/1.1\r\n", 1, true) == 1, request)
+  local part = string.rep("z", 4096)
+  assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n" .. part))
+  -- The part is on disk once some file in the directory holds it.
+  local written = false
+  for _ = 1, 2000 do
+    for _, name in ipairs((assert(Fs.list(tmp)))) do
+      local st = Fs.stat(tmp .. "/" .. name)
+      if st ~= nil and st.size >= #part then written = true end
+    end
+    if written then break end
+    assert(sys.nanosleep(10 * 1000000))
+  end
+  assert(written, "the part never reached the disk")
+  assert(child:stop(sys.SIGINT))
+  local result = assert(child:wait(20000))
+  assert(result.signal == sys.SIGINT,
+    "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) ..
+    " " .. tostring(result.stderr))
+  assert(#(assert(Fs.list(tmp))) == 0, "left behind: " .. table.concat(assert(Fs.list(tmp)), ","))
 end

@@ -604,11 +604,9 @@ end
 --- A pledged child runs under a seccomp filter, and so does what it
 --- starts; an unpledged one runs as this process does (under a filter
 --- of its own when a container gives it one), and a promise no one keeps
---- is refused before anything starts. (That the filter refuses a socket
---- of a family not promised is seen only from outside, with strace.)
--- TODO: check a refused socket from inside the child once cosmic.sys can
--- open one: curl, the only socket maker, words a refused socket and a
--- refused connection alike.
+--- is refused before anything starts. A socket of a family not promised
+--- is refused (EPERM), where one promised is made and then refused its
+--- connection.
 local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   local probe = probe_in(tmp)
   local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
@@ -653,6 +651,22 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   end
   local plain = filtered(nil)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
+  if pledged ~= "unsupported" then
+    local function connected(promises: {string}): string
+      local output = create(tmp .. "/connect")
+      local pid = assert(process.spawn(probe, { probe, "connect " .. tmp .. "/none.sock" },
+        nil, nil, nil, output, output, false, nil, { pledge = promises }))
+      assert(assert(process.waitpid(pid, false)).code == 0)
+      local said = assert(sys.pread(output, 4096, 0))
+      sys.close(output)
+      return said
+    end
+    local socket = tmp .. "/none.sock: "
+    local unpromised = connected({})
+    assert(unpromised == socket .. "Operation not permitted\n", unpromised)
+    local promised = connected({ "unix" })
+    assert(promised == socket .. "No such file or directory\n", promised)
+  end
 end
 
 --- A child starts on this process's memory rather than a copy of it,
