@@ -653,7 +653,7 @@ local SAVES <const> = "env.COSMIC_CI_SAVES == 'true'"
 
 --- Holds each cache save of `steps`, a job's, to main's saves (below),
 --- and counts them.
-local function main_saves(steps: {{string: any}}): integer
+local function main_saves(steps: {{string: any}}, full_only?: boolean): integer
   local restores: {string: {string: any}} = {}
   local trims: {string: string} = {}
   local saves = 0
@@ -674,7 +674,10 @@ local function main_saves(steps: {{string: any}}): integer
       -- outputs, which main never takes. The checked job restores only
       -- on a full run, as it does all else (`FULL`).
       local condition = step["if"] as string or ""
-      if condition:find(FULL, 1, true) == 1 then condition = condition:sub(#FULL + 5) end
+      if full_only then
+        assert(condition:find(FULL, 1, true) == 1, path .. " is restored on a light run: " .. condition)
+        condition = condition:sub(#FULL + 5)
+      end
       if condition ~= "" then
         assert(path == "${{ runner.temp }}/zig-build" and
           condition:find("github.ref != 'refs/heads/main'", 1, true) == 1,
@@ -747,7 +750,7 @@ local function test_only_main_saves_a_cache_every_run_restores()
   end
   assert(main_saves(jobs.platform.steps as {{string: any}}) == 4,
     "the verdicts, compiles, zig outputs and driver marker")
-  assert(main_saves(jobs.checked.steps as {{string: any}}) == 1, "the checked job's verdicts")
+  assert(main_saves(jobs.checked.steps as {{string: any}}, true) == 1, "the checked job's verdicts")
 end
 
 --- The cache saves among `steps`, by the path each saves.
@@ -877,8 +880,13 @@ local function test_a_main_push_reuses_the_queue_run()
 
   -- Each key the leg's own, of the shape its save takes.
   local keys = step_running(steps, "seed.keys")
-  assert(keys.id == "keys" and keys.run == "grep -E '^(verdicts=verdicts|compiles=compiles|driver-checked=" ..
-    "driver-checked-v2)-${{ matrix.name }}-[A-Za-z0-9._-]+$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+  -- Each key names the leg, then what only the leg's own key holds
+  -- there (its host's hex, or its digest), so linux-x86_64's entry takes
+  -- none of linux-x86_64-checked's.
+  assert(keys.id == "keys" and keys.run == "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-" ..
+    "[0-9a-f]+|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-" ..
+    "[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' " ..
+    "\"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
     "seed reads other keys: " .. tostring(keys.run))
   local ours_saved, theirs_saved, saved = saves_of(steps), saves_of(platform.steps as {{string: any}}), 0
   for path, step in pairs(ours_saved) do
@@ -982,7 +990,12 @@ local function test_the_queue_keeps_what_main_would_save()
   for i, step in ipairs(csteps) do
     if step.name == "remove the leg's container" then removed = i end
   end
-  assert(ctrim < cat and removed < cat, "the checked job's seed is kept before its trim, or beside its container")
+  local cback: integer
+  for i, step in ipairs(csteps) do
+    if step.name == "move the tree back to where it was checked out" then cback = i end
+  end
+  assert(ctrim < cat and removed < cat and cback ~= nil and cback < cat,
+    "the checked job's seed is kept before its trim, beside its container, or with its tree moved")
   local cupload = csteps[cat + 1]
   local cwith = cupload.with as {string: string}
   assert(cupload["if"] == QUEUE and cwith.path == "${{ runner.temp }}/seed" and
@@ -1024,6 +1037,11 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   for _, same in ipairs({ "COSMIC_CI_EVENT", "COSMIC_CI_BASE_SHA" }) do
     assert(cenv[same] == penv[same], "the checked job's " .. same .. " is not the legs': " .. tostring(cenv[same]))
   end
+  local expected <const>: {string: boolean} = { COSMIC_WORKER = true, TARGET = true,
+    COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_REQUIRE_SANDBOX = true, COSMIC_CI_DECLARED_KEYS = true,
+    COSMIC_CI_EVENT = true, COSMIC_CI_BASE_SHA = true }
+  for key in pairs(cenv) do assert(expected[key], "the checked job sets " .. key) end
+  for key in pairs(expected) do assert(cenv[key] ~= nil, "the checked job sets no " .. key) end
   -- Its steps, by name, as the leg's are with the leg's matrix put in.
   local function as_leg(value: string, own_name?: string): string
     local values: {string: string} = { name = own_name or leg.name, image = leg.image,
@@ -1041,31 +1059,45 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
     return out
   end
   local theirs, ours = by_name(platform.steps as {{string: any}}), by_name(checked.steps as {{string: any}})
-  for _, step_name in ipairs({ "start the leg's container", "create the unprivileged builder",
-      "name the zig build cache, and the run's start", "restore zig build outputs",
-      "restore zig build outputs of another vendor part", "name the leg's host",
-      "restore test verdicts", "restore compiles and parses" }) do
-    local their, our = theirs[step_name], ours[step_name]
+  -- Each step as the leg's of the same name, or of the name given: the
+  -- same action (the zig pin restored alone, which the leg saves), the
+  -- same shell, directory, script, inputs and variables, run where the
+  -- leg's would and only on a full run.
+  local function same(where: string, mine: any, their: any)
+    if their is string then their = as_leg(their) end
+    assert(mine == their, where .. " is not the leg's: " .. tostring(mine) .. " against " .. tostring(their))
+  end
+  local function same_table(where: string, mine: any, their: any)
+    local m, t = (mine or {}) as {string: any}, (their or {}) as {string: any}
+    for key, value in pairs(t) do same(where .. "'s " .. key, m[key], value) end
+    for key, value in pairs(m) do same(where .. "'s " .. key, value, t[key]) end
+  end
+  for _, pair in ipairs({ { "start the leg's container" }, { "create the unprivileged builder" },
+      { "restore the pinned zig", "cache the pinned zig" },
+      { "name the zig build cache, and the run's start" }, { "restore zig build outputs" },
+      { "restore zig build outputs of another vendor part" }, { "name the leg's host" },
+      { "restore test verdicts" }, { "restore compiles and parses" },
+      { "move the tree to a path of this commit's own" },
+      { "move the tree back to where it was checked out" } }) do
+    local step_name = pair[1]
+    local our, their = ours[step_name], theirs[pair[2] or step_name]
     assert(their ~= nil and our ~= nil, "no step " .. step_name)
-    local own = step_name == "name the leg's host" and name or nil
+    local uses = their.uses as string
+    if pair[2] ~= nil then uses = uses:gsub("^actions/cache@", "actions/cache/restore@") end
+    same(step_name .. "'s action", our.uses, uses)
+    for _, key in ipairs({ "id", "shell", "working-directory" }) do
+      same(step_name .. "'s " .. key, our[key], their[key])
+    end
     if their.run ~= nil then
-      assert(our.run == as_leg(their.run as string, own), step_name .. " runs otherwise than on the leg: " ..
-        tostring(our.run))
+      local own = step_name == "name the leg's host" and name or nil
+      same(step_name .. "'s script", our.run, as_leg(their.run as string, own))
     end
-    if their.with ~= nil then
-      for key, value in pairs(their.with as {string: any}) do
-        local mine = (our.with as {string: any})[key]
-        if key ~= "lookup-only" then
-          assert(mine == (value is string and as_leg(value) or value), step_name .. "'s " .. key ..
-            " is not the leg's: " .. tostring(mine))
-        end
-      end
-    end
-    if their.env ~= nil then
-      for key, value in pairs(their.env as {string: string}) do
-        assert((our.env as {string: string})[key] == as_leg(value), step_name .. "'s " .. key .. " is not the leg's")
-      end
-    end
+    same_table(step_name .. "'s with", our.with, their.with)
+    same_table(step_name .. "'s env", our.env, their.env)
+    local condition = their["if"] as string
+    local wanted = FULL
+    if condition ~= nil and not condition:find("matrix.", 1, true) then wanted = FULL .. " && " .. condition end
+    same(step_name .. "'s if", our["if"], wanted)
   end
   -- It boots, builds the checked core, and runs its suite, and no more.
   local steps = checked.steps as {{string: any}}
@@ -1078,8 +1110,10 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   assert(table.concat(ran, " ") == "boot checked-build checked", "the checked job runs " .. table.concat(ran, " "))
   local at = verdict_steps(steps)
   local _, suite = step_running(steps, "platform checked")
+  local _, back = step_running(steps, "place-tree.sh --restore")
   for _, pair in ipairs({ { at["host-id"], at["verdicts-restore"] }, { at["verdicts-restore"], suite },
-      { suite, at.trim }, { at.trim, at.save } }) do
+      { suite, at.trim }, { at.trim, at.save },
+      { back, at.save } }) do
     assert(pair[1] ~= nil and pair[2] ~= nil and pair[1] < pair[2], "the checked job's verdict steps are out of order")
   end
   -- Nothing runs on a light run.
@@ -1088,7 +1122,9 @@ local function test_the_checked_suite_runs_in_a_job_of_its_own_on_linux_x86_64s_
   for _, step in ipairs(steps) do
     local condition = step["if"] as string or ""
     local held = false
-    for _, text in ipairs(unmet) do held = held or condition:find(text, 1, true) ~= nil end
+    for conjunct in (condition .. " && "):gmatch("(.-) && ") do
+      for _, text in ipairs(unmet) do held = held or conjunct == text end
+    end
     assert(held, "the checked job runs " .. tostring(step.name or step.uses) .. " on a light run: " .. condition)
   end
   assert(ours["bootstrap the pinned CI driver"].id == "driver" and
@@ -1158,7 +1194,8 @@ local function test_a_leg_trims_its_verdicts_before_it_saves_them()
     "${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}", 1, true) ~= nil,
     "the trim counts from no time taken before the suites, or trims a failed run: " ..
     (trim.run as string))
-  -- `assemble` runs the checked suite, on the leg that runs it.
+  -- `assemble` builds and verifies the checked core; its suite runs in
+  -- the checked job, which trims its own verdicts.
   for _, suite in ipairs({ "release-suite", "assemble", "portable-suite" }) do
     assert(at[suite] ~= nil and at[suite] < at.trim, "the trim runs before " .. suite)
   end

@@ -627,9 +627,9 @@
     # and builds only what the suite reads, and keeps the suite's
     # verdicts under a cache name of its own (`linux-x86_64-checked`),
     # saved and seeded as a leg's are; it restores linux-x86_64's zig
-    # build outputs and compiles, which that leg saves. Its tree stays
-    # where it was checked out: its workers, sandboxed, see it at /tree
-    # (place-tree.sh). Where `platform` runs, it runs; on a branch push
+    # build outputs and compiles, which that leg saves. Its tree moves
+    # to a path of the commit's own, as a leg's does. Where `platform`
+    # runs, it runs; on a branch push
     # (`light`) with every step skipped, so it shows as a check run
     # rather than a skipped one (build/workflows_test.tl), and the join
     # waits on a runner's start.
@@ -697,6 +697,7 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "lookup-only": "${{ github.event_name == 'schedule' }}",
           },
         },
         {
@@ -741,6 +742,17 @@
             key: "compiles-linux-x86_64-",
             "restore-keys": "compiles-linux-x86_64-\n",
           },
+        },
+        # To a path of this commit's and this job's own, as a leg's tree
+        # moves: the checked core runs the harness, the boot's staging and
+        # `tool.tl entry` unsandboxed at the tree's path, so a path of
+        # another length each commit varies what the sanitizers see.
+        # After every hashFiles, which reads the checkout.
+        {
+          name: "move the tree to a path of this commit's own",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          "working-directory": ".",
+          run: "sh .github/scripts/place-tree.sh",
         },
         {
           name: "bootstrap the pinned CI driver",
@@ -812,6 +824,16 @@
           "working-directory": "/",
           shell: "sh",
           run: "docker rm -f cosmic-leg || :",
+        },
+        # Before the seed and the save: actions/cache names the verdicts
+        # by a path relative to the workspace, which names nothing
+        # through place-tree.sh's link; and before checkout's post step.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "env.COSMIC_CI_SCOPE == 'full' && always()",
+          "working-directory": ".",
+          shell: "sh",
+          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
         # As a leg's: what main would save, for main's push of this
         # commit (`seed`); verdicts alone, it saves no compiles.
@@ -895,7 +917,7 @@
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts=verdicts|compiles=compiles|driver-checked=driver-checked-v2)-${{ matrix.name }}-[A-Za-z0-9._-]+$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
         {
           name: "save test verdicts",

@@ -324,8 +324,12 @@ saves, and saves neither. Its verdicts it keeps under a name of its
 own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
 restored, trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's
 are. The `ci` join requires it, and `report` counts it with the legs.
-Its tree stays where it was checked out: its workers, sandboxed, see
-it at /tree, so the move `place-tree.sh` makes would test nothing.
+Its tree moves to a path of the commit's own, as a leg's does: the
+checked core runs the harness, the boot's staging and `tool.tl entry`
+unsandboxed at that path, so a path of another length each commit
+varies what the sanitizers see. The tree moves back before the seed
+and the verdicts' save, whose path actions/cache names relative to the
+workspace (below).
 
 ### the Linux legs' container
 

@@ -35,7 +35,7 @@ end
 --- legs, is one, and a run's wall where it is the slowest.
 local function test_reuse_and_seed_are_no_platform_jobs()
   for _, name in ipairs({ "ci", "reuse", "seed", "seed (macos-aarch64, macos-15)",
-      "seed (linux-x86_64-checked, ubuntu-24.04)" }) do
+      "seed (linux-x86_64-checked, ubuntu-24.04, true)" }) do
     assert(not Report.is_platform_job(name), name)
   end
   for _, name in ipairs({ "linux-x86_64", "macos-aarch64", "linux-x86_64-checked", "seeder" }) do
