@@ -19,12 +19,12 @@ local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 
 --- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace, which never satisfies an ordinary
---- `require` for any caller -- see cosmic/store.tl for why -- and
---- arrives instead as the second argument `require` passes this
---- chunk's own loader, present because this module was itself loaded,
---- trusted, from the binary's own tree. Boot mode falls back to
---- requiring it by name, which only boot's own preload answers.
+--- `cosmic.internal.` namespace, which an ordinary `require` never
+--- satisfies (see cosmic/store.tl for why). It arrives instead as the
+--- second argument the loader passes this chunk, present because this
+--- module was itself loaded, trusted, from the binary's own tree. Boot
+--- mode falls back to requiring it by name, which only boot's own
+--- preload answers.
 local type raw_http = require("cosmic.internal.http")
 
 local extra: any = select(2, ...)
@@ -202,9 +202,9 @@ local upload_mt: metatable<Http.Upload> = {
 --- otherwise the body goes chunked. `opts.body` is refused, and a HEAD
 --- is `nil, err`, as neither has a body to write. The request may
 --- connect and send its headers as soon as any transfer is driven,
---- before its own first write. A redirect that would send
---- the body again (a 307 or 308) fails the request, since what was
---- written cannot be written again.
+--- before its own first write. A redirect that would send the body
+--- again (a 307 or 308) fails the request, since what was written
+--- cannot be written again.
 -- TODO: follow a 307 or 308 with a streamed body by asking the caller
 -- for it again (a function answering a fresh Reader, say) behind a
 -- CURLOPT_SEEKFUNCTION that rewinds to it, once a caller must upload
@@ -278,11 +278,11 @@ end
 --- to a fresh temporary file beside it -- created exclusively, so two
 --- downloads never share one and a planted symlink is never followed --
 --- and renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.sha256` or `opts.sha512` is given, verified -- a reader never sees
---- a partial file at the final name. Fails on a non-2xx status (a
---- redirect `opts.follow` already took does not count) or a checksum
---- mismatch, and removes the temporary file on every failure, `opts.cancelled`'s
---- answering true ("cancelled") included.
+--- disk and, when `opts.sha256` or `opts.sha512` is given, verified: a
+--- reader never sees a partial file at the final name. Fails on a
+--- non-2xx status (a redirect `opts.follow` already took does not count)
+--- or a checksum mismatch, and removes the temporary file on every
+--- failure, `opts.cancelled` answering true ("cancelled") included.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
   local checks: {{string}} = {}
   local hashings: {Stream.Hashing} = {}

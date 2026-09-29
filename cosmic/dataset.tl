@@ -34,10 +34,10 @@
 --- `Table.renamed` says which: SQLite folds ASCII case in names, so a key
 --- whose lower case an earlier column has (`A` after `a`) gets `_2` after
 --- it (`A_2`), or `_3` and on; the empty key is `_`; a NUL byte in a key,
---- which SQL text cannot hold, is `_`; and a key `_json` is renamed the
---- same way, as the column of that name is the row's own; and so are
---- `rowid`, `oid` and `_rowid_`, which would otherwise shadow SQLite's
---- own row id (`rowid_2`).
+--- which SQL text cannot hold, is `_`; a key `_json` is renamed the same
+--- way while the row's own `_json` column is there; and so are `rowid`,
+--- `oid` and `_rowid_`, which would otherwise shadow SQLite's own row id
+--- (`rowid_2`).
 --- Names are quoted (`"` doubled), so a space, a dot or a keyword in a key
 --- is no trouble in the statement either, written in double quotes.
 ---
@@ -52,11 +52,11 @@
 --- not. With `raw` every cell is text as written, the empty one `''`. A
 --- row's `_json` holds the same values, an empty cell `null`, so a CSV
 --- row is the JSON object of the file's JSON twin. `-0` is a plain
---- number and loads as the integer 0, and `-0.0` as the real 0.0: no sign shows
---- through SQL or `_json`.
---- The columns follow the header's order, so `SELECT *` reads the file's
---- own columns left to right; the JSON formats' are in byte order. A file whose header has
---- no rows still has its columns (all of them empty).
+--- number and loads as the integer 0, and `-0.0` as the real 0.0: no sign
+--- shows through SQL or `_json`. The columns follow the header's order, so
+--- `SELECT *` reads the file's own columns left to right; the JSON
+--- formats' are in byte order. A file whose header has no rows still has
+--- its columns (all of them empty).
 ---
 --- The formats are a table kept here, one entry each -- a name, the
 --- file extensions it goes by, and a reader from text to rows -- so a
@@ -288,8 +288,9 @@ function Dataset.about(name: string): string | nil
 end
 
 --- The format a file name's extension names, case aside -- `json` for
---- `a.json`, `ndjson` for `a.jsonl` and `a.ndjson`, `tsv` for `a.tab` -- or nil and why
---- (the extensions there are) when it has none or an unknown one.
+--- `a.json`, `ndjson` for `a.jsonl` and `a.ndjson`, `tsv` for `a.tab` --
+--- or nil and why (the extensions there are) when it has none or an
+--- unknown one.
 function Dataset.format_of(path: string): string | nil, string
   local extension = path:match("%.([^./]+)$")
   local known: {string} = {}
@@ -344,9 +345,9 @@ local function bound(value: any): Sqlite.Value | nil, string
   return nil, "a " .. type(value) .. " has no SQLite value"
 end
 
---- The columns for `rows`' keys, in byte order, each named as the module
---- comment says; the key each column holds; and the key each renamed
---- column was.
+--- The columns for `rows`' keys: those of `first`, then the rest in byte
+--- order, each named as the module comment says. Also the key each
+--- column holds, and the key each renamed column was.
 local function columns_of(rows: {Dataset.Row}, json_column: boolean, first: {string} | nil): {string}, {string:string}, {string:string}
   local seen: {string:boolean} = {}
   local keys: {string} = {}
@@ -401,7 +402,7 @@ local max_columns <const> = 2000
 --- columns (2000, `_json` among them), SQLite refuses the table (it
 --- exists, or `name` is reserved) or a row, a row holds a value with
 --- no SQLite one, or a nested value cannot be encoded.
---- `name` and the keys are text SQL is written in, so `name` holds no NUL byte.
+--- `name` is written into SQL text, so it holds no NUL byte.
 function Dataset.load(handle: Sqlite.Handle, name: string, rows: {Dataset.Row},
                       opts?: Dataset.LoadOptions): Dataset.Table | nil, string
   if name == "" then
