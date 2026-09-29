@@ -1640,13 +1640,14 @@ end
 --- What of the running binary a run holds of the code a worker runs,
 --- or that writes what it is given (`binary_harness`).
 local record Harness
-  --- The digest of the test harness over each module's source and
-  --- bytecode (`test.harness`), which build/harness_epoch.tl's
-  --- `acknowledged` records: what a worker runs, and the code that
-  --- makes and reads its key. No key holds it; each holds the epoch in
-  --- its place.
-  digest: string
-  --- The modules the digest holds, and those of them the harness runs
+  --- A digest of each module of the test harness by its name, source
+  --- and bytecode (`test.harness`): what a worker runs, and the code
+  --- that makes and reads its key. build/harness_epoch.tl's
+  --- `acknowledged` records them, one to a line between blank ones, so
+  --- two changes to different modules of the harness merge cleanly. No
+  --- key holds them; each holds the epoch in their place.
+  modules: {string:string}
+  --- The modules `modules` holds, and those of them the harness runs
   --- -- what every worker loads and `harness_own` -- whose requires
   --- build/harness_epoch_test.tl holds to `names`.
   names: {string}
@@ -1700,7 +1701,7 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
 --- keeps a verdict under that key, in o/build.db and in the verdicts
 --- every checkout shares, which would stand after the fix. So a fix to
 --- it bumps the epoch (build/harness_epoch.tl), which every key holds,
---- and every version of it is in the harness's digest, which
+--- and every version of it is in the harness's digests, which
 --- build/harness_epoch_test.tl holds to what was acknowledged: an edit
 --- to any of it, a comment's too, fails that test until someone says
 --- whether it can move a verdict. What build.test decides of a
@@ -1710,8 +1711,8 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
 local key_own <const>: {string} = { "build.test" }
 
---- The module that holds the epoch and the acknowledged digest, which
---- the digest leaves out: it would hold itself.
+--- The module that holds the epoch and the acknowledged digests, which
+--- the digests leave out: it would hold itself.
 local epoch_module <const> = "build.harness_epoch"
 
 --- The code that writes a closure store: build.closure_store's and the
@@ -1770,19 +1771,19 @@ local function store_code(imports: {string:{string}}): {string}
   return closure_of(store_writer, {}, imports)
 end
 
---- The digest of the test harness and that of the code that writes a
---- closure store (`Harness`), over the modules `db` holds -- the
+--- The digests of the test harness's modules and that of the code
+--- that writes a closure store (`Harness`), over the modules `db` holds -- the
 --- running binary's database (`binary_harness`, which fills in
 --- `carried`), or the projection, o/cosmic.db, which
 --- build/harness_epoch_test.tl reads -- by their `modules` and `imports`
 --- rows. Each module of the harness -- what a worker loads,
 --- `harness_own` and `key_code`, but build.harness_epoch, which records
---- the digest -- is held by its name, its source's hash and its
---- bytecode's, so the digest is the same wherever the tree is, and a
---- compiler that makes other bytecode of the same source moves it as
---- an edit does; so is each the salt holds (`store_code`), as the
+--- the digests -- is held by its name, its source's hash and its
+--- bytecode's, a digest to each (`modules`), so each is the same
+--- wherever the tree is, and a compiler that makes other bytecode of
+--- the same source moves it as an edit does; so is each the salt holds (`store_code`), as the
 --- store's bytes follow from both. Nil and why where
---- a module either names is none `db` carries, which the digest or the
+--- a module either names is none `db` carries, which the digests or the
 --- salt would otherwise leave out unnoticed.
 function test.harness(db: Sqlite.Handle): Harness | nil, string
   local modules, trouble = Sqlite.text_rows(db,
@@ -1819,13 +1820,15 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
       if name ~= epoch_module then names[#names + 1] = name end
     end
   end
+  local each: {string:string} = {}
+  for _, name in ipairs(names) do each[name] = declared_key.harness({ name }, compiled) end
   local salted = store_code(imports)
   for _, name in ipairs(salted) do
     if compiled[name] == nil then
       return nil, name .. ", which writes a closure store, is no module the binary carries"
     end
   end
-  return { digest = declared_key.harness(names, compiled), names = names, runs = runs,
+  return { modules = each, names = names, runs = runs,
     store_salt = declared_key.harness(salted, compiled), carried = carried }, ""
 end
 

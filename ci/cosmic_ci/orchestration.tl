@@ -90,8 +90,10 @@ function Orchestration.stands(env: {string:string}): boolean
     standing_events[env.COSMIC_CI_EVENT or ""] == true
 end
 
---- The file that records the harness's epoch and the digest last
---- acknowledged of it (build/harness_epoch.tl).
+--- The file that records the harness's epoch and the digests last
+--- acknowledged of its modules (build/harness_epoch.tl). `harness_moved`
+--- compares the whole file, not the epoch alone: an acknowledgment
+--- without a bump is the case a run of every test is there to check.
 local epoch_file <const> = "build/harness_epoch.tl"
 
 --- How long a git command `harness_moved` runs may take: a local
