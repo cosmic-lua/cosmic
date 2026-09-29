@@ -807,7 +807,7 @@ what an observed key leaves out, each with a `TODO:` where its fix goes:
 - [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
   `under_root`): keyed by where the link leads at the end, not when read.
   resolve such a read as it is made, from a set of the tree's links.
-- [x] *the binary's data tables* (`build/test.tl`, in `test.run`): a refresh
+- [x] *the binary's data tables* (`build/test.tl`, in its `run`): a refresh
   changes `zoneinfo` and `ca_roots` without the runtime identity. every verdict
   is keyed on a digest of them (`schema.tables_digest`), computed from the
   running binary's own rows as `cosmic test` starts.

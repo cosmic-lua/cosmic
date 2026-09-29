@@ -411,7 +411,7 @@ end
 --- @param root string The tree the files are in
 --- @param files {string} The files a fix covered
 --- @param databases {Sqlite.Handle} Where the standard library's docs are
---- read, in search order: `fix.run` hands it `Store.databases()`
+--- read, in search order: fix's `run` hands it `Store.databases()`
 --- @return {string} One line per note, `file:line: message`
 function fix.notes(built: compiler, root: string, files: {string},
                    databases: {Sqlite.Handle}): {string}

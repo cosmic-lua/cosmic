@@ -717,7 +717,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- .. runtime`: nothing kept a raw space out of any of them -- `id` (a
   -- test's own "path name") carries one, and `runtime` is the runtime
   -- identity and the digest of the binary's data tables joined by
-  -- " tables " (`test.run`). Framed instead through the same
+  -- " tables " (test's `run`). Framed instead through the same
   -- `key_part` hex-encoding every read line already uses, so two distinct
   -- (id, module_key, runtime) triples can never concatenate to the same
   -- string regardless of what future caller or identity format hands them.
@@ -3533,7 +3533,7 @@ local function run(argv: {integer:string}): integer
     end
   end
   if #jobs > 0 then
-    -- Nil when this process already holds a guard: `test.run` called
+    -- Nil when this process already holds a guard: test's `run` called
     -- in-process under one (build.invoke runs verbs so, though not
     -- `test` today). The run then goes unguarded, a signal acting as it
     -- would, rather than taking the signals from the guard's owner.

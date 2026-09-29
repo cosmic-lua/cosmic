@@ -238,7 +238,7 @@ end
 --- `blame_all` under a `Child.guard`: SIGINT or SIGTERM ends every git
 --- still running, then this process when the guard closes, as
 --- `build.test` does for its workers. Unguarded when this process
---- already holds a guard (`todos.run` called in-process under one),
+--- already holds a guard (todos's `run` called in-process under one),
 --- where a signal acts as it would.
 local function blame_files(root: string,
                            lines: {string:{integer}},
