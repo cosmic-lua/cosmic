@@ -15,7 +15,7 @@
 # its base, QUEUE_BASE (github.event.merge_group.base_sha), with no call.
 # It writes `sha=<base>` to $GITHUB_OUTPUT (standard output, for a run by
 # hand), or nothing: on main, on another event, and wherever the lookup
-# fails or answers no commit, the restore takes main's newest as before.
+# fails or answers no commit, the restore takes main's newest.
 # The call to `gh` is cut off after CALL_SECONDS where there is a
 # `timeout`. It always exits 0: a base not found costs time, never a
 # result.

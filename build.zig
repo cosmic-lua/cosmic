@@ -13,9 +13,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// `bin/zig.pin`, read at comptime so there is exactly one place that
-/// names the pinned version: this file no longer carries a second,
-/// separately-maintained literal that could drift from it.
+/// `bin/zig.pin`, read at comptime so that it is the one place that names
+/// the pinned version.
 const zig_pin = @embedFile("bin/zig.pin");
 
 /// The version line out of `bin/zig.pin` ("version X.Y.Z"), parsed at
@@ -142,12 +141,13 @@ const own_warnings = [_][]const u8{
 /// debug information, and move its bytes (and every checked verdict's
 /// key) from one build to the next.
 ///
-/// Two paths of the build are left in the checked core. The vendored
-/// trees' own paths, under the project cache's `cosmic-vendor/` (in their
-/// `assert` strings and type names): each directory is named by its
-/// contents, so those are the same from every checkout at one cache
-/// path, which CI's is (COSMIC_ZIG_CACHE_SEED); a checkout's own
-/// `o/zig-cache` names that checkout, as run-local's does.
+/// Two paths of the build are left in the checked core. One is musl's
+/// (the TODO below). The other is the vendored trees' own paths, under
+/// the project cache's `cosmic-vendor/`, in their `assert` strings and
+/// type names. Each directory is named by its contents, so those paths
+/// are the same from every checkout at one cache path, which CI's is
+/// (COSMIC_ZIG_CACHE_SEED); a checkout's own `o/zig-cache` names that
+/// checkout, as run-local's does.
 // TODO: compile musl's debug information with `.` for its directory,
 // or strip it alone, once zig's libc build takes our flags (zig 0.16
 // builds it in the global cache with none of ours, keyed without the
@@ -995,10 +995,9 @@ fn patched(b: *std.Build, trees: []const u8, name: []const u8) std.Build.LazyPat
 }
 
 /// Clang's static analyzer, the one `bin/zig cc` carries, over every C
-/// file of this tree's own that a core is built
-/// from, with the includes, defines and warnings those builds use: a
-/// finding fails the step. The vendored libraries are not analyzed; their
-/// findings are theirs.
+/// file of this tree's own that a core is built from, with the includes,
+/// defines and warnings those builds use: a finding fails the step. The
+/// vendored libraries are not analyzed; their findings are theirs.
 fn analyze(
     b: *std.Build,
     step: *std.Build.Step,
@@ -1147,7 +1146,8 @@ fn vendorLibrary(
     // zig starts a library's files in the order they are added, so the
     // longest go first: SQLite's amalgamation is the longest single compile
     // by far (over 20 s released, 80 s under the checked core's sanitizer),
-    // then yyjson. Added after Lua's, they started late and finished last.
+    // then yyjson. Added after Lua's, they would start late and finish last.
+    //
     // SQLite's compile-time configuration, as flags rather than a
     // configuration header: a flag is part of the compile's cache key,
     // where a header pulled in through SQLITE_CUSTOM_INCLUDE was seen to
@@ -1156,9 +1156,9 @@ fn vendorLibrary(
     // through our own VFS, so everything that exists for other shapes of
     // use is off. The `dbstat` virtual table is on: it is what every
     // table and index costs in pages and bytes, which `cosmic db`
-    // reports. `fts5` is on: it backs the shipped catalog an uncaught
-    // error and `cosmic docs` search against, and costs ~222 KB per
-    // raw core (three raw cores per portable artifact).
+    // reports. `fts5` is on: it backs the shipped catalog, which an
+    // uncaught error and `cosmic docs` search, and costs ~222 KB per raw
+    // core (three raw cores per portable artifact).
     const sqlite_flags: []const []const u8 = &.{
         "-std=c11",
         debug_dir,
@@ -1216,6 +1216,7 @@ fn vendorLibrary(
     // That is a deliberate, narrow carve-out to this rule -- one
     // library, one target, one already-loaded system library -- not a
     // door into the module store.
+    //
     // LUA_COMPAT_GLOBAL off: assigning to an undeclared global (no
     // `global` statement) is a compile error rather than silently
     // creating one, catching the classic Lua typo bug. The vendored
@@ -1387,9 +1388,9 @@ fn vendorLibrary(
         .flags = &mbedtls_flags,
     });
 
-    // c-ares: DNS resolution for the `fetch`/`http` module, on every
-    // target -- including macOS, where AGENTS.md's usual "dynamic
-    // loading is never wanted" rule gets its one deliberate carve-out.
+    // c-ares: DNS resolution for `cosmic.http`, on every target --
+    // including macOS, where the rule against dynamic loading (see
+    // `lua_base`) gets its one deliberate carve-out.
     // Apple's DNS configuration is only fully readable through configd,
     // whose relevant symbols c-ares dlopens from libSystem itself
     // (ares_sysconfig_mac.c) rather than linking against; there is no
@@ -1597,13 +1598,11 @@ fn hostName(b: *std.Build) []const u8 {
 ///
 /// Every tool the build runs on the host is built for this target, not
 /// `b.graph.host`: a tool's bytes are part of the cache key of every step
-/// that runs it. Built for the detected CPU, a restored cache from a runner
-/// on other hardware missed on every such step; built for the detected
-/// kernel and glibc versions, it missed after every runner image update
-/// (linux-aarch64 compiled for over a minute a run once its image moved
-/// from 20260907 to 20260920, when the patch applier was such a tool and
-/// every vendored object compiled from its output). No core is built for
-/// it: the checked core is built for the host's shipped target (`hostTarget`).
+/// that runs it. Built for the detected CPU, a tool would miss a cache
+/// restored from a runner on other hardware on every such step; built for
+/// the detected kernel and glibc versions, it would miss after every runner
+/// image update. No core is built for it: the checked core is built for the
+/// host's shipped target (`hostTarget`).
 fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     const host = b.graph.host.result;
     return baselineTarget(b, .{
