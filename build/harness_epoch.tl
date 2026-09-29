@@ -5,46 +5,49 @@
 --- makes a key and looks a verdict up under one (`build.test` and its
 --- `key_code`). An edit to that code moves no key by itself, so a
 --- comment in build/test.tl runs no test again but those that import
---- it; `epoch` moves every key, and is bumped by hand for a change that
+--- it. `epoch` moves every key, and is bumped by hand for a change that
 --- can alter a pass or a fail.
 ---
 --- `acknowledged` holds a digest per module of that code as it was when
 --- the choice was last made (`build.test`'s `harness`, over each
---- module's source and bytecode), one module to a line, sorted, with a
---- blank line between each two, so two changes to different modules of
---- the harness merge cleanly, even two that sort next to each other,
---- and two to the same one conflict on its line. build/harness_epoch_test.tl fails
---- when a module's digest differs from its entry, when a module has no
---- entry, and when an entry names no module of the harness, printing
---- the lines to set, and asks whether to bump `epoch` too: yes
---- where the change can alter what a worker is given, how it is judged
---- or how a key is computed -- a sandbox's hold or bind tightened among
---- them, a fix for soundness that moves no other part of a key, so a
---- pass a test earned through the hole does not stand after it. Either
---- way the choice is in the diff, and
---- CI's merge queue runs every
---- test (`--all`) for a change that moves this file
---- (ci/cosmic_ci/orchestration.tl's `stands`), so one recorded wrongly
---- as harmless is caught before it lands.
+--- module's source and bytecode). It is one module to a line, sorted,
+--- with a blank line between each two, so two changes to different
+--- modules merge cleanly, even two that sort next to each other, and two
+--- to the same module conflict on its line. build/harness_epoch_test.tl
+--- fails when a module's digest differs from its entry, when a module has
+--- no entry, and when an entry names no module of the harness. It prints
+--- the lines to set, and asks whether to bump `epoch` too: yes where the
+--- change can alter what a worker is given, how it is judged or how a key
+--- is computed. A sandbox's hold or bind tightened counts, as a soundness
+--- fix that moves no other part of a key: a pass a test earned through
+--- the hole must not stand after it. Either way the choice is in the
+--- diff, and CI's merge queue runs every test (`--all`) for a change that
+--- moves this file (ci/cosmic_ci/orchestration.tl's `stands`), so one
+--- recorded wrongly as harmless is caught before it lands.
 ---
---- The rule the harness keeps, which `library` and its test hold it
---- to: its modules are what every worker loads (`worker.loads`, which
---- `worker.judge` holds each worker to), the sandbox's maker
---- (`harness_own`), build.test itself and cosmic.child, which applies
---- a worker's sandbox (`harness_alone`), each held alone, and the
---- closure of the key's roots (`key_roots`) over the requires each
---- makes by value, as its bytecode names them (`test.value_imports`); a
---- `local type` require is not followed, since Teal erases it and what
---- the imported type does at run time is compiled into the importer's
---- bytecode, which the digests hold. A module of the harness reaches
---- the host through the core's raw bindings, which the runtime's
---- identity keys, and through the standard-library modules `library`
---- names, each with its reason, and no other `cosmic.*` module. What
---- else of the tree the runner calls is its plumbing -- the probe of
---- whether to sandbox (`build.test_sandbox_probe`), and what
---- cosmic.child requires to start a worker -- which must fail loudly,
---- as a failure or a refusal, never as a pass. What a module of the harness calls through a library
---- table a test can replace, it takes as a local when it loads.
+--- The rule the harness keeps, which `library` and its test hold it to.
+--- Its modules are:
+---
+--- * what every worker loads (`worker.loads`, which `worker.judge` holds
+---   each worker to);
+--- * the sandbox's maker (`harness_own`);
+--- * build.test itself and cosmic.child, which applies a worker's
+---   sandbox (`harness_alone`), each held alone;
+--- * the closure of the key's roots (`key_roots`) over the requires each
+---   makes by value, as its bytecode names them (`test.value_imports`).
+---   A `local type` require is not followed, since Teal erases it and
+---   what the imported type does at run time is compiled into the
+---   importer's bytecode, which the digests hold.
+---
+--- A module of the harness reaches the host through the core's raw
+--- bindings, which the runtime's identity keys, and through the
+--- standard-library modules `library` names, each with its reason, and no
+--- other `cosmic.*` module. What else of the tree the runner calls is its
+--- plumbing -- the probe of whether to sandbox
+--- (`build.test_sandbox_probe`), and what cosmic.child requires to start
+--- a worker -- which must fail loudly, as a failure or a refusal, never
+--- as a pass. What a module of the harness calls through a library table
+--- a test can replace, it takes as a local when it loads.
 local record harness_epoch
   epoch: integer
   acknowledged: {string:string}
@@ -72,11 +75,11 @@ harness_epoch.acknowledged = {
 
   ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
 
-  ["build.filesystem_observations"] = "a96220c30a13c1d39fc04a90041a7942797c5197b541b2dbde5cb1912f313f6c",
+  ["build.filesystem_observations"] = "ca600b34e5959f900fd089ec298dda56bfb5cb08e8bc153cef8b2ccfe408b224",
 
-  ["build.key_parts"] = "eccb81a210564caeb7e168ee9f75bc3dbcc54e0954d8c76b61b009671f1e2d6a",
+  ["build.key_parts"] = "b051b4c075439242f2fd5ee1361b75a19abd894fddfa1b10ec06e441887c083f",
 
-  ["build.launcher"] = "4b33d1b8f52a790a33ba1a1c13666a0d9f53bcb1ce4b165d49cb3dba1c0f5153",
+  ["build.launcher"] = "9dff6e6443e223fa5a99bb960d8046b47ea47bb506ffd08798771153715a2305",
 
   ["build.shared_verdicts"] = "8ecbc0fe94947133dc8ddb0bec2869bcbfe9bbdf3269fd21d455677436ed2178",
 
