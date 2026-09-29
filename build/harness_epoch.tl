@@ -34,7 +34,7 @@ end
 harness_epoch.epoch = 1
 harness_epoch.acknowledged = {
 
-  ["build.analyzer"] = "6e7631f89ee3a61463b146a8ebcc5b7ed2b9938a09491001f85c1c5a6c04e7c4",
+  ["build.analyzer"] = "300a35ee0f30e4cd6ee5c65b7cdf55ad37b7a1cac9a4b20710cc3fa00c8cb8ed",
 
   ["build.artifact"] = "dfbd62c141aeb4056a79c168828a2c9d1b60feb79f2c6809bc46ba1b48538e92",
 

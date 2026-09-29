@@ -425,6 +425,11 @@ local function record_docs(lines: {string}, symbol: string,
           text = doc_before(comments, field.y), line = field.y }
         record_docs(lines, field_symbol, nested, out)
       else
+        -- TODO: store the whole multi-line signature of a field, not its
+        -- first line: a function-typed field written over several lines
+        -- (`gen: function(input: string, env: Env,` ...) is stored cut off,
+        -- so build/docs.tl's `listed` shows it as `field name` rather than
+        -- print a signature that looks complete.
         out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
           exported = false, kind = "field",
           signature = line_at(lines, field.y),
