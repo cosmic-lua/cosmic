@@ -63,13 +63,14 @@ COSMIC_SYSCALL(listen, 2);
 COSMIC_SYSCALL(accept, 1);
 
 /*
- * --- Connects a new stream socket to an address. A unix one connects at once or fails: ECONNREFUSED where nothing listens at a socket file, ENOENT where there is no file, EAGAIN where its listener's backlog is full.
+ * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, Linux's waits for room, ETIMEDOUT once the time runs out and EINTR once an open `Child.guard` catches a signal, while macOS's fails ECONNREFUSED at once, as though nothing listened.
  * ---@param address Address where to connect
+ * ---@param timeout_ms integer how long to wait for room at most, -1 for no limit
  * ---@return integer|nil fd the connected descriptor, closed on exec and nonblocking, or nil on failure
  * ---@return string error what went wrong, when fd is nil
  * ---@return integer errno the error number, when fd is nil
  */
-COSMIC_SYSCALL(connect, 1);
+COSMIC_SYSCALL(connect, 2);
 
 /*
  * --- Sends what of `data` the socket takes now. A peer that has gone fails with EPIPE rather than raising SIGPIPE.
@@ -92,7 +93,7 @@ COSMIC_SYSCALL(send, 2);
 COSMIC_SYSCALL(shutdown, 2);
 
 /*
- * --- Waits until a descriptor can be read (a listener: accepted), or written, or the time runs out. A signal an open `Child.guard` caught ends the wait, EINTR; any other signal does not.
+ * --- Waits until a descriptor can be read (a listener: accepted), or written, or the time runs out. A signal an open `Child.guard` catches ends the wait, EINTR, within a tenth of a second; any other signal does not.
  * ---@param fd integer the descriptor
  * ---@param writable boolean true to wait until a write would not block, false until a read would not
  * ---@param timeout_ms integer how long to wait at most, -1 for no limit

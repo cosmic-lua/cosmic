@@ -58,15 +58,69 @@ local function test_a_write_waits_while_the_peer_does_not_read(tmp: string)
   assert(got == string.rep("x", #got) and #got <= 10)
 end
 
-local function test_a_read_with_nothing_sent_times_out_and_stays_failed(tmp: string)
-  local p <close> = pair(tmp)
-  local client, accepted = p.client, p.accepted
-  accepted.timeout_ms = 20
+--- A read that times out takes nothing, so a later one still reads,
+--- and writing is left be. The accepted connection has its listener's
+--- timeout.
+local function test_a_read_that_times_out_leaves_the_connection_usable(tmp: string)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { timeout_ms = 20 }))
+  local client <close> = assert(Net.connect(server.address, { timeout_ms = 5000 }))
+  local accepted <close> = assert(server:accept())
+  assert(accepted.timeout_ms == 20)
   local data, why = accepted:read()
   assert(data == nil and why == "timed out", why)
+  assert(accepted:write("still here"))
+  assert(assert(client:read()) == "still here")
   assert(client:write("late"))
-  local again, sticky = accepted:read()
-  assert(again == nil and sticky == "timed out", sticky)
+  assert(assert(accepted:read()) == "late")
+end
+
+--- A timeout no wait can last is refused where it is read, naming the
+--- field.
+local function test_a_timeout_out_of_range_is_refused(tmp: string)
+  local p <close> = pair(tmp)
+  p.client.timeout_ms = -5
+  local ok, why = pcall(p.client.read, p.client)
+  assert(not ok and tostring(why):find("timeout_ms must be", 1, true) ~= nil, tostring(why))
+  assert(not pcall(Net.connect, p.server.address, { timeout_ms = -1 }))
+  assert(not pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { timeout_ms = 1 << 40 }))
+end
+
+--- A Writer that a wrapper closes ends only what is sent: the answer is
+--- still there to read.
+local function test_a_writer_closed_leaves_the_answer_to_read(tmp: string)
+  local p <close> = pair(tmp)
+  local writer = p.client:writer()
+  assert(writer:write("request"))
+  assert(writer:close())
+  assert(assert(Stream.read_all(p.accepted)) == "request")
+  assert(p.accepted:write("answer"))
+  assert(p.accepted:close())
+  assert(assert(Stream.read_all(p.client)) == "answer")
+  assert(writer:close(), "a second close is harmless")
+  assert(p.client:writer():abort())
+  local data, why = p.client:read()
+  assert(data == nil and why == "connection is closed", why)
+end
+
+--- A listener whose backlog is full is waited on for room on Linux,
+--- which the time runs out on here, no one accepting; macOS refuses the
+--- connection at once.
+local function test_connecting_to_a_full_backlog(tmp: string)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/s.sock"), { backlog = 1 }))
+  local held: {Net.Conn} = {}
+  local why = ""
+  for _ = 1, 16 do
+    local conn, trouble = Net.connect(server.address, { timeout_ms = 20 })
+    if conn == nil then
+      why = trouble
+      break
+    end
+    held[#held + 1] = conn
+  end
+  for _, conn in ipairs(held) do assert(conn:close()) end
+  local darwin = assert(sys.uname()).sysname == "Darwin"
+  local want = tmp .. "/s.sock: " .. (darwin and "Connection refused" or "timed out")
+  assert(why == want, why)
 end
 
 local function test_accept_with_no_one_connecting_times_out(tmp: string)
@@ -121,6 +175,19 @@ local function test_a_closed_connection_says_so_and_closes_again(tmp: string)
   assert(not shut and shut_trouble == "connection is closed", shut_trouble)
   assert(not pcall(accepted.shutdown, accepted, "sideways"))
   assert(not pcall(accepted.read, accepted, 0))
+end
+
+--- A listener at a relative path removes its own socket file at close
+--- wherever the process has moved since.
+local function test_close_removes_a_relative_socket_file_after_a_chdir(tmp: string)
+  local was = assert(sys.getcwd())
+  assert(sys.chdir(tmp))
+  local server, trouble = Net.listen(Net.unix("rel.sock"))
+  assert(sys.chdir(was))
+  assert(server ~= nil, trouble)
+  assert(Fs.stat(tmp .. "/rel.sock") ~= nil, "no socket file")
+  assert(server:close())
+  assert(Fs.stat(tmp .. "/rel.sock") == nil, "the socket file was left")
 end
 
 local function test_close_removes_the_socket_file_it_made(tmp: string)

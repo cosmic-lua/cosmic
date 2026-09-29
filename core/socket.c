@@ -107,6 +107,52 @@ static int stream_socket (int family) {
   return fd;
 }
 
+/* Milliseconds on the monotonic clock. */
+static int64_t now_ms (void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* The longest a wait sleeps before it asks again whether a guard caught
+ * a signal. A signal that lands between that question and the sleep
+ * only sets the guard's flag, so a sleep with no bound could outlast
+ * it forever; each slice bounds how late it is seen, as core/http.c's
+ * one-second polls and cosmic.child's do. */
+#define SLICE_MS 100
+
+/* The deadline argument `arg`'s timeout in milliseconds makes, on the
+ * monotonic clock, or -1 for a timeout of -1, no limit. */
+static int64_t deadline_of (lua_State *L, int arg) {
+  lua_Integer timeout = luaL_checkinteger(L, arg);
+  luaL_argcheck(L, timeout >= -1 && timeout <= INT_MAX, arg, "timeout is out of range");
+  return timeout < 0 ? -1 : now_ms() + timeout;
+}
+
+/* How long a wait for `deadline` may sleep now: a slice at most, 0 once
+ * it has passed. */
+static int slice (int64_t deadline) {
+  if (deadline < 0) return SLICE_MS;
+  int64_t remaining = deadline - now_ms();
+  if (remaining <= 0) return 0;
+  return remaining < SLICE_MS ? (int)remaining : SLICE_MS;
+}
+
+/* Sleeps `*pause` milliseconds, doubling it up to a slice for the next
+ * time, before a call that answered EAGAIN is asked again: 0 to ask
+ * again, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
+ * caught a signal. */
+static int paused (int64_t deadline, int64_t *pause) {
+  if (cosmic_signal_caught()) return EINTR;
+  int most = slice(deadline);
+  if (most == 0) return ETIMEDOUT;
+  int64_t ms = *pause < most ? *pause : most;
+  *pause = *pause * 2 < SLICE_MS ? *pause * 2 : SLICE_MS;
+  struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000L };
+  nanosleep(&ts, NULL);
+  return cosmic_signal_caught() ? EINTR : 0;
+}
+
 COSMIC_SYSCALL(listen, 2) {
   struct sockaddr_storage address;
   socklen_t length = 0;
@@ -145,27 +191,30 @@ COSMIC_SYSCALL(accept, 1) {
   return 1;
 }
 
-COSMIC_SYSCALL(connect, 1) {
+COSMIC_SYSCALL(connect, 2) {
   struct sockaddr_storage address;
   socklen_t length = 0;
   int failure = address_of(L, 1, &address, &length);
+  int64_t deadline = deadline_of(L, 2);
   if (failure != 0) return cosmic_fail(L, failure);
   int fd = stream_socket(address.ss_family);
   if (fd < 0) return cosmic_fail(L, errno);
-  /* A unix socket connects at once or not at all, so there is no
-   * connection in progress to wait out.
+  /* A unix socket connects at once or answers EAGAIN, its listener's
+   * backlog full, where a blocking one would wait: this waits in
+   * slices, asking again, as `wait` does.
    * TODO: answer a connection still in progress (EINPROGRESS) with its
    * descriptor, and give its outcome through SO_ERROR once `wait` says
    * it is writable, once an address of a kind that connects over time
    * ("tcp") is read. */
-  int connected;
-  do {
-    connected = connect(fd, (struct sockaddr *)&address, length);
-  } while (connected != 0 && errno == EINTR);
-  if (connected != 0) {
+  int64_t pause = 1;
+  for (;;) {
+    if (connect(fd, (struct sockaddr *)&address, length) == 0) break;
     failure = errno;
-    close(fd);
-    return cosmic_fail(L, failure);
+    if (failure == EAGAIN) failure = paused(deadline, &pause);
+    if (failure != 0 && failure != EINTR) {
+      close(fd);
+      return cosmic_fail(L, failure);
+    }
   }
   lua_pushinteger(L, fd);
   return 1;
@@ -198,26 +247,13 @@ COSMIC_SYSCALL(shutdown, 2) {
   return cosmic_ok(L);
 }
 
-/* Milliseconds on the monotonic clock. */
-static int64_t now_ms (void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
-
 COSMIC_SYSCALL(wait, 3) {
   int fd = cosmic_checkfd(L, 1);
   int writable = lua_toboolean(L, 2);
-  lua_Integer timeout = luaL_checkinteger(L, 3);
-  luaL_argcheck(L, timeout >= -1 && timeout <= INT_MAX, 3, "timeout is out of range");
-  int64_t deadline = timeout < 0 ? -1 : now_ms() + timeout;
+  int64_t deadline = deadline_of(L, 3);
   for (;;) {
     if (cosmic_signal_caught()) return cosmic_fail_effect(L, EINTR);
-    int left = -1;
-    if (deadline >= 0) {
-      int64_t remaining = deadline - now_ms();
-      left = remaining < 0 ? 0 : (int)remaining;
-    }
+    int left = slice(deadline);
     struct pollfd watched = { fd, writable ? POLLOUT : POLLIN, 0 };
     int ready = poll(&watched, 1, left);
     if (ready > 0) return cosmic_ok(L);

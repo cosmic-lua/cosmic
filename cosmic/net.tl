@@ -10,13 +10,16 @@
 --- so every call takes every kind: "unix", a socket file named by a
 --- path, is the one there is so far. A connection is one object for
 --- both directions; `shutdown("write")` tells the peer the end of what
---- was sent while its answer is still read.
+--- was sent while its answer is still read, and `writer()` is a Writer
+--- whose `close` does just that, for a wrapper that closes what it
+--- wraps.
 ---
---- Every wait -- to accept, to read, to write -- lasts at most the
---- object's `timeout_ms` (no limit by default), failing with "timed
---- out", and ends at once with "interrupted" when an open `Child.guard`
---- catches SIGINT or SIGTERM, as `cosmic.http`'s do. One connection is
---- served at a time: nothing here waits on several at once.
+--- Every wait -- to connect, to accept, to read, to write -- lasts at
+--- most the object's `timeout_ms` (no limit by default), failing with
+--- "timed out", and ends with "interrupted", within a tenth of a second,
+--- when an open `Child.guard` catches SIGINT or SIGTERM, as
+--- `cosmic.http`'s do. One connection is served at a time: nothing here
+--- waits on several at once.
 
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
@@ -44,18 +47,26 @@ local record Net
   record Address
     kind: Kind
     --- For "unix": the socket file's path. The platform bounds it (107
-    --- bytes on Linux, 103 on macOS); a longer one fails, "File name
-    --- too long", rather than naming another file.
+    --- bytes on Linux, 103 on macOS); a longer one fails, "Filename too
+    --- long", rather than naming another file.
     path: string
   end
 
-  record Options
-    --- How long any one wait may last, in milliseconds; nil for no
-    --- limit. A listener's connections start with its own.
+  record ListenOptions
+    --- How long `accept` waits, in milliseconds, from 0; nil for no
+    --- limit. The connections it accepts start with the same.
     timeout_ms: integer
-    --- `listen` only: how many connections may wait to be accepted
-    --- (64 by default).
+    --- How many connections may wait to be accepted (64 by default).
     backlog: integer
+  end
+
+  record ConnectOptions
+    --- How long connecting, and then any one read or write, waits, in
+    --- milliseconds, from 0; nil for no limit. A unix listener whose
+    --- backlog is full is waited on for room on Linux; macOS refuses the
+    --- connection at once, "Connection refused", as though nothing
+    --- listened.
+    timeout_ms: integer
   end
 
   --- A socket listening at an address, answered by `Net.listen`.
@@ -79,18 +90,26 @@ local record Net
   --- `Stream.Reader` of what the peer sends and a `Stream.Writer` to
   --- it.
   record Conn is Stream.Reader, Stream.Writer
-    --- How long a `read` or a `write` waits; nil for no limit.
+    --- How long a `read` or a `write` waits, from 0; nil for no limit.
     timeout_ms: integer
     --- What has arrived, at most `max` bytes (64 KiB by default), once
-    --- something has; nil and "" once the peer has ended what it sends;
-    --- nil and "timed out", "interrupted" or why not, every read after.
+    --- something has; nil and "" once the peer has ended what it sends.
+    --- nil and "timed out" or "interrupted" takes nothing, and a later
+    --- read may still answer; nil and any other failure is every read's
+    --- after. A failed read leaves writing be.
     read: function(Conn, max?: integer): string | nil, string
-    --- Sends all of `data`, waiting as the peer takes it; false and
-    --- "timed out", "interrupted" or why not, every write after.
+    --- Sends all of `data`, waiting as the peer takes it. False and
+    --- "timed out", "interrupted" or why not may leave part of it sent,
+    --- so it is every write's after; reading is left be.
     write: function(Conn, data: string): boolean, string
     --- Ends one direction, or both: after "write" the peer reads the
     --- end of what was sent, and this side can still read its answer.
     shutdown: function(Conn, how: string): boolean, string
+    --- A Writer to the peer whose `close` is `shutdown("write")`,
+    --- leaving the answer to read here -- for a wrapper that closes
+    --- the Writer it wraps (`Stream.transform_writer`, `Stream.tee`)
+    --- -- and whose `abort` closes the connection.
+    writer: function(Conn): Stream.Writer
     --- Closes the connection. Safe to call more than once.
     close: function(Conn): boolean, string
     --- The same as `close`: nothing sent can be taken back.
@@ -101,19 +120,33 @@ end
 
 local DEFAULT_READ <const> = 64 * 1024
 local DEFAULT_BACKLOG <const> = 64
+local MOST_MS <const> = 0x7fffffff
 
 --- The address of the socket file at `path`.
 function Net.unix(path: string): Net.Address
   return { kind = "unix", path = path }
 end
 
+--- `timeout_ms` as the raw calls take it, raising on one no wait can
+--- last, so a field set wrong is named where it is read.
+local function milliseconds(timeout_ms: integer | nil): integer
+  if timeout_ms == nil then return -1 end
+  assert(math.type(timeout_ms) == "integer" and timeout_ms >= 0 and timeout_ms <= MOST_MS,
+    "timeout_ms must be nil or a whole number of milliseconds from 0 to " .. MOST_MS)
+  return timeout_ms
+end
+
 --- What a failed wait says: its own words for a deadline or a signal.
+local function said(trouble: string, errno: integer): string
+  if errno == raw.ETIMEDOUT then return "timed out" end
+  if errno == raw.EINTR then return "interrupted" end
+  return trouble
+end
+
 local function waited(fd: integer, writable: boolean, timeout_ms: integer | nil): boolean, string
-  local ok, trouble, errno = raw.wait(fd, writable, timeout_ms or -1)
+  local ok, trouble, errno = raw.wait(fd, writable, milliseconds(timeout_ms))
   if ok then return true, "" end
-  if errno == raw.ETIMEDOUT then return false, "timed out" end
-  if errno == raw.EINTR then return false, "interrupted" end
-  return false, trouble
+  return false, said(trouble, errno)
 end
 
 local conn_mt: metatable<Net.Conn> = {
@@ -128,50 +161,45 @@ local conn_mt: metatable<Net.Conn> = {
 --- The connection over `fd`, which it owns from here on.
 local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
   local open = true
-  -- Sticky: once a read or a write fails, every later one says so.
-  local failure = ""
-  local function usable(): boolean, string
-    if not open then return false, "connection is closed" end
-    if failure ~= "" then return false, failure end
-    return true, ""
-  end
+  -- Each direction's sticky failure: once a read or a write fails for
+  -- good, every later one of it says so.
+  local read_failure, write_failure = "", ""
   local conn: Net.Conn
   conn = {
     timeout_ms = timeout_ms,
     read = function(_self: Net.Conn, max?: integer): string | nil, string
       assert(max == nil or max > 0, "max must be positive")
-      local ok, trouble = usable()
-      if not ok then return nil, trouble end
+      if not open then return nil, "connection is closed" end
+      if read_failure ~= "" then return nil, read_failure end
       while true do
         local data, why, errno = sys.read(fd, max or DEFAULT_READ)
         if data == "" then return nil, "" end
         if data ~= nil then return data, "" end
         if errno ~= raw.EAGAIN then
-          failure = why
+          read_failure = why
           return nil, why
         end
+        -- Nothing was taken: a deadline or a signal leaves the next
+        -- read to try again.
         local ready, waiting = waited(fd, false, conn.timeout_ms)
-        if not ready then
-          failure = waiting
-          return nil, waiting
-        end
+        if not ready then return nil, waiting end
       end
     end,
     write = function(_self: Net.Conn, data: string): boolean, string
-      local ok, trouble = usable()
-      if not ok then return false, trouble end
+      if not open then return false, "connection is closed" end
+      if write_failure ~= "" then return false, write_failure end
       local from = 1
       while from <= #data do
         local sent, why, errno = raw.send(fd, from == 1 and data or data:sub(from))
         if sent ~= nil then
           from = from + sent
         elseif errno ~= raw.EAGAIN then
-          failure = why
+          write_failure = why
           return false, why
         else
           local ready, waiting = waited(fd, true, conn.timeout_ms)
           if not ready then
-            failure = waiting
+            write_failure = waiting
             return false, waiting
           end
         end
@@ -185,6 +213,20 @@ local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
       local ok, why = raw.shutdown(fd, how)
       if not ok then return false, why end
       return true, ""
+    end,
+    writer = function(self: Net.Conn): Stream.Writer
+      return {
+        write = function(_w: Stream.Writer, data: string): boolean, string
+          return self:write(data)
+        end,
+        close = function(_w: Stream.Writer): boolean, string
+          if not open then return true, "" end
+          return self:shutdown("write")
+        end,
+        abort = function(_w: Stream.Writer): boolean, string
+          return self:close()
+        end,
+      }
     end,
     close = function(_self: Net.Conn): boolean, string
       if not open then return true, "" end
@@ -209,11 +251,12 @@ local listener_mt: metatable<Net.Listener> = {
   end,
 }
 
---- The listener over `fd`, which it owns from here on, at `address`;
---- `made` is the socket file it made there, as `lstat` saw it once
---- made, which `close` removes only while the name is still that file.
-local function new_listener(fd: integer, address: Net.Address, made: sys.Stat | nil,
-    timeout_ms: integer | nil): Net.Listener
+--- The listener over `fd`, which it owns from here on, at `address`.
+--- `made` is the socket file it made there, at `absolute` -- its path
+--- whatever directory the process moves to -- which `close` removes
+--- only while the name is still that file.
+local function new_listener(fd: integer, address: Net.Address, absolute: string,
+    made: sys.Stat, timeout_ms: integer | nil): Net.Listener
   local open = true
   local listener: Net.Listener
   listener = {
@@ -234,12 +277,10 @@ local function new_listener(fd: integer, address: Net.Address, made: sys.Stat | 
       if not open then return true, "" end
       open = false
       local ok, why = sys.close(fd)
-      if made ~= nil then
-        local now, _ = sys.lstat(address.path)
-        if now ~= nil and now.ino == made.ino and now.dev == made.dev then
-          local removed, trouble = sys.unlink(address.path)
-          if not removed and ok then return false, address.path .. ": " .. trouble end
-        end
+      local now, _ = sys.lstat(absolute)
+      if now ~= nil and now.ino == made.ino and now.dev == made.dev then
+        local removed, trouble = sys.unlink(absolute)
+        if not removed and ok then return false, address.path .. ": " .. trouble end
       end
       if not ok then return false, why end
       return true, ""
@@ -262,25 +303,46 @@ end
 --- where the path is already there -- a socket file left behind by a
 --- listener that did not close included -- rather than take the name
 --- from whatever holds it.
-function Net.listen(address: Net.Address, opts?: Net.Options): Net.Listener | nil, string
+function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listener | nil, string
   opts = opts or {}
   local backlog = opts.backlog or DEFAULT_BACKLOG
   assert(backlog >= 1, "backlog must be at least 1")
+  milliseconds(opts.timeout_ms)
+  local absolute = address.path
+  if absolute:sub(1, 1) ~= "/" then
+    local cwd, cwd_trouble = sys.getcwd()
+    if cwd == nil then return nil, named(address) .. ": " .. cwd_trouble end
+    absolute = cwd .. "/" .. absolute
+  end
   local fd, trouble = raw.listen(raw_address(address), backlog)
   if fd == nil then return nil, named(address) .. ": " .. trouble end
-  -- A name another process takes between the bind and this is not the
-  -- file made, and `close` leaves it be.
-  local made, _ = sys.lstat(address.path)
-  return new_listener(fd, { kind = address.kind, path = address.path }, made, opts.timeout_ms), ""
+  -- The socket file the bind made, to remove at close. A process that
+  -- replaces the name in the moment since would have its file taken
+  -- for this one's, and removed at close.
+  -- TODO: bind at a temporary name beside the path, lstat that, and
+  -- link it to the path (EEXIST where the name is taken, never
+  -- replacing it) before removing the temporary name, so the file
+  -- recorded is the one bound; the temporary name must fit the
+  -- platform's bound too, which a path near it leaves no room for.
+  local made, why = sys.lstat(absolute)
+  if made == nil or made.kind ~= "other" then
+    local _, _ = sys.close(fd)
+    return nil, named(address) .. ": " ..
+      (made == nil and why or "the socket file made was replaced")
+  end
+  return new_listener(fd, { kind = address.kind, path = address.path }, absolute, made,
+    opts.timeout_ms), ""
 end
 
---- Connects to `address`. A unix one connects at once or fails: "No
---- such file or directory" where there is no socket file, "Connection
---- refused" where nothing listens at it.
-function Net.connect(address: Net.Address, opts?: Net.Options): Net.Conn | nil, string
-  local fd, trouble = raw.connect(raw_address(address))
-  if fd == nil then return nil, named(address) .. ": " .. trouble end
-  return new_conn(fd, opts ~= nil and opts.timeout_ms or nil), ""
+--- Connects to `address`. A unix one fails "No such file or directory"
+--- where there is no socket file and "Connection refused" where nothing
+--- listens at it, and waits for room at a listener whose backlog is
+--- full (on Linux; see `ConnectOptions.timeout_ms`).
+function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn | nil, string
+  local timeout_ms = opts ~= nil and opts.timeout_ms or nil
+  local fd, trouble, errno = raw.connect(raw_address(address), milliseconds(timeout_ms))
+  if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
+  return new_conn(fd, timeout_ms), ""
 end
 
 return Net
