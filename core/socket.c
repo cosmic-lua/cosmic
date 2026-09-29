@@ -36,6 +36,8 @@
  * left on the stack, and nothing of it is kept but the copy in `*out`. */
 static int address_of (lua_State *L, int index, struct sockaddr_storage *out,
                        socklen_t *length) {
+  memset(out, 0, sizeof *out);
+  *length = 0;
   luaL_checktype(L, index, LUA_TTABLE);
   lua_getfield(L, index, "kind");
   const char *kind = lua_tostring(L, -1);
@@ -49,7 +51,6 @@ static int address_of (lua_State *L, int index, struct sockaddr_storage *out,
   size_t size = lua_rawlen(L, -1);
   if (size == 0) return luaL_argerror(L, index, "path must not be empty");
   struct sockaddr_un *unix_address = (struct sockaddr_un *)out;
-  memset(out, 0, sizeof *out);
   int failure = 0;
   if (path == NULL) {
     failure = EINVAL;
