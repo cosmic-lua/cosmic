@@ -18,9 +18,9 @@ local record analyzer
   --- function's own documentation, found in `docs` by symbol.
   record CatalogEntry
     symbol: string
-    --- The static text of the returned message, when any of it is a
-    --- literal (empty when the whole expression is dynamic, in which
-    --- case the entry is never produced at all -- see `static_text`).
+    --- The literal text of the returned message, its dynamic parts left
+    --- out (`static_text`). An entry exists only when at least six of
+    --- its characters are letters (`catalog_in_body`).
     message: string
     line: integer
   end
@@ -57,11 +57,10 @@ local record analyzer
   end
 
   --- One worked example: a top-level `function Example.<name>()` --
-  --- see `examples_of`. `name` is a free label, not a symbol: which
-  --- real symbol an example is for is never decided here, or even at
-  --- ship time -- `build.docs` matches an example's own text and
-  --- source against a symbol's name at read time, since an example's
-  --- code already calls the real function it demonstrates.
+  --- see `examples_of`. `name` is a free label, not a symbol. Which
+  --- symbol an example demonstrates is decided when `build.docs` reads
+  --- it, by matching the example's text and source against the
+  --- symbol's name: its code calls the function it demonstrates.
   record ExampleEntry
     name: string
     --- The doc comment directly above it, leaders stripped, the same
@@ -73,14 +72,6 @@ local record analyzer
     line: integer
   end
 
-  --- What a single parse of a module's source tells the importer: its
-  --- own test names, whether it also returns its own value at the top
-  --- level and under what name, its catalog entries, its documented
-  --- symbols, its worked examples, and what it refers to. Bundled into
-  --- one record rather than returned as separate slots: `analyze`'s
-  --- first return admits nil (source that fails to lex or parse), and
-  --- a fallible return may declare at most two slots -- the extras
-  --- ride on the value's record instead.
   --- A test module's `needs` declaration (`cosmic.test`), read as
   --- data -- see `inputs_of`. A flag declared `false` reads as one never
   --- declared.
@@ -99,6 +90,13 @@ local record analyzer
     caches: {string}
   end
 
+  --- What a single parse of a module's source tells the importer: its
+  --- own test names, whether it also returns its own value at the top
+  --- level and under what name, its catalog entries, its documented
+  --- symbols, its worked examples, and what it refers to. They come in
+  --- one record because `analyze`'s first return admits nil (source that
+  --- fails to lex or parse), and a fallible return may declare at most
+  --- two slots.
   record Analysis
     tests: {string}
     --- The chunk's `Test.needs { ... }` declaration, or nil for none.
@@ -410,9 +408,9 @@ end
 --- Every catalog entry a chunk's own top-level functions carry: each
 --- `local_function`/`record_function`, paired with the literal text of
 --- every honest-return failure its own body returns. Top-level only,
---- the same boundary `analysis_of` already draws for test names -- a
---- function nested inside another statement is reached when THAT
---- statement's own entry is walked, never here.
+--- the boundary `analysis_of` draws for test names: a function nested
+--- inside another statement is reached through that statement's own
+--- entry, never here.
 local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.CatalogEntry}, string
   local patterns: {ast.Node} = {}
   for _, source in ipairs({ "return nil, $MSG", "return false, $MSG" }) do
@@ -517,14 +515,15 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
   return String.trim((table.concat(parts, " "):gsub("%s+", " ")))
 end
 
+-- Declared ahead: `fields_docs` and `record_docs` call each other.
+local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: string,
+                           def: ast.TypeNode, out: {analyzer.DocEntry})
+
 --- Adds the entries for one group of a record's or interface's fields
 --- under `symbol`, in the order given, with a nested record or enum
 --- recursing under its own name. `metamethod` marks the group the
 --- `metamethod` declarations are: their kind is `"metamethod"`, and
 --- their signature keeps the keyword, as the source spells it.
-local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: string,
-                           def: ast.TypeNode, out: {analyzer.DocEntry})
-
 local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: string,
                            order: {string}, fields: {string: ast.TypeNode},
                            field_comments: {string: {{compiler.Comment}}},
@@ -623,7 +622,7 @@ end
 --- or not it is documented, so `cosmic docs` can find where an
 --- undocumented one lives; a bare `local x = ...` is not, since a
 --- module's private bindings are not its surface. A worked example
---- (`examples_of`) is not either -- it documents another module's
+--- (`examples_of`) is left out too: it documents another module's
 --- symbol, not this one's.
 local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
   local out: {analyzer.DocEntry} = {}
@@ -907,16 +906,14 @@ local function block_text(lines: {string}, y: integer, x: integer,
 end
 
 --- Every worked example a chunk declares at its top level: a
---- `function Example.<name>()`, found the same structural way
---- `docs_of` already finds `function Fs.read(...)` -- the shape of the
---- declaration is the only marker, `name` itself is a free label. Its
---- own doc comment is read the same way `docs_of` reads one, since an
---- example is documentation too -- what it is for in the comment, how
---- in the code below it. Which real symbol it demonstrates is not
---- decided here, or even at ship time (`build.writer`'s
---- `insert_examples` ships an example against its module alone) --
---- `build.docs` answers that at read time, by matching this text and
---- source against a symbol's own name.
+--- `function Example.<name>()`. The shape of the declaration is the
+--- only marker, as for the functions `docs_of` finds; `name` is a free
+--- label. Its doc comment is read as `docs_of` reads one: what the
+--- example is for in the comment, how in the code below it. Which
+--- symbol it demonstrates is not decided here, nor when
+--- `build.writer`'s `insert_examples` ships it against its module
+--- alone: `build.docs` answers that at read time, by matching this text
+--- and source against a symbol's name.
 local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.ExampleEntry}
   local out: {analyzer.ExampleEntry} = {}
   local nodes = parsed.node
@@ -1170,16 +1167,16 @@ table.sort(input_field_order)
 --- What a `host` path that names a directory is refused with: the rule.
 local HOST_FILES <const> = "host names files, or /proc: declare the files the tests read"
 
---- A path of `reads` or `host` that names something a prefix can hold:
---- relative to the tree for `reads`, absolute for `host` -- or, for
---- `host`, starting with `$NAME`, a path beneath the one the variable
---- NAME holds (`build.test_inputs`' `variable_of`) -- and never climbing
---- with "..", nor spelled with "." or an empty name, which a match by
---- prefix would read as another path. A `host` path names a file, or
---- /proc (R3): not one written as a directory, with a "/" after it, nor
---- a variable's whole path; one that is a directory on the host fails
---- its tests as they start (`build.test_inputs`' `resolve`). "" when it
---- is one, else why not.
+--- Why `path` is no path of `field` (`reads` or `host`), or "" when it
+--- is one. A `reads` path is relative to the tree. A `host` path is
+--- absolute, or starts with `$NAME` for a path beneath the one the
+--- variable NAME holds (`build.test_inputs`' `variable_of`). Neither
+--- climbs with "..", nor is spelled with "." or an empty name, which a
+--- match by prefix would read as another path. A `host` path names a
+--- file, or /proc (R3): one written as a directory, with a "/" after
+--- it, or as a variable's whole path is refused here, and one that is
+--- a directory on the host fails its tests as they start
+--- (`build.test_inputs`' `resolve`).
 local function input_path_trouble(field: string, path: string): string
   if path == "" then return "an empty path" end
   local quoted = "\"" .. path .. "\""
@@ -1252,8 +1249,8 @@ end
 --- at the chunk's top level, once, on a name a top-level `local` binds
 --- `require("cosmic.test")` to, with one table literal: `needs` reached
 --- any other way -- inside a function, under another name, handed a
---- value computed -- is refused, as is the `local _inputs = { ... }`
---- this replaced. Each field is held to its shape here.
+--- value computed -- is refused, as is the older `local _inputs = { ... }`
+--- form. Each field is held to its shape here.
 local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   local function at(node: ast.Node): string
     return (node.f or "") .. ":" .. tostring(node.y) .. ": test.needs: "
@@ -1405,13 +1402,13 @@ local function inputs_of(parsed: ast.Parsed): analyzer.Declared | nil, string
   return out, ""
 end
 
---- The same facts, read off a chunk something else already parsed, so a
+--- The facts of `analyze`, read off a chunk that was parsed already, so a
 --- caller that needs the parse for another question too pays for it
 --- once. `built` is needed only to compile the patterns the catalog
---- and the references match against; a pattern-compile failure (which
---- nothing in this tree's own source should ever trigger) is reported
---- as an ordinary failure rather than silently dropping them. `source`
---- is the text `parsed` came from, for the signatures the docs quote.
+--- and the references match against; a pattern-compile failure is
+--- reported as an ordinary failure rather than dropping them silently.
+--- `source` is the text `parsed` came from, for the signatures the docs
+--- quote.
 function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
                                 source: string): analyzer.Analysis | nil, string
   local names: {string} = {}
@@ -1458,39 +1455,20 @@ function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
   }, ""
 end
 
---- Both facts an importer needs from a `kind = "test"` module's source,
---- from one parse: the name of every top-level `local function test_*`,
---- in the order they appear, and whether the chunk also has a genuine
---- top-level (chunk-level) `return` statement -- the two are read
---- together off the same parsed chunk's own top-level statement array
---- so the source is never parsed twice for the two questions.
----
---- A test name is any direct element of that array (never a recursive
---- walk) whose kind is `"local_function"` and whose declared name
---- matches `^test_`. An indented one lives inside some OTHER
---- statement's own body, not the chunk's own array part, so it is
---- never reached here; a source SAMPLE held as a string literal is
---- never parsed as a statement at all, so there is no bracket-tracking
---- left to get wrong.
----
---- A genuine top-level return is any direct element of that same array
---- whose kind is `"return"`. Lua requires a `return` to be the last
---- statement of the block it sits in, so a module that type-checks at
---- all can only have one as its own chunk's final statement -- never
---- one a nested `if`, loop, or function body left behind, since those
---- parse as children of that inner block's own "statements" node,
---- never as an element of the chunk's own array.
----
---- An ordinary snake_case identifier or call starting with the six
---- letters `return` (`return_code = 1`, `return_value(x)`) parses to
---- an `"assignment"` or `"op"` node, never `"return"` -- there is no
---- text boundary to get wrong the way a pattern match over raw source
---- has to draw one by hand.
+--- What one parse of `source` tells the importer (`Analysis`): the
+--- name of every top-level `local function test_*`, in order; whether
+--- the chunk has a top-level `return`, and the name it returns; the
+--- catalog, docs, examples and references. Tests and return are read
+--- from the chunk's own statement array, never by a recursive walk, so
+--- an indented function or a source sample held in a string literal
+--- is not mistaken for a statement of the chunk. Lua requires a
+--- `return` to end its block, so a chunk that type-checks has one only
+--- as its final statement.
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string
 --- @param name string Filename for parse diagnostics
---- @return Analysis | nil Every top-level test name plus the top-level-return fact
---- @return string Error message when `source` fails to lex or parse
+--- @return Analysis | nil The analysis, or nil when `source` fails to lex or parse
+--- @return string Error message when nil
 function analyzer.analyze(built: compiler, source: string,
                             name: string): analyzer.Analysis | nil, string
   local parsed, trouble = ast.parse(built, source, name)

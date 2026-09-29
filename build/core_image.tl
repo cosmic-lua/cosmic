@@ -36,9 +36,8 @@
 ---   hash to.
 ---
 --- A core that carries no DWARF -- every release core, which build.zig
---- strips -- is keyed by its bytes whole, as before: the image stands
---- in only where there is debug information to leave out, so the
---- release cores' keys are what they were. So is any file this does not
+--- strips -- is keyed by its bytes whole: the image stands in only where
+--- there is debug information to leave out. So is any file this does not
 --- read as a 64-bit little-endian ELF executable or shared object with
 --- a segment to load, and one with bytes past everything its headers
 --- name (`layout`): no loader runs a relocatable object, whose image

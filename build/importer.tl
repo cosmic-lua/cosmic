@@ -540,13 +540,13 @@ function importer.tree_code(handle: work.Handle): importer.Code | nil, string
 end
 
 --- The identity of the analyzer `code` holds: the compiler, and the
---- source of every one of `importer.analyzer_modules`. By default the
---- running binary's -- the code actually deriving, which in a stale
---- tool rebuilding itself is older than the tree's; a boot names the
---- tree's (`importer.tree_code`), which is the code it runs, the same
---- way, so the tool it writes finds the rows the boot derived its own.
---- A binary that carries no source for one of them, or no record of
---- what they import, can only be named whole.
+--- source of every one of `importer.analyzer_modules`. `code` defaults
+--- to the running binary's, the code actually deriving; in a stale tool
+--- rebuilding itself that is older than the tree's. A boot names the
+--- tree's (`importer.tree_code`), the code it runs, so the tool it
+--- writes finds the rows the boot derived as its own. A binary that
+--- carries no source for one of them, or no record of what they import,
+--- can only be named whole.
 -- TODO: name the analyzer by what a parse runs alone -- the pins
 -- (`runtime_basis`), build.importer and these modules -- rather than
 -- the whole compiler's identity, which build.teal, build.contracts,
@@ -624,11 +624,10 @@ end
 --- own, older code before the new tool re-enters, and must not leave
 --- rows the new tool takes for its own. Only a change to that code
 --- reparses everything; an edit anywhere else in the tool reparses just
---- what it edited. A boot no longer forgets as a side effect of being
---- one (it was named "binary " once, and so reparsed the tree after any
---- change to the core's C, build.zig or a pin): the analyzer's name is
---- a function of the compiler, the pins and the Teal sources it
---- reaches, and of nothing else, by design.
+--- what it edited. A boot does not forget as a side effect of being one:
+--- the analyzer's name is a function of the compiler, the pins and the
+--- Teal sources it reaches, and of nothing else, so a change to the
+--- core's C or build.zig does not move it, by design.
 local function forget_stale_analysis(handle: work.Handle): boolean | nil, string
   local db = handle.db
   local identity, identity_trouble = running_analyzer(handle)
@@ -655,13 +654,13 @@ end
 
 --- The identity of the code that finds `typed_refs` and checks the
 --- error-slot discipline beside the compiler: `build.receivers` and
---- `build.contracts` as the running binary carries them, or the binary whole when it
---- carries none. A boot carries no database and runs the tree's own
---- code, so it names them by the tree's source, as the tool it writes
---- will: the identity is signed into the projection (`build.writer`),
---- which a self-rebuild must write the same as a boot does. Named apart
---- from `analyzer_identity` because its rows ride on compiles, which
---- only a change to this code must redo.
+--- `build.contracts` as the running binary carries them, or the binary
+--- whole when it carries none. A boot carries no database and runs the
+--- tree's own code, so it names them by the tree's source, as the tool
+--- it writes will: the identity is signed into the projection
+--- (`build.writer`), which a self-rebuild must write the same as a boot
+--- does. Named apart from `analyzer_identity` because its rows ride on
+--- compiles, which only a change to this code must redo.
 local function receivers_identity(db: Sqlite.Handle): string | nil, string
   local booting = Store.meta("boot_hash") == nil
   local parts: {string} = {}
@@ -981,9 +980,9 @@ end
 -- in X, by design (`forget_stale_analysis`): the core's C, which runs
 -- the parse, is not, so a branch whose C parses otherwise shares rows
 -- with main under the same X, as compiles do under their keys, and as
--- one checkout switching between the two kept its rows before any
--- sharing. How a row is packed is in the format's version
--- (build.shared_compiles' `parsed_version`), not in X.
+-- one checkout switching between the two keeps its rows. How a row is
+-- packed is in the format's version (build.shared_compiles'
+-- `parsed_version`), not in X.
 local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
                                sources: {Source}): string | nil, string
   if Store.meta("boot_hash") ~= nil then
@@ -1257,7 +1256,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
   return tally, ""
 end
 
---- What `test_inputs` holds, by source hash: each `_inputs`
+--- What `test_inputs` holds, by source hash: each `Test.needs`
 --- declaration.
 local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
@@ -1613,17 +1612,15 @@ local function discount_test_warnings(result: compiler.Result,
   return result
 end
 
---- The one warning tl's checker always raises over a `build.doctest`
---- generated module: a generated example that declares an `output`
---- block shadows the global `print` with a local of the same name, on
---- purpose, so a doc's own verbatim `print(...)` calls run against the
---- capturing one instead -- print is declared `<const>` in tl's own
---- prelude, so reassigning the global outright is a hard type error,
---- and a local is the only way left to intercept a call the doc's own
---- source spells as a bare, unqualified `print`. This is narrower than
---- `discount_test_warnings` above in what it drops, but wider in who it
---- applies to: any module `m.generated` marks, not only the specific
---- function names a scan of `m` already found.
+--- Drops the one warning tl's checker always raises over a
+--- `build.doctest` generated module: an example that declares an
+--- `output` block shadows the global `print` with a local of the same
+--- name, so a doc's own `print(...)` calls run against the capturing
+--- one. The shadow is on purpose: `print` is `<const>` in tl's prelude,
+--- so reassigning the global is a type error, and a local is the only
+--- way to intercept a bare `print`. It drops less than
+--- `discount_test_warnings` but applies more widely: to any module
+--- `m.generated` marks, not only to functions a scan of `m` found.
 local function discount_doctest_shadow_warnings(result: compiler.Result): compiler.Result
   local kept: {compiler.Error} = {}
   for _, w in ipairs(result.warnings) do
@@ -1638,10 +1635,9 @@ end
 --- Whether `m`'s own source both defines tests of its own and returns
 --- its own value at the top level. `with_test_tail` appends a generated
 --- `return` after the module's compiled Lua, and Lua allows only one
---- `return` as a block's last statement, so the two together always
---- produce a parse error the moment both are true. `collect` already
---- read both facts off one parse of `m.source`, so this only reads
---- what `m` itself carries -- never a second parse of the same source.
+--- `return` as a block's last statement, so the two together are always
+--- a parse error. Both facts come from `collect`'s one parse of
+--- `m.source`; this reads what `m` carries and parses nothing.
 local function collides_with_test_tail(m: Module): boolean
   return #m.tests > 0 and m.has_top_level_return
 end
@@ -1657,14 +1653,13 @@ local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
---- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"` check)
---- already treats a name starting with `_` as intentionally unused and
---- never warns about it -- but says so nowhere in the warning it raises
---- for every other name, and every warning is a refused compile on
---- cosmic's paths (see `generate`), so a fresh agent hits this as a
---- hard build failure with no hint of the one-character fix. Appended
---- once, at the one place every message is rendered, rather than
---- patching the vendored checker's own text.
+--- Adds to an unused-variable or unused-argument warning the way to
+--- silence it. tl's checker treats a name starting with `_` as
+--- intentionally unused (`tl.lua`'s `var_name:sub(1, 1) == "_"` check),
+--- but the warning for any other name does not say so, and every
+--- warning is a refused compile on cosmic's paths (see `generate`).
+--- Added here, where every message is rendered, rather than by patching
+--- the vendored checker's text.
 local function with_unused_hint(msg: string): string
   if msg:match("^unused variable ") or msg:match("^unused argument ") then
     return msg .. " -- name it _ or _<name> to mark it intentionally unused"
@@ -1890,8 +1885,7 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
   return once(plan)
 end
 
---- Compiles one module: the checker over its source, the test tail
---- when it is a test, and the bytecode.
+--- What compiling one module makes.
 local record Generated
   lua: string
   bytecode: string
@@ -1903,6 +1897,8 @@ local record Generated
   refused: boolean
 end
 
+--- Compiles one module: the checker over its source, the test tail
+--- when it is a test, and the bytecode.
 local function generate(m: Module, built: compiler, env: compiler.Env,
                         typed: receivers.State, own_tree: boolean, judged: boolean,
                         hints: Hints): Generated | nil, string
@@ -2041,17 +2037,19 @@ local function compile(handle: work.Handle, built: compiler, tool: string,
   local env: compiler.Env | nil = nil
   local typed: receivers.State | nil = nil
 
-  -- Where a refused module's own hint (`with_docs_hint`) looks up the
-  -- name it could not resolve: this tree's own last projection first --
-  -- unrestricted, the way a project's own `o/cosmic.db` is for `cosmic
-  -- docs` too, and the only place cosmic's own `build.*` symbols are
-  -- documented, since the tool carries only the public standard
-  -- library's (`writer.carried`) -- then the running binary's own, which
-  -- is where a stdlib symbol like `cosmic.removed`'s own fields live for
-  -- any tree but cosmic's. See `docs.databases`, the same shape built for
-  -- the same reason. The working database cannot stand in: its `docs`
-  -- rows are keyed by source hash, with no module to name. A projection
-  -- that is missing or unreadable is left out; the hint is best effort.
+  -- Where a hint (`with_docs_hint`) looks up the name a refused module
+  -- could not resolve, as `docs.databases` builds the same list for
+  -- `cosmic docs`:
+  -- * This tree's last projection, `o/cosmic.db`, unrestricted. It is
+  --   the only place cosmic's own `build.*` symbols are documented,
+  --   since the tool carries only the public standard library's
+  --   (`writer.carried`).
+  -- * Then the running binary's own, where a standard-library symbol
+  --   such as one of `cosmic.removed`'s fields lives for any tree but
+  --   cosmic's.
+  -- The working database cannot stand in: its `docs` rows are keyed by
+  -- source hash, with no module to name. A projection that is missing
+  -- or unreadable is left out, since the hint is best effort.
   local hint_databases: {Sqlite.Handle} = nil
   local hint_public: {boolean} = nil
   local hint_projection: Sqlite.Handle = nil

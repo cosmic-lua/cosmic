@@ -816,14 +816,14 @@ local function identity(value: any): string | nil
   return nil
 end
 
---- Pairs the members of `old` with the values of `new` the way a diff
---- does: those equal in both, longest run in order first, anchor the
---- rest, the common start and end first of all; between two anchors, a
+--- Pairs the members of `old` with the values of `new` as a diff does.
+--- Members equal in both anchor the pairing: the common start and end
+--- first, then the longest common runs in order. Between two anchors, a
 --- run of the same length on both sides is paired in order (members
---- changed in place), and in a run of another length a member is paired
---- with one its `identity` names, in order, the rest dropped from `old`
---- and added from `new`. The pairing, by `new`'s index: the old item,
---- or nil for one to add.
+--- changed in place). In a run of another length a member is paired, in
+--- order, with the one its `identity` names, and the rest are dropped
+--- from `old` and added from `new`. The result maps `new`'s indexes to
+--- the old item, or nil for one to add.
 local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
   local a, b: {string}, {string} = {}, {}
   local old_values: {any} = {}

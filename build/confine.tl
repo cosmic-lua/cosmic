@@ -297,32 +297,37 @@ local function declare(declared: confine.Confinement | nil, must: string | nil)
   confinement, strict = absolute(declared), must
 end
 
---- For a test of the sandbox itself, which nests one sandbox in
---- another: any other test declares what its processes read in its
---- module's `Test.needs`, whose sandboxed worker holds them to it
---- (`Observer`'s `held`).
 --- Declares what every process the calling test starts from here on
---- needs: `declared.reads`, read-only, and `declared.writes`, which it
---- may change, beside `system` -- each of it the worker has: a
---- sandboxed worker whose module does not declare `system` has only
---- the runtime's -- and the test's own directory and every directory
---- it made, which it may change too. Each is held to that by the
---- kernel -- a root of its own holding those paths and nothing else,
---- and no network (the process table's `Sandbox`, `unveil` and `offline`) -- so what
---- it read is known, and a test whose processes all ran confined can
---- stand: every path it was given enters the verdict key, one under
---- the tree by its contents and any other by a walk of what `lstat`
---- says of it and everything beneath it. A process started with a
---- sandbox of its own is not confined further, and where the kernel
---- cannot confine one it starts as it would have, and the run never
---- stands. A process given no directory to start in starts in the
---- test's own, since the one the test runs in, the tree's root, is not
---- its to read; one has a /tmp of its own, and one that inherits a
---- TMPDIR it may not change has the test's own directory for it. Called at a test module's top level, it holds for each
---- of its tests; called in a test, for the rest of that test. A
---- relative path is taken from the directory this is called in. Nil
---- ends the declaration: a process started after it is not confined.
---- With COSMIC_SANDBOX=must in the environment, it is `must_confine`.
+--- needs. Only a test of the sandbox itself, which nests one sandbox in
+--- another, calls it: any other test declares what its processes read
+--- in its module's `Test.needs`, whose sandboxed worker holds them to it
+--- (`Observer`'s `held`).
+---
+--- `declared.reads` is read-only and `declared.writes` may be changed,
+--- beside `system` -- each of it the worker has: a sandboxed worker
+--- whose module does not declare `system` has only the runtime's -- and
+--- the test's own directory and every directory it made, which a process
+--- may change too. The kernel holds each process to that: a root of its
+--- own holding those paths and nothing else, and no network (the
+--- process table's `Sandbox`, `unveil` and `offline`). So what a process
+--- read is known, and a test whose processes all ran confined can
+--- stand: every path it was given enters the verdict key, one under the
+--- tree by its contents and any other by a walk of what `lstat` says of
+--- it and everything beneath it.
+---
+--- A process started with a sandbox of its own is not confined further.
+--- Where the kernel cannot confine one, it starts as it would have, and
+--- the run never stands. A process given no directory to start in
+--- starts in the test's own, since the one the test runs in, the tree's
+--- root, is not its to read. A process has a /tmp of its own, and one
+--- that inherits a TMPDIR it may not change has the test's own
+--- directory for it.
+---
+--- Called at a test module's top level, it holds for each of its tests;
+--- called in a test, for the rest of that test. A relative path is taken
+--- from the directory this is called in. Nil ends the declaration: a
+--- process started after it is not confined. With COSMIC_SANDBOX=must in
+--- the environment, it is `must_confine`.
 function confine.confine(declared: confine.Confinement | nil)
   declare(declared, must_everywhere() and "confine (" .. SANDBOX_MODE .. "=must)" or nil)
 end
@@ -330,20 +335,23 @@ end
 --- `confine` with no fallback: every process the calling test starts
 --- from here on runs with the whole of its sandbox -- the root of its
 --- own holding only what was declared, and no network -- in force, or
---- does not start. Where the kernel refuses a part (no user namespaces
---- for this user, a mount or pivot_root refused), or a process cannot
---- be confined at all (more paths than a sandbox unveils, a program
---- beneath none of them), the spawn fails: `nil`, a message naming
---- the program, the part of the sandbox that could not be applied and
---- why, errno's name included, and the errno. The failure fails the
---- test too, whatever it made of the spawn's answer, so a test cannot
---- pass by passing over a process it never ran; so does every running
---- stand-in's (see `enter`), one inside another included. A process
---- started with a sandbox of its own that unveils and takes the network
---- is held to that; one whose own sandbox does not -- a pledge or a
---- ruleset alone -- does not start. Nor does one started, while the
---- declaration holds, through a spawn taken while an earlier stand-in
---- ran, which no confinement would hold.
+--- does not start.
+---
+--- Where the kernel refuses a part (no user namespaces for this user, a
+--- mount or pivot_root refused), or a process cannot be confined at all
+--- (more paths than a sandbox unveils, a program beneath none of them),
+--- the spawn fails: `nil`, a message naming the program, the part of the
+--- sandbox that could not be applied and why, errno's name included, and
+--- the errno. The failure fails the test too, whatever it made of the
+--- spawn's answer, so a test cannot pass by passing over a process it
+--- never ran. So does every running stand-in's failure (see `enter`),
+--- one inside another included.
+---
+--- A process started with a sandbox of its own that unveils and takes
+--- the network is held to that; one whose own sandbox does not -- a
+--- pledge or a ruleset alone -- does not start. Nor does one started,
+--- while the declaration holds, through a spawn taken while an earlier
+--- stand-in ran, which no confinement would hold.
 ---
 --- It covers only a test that declares: a process started with no
 --- declaration in force, after `confine(nil)` or in a test that never
@@ -359,24 +367,27 @@ end
 
 --- Calls `fn`, the work of a library that starts processes whose every
 --- input it can name -- build/c/init.tl's compilers: their toolchain and
---- what they compile -- holding each process it starts with no sandbox
---- of its own to `declared`: `declared.reads`, read-only, and
+--- what they compile. Each process it starts with no sandbox of its own
+--- is held to `declared`: `declared.reads`, read-only, and
 --- `declared.writes`, which it may change, beside `system` and the
---- running test's own directories, as `confine` holds a test's, so what
---- it read is known and keyed by what it was given. But where this
---- process runs in a sandbox -- a sandboxed worker's (`Observer`'s
---- `held`), or one a Landlock ruleset holds -- the process inherits
---- that, and is held by it alone, as one started undeclared is: a root
---- of its own would nest in the worker's, which a ruleset refuses. A
---- test's own `confine` holds the process rather than this. Where no
---- stand-in runs (see `enter`) -- no test, `cosmic fix` -- nothing holds
---- it; where the kernel cannot confine one, it starts unconfined,
---- noted "p", and with COSMIC_SANDBOX=must it does not start. A run keyed
---- by what its tests were seen to read then never stands; one keyed by
---- what they declare (COSMIC_TEST_KEY=declared, as CI's macOS leg runs,
---- where nothing confines) stands on that key all the same, which holds
---- none of what the process read: the gap that leg's own, which a Linux
---- leg's sandbox closes for the same test.
+--- running test's own directories, as `confine` holds a test's. So what
+--- it read is known and keyed by what it was given.
+---
+--- Where this process runs in a sandbox -- a sandboxed worker's
+--- (`Observer`'s `held`), or one a Landlock ruleset holds -- the process
+--- inherits that and is held by it alone, as one started undeclared is:
+--- a root of its own would nest in the worker's, which a ruleset
+--- refuses. A test's own `confine` holds the process rather than this.
+---
+--- Where no stand-in runs (see `enter`) -- no test, `cosmic fix` --
+--- nothing holds it. Where the kernel cannot confine one, it starts
+--- unconfined, noted "p", and with COSMIC_SANDBOX=must it does not
+--- start. A run keyed by what its tests were seen to read then never
+--- stands. A run keyed by what they declare (COSMIC_TEST_KEY=declared,
+--- as CI's macOS leg runs, where nothing confines) stands on that key
+--- all the same, which holds none of what the process read: that gap is
+--- the leg's own, and a Linux leg's sandbox closes it for the same test.
+---
 --- Relative paths are taken from the directory this is called in.
 function confine.declaring(declared: confine.Confinement, fn: function())
   local before = library
@@ -605,12 +616,12 @@ end
 --- of a missing file is a read too), of its nearest existing ancestor
 --- with the missing names after it as written, "." and ".." included:
 --- the first of them is missing, so nothing after it is reached, and
---- the answer is that ancestor's. Each run of slashes is one; a name
---- the path ends in with "/" after it is sought in its directory when
---- the whole is not there, as a file is. "" for a relative path, or
---- one not even "/" of which resolves. Nothing is remembered between
---- calls, since a link can be retargeted between two reads. As the
---- sandbox binds a path, which is where it leads (build/test_sandbox.tl).
+--- the answer is that ancestor's. Each run of slashes is one, and a
+--- name the path ends in with "/" after it is sought in its directory
+--- when the whole is not there, as a file is. "" for a relative path,
+--- or one not even "/" of which resolves. Nothing is remembered between
+--- calls, since a link can be retargeted between two reads. This is
+--- where the sandbox binds a path (build/test_sandbox.tl).
 function confine.resolution(path: string): string
   if path:sub(1, 1) ~= "/" then return "" end
   local realpath = calls().realpath

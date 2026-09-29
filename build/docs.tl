@@ -113,12 +113,10 @@ end
 local text = bind.text
 
 --- A symbol as an `examples_fts` phrase: `Fs.read` and `Fs:read` alike
---- become `"Fs read"`, matching adjacent tokens in that order -- what
---- an example's own source reads as, tokenized, when it genuinely
---- calls the symbol it demonstrates. Looser than an exact join, and
---- deliberately so: this is what lets one example answer for every
---- symbol its code actually mentions, not only the one whose name it
---- happens to share.
+--- become `"Fs read"`, which matches those adjacent tokens in that order
+--- in an example's text or source. Looser than an exact join on purpose:
+--- one example answers for every symbol its code mentions, not only the
+--- one whose name it shares.
 ---
 --- On its own this over-matches: FTS5's tokenizer splits on `_`, so
 --- `Hash.hex` and `Hash.hex_sha256` share the same first two tokens, and
@@ -174,10 +172,10 @@ end
 
 --- Every worked example whose own text or source matches `symbol`, in
 --- `module`, in the order its file declares them -- see
---- `example_phrase`. Several can match one symbol; each was written
---- deliberately for it once it matches at all, so source order reads
---- better than a relevance ranking would. `""` finds nothing, since a
---- module's own row has no code of its own to match.
+--- `example_phrase`. Several can match one symbol, and each is as
+--- relevant as any other, so source order serves better than a
+--- ranking. `""` finds nothing, since a module's own row has no code of
+--- its own to match.
 local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
                             symbol: string): {docs.Example} | nil, string
   if symbol == "" then
@@ -204,7 +202,8 @@ end
 
 --- The modules that document themselves whose last dotted name is
 --- `query` (`json` for `cosmic.json`, `util` for a project's
---- `myproj.util`), as their own rows, a project's own ahead of the standard library's. A module
+--- `myproj.util`), as their own rows, a project's own ahead of the
+--- standard library's. A module
 --- under `cosmic.internal`, a test module and an example module are
 --- never one, whatever database is read, as in `docs.index`, so a bare
 --- name means what a user of a library means by it.
@@ -449,8 +448,9 @@ local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string,
 end
 
 --- Every worked example whose own name, comment, or checked source carries
---- every word of `query`. An example is its own honest search result: source
---- text cannot reliably say which one of several calls is its subject.
+--- every word of `query`. An example is returned as itself, not as one of
+--- the symbols it calls: its source cannot say which of several calls is
+--- its subject.
 local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT e.module, e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
@@ -759,13 +759,15 @@ local function by_options(view: docs.View, query: string,
   return out, ""
 end
 
---- What `query` names, across `databases`: the public module a bare
---- lowercase name ends (`json`, `fs`; with its verb, if it is one:
---- `test`); else its exact matches when it
---- names a symbol or a module; for a qualified name that names nothing,
---- what its qualifier offers (see `scoped`); otherwise the
---- documentation that carries all its words, and the verbs whose
---- options do (see `by_options`).
+--- What `query` names, across `databases`, by the first rule that
+--- answers:
+--- - the public module a bare lowercase name ends (`json`, `fs`), with
+---   its verb first if it is one (`test`);
+--- - its exact matches, when it names a symbol or a module;
+--- - for a qualified name that names nothing, what its qualifier offers
+---   (see `scoped`);
+--- - the documentation that carries all its words, and the verbs whose
+---   options do (see `by_options`).
 function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
