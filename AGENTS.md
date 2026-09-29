@@ -204,9 +204,15 @@
    `cosmic test` it starts in its own sandbox only where its assertion
    is about their sandbox; every other run of `cosmic test` a test
    starts sets `COSMIC_TEST_SANDBOX=0`, so it means the same on every
-   host. Where the kernel refuses a sandbox that deep -- run as root,
-   in a container or not, a sandbox nests only two deep (the TODO in
-   core/syscalls.c's `map_ids`) -- those tests call `Test.skip` and
+   host. Root confines only two deep (core/syscalls.c's `map_ids`), so
+   a runner that is root runs each sandboxed worker as a user of its
+   own, uid and gid 65532, mapped from outside (build/test_sandbox.tl's
+   `runs_as`, spawn's `user`), whose sandbox nests at any depth as on
+   CI's unprivileged runners, with no setup; its key holds that user.
+   A worker whose module declares a host cache, which it writes as
+   root, runs as root still, as every worker does where the host
+   refuses the drop. Where the kernel refuses a sandbox that deep,
+   those tests call `Test.skip` and
    return before asserting: the summary counts them skipped, beside ran
    and stood, and lists each with its reason (`test: SKIP`); no verdict
    is kept of one, so it runs again every run. A run held to sandboxing
@@ -219,9 +225,7 @@
    (no user namespaces, Landlock or subreaper) it returns silently, a
    pass the key's kernel part pins to that platform. A test that
    returns early for a host tool or artifact it lacks (jq, a portable
-   artifact) does not skip: a held run would fail it. CI's unprivileged runners nest at
-   any depth; locally, check them by running the suite as an
-   unprivileged user, as `ci/run-local` runs its driver as `nobody`.
+   artifact) does not skip: a held run would fail it.
    A test module declares what it reads beyond its import closure, its
    fuzz corpora and a pinned environment with a top-level
    `Test.needs { ... }` (`local Test = require("cosmic.test")`; see
@@ -279,7 +283,10 @@ touches the launcher, startup, the artifact format, or a fixture, and
 `ci/run-local fixtures` to re-run edited fixtures after that. CI's runners are
 unprivileged; invoked as root, run-local runs the driver as an unprivileged
 user (`COSMIC_CI_LOCAL_USER`, default `$SUDO_USER` under sudo, else
-`nobody`). The launcher fixture's core
+`nobody`): its test workers would drop root without it, but the driver
+itself -- its builds, its unsandboxed legs, the fixtures, the caches it
+writes -- would not, and would meet none of the permissions CI's does.
+The launcher fixture's core
 is a stand-in payload that checks nothing; a case about what the real core
 does (its digest, its startup errors) belongs in `runtime_test.tl`.
 

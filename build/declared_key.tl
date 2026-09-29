@@ -281,6 +281,11 @@ local record declared_key
     own_proc: boolean
     host_id: string
     uid: integer
+    --- The user and group a sandboxed worker runs as in place of this
+    --- process's (`build.test_sandbox`'s `worker_user`), nil for its
+    --- own: the key holds the worker's, which the kernel judges it by.
+    worker_uid: integer
+    worker_gid: integer
     --- The system's paths `system_identity` walks, where it walks them:
     --- by default `confine.system_paths`, less /etc (`walked_paths`).
     walked: {string}
@@ -1033,7 +1038,13 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 ---   worker -- runs with, and whether no_new_privs and a seccomp filter
 ---   hold it (/proc/self/status): whether a file's permissions refuse a
 ---   read, whether a sandbox may map ids or nest another, and which
----   calls a filter refuses are theirs;
+---   calls a filter refuses are theirs. A worker a root runner runs as a
+---   user of its own (`HostSources`' `worker_uid`) is held as that user
+---   with no supplementary group and no capability in effect, as an
+---   unprivileged runner of that user's is -- the bounding set,
+---   no_new_privs and the filter stay this process's, which the worker's
+---   are -- but apart from such a runner's worker, by the user it was
+---   dropped from, whose sandbox gave it what that user alone may read;
 --- - whether a sandbox gets a /proc of its own
 ---   (`confine.own_proc_given`), which a test of the sandbox
 ---   expects different things of; and
@@ -1101,11 +1112,24 @@ function declared_key.host_identity(digests: declared_key.Digests,
   -- comes to dispatch on another feature adds it to `dispatched` and to
   -- .github/scripts/host-features.sh alike.
   lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo, from.machine), " ")
-  lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
+  local worker_uid, worker_gid = from.worker_uid, from.worker_gid
+  lines[#lines + 1] = "uid " .. tostring(worker_uid or from.uid or sys.getuid())
+  -- Dropped from the runner's user, which built its root and so gave it
+  -- what that user alone reads: apart from that user's own runner's.
+  if worker_uid ~= nil then
+    lines[#lines + 1] = "dropped from " .. tostring(from.uid or sys.getuid())
+  end
   local status, _ = Fs.read(from.status or "/proc/self/status")
   for line in (status or ""):gmatch("[^\n]+") do
     local name = line:match("^(%a+):")
-    if name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
+    if worker_uid ~= nil and worker_gid ~= nil and (name == "Uid" or name == "Gid") then
+      local id = tostring(name == "Uid" and worker_uid or worker_gid)
+      lines[#lines + 1] = name .. ":\t" .. id .. "\t" .. id .. "\t" .. id .. "\t" .. id
+    elseif worker_uid ~= nil and name == "Groups" then
+      lines[#lines + 1] = "Groups:\t "
+    elseif worker_uid ~= nil and name ~= nil and name:sub(1, 3) == "Cap" and name ~= "CapBnd" then
+      lines[#lines + 1] = name .. ":\t0000000000000000"
+    elseif name == "Uid" or name == "Gid" or name == "Groups" or (name ~= nil and
         name:sub(1, 3) == "Cap") or name == "NoNewPrivs" or name == "Seccomp" then
       lines[#lines + 1] = line
     end

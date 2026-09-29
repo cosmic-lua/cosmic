@@ -41,7 +41,10 @@
 ---   addresses a module may declare (`cosmic.test`'s `network`), as the
 ---   host's would;
 --- - the pinned environment and the variables it declares, `"*"` for
----   all of the runner's (`environment`).
+---   all of the runner's (`environment`);
+--- - where the runner is root, a user of its own to run as (`runs_as`),
+---   unprivileged, which owns its scratch directory and the copy of the
+---   core it runs, so it confines what its test starts at any depth.
 ---
 --- A read of anything else finds nothing, and so does one of every
 --- process the worker starts, which has the worker's sandbox and no
@@ -54,7 +57,7 @@
 --- it, at /tree and `test_sandbox.scratch`; `to_host` puts each path back where the host
 --- has it, for the audit of what it read and for its `runs` row.
 
-local type Child = require("cosmic.child")
+local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -63,6 +66,7 @@ local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
+local hashing = require("build.digest")
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
@@ -80,6 +84,13 @@ local record test_sandbox
   scratch_length: integer
   --- The variable that turns the sandbox on.
   switch: string
+
+  --- The user and group a sandboxed worker runs as in place of the
+  --- runner's (`runs_as`).
+  record User
+    uid: integer
+    gid: integer
+  end
 
   --- How one worker is sandboxed.
   record Plan
@@ -120,6 +131,11 @@ local record test_sandbox
     --- nil where it keeps the runner's, as a worker whose module does
     --- not declare `tool` does.
     program: string | nil
+    --- What starts it (`Proc.relaunch`) where it runs as a user of its
+    --- own with a copy of the runner's core (`runs_as`), which the
+    --- core it is handed must be: the runner's relaunch, with that
+    --- copy's descriptor in the core's place. Nil for the runner's own.
+    start: Proc.Relaunch | nil
   end
 end
 
@@ -166,6 +182,284 @@ local own_cores <const> = test_sandbox.scratch .. "/cores"
 --- The sandbox's own /tmp, a tmpfs of its own the scratch directory is
 --- bound beneath (core/syscalls.c's "a /tmp of its own").
 local own_tmp <const> = Fs.dirname(test_sandbox.scratch)
+
+--- The user and group a sandboxed worker runs as where the runner is
+--- root (`runs_as`). Not `nobody` (65534): in the worker's own user
+--- namespace, which maps it alone, root's files are the kernel's
+--- overflow id, 65534, and a worker that were 65534 too would seem to
+--- own them. 65532 is the unprivileged user distroless images run as,
+--- beneath 65536, so a container whose namespace maps the usual 65536
+--- ids maps it too.
+-- TODO: choose an id no user of this host has -- one /etc/passwd and
+-- /etc/group name no entry for, from a range the host keeps for no one
+-- (a subordinate id range of root's) -- once a runner reads them
+-- (getpwuid, or the files parsed): today a host with a user of its own
+-- at 65532 would have root's workers run as that user, and a process of
+-- that user could signal or trace them.
+local worker_id <const> = 65532
+
+--- Of `path`, a /proc/<pid>/uid_map or gid_map, whether it maps `id`
+--- inside.
+local function maps(path: string, id: integer): boolean
+  local text, _ = Fs.read(path)
+  for line in (text or ""):gmatch("[^\n]+") do
+    local inside, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+    local first, many = math.tointeger(tonumber(inside)), math.tointeger(tonumber(count))
+    if first ~= nil and many ~= nil and id >= first and id < first + many then return true end
+  end
+  return false
+end
+
+--- Whether this process is root, as /proc/self/status says: its
+--- effective user 0, holding in effect CAP_SETGID (6), CAP_SETUID (7)
+--- and CAP_SETFCAP (31), which mapping a worker's namespace from
+--- outside takes (core/process.h's `Sandbox.user`).
+local function root_here(): boolean
+  local status, _ = Fs.read("/proc/self/status")
+  if status == nil then return false end
+  local effective = status:match("\nUid:%s+%d+%s+(%d+)")
+  local caps = status:match("\nCapEff:%s+(%x+)")
+  if effective ~= "0" or caps == nil then return false end
+  local low = math.tointeger(tonumber(caps:sub(-8), 16)) or 0
+  for _, bit in ipairs({ 6, 7, 31 }) do
+    if (low >> bit) & 1 == 0 then return false end
+  end
+  return true
+end
+
+--- What a worker run as `worker_id` has this program's core in place
+--- of the cache it is in, by that cache's name (`Plan`'s `sandbox`),
+--- where it runs a core the launcher extracted (build/launcher.tl),
+--- which the launcher keeps as root's alone, 0500 in a 0700
+--- directory: a copy of it, and of the stamp that spares hashing it, in
+--- a directory of the worker's user's own, 0500, as the launcher keeps
+--- them for that user and checks it keeps them where a test runs this
+--- program. Each such directory is beneath `worker-cores` in root's
+--- cache, root's own and 0700, so no process but root's reaches one:
+--- root writes it, by name, and nothing else can swap a link or a core
+--- into it. A copy is checked against the digest the core's name holds
+--- as it is made, and made in place by a rename, so two runs at once
+--- make it alike. The directory, and the cache it stands for, or ""
+--- for neither where the core is no launcher's -- a host program, its
+--- own core -- and one the worker's user may read and run; nil where
+--- the worker could not run it.
+-- TODO: prune a directory of `worker-cores` whose core no run has used
+-- for a while, as nothing prunes the launcher's own cores directory
+-- either, once that has a rule to share (the launcher's cache is
+-- pruned by hand today): each core this host runs as root leaves one.
+local record Cores
+  --- The worker's own copy of the cache, "" for none.
+  copy: string
+  --- The cache it is given at, "" for none.
+  cache: string
+  --- The runner's relaunch (`Proc.relaunch`) with the core it hands on
+  --- that copy's (`Plan.start`), nil for none.
+  start: Proc.Relaunch
+end
+local function worker_cores(): Cores | nil, string
+  local launched, _ = Proc.relaunch()
+  local core: string = nil
+  if launched ~= nil then
+    core = launched.argv[1]
+  else
+    local executable, _ = Proc.executable()
+    core = executable
+  end
+  if core == nil then return nil, "this program cannot find its core" end
+  local directory, name = core:match("^(.*)/(core%-[^/]*)$")
+  if directory == nil then
+    local there, _ = sys.stat(core)
+    if there ~= nil and there.mode & 0x5 == 0x5 then return { copy = "", cache = "" }, "" end
+    return nil, core .. " is not another user's to read and run"
+  end
+  local digest = name:match("%-(%x+)$")
+  if digest == nil then return nil, core .. " names no digest" end
+  local base, base_trouble = Fs.cache_path("worker-cores")
+  if base == nil then return nil, base_trouble end
+  local made, made_trouble = Fs.mkdirs(base)
+  if not made then return nil, made_trouble end
+  local closed, close_trouble = sys.chmod(base, 0x1c0)
+  if not closed then return nil, base .. ": " .. close_trouble end
+  -- Root's alone, as made: what is beneath it is written by name.
+  local held, _ = sys.lstat(base)
+  if held == nil or held.kind ~= "dir" or held.uid ~= 0 or held.mode & 0x1ff ~= 0x1c0 then
+    return nil, base .. " is not root's alone"
+  end
+  local cache = base .. "/" .. name
+  local function owned(path: string, mode: integer): boolean, string
+    local changed, trouble = sys.chmod(path, mode)
+    if changed then changed, trouble = sys.chown(path, worker_id, worker_id) end
+    if not changed then return false, path .. ": " .. trouble end
+    return true, ""
+  end
+  local there_dir, _ = sys.lstat(cache)
+  if there_dir == nil then
+    local ok, trouble = sys.mkdir(cache, 0x140)
+    if not ok then return nil, cache .. ": " .. trouble end
+  end
+  local ready, ready_trouble = owned(cache, 0x140)
+  if not ready then return nil, ready_trouble end
+  local copy = cache .. "/" .. name
+  local function placed(path: string, data: string, mode: integer): boolean, string
+    local staged = cache .. "/.staged-" .. tostring(sys.getpid())
+    local ok, trouble = Fs.write(staged, data, mode)
+    if ok then ok, trouble = owned(staged, mode) end
+    if ok then ok, trouble = sys.rename(staged, path) end
+    if not ok then
+      local _, _ = sys.unlink(staged)
+      return false, trouble
+    end
+    return true, ""
+  end
+  local there, _ = sys.lstat(copy)
+  if there == nil or there.kind ~= "file" or there.uid ~= worker_id or
+      there.mode & 0xfff ~= 0x140 then
+    local data, read_trouble = Fs.read(core)
+    if data == nil then return nil, read_trouble end
+    if hashing.hex_sha256(data) ~= digest then return nil, core .. " is not the core it names" end
+    local ok, trouble = placed(copy, data, 0x140)
+    if not ok then return nil, trouble end
+    there, _ = sys.lstat(copy)
+  end
+  if there == nil then return nil, copy .. " is not there" end
+  -- The stamp core/startup.c's `stamp_line` writes of it: its size,
+  -- inode, and modification and change seconds.
+  local line = string.format("%d|%d|%d|%d\n", there.size, there.ino, there.mtime, there.ctime)
+  local stamp = cache .. "/.verified-" .. name
+  local stamped, _ = Fs.read(stamp)
+  if stamped ~= line then
+    local ok, trouble = placed(stamp, line, 0x100)
+    if not ok then return nil, trouble end
+  end
+  -- The core a relaunch hands on as a descriptor, which the worker's
+  -- startup holds to be the file it runs, is the copy too.
+  local handed: Proc.Relaunch = nil
+  if launched ~= nil then
+    handed = { argv = launched.argv, env = launched.env, fds = {} }
+    local fd, open_trouble = sys.open(copy, sys.O_RDONLY)
+    if fd == nil then return nil, copy .. ": " .. open_trouble end
+    -- The descriptor the relaunch's environment names the core's
+    -- (core/startup.h's COSMIC_PORTABLE_ENV_CORE_FD).
+    local core_fd = math.tointeger(tonumber(launched.env.COSMIC_PORTABLE_CORE_FD or ""))
+    if core_fd == nil or launched.fds[core_fd] == nil then
+      return nil, "the relaunch names no core descriptor"
+    end
+    for number, given in pairs(launched.fds) do
+      handed.fds[number] = number == core_fd and fd or given
+    end
+  end
+  return { copy = cache, cache = directory, start = handed }, ""
+end
+
+--- Whether this program starts, sandboxed, as `user`, with `cores` its
+--- core (`worker_cores`): given /proc, /dev/null and that core alone,
+--- it runs nothing and ends. Where the host refuses what a worker run as
+--- that user takes -- a user namespace of that user's own (AppArmor's
+--- kernel.apparmor_restrict_unprivileged_userns, a kernel that allows
+--- none unprivileged), or a map written from outside -- every worker's
+--- start would fail; so none is run so there, and each runs as root.
+-- TODO: test the fallback on a host that refuses an unprivileged user
+-- a user namespace, once CI has a leg run as root on one (doc/roadmap.md):
+-- no host the suite runs on refuses one to 65532 but grants it to root.
+local function starts_as(user: test_sandbox.User, cores: Cores): boolean, string
+  local launched, _ = Proc.relaunch()
+  local start: Proc.Relaunch = cores.start or launched
+  local reads: {string} = {}
+  local at: {string:string} = {}
+  if start == nil then
+    local executable, trouble = Proc.executable()
+    if executable == nil then return false, trouble end
+    start = { argv = { executable }, env = {}, fds = {} }
+  end
+  if cores.copy ~= "" then
+    reads[#reads + 1] = cores.copy
+    at[cores.copy] = cores.cache
+  else
+    reads[#reads + 1] = start.argv[1]
+  end
+  for _, path in ipairs({ "/proc", "/dev/null" }) do
+    local there, _ = sys.stat(path)
+    if there ~= nil then reads[#reads + 1] = path end
+  end
+  local argv: {string} = {}
+  for i, word in ipairs(start.argv) do argv[i] = word end
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = ""
+  local fds: {integer:integer | string} = {}
+  for number, fd in pairs(start.fds) do fds[number] = fd end
+  local handle, trouble = Child.start(argv, { env = start.env, fds = fds, cwd = "/",
+    stdin = "null", stdout = "capture", stderr = "stdout", process_group = false,
+    sandbox = { unveil = { reads = reads, writes = {}, at = at }, offline = true,
+      user = user.uid, group = user.gid } })
+  if handle == nil then return false, trouble end
+  local result, wait_trouble = handle:wait(30000)
+  if result == nil then
+    local _, _ = handle:close()
+    return false, wait_trouble
+  end
+  if not result.ok then
+    return false, "a start as " .. tostring(user.uid) .. " ended " ..
+      tostring(result.code or result.signal) .. ": " .. (result.stdout or "")
+  end
+  return true, ""
+end
+
+--- Whether, and as whom, a sandboxed worker runs in place of this
+--- process's own user: `worker_id`, as user and group, where this
+--- process is root (`root_here`), its user namespace maps root and that
+--- id -- the host's does, and a container's usual 65536 ids -- the
+--- worker has a core it may run (`worker_cores`), and a start as that
+--- user succeeds (`starts_as`). Such a worker gives root up for them
+--- once its root is built, as core/process.h's `Sandbox.user` says, and
+--- so confines what its test starts at any depth, as an unprivileged
+--- runner's worker does -- where a worker left root would not, the
+--- kernel refusing a user namespace to a child of its that is unmapped
+--- -- and meets the permissions of the files it reads as such a worker
+--- does. Its key holds it as that user
+--- (`declared_key.HostSources`' `worker_uid`). Nil, and why, elsewhere,
+--- the worker running as this process's user, as ever. Worked out
+--- once.
+local worker_user: test_sandbox.User = nil
+local worker_trouble: string = nil
+local worker_copy: Cores = { copy = "", cache = "" }
+function test_sandbox.runs_as(): test_sandbox.User | nil, string
+  if worker_trouble == nil then
+    worker_trouble = "this process is not root, holding CAP_SETUID, CAP_SETGID and CAP_SETFCAP"
+    if root_here() then
+      worker_trouble = "this user namespace does not map root and " .. tostring(worker_id)
+      if maps("/proc/self/uid_map", 0) and maps("/proc/self/uid_map", worker_id) and
+          maps("/proc/self/gid_map", 0) and maps("/proc/self/gid_map", worker_id) then
+        local copy, trouble = worker_cores()
+        worker_trouble = trouble
+        if copy ~= nil then
+          local user: test_sandbox.User = { uid = worker_id, gid = worker_id }
+          local started, why = starts_as(user, copy)
+          worker_trouble = why
+          if started then
+            worker_user = user
+            worker_copy = copy
+          end
+        end
+      end
+    end
+  end
+  if worker_user ~= nil then return worker_user, "" end
+  return nil, worker_trouble
+end
+
+--- The user and group a sandboxed worker of `effective` runs as
+--- (`runs_as`), or nil for this process's own: that of a module that
+--- declares a host cache too, which it writes as whoever keeps it.
+-- TODO: run a worker that declares a host cache as `worker_id` too,
+-- once each cache it writes is one that user may write -- a cache of
+-- its own beside root's, as its cores are (`worker_cores`), or one
+-- root keeps writable by a group of its own: today it runs as root,
+-- and confines what its test starts only two deep.
+function test_sandbox.worker_user(effective: test_inputs.Effective): test_sandbox.User | nil
+  if #(effective.caches or {}) > 0 then return nil end
+  local user, _ = test_sandbox.runs_as()
+  return user
+end
 
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's (`build.test`'s `worker_environment`), the pinned
@@ -339,6 +633,16 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     reads[#reads + 1] = path
     if inside ~= nil then at[path] = inside end
   end
+  -- A worker run as a user of its own (`worker_user`) has the core it
+  -- runs from a copy that user may run (`worker_cores`), given in
+  -- place of the cache it is in, where that is a launcher's: the core
+  -- and its stamp are held at their own names still.
+  local user = test_sandbox.worker_user(effective)
+  local in_cache = ""
+  if user ~= nil and worker_copy.copy ~= "" then
+    in_cache = worker_copy.cache
+    give(worker_copy.copy, worker_copy.cache)
+  end
   local store = root .. "/o/cosmic.db"
   -- The store at o/cosmic.db is the one its worker attaches to load
   -- every module of the closure (`build.test_worker`): `closure_store`
@@ -360,6 +664,11 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       give(given_store, test_sandbox.tree .. "/o/cosmic.db", true)
     elseif path == executable and program ~= nil and not own_program then
       give(path, program, true)
+    elseif in_cache ~= "" and Fs.dirname(path) == in_cache then
+      if not holds[path] then
+        holds[path] = true
+        held[#held + 1] = path
+      end
     else
       give(path, nil, true)
     end
@@ -508,6 +817,13 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     end
   end
   table.sort(made_dirs)
+  -- Its scratch directory its user's, which it writes.
+  if user ~= nil then
+    for _, path in ipairs({ scratch, scratch .. "/real" }) do
+      local owned, why = sys.chown(path, user.uid, user.gid)
+      if not owned and refused == "" then refused = path .. ": " .. why end
+    end
+  end
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
   -- Offline, always: a module declares only loopback addresses, which
   -- the worker's own loopback answers as the host's would. Keying it is
@@ -524,7 +840,8 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- A test that needed a service of the host's on its loopback fails,
   -- rather than standing on a verdict that service gave.
   return {
-    sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
+    sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true,
+      user = user ~= nil and user.uid or nil, group = user ~= nil and user.gid or nil },
     env = test_sandbox.environment(environment, effective),
     over = over,
     trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
@@ -532,6 +849,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     held = held,
     made = made_dirs,
     program = program,
+    start = user ~= nil and worker_copy.start or nil,
   }
 end
 

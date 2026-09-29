@@ -108,6 +108,16 @@ local record Sandbox
   unveil: Unveil
   --- A network namespace of its own, with nothing but a loopback.
   offline: boolean
+  --- With `unveil` and `group`, the user the child runs as in place of
+  --- this process's root, as an unprivileged caller's child runs, and
+  --- so confines one of its own at any depth: this process must hold
+  --- CAP_SETUID, CAP_SETGID and CAP_SETFCAP where it and `group` are
+  --- mapped, and the start fails EPERM where it does not. Nil runs the
+  --- child as this process's own user. Not 0.
+  user: integer
+  --- The group the child runs as with `user`, which each needs the
+  --- other, with no supplementary group. Not 0.
+  group: integer
 end
 
 local record Options
@@ -1206,7 +1216,8 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local sandbox: raw_process.Sandbox = nil
   if opts.sandbox ~= nil then
     local given = opts.sandbox.unveil
-    sandbox = { offline = opts.sandbox.offline == true }
+    sandbox = { offline = opts.sandbox.offline == true, user = opts.sandbox.user,
+      group = opts.sandbox.group }
     if given ~= nil then
       sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at }
     end

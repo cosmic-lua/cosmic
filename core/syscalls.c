@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #if defined(__linux__)
 #include <linux/audit.h>
+#include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/landlock.h>
 #include <linux/seccomp.h>
@@ -155,6 +156,23 @@ COSMIC_SYSCALL(getpgid, 1) {
 COSMIC_SYSCALL(getuid, 0) {
   lua_pushinteger(L, (lua_Integer)getuid());
   return 1;
+}
+
+COSMIC_SYSCALL(dumpable, 1) {
+#if defined(__linux__)
+  if (!lua_isnoneornil(L, 1)) {
+    int set = cosmic_checkint(L, 1);
+    if (set != 0 && set != 1) return luaL_argerror(L, 1, "dumpable is set to 0 or 1");
+    if (prctl(PR_SET_DUMPABLE, set, 0, 0, 0) != 0) return cosmic_fail(L, errno);
+  }
+  int now = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
+  if (now < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, (lua_Integer)now);
+  return 1;
+#else
+  if (!lua_isnoneornil(L, 1)) (void)cosmic_checkint(L, 1);
+  return cosmic_fail(L, ENOSYS);
+#endif
 }
 
 COSMIC_SYSCALL(clock_gettime, 1) {
@@ -737,9 +755,10 @@ static int plain_name (const char *name) {
 }
 
 #if defined(__linux__)
-/* Writes `text` to the file at `path` whole: 0, or an errno. */
-static int write_whole (const char *path, const char *text) {
-  int fd = open(path, O_WRONLY | O_CLOEXEC);
+/* Writes `text` whole to the file at `path`, relative to the directory
+ * `dir` holds (AT_FDCWD for this process's own): 0, or an errno. */
+static int write_whole_at (int dir, const char *path, const char *text) {
+  int fd = openat(dir, path, O_WRONLY | O_CLOEXEC);
   if (fd < 0) return errno;
   size_t left = strlen(text);
   int number = 0;
@@ -752,6 +771,11 @@ static int write_whole (const char *path, const char *text) {
   }
   close(fd);
   return number;
+}
+
+/* Writes `text` to the file at `path` whole: 0, or an errno. */
+static int write_whole (const char *path, const char *text) {
+  return write_whole_at(AT_FDCWD, path, text);
 }
 
 /* The mode a directory made at `path` in the root being built takes:
@@ -880,6 +904,7 @@ static int make_link (char *path, size_t skip, const char *to) {
 #define AT_RECURSIVE 0x8000
 #endif
 #define COSMIC_MOUNT_ATTR_RDONLY 0x1
+#define COSMIC_MOUNT_ATTR_NOSUID 0x2
 struct cosmic_mount_attr {
   uint64_t attr_set, attr_clr, propagation, userns_fd;
 };
@@ -934,12 +959,12 @@ static int map_ids (int unmap_root, const char *uid_map, const char *gid_map, in
    * says it is such a root): its user stays unmapped, the kernel's
    * overflow id inside, owning what root owns but with no capability to
    * override a file's permissions, as it had none mapped either. Any
-   * other refusal is the sandbox's failure.
-   * TODO: let a child left unmapped confine one of its own in turn, as a
-   * mapped one can at any depth: the kernel refuses a user namespace to
-   * a user its own does not map, so root confines only two deep. The
-   * fix would run root's sandboxed tests as a user of their own, mapped
-   * from outside by a parent holding CAP_SETUID. */
+   * other refusal is the sandbox's failure. Left unmapped, it confines
+   * none of its own in turn: the kernel refuses a user namespace to a
+   * user its own does not map. So `spawn`'s `user` runs a root caller's
+   * child as a user of its own instead, mapped from outside
+   * (`map_from_outside`), which confines at any depth, as any mapped
+   * child does; `cosmic test` runs root's sandboxed workers so. */
   *mapped = 1;
   if ((number = write_whole("/proc/self/uid_map", uid_map)) != 0) {
     if (number != EPERM || !unmap_root) return number;
@@ -1022,9 +1047,10 @@ static int place_proc (const char *target, int *own) {
  * has no `at`, and NULL elsewhere, and each such name is a link in the
  * root to its path, where no path placed holds it already. `root` is an
  * empty directory the parent made to build on; `mapped` says whether
- * the child's user is mapped (`map_ids`). The root is this process's
- * own and its working directory's, and every process's in the namespace
- * whose root was the old one. 0, or an errno.
+ * the child's user is mapped (`map_ids`); `own` says, once it is built,
+ * whether its /proc is a procfs of its own (`place_proc`). The root is
+ * this process's own and its working directory's, and every process's
+ * in the namespace whose root was the old one. 0, or an errno.
  * TODO: remove the directory an unmapped child's root is built on once
  * the child ends: its root and its /tmp are that directory, in its
  * parent's TMPDIR, which `spawn`, returning at the child's exec, leaves
@@ -1035,8 +1061,10 @@ static int place_proc (const char *target, int *own) {
  * A UTS namespace would change nothing a child sees: its host's name
  * and kernel stay what `uname` answers, which no key holds. */
 static int build_root (const char *root, char *const *paths, char *const *names,
-                       const char *const *at, const int *writable, int count, int mapped) {
+                       const char *const *at, const int *writable, int count, int mapped,
+                       int *own) {
   int number = 0;
+  *own = 0;
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) return errno;
   /* A tmpfs of this namespace takes no file from a user it does not
    * map: an unmapped one builds on `root` itself, which its parent's
@@ -1132,6 +1160,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   /* Nothing is made at the root itself once it is built. */
   if (mount(NULL, "/", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY | MS_NOSUID | MS_NODEV, NULL) != 0)
     return errno;
+  *own = own_proc;
   return 0;
 }
 
@@ -1191,6 +1220,16 @@ struct spawn_plan {
   /* Whether the child is root in a user namespace not the host's, which
    * may not map root into one of its own. */
   int unmap_root;
+  /* With `user`: whether an unveiled child gives root up for `drop_uid`
+   * and `drop_gid` (`start_program`), and the maps a process of this
+   * one's writes of its namespace from outside (`map_from_outside`),
+   * root's and theirs; `uid_map` and `gid_map` then map theirs alone,
+   * for the namespace it makes as that user. */
+  int dropping;
+  uid_t drop_uid;
+  gid_t drop_gid;
+  const char *outer_uid_map;
+  const char *outer_gid_map;
 #if defined(__linux__)
   /* For an unveiled child: the tops of the stacks its init and its
    * program start on (`start_unveiled`), and where it writes their
@@ -1198,6 +1237,9 @@ struct spawn_plan {
    * flags. */
   char *init_stack;
   char *program_stack;
+  /* And, for one that gives root up, the top of the stack the process
+   * that maps it from outside runs on (`map_from_outside`). */
+  char *helper_stack;
   pid_t *init;
   pid_t *program;
 #endif
@@ -1386,15 +1428,109 @@ static _Noreturn int start_init (void *argument) {
 static _Noreturn int start_program (void *argument) {
   const struct sandbox_start *start = argument;
   const struct spawn_plan *plan = start->plan;
-  int failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
-                           plan->bound_at, plan->unveiled_writable, plan->unveil_count,
-                           start->mapped);
+  int failure = 0;
+  /* One that gives root up (`spawn`'s `user`) builds its root as root,
+   * which reaches what only root may -- root's own files, mapped in its
+   * namespace (`map_from_outside`) -- but makes it as that user, as an
+   * unprivileged caller's child's is made: its filesystem ids are that
+   * user's and group's, and the capabilities over files that change
+   * takes out of effect are put back. The kernel makes its memory
+   * undumpable as its ids or capabilities change, which is made
+   * dumpable again each time, so the child's own /proc files are its
+   * own to write its maps in; that memory is the parent's too, which
+   * puts back what it had once the child has exec'd. */
+  if (plan->dropping) {
+    syscall(SYS_setfsgid, plan->drop_gid);
+    syscall(SYS_setfsuid, plan->drop_uid);
+    if ((uid_t)syscall(SYS_setfsuid, (uid_t)-1) != plan->drop_uid ||
+        (gid_t)syscall(SYS_setfsgid, (gid_t)-1) != plan->drop_gid)
+      failure = EPERM;
+    struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
+    struct __user_cap_data_struct data[2];
+    if (!failure && syscall(SYS_capget, &header, data) != 0) failure = errno;
+    for (int i = 0; !failure && i < 2; i++) data[i].effective = data[i].permitted;
+    if (!failure && syscall(SYS_capset, &header, data) != 0) failure = errno;
+    if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0 && !failure) failure = errno;
+  }
+  int own_proc = 0;
+  if (!failure)
+    failure = build_root(plan->root_dir, plan->resolved_paths, plan->given_names,
+                         plan->bound_at, plan->unveiled_writable, plan->unveil_count,
+                         start->mapped, &own_proc);
   if (!failure) failure = drop_capabilities();
+  /* Then it gives root up for good, its groups first, while it may.
+   * Where its /proc is its own, it makes a user namespace as that user,
+   * mapping it alone, as an unprivileged caller's child is: root's files
+   * are the overflow id's there, and no setuid program of root's runs
+   * as root. Where it has the host's, read-only, it could write no map,
+   * and stays where root is mapped beside it: so every mount of its
+   * root is made nosuid first, which no setuid program runs past. */
+  if (!failure && plan->dropping) {
+    struct cosmic_mount_attr nosuid = { COSMIC_MOUNT_ATTR_NOSUID, 0, 0, 0 };
+    if (syscall(SYS_mount_setattr, AT_FDCWD, "/", AT_RECURSIVE, &nosuid, sizeof nosuid) != 0)
+      failure = errno;
+  }
+  if (!failure && plan->dropping) {
+    if (syscall(SYS_setgroups, 0, NULL) != 0 ||
+        syscall(SYS_setresgid, plan->drop_gid, plan->drop_gid, plan->drop_gid) != 0 ||
+        syscall(SYS_setresuid, plan->drop_uid, plan->drop_uid, plan->drop_uid) != 0)
+      failure = errno;
+    if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0 && !failure) failure = errno;
+    int mapped = 1;
+    if (!failure && own_proc && syscall(SYS_unshare, CLONE_NEWUSER) != 0) failure = errno;
+    if (!failure && own_proc) failure = map_ids(0, plan->uid_map, plan->gid_map, &mapped);
+    if (!failure && own_proc) failure = drop_capabilities();
+  }
   if (failure) {
     report_child_error(start->status_fd, failure);
     _exit(127);
   }
   run_program(plan, start->pinned, start->confined, start->status_fd);
+}
+
+/* What an unveiled child that gives root up (`spawn`'s `user`) shares
+ * with the process that maps its user namespace from outside
+ * (`map_from_outside`): the plan, the child's pid, its /proc directory,
+ * which the child opened itself -- so a map is written to it alone,
+ * whatever pid another process may come to have -- the pipe the child
+ * says over that it has made the namespace, and the errno the mapping
+ * failed with, ECHILD until it is done. */
+struct outside_map {
+  const struct spawn_plan *plan;
+  pid_t child;
+  int proc;
+  int told;
+  int tell;
+  int error;
+};
+
+/* On the unveiled child's memory, started before the child makes its
+ * user namespace (`start_unveiled`), and so in this one's, as this
+ * process's root: once the child says it has made it -- a byte of 1 --
+ * writes its uid_map and gid_map, which map root and the user and group
+ * it gives root up for (`outer_uid_map`, `outer_gid_map`). The child
+ * could map its own ids alone; a map of more is written by a process
+ * holding CAP_SETUID and CAP_SETGID where they are mapped -- and, to
+ * map root, CAP_SETFCAP -- which the kernel asks of the opener and the
+ * writer both. setgroups stays allowed there, for the child to give up
+ * root's groups. The child calls nothing that sets errno, which they
+ * share, until this has ended. */
+static _Noreturn int map_from_outside (void *argument) {
+  struct outside_map *map = argument;
+  /* Its own copy of the end the child writes, closed, so a child gone
+   * before it said anything ends the read. */
+  close(map->tell);
+  char byte = 0;
+  ssize_t got;
+  while ((got = read(map->told, &byte, 1)) < 0 && errno == EINTR) {}
+  int failure = got == 1 && byte == 1 ? 0 : ECHILD;
+  /* The child is its parent, and waits for it. */
+  if (!failure && (pid_t)syscall(SYS_getppid) != map->child) failure = ECHILD;
+  const char *const files[2] = { "uid_map", "gid_map" };
+  const char *const maps[2] = { map->plan->outer_uid_map, map->plan->outer_gid_map };
+  for (int i = 0; !failure && i < 2; i++) failure = write_whole_at(map->proc, files[i], maps[i]);
+  map->error = failure;
+  _exit(failure ? 127 : 0);
 }
 
 /* An unveiled child, from where `spawn_child` placed its descriptors:
@@ -1429,8 +1565,43 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
   int flags = CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWIPC |
               (plan->offline ? CLONE_NEWNET : 0);
   int failure = 0;
-  if (syscall(SYS_unshare, flags) != 0) failure = errno;
-  if (!failure) failure = map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped);
+  /* One that gives root up is mapped from outside (`map_from_outside`),
+   * by a process started before its namespace is made, and waited for. */
+  struct outside_map outside = { plan, (pid_t)syscall(SYS_getpid), -1, -1, -1, ECHILD };
+  pid_t helper = -1;
+  if (plan->dropping) {
+    int made[2];
+    failure = raise_descriptor(open("/proc/self", O_RDONLY | O_DIRECTORY | O_CLOEXEC), top,
+                               &outside.proc);
+    if (!failure && pipe(made) != 0) failure = errno;
+    if (!failure) {
+      failure = raise_descriptor(made[0], top, &outside.told);
+      int other = raise_descriptor(made[1], top, &outside.tell);
+      if (!failure) failure = other;
+    }
+    if (!failure) {
+      helper = clone(map_from_outside, plan->helper_stack, CLONE_VM | SIGCHLD, &outside);
+      if (helper < 0) failure = errno;
+    }
+  }
+  if (!failure && syscall(SYS_unshare, flags) != 0) failure = errno;
+  if (helper > 0) {
+    char byte = failure ? 0 : 1;
+    ssize_t put = write(outside.tell, &byte, 1);
+    if (put != 1 && !failure) failure = put < 0 ? errno : EIO;
+    close(outside.tell);
+    outside.tell = -1;
+    int ignored;
+    pid_t reaped;
+    while ((reaped = waitpid(helper, &ignored, 0)) < 0 && errno == EINTR) {}
+    if (reaped < 0 && !failure) failure = errno;
+    if (!failure) failure = outside.error;
+  }
+  if (outside.proc >= 0) close(outside.proc);
+  if (outside.told >= 0) close(outside.told);
+  if (outside.tell >= 0) close(outside.tell);
+  if (!failure && !plan->dropping)
+    failure = map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped);
   if (!failure && plan->offline) failure = loopback_up();
   if (!failure)
     failure = raise_descriptor(open("/proc/self/exe", O_RDONLY | O_CLOEXEC), top, &start.exe);
@@ -1677,9 +1848,11 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) page = 4096;
   /* One stack, or, for an unveiled child, three: its own, its init's and
-   * its program's (`start_unveiled`), each above a guard page of its own. */
+   * its program's (`start_unveiled`) -- and a fourth for the process
+   * that maps one that gives root up (`map_from_outside`) -- each above a
+   * guard page of its own. */
   size_t each = SPAWN_STACK_SIZE + (size_t)page;
-  int stacks = plan->unveiling ? 3 : 1;
+  int stacks = plan->unveiling ? (plan->dropping ? 4 : 3) : 1;
   size_t size = each * (size_t)stacks;
   char *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   int guarded = stack != MAP_FAILED;
@@ -1695,6 +1868,7 @@ static pid_t start_child (struct spawn_plan *plan, int *error) {
     if (plan->unveiling) {
       plan->init_stack = stack + each * 2;
       plan->program_stack = stack + each * 3;
+      if (plan->dropping) plan->helper_stack = stack + each * 4;
     }
     pid = clone(spawn_child, stack + each, CLONE_VM | CLONE_VFORK | SIGCHLD, plan);
     if (pid < 0) *error = errno;
@@ -1925,6 +2099,9 @@ int cosmic_spawn_unobserved (lua_State *L) {
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
   int unveiling = 0, unveil_count = 0, offline = 0;
+  int dropping = 0;
+  uid_t drop_uid = 0;
+  gid_t drop_gid = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
     lua_pushliteral(L, "ruleset");
@@ -2020,17 +2197,42 @@ int cosmic_spawn_unobserved (lua_State *L) {
     lua_rawget(L, 10);
     offline = lua_toboolean(L, -1);
     lua_pop(L, 1);
+    lua_pushliteral(L, "user");
+    lua_rawget(L, 10);
+    lua_pushliteral(L, "group");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -2) || !lua_isnil(L, -1)) {
+      if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+        return luaL_argerror(L, 10, "a user and its group are integers, each with the other");
+      lua_Integer user = lua_tointeger(L, -2), group = lua_tointeger(L, -1);
+      if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
+          group >= (lua_Integer)UINT32_MAX)
+        return luaL_argerror(L, 10, "a user and its group are 1 to 4294967294");
+      if (!unveiling) return luaL_argerror(L, 10, "a user is given with unveil");
+      dropping = 1;
+      drop_uid = (uid_t)user;
+      drop_gid = (gid_t)group;
+    }
+    lua_pop(L, 2);
   }
 #if !defined(__linux__)
   if (unveiling || offline) return cosmic_fail(L, ENOSYS);
 #else
   if (unveiling && !sandbox_room()) return cosmic_fail(L, errno);
 #endif
-  char uid_map[64], gid_map[64];
-  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", (unsigned long)geteuid(),
-           (unsigned long)geteuid());
-  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", (unsigned long)getegid(),
-           (unsigned long)getegid());
+  /* The child maps its own ids, or, giving root up, the user and group
+   * it runs as; its namespace is mapped from outside then, with root's
+   * beside them (`map_from_outside`). */
+  unsigned long own_uid = (unsigned long)geteuid(), own_gid = (unsigned long)getegid();
+  unsigned long child_uid = dropping ? (unsigned long)drop_uid : own_uid;
+  unsigned long child_gid = dropping ? (unsigned long)drop_gid : own_gid;
+  char uid_map[64], gid_map[64], outer_uid_map[96], outer_gid_map[96];
+  snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", child_uid, child_uid);
+  snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", child_gid, child_gid);
+  snprintf(outer_uid_map, sizeof outer_uid_map, "%lu %lu 1\n%lu %lu 1\n", own_uid, own_uid,
+           child_uid, child_uid);
+  snprintf(outer_gid_map, sizeof outer_gid_map, "%lu %lu 1\n%lu %lu 1\n", own_gid, own_gid,
+           child_gid, child_gid);
 #if defined(PLEDGE_ARCH)
   struct sock_filter pledge_filter[PLEDGE_MAX];
   struct sock_fprog pledge = { 0, pledge_filter };
@@ -2218,6 +2420,8 @@ int cosmic_spawn_unobserved (lua_State *L) {
     .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
     .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
+    .dropping = dropping, .drop_uid = drop_uid, .drop_gid = drop_gid,
+    .outer_uid_map = outer_uid_map, .outer_gid_map = outer_gid_map,
   };
   pid_t program = -1;
 #if defined(__linux__)
@@ -2227,7 +2431,18 @@ int cosmic_spawn_unobserved (lua_State *L) {
   end_sandbox_inits();
 #endif
   int fork_error = 0;
+  /* A child that gives root up shares this process's memory while its
+   * ids change, which makes that memory dumpable or not as the kernel
+   * and the child set it (`start_program`): whatever it was here, it is
+   * put back once the child has exec'd. */
+#if defined(__linux__)
+  int dumpable = dropping ? prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) : -1;
+#endif
   pid_t pid = start_child(&plan, &fork_error);
+#if defined(__linux__)
+  if ((dumpable == 0 || dumpable == 1) && prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != dumpable)
+    prctl(PR_SET_DUMPABLE, dumpable, 0, 0, 0);
+#endif
   close(status_write);
   if (given != envp) free(given);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
