@@ -142,16 +142,23 @@ end
 --- A use is recorded with `.` throughout (`Box.grow`), so `?1`'s `:`
 --- is read as one (`Thing.Box:grow`, `Box:grow`), as `cosmic docs`
 --- prints a method's name.
--- TODO: the one name past the path is not checked against the module's
--- own record, which no table keeps, so `Writer.write` is also a use of
--- every bare `write` (`Fs.write`'s among them). Keep each module's
--- record name (`Fs`, `Stream`) where `build.analyzer` canonicalizes a
--- symbol, and match that name here rather than any single name.
+--- That one name is checked against the module the use is of: it must
+--- be the module's own record (`Fs` in cosmic.fs, `Sqlite` in
+--- cosmic.sqlite: a `docs` row of kind record, so `Writer.write` is
+--- not a use of `Fs.write`) or, spelled either way, the last name of
+--- the module (`fs` for cosmic.fs, as a caller writes
+--- `local fs = require("cosmic.fs")`).
 function symbols.used_where(alias: string): string
   local symbol = alias .. ".symbol"
   local record = "substr(" .. DOTTED .. ", 1, length(?1) - length(" .. symbol .. ") - 1)"
+  local module = alias .. ".module"
+  local owned = "(lower(substr(" .. module .. ", -length(" .. record .. ") - 1)) = " ..
+    "'.' || lower(" .. record .. ") OR lower(" .. module .. ") = lower(" .. record .. ") OR " ..
+    "EXISTS (SELECT 1 FROM docs r WHERE r.module = " .. module .. " AND r.symbol = " ..
+    record .. " AND r.kind = 'record'))"
   return "(" .. symbol .. " = " .. DOTTED .. " OR " .. ends_in(symbol, DOTTED) .. " OR " ..
-    "(" .. ends_in(DOTTED, symbol) .. " AND instr(" .. record .. ", '.') = 0))"
+    "(" .. ends_in(DOTTED, symbol) .. " AND instr(" .. record .. ", '.') = 0 AND " ..
+    owned .. "))"
 end
 
 --- Every symbol `query` names exactly, across `databases` (searched in
