@@ -60,8 +60,36 @@ style the JSON messages print, with indices counted from 1; quote it in
 single quotes, as a shell expands `$` and `[1]`. The file is `-` or left
 out to read standard input, so `curl ... | cosmic json '.items[1]'`
 works. Numbers print as `Json.encode` writes them, so `1e2` reads
-`100.0`. It is only a lookup, with no filters: for more, write the
+`100.0`. It is only a lookup, with no filters: to count or sum, use
+`cosmic sql --from` (next section), and for anything else write the
 script with `cosmic.json`. `cosmic help json` has the rest.
+
+## questions about a data file
+
+A question about a data file -- what is in it, how many of these it
+holds -- takes two steps, and neither is a script. Stop at the first that
+answers:
+
+1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
+   what is in the file, and `cosmic json '.users[1]' export.json` prints
+   one value.
+2. Count, filter, join and sum with `cosmic sql --from`, which loads the
+   file as a table of an in-memory SQLite database and runs one
+   read-only statement on it:
+
+    cosmic sql --from accounts.json
+    cosmic sql --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP BY type'
+    cosmic sql --from accounts.json --from owners.jsonl 'SELECT who, balance FROM accounts JOIN owners USING (id)'
+    curl ... | cosmic sql --from - --as ndjson 'SELECT count(*) FROM stdin'
+
+With no statement, `--from` prints each table's row count, its columns
+with the types stored in them, and one sample row, which is how to find
+what to query. A table is named for its file's stem (`--from
+name=file` names it), a `.jsonl` or `.ndjson` file is one row per line,
+and `--at '$.data.rows'` takes the rows from the array at a path. Nested
+objects and arrays are JSON text, so `json_extract(owner, '$.name')`
+reaches into them; a boolean is 0 or 1. A column or table that does not
+exist is answered with the ones that do. `cosmic help sql` has the rest.
 
 ## the digest of a file
 
