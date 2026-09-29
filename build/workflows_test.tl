@@ -1245,7 +1245,7 @@ end
 --- base's entry, which .github/scripts/merge-base.sh finds (the merge
 --- queue's base, or a branch's merge base with main through the API,
 --- with the job's token, and never failing the job), and falls back to
---- the newest. The join prunes the copies under a commit on a push to
+--- the newest. `prune` deletes the copies under a commit on a push to
 --- main, with the one token that may write the cache, and never fails
 --- for it.
 local function test_a_branch_restores_the_verdicts_of_its_base()
@@ -1286,27 +1286,39 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   assert((keys.run as string):find("|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|",
     1, true), "seed takes a copy under another commit")
 
-  -- The prune: the join's last step, on a push to main alone.
-  local join = jobs.ci
-  local permissions = join.permissions as {string: string}
+  -- The prune: a job of its own, the one whose token may write the
+  -- cache, after every job that saves, whatever their result; on every
+  -- push (a branch's shows it run), its steps on main's alone, running
+  -- no tree code but the script, from a checkout that keeps no token.
+  -- The join, the check a ruleset requires, waits on none of it.
+  local prune = jobs.prune
+  assert(prune ~= nil, "no job prunes the verdicts under a commit")
+  local permissions = prune.permissions as {string: string}
   assert(permissions.actions == "write" and permissions.contents == "read",
-    "the join cannot prune the cache, or may do more")
+    "prune cannot prune the cache, or may do more")
   for name, job in pairs(jobs) do
     local p = job.permissions as {string: string}
-    assert(name == "ci" or p == nil or p.actions ~= "write", "job " .. name .. " may write the cache")
+    assert(name == "prune" or p == nil or p.actions ~= "write", "job " .. name .. " may write the cache")
   end
-  local jsteps = join.steps as {{string: any}}
-  local prune = jsteps[#jsteps]
-  assert(prune.run == "sh .github/scripts/prune-commit-verdicts.sh" and
-    prune["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'" and
-    prune["continue-on-error"] == true, "the prune runs off main, or fails the join: " .. tostring(prune.run))
-  assert((prune.env as {string: string}).GH_TOKEN == "${{ github.token }}", "the prune has no token")
-  for _, step in ipairs(jsteps) do
-    if (step.uses as string or ""):find("actions/checkout@", 1, true) then
-      assert((step.with as {string: any})["persist-credentials"] == false,
-        "the join's checkout keeps a token that may write the cache")
-    end
+  assert(prune["if"] == "always() && github.event_name == 'push'",
+    "prune runs on another event, or not after a failed job: " .. tostring(prune["if"]))
+  assert(table.concat(prune.needs as {string}, ",") == "platform,checked,seed",
+    "prune runs before a job that saves")
+  for _, need in ipairs(jobs.ci.needs as {string}) do assert(need ~= "prune", "the join waits on prune") end
+  local psteps = prune.steps as {{string: any}}
+  assert(#psteps == 2, "prune runs more than its checkout and its script")
+  for _, step in ipairs(psteps) do
+    assert(step["if"] == "github.ref == 'refs/heads/main'", "prune runs a step off main: " .. tostring(step["if"]))
   end
+  local checkout = psteps[1].with as {string: any}
+  assert((psteps[1].uses as string):find("actions/checkout@", 1, true) == 1 and
+    checkout["persist-credentials"] == false and
+    checkout["sparse-checkout"] == "/.github/scripts/prune-commit-verdicts.sh\n",
+    "prune checks out more than its script, or keeps the token")
+  local step = psteps[2]
+  assert(step.run == "sh .github/scripts/prune-commit-verdicts.sh" and step["continue-on-error"] == true,
+    "the prune runs something else, or fails the run: " .. tostring(step.run))
+  assert((step.env as {string: string}).GH_TOKEN == "${{ github.token }}", "the prune has no token")
 end
 
 --- Only three jobs save a cache every run restores: the platform legs

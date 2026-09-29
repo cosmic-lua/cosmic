@@ -10,10 +10,11 @@
 #
 #     sh .github/scripts/prune-commit-verdicts.sh
 #
-# ci.yml's join runs it on a push to main, through `gh` (GH_TOKEN, with
-# actions: write), against REPOSITORY. Each call to `gh` is cut off after
-# CALL_SECONDS where there is a `timeout`. It always exits 0: an entry
-# left is only space, which the cache's own eviction reclaims.
+# ci.yml's `prune` job runs it on a push to main, through `gh`
+# (GH_TOKEN, with actions: write), against REPOSITORY. Each call to
+# `gh` is cut off after CALL_SECONDS where there is a `timeout`. It
+# always exits 0: an entry left is only space, which the cache's own
+# eviction reclaims.
 set -u
 
 hours=${HOURS:-24} call=${CALL_SECONDS:-15}

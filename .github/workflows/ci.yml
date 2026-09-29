@@ -599,7 +599,7 @@
         # The same rows under this commit, for a branch based on it
         # (merge-base.sh), whatever was restored; saved first, so a main
         # run's restore by prefix takes the entry keyed by content where
-        # both were saved. The join prunes these after a day.
+        # both were saved. `prune` deletes these after a day.
         # TODO: skip the save by content (and queue-seed.sh stage's key
         # for it) on the digest of the rows restored rather than on the
         # key matched, once verdicts-trim names that digest too: a
@@ -962,17 +962,18 @@
           shell: "sh",
           run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
-        {
-          name: "save test verdicts",
-          if: "steps.keys.outputs.verdicts != ''",
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts }}"},
-        },
+        # Under the commit first, as a leg saves them.
         {
           name: "save test verdicts under this commit",
           if: "steps.keys.outputs.verdicts-sha != ''",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts-sha }}"},
+        },
+        {
+          name: "save test verdicts",
+          if: "steps.keys.outputs.verdicts != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts }}"},
         },
         {
           name: "save compiles and parses",
@@ -1024,14 +1025,11 @@
     # on a full run it is also the provenance join, proving every leg
     # attested identical bytes. Steps, not a job of its own, which a
     # branch push would show as skipped.
-    # actions: write, to prune main's verdicts keyed by a commit (its
-    # last step, which a branch push's run never reaches).
     ci: {
       needs: ["reuse", "platform", "checked", "seed"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
-      permissions: {contents: "read", actions: "write"},
       env: {COSMIC_WORKER: "provenance"},
       steps: [
         {
@@ -1043,12 +1041,10 @@
           },
           run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ]",
         },
-        # Only a full run's legs attest and upload a product. The job's
-        # token may delete cache entries, so the checkout keeps none.
+        # Only a full run's legs attest and upload a product.
         {
           if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-          with: {"persist-credentials": false},
         },
         {
           name: "bootstrap the pinned provenance driver",
@@ -1083,11 +1079,36 @@
             "if-no-files-found": "ignore",
           },
         },
-        # Main's copies of its verdicts under a commit, a day on: a
-        # branch based on an older commit restores main's newest.
+      ],
+    },
+
+    # Main's copies of its verdicts under a commit, a day on
+    # (prune-commit-verdicts.sh): a branch based on an older commit
+    # restores main's newest. The one job whose token may write the
+    # cache, and it runs no tree code but the script. After every job
+    # that saves, whatever their result, so a red push to main prunes
+    # too; beside the join, so the check a ruleset requires waits on
+    # none of it. As `reuse`, every push runs it, a branch's with its
+    # steps skipped, so a branch push shows it run rather than skipped.
+    prune: {
+      needs: ["platform", "checked", "seed"],
+      if: "always() && github.event_name == 'push'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      permissions: {contents: "read", actions: "write"},
+      steps: [
+        {
+          if: "github.ref == 'refs/heads/main'",
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/.github/scripts/prune-commit-verdicts.sh\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
         {
           name: "prune verdicts saved under a commit",
-          if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+          if: "github.ref == 'refs/heads/main'",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}"},
           run: "sh .github/scripts/prune-commit-verdicts.sh",

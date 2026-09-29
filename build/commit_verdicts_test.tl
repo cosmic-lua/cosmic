@@ -48,7 +48,10 @@ fi
 jq -r "$3" "$FAKE/answer"
 ]]
 
---- Whether the system has a jq to answer the filters through.
+--- Whether the system has a jq to answer the filters through. Where it
+--- has none (CI's images), the cases that need one return unchecked and
+--- only test_the_filters_are_the_scripts holds the filters; live, gh's
+--- own jq (gojq) runs them, which this system jq only stands in for.
 local function has_jq(): boolean
   local result = Child.run({ "/bin/sh", "-c", "command -v jq" }, { stdout = "capture", stderr = "capture",
     timeout_ms = 30000 })

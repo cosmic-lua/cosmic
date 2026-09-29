@@ -412,8 +412,8 @@ entry of the tree's base on main (`.github/scripts/merge-base.sh`: a
 branch's merge base with main, through the API; the merge queue's
 base), then the newest. Those copies, one a leg and the checked job
 each main push (some 11 MB each), would fill the repository's 10 GB
-within days and evict the zig outputs (below), so the join deletes
-those more than a day old on each push to main
+within days and evict the zig outputs (below), so ci.yml's `prune`
+job deletes those more than a day old on each push to main
 (`.github/scripts/prune-commit-verdicts.sh`, with the one token in
 ci.yml that may write the cache, `actions: write`); a branch based on
 an older commit restores main's newest. A run that failed keeps what it
