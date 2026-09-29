@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, fetch, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, codec, fetch, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -106,11 +106,22 @@ local record Cli
   --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
   --- BY type'`): each `--from` is loaded as a table of an in-memory
   --- database, named for the file's stem (`--from name=file` names it,
-  --- and `-` reads standard input), read as JSON, or as JSON Lines for
-  --- `.jsonl` and `.ndjson`; `--as json|ndjson` overrides the
-  --- extension, and standard input needs it. `--as` and `--at '<path>'`
-  --- apply to the `--from` before them, and `--at` reads the rows from
-  --- the array at a path, as `cosmic json` reads one. An array of
+  --- and `-` reads standard input), read as JSON, as JSON Lines for
+  --- `.jsonl` and `.ndjson`, as CSV for `.csv` and as TSV for `.tsv` and
+  --- `.tab`; `--as json|ndjson|csv|tsv` overrides the extension, and
+  --- standard input needs it. `--as`, `--at '<path>'` and `--raw` apply
+  --- to the `--from` before them, and `--at` reads the rows from
+  --- the array at a path, as `cosmic json` reads one (a CSV or TSV has
+  --- no path). A CSV or TSV (RFC 4180, quotes and all) has a header
+  --- line naming the columns, in that order, and a row per record; a record with more
+  --- or fewer fields than the header is refused, naming its line, and a
+  --- blank line is skipped, except in a one-column file, where one before
+  --- the last record is an empty cell (blank lines at the end are dropped, so a final empty cell is written `""` to be kept). Its
+  --- cells are typed by one rule: a cell that is plainly a number (an
+  --- optional `-`, digits, an optional fraction or exponent; no `+`, no
+  --- leading zero, no spaces) is an integer or a real, an empty cell is
+  --- NULL, and anything else, `007` and ZIP codes included, is text;
+  --- `--raw` keeps every cell text, the empty one `''`. An array of
   --- objects is a table of them, with a column per key, an array of
   --- scalars a `value` column, and any other value one row; a nested
   --- object or array is JSON text for `json_extract`, a boolean is 0 or
@@ -157,6 +168,25 @@ local record Cli
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
   json: string
+  --- `cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [file|-]`:
+  --- bytes to text and back, for a token or a checksum, with no script
+  --- to write. It reads the file, or standard input when the file is `-`
+  --- or absent, and writes the encoding on one line and a newline; with
+  --- `-d` it writes the bytes the text spells, and no newline. The
+  --- encodings are those of `cosmic.codec` and no others; `-d` is the
+  --- one spelling of decode, `base64 -d` and `-D` differing between
+  --- platforms. Encoding does not wrap unless `--wrap N` gives the
+  --- columns, unlike GNU base64, which wraps at 76. Decoding ignores
+  --- ASCII whitespace, and is otherwise strict: an invalid character,
+  --- misplaced padding, a bad length or nonzero trailing bits exits 2
+  --- and names the byte offset, from 0, in the input as given. base64
+  --- must be padded with `=` and base64url must not be, as each is
+  --- written; `--lenient` accepts the other spelling (missing padding on
+  --- base64, `=` padding on base64url) and is refused for hex. The whole
+  --- input is read at once. It prints no verdict line, which would be in
+  --- the data a pipe reads; exits 0 when done, 2 for a command line, an
+  --- input or a write it cannot honor
+  codec: string
   --- `cosmic fetch <url> [-o file] [--sha256 hex] [--head [--json]]`: one
   --- GET, a small curl. With no `-o` the body goes to standard output, so
   --- `cosmic fetch <url> | cosmic json '.items'` reads it; with `-o` it is
@@ -247,7 +277,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", fetch = "fetch", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", codec = "codec", fetch = "fetch", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -278,8 +308,10 @@ local module: Module = {
       ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
       ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
         "named for its stem, or `name=file`; repeat for a join" },
-      ["--as"] = { value = "format", about = "read the --from before it as json or ndjson, " ..
-        "rather than by its extension" },
+      ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
+        "or tsv, rather than by its extension" },
+      ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
+        "no number is read, an empty cell is '' not NULL" },
       ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
         "path ($.rows), not the document" },
     },
@@ -290,6 +322,12 @@ local module: Module = {
       ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
       ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
+    },
+    codec = {
+      ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
+      ["--decode"] = { about = "decode text to bytes, ignoring whitespace" },
+      ["--wrap"] = { value = "n", about = "wrap encoded text at n columns; no wrapping by default" },
+      ["--lenient"] = { about = "with -d, accept missing base64 padding, or base64url padding" },
     },
     fetch = {
       ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
@@ -311,7 +349,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "fetch", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "fetch", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 

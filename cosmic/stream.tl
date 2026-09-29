@@ -65,6 +65,27 @@ local record Stream
     failure: function(Lines): string
   end
 
+  --- A format writer's hold on the Writer it writes to: see
+  --- `Stream.sticky`.
+  record Sticky
+    --- Writes `data` to the Writer, failing as `fail` does when it
+    --- cannot.
+    put: function(Sticky, data: string): boolean, string
+    --- Keeps `trouble` as the failure, or "<name>: write failed" when it
+    --- is "", and aborts the Writer, the first time; false and the
+    --- failure kept, every time.
+    fail: function(Sticky, trouble: string): boolean, string
+    --- True and "" while more may be written; false and the failure,
+    --- or "<name>: writer is closed" once `close` or `abort` ran.
+    usable: function(Sticky): boolean, string
+    --- Puts `trailer` and closes the Writer, once: false and the
+    --- failure kept when there is one, and true and "" when it is
+    --- already closed.
+    close: function(Sticky, trailer: string): boolean, string
+    --- Aborts the Writer unless it is closed or failed already.
+    abort: function(Sticky): boolean, string
+  end
+
   --- The incremental codec `transform` and `transform_writer` drive:
   --- one of `cosmic.compress`'s inflaters, deflaters or decoders.
   type Codec = Compress.Stream
@@ -345,6 +366,52 @@ function Stream.read_all(reader: Stream.Reader): string | nil, string
     end
     parts[#parts + 1] = chunk
   end
+end
+
+--- The sticky failure `cosmic.tar` and `cosmic.zip` keep over the
+--- Writer an archive goes to: the first write that fails aborts `w`,
+--- and every later write, `close` included, answers that failure;
+--- `name` prefixes the messages it makes itself.
+function Stream.sticky(w: Stream.Writer, name: string): Stream.Sticky
+  local closed = false
+  local failed: string
+  local s: Stream.Sticky = {}
+  s.fail = function(_self: Stream.Sticky, trouble: string): boolean, string
+    if failed == nil then
+      failed = trouble ~= "" and trouble or name .. ": write failed"
+      local _, _ = w:abort()
+    end
+    return false, failed
+  end
+  s.put = function(self: Stream.Sticky, data: string): boolean, string
+    local ok, trouble = w:write(data)
+    if not ok then return self:fail(trouble) end
+    return true, ""
+  end
+  s.usable = function(_self: Stream.Sticky): boolean, string
+    if failed then return false, failed end
+    if closed then return false, name .. ": writer is closed" end
+    return true, ""
+  end
+  s.close = function(self: Stream.Sticky, trailer: string): boolean, string
+    if failed then return false, failed end
+    if closed then return true, "" end
+    closed = true
+    local ok, trouble = self:put(trailer)
+    if not ok then return false, trouble end
+    ok, trouble = w:close()
+    if not ok then
+      failed = trouble
+      return false, trouble
+    end
+    return true, ""
+  end
+  s.abort = function(_self: Stream.Sticky): boolean, string
+    if closed or failed then return true, "" end
+    closed = true
+    return w:abort()
+  end
+  return s
 end
 
 local default_line_limit <const> = 1 << 20

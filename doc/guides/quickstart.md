@@ -80,13 +80,24 @@ answers:
     cosmic sql --from accounts.json
     cosmic sql --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP BY type'
     cosmic sql --from accounts.json --from owners.jsonl 'SELECT who, balance FROM accounts JOIN owners USING (id)'
+    cosmic sql --from sales.csv 'SELECT region, sum(amount) FROM sales GROUP BY region'
     curl ... | cosmic sql --from - --as ndjson 'SELECT count(*) FROM stdin'
 
 With no statement, `--from` prints each table's row count, its columns
 with the types stored in them, and one sample row, which is how to find
 what to query. A table is named for its file's stem (`--from
 name=file` names it), a `.jsonl` or `.ndjson` file is one row per line,
-and `--at '$.data.rows'` takes the rows from the array at a path. Nested
+and `--at '$.data.rows'` takes the rows from the array at a path. A
+`.csv` file (`.tsv` or `.tab` for tabs) takes its columns from the
+header line (`SELECT *` keeps that order), and a record with another
+number of fields is refused, naming its line. A blank line is skipped,
+except in a one-column file, where one before the last record is an
+empty cell (a final empty cell is written `""` to be kept). Its cells are typed by one rule: a plain number
+(`-12`, `3.5`, `1e5`) is an integer or a real, an empty cell is NULL,
+and anything else is text, so a ZIP code like `02134` and `007` keep
+their zeros. `--raw` after the `--from` keeps every cell text, and a CSV
+joins a JSON file on any column. Read standard input with `--from -
+--as csv`. Nested
 objects and arrays are JSON text, so `json_extract(owner, '$.name')`
 reaches into them; a boolean is 0 or 1. A column or table that does not
 exist is answered with the ones that do. `cosmic help sql` has the rest.
@@ -94,6 +105,16 @@ exist is answered with the ones that do. `cosmic help sql` has the rest.
 `cosmic fetch <url>` is a small curl: it prints the body, fails on a
 non-2xx, and takes `-o file` and `--sha256 hex`, so `cosmic fetch <url> |
 cosmic json '.items'` works. `cosmic help fetch` has the rest.
+
+## bytes to text and back
+
+`cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
+standard input on one line (`--wrap N` wraps it; GNU base64's 76 is not
+the default) and with `-d` decodes it, ignoring whitespace and refusing
+a bad character or padding with exit 2 and its byte offset: `printf hi
+| cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
+write it; `--lenient` accepts the other padding. It prints no verdict
+line.
 
 ## below cosmic.fs
 

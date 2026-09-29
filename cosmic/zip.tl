@@ -782,29 +782,20 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   local offset = opts.offset or 0
   local cd_parts: {string} = {}
   local count = 0
-  local closed = false
-  local failed: string
+  local sink = Stream.sticky(w, "zip")
   local zw: Zip.Writer = {}
 
-  local function fail(trouble: string): boolean, string
-    if failed == nil then
-      failed = trouble ~= "" and trouble or "zip: write failed"
-      local _, _ = w:abort()
-    end
-    return false, failed
-  end
-
   local function put(data: string): boolean, string
-    local ok, trouble = w:write(data)
-    if not ok then return fail(trouble) end
+    local ok, trouble = sink:put(data)
+    if not ok then return false, trouble end
     offset = offset + #data
     return true, ""
   end
 
   local function write_entry(path: string, data: string, method_name: Zip.Method,
       mode: integer, mtime: integer, is_dir: boolean): boolean, string
-    if failed then return false, failed end
-    if closed then return false, "zip: writer is closed" end
+    local usable, why = sink:usable()
+    if not usable then return false, why end
     if path:find("\0", 1, true) ~= nil then return false, "zip: NUL byte in a path" end
     if #path > 0xFFFF then return false, "zip: path longer than 65535 bytes" end
     local dos_date: integer
@@ -867,44 +858,31 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   end
 
   zw.close = function(_self: Zip.Writer): boolean, string
-    if failed then return false, failed end
-    if closed then return true, "" end
-    closed = true
+    -- Closed or failed already: close answers that without writing.
+    local usable, _ = sink:usable()
+    if not usable then return sink:close("") end
+    local cd = table.concat(cd_parts)
     local cd_offset = offset
-    local ok, trouble = put(table.concat(cd_parts))
-    if not ok then return false, trouble end
-    cd_parts = {}
-    local cd_size = offset - cd_offset
+    local cd_size = #cd
+    local trailer = { cd }
     local needs_zip64 = count >= 0xFFFF or cd_size >= U32_MAX or cd_offset >= U32_MAX
     if needs_zip64 then
-      local zip64_eocd_offset = offset
-      local record = Z64_EOCD_SIG .. le64(44) .. le16((3 << 8) | 45) .. le16(45) .. le32(0) ..
-        le32(0) .. le64(count) .. le64(count) .. le64(cd_size) .. le64(cd_offset)
-      ok, trouble = put(record)
-      if not ok then return false, trouble end
-      local locator = Z64_LOC_SIG .. le32(0) .. le64(zip64_eocd_offset) .. le32(1)
-      ok, trouble = put(locator)
-      if not ok then return false, trouble end
+      local zip64_eocd_offset = cd_offset + cd_size
+      trailer[#trailer + 1] = Z64_EOCD_SIG .. le64(44) .. le16((3 << 8) | 45) .. le16(45) ..
+        le32(0) .. le32(0) .. le64(count) .. le64(count) .. le64(cd_size) .. le64(cd_offset)
+      trailer[#trailer + 1] = Z64_LOC_SIG .. le32(0) .. le64(zip64_eocd_offset) .. le32(1)
     end
     local eocd_count = needs_zip64 and 0xFFFF or count
     local eocd_cd_size = needs_zip64 and U32_MAX or cd_size
     local eocd_cd_offset = needs_zip64 and U32_MAX or cd_offset
-    local eocd = EOCD_SIG .. le16(0) .. le16(0) .. le16(eocd_count) .. le16(eocd_count) ..
-      le32(eocd_cd_size) .. le32(eocd_cd_offset) .. le16(0)
-    ok, trouble = put(eocd)
-    if not ok then return false, trouble end
-    ok, trouble = w:close()
-    if not ok then
-      failed = trouble
-      return false, trouble
-    end
-    return true, ""
+    trailer[#trailer + 1] = EOCD_SIG .. le16(0) .. le16(0) .. le16(eocd_count) ..
+      le16(eocd_count) .. le32(eocd_cd_size) .. le32(eocd_cd_offset) .. le16(0)
+    cd_parts = {}
+    return sink:close(table.concat(trailer))
   end
 
   zw.abort = function(_self: Zip.Writer): boolean, string
-    if closed or failed then return true, "" end
-    closed = true
-    return w:abort()
+    return sink:abort()
   end
 
   return zw
