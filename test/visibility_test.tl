@@ -1,18 +1,16 @@
 --- Proves the privacy by position `build.positions` enforces on every
 --- directory in the tree, not only cosmic's own, end to end through
---- `importer.compile`: a directory's own `init.tl` is the one path in
+--- `importer.compile`. A directory's own `init.tl` is the one path in
 --- from outside, and only a file inside the directory may require a
---- sibling that sits beside that entry. Also proves the entry itself,
---- `case/init.tl`, resolves under its own bare name, `require("case")`
---- -- the ordinary Lua `?/init.lua` convention -- from outside `case/`,
---- and that a nested directory with no `init.tl`, `deep/dir/`, has no
---- path in from outside at all.
+--- sibling that sits beside that entry. The entry, `case/init.tl`,
+--- resolves under its bare name `require("case")` from outside `case/`
+--- (the ordinary Lua `?/init.lua` convention). A nested directory with
+--- no `init.tl`, `deep/dir/`, has no path in from outside at all.
 ---
---- The fixture is written to a fresh temp directory per test, the same
---- one `build.test`'s runner already hands every test function, rather
---- than checked into the tree: a version of it that violates the rule
---- would fail this tree's own build the moment it existed on disk,
---- since the whole tree compiles together in one pass.
+--- Each test writes its fixture into the temporary directory the runner
+--- hands it, not into the tree: a fixture that violates the rule would
+--- fail this tree's own build, since the whole tree compiles together
+--- in one pass.
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")

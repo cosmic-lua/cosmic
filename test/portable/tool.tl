@@ -1,6 +1,6 @@
---- Consolidated portable-fixture helper. Each local function below replaces
---- one former single-purpose script; init.tl (`test.portable`) remains the shared
---- v1 reader/writer-input library. Run as:
+--- Portable-fixture helper, one subcommand per fixture step. init.tl
+--- (`test.portable`) is the shared v1 reader and writer-input library.
+--- Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 
 local Codec = require("cosmic.codec")
@@ -190,7 +190,8 @@ local function prepare_artifacts(argv: {string}): integer
   return 0
 end
 
---- Extracts the exact reusable prefix and manifest from a built product.
+--- Checks that each manifest entry of `from` holds exactly the raw core
+--- built for its target, once, at the range the entry names.
 local function verify_ranges(path: string, from: fixture.Artifact,
                              targets: {Target}, cores: string)
   assert(#from.entries == #targets,
@@ -215,6 +216,8 @@ local function verify_ranges(path: string, from: fixture.Artifact,
   end
 end
 
+--- Checks a built product and its applications against the raw cores,
+--- then writes the reusable prefix and the manifest of the product.
 local function product_extract(argv: {string}): integer
   local program, prefix_path, manifest_path, targets_path, cores =
     argv[1], argv[2], argv[3], argv[4], argv[5]
@@ -251,8 +254,8 @@ local function product_extract(argv: {string}): integer
   return 0
 end
 
---- Writes transitional format fixtures from build.zig's generated target TSV
---- and real raw cores. This is test support, not a product build path.
+--- Writes format fixtures from build.zig's generated target TSV and real
+--- raw cores. This is test support, not a product build path.
 local function write_format_fixture(argv: {string}): integer
   local records_path, core_root, output = argv[1], argv[2], argv[3]
   assert(records_path ~= nil and core_root ~= nil and output ~= nil,
@@ -351,9 +354,9 @@ local function retained_prefix_probe(argv: {string}): integer
   end
   local expected_prefix = assert(argv[1])
   local expected_marker = assert(argv[2])
+  phase("prefix entering")
   -- This checkout has its own build/artifact.tl. The reserved binary module
   -- must win over that project row or it receives no retained-FD capability.
-  phase("prefix entering")
   local prefix = assert(artifact.trusted_prefix())
   phase("prefix read")
   assert(Codec.hex(Hash.sha256(prefix)) == expected_prefix)

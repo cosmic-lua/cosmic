@@ -135,7 +135,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     end
     hashes[#hashes + 1] = Hash.hex_sha256(file[2]) .. "  " .. file[1] .. "\n"
   end
-  -- The binary is 0755 whatever the umask, as `chmod 755` made it.
+  -- The binary is 0755 whatever the umask.
   local executable, etrouble = Fs.chmod(dir .. "/bin/cosmic", 0x1ed)
   if not executable then
     return nil, etrouble
