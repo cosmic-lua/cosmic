@@ -39,10 +39,9 @@ local Codec = require("cosmic.codec")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Rand = require("cosmic.rand")
-local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
+local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic rand` verb: `run` is what `build/dispatch.tl` calls.
@@ -199,7 +198,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
     if #words > 1 then
       return nil, "give one file at most, not " .. #words .. " words"
     end
-    if words[1] == "" then return nil, "an empty file name" end
+    if words[1] == "" then return nil, bare.empty_file end
   elseif #words > 0 then
     return nil, command .. " takes no words, not " .. #words
   end
@@ -208,19 +207,12 @@ end
 
 --- The bytes of standard input, refusing a terminal.
 local function read_stdin(): string | nil, string
-  if Proc.is_tty(Fs.stdin) then
-    return nil, "no file given and standard input is a terminal; give a file or pipe lines in"
-  end
-  return Stream.read_all(Stream.from_fd(Fs.stdin))
+  return bare.stdin_text("no file given and standard input is a terminal; give a file or pipe lines in")
 end
 
 local standard: verb.Io = {
-  out = function(text: string): boolean, string
-    return Fs.put(Fs.stdout, text)
-  end,
-  err = function(line: string)
-    local _, _ = Fs.put(Fs.stderr, line .. "\n")
-  end,
+  out = bare.out,
+  err = bare.err,
   stdin = read_stdin,
   entropy = Rand.entropy,
   now_ns = Time.now_ns,
@@ -252,13 +244,11 @@ end
 --- @param io where text is read and written and bytes drawn; the process's own when nil
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
-  local function complain(line: string)
-    to.err("cosmic: rand: " .. line)
-  end
+  local complain = bare.complainer("rand", to.err)
   local found, trouble = arguments(argv)
   if found == nil then
     complain(trouble .. "; " .. usage)
-    return 2
+    return bare.refused
   end
   local request: Request = found
   local draw_entropy = to.entropy or Rand.entropy
@@ -319,12 +309,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if pending_size == 0 then return true end
     local text = table.concat(pending)
     pending, pending_size = {}, 0
-    local ok, why = to.out(text)
-    if not ok then
-      complain("standard output: " .. why)
-      return false
-    end
-    return true
+    return bare.delivered(complain, to.out(text))
   end
   local function emit(text: string): boolean
     pending[#pending + 1] = text
