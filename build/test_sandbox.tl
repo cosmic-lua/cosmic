@@ -17,8 +17,9 @@
 ---   source files, the fuzz corpora for a module that uses
 ---   `build.fuzz`, what the module declares it `reads`, and o/bin for
 ---   one that declares `tool`;
---- - its scratch directory at `test_sandbox.scratch`, /tmp, writable:
----   the test's own directory (/tmp/tmp, a link to /tmp/real), where
+--- - its scratch directory at `test_sandbox.scratch`, beneath /tmp at
+---   a name padded to `scratch_length`, writable: the test's own
+---   directory (`tmp` there, a link to `real` beside it), where
 ---   the processes it starts write their coverage (/tmp/children), and
 ---   its TMPDIR;
 --- - the host caches the module declares (`build.caches`), writable,
@@ -67,6 +68,15 @@ local record test_sandbox
   tree: string
   --- Where it has its scratch directory.
   scratch: string
+  --- How long, at least, the path of every test's scratch directory is,
+  --- on every host. macOS's own is 75 bytes, its temporary directory
+  --- resolved (/private/var/folders/<2>/<28>/T/) and `build.test`'s
+  --- `scratch` beneath it, and a path a test builds there runs past a
+  --- bound (a socket file's 104 bytes, a tar name's 100) that a shorter
+  --- one elsewhere never meets. Padded to this on every host -- a
+  --- sandbox's by its name, an unsandboxed one's by its prefix -- a test
+  --- meets such a bound on every leg, not on macOS's alone.
+  scratch_length: integer
   --- The variable that turns the sandbox on.
   switch: string
 
@@ -105,7 +115,17 @@ local record test_sandbox
 end
 
 test_sandbox.tree = "/tree"
-test_sandbox.scratch = "/tmp"
+
+test_sandbox.scratch_length = 80
+
+--- `prefix` padded with "_" to `length` bytes; a prefix that long
+--- already is itself.
+function test_sandbox.padded(prefix: string, length: integer): string
+  return prefix .. string.rep("_", length - #prefix)
+end
+
+test_sandbox.scratch = test_sandbox.padded("/tmp/cosmic-test-padded-to-a-macos-length",
+  test_sandbox.scratch_length)
 test_sandbox.switch = "COSMIC_TEST_SANDBOX"
 
 --- The most paths a sandbox unveils (core/process.h's UNVEIL_MAX).

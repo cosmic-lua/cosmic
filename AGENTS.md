@@ -224,7 +224,7 @@
    fails, naming it: require it statically, at the top level.
    Each worker runs sandboxed to those inputs (`build/test_sandbox.tl`),
    wherever the kernel can sandbox one: the tree at /tree, its directory
-   at /tmp, and nothing else of either, with every process it starts, so
+   beneath /tmp, and nothing else of either, with every process it starts, so
    a test that reads what it does not declare fails. Nor has it the
    system's own paths (/usr, /bin, /lib, /etc and the like) unless its
    module declares `system = true`, as one that starts a host program --
@@ -240,7 +240,11 @@
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
    and the run shares no verdict, unless `COSMIC_TEST_KEY=declared`;
    `COSMIC_TEST_SANDBOX=1` makes that a failure, as CI's Linux legs set it.
-   Treat an actual
+   Every test's directory, sandboxed or not, is at a path padded to
+   macOS's length (`scratch_length` in `build/test_sandbox.tl`), so a
+   bound on a path's length (a socket file's, a tar name's) is met on
+   every leg, and a directory's name holds a "-": escape a path before
+   putting it in a Lua pattern (`path:gsub("%p", "%%%0")`). Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
    the slow work first. To benchmark full test execution, delete only the rows
