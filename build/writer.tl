@@ -394,6 +394,17 @@ local dropped_modules <const> =
   "dropped(path) AS (SELECT path FROM whole.modules " ..
   "EXCEPT SELECT path FROM carried) "
 
+--- The condition under which a doc row `d` of a `cosmic.internal.*`
+--- module is a nested type -- `sqlite.Handle` -- or a member of one
+--- (`Handle.exec`): what a public alias (`Sqlite.Handle`) or base
+--- (`Http.Options`) stands for, whose page lists them. `symbols.public_docs`
+--- still hides these rows from every public query; only that page's
+--- resolution (`build.docs`) reads them.
+local carried_internal_types =
+  "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
+  "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
+  "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)))"
+
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from
 --- `build.schema`, so `*` names the same columns in the same order. A
@@ -425,7 +436,7 @@ local carry: {string} = {
     "FROM whole.docs d WHERE module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
     " OR EXISTS (SELECT 1 FROM whole.catalog c WHERE c.module = d.module " ..
-    "AND c.symbol = d.source_symbol)) ORDER BY id",
+    "AND c.symbol = d.source_symbol) OR " .. carried_internal_types .. ") ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..
     symbols.public_only("u.module", true) .. " AND " ..

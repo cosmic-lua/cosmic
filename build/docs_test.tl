@@ -803,9 +803,11 @@ local function test_renders_a_symbols_example(dir: string)
   }))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
   local lines = assert(docs.render(view({ db }), read[1]))
-  assert(lines[#lines - 4] == "  example read (cosmic/fs_example.tl:8):",
-    lines[#lines - 4])
-  assert(lines[#lines - 3] == "  Reads a file back.", lines[#lines - 3])
+  assert(lines[#lines - 6] == "  example read (cosmic/fs_example.tl:8):",
+    lines[#lines - 6])
+  assert(lines[#lines - 5] == "  Reads a file back.", lines[#lines - 5])
+  assert(lines[#lines - 4] == "    local Fs = require(\"cosmic.fs\")", lines[#lines - 4])
+  assert(lines[#lines - 3] == "", lines[#lines - 3])
   assert(lines[#lines - 2] == "    function Example.read()", lines[#lines - 2])
   assert(lines[#lines - 1] == "      print(Fs.read(\"x\"))", lines[#lines - 1])
   assert(lines[#lines] == "    end", lines[#lines])
@@ -863,9 +865,9 @@ end
 local function test_a_topic_example_pairs_with_its_module(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file back.",
-      "  print(Fs.read(\"x\"))"),
+      "  print(Fs.read(\"aa\"))"),
     ["cosmic/fs_config_example.tl"] = fs_example("read", "Reads a config file.",
-      "  print(Fs.read(\"config\"))"),
+      "  print(Fs.read(\"bb\"))"),
   }))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
   local headers: {string} = {}
@@ -1532,4 +1534,172 @@ local function test_a_module_page_truncates_a_long_field_note(dir: string)
   local options = assert(docs.lookup(looked, "Thing.Options"))
   shown = table.concat(assert(docs.render(looked, options[1])), "\n")
   assert(shown:find("word end.", 1, true), shown)
+end
+
+--- A worked example is copied out of its file, so its page shows the
+--- file's `require` lines the body uses, above the function: `Fs` here,
+--- but not `Hash`, which the body never names.
+local function test_an_example_shows_the_requires_it_uses(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file back.",
+      "  print(Fs.read(\"x\"))"),
+  }))
+  local looked = view({ db })
+  local page = table.concat(assert(docs.render(looked,
+    assert(docs.lookup(looked, "Fs.read"))[1])), "\n")
+  local at = assert(page:find("    local Fs = require(\"cosmic.fs\")\n", 1, true), page)
+  local body = assert(page:find("    function Example.read()", 1, true), page)
+  assert(at < body, page)
+  assert(not page:find("cosmic.hash", 1, true), page)
+end
+
+--- An example is attached to every symbol it calls, so `Fs.read` is
+--- called by a `truncate` example too: the one named `read` comes first
+--- however the file orders them, and a page shows two, naming the rest.
+local function test_examples_rank_by_name_and_are_capped(dir: string)
+  local function example(name: string, body: string): string
+    return source("--- About " .. name .. ".", "function Example." .. name .. "()",
+      body, "end", "")
+  end
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local record Example",
+      "end",
+      "") ..
+      example("truncate", "  Fs.write(\"a\", \"b\")\n  print(Fs.read(\"a\"))\n  print(Fs.read(\"a\"))") ..
+      example("copy_tree", "  print(Fs.read(\"a\"))") ..
+      example("write", "  print(Fs.read(\"a\"))\n  print(Fs.read(\"a\"))\n  print(Fs.read(\"a\"))") ..
+      example("read", "  print(Fs.read(\"a\"))") ..
+      "\nreturn Example\n",
+  }))
+  local looked = view({ db })
+  local shown = assert(docs.render(looked, assert(docs.lookup(looked, "Fs.read"))[1]))
+  local headers: {string} = {}
+  local more = ""
+  for _, line in ipairs(shown) do
+    if line:match("^  example ") then headers[#headers + 1] = line end
+    if line:match("^  %d+ more example") then more = line end
+  end
+  assert(#headers == 2, table.concat(headers, " | "))
+  assert(headers[1]:match("^  example read "), headers[1])
+  assert(headers[2]:match("^  example write "), headers[2])
+  assert(more:match("^  2 more examples: "), more)
+  assert(more:find("truncate", 1, true) and more:find("copy_tree", 1, true), more)
+end
+
+--- A test module's top-level `Test.needs` call sits outside every
+--- example, so the file's first example carries it: `Test.needs` has
+--- an example, and it shows the call it is about.
+local function test_a_top_level_call_is_carried_by_the_first_example(dir: string)
+  local db = built(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "",
+      "local record Thing",
+      "end",
+      "",
+      "--- Declares something.",
+      "function Thing.declare(value: string)",
+      "end",
+      "",
+      "return Thing"),
+    ["cosmic/thing_example.tl"] = source(
+      "local Thing = require(\"cosmic.thing\")",
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "Thing.declare{ value = \"x\" }",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "--- The call at the top.",
+      "function Example.first()",
+      "  print(Fs)",
+      "end",
+      "",
+      "function Example.second()",
+      "  print(1)",
+      "end",
+      "",
+      "return Example"),
+  })
+  local looked = view({ db })
+  local page = table.concat(assert(docs.render(looked,
+    assert(docs.lookup(looked, "Thing.declare"))[1])), "\n")
+  assert(page:find("example first", 1, true), page)
+  assert(page:find("    Thing.declare{ value = \"x\" }\n", 1, true), page)
+  assert(page:find("    local Thing = require(\"cosmic.thing\")\n", 1, true), page)
+  assert(page:find("    local Fs = require", 1, true), page)
+  assert(not page:find("example second", 1, true), page)
+end
+
+--- Methods and fields a public type takes from an internal record, by
+--- alias (`type Box = raw.Box`) or by extending it, are listed on the
+--- public type's page with their notes, and each answers to its own
+--- dotted name. A same-module alias (`type Config = Config`) lists the
+--- record's fields.
+local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
+  local db = built(dir, {
+    ["cosmic/internal/raw.tl"] = source(
+      "--- Raw things.",
+      "",
+      "local record raw",
+      "  --- One box.",
+      "  record Box",
+      "    --- Grows the box by `n`.",
+      "    grow: function(Box, n: integer): boolean",
+      "    --- How many things it holds.",
+      "    size: integer",
+      "    _hidden: integer",
+      "  end",
+      "  interface Base",
+      "    --- The label.",
+      "    label: string",
+      "  end",
+      "end",
+      "",
+      "return raw"),
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "",
+      "local type raw = require(\"cosmic.internal.raw\")",
+      "",
+      "local record Config",
+      "  --- The depth.",
+      "  depth: integer",
+      "end",
+      "",
+      "local record Thing",
+      "  --- A box.",
+      "  type Box = raw.Box",
+      "  --- Settings.",
+      "  type Config = Config",
+      "  --- Named settings.",
+      "  record Named is raw.Base",
+      "    --- Its own.",
+      "    own: string",
+      "  end",
+      "end",
+      "",
+      "return Thing"),
+  })
+  local looked = assert(docs.view({ db }, { true }))
+  local function page(query: string): string
+    return table.concat(assert(docs.render(looked, assert(docs.lookup(looked, query))[1])), "\n")
+  end
+  local box = page("Thing.Box")
+  assert(box:find("  methods:\n    grow(n: integer): boolean -- Grows the box by `n`.", 1, true), box)
+  assert(box:find("    size: integer -- How many things it holds.", 1, true), box)
+  assert(not box:find("_hidden", 1, true), box)
+  local config = page("Thing.Config")
+  assert(config:find("  fields:\n    depth: integer -- The depth.", 1, true), config)
+  local named = page("Thing.Named")
+  assert(named:find("    own: string -- Its own.", 1, true), named)
+  assert(named:find("  inherited fields:\n    label: string -- The label.", 1, true), named)
+  local grow = assert(docs.lookup(looked, "Thing.Box.grow"))
+  assert(#grow == 1 and grow[1].source_symbol == "Thing.Box.grow", tostring(#grow))
+  local depth = assert(docs.lookup(looked, "Thing.Config.depth"))
+  assert(#depth == 1 and depth[1].signature == "depth: integer", tostring(#depth))
 end

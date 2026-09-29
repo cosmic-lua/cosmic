@@ -17,6 +17,18 @@ function Example.stdin()
   end
 end
 
+--- A file is read whole, as bytes, in one call: the counterpart of
+--- `Fs.write`, which puts a whole string in its place.
+function Example.read()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path = dir .. "/note"
+  assert(Fs.write(path, "hello"))
+  local data = assert(Fs.read(path))
+  print(data)
+  assert(data == "hello", data)
+  assert(Fs.remove_tree(dir))
+end
+
 --- A link stores its target as written, and `readlink` reads it back
 --- without following it.
 function Example.readlink()

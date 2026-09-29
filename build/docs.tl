@@ -200,6 +200,59 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   return out
 end
 
+--- How many worked examples a symbol's page shows in full; the rest are
+--- named in one line after them.
+local EXAMPLES_SHOWN <const> = 2
+
+--- How many times `code` calls `symbol`, spelled `.` or `:` before its
+--- last name, and where the first call is.
+local function calls_of(code: string, symbol: string): integer, integer
+  local spellings = { symbol }
+  local colon = symbol:gsub("%.([%w_]+)$", ":%1")
+  if colon ~= symbol then spellings[2] = colon end
+  local count, first = 0, math.maxinteger
+  for _, spelled in ipairs(spellings) do
+    local from = 1
+    while true do
+      local at, to = code:find(spelled, from, true)
+      if at == nil then break end
+      local after = code:sub(to + 1, to + 1)
+      if after:match("[%w_]") == nil then
+        count = count + 1
+        first = math.min(first, at)
+      end
+      from = to + 1
+    end
+  end
+  return count, first
+end
+
+--- `found` in the order a reader wants them: an example named for the
+--- symbol (`Example.read` for `Fs.read`) first, then the one that
+--- calls it most, then the one that calls it soonest, then the shorter,
+--- then by file and line. An example is attached to a symbol by what
+--- it calls, so one built around `truncate` also matches `Fs.read` and
+--- must not lead its page.
+local function ranked_examples(found: {docs.Example}, symbol: string): {docs.Example}
+  local last = symbol:match("([%w_]+)$") or symbol
+  local keys: {docs.Example: {integer}} = {}
+  for _, ex in ipairs(found) do
+    local calls, first = calls_of(ex.source:match("function Example%..*$") or ex.source, symbol)
+    keys[ex] = { ex.name == last and 0 or 1, -calls, first, #ex.source }
+  end
+  local out: {docs.Example} = {}
+  for _, ex in ipairs(found) do out[#out + 1] = ex end
+  table.sort(out, function(a: docs.Example, b: docs.Example): boolean
+    local ka, kb = keys[a], keys[b]
+    for i = 1, #ka do
+      if ka[i] ~= kb[i] then return ka[i] < kb[i] end
+    end
+    if a.file ~= b.file then return a.file < b.file end
+    return a.line < b.line
+  end)
+  return out
+end
+
 --- The modules that document themselves whose last dotted name is
 --- `query` (`json` for `cosmic.json`, `util` for a project's
 --- `myproj.util`), as their own rows, a project's own ahead of the
@@ -759,6 +812,11 @@ local function by_options(view: docs.View, query: string,
   return out, ""
 end
 
+--- What a dotted query names through a type alias or an inherited
+--- record: `Child.Options.fds`, `Sqlite.Handle.exec`. Defined with the
+--- other member helpers, below `first_sentence`.
+local through_alias: function(view: docs.View, query: string): {docs.Entry} | nil, string
+
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
 --- - the public module a bare lowercase name ends (`json`, `fs`), with
@@ -847,6 +905,13 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
       return nil, count_trouble
     end
     return lookup(exact, true, named_count), ""
+  end
+  local through, through_trouble = through_alias(view, query)
+  if through == nil then
+    return nil, through_trouble
+  end
+  if #through > 0 then
+    return lookup(through, true, #through), ""
   end
   local found: {docs.Entry} = {}
   local qualifier, name = query:match("^([%w_]+)[.:]([%w_]+)$")
@@ -1027,6 +1092,237 @@ local function listed(item: docs.Entry): string
   return shown .. (#marks > 0 and "  (" .. table.concat(marks, ", ") .. ")" or "")
 end
 
+--- The types a declaration stands for: `type Handle = raw_sqlite.Handle`
+--- is one, `record Options is raw_http.Options` another (a list, comma
+--- separated, when it extends several). Each is spelled as the module
+--- wrote it.
+local function type_references(entry: docs.Entry): {string}
+  local out: {string} = {}
+  local alias = entry.signature:match("^type [%w_]+ = ([%w_%.]+)$")
+  if alias ~= nil then
+    out[1] = alias
+    return out
+  end
+  local bases = entry.signature:match("^[%a ]*record [%w_]+ is ([%w_%.,%s]+)$") or
+    entry.signature:match("^[%a ]*interface [%w_]+ is ([%w_%.,%s]+)$")
+  if bases ~= nil then
+    for base in bases:gmatch("[%w_%.]+") do out[#out + 1] = base end
+  end
+  return out
+end
+
+--- The first row `sql` finds in any of `view`'s databases: the databases
+--- are read whole, whatever they are public for, because a name a public
+--- page hands out (an alias, a base) stands for the record it points at
+--- even when that record is not itself a public symbol.
+local function first_declared(view: docs.View, sql: string,
+                              args: {Sqlite.Value}): docs.Entry | nil, string
+  for _, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db, sql, args)
+      if rows == nil then
+        return nil, trouble
+      end
+      if #rows > 0 then
+        return entries_of(rows)[1]
+      end
+    end
+  end
+  return nil
+end
+
+--- The record, interface or enum that `reference`, written in `module`,
+--- names: one the module declares, one of `cosmic.internal.<module>`
+--- (`raw_sqlite.Handle` is `sqlite.Handle` there), or one that another
+--- module's own alias (`Compress.Stream`) points on to. Nil when it
+--- names none, or nil and why on a database that cannot be read.
+local function resolved_type(view: docs.View, module: string, reference: string,
+                             depth: integer): docs.Entry | nil, string
+  local types = "d.kind IN ('record', 'interface', 'enum') "
+  local same, same_trouble = first_declared(view,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.source_symbol = ?2 " ..
+    "AND " .. types .. "ORDER BY d.id LIMIT 1",
+    { text(module), text(reference) })
+  if same == nil and same_trouble ~= nil then
+    return nil, same_trouble
+  end
+  if same ~= nil then
+    return same
+  end
+  local stem, rest = reference:match("^([%w_]+)%.([%w_%.]+)$")
+  if stem == nil then
+    return nil
+  end
+  local record = stem:gsub("^raw_", ""):lower()
+  local internal, internal_trouble = first_declared(view,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.source_symbol = ?2 " ..
+    "AND " .. types .. "ORDER BY d.id LIMIT 1",
+    { text("cosmic.internal." .. record), text(record .. "." .. rest) })
+  if internal == nil and internal_trouble ~= nil then
+    return nil, internal_trouble
+  end
+  if internal ~= nil then
+    return internal
+  end
+  if depth >= 4 then
+    return nil
+  end
+  local alias, alias_trouble = first_declared(view,
+    "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol = ?1 " ..
+    "AND d.signature GLOB 'type * = *' AND d.exported = 1 ORDER BY d.id LIMIT 1",
+    { text(reference) })
+  if alias == nil then
+    return nil, alias_trouble
+  end
+  local onward = type_references(alias)[1]
+  if onward == nil then
+    return nil
+  end
+  return resolved_type(view, alias.module, onward, depth + 1)
+end
+
+--- The fields, methods or values declared directly under `target`, as
+--- its own module documents them, less any named `_...`: what a type
+--- alias or a base record hands to its users.
+local function members_under(view: docs.View, target: docs.Entry): {docs.Entry} | nil, string
+  local out: {docs.Entry} = {}
+  for _, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+        "d.kind IN ('field', 'value') AND d.source_symbol GLOB ?2 ORDER BY d.id",
+        { text(target.module), text(target.source_symbol .. ".*") })
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, member in ipairs(entries_of(rows)) do
+        local name = member.source_symbol:match("([^.]*)$")
+        if parent_of(member.source_symbol) == target.source_symbol and
+            name:sub(1, 1) ~= "_" then
+          out[#out + 1] = member
+        end
+      end
+      if #out > 0 then
+        return out
+      end
+    end
+  end
+  return out
+end
+
+--- What a declaration that stands for another type adds to its page:
+--- the target's fields (or values), and its methods, each with its
+--- documentation. `Sqlite.Handle` and `Child.Options` are aliases, so
+--- they list what their target does; `Http.Options` extends one, so it
+--- lists what it inherits after its own. Empty for a declaration that
+--- stands for nothing.
+local function inherited_lines(view: docs.View, entry: docs.Entry): {string} | nil, string
+  local lines: {string} = {}
+  local references = entry.symbol ~= "" and type_references(entry) or {}
+  if #references == 0 then
+    return lines
+  end
+  local own: {string: boolean} = {}
+  if entry.kind == "record" or entry.kind == "interface" then
+    local mine, mine_trouble = members_under(view, entry)
+    if mine == nil then
+      return nil, mine_trouble
+    end
+    for _, member in ipairs(mine) do own[member.source_symbol:match("([^.]*)$")] = true end
+  end
+  local heading = (entry.kind == "record" or entry.kind == "interface") and "inherited " or ""
+  local fields: {string} = {}
+  local methods: {string} = {}
+  local values: {string} = {}
+  for _, reference in ipairs(references) do
+    local target, target_trouble = resolved_type(view, entry.module, reference, 0)
+    if target == nil and target_trouble ~= nil then
+      return nil, target_trouble
+    end
+    if target ~= nil and target.source_symbol ~= entry.source_symbol then
+      local members, members_trouble = members_under(view, target)
+      if members == nil then
+        return nil, members_trouble
+      end
+      local short = target.source_symbol:match("([^.]*)$")
+      for _, member in ipairs(members) do
+        local name = member.source_symbol:match("([^.]*)$")
+        if not own[name] then
+          local note = first_sentence(member.text)
+          local tail = member.signature:match("^[%w_]+: function%(" .. short .. "(.*)$")
+          if member.kind == "value" then
+            values[#values + 1] = "    " .. member_line(member)
+          elseif tail ~= nil then
+            methods[#methods + 1] = "    " .. name .. "(" ..
+              (tail:sub(1, 2) == ", " and tail:sub(3) or tail) ..
+              (note ~= "" and " -- " .. note or "")
+          else
+            fields[#fields + 1] = "    " .. member_line(member)
+          end
+        end
+      end
+    end
+  end
+  local function emit(title: string, rows: {string})
+    if #rows > 0 then
+      if #lines > 0 then lines[#lines + 1] = "" end
+      lines[#lines + 1] = "  " .. title
+      for _, row in ipairs(rows) do lines[#lines + 1] = row end
+    end
+  end
+  emit(heading .. "values:", values)
+  emit(heading .. "fields:", fields)
+  emit(heading .. "methods:", methods)
+  return lines
+end
+
+through_alias = function(view: docs.View, query: string): {docs.Entry} | nil, string
+  local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
+  if prefix == nil then
+    return {}
+  end
+  local out: {docs.Entry} = {}
+  local owners, owners_trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+      return named(db, public, prefix)
+    end, entry_module)
+  if owners == nil then
+    return nil, owners_trouble
+  end
+  for _, owner in ipairs(owners) do
+    for _, reference in ipairs(type_references(owner)) do
+      local target, target_trouble = resolved_type(view, owner.module, reference, 0)
+      if target == nil and target_trouble ~= nil then
+        return nil, target_trouble
+      end
+      if target ~= nil then
+        local members, members_trouble = members_under(view, target)
+        if members == nil then
+          return nil, members_trouble
+        end
+        for _, member in ipairs(members) do
+          if member.source_symbol:match("([^.]*)$") == name then
+            member.module = owner.module
+            member.symbol = owner.symbol .. "." .. name
+            member.source_symbol = owner.source_symbol .. "." .. name
+            member.exported = true
+            out[#out + 1] = member
+          end
+        end
+      end
+    end
+  end
+  return out
+end
+
 --- One entry, as `cosmic docs` prints it: where it is, its signature,
 --- its documentation indented under that, and how many places use it.
 --- A module's row lists the symbols it declares instead of a signature.
@@ -1171,6 +1467,12 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
       end
     end
   end
+  local inherited, inherited_trouble = inherited_lines(view, entry)
+  if inherited == nil then
+    return nil, inherited_trouble
+  end
+  if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
+  for _, line in ipairs(inherited) do lines[#lines + 1] = line end
   -- A verb's options are data, `Cli.options`, not prose: shown under
   -- its field as `cosmic help` shows them, and searched by
   -- `by_options`.
@@ -1193,15 +1495,24 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     if examples == nil then
       return nil, examples_trouble
     end
-    for _, ex in ipairs(examples) do
-      lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
-        ex.line .. "):"
-      for line in String.lines(ex.text) do
-        lines[#lines + 1] = #line > 0 and "  " .. line or ""
+    local more: {string} = {}
+    for at, ex in ipairs(ranked_examples(examples, entry.source_symbol)) do
+      if at > EXAMPLES_SHOWN then
+        more[#more + 1] = ex.name .. " (" .. ex.file .. ":" .. ex.line .. ")"
+      else
+        lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
+          ex.line .. "):"
+        for line in String.lines(ex.text) do
+          lines[#lines + 1] = #line > 0 and "  " .. line or ""
+        end
+        for line in String.lines(ex.source) do
+          lines[#lines + 1] = #line > 0 and "    " .. line or ""
+        end
       end
-      for line in String.lines(ex.source) do
-        lines[#lines + 1] = #line > 0 and "    " .. line or ""
-      end
+    end
+    if #more > 0 then
+      lines[#lines + 1] = "  " .. plural.count(#more, "more example") .. ": " ..
+        table.concat(more, ", ")
     end
   end
   return lines, ""

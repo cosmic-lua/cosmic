@@ -1359,3 +1359,44 @@ local function test_a_malformed_needs_call_is_refused()
     assert(trouble:find(line, 1, true) ~= nil, trouble)
   end
 end
+
+--- An example's source starts with the file's top-level `require` lines
+--- its body names, and, for the first example only, the top-level calls.
+local function test_an_example_carries_the_requires_it_uses()
+  local found = examples(lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+    "",
+    "function Example.hash()",
+    "  print(Hash.hex(\"x\"))",
+    "end",
+    "",
+    "return Example",
+  }))
+  assert(#found == 2, tostring(#found))
+  assert(found[1].source == lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "",
+    "Fs.setup{ key = 1 }",
+    "",
+    "function Example.read()",
+    "  print(Fs.read(\"x\"))",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+  assert(found[2].source == lines({
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "function Example.hash()",
+    "  print(Hash.hex(\"x\"))",
+    "end",
+  }):gsub("\n$", ""), found[2].source)
+end
