@@ -183,12 +183,16 @@ local function toolchain(root: string, variables: {string:string}):
   if digest ~= nil and bootstrap ~= nil then
     runs_from[#runs_from + 1] = bootstrap .. "/cosmic-" .. digest
   end
-  -- TODO: give the one core the bootstrap cosmic's launcher runs, and
-  -- its stamp, rather than the whole directory, once something outside
-  -- build/launcher.tl's shell can say which (the TODO above
-  -- build/caches.tl's `paths`): today a core extracted there for any
-  -- other program moves the key of a check confined in an unsandboxed
-  -- run.
+  -- TODO: give the compiler cores of its own to extract the bootstrap
+  -- cosmic's into (COSMIC_PORTABLE_CACHE under `deps`, as its zig
+  -- caches are), as a sandboxed worker is given (build/test_sandbox.tl's
+  -- `own_cores`), rather than the host's cores directory to read: given
+  -- only to read, that directory fails every check confined in an
+  -- unsandboxed worker where it holds no core for the bootstrap cosmic
+  -- yet (a fresh COSMIC_PORTABLE_CACHE, a cleared cache, a new pin; its
+  -- launcher "cannot create core staging entry"), and a core another
+  -- program extracted there moves the check's key. Extracting one per
+  -- check costs a copy and a hash of the core each time.
   local cores = caches.cores(variables)
   if cores ~= nil then runs_from[#runs_from + 1] = cores end
   return install.path, runs_from
