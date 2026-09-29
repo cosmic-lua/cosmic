@@ -77,7 +77,7 @@ harness_epoch.acknowledged = {
 
   ["build.filesystem_observations"] = "ca600b34e5959f900fd089ec298dda56bfb5cb08e8bc153cef8b2ccfe408b224",
 
-  ["build.key_parts"] = "b051b4c075439242f2fd5ee1361b75a19abd894fddfa1b10ec06e441887c083f",
+  ["build.key_parts"] = "63c0b56d03e8f2b3f62b18c4dc99fb303ee3a727f3aa5235fd489b86c830602b",
 
   ["build.launcher"] = "9dff6e6443e223fa5a99bb960d8046b47ea47bb506ffd08798771153715a2305",
 

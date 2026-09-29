@@ -1,8 +1,10 @@
 --- .github/scripts/place-tree.sh, which moves CI's checkout to a path
 --- the commit and the leg choose: the same two choose the same path, so
 --- a re-run meets it again, and another leg, or another commit, chooses
---- another. The path is always one directory beside the workspace, so
---- actions/cache's paths relative to the workspace resolve through it.
+--- another -- but on a gating run of a leg keyed by declarations, whose
+--- keys hold the path, the leg alone chooses it. The path is always one
+--- directory beside the workspace, so actions/cache's paths relative to
+--- the workspace resolve through it.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -15,10 +17,13 @@ Test.needs{ reads = { ".github/scripts/place-tree.sh" }, system = true }
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/place-tree.sh"))
 
 --- The path the script names for `sha` and `leg`, under the workspace's
---- parent.
-local function name(sha: string, leg: string): string
+--- parent, on a run of `event` (a push by default) whose leg is keyed
+--- by declarations where `declared` is "1" (not by default): each set
+--- here, never inherited from the run this test is in.
+local function name(sha: string, leg: string, event?: string, declared?: string): string
   local env: {string:string} = { PATH = Env.get("PATH") or "/usr/bin:/bin",
-    GITHUB_SHA = sha, COSMIC_WORKER = leg }
+    GITHUB_SHA = sha, COSMIC_WORKER = leg, GITHUB_EVENT_NAME = event or "push",
+    COSMIC_CI_DECLARED_KEYS = declared or "0" }
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "--name" },
     { env = env, stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
@@ -60,6 +65,29 @@ local function test_another_leg_or_commit_names_another_path()
   assert(name("0" .. SHA:sub(2), "linux-x86_64") ~= here, "another commit names " .. here)
 end
 
+--- A gating run (a push, the merge queue) of a leg keyed by declared
+--- inputs, whose keys hold the tree's path, names one path for every
+--- commit, the leg's own; its scheduled or a manual run, and every run
+--- of any other leg, names one by the commit.
+local function test_a_gating_run_keyed_by_declarations_names_the_legs_path()
+  local other = "0" .. SHA:sub(2)
+  for _, event in ipairs({ "push", "merge_group" }) do
+    local here = name(SHA, "macos-aarch64", event, "1")
+    assert(name(other, "macos-aarch64", event, "1") == here, event .. ": the commit moved it")
+    assert(name(SHA, "macos-x86_64", event, "1") ~= here, event .. ": another leg names " .. here)
+    assert(#here >= 1 and #here <= 24 and here:match("^%x+$") ~= nil, here)
+    -- Not keyed by declarations, the commit chooses it still.
+    assert(name(other, "macos-aarch64", event, "0") ~= name(SHA, "macos-aarch64", event, "0"),
+      event .. ": a leg not keyed by declarations kept its path")
+  end
+  for _, event in ipairs({ "schedule", "workflow_dispatch" }) do
+    assert(name(other, "macos-aarch64", event, "1") ~= name(SHA, "macos-aarch64", event, "1"),
+      event .. ": the commit did not move it")
+    assert(name(SHA, "macos-aarch64", event, "1") == name(SHA, "macos-aarch64", event, "0"),
+      event .. ": the keys moved it")
+  end
+end
+
 local function test_a_missing_input_is_refused()
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "--name" },
     { env = { PATH = Env.get("PATH") or "/usr/bin:/bin", GITHUB_SHA = SHA },
@@ -69,9 +97,11 @@ end
 
 --- Runs the script with `argument` for a checkout at `workspace`,
 --- asserting it succeeds.
-local function place(workspace: string, argument?: string, leg?: string): string
+local function place(workspace: string, argument?: string, leg?: string,
+                     declared?: string): string
   local env: {string:string} = { PATH = Env.get("PATH") or "/usr/bin:/bin",
-    GITHUB_SHA = SHA, COSMIC_WORKER = leg or "linux-x86_64", GITHUB_WORKSPACE = workspace }
+    GITHUB_SHA = SHA, COSMIC_WORKER = leg or "linux-x86_64", GITHUB_WORKSPACE = workspace,
+    GITHUB_EVENT_NAME = "push", COSMIC_CI_DECLARED_KEYS = declared or "0" }
   local argv = { "/bin/sh", SCRIPT }
   if argument then argv[#argv + 1] = argument end
   local result = assert(Child.run(argv,
@@ -173,6 +203,19 @@ local function test_a_moved_tree_sits_beside_the_workspace_where_its_relative_pa
       layout(root))
     assert(Fs.remove_tree(root))
   end
+end
+
+--- A gating run keyed by declarations moves the tree to the leg's own
+--- path, and back.
+local function test_a_gating_run_keyed_by_declarations_moves_the_tree_to_the_legs_path()
+  local root, workspace = checkout()
+  local before = layout(root)
+  place(workspace, nil, "macos-aarch64", "1")
+  assert(Fs.readlink(workspace) == name("0" .. SHA:sub(2), "macos-aarch64", "push", "1"),
+    layout(root))
+  place(workspace, "--restore", "macos-aarch64", "1")
+  assert(layout(root) == before, layout(root))
+  assert(Fs.remove_tree(root))
 end
 
 local function test_a_move_that_ran_already_moves_nothing()

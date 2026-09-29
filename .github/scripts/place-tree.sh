@@ -1,6 +1,7 @@
 #!/bin/sh
-# Moves the checkout to a path of this commit's and this leg's own, for a
-# job that builds or tests the tree, as the user the job's steps run as:
+# Moves the checkout to a path of this commit's and this leg's own (or
+# the leg's alone, for the gating run below), for a job that builds or
+# tests the tree, as the user the job's steps run as:
 #
 #     sh .github/scripts/place-tree.sh           move the checkout there
 #     sh .github/scripts/place-tree.sh --name    only say where, under
@@ -14,15 +15,19 @@
 # ($GITHUB_SHA) and the leg ($COSMIC_WORKER) chooses. A re-run of a
 # commit meets the same path, so a failure it finds is found again; a
 # new commit meets a new one, so a test that turns on the tree's
-# absolute path fails some run rather than none. The log names both
-# inputs and the path, and `--name` with the same two gives it again.
+# absolute path fails some run rather than none. The log names the
+# inputs and the path, and `--name` with the same ones gives it again.
 #
-# TODO: choose the macOS leg's path by the leg alone, or decide to keep
-# paying for a path chosen by the commit there: an unsandboxed worker's
-# key holds the tree's path (build/declared_key.tl's `Spec.tree`), so on
-# that leg every test runs on every new commit and stands only on a
-# re-run's verdicts; a path fixed per leg would stand across commits,
-# and a checkout moved elsewhere would still run every test.
+# But for a gating run ($GITHUB_EVENT_NAME push or merge_group) of a
+# leg whose workers run unsandboxed, keyed by what their tests declare
+# ($COSMIC_CI_DECLARED_KEYS=1, the macOS leg): there the leg alone
+# chooses the name. Such a worker sees the tree where it is, so its key
+# holds the tree's path (build/declared_key.tl's `Spec.tree`): a path
+# that moved with every commit would run every test there on every
+# commit, and a path that stays cannot let a verdict stand where the
+# test would fail, since a test is keyed by where it ran. What a moving
+# path still catches there, a test that turns on the path at all, the
+# scheduled run's path, chosen by the commit, catches.
 #
 # Only the name varies, never the depth: the tree is always one
 # directory below $GITHUB_WORKSPACE's parent, as deep as the workspace
@@ -78,7 +83,14 @@ byte() {
 # TODO: put a space in a name too, to catch a path left unquoted, once
 # ci/run-local runs the driver from a path with one (its drop_env is
 # split on spaces) and shows its phases take it: the suite itself does.
-seed=$(printf 'commit %s\nleg %s\n' "$GITHUB_SHA" "$COSMIC_WORKER" | digest)
+case "${COSMIC_CI_DECLARED_KEYS-}:${GITHUB_EVENT_NAME-}" in
+  1:push | 1:merge_group)
+    seed=$(printf 'leg %s\n' "$COSMIC_WORKER" | digest)
+    chosen="leg $COSMIC_WORKER, a gating run keyed by the path" ;;
+  *)
+    seed=$(printf 'commit %s\nleg %s\n' "$GITHUB_SHA" "$COSMIC_WORKER" | digest)
+    chosen="commit $GITHUB_SHA, leg $COSMIC_WORKER" ;;
+esac
 length=$(( $(byte "$seed" 0) % 24 + 1 ))
 relative=$(printf '%s 1\n' "$seed" | digest | cut -c1-"$length")
 
@@ -114,4 +126,4 @@ if [ -L "$GITHUB_WORKSPACE" ] && [ "$(readlink "$GITHUB_WORKSPACE")" = "$relativ
 fi
 mv "$GITHUB_WORKSPACE" "$tree"
 ln -s "$relative" "$GITHUB_WORKSPACE"
-echo "the tree is at $tree (commit $GITHUB_SHA, leg $COSMIC_WORKER)"
+echo "the tree is at $tree ($chosen)"

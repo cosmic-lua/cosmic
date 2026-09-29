@@ -90,7 +90,10 @@ local tree_marker <const> = "\0tree"
 --- Nothing here can see a test break either rule. CI enforces both by
 --- moving its checkout, and the tool it runs, o/bin/cosmic, with it, to
 --- a path the commit and the leg choose, new for each commit
---- (.github/scripts/place-tree.sh). That catches a test that breaks one
+--- (.github/scripts/place-tree.sh) -- but on the gating runs of a leg
+--- whose unsandboxed workers' keys hold the tree's path (build.declared_key's
+--- `Spec.tree`), where the leg alone chooses it and the scheduled run
+--- moves it. That catches a test that breaks one
 --- only on a run that runs the test: every run while CI stands only on
 --- what it runs itself, and once it stands on shared verdicts, only a
 --- run where the test's key changed.

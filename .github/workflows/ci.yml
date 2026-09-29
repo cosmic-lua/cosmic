@@ -364,7 +364,8 @@
         },
 
         # To a path of this commit's and leg's own, so a test that turns
-        # on the tree's path fails some run (place-tree.sh).
+        # on the tree's path fails some run (place-tree.sh); on the macOS
+        # leg's gating runs, whose keys hold the path, of the leg's alone.
         # TODO: move it on the macOS leg alone once "check the pinned CI
         # driver" runs cosmic_ci's tests sandboxed:
         # the tree's own suites here already see it at /tree wherever it

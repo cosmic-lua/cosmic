@@ -82,9 +82,13 @@
    moves the checkout to a path chosen by the commit and the leg to catch
    one that does: a re-run meets the same path, a new commit a new one.
    A sandboxed worker sees the tree at /tree wherever it is, so only an
-   unsandboxed leg (macOS) meets the moved path, and there, under
-   `COSMIC_TEST_KEY=declared`, whose keys hold the tree's path, every test
-   runs to meet it.
+   unsandboxed leg (macOS) meets the moved path. There, under
+   `COSMIC_TEST_KEY=declared`, a key holds the tree's path, so no verdict
+   stands at a path it was not reached at: a gating run (a push, the
+   merge queue) places the tree by the leg alone, at one path from commit
+   to commit, and stands on what it ran before; the scheduled run places
+   it by the commit, and every test runs to meet the new path
+   (`.github/scripts/place-tree.sh`).
    `COSMIC_VERDICT_CACHE` names another file, `0` none; `--no-shared`
    (`COSMIC_TEST_NO_SHARED=1`) stands on none but still shares; a test's own
    `cosmic test` has none unless it names one.
