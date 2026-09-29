@@ -25,7 +25,7 @@ local function quoted(name: string): string
   return "\"" .. (name:gsub("\"", "\"\"")) .. "\""
 end
 
---- A number, right-aligned in `width` columns.
+--- `value` right-aligned in `width` columns.
 local function column(value: string, width: integer): string
   return string.rep(" ", width - #value) .. value
 end
@@ -103,9 +103,8 @@ end
 --- How many of the slowest tests to name in the report.
 local slowest_kept = 5
 
---- The slowest tests of the last-run `runs` rows, latest first by
---- their own duration -- what "which test is dragging the suite out"
---- costs before this had to be found by timing modules one by one.
+--- The slowest tests of the last-run `runs` rows, longest first, to
+--- name which tests drag the suite out.
 --- @param about whether a test module's rows are to be reported
 local function slowest(path: string, about: function(string): boolean): boolean, string
   local db, open_trouble = Sqlite.open(path, false)
@@ -227,10 +226,11 @@ end
 --- `cosmic db [path...]`: describes `o/cosmic.db`, `o/carried.db` (what
 --- the tool built from cosmic's own tree carries) and `o/build.db` under
 --- the working directory, each one there is, and how many closure stores
---- `o/stores` holds and their bytes, printing a verdict line and
---- returning the exit code. Paths narrow it to the rows about the sources under them: each
---- table's count of those rows, and the slowest of those tests. The
---- coverage rows counted are every kept run's, not only the latest.
+--- `o/stores` holds and their bytes. It prints a verdict line and
+--- returns the exit code. Paths narrow it to the rows about the sources
+--- under them: each table's count of those rows, and the slowest of
+--- those tests. The coverage rows counted are every kept run's, not only
+--- the latest.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.databases` itself -- see `build.reboot.stale_exit`
 local function run(argv: {integer:string}): integer
