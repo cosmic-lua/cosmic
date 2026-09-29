@@ -22,10 +22,9 @@
 --- `FAILED open or read`. Names it prints are escaped as GNU's are.
 ---
 --- An HMAC is made here rather than by `Hash.hmac`, which takes the whole
---- message: RFC 2104's two passes over `Stream.hashing`, so a file of any
---- size is still one pass. build/hash_test.tl holds it to `Hash.hmac`.
--- TODO: once cosmic.hash carries an incremental HMAC, use it here rather
--- than the pads of `digest_of`, and drop the block sizes in `BLOCK`.
+--- message: `Stream.hashing` given a key feeds `Hash.hmac_hasher` a chunk
+--- at a time, so a file of any size is still one pass. build/hash_test.tl
+--- holds it to `Hash.hmac`.
 
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
@@ -87,13 +86,6 @@ local ALGORITHMS <const>: {Algorithm} = {
 local SIZE <const>: {string:integer} = {
   ["md5"] = 16, ["sha1"] = 20, ["sha224"] = 28, ["sha256"] = 32, ["sha384"] = 48, ["sha512"] = 64,
   ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
-}
-
---- The block size of each algorithm's compression function, in bytes:
---- what an HMAC key is padded to (the rate of a SHA-3 sponge).
-local BLOCK <const>: {string:integer} = {
-  ["md5"] = 64, ["sha1"] = 64, ["sha224"] = 64, ["sha256"] = 64, ["sha384"] = 128, ["sha512"] = 128,
-  ["sha3-224"] = 144, ["sha3-256"] = 136, ["sha3-384"] = 104, ["sha3-512"] = 72,
 }
 
 local spec = Cli.options.hash
@@ -193,32 +185,15 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
   return sums
 end
 
---- `key` with every byte xor `mask`.
-local function xor_with(key: string, mask: integer): string
-  return (key:gsub(".", function(c: string): string
-    return string.char(c:byte() ~ mask)
-  end))
-end
-
 --- The lower-case hex digest, or HMAC when `key` is given, of everything
 --- `reader` yields, a chunk at a time; nil and why when it fails.
 local function digest_of(reader: Stream.Reader, algorithm: Algorithm, key: string | nil): string | nil, string
-  local inner, why = Stream.hashing(algorithm)
+  local inner, why = Stream.hashing(algorithm, key)
   if inner == nil then return nil, why end
-  local outer_pad: string
-  if key ~= nil then
-    local block = BLOCK[algorithm]
-    local padded = #key > block and Hash.digest(algorithm, key) or key
-    padded = padded .. string.rep("\0", block - #padded)
-    outer_pad = xor_with(padded, 0x5c)
-    local ok, wrote = inner:write(xor_with(padded, 0x36))
-    if not ok then return nil, wrote end
-  end
   local copied, trouble = Stream.copy(reader, inner)
   if copied == nil then return nil, trouble end
   local raw, finished = inner:digest()
   if raw == nil then return nil, finished end
-  if key ~= nil then raw = Hash.digest(algorithm, outer_pad .. raw) end
   return Codec.hex(raw), ""
 end
 
