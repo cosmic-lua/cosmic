@@ -22,6 +22,8 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local exit_status = require("build.exit_status")
+local verb_list = require("build.verb_list")
+local verb_spec = require("build.verb_spec")
 local verdict = require("build.verdict")
 
 local log = verdict.log
@@ -80,7 +82,16 @@ local function verb_help(verbs: {string}): string
   return table.concat(lines, "\n")
 end
 
-local help_suffix = [[
+-- TODO: state the rest of what each verb takes (the first paragraph's
+-- verbs, `docs`, `help`, `refresh` and `bom`) as `Spec.takes` too, once
+-- `cosmic help` may change: they are grouped and ordered by hand here
+-- (`fix`, `build` and `todos` share a phrase, `help` comes before `bom`),
+-- so a byte-identical help keeps them prose.
+-- TODO: drop `Spec.prose_rank` and the line breaks inside `Spec.exits`
+-- once `cosmic help` may change: the sentences keep the order (`time`,
+-- `rand`, `fetch`) and wrapping they were written with, which a rewrap
+-- in verb_list order would move.
+local help_head = [[
 Lua's `io`, `os`, and `debug` are not present; code that reaches for
 one is told the replacement for the very field it used -- by the
 compiler, or at run time by a chunk `load` was handed. `io` is
@@ -94,8 +105,14 @@ A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
 sources whose rows to count. `docs` takes words to search for instead,
-`sql` one statement, `json` a path and a file, `hash` the files to digest, `codec` an encoding and a file, `archive` a subcommand and its paths, `fetch` a URL, `time` a subcommand and its times, `rand` a subcommand and its words, `help` a verb, `refresh` the datasets to fetch,
+]]
+
+local help_tail = [[
+`help` a verb, `refresh` the datasets to fetch,
 and `bom` nothing.
+]]
+
+local help_middle = [[
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
 operator and bracket, the spacing around each, and two columns of
@@ -116,25 +133,61 @@ copied out as the bytes it was read from. Lining those up is a
 judgement about a whole line, which is the author's here, not the
 tool's.
 
-Every verb but `json`, `hash`, `codec`, `archive`, `time`, `rand` and `fetch` ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
+]]
+
+local help_verdict = [[
+ ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
 (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
 its command line was refused -- an option, an argument or a verb it
 does not know; 3 when the tool is older than the tree and did not
 rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file
 run, `--standalone` and `-e` are not verbs of that kind: each prints
 only what its program prints and exits with what it returns.
-`--version` is not one either: it prints its one line. `json` prints its
-value and nothing after, for a pipe, and exits 0 when it found the path, 1
-when the path is not there, 2 for a command line or a text it refused. `hash` prints digests,
-and exits 1 when a `--check` fails. `codec`
-prints its text or bytes and nothing after, and exits 0 or 2. `archive` prints its
-listing or the paths it wrote, and exits 0, 1 or 2 as `json` does. `time` prints its answer
-likewise, exiting 1 when an `add` has none.
-`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its
-command line or a write fails.
-`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when
-the fetch failed, 2 for a command line or URL it refused.
-]]
+`--version` is not one either: it prints its one line.]]
+
+--- `a`, `b` and `c`: the words in backticks, the last after "and".
+local function listed(names: {string}): string
+  local quoted: {string} = {}
+  for _, name in ipairs(names) do
+    quoted[#quoted + 1] = "`" .. name .. "`"
+  end
+  if #quoted < 2 then
+    return table.concat(quoted)
+  end
+  local last = table.remove(quoted)
+  return table.concat(quoted, ", ") .. " and " .. last
+end
+
+--- The closing prose of `cosmic help`: the parts of it that say what
+--- each verb takes and how a bare one exits come from the specs
+--- (build/verb_spec.tl), the rest is written here.
+--- @param specs every listed verb's spec, in help's order
+local function help_suffix(specs: {verb_spec.Spec}): string
+  local takes: {string} = {}
+  local bare: {verb_spec.Spec} = {}
+  local rank: {verb_spec.Spec:integer} = {}
+  for place, spec in ipairs(specs) do
+    if spec.takes ~= nil then
+      takes[#takes + 1] = "`" .. spec.name .. "` " .. spec.takes
+    end
+    if spec.bare then
+      bare[#bare + 1] = spec
+      rank[spec] = spec.prose_rank or place
+    end
+  end
+  table.sort(bare, function(a: verb_spec.Spec, b: verb_spec.Spec): boolean
+    return rank[a] < rank[b]
+  end)
+  local names: {string} = {}
+  local sentences = ""
+  for _, spec in ipairs(bare) do
+    names[#names + 1] = spec.name
+    local sentence = spec.exits or ""
+    sentences = sentences .. (sentence:sub(1, 1) == "\n" and "" or " ") .. sentence
+  end
+  return help_head .. table.concat(takes, ", ") .. ", " .. help_tail .. help_middle
+    .. "Every verb but " .. listed(names) .. help_verdict .. sentences .. "\n"
+end
 
 --- The directory a path sits in, absolute.
 local function directory_of(path: string): string | nil, string
@@ -439,103 +492,47 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     log:verdict("help", true, "1 verb, " .. clock.took(started))
     return 0
   end
-  log:say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix)
+  log:say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix(verb_list.specs()))
   log:verdict("help", true, #Cli.order .. " verbs, " .. clock.took(started))
   return 0
 end
 
---- Each verb that ends in a verdict line, by the word that names it.
-local verbs: {string: function({integer:string}): integer} = {
-  help = function(argv: {integer:string}): integer
+--- `help` is dispatch's own: it prints the specs of every other verb.
+local help_spec: verb_spec.Spec = {
+  name = "help",
+  run = function(argv: {integer:string}): integer
     return help(argv, nil)
   end,
-  test = function(argv: {integer:string}): integer
-    return require("build.test").run(argv)
-  end,
-  fix = function(argv: {integer:string}): integer
-    return require("build.fix").run(argv)
-  end,
-  db = function(argv: {integer:string}): integer
-    return require("build.databases").run(argv)
-  end,
-  build = function(argv: {integer:string}): integer
-    return require("build.embed").run(argv)
-  end,
-  docs = function(argv: {integer:string}): integer
-    return require("build.docs").run(argv)
-  end,
-  uses = function(argv: {integer:string}): integer
-    return require("build.docs").run_uses(argv)
-  end,
-  todos = function(argv: {integer:string}): integer
-    return require("build.todos").run(argv)
-  end,
-  -- The rows are the running binary's, so in cosmic's own tree a tool
-  -- older than the tree rebuilds first, as `docs` does.
-  bom = function(argv: {integer:string}): integer
-    local stale = require("build.reboot").stale_exit(argv)
-    if stale ~= nil then
-      return stale
-    end
-    return require("build.bom").run(argv)
-  end,
-  -- What it copies is a binary, not the tree, but its own code is the
-  -- tree's: a stale tool rebuilds first, as `bom` does.
-  refresh = function(argv: {integer:string}): integer
-    local stale = require("build.reboot").stale_exit(argv)
-    if stale ~= nil then
-      return stale
-    end
-    return require("build.refresh").run(argv)
-  end,
-  -- Never stale-checked, unlike `db`: a staleness check stages the tree,
-  -- and this verb reads o/ and nothing else under it. It gives its own
-  -- verdict on every exit, a usage error included, so the check main
-  -- runs after a verdictless exit 2 never runs for it
-  -- (build/verbs_tool_test.tl's test_sql_never_stages_the_tree).
-  sql = function(argv: {integer:string}): integer
-    return require("build.sql").run(argv)
-  end,
-  -- Reads a document it is given, never the tree, so never stale-checked
-  -- either, and prints no verdict (`bare`).
-  json = function(argv: {integer:string}): integer
-    return require("build.json").run(argv)
-  end,
-  -- Draws from the OS entropy source, or a seed on request; reads no
-  -- tree, so never stale-checked, and prints no verdict (`bare`).
-  rand = function(argv: {integer:string}): integer
-    return require("build.rand").run(argv)
-  end,
-  -- Reads the files it is given, never the tree: never stale-checked,
-  -- and prints no verdict (`bare`).
-  hash = function(argv: {integer:string}): integer
-    return require("build.hash").run(argv)
-  end,
-  -- Reads an archive it is given, never the tree: not stale-checked,
-  -- and no verdict (`bare`).
-  archive = function(argv: {integer:string}): integer
-    return require("build.archive").run(argv)
-  end,
-  -- Reads a URL it is given, never the tree: never stale-checked, and
-  -- prints no verdict (`bare`). build/fetch.tl says why.
-  fetch = function(argv: {integer:string}): integer
-    return require("build.fetch").run(argv)
-  end,
-  -- Reads the clock and the zones the binary carries, never the tree:
-  -- never stale-checked, and no verdict line (`bare`).
-  time = function(argv: {integer:string}): integer
-    return require("build.time").run(argv)
-  end,
-  -- Reads what it is given, never the tree, and prints no verdict (`bare`).
-  codec = function(argv: {integer:string}): integer
-    return require("build.codec").run(argv)
-  end,
+  bare = false,
 }
 
---- The verbs that end in no verdict line, their output being data for a
---- pipe: their exit status is the verdict, and a usage error is
---- complained about and nothing more. build/json.tl says why.
-local bare: {string:boolean} = { json = true, hash = true, codec = true, archive = true, time = true, rand = true, fetch = true }
+--- The spec of the verb a command line's first word names, loading the
+--- module of that verb alone, or nil for a word that names none. Every
+--- verb but the bare ones (`Spec.bare`) ends in a verdict line: their
+--- exit status is the verdict, and a usage error is complained about and
+--- nothing more. build/json.tl says why.
+local function spec_of(word: string): verb_spec.Spec | nil
+  if word == "help" then
+    return help_spec
+  end
+  local found = verb_list.find(word)
+  if found ~= nil and found.fresh then
+    local inner = found.run
+    -- A tool older than the tree rebuilds first (`build.reboot`).
+    found = {
+      name = found.name,
+      run = function(argv: {integer:string}): integer
+        local stale = require("build.reboot").stale_exit(argv)
+        if stale ~= nil then
+          return stale
+        end
+        return inner(argv)
+      end,
+      bare = found.bare,
+    }
+  end
+  return found
+end
 
 --- What a verdict line a verb did not give itself says of its exit code.
 local function detail_of(code: integer): string
@@ -590,21 +587,25 @@ function dispatch.main(argv: {integer:string}): integer
   if word == nil or word == "-h" or word == "--help" then
     verb = "help"
   end
-  local chosen = verbs[verb]
+  local chosen = spec_of(verb)
   if chosen ~= nil and verb ~= "help" and asks_help(argv, Cli.options[verb] or {}) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
     verb = "help"
-    chosen = function(line: {integer:string}): integer
-      return help(line, asked)
-    end
+    chosen = {
+      name = "help",
+      run = function(line: {integer:string}): integer
+        return help(line, asked)
+      end,
+      bare = false,
+    }
   end
   if chosen ~= nil then
     -- A verb gives its own verdict wherever it has one to give; an exit
     -- it left without one -- its command line refused, a setup failure,
     -- a stale tool -- still ends in one here.
-    local code = chosen(argv)
-    if code == 2 and not verdict.given and not bare[verb] then
+    local code = chosen.run(argv)
+    if code == 2 and not verdict.given and not chosen.bare then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
       -- tool refuses: it rebuilds and runs the line again here instead.
@@ -619,7 +620,7 @@ function dispatch.main(argv: {integer:string}): integer
         code = stale
       end
     end
-    if not verdict.given and not bare[verb] then
+    if not verdict.given and not chosen.bare then
       log:verdict(verb, code == 0, detail_of(code))
     end
     return code
