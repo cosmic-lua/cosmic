@@ -47,7 +47,13 @@ local function write(fields: {string}): string | nil
     local method: Zip.Method = name == "store" and "store" or "deflate"
     local ok: boolean
     if kind == "file" then
-      ok = zw:add_file(path, body, { method = method })
+      -- Half the bodies go in streamed, with a data descriptor: the
+      -- reader, which goes by the central directory, must read both alike.
+      if #body % 2 == 0 then
+        ok = zw:add_file(path, Stream.from_string(body), { method = method })
+      else
+        ok = zw:add_file(path, body, { method = method })
+      end
     else
       ok = zw:add_dir(path)
     end

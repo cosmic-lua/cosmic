@@ -391,12 +391,13 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   local abort: function(): boolean, string
   if format == "zip" then
     local writer = Zip.writer(file, { deterministic = reproducible })
-    add_file = function(name: string, full: string, mode: integer, mtime: integer, _size: integer): boolean, string
-      -- TODO: once Zip.Writer takes a Stream.Reader body, as Tar.Writer
-      -- does, stream a file in rather than reading it whole.
-      local data, why = Fs.read(full)
-      if data == nil then return false, why end
-      return writer:add_file(name, data, { mode = mode, mtime = mtime })
+    add_file = function(name: string, full: string, mode: integer, mtime: integer, size: integer): boolean, string
+      local body, why = Stream.open(full)
+      if body == nil then return false, why end
+      local ok, added = writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
+      local _, _ = body:close()
+      if not ok then return false, added end
+      return true, ""
     end
     add_dir = function(name: string, mode: integer, mtime: integer): boolean, string
       return writer:add_dir(name, { mode = mode, mtime = mtime })
@@ -416,7 +417,20 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
     add_file = function(name: string, full: string, mode: integer, mtime: integer, size: integer): boolean, string
       local body, why = Stream.open(full)
       if body == nil then return false, why end
-      return writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
+      -- Tar reads only the size it was given, so the body is not read
+      -- to its end: close it here, on every path.
+      local ok, added = writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
+      -- A file that grew since it was stat'd has bytes past `size` that
+      -- tar would silently drop: refuse it, as the zip branch does.
+      local more, more_why: string, string = nil, ""
+      if ok then more, more_why = body:read(1) end
+      local _, _ = body:close()
+      if not ok then return false, added end
+      if more == nil and more_why ~= "" then return false, full .. ": " .. more_why end
+      if more ~= nil and more ~= "" then
+        return false, full .. ": grew past " .. tostring(size) .. " bytes as it was read"
+      end
+      return true, ""
     end
     add_dir = function(name: string, mode: integer, mtime: integer): boolean, string
       return writer:add_dir(name, { mode = mode, mtime = mtime })
