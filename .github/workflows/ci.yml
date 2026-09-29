@@ -1,24 +1,20 @@
 # Flow-style YAML, held by build/workflows_test.tl to what YAML and
 # JSON5 read alike; a longer script lives under .github/scripts/.
+# ci/README.md's "the workflow" says why the caches, the container and
+# the concurrency are as they are.
 {
   name: "ci",
 
   "on": {
-    # The merge queue's own gh-readonly-queue/ branches run as merge_group:
-    # a push run there too would share its concurrency group and cancel it,
-    # which the queue reads as a failed check.
-    push: {
-      "branches-ignore": [
-        "gh-readonly-queue/**",
-      ],
-    },
-    # main takes changes only through the merge queue, which waits on these
-    # checks for the queued merge commit before it lands.
+    # The merge queue's gh-readonly-queue/ branches run as merge_group; a
+    # push run there would share its concurrency group and cancel it.
+    push: {"branches-ignore": ["gh-readonly-queue/**"]},
+    # main takes changes only through the merge queue, which waits on
+    # these checks for the queued merge commit.
     merge_group: {},
     workflow_dispatch: {},
-    # Every day, main's whole scope again, every test run whatever stood
-    # (see COSMIC_CI_EVENT): what a key does not answer for -- the clock,
-    # a flaky test -- is run where no change prompts it.
+    # Every day, main's whole scope, every test run whatever stood
+    # (COSMIC_CI_EVENT): for what no key answers for (the clock, a flake).
     # TODO: tell the maintainers of a red scheduled run: GitHub notifies
     # only whoever last edited this cron line. A step that opens (or
     # comments on) an issue when a scheduled run fails would, once one is
@@ -28,65 +24,42 @@
 
   permissions: {contents: "read"},
 
-  # A newer push supersedes a branch's run, but every main run finishes
-  # (its prerelease is published only from a completed run), one at a
-  # time: main's pushes share one group, so the caches only they save
-  # (see "restore test verdicts") land in commit order, and a restore's
-  # newest entry is never an older commit's saved late. GitHub keeps one
-  # run pending per group and cancels the one pending before it when a
-  # third arrives, so a commit that lands while main's run is busy and
-  # another is waiting gets no run, and no prerelease; a pin moves to a
-  # later one. The scheduled run takes a group of its own: pending
-  # behind a push, the next push would cancel it, and it is the one run
-  # of every test; running beside main's pushes, its saves can land
-  # after a newer commit's, which costs the next run only the verdicts
-  # and compiles that commit moved, never a wrong one: each row is keyed
-  # by its own inputs. A manual run takes a group of its own too, one
-  # per ref: it saves nothing, so in main's group it could cancel a
-  # pending push, whose commit then saved nothing, or be cancelled by
-  # one; a second manual run of a branch cancels the first, as a push
-  # does.
+  env: {
+    # A branch push is `light`: each leg builds and runs its native
+    # suite, one leg the format check too. The merge queue, main and a
+    # manual run are `full`: the checked core, the product and portable
+    # suites, the regressions, attestation and provenance.
+    COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
+    # Whether this run saves the caches every run restores: a push to
+    # main and the scheduled run, no other. The driver reads neither.
+    COSMIC_CI_SAVES: "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') }}",
+  },
+
+  # A newer push supersedes a branch's run. Main's pushes run one at a
+  # time and to the end, so their saves land in commit order and each
+  # completed run can publish a prerelease; the scheduled run and a
+  # manual one take groups of their own, so no push cancels them or is
+  # cancelled by them.
   concurrency: {
     group: "${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event_name || 'run' }}-${{ github.ref }}",
     "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
   },
 
   jobs: {
-    # Every leg independently builds the complete product, executes the same
-    # Cosmic bytes in its platform environment, and uploads them for the join.
+    # Every leg builds the complete product, runs the same Cosmic bytes
+    # in its platform environment, and uploads them for the join.
     platform: {
-      # The check is the leg's own name (linux-x86_64, ...), so rulesets can
-      # require it without spelling out the matrix.
+      # The leg's name is the check's, so a ruleset needs no matrix.
       name: "${{ matrix.name }}",
-      defaults: {
-        run: {
-          "working-directory": "ci",
-          shell: "${{ matrix.shell }}",
-        },
-      },
+      defaults: {run: {"working-directory": "ci", shell: "${{ matrix.shell }}"}},
       strategy: {
         "fail-fast": false,
         matrix: {
           include: [
-            # The Linux legs run in images ci-images.yml builds from
-            # ci/images/ and publishes to GHCR, named here by digest: the
-            # tools the actions and the build need are already installed, so
-            # a run installs nothing from a package mirror, and a runner image
-            # update changes only the kernel under them. The ubuntu digest is
-            # the multi-arch index's, which serves both x86_64 and aarch64;
-            # moving a digest is a deliberate edit, after ci-images-publish.yml
-            # publishes a new one (its run summary gives it). The packages
-            # are private, so the pull logs in with this job's token, which
-            # needs packages: read (see the job's permissions). (macOS
-            # cannot be containerized; that leg takes the image macos-15
-            # names, and runs its steps on it with `sh`.)
-            #
-            # A Linux leg's container is started by a step, not by the
-            # job's `container:` (see "start the leg's container", below):
-            # its `run` steps run in it through `leg-shell`
-            # (.github/scripts/leg-container.sh) as `runner`, an
-            # unprivileged user of the host runner's uid, whom `prepare`
-            # creates, as root, first.
+            # The Linux legs run in ci/images/'s images (ci-images.yml),
+            # pinned by digest; their `run` steps run in the container as
+            # an unprivileged `runner` of the host runner's uid, through
+            # `leg-shell` (.github/scripts/leg-container.sh).
             {
               name: "linux-x86_64",
               runner: "ubuntu-24.04",
@@ -104,13 +77,7 @@
               prepare: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
               shell: "leg-shell {0}",
             },
-            {
-              name: "macos-aarch64",
-              runner: "macos-15",
-              target: "aarch64-macos",
-              image: "",
-              shell: "sh",
-            },
+            {name: "macos-aarch64", runner: "macos-15", target: "aarch64-macos", image: "", shell: "sh"},
             {
               name: "alpine-x86_64",
               runner: "ubuntu-24.04",
@@ -123,165 +90,69 @@
         },
       },
       "runs-on": "${{ matrix.runner }}",
-      permissions: {
-        contents: "read",
-        # To pull the Linux legs' images from GHCR.
-        packages: "read",
-      },
+      # packages: to pull the Linux legs' images from GHCR.
+      permissions: {contents: "read", packages: "read"},
       "timeout-minutes": 45,
       env: {
         COSMIC_WORKER: "${{ matrix.name }}",
         TARGET: "${{ matrix.target }}",
-        # A branch push (a PR's run) is `light`: each leg builds and runs
-        # its native suite, one leg the format check (COSMIC_CI_FORMAT)
-        # too, and stops.
-        # The merge queue, main and a manual run are `full`: the checked
-        # core, the product and portable suites, the regressions,
-        # attestation and provenance, so nothing lands on main without all
-        # of it.
-        COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
-        # The checked core's whole suite (two to three minutes) runs on
-        # linux-x86_64 alone; every leg still builds and verifies the
-        # checked core. See orchestration.tl's checked_suite.
+        # The checked core's suite runs on one leg and the format check
+        # on another, so the longest leg does not run both
+        # (orchestration.tl's checked_suite and format_check).
         COSMIC_CI_CHECKED_SUITE: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
-        # The fixed-point regression (each of its tests rebuilds the
-        # product twice from a fresh tree: 70 to 150 s, the slowest
-        # fixture on every leg) runs on linux-aarch64 alone, the leg
-        # with the most slack, on a gating run: the compiler's fixed
-        # point is Teal compiling Teal, the same on every platform; the
-        # scheduled run keeps it on every leg. See orchestration.tl's
-        # phase_fixtures.
+        # The slowest fixture, the same on every platform: one leg on a
+        # gating run, every leg on the scheduled run (phase_fixtures).
         COSMIC_CI_FIXED_POINT: "${{ (matrix.name == 'linux-aarch64' || github.event_name == 'schedule') && 'run' || 'skip' }}",
-        # So does the format check (`fix --check`, which type-checks the
-        # tree too), on another leg: a tree formats the same on every
-        # platform, its C checked for x86_64-linux-musl on every host
-        # (build/c/init.tl), and linux-x86_64, which runs the checked
-        # suite, is a full run's longest leg, if only just (20:53 against
-        # macos-aarch64's 20:19 in run 36340559325). See orchestration.tl's
-        # format_check.
         COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
-        # A Linux leg fails where the sandbox probe finds a confined
-        # test's parts do not all hold: its container is given what they
-        # need (see "start the leg's container"). See orchestration.tl's
-        # phase_sandbox. Its suites run each test's worker sandboxed
-        # (COSMIC_TEST_SANDBOX=1, build/test_sandbox.tl), and fail where
-        # none can be; the macOS leg's run unsandboxed.
+        # A Linux leg fails where a confined test's sandbox does not hold
+        # (phase_sandbox) and runs its suites sandboxed; macOS cannot.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
-        # The macOS leg, which has no sandbox, keys its suites' verdicts
-        # by what each test declares all the same
-        # (COSMIC_TEST_KEY=declared, build/test.tl's `key_mode`): nothing
-        # holds its workers to their declarations, but a Linux leg's
-        # sandbox holds the same test, under the same declaration and
-        # closure, which the key holds, to them, so a declaration that
-        # lies fails there before it merges. See orchestration.tl's
-        # `stands`.
+        # macOS keys verdicts by what each test declares all the same
+        # (COSMIC_TEST_KEY=declared): a Linux leg's sandbox holds the
+        # same declaration, so one that lies fails there first.
         COSMIC_CI_DECLARED_KEYS: "${{ matrix.image && '0' || '1' }}",
-        # Which event started the run: every leg's suites stand on the
-        # verdicts their tests' declared inputs key (build/declared_key.tl),
-        # this leg's earlier runs' among them (restored below), in a
-        # push's run, main's and a branch's alike, and the merge queue's; a
-        # manual one and the scheduled one run every test. See
-        # orchestration.tl's `stands`.
+        # Pushes and the merge queue stand on verdicts; a manual and the
+        # scheduled run run every test (orchestration.tl's `stands`).
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        # The merge queue's base commit, which its run compares
-        # build/harness_epoch.tl against: a change that moves it runs
-        # every test (--all), since no key holds the harness's code, only
-        # the epoch that file records. Empty for any other event. See
-        # orchestration.tl's `stands`.
+        # The queue's base, against which a moved build/harness_epoch.tl
+        # runs every test; empty for any other event.
         COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
       },
       steps: [
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
-          # The merge queue's merge and its base, its parent, which
-          # COSMIC_CI_BASE_SHA names; one commit for any other event.
+          # The merge queue's merge and its parent (COSMIC_CI_BASE_SHA).
           with: {"fetch-depth": "${{ github.event_name == 'merge_group' && 2 || 1 }}"},
         },
 
-        # spawn's sandbox (core/process.h's `Sandbox`) confines a test's
-        # child in a new user namespace, where it mounts, unveils and
-        # goes offline. A Linux leg's container needs three relaxations
-        # for it, and no more. The reports of a sandbox-options job (since
-        # removed; it tried each image on its host, as uid 65534, under
-        # Docker's defaults, seccomp narrowed or unconfined and AppArmor
-        # unconfined, with the switch below on and off) found every part
-        # -- landlock, pledge, offline, unveil, unveil+offline -- held
-        # with all three in the ubuntu and alpine images on ubuntu-24.04
-        # (x86_64) and in the ubuntu image on ubuntu-24.04-arm (aarch64;
-        # run 36251237863, job 108429542562), and each item below says
-        # what failed without it. The runners are ephemeral VMs,
-        # discarded after the job.
-        #
-        # 1. The host's kernel.apparmor_restrict_unprivileged_userns=1
-        # (the GitHub hosts set it) withholds a new user namespace's
-        # capabilities from a process no AppArmor profile lets have
-        # them: with it on, no container option let any part that needs
-        # a namespace hold. It is the host's, so
-        # .github/scripts/leg-container.sh turns it off before the
-        # container starts; a kernel without the switch has no such
-        # restriction to turn off.
-        #
-        # 2. Docker's default seccomp profile allows unshare, mount,
-        # umount2 and mount_setattr only to a container holding
-        # CAP_SYS_ADMIN, and pivot_root to none, so a new user namespace
-        # is refused with EPERM. The profile here is that default with
-        # just those five calls allowed (.github/scripts/seccomp-profile.sh
-        # narrows .github/seccomp/default.json, moby's default at a pinned
-        # commit, checked by its sha256), not seccomp=unconfined, which
-        # held too but drops every other rule of the filter.
-        #
-        # 3. Docker's default AppArmor profile (docker-default) denies
-        # mount: with the narrowed profile alone, unveil still failed
-        # with EACCES. So the container runs unconfined by AppArmor.
-        #
-        # Each of these is .github/scripts/leg-container.sh's, and the
-        # profile .github/scripts/seccomp-profile.sh's, so the leg's
-        # container is named by those files' hash (see "name the leg's
-        # container", below), which every sandboxed verdict's key holds.
-        #
-        # 4. Docker's masked /proc paths keep a confined child from a
-        # procfs of its own; .github/scripts/leg-container.sh starts
-        # every leg's container with systempaths=unconfined, and says why.
+        # The platform job's sandbox: spawn's sandbox needs a new user
+        # namespace, which a Linux leg's container gets only with the
+        # host's userns restriction off, a seccomp profile allowing
+        # unshare, mount, umount2, mount_setattr and pivot_root, no
+        # AppArmor profile, and systempaths=unconfined; all of it is
+        # leg-container.sh's and seccomp-profile.sh's, which name the host
+        # ("name the leg's host"). A step, not `container:`, since the
+        # runner starts that before any step could set up the host.
         # TODO: run the container under an AppArmor profile of
         # docker-default's with mount allowed in place of
         # apparmor=unconfined, if the runner lets a step load one
         # (apparmor_parser, as root, before the container starts) and
         # the probe finds every part holds under it.
-        #
-        # The runner creates a job's `container:` before any step runs,
-        # so neither the switch nor the profile's file could be set up
-        # for it: the container is started here instead, by
-        # .github/scripts/leg-container.sh, with --init, as the job's
-        # was (a process-group kill leaves orphaned descendants, and the
-        # suite checks they are gone, not zombies nobody collects). From
-        # here on a `run` step's shell is `leg-shell` (matrix.shell),
-        # which runs it there; the actions (checkout, caches, uploads)
-        # run on the host, as the host's `runner`, whose uid the
-        # container's `runner` shares, so no hand-over is needed between
-        # them.
         {
           name: "start the leg's container",
           if: "matrix.image",
           "working-directory": ".",
           shell: "sh",
-          env: {
-            IMAGE: "${{ matrix.image }}",
-            TOKEN: "${{ secrets.GITHUB_TOKEN }}",
-            ACTOR: "${{ github.actor }}",
-          },
+          env: {IMAGE: "${{ matrix.image }}", TOKEN: "${{ secrets.GITHUB_TOKEN }}", ACTOR: "${{ github.actor }}"},
           run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
         },
 
+        # As root in the container: `runner` takes the workspace's owner's
+        # uid, so it owns what the host's actions write.
         {
           name: "create the unprivileged builder",
           if: "matrix.image",
           "working-directory": "/",
-          # Creating the unprivileged builder (matrix.prepare) needs
-          # root in the container. `runner`'s uid is read from the
-          # workspace directory, so it matches the owner of the
-          # checkout, RUNNER_TEMP, and the runner's own file-command
-          # files, which the container holds at their host paths. Every
-          # later `run` step on this leg runs as `runner` (matrix.shell).
           shell: "leg-shell --root {0}",
           run: "${{ matrix.prepare }}",
         },
@@ -297,111 +168,12 @@
           },
         },
 
-        # A fresh checkout starts cold: every leg would recompile vendor/
-        # and core/ from nothing even when neither changed. This restores
-        # zig's caches from outside the checkout, where bin/zig uses them in
-        # place: its zig-cache the project cache (COSMIC_ZIG_CACHE_SEED,
-        # cosmic_ci/orchestration.tl), its zig-global zig's global cache
-        # (COSMIC_ZIG_GLOBAL_CACHE, set with XDG_CACHE_HOME below), and saves
-        # them back once every native build this job runs has had a chance
-        # to update them. zig keys what it compiles by the path of what it
-        # compiles and of its include directories, so the cache is at the
-        # same path each run, unlike the tree (below), and build.zig compiles
-        # vendor/ and the tree's own C alike from copies in it (`Own`).
-        # The key
-        # includes `matrix.name`, one entry per leg, even though
-        # linux-x86_64 and alpine-x86_64 target the same
-        # `x86_64-linux-musl` triple: sharing a key between two legs that
-        # run in parallel means only one of them can ever win the save (the
-        # other fails with "another job may be creating this cache" and its
-        # own compile is discarded every time), leaving it permanently
-        # stuck restoring a cache some OTHER host produced, which zig
-        # reuses far less effectively than one it built itself. A key per
-        # leg costs a bit of duplicate cache storage in exchange for every
-        # leg reliably saving and reusing its own.
-        # A saved entry is never replaced under its own key, so every save
-        # takes a key of its own:
-        #
-        #     zig-build-<leg>-<vendor>-<scope>-<core>-<run>-<attempt>
-        #
-        # `vendor` hashes what compiles the vendored libraries (the pin,
-        # build.zig and build/zig.tl, which chooses its flags, vendor/,
-        # patch/ and its applier, the configuration headers they read
-        # from core/) but not the trees zig never compiles -- tl, which
-        # only the boot bridge runs, tzdata and cacert -- so a change to
-        # one of them (8 of the 17 commits to vendor/ or patch/ since
-        # 09-01) moves no entry; `core` what compiles the core's
-        # own C (core/'s .c, .h and .zig, test/portable's .c): nothing
-        # else under core/, whose tests build.zig never reads. `scope` is
-        # `full`, where assemble ("build local portable and checked
-        # artifacts") passed, all of it -- the format and codesign checks,
-        # the fixtures, the checked core and its suite, the hook cores --
-        # the only scope saved now; `light`, an entry of a run it did not
-        # pass, saved before only main saved, is still restored last. It
-        # comes before `core` so that "a full entry for this vendor part"
-        # is a prefix. Only which entry is
-        # restored turns on the key: zig's cache is keyed by content, so
-        # whatever is restored, the build compiles what it lacks.
-        #
-        # The restore takes the newest entry for this vendor part --
-        # `full` with this core part, else `full`, else either -- whose
-        # vendored objects are all there, so a changed core file costs a
-        # recompile of that file (every core object, for a header). Where
-        # none has this vendor part, a run off main takes the newest entry
-        # of the leg in a second step and compiles vendor/ from what it
-        # holds; main's runs compile it from nothing (below). Two steps,
-        # since GitHub searches this ref's entries for every key before
-        # the default branch's: in one, a branch's own entry of an older
-        # vendor part, saved before only main saved, would win over
-        # main's of this one.
-        #
-        # Only a push to main and the scheduled run save (see "restore
-        # test verdicts"), a push only where assemble passed and it had
-        # nothing `full` for this vendor part, under the restore's own
-        # key, so an entry is saved once per vendor part and leg, not
-        # once per core change: main pushes moved the old key's inputs
-        # in 27 of 51 commits (09-25 21:46 to 09-27), the core part in 23
-        # and the vendor part in 5 (build.zig in 3, build/patch.tl in 2),
-        # and 3 moved the old key with nothing zig compiles. A branch's
-        # and the merge queue's runs save nothing: a branch that moves
-        # the vendor part compiles vendor/ again, from the leg's newest
-        # entry, on each push until it lands. Main's scheduled run looks
-        # its key up and restores nothing: it compiles cold, minutes no
-        # one waits on, and saves a compact `full` entry, which the day's
-        # runs restore until the vendor part moves. Since main never
-        # takes another vendor part's entry either, every entry it saves
-        # is a cold build's: about 150 MB on each Linux leg and 123 MB on
-        # macOS (runs 36268737048 and 36292711231), 0.6 GB a save for the
-        # four legs. So a day's saves are 0.6 GB for the nightly and 0.6
-        # GB for each change to the vendor part, whatever the push rate:
-        # 3.6 GB at 09-26's five. Main's pushes run one at a time (see
-        # `concurrency`), so the second of two landing back to back
-        # restores the first's entry rather than building cold beside it.
-        # The cost: a vendor change's first main run builds cold (about 5
-        # minutes more a Linux leg, 7 on macOS: runs 36292711231 against
-        # 36325134876), and a core change is compiled again,
-        # incrementally, by every run after it until the nightly save
-        # (15-29 s a leg on main's runs after one), where an eviction
-        # costs a cold build of everything to whoever meets it next (the
-        # fuzz job's checked core took 4m45s). Where assemble fails on
-        # the first main run after a vendor change, nothing is saved (a
-        # `light` entry once was), so every main run builds vendor/ cold
-        # until one passes assemble or the nightly saves; a branch stays
-        # warm through the fallback restore of another vendor part.
-        #
-        # Nor does main save where only the core part moved, though
-        # every run after such a change until the nightly compiles it
-        # again: that is up to 30 of main's commits a day (140 from
-        # 09-17 to 09-27, 17 or more on six of those days), and a whole
-        # entry is about 0.53 GB for the four legs, compressed (136-142
-        # MB a Linux leg and 118 on macOS, as run 36358036690 restored them),
-        # and more with each save, which carries what it restored: a
-        # core change writes 29-40 MB (15 compressed, for a header) for
-        # the boot's three targets alone, and assemble links more cores.
-        # A save per core change is 9-16 GB a day from main at 17-30 of
-        # them, past the repository's 10 GB, beside the verdicts' saves
-        # (8.5-13 MB a Linux leg, trimmed, from each main push that
-        # reached rows no save holds).
+        # zig's caches, restored outside the checkout at a fixed path
+        # (zig keys by path), one entry per leg, keyed
+        # zig-build-<leg>-<vendor>-<scope>-<core>-<run>-<attempt>: `vendor`
+        # hashes what compiles vendor/, `core` the core's own C. Also the
+        # runner's image (the driver check's key) and the run's start,
+        # from which a compile or verdict row counts as this run's.
         # TODO: keep a core change's compiles for main's later runs at
         # the cost of the change rather than of an entry: save beside
         # the entry restored only what the build wrote under zig-build
@@ -411,26 +183,6 @@
         # holds the day's core changes. That waits on the TODO below
         # (what a run adds when nothing moved would land in every such
         # save) and on room in the repository's cache.
-        #
-        # Before, main saved after every run and a branch wherever its
-        # exact inputs missed: 230-610 MB a leg a save (run 36322968083
-        # restored 584 MB on alpine, 347 on linux-x86_64, 323 on
-        # linux-aarch64, 234 on macOS), about 28 GB on 09-26 from main
-        # alone. The repository's cache holds 10 GB, and GitHub evicted
-        # the least recently used entries: the nightly fuzz job's zig and
-        # bootstrap caches (run 36321208908), and linux-x86_64's,
-        # linux-aarch64's and macOS's own, which run 36292711231 found
-        # under no key and compiled cold. Every save held all that was
-        # restored and more, and zig never prunes its cache, so an entry
-        # only grew: the Linux legs saved about 150 MB cold in run
-        # 36268737048, and twelve main runs later run 36325134876 restored
-        # 369 MB on linux-x86_64 and 607 MB on alpine. Alpine's was the
-        # larger only for being older: the other legs' were evicted, and
-        # started cold again, before run 36292711231, while alpine's
-        # carried on. Nor can a sweep prune one: a build that finds its
-        # outputs up to date writes nothing (h/timestamp aside), so an
-        # entry it used keeps the times the restore gave it, as one it
-        # did not does. The nightly cold build is what bounds an entry.
         # TODO: find what a run adds to the cache when its inputs match
         # the entry it restored, and compiles again on every such run:
         # linux-x86_64's grew 323 -> 347 -> 369 -> 388 MB over runs
@@ -441,13 +193,6 @@
         # about 3 s to compile here); a step listing what the build wrote
         # under zig-build (find -newer a stamp made after the restore)
         # would say.
-        #
-        # The same step names the runner's image, which the CI driver
-        # check's key holds (below), and takes the time from which on a
-        # row of the compiles and parses, or a test verdict, counts as
-        # this run's: the builds and the suites stamp what they use by
-        # the same clock, the container's being the host's, and what is
-        # restored below was stamped by an earlier run.
         {
           name: "name the zig build cache, and the run's start",
           id: "names",
@@ -455,6 +200,9 @@
           run: "echo \"vendor=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'build/zig.tl', 'vendor/**', '!vendor/tl/**', '!vendor/tzdata/**', '!vendor/cacert/**', 'patch/**', '!patch/tl/**', 'build/patch.tl', 'core/ares_config.h', 'core/curl_config.h', 'core/mbedtls_cosmic_config.h', 'core/xz_config/**', 'core/darwin-compat/**') }}-\" >> \"$GITHUB_OUTPUT\"; echo \"core=${{ hashFiles('core/*.c', 'core/*.h', 'core/*.zig', 'test/portable/*.c') }}\" >> \"$GITHUB_OUTPUT\"; echo \"image=${ImageOS:-}-${ImageVersion:-}\" >> \"$GITHUB_OUTPUT\"; echo \"since=$(date +%s)\" >> \"$GITHUB_OUTPUT\"",
         },
 
+        # The newest entry for this vendor part: `full` with this core
+        # part, else `full`, else any. The scheduled run restores nothing
+        # and builds cold, which bounds an entry's size.
         {
           name: "restore zig build outputs",
           id: "zig-cache-restore",
@@ -463,12 +211,12 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
-            # On the scheduled run, the key, which the save takes, and
-            # nothing restored.
             "lookup-only": "${{ github.event_name == 'schedule' }}",
           },
         },
 
+        # Off main, the leg's newest entry of any vendor part; a second
+        # step, since a ref's own entries are searched before main's.
         {
           name: "restore zig build outputs of another vendor part",
           if: "github.ref != 'refs/heads/main' && steps.zig-cache-restore.outputs.cache-matched-key == ''",
@@ -480,36 +228,10 @@
           },
         },
 
-        # What of the leg's host no file on it tells, which every
-        # declared-key verdict's key holds (COSMIC_HOST_ID,
-        # build/declared_key.tl's `host_identity`) and its cache is named
-        # by (.github/scripts/leg-host-id.sh): on a Linux leg, its
-        # container's image, how it is started -- the host's sysctl, the
-        # seccomp profile and every docker option, all of them
-        # leg-container.sh's and seccomp-profile.sh's, which are hashed --
-        # and the engine's version; on the macOS leg, the runner's image
-        # label, with the image's version in COSMIC_SYSTEM_ID, which only
-        # a module given the system's paths is keyed by
-        # (`system_identity`). Not ci.yml itself, whose every edit
-        # would move it. Its verdict cache is named by what else of the
-        # host every key holds and differs between runners of one leg
-        # (`verdicts`, .github/scripts/host-features.sh): the processor
-        # features a core chooses code by (build/declared_key.tl's
-        # `dispatched`, and none of the rest of /proc/cpuinfo's flags,
-        # which split hosted runners on what nothing reads) and the
-        # kernel's release and version, which the container's /proc
-        # tells `host_identity` from the runner's kernel -- on macOS,
-        # the system volume's SystemVersion.plist, which names its build.
-        # Named by the container alone, a run restored the newest cache
-        # of any runner of the leg, and none of its verdicts stood
-        # where that runner's host differed: main's run 36320764857
-        # stood 0 on linux-x86_64, where its other Linux legs and two
-        # branch pushes stood 1506 on the same cache. Its runners had the
-        # same image and kernel release; the processor's features, which
-        # no log showed, are the likeliest difference. The step was "name
-        # the leg's container", as leg-container.sh still calls it until
-        # its next edit: an edit to it moves every Linux leg's
-        # COSMIC_HOST_ID, and so its verdicts, which this file's do not.
+        # What of the host every declared-key verdict's key holds
+        # (COSMIC_HOST_ID): the container's image and options, or macOS's
+        # image; and the verdict cache's name, which adds the processor
+        # features and kernel, so a leg restores only its own host's.
         {
           name: "name the leg's host",
           id: "host-id",
@@ -518,42 +240,9 @@
           run: "sh .github/scripts/leg-host-id.sh \"${{ matrix.name }}\" \"${{ matrix.image }}\" \"${{ matrix.runner }}\" \"${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}\" \"$(sh .github/scripts/host-features.sh)\"",
         },
 
-        # The test verdicts this leg reached before, on the same host
-        # (COSMIC_VERDICT_CACHE, .github/scripts/cosmic-driver.sh, and the
-        # portable suite's file beside it, orchestration.tl's
-        # `suite_verdicts`): the newest main saved under its name, from a
-        # host of the same features (host-features.sh), which every leg
-        # of every event restores. A leg's push, main's or a branch's,
-        # and its merge queue run stand on them (COSMIC_CI_EVENT): a
-        # Linux leg's sandboxed, the macOS leg's keyed by declared inputs
-        # unenforced (COSMIC_CI_DECLARED_KEYS).
-        #
-        # The caches follow actions/cache's caching strategies: an entry
-        # is keyed by its content, saved from one place and restored
-        # everywhere else. Only a push to main and the scheduled run save
-        # the verdicts, the compiles and parses, the zig build outputs
-        # (see "name the zig build cache") and the CI driver check's
-        # marker -- the pinned zig ("cache the pinned zig") and the
-        # driver's bootstrap (.github/actions/cosmic-driver) are still
-        # saved by any run that misses their exact key, which names only
-        # the pin -- and main's pushes run one at a time (`concurrency`),
-        # so what they save lands in commit order and the newest entry is
-        # never an older commit's saved late. A branch's pushes and the
-        # merge queue's runs restore main's and save nothing: a PR's later
-        # pushes stand on main's entries, not on its earlier push's, and
-        # run again what it changed. The verdicts and the compiles are
-        # saved under their prefix and a digest of the rows the run kept
-        # ("keep only this run's test verdicts", below), so a run that
-        # reached only what the entry it restored holds names that
-        # entry's key again, and saves nothing new. Which entry a restore
-        # takes decides only how many tests stand, never whether a
-        # verdict is right: every row is keyed by its own inputs. The
-        # primary key is the prefix itself, which no save takes. One
-        # exception to "main's newest": GitHub searches a run's own ref's
-        # entries before main's, so a branch's entry saved before only
-        # main saved (the verdicts', the compiles', the zig outputs')
-        # still wins over main's newer one under the same prefix, until
-        # that branch or its entry goes.
+        # Every run restores the newest verdicts main saved for this host,
+        # and only main saves (COSMIC_CI_SAVES). A restore decides how many
+        # tests stand, never whether a verdict is right.
         {
           name: "restore test verdicts",
           id: "verdicts-restore",
@@ -565,27 +254,8 @@
           },
         },
 
-        # The compiles and parses this leg's last run used
-        # (COSMIC_BUILD_CACHE, .github/scripts/cosmic-driver.sh;
-        # build/shared_compiles.tl), so a boot of a tree the last run built
-        # parses and compiles only what moved: the build says how many it
-        # took ("taken from another checkout"). Every leg's, the macOS
-        # leg's too; a full run's portable suite, a build of a fresh copy
-        # of the tree by the product assembled from it, takes the boot's
-        # too, where it compiles under the same identity. A compile is
-        # keyed by what it was compiled from and by what compiled it, and
-        # a parse by its source and the analyzer that parsed it, which a
-        # boot takes only where the rows that analyzer found name it again
-        # over this tree (build/importer.tl's `shared_analyzer`), so a
-        # restored row that no longer answers is a miss, never a wrong
-        # compile or parse, and the cache needs naming by nothing but the
-        # leg: the newest main saved, as the verdicts above are. The
-        # builds hold the file to this user's and its directory to 0700,
-        # or do without it; actions/cache, on the host, restores it as
-        # the host's user, whose uid a Linux leg's `runner` has, with the
-        # modes it was saved with less the umask. A run keeps only what
-        # it used ("keep only this run's compiles and parses", below), so
-        # what is saved is one tree's worth, a few MB.
+        # The compiles and parses main's last run of the leg used
+        # (COSMIC_BUILD_CACHE); a row that no longer answers is a miss.
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -597,37 +267,18 @@
           },
         },
 
-        # Its cache restore runs on the host, and its bootstrap in the
-        # leg's container as `runner` (matrix.shell), which a composite
-        # action's steps do not take from defaults.run. No `owner`: the
-        # host's user, who restores, has `runner`'s uid.
+        # Restored on the host, bootstrapped in the container: a composite
+        # action's steps do not take defaults.run's shell.
         {
           name: "bootstrap the pinned CI driver",
           id: "driver",
           uses: "./.github/actions/cosmic-driver",
-          with: {
-            "zig-cache": true,
-            shell: "${{ matrix.shell }}",
-          },
+          with: {"zig-cache": true, shell: "${{ matrix.shell }}"},
         },
 
-        # cosmic_ci's own tests ("check the pinned CI driver", below)
-        # answer the same while nothing they read changes: ci/ (the
-        # driver, its tests, their testdata and the pin, which names the
-        # release that runs them), bin/ (the bootstrap and the scripts
-        # they run through it), the scripts and the action that install
-        # the driver and place the tree, this workflow, which sets their
-        # environment, and the leg's host: its image as the runner names
-        # it (ImageOS, ImageVersion) and COSMIC_HOST_ID's hash, in the
-        # verdicts' prefix -- on a Linux leg, its container. A marker saved
-        # under a key of those after a passing check, from main as every
-        # cache is (see "restore test verdicts"), lets any other run skip
-        # the check on an exact hit; main's scheduled run and a manual
-        # one run it whatever was saved. The key does not name the event:
-        # the tests read none of what differs between them. Looked up
-        # before the tree moves, since hashFiles reads the checkout. It
-        # takes the host's `prefix`, not the verdict cache's name: the
-        # check shares no verdicts (COSMIC_VERDICT_CACHE=0).
+        # A marker main saved after cosmic_ci's tests passed on what they
+        # read and this host; an exact hit skips the check. Looked up
+        # before the tree moves, since hashFiles reads the checkout.
         {
           name: "find a passing CI driver check",
           id: "driver-check-restore",
@@ -639,15 +290,8 @@
           },
         },
 
-        # After the driver's bootstrap, whose cache key hashes a file in
-        # the checkout: from here on the checkout is at a path of this
-        # commit's and this leg's own (COSMIC_WORKER), which the log names,
-        # and $GITHUB_WORKSPACE links to it. On the macOS leg, whose
-        # suites stand on verdicts (COSMIC_CI_DECLARED_KEYS), the move
-        # meets a test whose verdict turns on the tree's path only where
-        # its key moved or in the scheduled run, which stands on nothing
-        # (the TODO on build/test.tl's `launch` gives such a worker a
-        # fixed path).
+        # To a path of this commit's and leg's own, so a test that turns
+        # on the tree's path fails some run (place-tree.sh).
         # TODO: move it on the macOS leg alone (and drop the put-back and
         # re-move around the zig cache save on the Linux legs) once
         # "check the pinned CI driver" runs cosmic_ci's tests sandboxed:
@@ -668,16 +312,12 @@
           run: "sh .github/scripts/place-tree.sh",
         },
 
+        # --all, unsandboxed: it shares no verdicts, and cosmic_ci's tests
+        # read the checkout around ci/ (the TODO above).
         {
           name: "check the pinned CI driver",
           id: "driver-check",
           if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.driver-check-restore.outputs.cache-hit != 'true'",
-          # Without --all, a run would assume a test no key holds from the
-          # shared verdicts: this one reads none, and writes none. Its
-          # workers run unsandboxed, where the pinned release would
-          # sandbox them: cosmic_ci's tests read the checkout around ci/
-          # (the TODO above). Where it passes, it leaves the marker its
-          # save, below, carries.
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci && mkdir -p \"$RUNNER_TEMP/driver-checked\" && echo \"${{ steps.driver-check-restore.outputs.cache-primary-key }}\" > \"$RUNNER_TEMP/driver-checked/key\"",
         },
@@ -693,13 +333,8 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
 
-        # Whether this leg can confine a test to its declared inputs:
-        # build/sandbox_probe.tl starts a trivial child under each part
-        # of spawn's sandbox and writes what held, and each refusal's
-        # errno, to the run's summary, and the leg fails where a part a
-        # confined test needs did not hold (COSMIC_CI_REQUIRE_SANDBOX,
-        # cosmic_ci/orchestration.tl's phase_sandbox): its container lost
-        # what "start the leg's container" gave it.
+        # Fails where a part of spawn's sandbox a confined test needs did
+        # not hold (COSMIC_CI_REQUIRE_SANDBOX, phase_sandbox).
         {
           name: "probe the sandbox a confined test runs in",
           if: "runner.os == 'Linux'",
@@ -719,21 +354,9 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
 
-        # The last step above to invoke `bin/zig build` for the candidate (the
-        # fixture steps, `sanitized`, and `portable-hook-cores`, inside the
-        # driver's `assemble` phase), so the caches are saved here, as they
-        # stand, even on failure; what the phases below compile is not.
-        # zig's own content addressing makes restored entries safe to
-        # validate and reuse.
-        #
-        # actions/cache archives with `tar -C $GITHUB_WORKSPACE` and the
-        # path relative to it (../../_temp/zig-build): tar follows the
-        # link place-tree.sh left there, to a tree one to three
-        # directories deep, where that path names nothing unless the tree
-        # is one deep (tar's "Cannot stat", and no entry saved). So the
-        # tree is put back where it was checked out for the save, as the
-        # last step does, and moved to its own path again after, where
-        # the steps below run. The restores above ran before it moved.
+        # The last build of zig's caches is above, so they are saved here.
+        # actions/cache's relative paths break through place-tree.sh's
+        # link, so the tree goes back for the saves and moves again after.
         {
           name: "put the tree back for the zig cache save",
           if: "always()",
@@ -742,13 +365,12 @@
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
 
-        # From main's pushes, only where assemble passed and the run had
-        # nothing `full` for this vendor part, and from its scheduled run,
-        # which restored nothing, under the restore's key (see "name the
-        # zig build cache").
+        # Only where assemble passed and nothing `full` for this vendor
+        # part was restored, or on the scheduled run: once per vendor
+        # part and leg, not per core change, which the cache cannot hold.
         {
           name: "upload zig build outputs",
-          if: "always() && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push' && !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && steps.driver.outcome == 'success' && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event_name == 'schedule' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/zig-build",
@@ -756,12 +378,10 @@
           },
         },
 
-        # Saved here, where the tree is back at the path actions/cache
-        # archives from (see above), and only after a check that ran and
-        # passed, whatever came after it, where no marker was found.
+        # Only after a check that ran and passed where no marker was found.
         {
           name: "save the CI driver check's marker",
-          if: "always() && steps.driver-check.outcome == 'success' && steps.driver-check-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')",
+          if: "always() && steps.driver-check.outcome == 'success' && steps.driver-check-restore.outputs.cache-hit != 'true' && env.COSMIC_CI_SAVES == 'true'",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/driver-checked",
@@ -800,19 +420,10 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform attest \"${{ strategy.job-total }}\"",
         },
 
-        # The compiles and parses the next run restores are the ones this
-        # run used or made, since the run's start ("name the zig build
-        # cache, and the run's start"):
-        # the cache bounds itself only at 256 MB, and every change to the
-        # build's own modules moves every key, so a file saved back whole
-        # would grow by a tree's worth of rows with most commits to main. Here,
-        # before the container goes, after the last build that shares
-        # them (the fixtures share none: cosmic_ci/orchestration.tl's
-        # `fixture`); saved below, only where the native build passed,
-        # under the digest of the rows it keeps (`digest`, the step's
-        # output: cosmic_ci/cache_trim.tl). A trim that cannot read the
-        # file says why and fails nothing, as the builds fail nothing over
-        # it.
+        # Cut the caches to the rows this run used since its start, named
+        # by a digest the save's key ends in (cosmic_ci/cache_trim.tl),
+        # before a Linux leg's container goes. Saved whole they grow by a
+        # tree's worth of rows with most commits to main.
         {
           name: "keep only this run's compiles and parses",
           id: "compiles-trim",
@@ -820,32 +431,7 @@
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\"",
         },
 
-        # The verdicts the next run of the leg restores are the ones this
-        # run relied on or reached, since the run's start
-        # (cosmic_ci/verdicts.tl): the suites stamp each row they stood on
-        # or wrote. A file holds up to 8192 rows, some 3 KB each, most of
-        # them under keys no later run reaches, since every change to
-        # build/ moves every key: saved whole, a leg's verdicts.db and
-        # portable.db came to 41-43 MB compressed each main push, 0.13 GB
-        # for the three Linux legs, into the 10 GB the repository's cache
-        # holds for the zig caches too. Trimmed, a leg saves what its
-        # run's suites reached: the native suite's in verdicts.db and the
-        # portable suite's in portable.db, some 3900 rows and about 8.5 MB
-        # compressed on linux-aarch64 and alpine-x86_64, and on
-        # linux-x86_64, the one leg that runs the checked suite
-        # (COSMIC_CI_CHECKED_SUITE), its rows in checked.db too, some
-        # 5800 rows and about 13 MB in all. The cost, the choice compiles-trim
-        # made: main's saved file holds only its newest commit's keys, so a
-        # branch based on an older main, whose keys a change to build/ has
-        # since moved, runs every test again, where a whole file's two to
-        # four runs of rows might have served it. Only where every step
-        # before it passed: a run that stopped short, or failed, keeps
-        # what it restored with what it reached (`whole`), which the
-        # rows' own bound holds. Either way the step names what is kept
-        # by a digest of its rows (`digest`), which the save's key ends
-        # in. On every leg, the macOS leg's too; here, before a Linux
-        # leg's container goes, after the last suite that shares them
-        # (the fixtures share none).
+        # A run that failed keeps what it restored too (`whole`).
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
@@ -859,6 +445,8 @@
           run: "cosmic-driver cosmic_ci/driver.tl summarize",
         },
 
+        # The run's operations and suite rows, for `driver.tl report`,
+        # which reports a run whose artifacts expired from its step times.
         {
           name: "preserve CI driver database",
           if: "always()",
@@ -867,9 +455,11 @@
             name: "ci-driver-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
+            "retention-days": 7,
           },
         },
 
+        # Read by the `ci` join, and by prerelease.yml as this run ends.
         {
           name: "upload the attested product",
           if: "env.COSMIC_CI_SCOPE == 'full'",
@@ -878,6 +468,7 @@
             name: "portable-product-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/product",
             "if-no-files-found": "error",
+            "retention-days": 7,
           },
         },
 
@@ -889,11 +480,10 @@
             name: "platform-diagnostics-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/checked-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
             "if-no-files-found": "ignore",
+            "retention-days": 7,
           },
         },
 
-        # What the leg's container said and how it stood, where the job
-        # failed: a step it ran that stopped, or the container itself.
         {
           name: "describe the leg's container",
           if: "failure() && matrix.image",
@@ -902,9 +492,8 @@
           run: "docker inspect cosmic-leg || :; docker logs cosmic-leg || :",
         },
 
-        # Whatever came before, so nothing a step left running there (a
-        # cancelled one's processes) writes to the tree the next step
-        # moves back.
+        # Whatever came before, so nothing left running there writes to
+        # the tree the next step moves back.
         {
           name: "remove the leg's container",
           if: "always() && matrix.image",
@@ -913,16 +502,9 @@
           run: "docker rm -f cosmic-leg || :",
         },
 
-        # Whatever failed before it, and before the saves, so the check
-        # before them, which fetches from origin, and the checkout's post
-        # step meet the tree where it was checked out: there its git finds
-        # the credentials actions/checkout left, and at another path the
-        # post step's refuses the repository and leaves them behind
-        # (.github/scripts/place-tree.sh). It runs on the host, as the
-        # host's user, who moved it on macOS and whose uid the Linux
-        # legs' container's `runner`, who moved it there, shares; so it
-        # runs even where that container never started. A checkout that
-        # never happened has nothing to move back.
+        # Whatever failed, before the saves and checkout's post step: at
+        # another path git refuses the repository and leaves the
+        # checkout's credentials behind (place-tree.sh). On the host.
         {
           name: "move the tree back to where it was checked out",
           if: "always()",
@@ -931,17 +513,11 @@
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
 
-        # What every suite of the leg reached, the portable suite's in a
-        # file of its own, saved after the last of them, whatever failed
-        # (a failing verdict takes a passing one out), from main's pushes
-        # and its scheduled run alone (see "restore test verdicts"),
-        # under the digest of its rows: where that is the entry this run
-        # restored, there is nothing new to save. After the tree is back
-        # where it was checked out, for the reason the zig cache save
-        # above is.
+        # Whatever failed (a failing verdict takes a passing one out),
+        # where the rows differ from the entry restored.
         {
           name: "save test verdicts",
-          if: "always() && steps.verdicts-trim.outputs.digest != '' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && steps.verdicts-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -949,15 +525,11 @@
           },
         },
 
-        # What the next run of the leg restores, trimmed above to this
-        # run's, saved when and where the verdicts are, for their reasons,
-        # under the digest of its rows. Every leg's, the macOS leg's too.
-        # Only where the native build and suite passed: a run that
-        # stopped short would leave the next only what it reached (see
-        # "keep only this run's compiles and parses").
+        # Only where the native build and suite passed: a run that stopped
+        # short would leave the next only what it reached.
         {
           name: "save compiles and parses",
-          if: "always() && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.name, steps.compiles-trim.outputs.digest)",
+          if: "always() && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && env.COSMIC_CI_SAVES == 'true' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.name, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
@@ -967,52 +539,41 @@
       ],
     },
 
-    # The one check a ruleset requires, whatever a run's scope: it fails
-    # when any leg failed or was cancelled, and on a full run
-    # (COSMIC_CI_SCOPE) it is also the provenance join. Every successful
-    # platform/environment execution must attest and upload identical
-    # Cosmic bytes; local product tests retain manifest, range,
-    # application, and raw-core verification, so the join only proves the
-    # cross-platform byte identity. The join is this job's steps rather
-    # than a job of its own, which a branch push would show as skipped;
-    # prerelease.yml publishes from main's completed runs.
+    # The one check a ruleset requires, whatever the scope: it fails when
+    # any leg failed or was cancelled, and on a full run it is also the
+    # provenance join, proving every leg attested identical bytes. Steps,
+    # not a job of its own, which a branch push would show as skipped.
     ci: {
       needs: "platform",
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
-      env: {
-        COSMIC_WORKER: "provenance",
-        # Only a full run's legs attest and upload a product.
-        FULL: "${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}",
-      },
+      env: {COSMIC_WORKER: "provenance"},
       steps: [
         {
           name: "every leg passed",
           env: {RESULT: "${{ needs.platform.result }}"},
           run: "echo \"platform: $RESULT\"; [ \"$RESULT\" = success ]",
         },
+        # Only a full run's legs attest and upload a product.
         {
-          if: "env.FULL == 'true'",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
         },
         {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
-          if: "env.FULL == 'true'",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "./.github/actions/cosmic-driver",
         },
         {
-          if: "env.FULL == 'true'",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
-          with: {
-            pattern: "portable-product-*",
-            path: "${{ runner.temp }}/cosmic-ci/products",
-          },
+          with: {pattern: "portable-product-*", path: "${{ runner.temp }}/cosmic-ci/products"},
         },
         {
           name: "compare the Cosmic bytes executed on every native host",
-          if: "env.FULL == 'true'",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
           "working-directory": "ci",
           run: "cosmic-driver cosmic_ci/driver.tl provenance",
         },
@@ -1024,7 +585,7 @@
         },
         {
           name: "preserve provenance operations",
-          if: "always() && env.FULL == 'true'",
+          if: "always() && env.COSMIC_CI_SCOPE == 'full'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "provenance-operations",

@@ -17,13 +17,34 @@
 
 local Fs = require("cosmic.fs")
 local ast = require("build.ast")
+local gen_syscalls = require("build.gen_syscalls")
 local teal = require("build.teal")
+local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
---- Every declaration of the core's raw modules. The tests that walk the
---- whole projection, and search by hand for wrappers outside the
---- closure, are core/declarations_store_test.tl's.
-Test.needs{ reads = { "cosmic/internal/" } }
+-- Every wrapper core/store.c hands a raw module to (`wrappers`, below),
+-- required so it is of the closure: the store's searcher, asked by hand
+-- (`raw_behind`), hands its raw value only for a module the closure
+-- holds.
+local type _artifact = require("build.artifact")
+local type _test_worker = require("build.test_worker")
+local type _observations = require("build.filesystem_observations")
+local type _confine = require("build.confine")
+local type _fuzz = require("build.fuzz")
+local type _child = require("cosmic.child")
+local type _compress = require("cosmic.compress")
+local type _coverage = require("cosmic.coverage")
+local type _hash = require("cosmic.hash")
+local type _http = require("cosmic.http")
+local type _json = require("cosmic.json")
+local type _proc = require("cosmic.proc")
+local type _sqlite = require("cosmic.sqlite")
+local type _store = require("cosmic.store")
+
+--- Every declaration of the core's raw modules, the header the process
+--- table's is derived from, and core/store.c, whose `raw_modules` names
+--- the wrapper each raw module is handed to.
+Test.needs{ reads = { "cosmic/internal/", "core/process.h", "core/store.c" } }
 
 local built = assert(teal.load())
 
@@ -32,6 +53,15 @@ local function members(value: any): {string: any}
   local t = type(value)
   assert(t == "table" or t == "userdata", "not a table: " .. t)
   return value as {string: any} -- cast: checked above to be indexable
+end
+
+local type Searcher = function(string): any, any
+local type Call = function(...: any): any...
+
+--- Calls a function of the core's, whatever its declared signature.
+local function call(f: any, ...: any): any...
+  assert(type(f) == "function", "not a function: " .. type(f))
+  return (f as Call)(...) -- cast: checked above to be callable
 end
 
 --- What one record declares: each value member by name, true for a
@@ -166,6 +196,199 @@ end
 local function nothing() end
 
 local preloaded <const>: {string: boolean} = { errors = true, testing = true }
+
+--- The raw value the store's searcher hands `wrapper`'s loader, the
+--- way `require` hands it, or nil when it hands none.
+local function raw_behind(wrapper: string): any
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher(wrapper)
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra
+    end
+  end
+  return nil
+end
+
+local function reply(): string
+  return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+end
+
+--- One of each userdata a raw module makes, by record name, and what
+--- releases them.
+local record Made
+  instances: {string: any}
+  release: function()
+end
+
+local makers: {string: function(raw: {string: any}): Made} = {
+  compress = function(raw: {string: any}): Made
+    local stream = assert(call(raw.inflater, "raw"))
+    return { instances = { Stream = stream }, release = nothing }
+  end,
+  hash = function(raw: {string: any}): Made
+    local hasher = assert(call(raw.hasher, "sha256"))
+    return { instances = { Hasher = hasher }, release = nothing }
+  end,
+  http = function(raw: {string: any}): Made
+    local handle = assert(call(raw.open, "http://declarations.invalid/",
+      { script = { reply() } }))
+    return { instances = { Handle = handle },
+      release = function() call(members(handle).close, handle) end }
+  end,
+  sqlite = function(raw: {string: any}): Made
+    local handle = assert(call(raw.open, ":memory:", true))
+    local statement = assert(call(members(handle).prepare, handle, "SELECT 1"))
+    return { instances = { Handle = handle, Statement = statement },
+      release = function()
+        call(members(statement).finalize, statement)
+        call(members(handle).close, handle)
+      end }
+  end,
+}
+
+--- Every wrapper the store hands a raw module to, and the name of the
+--- raw module's declaration. The preloaded ones have no wrapper. Edit
+--- it together with core/store.c's `raw_modules`, which it repeats:
+--- `test_every_raw_module_has_a_declaration` fails when the two part.
+local wrappers <const>: {string: string} = {
+  ["build.artifact"] = "store",
+  ["build.test_worker"] = "store",
+  ["build.filesystem_observations"] = "observations",
+  ["build.confine"] = "process",
+  ["build.fuzz"] = "budget",
+  ["cosmic.child"] = "process",
+  ["cosmic.compress"] = "compress",
+  ["cosmic.coverage"] = "debug",
+  ["cosmic.hash"] = "hash",
+  ["cosmic.http"] = "http",
+  ["cosmic.json"] = "json",
+  ["cosmic.proc"] = "process",
+  ["cosmic.sqlite"] = "sqlite",
+  ["cosmic.store"] = "store",
+}
+
+--- The raw module a declaration names, as the running core registers it.
+local function raw_module(name: string): any
+  if preloaded[name] then
+    local open = package.preload["cosmic.internal." .. name]
+    assert(open ~= nil, "cosmic.internal." .. name .. " is not preloaded")
+    return open("cosmic.internal." .. name)
+  end
+  local wrapper: string = nil
+  for candidate, declaration in pairs(wrappers) do
+    if declaration == name and (wrapper == nil or candidate < wrapper) then
+      wrapper = candidate
+    end
+  end
+  assert(wrapper ~= nil, "cosmic/internal/" .. name .. ".d.tl declares a module " ..
+    "this test does not know how to reach")
+  return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value " ..
+    "(require it with `local type` at the top so it is in the closure)"))
+end
+
+--- The raw modules whose declaration the build derives from a header
+--- (build/gen_syscalls.tl) rather than a cosmic/internal/*.d.tl, by
+--- name, and the target that derives it.
+local derived <const>: {string: gen_syscalls.Target} = {}
+for _, derivation in ipairs(gen_syscalls.targets) do
+  local name = derivation.path:match("^cosmic%.internal%.(.+)$")
+  if name ~= nil then derived[name] = derivation.target end
+end
+
+--- A raw module's declaration: its cosmic/internal/*.d.tl, or the one
+--- the build derives from its header.
+local function declaration_of(name: string): string
+  local target = derived[name]
+  if target ~= nil then
+    return (assert(gen_syscalls.declaration(assert(Fs.read(target.header)), target)))
+  end
+  return (assert(Fs.read("cosmic/internal/" .. name .. ".d.tl")))
+end
+
+--- Every declaration under cosmic/internal, and each the build derives
+--- from a header, is what the running core registers.
+local function test_every_declaration_is_what_the_core_registers()
+  local problems: {string} = {}
+  local names: {string} = {}
+  for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
+    local name = entry:match("^(.+)%.d%.tl$")
+    if name ~= nil then names[#names + 1] = name end
+  end
+  assert(#names > 0, "no declarations under cosmic/internal")
+  for name in pairs(derived) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local raw = raw_module(name)
+    local maker = makers[name]
+    local made: Made = maker ~= nil and maker(members(raw))
+      or { instances = {}, release = nothing }
+    local source = declaration_of(name)
+    for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do
+      problems[#problems + 1] = problem
+    end
+    made.release()
+  end
+  assert(#problems == 0, "the core and its declarations disagree (" ..
+    testing.configuration .. " core):\n  " .. table.concat(problems, "\n  "))
+end
+
+--- The `raw_modules` table of core/store.c's `source`: the raw module
+--- each wrapper is handed, by the wrapper's name, less the
+--- `cosmic.internal.` prefix; or nil and why when the table is not all
+--- entries of the shape this reads -- a macro, a comment, an entry
+--- spelled otherwise -- rather than answer part of it.
+local function raw_modules_in(source: string): {string: string} | nil, string
+  local body = source:match("%} raw_modules%[%] = {\n(.-)\n};")
+  if body == nil then
+    return nil, "core/store.c declares no raw_modules table this test can read"
+  end
+  local out: {string: string} = {}
+  local read = 0
+  local entry = '{"([%w_.]+)",%s*"cosmic%.internal%.([%w_]+)",%s*[%w_]+%s*},'
+  for wrapper, raw in body:gmatch(entry) do
+    out[wrapper] = raw
+    read = read + 1
+  end
+  local rest = body:gsub(entry, ""):gsub("%s", "")
+  if rest ~= "" then
+    return nil, "core/store.c's raw_modules holds what this test cannot read as an " ..
+      "entry: " .. rest
+  end
+  if read < 10 then
+    return nil, "read only " .. read .. " raw_modules entries of core/store.c"
+  end
+  return out, ""
+end
+
+--- Every wrapper core/store.c hands a raw value to is one this test
+--- holds to a declaration, by the raw module it is handed, so a raw
+--- module no declaration names fails here; and the running core hands
+--- each one its raw value.
+local function test_every_raw_module_has_a_declaration()
+  local in_c = assert(raw_modules_in((assert(Fs.read("core/store.c")))))
+  for wrapper, raw in pairs(in_c) do
+    assert(wrappers[wrapper] == raw, wrapper .. " is handed cosmic.internal." .. raw ..
+      ", which `wrappers` here names as " .. tostring(wrappers[wrapper]))
+  end
+  for wrapper in pairs(wrappers) do
+    assert(in_c[wrapper] ~= nil, wrapper .. " is no wrapper of core/store.c's raw_modules")
+    assert(raw_behind(wrapper) ~= nil, wrapper .. " is handed no raw value " ..
+      "(require it with `local type` at the top so it is in the closure)")
+  end
+end
+
+--- An entry of `raw_modules` this test cannot read -- a macro standing
+--- for one, a comment -- fails the read rather than go uncounted.
+local function test_an_unreadable_raw_modules_entry_is_refused()
+  local source = assert(Fs.read("core/store.c"))
+  assert(raw_modules_in(source) ~= nil)
+  for _, planted in ipairs({ "  RAW_ENTRY(cosmic.planted),\n", "  /* planted */\n" }) do
+    local with = source:gsub("(%} raw_modules%[%] = {\n)", "%1" .. planted)
+    assert(with ~= source, "the table was not found to plant in")
+    local found, why = raw_modules_in(with)
+    assert(found == nil and why:find("cannot read", 1, true) ~= nil, why)
+  end
+end
 
 --- Every raw module the core preloads, but the syscall table, which
 --- core/syscalls.h declares (build/gen_syscalls.tl), has a declaration

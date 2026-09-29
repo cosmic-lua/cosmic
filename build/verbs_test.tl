@@ -26,13 +26,16 @@ Test.needs{
 
 --- The verbs that end in no verdict line: those whose words after the
 --- file are the program's own, so no option or argument is theirs to
---- refuse, and whose output is the program's; and `--version`, whose
---- one line is all it prints (build/version_test.tl holds it).
+--- refuse, and whose output is the program's; `--version`, whose
+--- one line is all it prints (build/version_test.tl holds it); and
+--- `json`, which does refuse options and arguments, held to that in
+--- build/json_test.tl, but whose standard output is the value asked for.
 local passthrough: {string:string} = {
   run = "the words after the file are its program's argv",
   standalone = "the words after the file are its program's argv",
   eval = "the words after the chunk are its `...`",
   version = "it prints one line and no verdict",
+  json = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
 }
 
 --- A command line with one argument more than each verb takes, or why
