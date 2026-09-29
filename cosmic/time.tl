@@ -1030,24 +1030,32 @@ local locals: {string:Time.Zone} = {}
 local unset_local: Time.Zone = nil
 
 --- The host's own zone, as Java and ICU find it: the host names a zone
---- and the binary's tz database gives its rules, as `zone` does -- the
---- host's zone files are never read. With `TZ` unset, the zone the
---- /etc/localtime link names by where it points (`.../zoneinfo/Europe/Berlin`),
---- else the one the first line of /etc/timezone names, else UTC: an
---- /etc/localtime that is a copy rather than a link, or none at all,
---- is UTC unless /etc/timezone says otherwise, and never a failure.
---- `TZ` set and empty, or `TZ=:`, is UTC. `TZ=:Name` is `zone(Name)`,
---- less a `posix/` or `right/` before it; `TZ=:/path` (or `/path`) is
---- the zone its path names the same way as the link, else the one it
---- links to, as `TZ=:/etc/localtime` does; `TZ=Name` is `zone(Name)`
---- when the binary carries it and else a POSIX TZ string
---- (`zone_from_posix`). Nil and why only for a `TZ` it cannot use: a
---- `:Name` or path naming no zone the binary carries, or a bare `TZ`
---- that is neither a carried zone nor a POSIX TZ string. `opts.tz` stands in
---- for `TZ` (nil reads the environment's, unless `opts.unset` reads as
---- though it were unset), `opts.localtime` for /etc/localtime and
---- `opts.timezone` for /etc/timezone; with no options, the answer is
---- read once a process.
+--- and the binary's tz database gives its rules, as `zone` does. The
+--- host's zone files are never read.
+---
+--- With `TZ` unset, the zone is the one the /etc/localtime link names by
+--- where it points (`.../zoneinfo/Europe/Berlin`), else the one the
+--- first line of /etc/timezone names, else UTC. An /etc/localtime that is
+--- a copy rather than a link, or is missing, gives UTC unless
+--- /etc/timezone says otherwise, and never a failure.
+---
+--- With `TZ` set:
+---
+--- - Empty, or `:`, is UTC.
+--- - `:Name` is `zone(Name)`, less a `posix/` or `right/` before it.
+--- - `:/path` or `/path` is the zone its path names the same way the
+---   link does, else the one it links to, as `TZ=:/etc/localtime` does.
+--- - `Name` is `zone(Name)` when the binary carries it, else a POSIX TZ
+---   string (`zone_from_posix`).
+---
+--- Nil and why only for a `TZ` it cannot use: a `:Name` or path naming no
+--- zone the binary carries, or a bare `TZ` that is neither a carried zone
+--- nor a POSIX TZ string.
+---
+--- `opts.tz` stands in for `TZ` (nil reads the environment's, unless
+--- `opts.unset` reads as though it were unset), `opts.localtime` for
+--- /etc/localtime and `opts.timezone` for /etc/timezone. With no options,
+--- the answer is read once a process.
 function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
   local tz: string = nil
   local localtime, timezone = "/etc/localtime", "/etc/timezone"
@@ -1535,13 +1543,12 @@ end
 --- to nine digits of fraction, and `Z`, `z` or a numeric offset, where
 --- `-00:00` is UTC too. An RFC 9557 suffix may follow: a zone,
 --- `[America/New_York]` (or `[!America/New_York]`) or an offset,
---- `[+05:30]`, then any elective
---- `[key=value]` tags, which are ignored. The offset still names the
---- moment, and must be the zone's then, to the minute, unless it is `Z`
---- or `-00:00`, which say the local offset is unknown. Nil and why for
---- anything else, a leap second, a moment outside the range, a zone
---- the binary does not carry, an offset the zone does not
---- have then, or a critical `[!key=value]` tag.
+--- `[+05:30]`, then any elective `[key=value]` tags, which are ignored.
+--- The offset still names the moment, and must be the zone's then, to
+--- the minute, unless it is `Z` or `-00:00`, which say the local offset
+--- is unknown. Nil and why for anything else, a leap second, a moment
+--- outside the range, a zone the binary does not carry, an offset the
+--- zone does not have then, or a critical `[!key=value]` tag.
 function Time.parse_rfc3339(text: string): integer | nil, string
   local zoned, why = parse(text)
   if zoned == nil then return nil, why end
@@ -1772,10 +1779,10 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
   }, ""
 end
 
---- `d` as `parse_duration` reads it, so the two round trip: `1y2mo3d4h5m6.5s`,
---- a `-` before a negative one, and `0s` for nothing. Each calendar field is
---- written as it is, `14mo` not `1y2mo`. Raises for a duration whose
---- fields are not all of one sign.
+--- `d` as `parse_duration` reads it, so the two round trip:
+--- `1y2mo3d4h5m6.5s`, a `-` before a negative one, and `0s` for nothing.
+--- Each calendar field is written as it is, `14mo` not `1y2mo`. Raises
+--- for a duration whose fields are not all of one sign.
 function Time.format_duration(d: Time.Duration): string
   local years, months, days, ns = d.years or 0, d.months or 0, d.days or 0, d.nanoseconds or 0
   local negative = years < 0 or months < 0 or days < 0 or ns < 0

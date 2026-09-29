@@ -1,5 +1,5 @@
---- What a test module tells `cosmic test` about itself. For now, what
---- its tests read beyond their default inputs, with `needs`:
+--- What a test module tells `cosmic test` about itself: what its tests
+--- read beyond their default inputs, with `needs`:
 ---
 ---     local Test = require("cosmic.test")
 ---     Test.needs { reads = { "testdata/" }, env = { "PATH" } }
@@ -118,26 +118,28 @@ local record Test
     --- Whether the tests read the tree's projection, `o/cosmic.db`, or
     --- the rows of modules of the tree outside their import closure.
     --- Without it, a sandboxed worker is given at o/cosmic.db the store
-    --- of its module's import closure alone, which its key holds, and
-    --- a `require` reaches only that closure; and unless the module
-    --- declares `store`, every other lookup in the store is
-    --- held to it too (`build.test_worker`'s `hold_store`), from the
-    --- module's load until the worker ends: `Store.bytecode`,
-    --- `Store.source` or `Store.requires` of a module of the tree
-    --- outside the closure, or the store's searcher called by hand,
-    --- answers none, and `Store.databases()`, whose handles read every
-    --- module's rows, raises -- sandboxed or not, since without the
-    --- hold such a read reaches the program's own database, or the
-    --- whole projection, which no key of the test holds. Among them
-    --- are the `Store.source` reads of `cosmic.*` sources and
-    --- declarations that build/teal.tl's `standard` makes when a test
-    --- type-checks a snippet: a module the snippet requires goes in the
-    --- test's closure (`local type _ = require(...)`) or the test
-    --- declares `store`. `Store.meta` is not held (the TODO on
-    --- `hold_store`). The descriptor a portable start keeps on the
-    --- program is refused to every binding (core/check.h's
-    --- `cosmic_checkfd`), and a sandboxed worker that does not declare
-    --- `tool` has no name to open the program by.
+    --- of its module's import closure alone, which its key holds, and a
+    --- `require` reaches only that closure. Every other lookup in the
+    --- store is held to the closure too (`build.test_worker`'s
+    --- `hold_store`), from the module's load until the worker ends:
+    --- `Store.bytecode`, `Store.source` or `Store.requires` of a module
+    --- of the tree outside the closure, or the store's searcher called
+    --- by hand, answers none; `Store.databases()`, whose handles read
+    --- every module's rows, raises; and `Store.meta` of a row the key
+    --- does not hold raises. The hold applies sandboxed or not, since
+    --- without it such a read reaches the program's own database, or the
+    --- whole projection, which no key of the test holds.
+    ---
+    --- A test that type-checks a snippet makes such reads: the
+    --- `Store.source` reads of `cosmic.*` sources and declarations that
+    --- build/teal.tl's `standard` does. A module the snippet requires
+    --- goes in the test's closure (`local type _ = require(...)`), or
+    --- the test declares `store`.
+    ---
+    --- The descriptor a portable start keeps on the program is refused
+    --- to every binding (core/check.h's `cosmic_checkfd`), and a
+    --- sandboxed worker that does not declare `tool` has no name to open
+    --- the program by.
     store: boolean
     --- Whether the tests, or the processes they start, read the system's
     --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and
@@ -160,12 +162,11 @@ local record Test
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
     --- portable cosmic extracts); the runner knows where each is on the
     --- host (`build.caches`), and another name (`build.cache_names`)
-    --- fails the build. Only for
-    --- a cache whose contents never change a result -- content-addressed,
-    --- there to save time: what a test reads or writes there enters no
-    --- verdict's key, and the audit asks nothing more of it. A sandboxed
-    --- worker has each writable at its own path, with the variables that
-    --- locate it.
+    --- fails the build. Only for a cache whose contents never change a
+    --- result -- content-addressed, there to save time: what a test
+    --- reads or writes there enters no verdict's key, and the audit asks
+    --- nothing more of it. A sandboxed worker has each writable at its
+    --- own path, with the variables that locate it.
     caches: {string}
   end
 end

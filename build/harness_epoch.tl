@@ -102,15 +102,15 @@ harness_epoch.acknowledged = {
 
   ["cosmic.fs"] = "18a07c2fb44970619fee6312338b5e89f303bc0c3e0b8a5b16e8794421816505",
 
-  ["cosmic.proc"] = "74575ab0114ec38c9b65838f3ce981f3ec66f1216b5abc77b4679a649f5dbbaa",
+  ["cosmic.proc"] = "7eaf4a9ff11de78c134ec091f28a39ebae1abfc56859991a87af8e3dce69b8ac",
 
-  ["cosmic.removed"] = "33abed453c4fc39fd8c80bcd388f84749b6b28f59047f24a97a94cd0d6d97442",
+  ["cosmic.removed"] = "6e5f9146d11a1cab6b162e394034758df8dd528a78ae352c29e2cba1d33de122",
 
-  ["cosmic.sqlite"] = "56405fb541a52aa0c77136c018efc833aa775e016d8b899976e38b9b34b69166",
+  ["cosmic.sqlite"] = "d313d193dc557e46ca5e0e1dba5fdcd9fa85ca75185a69cbf4dd5d0be1b4e54e",
 
   ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
 
-  ["cosmic.test"] = "4ac20e6f1c0198404353969c00ec4ba1efbe66f969f8f37fbd7f43983c595c18",
+  ["cosmic.test"] = "041dac50c186c57599a0f7f80d1a09330bd0c21718f861a50e46f58f6d360bb4",
 
 }
 

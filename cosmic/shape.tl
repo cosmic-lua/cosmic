@@ -47,9 +47,8 @@
 ---   indices counted from 1: `$.rows[2].id: expected string, got
 ---   integer`. A record's fields and a map's keys are checked in byte
 ---   order, and a list's elements in index order, so the same value
----   always reports the same failure. `failures` lists every
----   one, for a config file whose author wants all their mistakes at
----   once.
+---   always reports the same failure. `failures` lists every one, for
+---   a config file whose author wants all their mistakes at once.
 --- - `into` never raises on a value, whatever it holds. A spec that was
 ---   not built by these functions is a programming error, and raises.
 
@@ -365,11 +364,11 @@ end
 --- What a strict record `spec` refuses in `t`, before any field is
 --- looked at: a key that is not a string, named where the record
 --- stands, or else a string key it does not name, named where that key
---- is (`$.prot: unknown key`). The first such miss, or nil; `all`, when
---- collecting, gets every one of the first sort, each sorted with
---- `key_before`, and `into` names the first by that order when the
---- keys are strings. So a strict record fails where it stands or at its
---- keys, and never at a field as well.
+--- is (`$.prot: unknown key`). A key that is not a string takes
+--- precedence, so a strict record fails where it stands or at its keys,
+--- never at a field as well. Answers the first such miss, or nil; `all`,
+--- when collecting, gets every miss of that sort, in `key_before`'s
+--- order for keys that are not strings and byte order for unknown ones.
 local function unknown_keys(t: {any: any}, spec: Spec, path: string, all?: {Miss}): Miss
   local unknown: {string} = {}
   local refused: {any} = {}

@@ -25,12 +25,9 @@
 --- text in YAML's flow style reads the same through either.
 
 --- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace, which never satisfies an ordinary
---- `require` for any caller -- see cosmic/store.tl for why -- and
---- arrives instead as the second argument `require` passes this
---- chunk's own loader, present because this module was itself loaded,
---- trusted, from the binary's own tree. Boot mode falls back to
---- requiring it by name, which only boot's own preload answers.
+--- `cosmic.internal.` namespace, and arrives as the second argument
+--- `require` passes this chunk's loader, or by name in boot mode: see
+--- cosmic/store.tl for why.
 local type raw_sqlite = require("cosmic.internal.sqlite")
 
 local extra: any = select(2, ...)
@@ -110,8 +107,9 @@ end
 --- made beside it, even for a WAL-mode database whose `-wal` is gone,
 --- and a running statement holds nothing a writer waits on. Giving it
 --- with `writable` raises. A `-wal` is never read: commits still in one
---- do not show, so a database being written is opened without it. `handle:limit(name, value)` sets one of the
---- connection's limits, `"attached"` among them, and answers the old one.
+--- do not show, so a database being written is opened without it.
+--- `handle:limit(name, value)` sets one of the connection's limits,
+--- `"attached"` among them, and answers the old one.
 function Sqlite.open(path: string, writable?: boolean, immutable?: boolean): Sqlite.Handle | nil, string
   return sqlite.open(path, writable, immutable)
 end
@@ -186,10 +184,10 @@ local function prepared(handle: Sqlite.Handle, sql: string,
   return statement, ""
 end
 
---- Parameters are a dense list indexed by SQLite's parameter index, through
---- its highest index. Repeated named parameters share an index; ?NNN gaps
---- still need entries (use {}). Missing entries and extra keys are errors.
---- Runs a statement that yields no rows.
+--- Runs a statement that yields no rows. Parameters are a dense list
+--- indexed by SQLite's parameter index, through its highest index.
+--- Repeated named parameters share an index; ?NNN gaps still need
+--- entries (use {}). Missing entries and extra keys are errors.
 function Sqlite.run(handle: Sqlite.Handle, sql: string,
                     values?: {Sqlite.Value}): boolean, string
   local statement, trouble = prepared(handle, sql, values)
@@ -231,9 +229,9 @@ local function row_of(statement: Sqlite.Statement): Sqlite.Row
   return row
 end
 
---- Parameters follow the same complete-list contract as run.
---- Every row a query yields, each row a dense list of typed cells in column
---- order. SQL NULL is an explicit `kind = "null"` cell.
+--- Every row a query yields, each row a dense list of typed cells in
+--- column order. SQL NULL is an explicit `kind = "null"` cell.
+--- Parameters follow the same complete-list contract as `run`.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Rows | nil, string
   local statement, trouble = prepared(handle, sql, values)
@@ -262,13 +260,13 @@ local query_mt: metatable<Sqlite.Query> = {
   end,
 }
 
---- Parameters follow the same complete-list contract as run.
 --- A query whose rows are read one at a time, as `rows` gives them but
 --- never all held at once: nil and why when the statement does not
---- prepare or bind. The statement stays open, and the handle cannot
---- close, until the last row is read, a step fails, or the query is
---- closed; hold it in a `<close>` variable to close it on a `break` or
---- an error too.
+--- prepare or bind. Parameters follow the same complete-list contract
+--- as `run`. The statement stays open, and the handle cannot close,
+--- until the last row is read, a step fails, or the query is closed;
+--- hold it in a `<close>` variable to close it on a `break` or an error
+--- too.
 ---
 --- An open query holds SQLite's read lock on a file database between
 --- reads, so a writer on another connection waits for it (in rollback
@@ -331,10 +329,11 @@ function Sqlite.query(handle: Sqlite.Handle, sql: string,
   return q, ""
 end
 
---- A direct text projection for callers whose SQL already defines the desired
---- coercion. SQLite's byte representation is returned for every value: NULL,
---- empty text, and empty blob all become `""`; integers and floats use
---- SQLite's text formatting; text and blobs remain byte strings, including NUL.
+--- A direct text projection for callers whose SQL already defines the
+--- coercion they want. SQLite's byte representation is returned for
+--- every value: NULL, empty text and empty blob all become `""`;
+--- integers and floats use SQLite's text formatting; text and blobs
+--- remain byte strings, including NUL.
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
                            values?: {Sqlite.Value}): {{string}} | nil, string
   local statement, trouble = prepared(handle, sql, values)

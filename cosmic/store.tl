@@ -2,15 +2,15 @@
 --- that `require` does not cover.
 ---
 --- The raw module behind this one lives under `cosmic.internal.`, a
---- reserved namespace that never satisfies an ordinary `require` for
---- any caller: `require` caches a result under the name it was asked
---- for, and a value that must be checked on every access can never be
---- that cached value, or the first caller's access would answer for
---- every caller after it. The searcher hands it here directly instead,
---- as the second argument `require` always passes a loader -- present
---- only because this module was itself loaded, trusted, from the
---- binary's own tree. Boot mode, before any such check exists, falls
---- back to requiring it by name, which only boot's own preload answers.
+--- reserved namespace that never satisfies an ordinary `require`.
+--- `require` caches its result under the name it was asked for, and a
+--- value that must be checked on every access cannot be that cached
+--- value: the first caller's check would answer for every caller after
+--- it. So the searcher passes the raw module directly, as the second
+--- argument `require` always gives a loader, and only when this module
+--- was itself loaded, trusted, from the binary's own tree. Boot mode,
+--- before any such check exists, requires it by name, which only boot's
+--- own preload answers.
 
 local type raw_store = require("cosmic.internal.store")
 local Sqlite = require("cosmic.sqlite")

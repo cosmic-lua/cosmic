@@ -388,6 +388,7 @@ end
 --- local header, on the guess that its local extra field is no longer
 --- than this plus its central one.
 local EXTRA_SLACK <const> = 64
+--- The largest compressed body read along with its local header.
 local HELD_LIMIT <const> = 1 << 16
 
 --- An entry's `open`, through `pread`: seeks past its local header
@@ -520,9 +521,9 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   elseif unix_type == S_IFLNK then
     kind = "symlink"
   end
-  -- Checked on the pass `open` makes too, so an entry with a zip64
-  -- value no Lua integer holds -- 2^63 or more reads negative -- is
-  -- refused there rather than listed with a negative size.
+  -- `open_reader`'s first pass checks this too, so an entry with a zip64
+  -- value no Lua integer holds (2^63 or more reads negative) is refused
+  -- there rather than listed with a negative size.
   if extra_len > 0 and (usize == U32_MAX or csize == U32_MAX or local_offset == U32_MAX) then
     local extra = buf:sub(name_end + 1, name_end + extra_len)
     usize, csize, local_offset = apply_zip64_extra(extra, usize, csize, local_offset)
@@ -530,15 +531,15 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
       return nil, "zip: a zip64 extra field's size or offset is past 2^63"
     end
   end
-  -- An entry's local header (30 bytes at least) and compressed body
-  -- come before the central directory (APPNOTE 4.3.6 lays out every
-  -- local header, body and data descriptor ahead of it, and the zip64
-  -- end records after it), which `open_reader` has already found
-  -- inside the file. One that does not fit there is refused on the
-  -- pass `open` makes rather than listed and failing only when opened
-  -- -- through `Zip.open`, an offset near 2^63 as pread's bare
-  -- "Invalid argument". Written as subtractions, which cannot overflow
-  -- for values already known not to be negative.
+  -- An entry's local header (30 bytes at least) and compressed body lie
+  -- before the central directory: APPNOTE 4.3.6 puts every local
+  -- header, body and data descriptor ahead of it and the zip64 end
+  -- records after it, and `open_reader` has already found it inside the
+  -- file. An entry that does not fit there is refused on
+  -- `open_reader`'s first pass, rather than listed and failing only when
+  -- opened (through `Zip.open`, an offset near 2^63 fails as pread's
+  -- bare "Invalid argument"). Written as subtractions, which cannot
+  -- overflow for values already known not to be negative.
   local cd_offset = c.start
   if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
     return nil, "zip: entry " .. buf:sub(name_start, name_end) .. " (offset " ..
@@ -805,8 +806,8 @@ end
 --- descriptor after it (the central directory, which the reader goes by,
 --- has them either way). A reader that walks local headers forward
 --- without the central directory (Java's ZipInputStream) cannot find
---- the end of a stored entry written so; that stays, since knowing its
---- sizes up front would mean reading the body twice or seeking.
+--- the end of a stored entry written so; knowing its sizes up front
+--- would mean reading the body twice or seeking.
 function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   opts = opts or {}
   local deterministic = opts.deterministic or false

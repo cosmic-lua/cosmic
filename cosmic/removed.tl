@@ -1,16 +1,16 @@
 --- Names cosmic's own runtime surface removes from the global
 --- environment, and what to write instead of each. `build.teal` strips
---- every one of these from the checker's own environment too, so
---- touching one is refused at compile time -- `unknown variable: os`,
---- `module not found: 'io'` -- and a program that reaches for one
---- anyway (a chunk handed to `load`) is stopped by `core/surface.c` at
---- run time. Both say the same thing, `message`'s own text, naming the
---- replacement for the very field used (`os.getenv` is `Env.get`), so
---- the two can never drift apart. `cosmic docs os` (or any field below)
---- answers the same thing directly, any time. `members` does the same
---- at compile time for a member a `cosmic.*` module no longer has.
---- Language-library help remains in the checked examples returned by ordinary
---- documentation search; this record inventories removed globals only.
+--- every one from the checker's environment too, so touching one is
+--- refused at compile time (`unknown variable: os`, `module not found:
+--- 'io'`), and a program that reaches for one anyway (a chunk handed to
+--- `load`) is stopped by `core/surface.c` at run time. Both say
+--- `message`'s own text, naming the replacement for the very field used
+--- (`os.getenv` is `Env.get`), so the two cannot drift apart. `cosmic
+--- docs os` (or any field below) answers the same thing directly.
+--- `members` does the same at compile time for a member a `cosmic.*`
+--- module lacks. Help with Lua's own libraries is in the checked
+--- examples that ordinary documentation search returns; this record
+--- inventories removed globals only.
 local record Removed
   --- unavailable; see cosmic.fs for byte/file operations and standard-stream
   --- descriptors, cosmic.stream to read or write a file in chunks, and
@@ -46,14 +46,14 @@ local record Module
   --- Where to look for a removed name, or a field of it `replacements`
   --- has no entry for.
   names: {string:string}
-  --- What to write instead of a member a `cosmic.*` module no longer
-  --- has, by the module's name and the member's (`cosmic.hash.hex`):
-  --- `build.teal` says it after the checker's `invalid key` for it, or,
-  --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
-  --- after its `unknown type`.
+  --- What to write instead of a member a `cosmic.*` module lacks, by the
+  --- module's name and the member's (`cosmic.hash.hex`): `build.teal`
+  --- says it after the checker's `invalid key` for it, or, for a type
+  --- the module does not declare (`cosmic.zip.ZipReader`), after its
+  --- `unknown type`.
   -- TODO: a field removed from a record a caller builds as a table
-  -- literal (cosmic.archive's ExtractOptions.strip, now strip_prefix and
-  -- strip_components) has no entry: the checker says only `unknown
+  -- literal (cosmic.archive's ExtractOptions.strip, replaced by
+  -- strip_prefix and strip_components) has no entry: the checker says only `unknown
   -- field strip`, without the record it was checked against, so
   -- `build.teal`'s `replacement` cannot look one up. Key entries by
   -- record (`cosmic.archive.ExtractOptions.strip`) once that message

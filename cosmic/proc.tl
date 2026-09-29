@@ -4,8 +4,7 @@ local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 
 --- `relaunch` lives in the raw process table, under the reserved
---- `cosmic.internal.` namespace -- see cosmic/store.tl for
---- why.
+--- `cosmic.internal.` namespace -- see cosmic/store.tl for why.
 local type raw_process = require("cosmic.internal.process")
 
 local extra: any = select(2, ...)
@@ -94,8 +93,8 @@ end
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 
 --- Where the program `name` would run from, found as a shell (or `which`,
---- or `command -v`) finds it:
---- `name` itself when it holds a slash, else the first executable file
+--- or `command -v`) finds it: `name` itself when it holds a slash, else
+--- the first executable file
 --- of that name in `path` -- a colon-separated list, PATH's value by
 --- default -- where an empty entry is the working directory. A relative
 --- entry gives a relative answer, as a shell's would. Nothing runnable

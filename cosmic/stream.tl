@@ -532,7 +532,8 @@ end
 --- returns how many bytes went across. Closes neither side: on failure
 --- the caller decides whether to `abort` `writer` or `close` it. To
 --- cap a copy, copy `Stream.limit(reader, max + 1)` and compare the
---- count with `max`: a count is a caller's to read, a reason is not.
+--- count with `max`, which tells a source that ends at `max` from one
+--- that goes on past it.
 function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): integer | nil, string
   local total = 0
   while true do
