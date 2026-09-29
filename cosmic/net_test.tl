@@ -430,7 +430,18 @@ local function test_reclaim_refuses_a_path_ending_in_a_slash(tmp: string)
   local server, why = Net.listen(Net.unix(tmp .. "/"), { reclaim = true })
   assert(server == nil and why == tmp .. "/: Is a directory", why)
   assert(Fs.stat(tmp .. "/.lock") == nil, "a lock file was made in the directory")
-  assert(not pcall(Net.listen, Net.unix(""), { reclaim = true }))
+end
+
+--- An empty path raises under `reclaim` as it does without, before a
+--- lock file named ".lock" is made in the working directory.
+local function test_reclaim_of_an_empty_path_raises_and_makes_no_lock_file(tmp: string)
+  local was = assert(sys.getcwd())
+  assert(sys.chdir(tmp))
+  local ok, err = pcall(Net.listen, Net.unix(""), { reclaim = true })
+  local made = Fs.stat(".lock")
+  assert(sys.chdir(was))
+  assert(not ok and tostring(err):find("path must not be empty", 1, true) ~= nil, tostring(err))
+  assert(made == nil, "a lock file was made in the working directory")
 end
 
 local DEEP_PART <const> = string.rep("d", 200)

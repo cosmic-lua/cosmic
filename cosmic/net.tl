@@ -94,7 +94,8 @@ local record Net
     --- within 5 bytes of the longest a path may be; "timed out" for
     --- another's lock held 10 seconds; "interrupted" for a signal a
     --- `Child.guard` caught; and a directory or a link at its name
-    --- fails too. A path ending in "/" fails "Is a directory".
+    --- fails too. A path ending in "/" fails "Is a directory", and an
+    --- empty path raises, as it does without `reclaim`.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
@@ -395,14 +396,13 @@ local function reclaim_lock(address: Net.Address): ReclaimLock, string
   local fd, why = sys.open(name,
     sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
   if fd == nil then return nil, name .. ": " .. why end
-  local lock: ReclaimLock = { fd = fd }
-  setmetatable(lock, reclaim_lock_mt)
   local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
   if not ok then
     local _, _ = sys.close(fd)
     return nil, name .. ": " .. said(trouble, errno)
   end
-  return lock, ""
+  local lock: ReclaimLock = { fd = fd }
+  return setmetatable(lock, reclaim_lock_mt), ""
 end
 
 --- What `reclaim` finds at `address`'s path, which a bind found taken,
@@ -465,7 +465,7 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ms), ""
   end
   if not opts.reclaim then return listened(address, backlog, opts.timeout_ms, false) end
-  assert(address.path ~= "", "path must not be empty")
+  if address.path == "" then error("bad argument #1 to 'listen' (path must not be empty)", 2) end
   if address.path:sub(-1) == "/" then return nil, named(address) .. ": Is a directory" end
   local lock <close>, locking = reclaim_lock(address)
   if lock == nil then return nil, locking end
