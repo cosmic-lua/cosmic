@@ -44,9 +44,8 @@
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
-local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
+local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic codec` verb: `run` is what `build/dispatch.tl` calls.
@@ -297,7 +296,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
     return nil, "give an encoding and a file at most, not " .. #words .. " words"
   end
   request.file = words[2]
-  if request.file == "" then return nil, "an empty file name" end
+  if request.file == "" then return nil, bare.empty_file end
   if request.file == "-" then request.file = nil end
   local wrap = parsed.values["--wrap"]
   if wrap ~= nil then
@@ -320,20 +319,12 @@ end
 --- Standard input, refusing a terminal, where nothing would ever end
 --- the bytes.
 local function open_stdin(): Stream.Reader | nil, string
-  if Proc.is_tty(Fs.stdin) then
-    return nil, "no file given and standard input is a terminal; give a file or pipe bytes in"
-  end
-  -- `Stream.from_fd` borrows the descriptor, which stays open.
-  return Stream.from_fd(Fs.stdin), ""
+  return bare.stdin_reader("no file given and standard input is a terminal; give a file or pipe bytes in")
 end
 
 local standard: verb.Io = {
-  out = function(text: string): boolean, string
-    return Fs.put(Fs.stdout, text)
-  end,
-  err = function(line: string)
-    local _, _ = Fs.put(Fs.stderr, line .. "\n")
-  end,
+  out = bare.out,
+  err = bare.err,
   input = open_stdin,
 }
 
@@ -344,13 +335,11 @@ local standard: verb.Io = {
 --- @param io where the text is read and written; the process's own when nil
 function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local to = io or standard
-  local function complain(line: string)
-    to.err("cosmic: codec: " .. line)
-  end
+  local complain = bare.complainer("codec", to.err)
   local request, trouble = arguments(argv)
   if request == nil then
     complain(trouble .. "; " .. usage)
-    return 2
+    return bare.refused
   end
   local opened: Stream.Reader | nil
   local read_trouble: string
@@ -367,7 +356,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
   if opened == nil then
     complain(read_trouble)
-    return 2
+    return bare.refused
   end
   local reader: Stream.Reader = opened
   local decode = request.decode
@@ -380,14 +369,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   --- Writes `text`, or complains of the write and answers false.
   local function put(text: string): boolean
     if text == "" then return true end
-    local ok, why = to.out(text)
-    if not ok then complain("standard output: " .. why) end
-    return ok
+    return bare.delivered(complain, to.out(text))
   end
   --- Ends the run in failure, releasing the input.
   local function stop(): integer
     local _, _ = reader:close()
-    return 2
+    return bare.refused
   end
   while true do
     -- A read may come up short; fill the chunk, so that what is held
@@ -432,9 +419,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local closed, close_why = reader:close()
   if not closed then
     complain(close_why)
-    return 2
+    return bare.refused
   end
-  return 0
+  return bare.ok
 end
 
 --- The `codec` verb as `build/verb_list.tl` lists it. Reads what it is
