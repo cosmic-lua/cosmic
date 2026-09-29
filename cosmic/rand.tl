@@ -4,6 +4,18 @@
 --- xoshiro256**, its state filled from the seed by splitmix64. It is not
 --- cryptographic: never derive a key, token or nonce from it; draw those
 --- from `Rand.entropy`.
+---
+--- - `Rand.new` makes a seeded `Rand.Source`, whose `int`, `float` and
+---   `bytes` draw from it: use one for shuffles, simulations and tests
+---   that must replay.
+--- - `Rand.uniform` picks an unbiased integer in a range from any
+---   function that draws 64 random bits.
+--- - `Rand.entropy` draws unguessable bytes from the operating system:
+---   use it for keys, tokens and nonces.
+---
+---     local dice = Rand.new(2026)
+---     local roll = dice:int(1, 6)
+---     local token = assert(Rand.entropy(16))
 
 local sys = require("cosmic.sys")
 

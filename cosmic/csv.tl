@@ -39,12 +39,23 @@
 --- they seem, and padding it would answer a query wrongly without a
 --- word. It names the line the record began on.
 ---
---- `table` and `rows` give each header field a column name, so a row can
---- be a table keyed by them. The empty name and a NUL byte in a name
---- become `_`. A name whose lower case an earlier one already has
---- (SQLite folds ASCII case) gets `_2` after it, then `_3` and on: `a`,
---- `A` become `a`, `A_2`, and the empty name twice becomes `_`, `__2`.
+--- `table` and `rows` turn each header field into a column name, so a
+--- row can be a table keyed by the names:
+---
+--- - The empty name, and a NUL byte inside a name, become `_`.
+--- - SQLite folds ASCII case in column names, so a name whose lower case
+---   an earlier one already has gets `_2` after it, then `_3` and on:
+---   `a`, `A` become `a`, `A_2`.
+--- - Renaming applies to the result too: the empty name twice becomes
+---   `_`, `__2`.
+---
 --- `cosmic.dataset` names its columns by the same rule.
+
+--- What `read` found: the records, and the line each began on.
+local record Scan
+  records: {{string}}
+  lines: {integer}
+end
 
 local record Csv
   --- What a reader or the writer may be told.
@@ -57,14 +68,10 @@ local record Csv
   --- What `table` read: the column names in the header's order, and a
   --- row per record after it.
   record Table
+    --- The names the header's fields became, in the header's order.
     columns: {string}
+    --- One table per record after the header, from column name to field.
     rows: {{string:string}}
-  end
-
-  --- What `read` found: the records, and the line each began on.
-  record Scan
-    records: {{string}}
-    lines: {integer}
   end
 end
 
@@ -88,7 +95,7 @@ local function at(line: integer, column: integer): string
 end
 
 --- The records of `text` and the line each began on, or nil and why.
-local function read(text: string, delimiter: string): Csv.Scan | nil, string
+local function read(text: string, delimiter: string): Scan | nil, string
   local records: {{string}} = {}
   local lines: {integer} = {}
   local size = #text

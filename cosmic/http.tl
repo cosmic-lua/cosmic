@@ -1,6 +1,5 @@
---- HTTP and HTTPS, typed, over core/http.c's curl/c-ares/mbedtls
---- binding: HTTP/HTTPS only, no cookies, no HTTP/2, no compressed
---- transfer-encoding (no zlib vendored).
+--- HTTP and HTTPS requests, typed: HTTP and HTTPS only, with no cookies,
+--- no HTTP/2 and no compressed transfer-encoding.
 ---
 ---     local got = assert(Http.get("https://example.com/"))
 ---     print(got.status, got.body)
@@ -18,13 +17,13 @@
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 
---- The raw module behind this one lives under the reserved
---- `cosmic.internal.` namespace, which an ordinary `require` never
---- satisfies (see cosmic/store.tl for why). It arrives instead as the
---- second argument the loader passes this chunk, present because this
---- module was itself loaded, trusted, from the binary's own tree. Boot
---- mode falls back to requiring it by name, which only boot's own
---- preload answers.
+-- The raw module behind this one lives under the reserved
+-- `cosmic.internal.` namespace, which an ordinary `require` never
+-- satisfies (see cosmic/store.tl for why). It arrives instead as the
+-- second argument the loader passes this chunk, present because this
+-- module was itself loaded, trusted, from the binary's own tree. Boot
+-- mode falls back to requiring it by name, which only boot's own
+-- preload answers.
 local type raw_http = require("cosmic.internal.http")
 
 local extra: any = select(2, ...)
@@ -138,8 +137,11 @@ local record Http
   --- bundled into one value since a public fallible function here
   --- returns exactly `(value, string)`.
   record Body
+    --- The final response's HTTP status code, after any redirect taken.
     status: integer
+    --- The whole body, as bytes.
     body: string
+    --- The response headers, keyed by lower-case name, as `Response.headers`.
     headers: {string:string}
   end
 end
@@ -205,12 +207,12 @@ local upload_mt: metatable<Http.Upload> = {
 --- before its own first write. A redirect that would send the body
 --- again (a 307 or 308) fails the request, since what was written
 --- cannot be written again.
--- TODO: follow a 307 or 308 with a streamed body by asking the caller
--- for it again (a function answering a fresh Reader, say) behind a
--- CURLOPT_SEEKFUNCTION that rewinds to it, once a caller must upload
--- through such a redirect; curl answers "necessary data rewind was not
--- possible" for one today.
 function Http.upload(url: string, opts?: Http.Options): Http.Upload | nil, string
+  -- TODO: follow a 307 or 308 with a streamed body by asking the caller
+  -- for it again (a function answering a fresh Reader, say) behind a
+  -- CURLOPT_SEEKFUNCTION that rewinds to it, once a caller must upload
+  -- through such a redirect; curl answers "necessary data rewind was not
+  -- possible" for one today.
   local started, trouble = http.start(url, opts)
   if started == nil then
     return nil, trouble

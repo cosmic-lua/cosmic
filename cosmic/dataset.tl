@@ -14,10 +14,12 @@
 --- `Json.decode(text, { null_value = Json.null })` gives an object. The
 --- table `load` makes has:
 ---
---- - one column per key any row has, in byte order (or the order
----   `LoadOptions.columns` gives), with no declared
----   type, so SQLite keeps each value as it was stored. A row without a
----   key holds NULL there.
+--- - one column per key any row has, with no declared type, so SQLite
+---   keeps each value as it was stored. A row without a key holds NULL
+---   there. The order is `LoadOptions.columns` when given, else the
+---   order the rows carry (`Rows.columns`, a CSV's header), and any other
+---   key follows in byte order: rows with no order are in byte order
+---   throughout.
 --- - a `_json` column last: the whole row as compact JSON text, keys
 ---   sorted, so `json_extract(_json, '$.a.b')` reaches anything.
 --- - scalars stored as SQLite values: a JSON integer as INTEGER, a
@@ -55,7 +57,7 @@
 --- number and loads as the integer 0, and `-0.0` as the real 0.0: no sign
 --- shows through SQL or `_json`. The columns follow the header's order, so
 --- `SELECT *` reads the file's own columns left to right; the JSON
---- formats' are in byte order. A file whose header has no rows still has
+--- formats' rows carry no order and their columns are in byte order. A file whose header has no rows still has
 --- its columns (all of them empty).
 ---
 --- The formats are a table kept here, one entry each -- a name, the
@@ -74,7 +76,8 @@ local record Dataset
   type Row = {string:any}
 
   --- The rows a reader made, and the order of their keys when the format
-  --- has one (a CSV's header): what `load` is given as `opts.columns`.
+  --- has one (a CSV's header): `load` puts the columns in it unless
+  --- `opts.columns` says otherwise.
   record Rows is {Dataset.Row}
     columns: {string}
   end
@@ -96,8 +99,9 @@ local record Dataset
     --- Add the `_json` column (default true).
     json_column: boolean
     --- The keys whose columns come first, in this order, even for a key
-    --- no row has; any other key follows, in byte order. Nil is byte
-    --- order throughout. A key listed twice counts once.
+    --- no row has; any other key follows, in byte order. Nil is the
+    --- rows' own order (`Rows.columns`), byte order if they have none.
+    --- A key listed twice counts once.
     columns: {string}
   end
 
@@ -403,7 +407,7 @@ local max_columns <const> = 2000
 --- exists, or `name` is reserved) or a row, a row holds a value with
 --- no SQLite one, or a nested value cannot be encoded.
 --- `name` is written into SQL text, so it holds no NUL byte.
-function Dataset.load(handle: Sqlite.Handle, name: string, rows: {Dataset.Row},
+function Dataset.load(handle: Sqlite.Handle, name: string, rows: Dataset.Rows,
                       opts?: Dataset.LoadOptions): Dataset.Table | nil, string
   if name == "" then
     return nil, "a table needs a name"
@@ -412,7 +416,11 @@ function Dataset.load(handle: Sqlite.Handle, name: string, rows: {Dataset.Row},
     return nil, "a table name cannot hold a NUL byte"
   end
   local json_column = not (opts and opts.json_column == false)
-  local names, key_of, renamed = columns_of(rows, json_column, opts and opts.columns)
+  local columns_given: {string} | nil = rows.columns
+  if opts and opts.columns then
+    columns_given = opts.columns
+  end
+  local names, key_of, renamed = columns_of(rows, json_column, columns_given)
   if #names + (json_column and 1 or 0) > max_columns then
     return nil, "too many columns: " .. #names .. " distinct keys, and SQLite holds at most " ..
       max_columns .. " columns in a table" .. (json_column and " (one is `_json`)" or "")
