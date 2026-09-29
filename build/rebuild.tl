@@ -34,7 +34,7 @@ end
 --- Teal at its top, in a directory of its own, or under `cmd/`. The
 --- directory of no project at all (an empty one, the home directory)
 --- is none, so a lookup there builds nothing and writes no `o/`.
-function rebuild.is_project(root: string): boolean | nil, string
+local function is_project(root: string): boolean | nil, string
   local own, own_trouble = tree.is_own(root)
   if own == nil then return nil, own_trouble end
   if own then return true, "" end
@@ -56,13 +56,13 @@ end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
 --- `o/cosmic.db` as the tree stands. It does nothing, answering true,
---- where `root` is no project (`rebuild.is_project`). Answers false and
+--- where `root` is no project (`is_project`). Answers false and
 --- why when the build fails, which the caller may say and go on from
 --- the last build.
-function rebuild.project(root: string): boolean, string
-  local project, project_trouble = rebuild.is_project(root)
-  if project == nil then return false, project_trouble end
-  if not project then return true, "" end
+local function project(root: string): boolean, string
+  local found, found_trouble = is_project(root)
+  if found == nil then return false, found_trouble end
+  if not found then return true, "" end
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return false, own_trouble end
   local started = Time.monotonic_ns()
@@ -88,11 +88,11 @@ function rebuild.project(root: string): boolean, string
   return true, ""
 end
 
---- `rebuild.project` for the working directory.
+--- Builds the project in the working directory, as `project` does.
 function rebuild.here(): boolean, string
   local root, trouble = Fs.absolute(".")
   if root == nil then return false, trouble end
-  return rebuild.project(root)
+  return project(root)
 end
 
 return rebuild
