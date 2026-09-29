@@ -14,15 +14,17 @@ int main (int argc, char **argv) {
 #endif
   struct cosmic_startup startup;
   /* The artifact is named `--artifact <path>`, or `--artifact=<path>` in
-   * one argument: a `#!` line hands its interpreter one argument at most,
-   * so a script names the core as its interpreter only that way. The
-   * joined form's slot is rewritten to the path, so the runtime's argv
-   * begins with the path under either form. It is taken only with the
-   * private contract in the environment, which every start it serves
-   * carries: without it, portable startup could only refuse, and a host
-   * program's own first argument is its own. The kernel cuts a `#!` line
-   * short without saying so, so startup holds the joined form's path to
-   * name the artifact descriptor's file. */
+   * one argument. A `#!` line hands its interpreter one argument at most,
+   * so a script can name the core as its interpreter only in the joined
+   * form. The joined form's slot is rewritten to the path, so the
+   * runtime's argv begins with the path under either form.
+   *
+   * The joined form is taken only with the private contract in the
+   * environment, which every start it serves carries. Without it,
+   * portable startup could only refuse, and a host program's own first
+   * argument is its own. The kernel cuts a `#!` line short without
+   * saying so, so startup holds the joined form's path to name the
+   * artifact descriptor's file. */
   static const char joined[] = "--artifact=";
   bool private_environment = cosmic_startup_has_private_environment();
   /* TODO: take `--artifact <path>` only with the private environment too,
