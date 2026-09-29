@@ -17,8 +17,9 @@ local test_inputs = require("build.test_inputs")
 --- The scalar fields of a spec a preimage names, in the order it spells
 --- them, and the optional ones, which are there or not.
 local SCALARS <const> = { "id", "module_key", "runtime", "compiler", "host",
-  "declaration", "launcher", "program", "closure_store", "system" }
-local OPTIONAL <const>: {string:boolean} = { launcher = true, closure_store = true }
+  "declaration", "launcher", "tree", "program", "closure_store", "system" }
+local OPTIONAL <const>: {string:boolean} = { launcher = true, tree = true,
+  closure_store = true }
 
 --- The collections a spec's inputs name: its closure's files, the paths
 --- of the tree it reads, the host paths it declares, and the
@@ -222,7 +223,7 @@ local function spec_of(d: Drawn, host: string): declared_key.Spec
     compiler = s.compiler, epoch = 1, timeout_ms = 30000, program = s.program, host = s.host,
     system = s.system, launcher = s.launcher, declaration = s.declaration,
     effective = effective, environment = environment, runs_tool = false,
-    closure_store = s.closure_store,
+    closure_store = s.closure_store, tree = s.tree,
   }
 end
 

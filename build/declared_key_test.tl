@@ -267,7 +267,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     program = "program", host = "host", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     environment = { DECLARED = "d", H = hostdir, TMPDIR = "/tmp" },
-    runs_tool = true, closure_store = "address",
+    runs_tool = true, closure_store = "address", tree = "/checkout",
   }
 end
 
@@ -292,6 +292,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch + 1 end },
     timeout_ms = { change = function(s: declared_key.Spec) s.timeout_ms = s.timeout_ms + 1000 end },
     launcher = append("launcher"), declaration = append("declaration"),
+    -- Keyed only for an unsandboxed worker, which sees the tree there.
+    tree = append("tree"),
     -- Keyed only for a module given the system's paths.
     system = append("system"),
     -- Keyed only for a test that runs the tool.
