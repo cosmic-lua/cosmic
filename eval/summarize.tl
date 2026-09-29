@@ -16,6 +16,7 @@
 --- this script's path, both with every link resolved.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local String = require("cosmic.string")
 
 local record Summarize
 end
@@ -175,13 +176,9 @@ local function decode(line: string): any
   return value
 end
 
-local function starts(text: string, prefix: string): boolean
-  return text:sub(1, #prefix) == prefix
-end
-
 local function is_system(path: string): boolean
   for _, prefix in ipairs(system) do
-    if starts(path, prefix) or path .. "/" == prefix then
+    if String.starts_with(path, prefix) or path .. "/" == prefix then
       return true
     end
   end
@@ -313,7 +310,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     -- Where the call acts, not what it writes: a file's own contents
     -- would otherwise count every path its prose mentions.
     for _, path in ipairs(Summarize.paths(call.where)) do
-      if not (path == arena or starts(path, arena .. "/") or is_system(path)) then
+      if not (Fs.within(path, arena) or is_system(path)) then
         outside[path] = true
       end
     end

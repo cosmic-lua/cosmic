@@ -129,6 +129,9 @@ bool cosmic_host_trailer (int fd);
 
 void cosmic_artifact_init (struct cosmic_artifact *artifact);
 void cosmic_artifact_close (struct cosmic_artifact *artifact);
+/* Reads exactly `length` bytes at `offset` of `fd` into `into`, through
+ * EINTR: false when they cannot all be read. */
+bool cosmic_read_at (int fd, void *into, size_t length, uint64_t offset);
 /* Reads exactly `length` bytes at `offset` of the artifact into `into`:
  * false when they cannot all be read. */
 bool cosmic_artifact_read (const struct cosmic_artifact *artifact, void *into,
