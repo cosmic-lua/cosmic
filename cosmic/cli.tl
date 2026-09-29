@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, codec, archive, time, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, hash, codec, archive, time, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -187,6 +187,41 @@ local record Cli
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
   json: string
+  --- `cosmic hash [options] [file|-]...`: the digest of each file, or of
+  --- standard input for `-` or no file, printed as `sha256sum` prints
+  --- it, `<hex>  <name>`, the same on every platform. The algorithm is
+  --- `--sha256` (the default), `--sha512`, `--sha384`, `--sha224`,
+  --- `--sha1`, `--md5`, or `--sha3-224`, `--sha3-256`, `--sha3-384`,
+  --- `--sha3-512`: those `cosmic.hash` has. Every file streams in a
+  --- chunk at a time, so its size does not matter to memory. A name with
+  --- a backslash or a newline is written as GNU writes it: the line
+  --- begins `\` and the name has `\\`, `\n` and `\r` (all three read back). A file named `-` is
+  --- `./-`. `--json` prints an array of `{path, algorithm, digest}`
+  --- instead. `--check <sums>` (or `-` for standard input) verifies a
+  --- sums file in that format, with the text and `*` binary markers,
+  --- escaped names, and blank and `#` lines skipped; the digest sizes
+  --- follow the algorithm option, so name it for a non-SHA-256 file.
+  --- Each file prints `name: OK`, `name: FAILED`, or `name: FAILED open
+  --- or read`, its name escaped as above; `--quiet` prints only the
+  --- failures. BSD `SHA256 (file) = hex` lines and one-space separators
+  --- are refused as malformed, and a malformed line makes the exit 2
+  --- even when every entry is OK (GNU only warns, without `--strict`);
+  --- a CRLF sums file leaves the CR in each name. The listed paths are
+  --- opened as given, so `--check` refuses a path that is not a regular
+  --- file (`FAILED open or read`), and a sums file you do not trust can
+  --- still make it read any regular file you can. `--hmac <key>` makes
+  --- each digest an HMAC under the key, and `--hmac-file <path>` reads
+  --- the key from a file (its bytes exactly, a trailing newline
+  --- included, with a warning: write it with `printf %s`). Prefer the file: a key on the
+  --- command line shows in `ps` and the shell's history. Every
+  --- algorithm has an HMAC, and it streams too; `--json` names it
+  --- `hmac-sha256` and the like, and `--check` verifies HMACs when
+  --- given a key. It prints no verdict line: its output is data. Exits 0
+  --- when all is well, 1 when a check failed or a listed file could not
+  --- be read, 2 for a command line, a file to hash, a sums file (a
+  --- malformed line among them) or a write to standard output it cannot
+  --- use, with `cosmic: hash: ...` on standard error
+  hash: string
   --- `cosmic archive list|extract|create`: the zip and tar files a
   --- release ships, with no script. `list <file>|-` prints one entry
   --- per line -- path (a symlink's `path -> target`), size, mode in
@@ -323,7 +358,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", codec = "codec", archive = "archive", time = "time", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", hash = "hash", codec = "codec", archive = "archive", time = "time", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -370,6 +405,23 @@ local module: Module = {
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
       ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
     },
+    hash = {
+      ["--md5"] = { about = "digest with MD5" },
+      ["--sha1"] = { about = "digest with SHA-1" },
+      ["--sha224"] = { about = "digest with SHA-224" },
+      ["--sha256"] = { about = "digest with SHA-256 (the default)" },
+      ["--sha384"] = { about = "digest with SHA-384" },
+      ["--sha512"] = { about = "digest with SHA-512" },
+      ["--sha3-224"] = { about = "digest with SHA3-224" },
+      ["--sha3-256"] = { about = "digest with SHA3-256" },
+      ["--sha3-384"] = { about = "digest with SHA3-384" },
+      ["--sha3-512"] = { about = "digest with SHA3-512" },
+      ["--json"] = { about = "print an array of {path, algorithm, digest}" },
+      ["--check"] = { value = "sums", about = "verify a sums file, or - for standard input" },
+      ["--quiet"] = { about = "with --check, print only the failures" },
+      ["--hmac"] = { value = "key", about = "make each digest an HMAC under key (visible in ps)" },
+      ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file" },
+    },
     archive = {
       ["--json"] = { about = "list: print an array of objects, not lines" },
       ["-C"] = { value = "dir", about = "extract: unpack into dir (default: the working directory)" },
@@ -409,7 +461,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "archive", "time", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "hash", "codec", "archive", "time", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 
