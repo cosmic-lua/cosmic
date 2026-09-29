@@ -10,13 +10,13 @@
 --- What a sandboxed worker has (`test_sandbox.plan`):
 ---
 --- - the tree at `test_sandbox.tree`, /tree, wherever the host keeps
----   it, and its working directory there, holding only its store at
----   o/cosmic.db -- the store of its module's import closure
----   (`build.closure_store`'s `write`), or the whole projection for a
----   module that declares `store` -- its module's import closure as
+---   it, and its working directory there. Each read-only, it holds only
+---   the store at o/cosmic.db (the store of its module's import closure,
+---   `build.closure_store`'s `write`, or the whole projection for a
+---   module that declares `store`), its module's import closure as
 ---   source files, the fuzz corpora for a module that uses
----   `build.fuzz`, and what the module declares it `reads`, with o/bin
----   for one that declares `tool` -- each read-only;
+---   `build.fuzz`, what the module declares it `reads`, and o/bin for
+---   one that declares `tool`;
 --- - its scratch directory at `test_sandbox.scratch`, /tmp, writable:
 ---   the test's own directory (/tmp/tmp, a link to /tmp/real), where
 ---   the processes it starts write their coverage (/tmp/children), and
@@ -45,11 +45,11 @@
 --- A read of anything else finds nothing, and so does one of every
 --- process the worker starts, which has the worker's sandbox and no
 --- more: what a test declares for itself it declares for them.
---- The worker is pid 2 of a pid
---- namespace of its own, whose init ends when it does, ending whatever
---- it left running there: no descendant of a sandboxed worker outlives
---- it. Its verdict is keyed by what it was given (`build.declared_key`),
---- not by what it read. What the worker reports, it reports as it saw
+---
+--- The worker is pid 2 of a pid namespace of its own, whose init ends
+--- when it does, ending whatever it left running there: no descendant of
+--- a sandboxed worker outlives it. Its verdict is keyed by what it was
+--- given (`build.declared_key`), not by what it read. What the worker reports, it reports as it saw
 --- it, at /tree and /tmp; `to_host` puts each path back where the host
 --- has it, for the audit of what it read and for its `runs` row.
 
@@ -131,9 +131,8 @@ local own_cores <const> = test_sandbox.scratch .. "/cores"
 
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's (`build.test`'s `worker_environment`), the pinned
---- variables, those `effective` declares -- all of them for `"*"`; and
---- TMPDIR, whatever the host's, its scratch
---- directory, the one it can write to.
+--- variables and those `effective` declares (all of them for `"*"`),
+--- and TMPDIR, set to its scratch directory, the one it can write to.
 function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): {string:string}
   local out: {string:string} = {}
@@ -308,11 +307,10 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- mount point would be the host's own file, seen through the cache's
   -- bind, and a mount onto a file the host renames another over as it
   -- is made fails ENOENT (the kernel's lock_mount finds its dentry
-  -- unlinked): this program's core and the stamp beside it, when the
-  -- cores directory was a cache given to write, failed the worker's
-  -- start so early in a run on a new core, as each start wrote the
-  -- stamp until one held. The key still holds it (`held`), and the
-  -- cache gives it.
+  -- unlinked). This program's core and the stamp beside it would fail
+  -- so if the cores directory were a cache given to write, since each
+  -- start writes the stamp until one holds. The key still holds the
+  -- path (`held`), and the cache gives it.
   -- TODO: bind each path given inside another at a mount point of the
   -- sandbox's own (core/syscalls.c's build_root: the file bound first at
   -- a name in its tmpfs, then moved into place), so no mount point is the
@@ -487,15 +485,15 @@ function test_sandbox.to_host(reads: {observations.Observation}, root: string,
   return out
 end
 
---- Why a sandboxed start failed with `trouble`, said plainly where it
---- is the kernel refusing a user namespace -- none may be made (ENOSPC:
---- user.max_user_namespaces is 0), or none for this user (EPERM or
---- EACCES: a container's seccomp profile, AppArmor's
---- kernel.apparmor_restrict_unprivileged_userns), or, for EPERM, this
---- process held by a Landlock ruleset, whose domain refuses every mount:
---- a run started in a test worker's process whose environment dropped
---- `confine.held_variable`, which would have named it -- and `trouble`
---- as it is otherwise.
+--- Why a sandboxed start failed with `trouble`: said plainly where the
+--- kernel refuses a user namespace, else `trouble` as it is. The kernel
+--- refuses where none may be made (ENOSPC: user.max_user_namespaces is
+--- 0), where none is allowed this user (EPERM or EACCES: a container's
+--- seccomp profile, AppArmor's
+--- kernel.apparmor_restrict_unprivileged_userns), or, for EPERM, where this process is held by a Landlock ruleset, whose
+--- domain refuses every mount. That is a run started in a test worker's
+--- process whose environment dropped `confine.held_variable`, which
+--- would have named it.
 function test_sandbox.refusal(trouble: string): string
   local why: string = nil
   if trouble:find("No space left on device", 1, true) then
