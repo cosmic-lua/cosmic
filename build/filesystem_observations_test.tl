@@ -556,9 +556,9 @@ local function test_a_query_of_the_tests_own_directory_is_judged_by_where_it_lea
   assert(through.answer == "/proc", through.answer)
 end
 
---- Every call the observations once stood in for is logged by its
---- binding itself: a reference to it taken before the capture began,
---- as `local open = sys.open`, is observed as the table's own is.
+--- Each call the observations note is logged by its binding itself: a
+--- reference to it taken before the capture began, as `local open =
+--- sys.open`, is observed as the table's own is.
 local function test_a_reference_taken_before_the_capture_is_observed(tmp: string)
   local real = assert(sys.realpath(tmp))
   assert(Fs.write(real .. "/f", "x"))
@@ -670,9 +670,8 @@ local function test_a_read_is_resolved_as_it_is_made(tmp: string)
   end
 end
 
---- What a path resolved to, as the observations told it before the log
---- resolved it in C: the oracle `observations.resolution` must agree
---- with.
+--- What a path resolves to, in Teal: the oracle `observations.resolution`
+--- and `observations.link_resolution` must agree with.
 local function resolved_before(path: string, link: boolean): string
   if path:sub(1, 1) ~= "/" then return "" end
   if link then
@@ -702,7 +701,7 @@ local function resolved_before(path: string, link: boolean): string
   end
 end
 
---- The log resolves a path as the observations did in Teal: through
+--- The log resolves a path as `resolved_before` does: through
 --- links, a missing name and all after it as written, "." and ".."
 --- included, each run of slashes as one, and a link it ends in followed
 --- or not.
@@ -735,7 +734,7 @@ end
 --- may -- and is noted by each path that sandbox gives it, "u", not "p",
 --- one not there yet included; and, where the sandbox holds it to
 --- nothing a key can hold (`unkeyable`), "x" besides. Without `held` it
---- is noted "p", as ever.
+--- is noted "p".
 local function test_a_process_a_sandboxed_worker_starts_is_noted_by_what_it_holds(tmp: string)
   local probe = probe_in(tmp)
   local given, own = tmp .. "/given", tmp .. "/own"

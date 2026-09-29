@@ -143,20 +143,20 @@ end
 
 --- Neither a sandboxed verdict nor an unenforced one stands for the
 --- other, whichever came first: each keys under a runtime of its own.
---- The runtime's " declared" tag (build/test.tl) is not what this case
---- turns on: the two runs differ in COSMIC_TEST_SANDBOX, which every
---- key holds pinned, and a sandboxed runtime carries " sandboxed". The
---- tag names the mode in the key itself, so the two stay apart though
---- neither of those tells them apart any longer -- a run in auto mode
---- on a host that can sandbox a worker one day and not the next, were
---- the " sandboxed" mark to go -- and no test can reach a runtime but
---- through the keys these runs print.
---- Where this host cannot sandbox a worker of the run it starts --
---- macOS, which has no sandbox, decided before anything starts; one
---- nested in this test's own sandbox, which the kernel refuses root,
---- or a host refusing user namespaces, told by the run's summary --
---- there is nothing to check, unless this run is held to sandboxing:
---- then it fails.
+--- The two runs differ in COSMIC_TEST_SANDBOX, which every key holds
+--- pinned, and a sandboxed runtime carries " sandboxed". The runtime's
+--- " declared" tag (build/test.tl) names the mode in the key itself, so
+--- the two would stay apart even if neither of those told them apart,
+--- as in an auto-mode run on a host that can sandbox a worker one day
+--- and not the next. This case does not turn on that tag: no test can
+--- reach a runtime except through the keys these runs print.
+---
+--- Where this host cannot sandbox a worker of the run it starts, there
+--- is nothing to check, unless the run is held to sandboxing: then it
+--- fails. That is macOS, which has no sandbox (decided before anything
+--- starts), a run nested in this test's own sandbox, which the kernel
+--- refuses root, and a host refusing user namespaces (told by the run's
+--- summary).
 local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: string)
   local function environments(cache: string): {string:string}, {string:string}
     local unenforced = environment(cache)

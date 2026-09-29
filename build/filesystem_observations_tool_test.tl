@@ -160,7 +160,7 @@ end
 
 --- A confined process is given the portable cache its environment
 --- names by where that leads, which its root holds, not through a link
---- its root does not: a launcher there found no cache and ended, and
+--- its root does not: a launcher there would find no cache and end, and
 --- could not make one. One not made yet is named by where its parent
 --- leads, and one named without a link is kept as named. What it leads
 --- to is no read a key must place: the run stays keyable.
