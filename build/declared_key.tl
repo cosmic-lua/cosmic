@@ -148,10 +148,15 @@ local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
 local core_image = require("build.core_image")
+local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 
 local record declared_key
+  --- build.key_parts', answered as this module's own.
+  key_part: function(kind: string, path: string, answer: string): string
+  tree_name: function(path: string, tree: string): string
   compiler_readers: {string}
+  reads_compiler: function(closure: {string}): boolean
 
   --- What a run knows of the files it keys, kept for the run.
   record Digests
@@ -250,44 +255,13 @@ local record declared_key
   end
 end
 
---- One framed contribution to a verdict key.
-function declared_key.key_part(kind: string, path: string, answer: string): string
-  return kind .. " " .. Codec.hex(path) .. " " .. Codec.hex(answer)
-end
-
---- What names the tree's own root in `tree_name`: a NUL, which no
---- path holds, so no path outside the tree is ever named as one inside.
-local tree_marker <const> = "\0tree"
-
---- A path as a key names it, the same in every checkout of one tree:
---- one under `tree` -- as written, not climbing with ".." -- by its name
---- below it after a marker no path holds, and any other as it is. The
---- tree's own location is no input to what a test does there, so two
---- checkouts of the same content key the same read alike.
----
---- That is a rule, not an accident of keying: a test may not turn on
---- where the tree is -- a path length limit, a name it prints and
---- compares. The answers that name it which a capture observes (the
---- working directory, a realpath, a readlink, a path under the tree
---- read or given) are keyed by `tree_name` in the shared key and whole
---- only in a checkout's own; one it does not (the artifact path
---- `Proc.relaunch` and the process table's `relaunch` answer) is keyed
---- nowhere. The same rule holds of where the running program is: what
---- `Proc.executable` answered is keyed nowhere (`program_answer`), only
---- that it answered. Nothing here can see a test break either rule;
---- CI enforces both by moving its checkout, and the tool it runs,
---- o/bin/cosmic, with it, to a path the commit and the leg choose, a
---- new one each commit (.github/scripts/place-tree.sh). That catches a
---- test that breaks one only on a run that runs the test: every run
---- while CI stands only on what it runs itself, and once it stands on
---- shared verdicts, only a run where the test's key changed.
-function declared_key.tree_name(path: string, tree: string): string
-  if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
-  local rest, _ = Fs.relative(path, tree)
-  if rest == nil then return path end
-  if rest == "." then return tree_marker end
-  return tree_marker .. "/" .. rest
-end
+-- The parts of a key a worker spells too, which build.key_parts holds
+-- so a worker loads none of this module: answered here as this
+-- module's own, so no caller of them moves.
+declared_key.key_part = key_parts.key_part
+declared_key.tree_name = key_parts.tree_name
+declared_key.compiler_readers = key_parts.compiler_readers
+declared_key.reads_compiler = key_parts.reads_compiler
 
 --- What every key begins with, which names how its parts are computed:
 --- bumped by hand for a fix to how one is computed by code no key
@@ -1224,29 +1198,6 @@ function declared_key.program_identity(digests: declared_key.Digests, paths: {st
     ::continue::
   end
   return Hash.hex_sha256(table.concat(lines, "\n"))
-end
-
---- The modules of the tree that read the compiler's identity
---- (`Store.meta`'s `compiler` or `compiled_by`), which a closure store
---- does not carry: a worker's reads of it are answered from the running
---- tool's own `meta`, so a test whose closure holds one of them is keyed
---- by the tool's (`Spec.compiler`). `build.tree_checks` refuses the
---- tree when a module of it reads it and is not named here.
-declared_key.compiler_readers = {
-  "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.store_meta_readers_test", "build.test", "build.tree_checks", "core.allocation_test",
-  "cosmic.store_handles_test", "doc.guides.portable-runtime",
-}
-
---- Whether an import closure, the names of its modules, holds a module
---- that reads the compiler's identity (`compiler_readers`).
-function declared_key.reads_compiler(closure: {string}): boolean
-  local readers: {string:boolean} = {}
-  for _, name in ipairs(declared_key.compiler_readers) do readers[name] = true end
-  for _, name in ipairs(closure) do
-    if readers[name] then return true end
-  end
-  return false
 end
 
 return declared_key

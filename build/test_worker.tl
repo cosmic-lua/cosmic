@@ -16,16 +16,13 @@ local type Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Store = require("cosmic.store")
 local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local Time = require("cosmic.time")
 local confine = require("build.confine")
-local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 local observations = require("build.filesystem_observations")
 local test_inputs = require("build.test_inputs")
-local log = require("build.verdict").log
 
 --- The store's raw table, which the searcher hands this module as its
 --- loader's extra value when it loads trusted (core/store.c's
@@ -168,35 +165,46 @@ local HEADER <const> = "cosmic-test-report-2"
 --- rather than trusted to a walk of the `imports` table, which follows
 --- `local type` requires Teal erases and requires inside functions no
 --- worker calls.
--- TODO: drop build.declared_key, and build.artifact, build.core_image
--- and build.launcher, which it requires, once no worker reaches its
--- `key_part` and `tree_name`: `encode_reads` goes with the worker's report of its reads
--- (removing the observation log, step 4), build.filesystem_observations
--- with the log (step 5).
+-- TODO: drop build.filesystem_observations once the worker no longer
+-- reports its reads, the observation log and core/observed.c removed
+-- (plan 4.2); cosmic.hash and cosmic.codec, which it requires, once it
+-- digests through a build.digest raw module (a row in core/store.c's
+-- `raw_modules`, plan 2.7); and cosmic.errors, cosmic.sqlite and
+-- cosmic.store once cosmic.test takes `trace` from
+-- cosmic.internal.errors rather than cosmic.errors (plan 2.7).
 worker.loads = {
-  "build.artifact", "build.cache_names", "build.confine", "build.core_image", "build.declared_key",
-  "build.filesystem_observations", "build.launcher", "build.test_inputs", "build.test_worker",
-  "build.this_program", "build.verdict", "cmd.cosmic.main", "cosmic.codec", "cosmic.coverage", "cosmic.env",
-  "cosmic.errors", "cosmic.fs", "cosmic.hash", "cosmic.log", "cosmic.proc", "cosmic.removed",
-  "cosmic.sqlite", "cosmic.store", "cosmic.string", "cosmic.test", "cosmic.time",
+  "build.cache_names", "build.confine", "build.filesystem_observations", "build.key_parts",
+  "build.test_inputs", "build.test_worker", "build.this_program", "cmd.cosmic.main",
+  "cosmic.codec", "cosmic.coverage", "cosmic.env", "cosmic.errors", "cosmic.fs", "cosmic.hash",
+  "cosmic.proc", "cosmic.removed", "cosmic.sqlite", "cosmic.store", "cosmic.test",
 }
 
-local hex_byte: {string:string} = {}
-for byte = 0, 255 do
-  hex_byte[string.char(byte)] = string.format("%02x", byte)
-end
+-- Taken at load, ahead of any test that could replace them on the
+-- module's table, which a test whose closure holds it shares.
+local hex, key_part, reads_compiler = key_parts.hex, key_parts.key_part, key_parts.reads_compiler
+local unhex_either = key_parts.unhex
 
-local function hex(data: string): string
-  return (data:gsub(".", hex_byte))
-end
-
+--- The bytes `hex` spelled, or nil for text it would not have written.
 local function unhex(data: string): string | nil
-  if #data % 2 ~= 0 or data:find("[^0-9a-f]") ~= nil then
-    return nil
-  end
-  return (data:gsub("..", function(byte: string): string
-    return string.char(tonumber(byte, 16) or 0)
-  end))
+  if data:find("[^0-9a-f]") ~= nil then return nil end
+  local bytes, _ = unhex_either(data)
+  return bytes
+end
+
+--- Writes `line` to stderr, as cosmic's own complaints are: the
+--- worker's trouble before or after its test, which the runner captures
+--- with its test's output. The write is taken as it loads, ahead of any
+--- test that could replace it on the shared `Fs` table.
+local put = Fs.put
+local function complain(line: string)
+  local _, _ = put(2, "cosmic: " .. line .. "\n")
+end
+
+--- The monotonic clock, in nanoseconds, straight from the binding.
+local function monotonic_ns(): integer
+  local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
+  if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2) end
+  return reading
 end
 
 -- TODO: a report longer than Child's capture limit (16 MB) loses its
@@ -216,7 +224,7 @@ end
 local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
   for _, observation in ipairs(found) do
     lines[#lines + 1] = tag .. " " ..
-      declared_key.key_part(observation.kind, observation.path, observation.answer)
+      key_part(observation.kind, observation.path, observation.answer)
   end
 end
 
@@ -460,7 +468,7 @@ local held_meta <const>: {string} = { "boot_hash", "image_hash", "main", "runtim
 --- The `meta` rows that name the compiler's identity, which a closure
 --- store does not carry: a held worker reads them only where its closure
 --- holds a module that reads them, whose key holds the tool's
---- (`build.declared_key`'s `compiler_readers`).
+--- (`build.key_parts`' `compiler_readers`).
 local compiler_meta <const>: {string} = { "compiled_by", "compiler" }
 
 --- The `meta` row that names the writer's identity (`build.work`'s
@@ -479,7 +487,7 @@ local function meta_keys(closure: {string:boolean}): {string:boolean}
   if closure["build.writer"] then keys[writer_meta] = true end
   local names: {string} = {}
   for name in pairs(closure) do names[#names + 1] = name end
-  if declared_key.reads_compiler(names) then
+  if reads_compiler(names) then
     for _, key in ipairs(compiler_meta) do keys[key] = true end
   end
   return keys
@@ -535,7 +543,7 @@ local function hold_store(module_path: string, closure: {string:boolean},
     "tests again on every edit to the tree", module_path), meta_keys(closure),
     string.format("%s's verdict is keyed by what the store holds of its import closure " ..
     "alone and by the runtime, and neither holds that row -- nor the compiler's " ..
-    "identity, unless the closure holds a module build/declared_key.tl's " ..
+    "identity, unless the closure holds a module build/key_parts.tl's " ..
     "`compiler_readers` names, nor the writer's, unless it holds build.writer. " ..
     "Declare store = true in its Test.needs to read it, at the cost of running its " ..
     "tests again on every edit to the tree", module_path))
@@ -717,21 +725,22 @@ function worker.run(argv: {integer:string}): integer
   local held_paths = argv[9] or ""
   if root == nil or module_path == nil or name == nil or tmp == nil or
       children_path == nil then
-    log:complain("test --worker needs a root, a module, a test and two directories")
+    complain("test --worker needs a root, a module, a test and two directories")
     return 2
   end
   if argv[2] == "--worker-no-tool" or argv[2] == "--worker-held" then
     local no_tool = argv[2] == "--worker-no-tool"
     local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {})
     if not forbidden then
-      log:complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " ..
+      complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " ..
         "ruleset: " .. forbid_trouble)
       return 2
     end
   end
-  local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")
+  local db_path = root .. "/o/cosmic.db"
+  local attached, attach_trouble = store.attach(db_path)
   if not attached then
-    log:complain(attach_trouble)
+    complain(db_path .. ": " .. attach_trouble)
     return 2
   end
   -- Without a closure, a call as it is.
@@ -828,11 +837,11 @@ function worker.run(argv: {integer:string}): integer
       report.message = module_path .. " has no test named " .. name
     else
       local test_session, _ = Coverage.start()
-      local started = Time.monotonic_ns()
+      local started = monotonic_ns()
       local run = observations.call(function(argument: any): any
         return held(fn, argument)
       end, tmp, resolving)
-      local finished = Time.monotonic_ns()
+      local finished = monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)
         report.test_hits = hits
@@ -854,9 +863,9 @@ function worker.run(argv: {integer:string}): integer
   end
   table.sort(modules)
   report.modules = modules
-  local written, trouble = Fs.put(worker.report_fd, worker.encode(report))
+  local written, trouble = put(worker.report_fd, worker.encode(report))
   if not written then
-    log:complain("the test report: " .. trouble)
+    complain("the test report: " .. trouble)
     return 2
   end
   return 0

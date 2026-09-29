@@ -408,13 +408,13 @@ function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {str
   for name in pairs(found) do
     if not listed[name] then
       missing[#missing + 1] = name .. " reads the compiler's identity, but " ..
-        "build/declared_key.tl's `compiler_readers` does not name it, so no key " ..
+        "build/key_parts.tl's `compiler_readers` does not name it, so no key " ..
         "of a test that runs it holds it"
     end
   end
   for name in pairs(listed) do
     if not found[name] then
-      stale[#stale + 1] = name .. " is named in build/declared_key.tl's " ..
+      stale[#stale + 1] = name .. " is named in build/key_parts.tl's " ..
         "`compiler_readers`, but no longer reads the compiler's identity -- remove it"
     end
   end

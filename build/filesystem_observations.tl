@@ -1,11 +1,15 @@
 --- Filesystem queries whose answers may affect a test verdict.
 
-local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
+-- TODO: digest over the raw hash table rather than `Hash.hex_sha256`,
+-- once a build.digest raw module (a row in core/store.c's
+-- `raw_modules`) hashes keys (plan 2.7): a worker then loads neither
+-- cosmic.hash nor cosmic.codec, and a test that replaces
+-- `Hash.hex_sha256` on the shared table cannot move a digest here.
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
-local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 
 --- SQLite's table, which records the files SQLite opens in C, and the
 --- syscall table's log of what its calls were asked and answered: this
@@ -31,16 +35,17 @@ local syscalls = raws.syscalls
 -- What placing a path asks of the process: the calls themselves, past
 -- the syscall table's log, so the observer's own questions are none of
 -- the test's; and taken when this module loads -- before any test's
--- module does -- so a test cannot bend where its own reads are keyed.
--- TODO: take `Fs.within`, which a note calls, the same way (a path's
--- resolution is the log's own, in C): a test that replaces it on the
--- shared `Fs` table can still move a read in or out of the tree.
+-- module does -- so a test cannot bend where its own reads are keyed,
+-- `Fs.within` among them, which a test could otherwise replace on the
+-- shared `Fs` table to move a read in or out of the tree.
 local getcwd = syscalls.getcwd
 local realpath = syscalls.realpath
 local lstat = syscalls.lstat
 local stat = syscalls.stat
 local environ = syscalls.environ
 local tree_digest = syscalls.tree_digest
+local within = Fs.within
+local hex, unhex, tree_name = key_parts.hex, key_parts.unhex, key_parts.tree_name
 
 --- The calls the stand-in for `spawn` (build.confine's `enter`) makes
 --- while a capture runs, past the log, so its questions are none of the
@@ -185,10 +190,10 @@ function observations.encode(found: {observations.Observation}): string
         kind == "u" or kind == "l" or kind == "k" or kind == "a" or kind == "c" or
         kind == "b" or kind == "v" or kind == "g" or kind == "j" or
         kind == "y" then
-      lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
+      lines[#lines + 1] = kind .. " " .. hex(observation.path)
     elseif kind == "t" or kind == "w" then
-      lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
-        Codec.hex(observation.answer)
+      lines[#lines + 1] = kind .. " " .. hex(observation.path) .. " " ..
+        hex(observation.answer)
     end
   end
   return table.concat(lines, "\n")
@@ -202,7 +207,7 @@ end
 function observations.encode_unstable(identity?: string,
                                       found?: {observations.Observation}): string
   if identity == nil then return "filesystem-observations-unstable" end
-  return "filesystem-observations-unstable\n" .. Codec.hex(identity) .. "\n" ..
+  return "filesystem-observations-unstable\n" .. hex(identity) .. "\n" ..
     observations.encode(found or {})
 end
 
@@ -220,9 +225,9 @@ function observations.decode(encoded: string): {observations.Observation} | nil
       local path: string = nil
       local answer: string = nil
       if encoded_path ~= nil then
-        local decoded, _ = Codec.unhex(encoded_path)
+        local decoded, _ = unhex(encoded_path)
         path = decoded
-        local decoded_answer, _ = Codec.unhex(encoded_answer)
+        local decoded_answer, _ = unhex(encoded_answer)
         answer = decoded_answer
       end
       if kind == nil or path == nil or answer == nil or (kind ~= "t" and kind ~= "w" and answer ~= "") then
@@ -237,9 +242,9 @@ end
 --- The identity and observations `encode_unstable` was given, or nil
 --- when it was given none or `encoded` is no such mark.
 function observations.decode_unstable(encoded: string): observations.Unstable | nil
-  local hex, rest = encoded:match("^filesystem%-observations%-unstable\n([0-9a-f]+)\n(.*)$")
-  if hex == nil then return nil end
-  local identity, _ = Codec.unhex(hex)
+  local digits, rest = encoded:match("^filesystem%-observations%-unstable\n([0-9a-f]+)\n(.*)$")
+  if digits == nil then return nil end
+  local identity, _ = unhex(digits)
   local found = observations.decode(rest)
   if identity == nil or found == nil then return nil end
   return { identity = identity, reads = found }
@@ -285,7 +290,7 @@ local environ_path = "\0environ"
 local function stat_result_answer(st: sys.Stat | nil, trouble: string,
                                   errno: integer): string
   if st == nil then
-    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
+    return "error " .. hex(trouble) .. " " .. tostring(errno)
   end
   return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
     tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
@@ -296,7 +301,7 @@ end
 --- A query's answer: its value, or its error, as a stat's is told.
 local function value_answer(value: string | nil, trouble: string, errno: integer): string
   if value == nil then
-    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
+    return "error " .. hex(trouble) .. " " .. tostring(errno)
   end
   return "ok " .. value
 end
@@ -307,7 +312,7 @@ end
 local function digest_result_answer(walked: sys.TreeDigest | nil, trouble: string,
                                     errno: integer): string
   if walked == nil then
-    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
+    return "error " .. hex(trouble) .. " " .. tostring(errno)
   end
   return "ok " .. tostring(walked.digest) .. (walked.special and " special" or "")
 end
@@ -317,7 +322,7 @@ end
 --- the program is. What the program is, a verdict's key holds already
 --- (its runtime identity, `build.work`'s `Identities`); where it is,
 --- like where the tree is, is no input a test may turn on (see
---- build.declared_key's `tree_name`), so a verdict one copy of a program
+--- build.key_parts' `tree_name`), so a verdict one copy of a program
 --- reached stands under another at another path -- another artifact
 --- over the same core and basis, a release beside the tree's own.
 local function program_answer(value: string | nil, trouble: string, errno: integer): string
@@ -331,7 +336,7 @@ local function directory_result_answer(entries: {string:string} | nil,
                                        trouble: string,
                                        errno: integer): string
   if entries == nil then
-    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
+    return "error " .. hex(trouble) .. " " .. tostring(errno)
   end
   local names: {string} = {}
   for name in pairs(entries) do names[#names + 1] = name end
@@ -616,7 +621,7 @@ local function start(resolving: observations.Resolving | nil):
       if observation.kind == "m" then
         local inside = false
         for _, directory in ipairs(own) do
-          if Fs.within(observation.path, directory) then inside = true end
+          if within(observation.path, directory) then inside = true end
         end
         local st, _ = lstat(observation.path)
         if not inside and st ~= nil and st.kind == "dir" then
@@ -638,7 +643,7 @@ local function start(resolving: observations.Resolving | nil):
     if resolving ~= nil and
         (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
           kind == "a" or kind == "g" or kind == "j") and
-        path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
+        path:sub(1, 1) == "/" and (not within(path, resolving.tree) or
           ("/" .. path .. "/"):find("/%.%./") ~= nil) then
       if resolved == nil then
         -- The log resolved nothing for it: where it led is unknown.
@@ -651,14 +656,14 @@ local function start(resolving: observations.Resolving | nil):
       local link = kind == "l" or kind == "k" or kind == "g" or kind == "j"
       local noted = link and "v" or "r"
       for _, directory in ipairs(resolving.own) do
-        if Fs.within(path, directory) then noted = link and "w" or "t" end
+        if within(path, directory) then noted = link and "w" or "t" end
       end
       if (noted == "t" or noted == "w") and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
         -- Most of a test's reads are of its own directory; only one
         -- that leads out of it, or that climbs (which only its
         -- resolution can place), is worth a line.
         for _, directory in ipairs(resolving.own) do
-          if Fs.within(resolved, directory) then return end
+          if within(resolved, directory) then return end
         end
       end
       found[#found + 1] = { kind = noted, path = path, answer = resolved }
@@ -732,7 +737,7 @@ local function start(resolving: observations.Resolving | nil):
                                fds: {integer:integer} | nil)
     local function owned(given: string): boolean
       for _, directory in ipairs(own) do
-        if Fs.within(given, directory) then return true end
+        if within(given, directory) then return true end
       end
       return false
     end
@@ -746,7 +751,7 @@ local function start(resolving: observations.Resolving | nil):
       local real = (resolved or given):gsub("//+", "/")
       if real == "/proc" then
         -- The system's own.
-      elseif Fs.within(real, "/proc") or Fs.within(real, "/sys") then
+      elseif within(real, "/proc") or within(real, "/sys") then
         note("x", given, "")
       elseif not owned(given) then
         note("u", given, "")
@@ -877,12 +882,12 @@ function observations.held_variable(path: string, answer: string,
                                     environment: {string:string}, tree: string): string
   if path == environ_path then
     local held: {string:string} = {}
-    for name, value in pairs(environment) do held[name] = declared_key.tree_name(value, tree) end
+    for name, value in pairs(environment) do held[name] = tree_name(value, tree) end
     return environ_answer(held)
   end
   local value = answer:match("^ok (.*)$")
   if value == nil then return answer end
-  return "ok " .. declared_key.tree_name(value, tree)
+  return "ok " .. tree_name(value, tree)
 end
 
 --- What a path given to a confined process holds now, for its "u"
@@ -900,7 +905,7 @@ function observations.unveiled_answer(path: string, tree: string): string
   if real == nil then return "missing" end
   local real_tree, _ = realpath(tree)
   real_tree = real_tree or tree
-  local inside = Fs.within(real, real_tree)
+  local inside = within(real, real_tree)
   -- Past the log, as `stat` below is: the walk is the key's, made
   -- while a capture may run, and none of the test's reads.
   local walked, trouble = tree_digest(real, inside)
@@ -913,7 +918,7 @@ function observations.unveiled_answer(path: string, tree: string): string
     local st, _ = stat(above)
     local name = above
     if inside then
-      name = Fs.within(above, real_tree) and declared_key.tree_name(above, real_tree) or ""
+      name = within(above, real_tree) and tree_name(above, real_tree) or ""
     end
     parts[#parts + 1] = name .. "\0above\0" .. (st ~= nil and tostring(st.mode) or "missing")
     local parent = Fs.dirname(above)
@@ -921,7 +926,7 @@ function observations.unveiled_answer(path: string, tree: string): string
     above = parent
   end
   return ((walked ~= nil and walked.special) and "unkeyable " or "") ..
-    (inside and declared_key.tree_name(real, real_tree) or real) .. " " ..
+    (inside and tree_name(real, real_tree) or real) .. " " ..
     Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
