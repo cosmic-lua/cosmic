@@ -40,9 +40,10 @@
 
 /* yyjson allocates and frees through these, on the heap the core's own
  * C uses (core/memory.h), so the checked core counts its blocks and can
- * refuse one. The fault point refuses yyjson's allocation alone, as an
- * allocation walk cannot: that refuses every one after too, so the
- * message yyjson's refusal answers could never be built. */
+ * refuse one. The fault point refuses yyjson's allocation alone. An
+ * allocation walk cannot: it refuses every allocation after the refused
+ * too, so the message that answers yyjson's refusal could never be
+ * built. */
 static void *json_malloc (void *ctx, size_t size) {
   (void)ctx;
   return COSMIC_FAULT("json_malloc") ? NULL : cosmic_malloc(size);
@@ -197,13 +198,12 @@ struct layout {
 
 /* The line and column of byte `pos` of `text`, both counted from 1,
  * the column in bytes. A line ends at \n, \r, or \r\n taken as one:
- * the line ends JSON's whitespace holds. In JSON5, it ends at U+2028
- * or U+2029 (E2 80 A8, E2 80 A9) too, as JSON5 reads each as a line
- * terminator -- inside a quoted string as well, where JSON5 takes one
- * raw, as an editor breaks the line there; RFC 8259 has either only
- * inside a string, where it is a character like any other and adds
- * its three bytes to the column. A record is one line whatever it
- * holds. */
+ * the line ends JSON's whitespace holds. In JSON5 it ends at U+2028 or
+ * U+2029 (E2 80 A8, E2 80 A9) too, which JSON5 reads as line
+ * terminators even raw inside a quoted string, as an editor breaks the
+ * line there. In RFC 8259 either can appear only inside a string, where
+ * it is a character like any other and adds its three bytes to the
+ * column. A record is one line whatever it holds. */
 static void position (const char *text, size_t pos,
                       const struct layout *layout, size_t *line,
                       size_t *column) {
@@ -237,10 +237,10 @@ static void position (const char *text, size_t pos,
 /* The offset of the first array or object in `text` that opens with
  * `max_depth` others already open around it: the one decode refuses.
  * yyjson keeps no offsets in its document, so this counts brackets in
- * the text, which read cleanly, skipping strings -- single-quoted ones
- * too, and comments, as JSON5 has them, and `#` ones. Outside a string
- * a text that read cleanly holds `//`, a block comment's opening or `#`
- * only as a comment.
+ * the text, which read cleanly. It skips strings, single-quoted ones
+ * too, and comments: `//` and block comments as JSON5 has them, and
+ * `#` ones. Outside a string, text that read cleanly holds `//`, a
+ * block comment's opening or `#` only as the start of a comment.
  * A line comment ends where yyjson ends it: at \n or \r, and in JSON5
  * (`json5`) at U+2028 or U+2029 too. */
 static size_t deep_offset (const char *text, size_t len, int max_depth,
@@ -275,10 +275,10 @@ static size_t deep_offset (const char *text, size_t len, int max_depth,
   return len;
 }
 
-/* nil and where `text` stopped being JSON, as a line and a column of
- * bytes, both counted from 1; a record's line alone when it ran out
- * of memory or holds no value (where comments are read, only a
- * comment). */
+/* Pushes nil and where `text` stopped being JSON, as a line and a column
+ * of bytes, both counted from 1. A record that ran out of memory or holds
+ * no value (where comments are read, only a comment) names its line
+ * alone. */
 static int read_failure (lua_State *L, const char *text, size_t len,
                          const struct layout *layout,
                          const yyjson_read_err *err) {
