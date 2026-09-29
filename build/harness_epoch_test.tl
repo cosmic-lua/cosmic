@@ -4,7 +4,8 @@
 --- build/harness_epoch.tl acknowledges, one to a line. No key holds
 --- the harness's code, only its epoch, so an edit to it runs no test
 --- again by itself: this fails until someone says, in
---- build/harness_epoch.tl, whether the edit can alter a pass or a fail. And the digest holds all the harness runs: every module of
+--- build/harness_epoch.tl, whether the edit can alter a pass or a
+--- fail. And the digests hold all the harness runs: every module of
 --- the tree the modules it runs require.
 
 local Compress = require("cosmic.compress")
@@ -23,7 +24,9 @@ local test = require("build.test")
 Test.needs{ store = true }
 
 --- The line of build/harness_epoch.tl's `acknowledged` that holds
---- `name` at `digest`, as the file lays it out.
+--- `name` at `digest`, as the file lays it out: each such line between
+--- blank ones, so git merges changes to two modules that sort next to
+--- each other as it does any other two.
 local function entry(name: string, digest: string): string
   return string.format("  [%q] = %q,", name, digest)
 end
@@ -55,8 +58,9 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
     "`acknowledged`:",
   }
   for _, name in ipairs(moved) do
-    out[#out + 1] = (acknowledged[name] == nil and "no entry for " or "moved: ") .. name ..
-      "; set its line to"
+    out[#out + 1] = acknowledged[name] == nil and
+      "no entry for " .. name .. "; add this line, in its place by name, between blank lines" or
+      "moved: " .. name .. "; set its line to"
     out[#out + 1] = entry(name, found[name])
   end
   for _, name in ipairs(stale) do
@@ -86,16 +90,17 @@ local function test_unacknowledged_names_each_module()
   assert(moved:find("Bump `epoch`", 1, true), moved)
   local added = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2", ["build.c"] = "4" },
     acknowledged))
-  assert(added:find("no entry for build.c; set its line to\n" .. entry("build.c", "4"), 1, true),
-    added)
+  assert(added:find("no entry for build.c; add this line, in its place by name, between " ..
+    "blank lines\n" .. entry("build.c", "4"), 1, true), added)
   local gone = assert(unacknowledged({ ["build.a"] = "1" }, acknowledged))
   assert(gone:find("stale entry: build.b", 1, true), gone)
   assert(not gone:find("build.a", 1, true), gone)
 end
 
 --- The lines the guard prints are the lines build/harness_epoch.tl
---- holds, sorted by name, so pasting one is the whole edit and git
---- merges two changes to different modules line by line.
+--- holds, sorted by name and each between blank lines, so pasting one
+--- is the whole edit and git merges two changes to different modules,
+--- even two that sort next to each other.
 local function test_the_file_holds_its_entries_as_the_guard_prints_them()
   local db = assert(Sqlite.open("o/cosmic.db", false))
   local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
@@ -108,8 +113,10 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
   table.sort(names)
   local last = 0
   for _, name in ipairs(names) do
-    local at = text:find("\n" .. entry(name, harness_epoch.acknowledged[name]) .. "\n", 1, true)
-    assert(at ~= nil, name .. "'s entry is not one line as the guard prints it")
+    local at = text:find("\n\n" .. entry(name, harness_epoch.acknowledged[name]) .. "\n\n", 1,
+      true)
+    assert(at ~= nil, name .. "'s entry is not one line as the guard prints it, between " ..
+      "blank lines")
     assert(at > last, name .. "'s entry is out of order: keep them sorted by name")
     last = at
   end

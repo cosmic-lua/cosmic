@@ -862,16 +862,30 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, list in ipairs({ worker.loads, key_code, others }) do
     for _, name in ipairs(list) do set(name, "return 'a key'\n", "bytecode") end
   end
+  -- A digest to each module the harness holds, and none else.
+  local function each_named(modules: {string:string}, names: {string})
+    local named: {string:boolean} = {}
+    for _, name in ipairs(names) do
+      named[name] = true
+      assert(modules[name] ~= nil, name .. " has no digest of its own")
+    end
+    for name in pairs(modules) do assert(named[name], name .. " is none of `names`") end
+  end
   local before = assert(test.harness(db))
+  each_named(before.modules, before.names)
   local function moves(name: string, source: string, bytecode: string): string
     set(name, source, bytecode)
     local edited = assert(test.harness(db))
     set(name, "return 'a key'\n", "bytecode")
+    each_named(edited.modules, edited.names)
+    local moved = false
     for other, digest in pairs(before.modules) do
-      assert((edited.modules[other] ~= digest) == (other == name and edited.digest ~= before.digest),
-        "an edit to " .. name .. " moved " .. other .. "'s own digest")
+      if edited.modules[other] ~= digest then
+        assert(other == name, "an edit to " .. name .. " moved " .. other .. "'s digest")
+        moved = true
+      end
     end
-    return (edited.digest ~= before.digest and "harness" or "") ..
+    return (moved and "harness" or "") ..
       (edited.store_salt ~= before.store_salt and "store" or "")
   end
   local commented = "-- a comment, and a blank line after it\n\nreturn 'a key'\n"

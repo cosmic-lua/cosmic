@@ -100,9 +100,10 @@
    `build/harness_epoch_test.tl` fails until `acknowledged` there
    holds each harness module's digest (its source and bytecode, so a
    compiler change that compiles the harness otherwise moves it too),
-   one module to a line, sorted, so changes to different modules merge
-   cleanly: it names each module that moved or has no entry, printing
-   the line to set, and each stale entry, whose line to delete. Bump
+   one module to a line between blank ones, sorted, so changes to
+   different modules merge cleanly: it names each module that moved or
+   has no entry, printing the line to set or add, and each stale entry,
+   whose line to delete. Bump
    `epoch` in the
    same edit where the change can alter a pass or a fail: what a worker
    is given, how it is judged, how a key is computed, and a sandbox's
