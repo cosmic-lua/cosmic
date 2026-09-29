@@ -64,10 +64,6 @@ for _, name in ipairs({ "bom", "embed", "refresh", "todos" }) do
     "which its own module holds; kept a member because a module that exports `run` is a " ..
     "program's entry, and its other exports may be used by its test alone (see `unearned`)"
 end
--- TODO: drop this entry once build/fetch.tl moves onto build/bare.tl
--- (once #2342 merges), which is the use that earns `redact_url`.
-allowed["build.bare.redact_url"] = "taken from build/fetch.tl's `redact`, which uses it once fetch " ..
-  "moves onto build/bare.tl; tested directly meanwhile"
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
