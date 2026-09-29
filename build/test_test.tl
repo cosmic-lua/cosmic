@@ -805,19 +805,25 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     { "build.shared_verdicts", "build.bind" }, { "build.test", "build.importer" },
     { "build.test", "build.harness_epoch" }, { "build.shared_verdicts", "build.harness_epoch" },
     { "build.closure_store", "build.schema" }, { "build.closure_store", "cosmic.sqlite" },
-    { "cosmic.sqlite", "cosmic.sys" },
+    { "build.shared_verdicts", "cosmic.sqlite" }, { "cosmic.sqlite", "cosmic.sys" },
   }
   for _, row in ipairs(imports) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
   end
-  local others = { "build.test_sandbox", "build.caches", "build.zig_caches",
+  local others = { "build.test_sandbox", "build.caches", "build.zig_caches", "cosmic.child",
     "build.closure_store", "build.writer",
     "build.schema", "build.importer", "build.analyzer", "cosmic.sqlite", "cosmic.sys" }
+  -- Each module's bytecode names what it requires, as a require by
+  -- value leaves the name among its constants (`test.value_imports`).
+  local named_in: {string:string} = {}
+  for _, row in ipairs(imports) do
+    named_in[row[1]] = (named_in[row[1]] or "") .. " " .. row[2]
+  end
   local function set(name: string, source: string, bytecode: string)
     assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, ?)", { { text = name },
       { text = name == "cmd.cosmic.main" and "main" or "module" },
-      { blob = Hash.hex_sha256(source) }, { blob = bytecode } }))
+      { blob = Hash.hex_sha256(source) }, { blob = bytecode .. (named_in[name] or "") } }))
   end
   for _, list in ipairs({ worker.loads, key_code, others }) do
     for _, name in ipairs(list) do set(name, "return 'a key'\n", "bytecode") end
@@ -853,7 +859,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
                           "build.artifact", "build.test_worker", "build.test_sandbox",
                           "cmd.cosmic.main", "build.filesystem_observations", "build.confine",
-                          "build.test_inputs", "cosmic.store", "cosmic.removed",
+                          "build.test_inputs", "cosmic.test", "cosmic.removed",
                           "build.caches", "build.zig_caches" }) do
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
@@ -867,11 +873,14 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   -- The writer's closure, what cosmic.sqlite requires among it: an
   -- edit to how it binds a blob can change a store's bytes while every
-  -- row's digest stays. cosmic.sqlite itself a worker loads too.
-  for _, name in ipairs({ "build.closure_store", "build.schema", "cosmic.sys" }) do
+  -- row's digest stays. The key's code requires cosmic.sqlite too
+  -- (build.shared_verdicts), and with it what it requires.
+  for _, name in ipairs({ "build.closure_store", "build.schema" }) do
     assert(edited(name) == "store", name .. " moved " .. edited(name))
   end
-  assert(edited("cosmic.sqlite") == "harnessstore", "cosmic.sqlite moved " .. edited("cosmic.sqlite"))
+  for _, name in ipairs({ "cosmic.sqlite", "cosmic.sys" }) do
+    assert(edited(name) == "harnessstore", name .. " moved " .. edited(name))
+  end
   -- build.bind reads the shared verdicts' rows; a closure store's writer
   -- binds its own.
   assert(edited("build.bind") == "harness", "build.bind moved " .. edited("build.bind"))
@@ -900,4 +909,49 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   none, why = test.harness(db)
   assert(none == nil and why:find("cosmic.sqlite", 1, true), why)
   db:close()
+end
+
+--- The key's code is walked over the requires each module makes by
+--- value, as its bytecode names them: a `local type` require, which
+--- Teal erases, leaves what it names out of the harness, and a require
+--- inside a function keeps it in. cosmic.child is held alone, its own
+--- requires not walked.
+local function test_the_harness_walks_the_key_code_by_value()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
+    "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
+  local sources: {string:string} = {
+    ["build.declared_key"] = 'local function later() return require("build.artifact") end\n' ..
+      'return later\n',
+    ["build.shared_verdicts"] = 'return require("cosmic.sqlite")\n',
+    ["cosmic.child"] = 'return require("cosmic.time")\n',
+  }
+  local function add(name: string)
+    local source = sources[name] or "return 1\n"
+    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, ?)", { { text = name },
+      { text = name == "cmd.cosmic.main" and "main" or "module" },
+      { blob = Hash.hex_sha256(source) },
+      { blob = string.dump(assert(load(source)), true) } }))
+  end
+  for _, name in ipairs(worker.loads) do add(name) end
+  for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
+                          "build.artifact", "build.test_sandbox", "build.caches",
+                          "build.zig_caches", "build.closure_store", "build.schema",
+                          "cosmic.child", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
+    add(name)
+  end
+  -- build.declared_key's edge to cosmic.stream is a `local type` one.
+  for _, row in ipairs({ { "build.declared_key", "cosmic.stream" },
+                         { "build.declared_key", "build.artifact" },
+                         { "build.shared_verdicts", "cosmic.sqlite" },
+                         { "cosmic.child", "cosmic.time" } }) do
+    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)",
+      { { text = row[1] }, { text = row[2] } }))
+  end
+  local found = assert(test.harness(db))
+  db:close()
+  local named: {string:boolean} = {}
+  for _, name in ipairs(found.names) do named[name] = true end
+  assert(named["build.artifact"] and named["cosmic.sqlite"] and named["cosmic.child"])
+  assert(not named["cosmic.stream"] and not named["cosmic.time"])
 end

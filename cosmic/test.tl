@@ -37,7 +37,10 @@
 -- (`confine` stays in build.confine: only the sandbox's own tests nest
 -- one sandbox in another.)
 
-local Errors = require("cosmic.errors")
+-- The core's own `trace`, which cosmic.errors wraps: not cosmic.errors,
+-- which would bring cosmic.sqlite and cosmic.store into every worker
+-- (build/harness_epoch.tl's `library`).
+local errors = require("cosmic.internal.errors")
 
 local record Test
   --- What each field of `Needs` takes; see below.
@@ -251,10 +254,10 @@ local function trouble_of(value: any): string
 end
 
 --- Where `needs` was called from, as the chunk and line a traceback
---- names -- its frame four up: the trace, this, `needs`, its caller --
---- or "an earlier call".
+--- names -- its frame three up: this, `needs`, its caller -- or "an
+--- earlier call".
 local function caller(): string
-  local trace = Errors.trace(nil, 4)
+  local trace = errors.trace(nil, 3)
   return trace:match("\n%s*([^\n]-:%d+):") or "an earlier call"
 end
 

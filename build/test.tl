@@ -131,6 +131,7 @@ local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
 local hashing = require("build.digest")
 local harness_epoch = require("build.harness_epoch")
@@ -1677,6 +1678,21 @@ end
 local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
   "build.zig_caches" }
 
+--- The modules of the harness held alone, by their own source and
+--- bytecode, their requires not walked: cosmic.child, whose `start`
+--- turns a worker's plan (`test_sandbox.Plan`'s `sandbox`) into what
+--- spawn holds it to -- the unveils, the binds, offline -- so an edit
+--- that weakened it would pass a test that reads what it does not
+--- declare, and keep and share the pass. What it requires (cosmic.time,
+--- cosmic.stream and the rest) applies no sandbox, and stays out.
+-- TODO: move the translation of a plan's `sandbox` into spawn's
+-- options into build.confine, which the harness holds already, and
+-- drop cosmic.child from here and from build/harness_epoch.tl's
+-- `library`, once cosmic.child's `start` takes spawn's sandbox as it is
+-- (the TODO above its `raw.spawn` call, which would offer the rest of
+-- it): today only cosmic.child reaches spawn for the runner.
+local harness_alone <const>: {string} = { "cosmic.child" }
+
 --- The code that makes a key and looks a verdict up under one:
 --- build.test itself, whose closure is the build's, and the closure of
 --- the key's computation (`build.declared_key`) and of the shared
@@ -1694,6 +1710,13 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
 --- worker's holds -- which names of the tree and its declarations a
 --- `require` or a lookup in the store refuses (`tree_names`,
 --- `declared_names`) -- is held so too.
+-- TODO: hold only the part of build.test that makes a key, gives a
+-- worker its holds and looks a verdict up, walked as `key_roots` are,
+-- once it is a module of its own (plan 2.7b, after plan 4.2 removes the
+-- observed path): today build.test is held whole and unwalked, so an
+-- edit to its census or report output acknowledges the harness, and
+-- what it requires beyond `key_code` (cosmic.time, cosmic.cli and the
+-- like) is outside build/harness_epoch.tl's `library` rule.
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
 local key_own <const>: {string} = { "build.test" }
 
@@ -1747,18 +1770,34 @@ local function closure_of(roots: {string}, own: {string},
   return names
 end
 
---- The names `key_roots` and `key_own` hold (`closure_of`).
--- TODO: walk only the requires a module runs, not a `local type` one
--- Teal erases, whose effect is in the importer's bytecode (plan 2.7-3):
--- the `imports` table follows both, so a type-only edge to cosmic.child
--- (build.this_program's, build.test_worker's) keeps it in the harness,
--- and with it what it requires: cosmic.time, and cosmic.stream, which
--- requires cosmic.hash, which requires cosmic.codec. No module of the
--- key's code calls cosmic.hash or cosmic.codec itself since
--- build.digest; build.test's own cosmic.time, which times a run and
--- marks an unstable read, is no module this walk follows (`key_own`).
-local function key_code(imports: {string:{string}}): {string}
-  return closure_of(key_roots, key_own, imports)
+--- The `imports` rows of `db` a module makes by value, by importer: an
+--- edge is kept unless the importer's bytecode lacks the name it
+--- requires as a string constant. Teal erases a `local type` require,
+--- and what the imported type does at run time -- an `is` against a
+--- record's `where`, an enum's test -- is compiled into the importer's
+--- bytecode, which the harness's digests hold. Any other spelling of a
+--- require (`require"x"`, one split across lines, one inside a
+--- function) leaves the name in the bytecode, and so does a name that
+--- is only a string there: the test errs toward following an edge.
+function test.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " ..
+    "(SELECT 1 FROM modules m WHERE m.path = i.path AND m.kind IN ('module', 'main') " ..
+    "AND instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)")
+  if rows == nil then return nil, trouble end
+  local out: {string:{string}} = {}
+  for _, row in ipairs(rows) do
+    local list = out[row[1]] or {}
+    out[row[1]] = list
+    list[#list + 1] = row[2]
+  end
+  return out, ""
+end
+
+--- The names `key_roots` and `key_own` hold (`closure_of`), over the
+--- requires each module makes by value (`test.value_imports`).
+local function key_code(by_value: {string:{string}}): {string}
+  return closure_of(key_roots, key_own, by_value)
 end
 
 --- The names `store_writer` holds, with what they require (`closure_of`).
@@ -1772,7 +1811,7 @@ end
 --- `carried`), or the projection, o/cosmic.db, which
 --- build/harness_epoch_test.tl reads -- by their `modules` and `imports`
 --- rows. Each module of the harness -- what a worker loads,
---- `harness_own` and `key_code`, but build.harness_epoch, which records
+--- `harness_own`, `harness_alone` and `key_code`, but build.harness_epoch, which records
 --- the digests -- is held by its name, its source's hash and its
 --- bytecode's, a digest to each (`modules`), so each is the same
 --- wherever the tree is, and a compiler that makes other bytecode of
@@ -1806,7 +1845,9 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
   for _, list in ipairs({ worker.loads, harness_own }) do
     for _, name in ipairs(list) do runs[#runs + 1] = name end
   end
-  for _, list in ipairs({ worker.loads, harness_own, key_code(imports) }) do
+  local by_value, value_trouble = test.value_imports(db)
+  if by_value == nil then return nil, value_trouble end
+  for _, list in ipairs({ worker.loads, harness_own, harness_alone, key_code(by_value) }) do
     for _, name in ipairs(list) do
       if sources[name] == nil then
         return nil, name .. ", which a worker runs or which makes or reads a key, " ..
@@ -2894,18 +2935,18 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   return limits, ""
 end
 
---- Whether this host can run a worker sandboxed (`test_sandbox.available`),
+--- Whether this host can run a worker sandboxed (`test_sandbox_probe.available`),
 --- and why not where it cannot.
 local function sandbox_here(): boolean, string
   local start, start_trouble = worker.program()
   if start == nil then return false, "the test runner cannot find itself: " .. start_trouble end
-  local directory, trouble = test_sandbox.probe_directory()
+  local directory, trouble = test_sandbox_probe.directory()
   if directory == nil then return false, "a directory to try it in: " .. trouble end
   local env: {string:string} = {}
   for name, value in pairs(worker_view()) do env[name] = value end
   for name, value in pairs(start.env) do env[name] = value end
   env.TMPDIR = test_sandbox.scratch
-  local ok, why = test_sandbox.available(start.argv, env, start.fds, directory)
+  local ok, why = test_sandbox_probe.available(start.argv, env, start.fds, directory)
   local _, _ = Fs.remove_tree(directory)
   if not ok then return false, why end
   return true, ""

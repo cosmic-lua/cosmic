@@ -112,7 +112,18 @@
    merge-queue run whose change moves that file runs every test
    (`--all`). `COSMIC_TEST_HARNESS_EPOCH` stands in for a bump in the
    tests of the runner alone (`build/sandboxed_verdicts_test.tl`);
-   never set it to run a suite. A test reaches no network but loopback,
+   never set it to run a suite. The harness is what every worker
+   loads, the sandbox's maker, build.test and cosmic.child (which
+   applies the sandbox) each alone, and the closure of the key's code
+   over value requires (a `local type` one is not followed: its effect
+   is in the importer's bytecode). Its modules reach the host
+   through raw bindings and the standard-library modules
+   `harness_epoch.library` names, each with its reason, and no other
+   `cosmic.*` module (`build/harness_epoch_test.tl` holds them to it);
+   what else of the tree the runner calls -- the sandbox probe
+   (`build/test_sandbox_probe.tl`) -- must fail
+   loudly, never pass; and what a harness module calls through a
+   library table a test can replace, it takes as a local at load. A test reaches no network but loopback,
    and loopback is 127/8: `Test.needs` takes `network` as a list of
    addresses `127.a.b.c`, whose worker, like every sandboxed one, runs
    offline on a loopback of its own and is keyed; `network = true`, any
