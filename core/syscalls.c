@@ -536,9 +536,15 @@ static bool listed_beneath (lua_State *L, int index, lua_Integer count, const ch
 
 /* A ruleset that handles running a file, one rule per path, and this
  * process held to it. It handles moving a file to another directory
- * too, granted beneath the same paths: a ruleset that leaves that
- * unhandled refuses every such rename or link (EXDEV), as the first
- * ABI did, so a kernel without the second is refused. Every entry is
+ * too, granted beneath / in a rule of its own: a ruleset that leaves
+ * that unhandled refuses every such rename or link (EXDEV), as the first
+ * ABI did, so a kernel without the second is refused; and granted only
+ * beneath the paths, a directory made after the hold outside them --
+ * one in /tmp, where a program run from beneath /tmp has the walk
+ * grant /tmp's entries one by one (build/confine.tl's
+ * `forbid_running`) -- would refuse a rename inside it. The kernel
+ * still refuses a move that would let a file be run where it could not
+ * before. Every entry is
  * checked to be a plain string before the ruleset is made, so nothing
  * after it can raise. */
 COSMIC_SYSCALL(landlock_restrict_execute, 1) {
@@ -583,6 +589,17 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1) {
       }
       close(fd);
     }
+  }
+  if (number == 0) {
+    int fd = open("/", O_PATH | O_CLOEXEC);
+    struct landlock_path_beneath_attr beneath = {
+      .allowed_access = LANDLOCK_ACCESS_FS_REFER,
+      .parent_fd = fd,
+    };
+    if (fd < 0 ||
+        syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0)
+      number = errno;
+    if (fd >= 0) close(fd);
   }
   /* Whether the process will be held from running its own core, asked
    * before it is held: the answer names no path the ruleset changes. */
