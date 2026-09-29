@@ -8,10 +8,10 @@
 --- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
 --- each one the tree holds, after building the tree as `cosmic test`
 --- does; a tree with no `cmd/` builds and writes nothing. The project's
---- own projection, `o/cosmic.db`,
---- carries the project and nothing of cosmic's; what the standard
---- library needs at run time is read out of the running binary's own
---- database, by handle, so no format of the executable is parsed here.
+--- own projection, `o/cosmic.db`, carries the project and nothing of
+--- cosmic's; what the standard library needs at run time is read out of
+--- the running binary's own database, by handle, so no format of the
+--- executable is parsed here.
 ---
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
 --- builds the tool.
@@ -206,8 +206,8 @@ function embed.database(project: string, main: string): string | nil, string
     -- once a project declares a name and version a build can read.
     -- TODO: let `cosmic bom <executable>` print these rows: nothing a
     -- program carries prints them, so its notices travel only inside the
-    -- database bytes. `artifact.split` now finds a file's database from
-    -- its trailer, as `cosmic refresh --binary` reads one: open that.
+    -- database bytes. `artifact.split` finds a file's database from its
+    -- trailer, as `cosmic refresh --binary` does: open that.
     copied, copy_trouble = copy_rows(binary, out, "components",
       { "name", "kind", "version", "license", "url", "sha256", "patches" },
       "SELECT name, kind, version, license, url, sha256, patches " ..

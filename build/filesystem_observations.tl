@@ -29,10 +29,10 @@ local syscalls = raws.syscalls
 
 -- What placing a path asks of the process: the calls themselves, past
 -- the syscall table's log, so the observer's own questions are none of
--- the test's; and taken when this module loads -- before any test's
--- module does -- so a test cannot bend where its own reads are keyed,
--- `Fs.within` among them, which a test could otherwise replace on the
--- shared `Fs` table to move a read in or out of the tree.
+-- the test's. They are taken when this module loads, before any test's
+-- module does, so a test cannot bend where its own reads are keyed:
+-- replacing `Fs.within` on the shared `Fs` table would move a read in
+-- or out of the tree.
 local getcwd = syscalls.getcwd
 local realpath = syscalls.realpath
 local lstat = syscalls.lstat
@@ -161,23 +161,23 @@ function observations.link_resolution(path: string): string
   return syscalls.resolve(path, true)
 end
 
---- A versioned, line-safe representation. Paths may themselves contain
---- newlines. Version 2 added "r", what a path outside the tree resolved
---- to when it was read, and "t", the same for a path under the test's
---- own directory, which alone keeps its answer: that directory is gone
---- by the time a later run could resolve the path again. The syscall
---- table's queries (see `start`) came later, each a kind no earlier
---- reader decodes: "l" an lstat, "k" a readlink, "a" a realpath, "c"
---- the working directory and "b" the program's own path, and "v" and
---- "w", an lstat's or a readlink's resolution, as "r" and "t" are
---- another read's; and "z", a test's declaration that it read stat's
---- times, later still, which nothing makes now (a test depends on no
---- file's times it did not make: see build/test.tl's `held_stat`) and
---- nothing encodes; and "g" and
---- "j", a `sys.tree_digest` of a path by its contents or by its stamps,
---- after that; and "y", a program a sandboxed worker's process ran, or
---- the interpreter its first line names, for the audit alone, after
---- those.
+--- A versioned, line-safe representation; paths may themselves contain
+--- newlines. Each line is a kind and the hex of a path, and, for "t" and
+--- "w", of an answer as well. The kinds are those of `call_kinds`, but
+--- "m", "p" and "x", which are never encoded, and:
+---
+--- * "u" is a path a confined process reads (see `start`).
+--- * "r" is what a path outside the tree resolved to when it was read,
+---   and "t" the same for a path under the test's own directory. Only
+---   "t" keeps its answer: that directory is gone by the time a later
+---   run could resolve the path again.
+--- * "v" and "w" are an lstat's or a readlink's resolution, as "r" and
+---   "t" are another read's.
+--- * "y" is a program a sandboxed worker's process ran, or the
+---   interpreter its first line names, for the audit alone.
+--- * "z" is a test's declaration that it read stat's times. `decode`
+---   reads it, and nothing makes or encodes one: a test depends on no
+---   file's times it did not make (build/test.tl's `held_stat`).
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
@@ -207,8 +207,10 @@ function observations.encode_unstable(identity?: string,
     observations.encode(found or {})
 end
 
---- Old rows described opens only, or no resolutions, so they cannot
---- safely produce a verdict.
+--- The observations `encode` wrote, or nil for text that is not in its
+--- current version's format or is malformed. An earlier version
+--- described opens only, or no resolutions, so it cannot safely produce
+--- a verdict.
 function observations.decode(encoded: string): {observations.Observation} | nil
   if encoded:match("^[^\n]*") ~= "filesystem-observations-v2" then
     return nil
@@ -526,19 +528,19 @@ end
 --- `restore` answers the first spawn `must_confine` refused meanwhile,
 --- or nil.
 ---
---- A "p" (a process started that no sandbox a key knows holds) or an "x" (a query no key can hold: a
---- request over the network, or a relative path when the working
---- directory cannot be told) makes the run's verdict one that
---- never stands.
+--- A "p" (a process started that no sandbox a key knows holds) or an
+--- "x" (a query no key can hold: a request over the network, or a
+--- relative path when the working directory cannot be told) makes the
+--- run's verdict one that never stands.
 ---
 --- What `cosmic.sys`'s `open`, `stat`, `readdir`, `lstat`, `readlink`,
 --- `realpath`, `getcwd`, `executable`, `getenv`, `environ`, `mkdir`,
---- `mkdtemp`, `chdir` and `tree_digest`, the process table's `spawn` and cosmic.http's
---- `open` are asked and answer while the capture runs is logged by each
---- of those bindings itself (core/observed.h), whoever calls it -- a
---- module that took one before the capture began, as `local stat =
---- sys.stat`, included -- and noted when the capture ends, or before a
---- process starts (see `drain_syscalls`). A relative path is noted as
+--- `mkdtemp`, `chdir` and `tree_digest`, the process table's `spawn` and
+--- cosmic.http's `open` are asked and answer while the capture runs is
+--- logged by each of those bindings itself (core/observed.h), whoever
+--- calls it -- a module that took one before the capture began, as
+--- `local stat = sys.stat`, included -- and noted when the capture ends,
+--- or before a process starts (see `drain_syscalls`). A relative path is noted as
 --- the absolute one it names from the working directory the call was
 --- made in, asked of the process itself rather than tracked: a change
 --- of directory made while the module loaded moves the test's own

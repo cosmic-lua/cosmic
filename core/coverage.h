@@ -1,10 +1,10 @@
 /*
  * The native line-coverage collector: hit accounting done in C, behind
- * the same trust gate the raw debug binding used before it (see
- * core/store.c, core/surface.c). A Lua line hook that calls back into
- * Lua per line -- debug.getinfo included -- costs one Lua call and one
- * table/string build per line executed; this does the same accounting
- * with native hit bitsets instead, materializing Lua tables only when read.
+ * a trust gate (see core/store.c, core/surface.c). A Lua line hook that
+ * calls back into Lua per line -- debug.getinfo included -- costs one Lua
+ * call and one table/string build per line executed; this does the same
+ * accounting with native hit bitsets instead, materializing Lua tables
+ * only when read.
  */
 
 #ifndef COSMIC_COVERAGE_H
@@ -27,9 +27,9 @@
 void cosmic_coverage_install (lua_State *L);
 
 /* Pushes the instruction budget's table, declared by
- * cosmic/internal/budget.d.tl. It shares the one hook with collection,
- * which stays as it was. The raw value behind
- * `build.fuzz` (core/store.c), and nothing else's. */
+ * cosmic/internal/budget.d.tl. The budget shares the one hook with
+ * collection, and neither disturbs the other. It is the raw value
+ * behind `build.fuzz` (core/store.c), and nothing else's. */
 int cosmic_open_budget (lua_State *L);
 
 /* `envp`, or, once processes this one starts are to report their C to a

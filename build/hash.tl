@@ -10,7 +10,7 @@
 --- the verdict: 0 all well, 1 a check failed or a listed file could not
 --- be read, 2 a command line, a file to hash or a sums file it cannot
 --- use, or a failed write to standard output. Complaints go to standard
---- error as `cosmic: hash: ...`. its `spec` (build/verb_spec.tl) is `bare`.
+--- error as `cosmic: hash: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- `--check` differs from GNU's in three ways. A line it cannot read (a
 --- BSD `SHA256 (file) = hex` line, a one-space separator, a bad escape)

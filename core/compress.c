@@ -558,9 +558,9 @@ static const char *truncated (const struct stream *s) {
   return "truncated compressed stream";
 }
 
-/* Past the last member: the NUL bytes of an xz stream padding that is
- * not a whole number of four-byte words are not padding, so they are
- * the first bytes of `rest`. */
+/* Ends the last member. xz stream padding is a whole number of
+ * four-byte words; NUL bytes that fall short of that are not padding,
+ * so they become the first bytes of `rest`. */
 static int enter_trailing (struct stream *s) {
   static const unsigned char zeros[4] = {0};
   if (s->padding % 4 != 0) {
@@ -809,10 +809,9 @@ static int stream_update (lua_State *L) {
   return 2;
 }
 
-/* A decoder holding output back refuses to finish rather than hand all
- * of it over at once: past the drain, what is left is at most a partial
- * magic, which goes to `rest`, so `finish` never returns a decoder's
- * bulk. */
+/* Refuses to finish while a decoder holds output back, so `finish`
+ * never returns a decoder's bulk. Once that is drained, all that can be
+ * left is a partial magic, which goes to `rest`. */
 static int stream_finish (lua_State *L) {
   struct stream *s = checked_stream(L);
   if (s->more) {

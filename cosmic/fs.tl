@@ -84,15 +84,12 @@ local function write_all(fd: integer, data: string): boolean, string
   return true, ""
 end
 
---- Writes `data` to `path` through a temporary file and a rename: a
---- reader sees the old contents or the new, never a mix, and a failure
---- before the rename leaves the old file. Nothing is synced, so a crash
---- can still lose the write. This is the whole-file alternative to
---- io.open/io.write.
----
---- `mode` is the permission bits of the file it creates, as an integer
---- (0x1a4 for 0644, the default), less the process's umask. The file is
---- always a new one, so an existing file's mode is not kept.
+--- Writes `data` to `path` through a temporary file and a rename, in
+--- place of io.open/io.write: a reader sees the old contents or the new,
+--- never a mix, and a failure before the rename leaves the old file.
+--- The file is always a new one, so it gets `mode` (default 0644, less
+--- the umask) and never keeps an existing file's mode. Nothing is
+--- synced, so a crash can still lose the write.
 function Fs.write(path: string, data: string, mode?: integer): boolean, string
   local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
   if temporary == nil then
