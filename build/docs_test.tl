@@ -2,12 +2,13 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
+local sys = require("cosmic.sys")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
 
---- Whether the tree is cosmic's own. The tests that read the binary's
---- own databases, or the tree's o/cosmic.db, whole are
---- build/docs_store_test.tl's.
+--- Whether the tree is cosmic's own. No test here reads the binary's
+--- own databases, or the tree's o/cosmic.db, whole: `docs.databases`
+--- is handed databases of the test's own in the store's place.
 Test.needs{ reads = { "core" } }
 
 --- Lines as one source file's text.
@@ -1212,4 +1213,21 @@ local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
   assert(documented:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
   local found = assert(docs.lookup(view({ copy, documented }), "lstat"))
   assert(#found == 1 and found[1].line == 154, tostring(#found))
+end
+
+--- A project's own o/cosmic.db that is not a database is left out,
+--- rather than failing every lookup: help and docs still answer from
+--- the store's databases, here one of the test's own.
+local function test_an_unreadable_own_database_is_left_out(dir: string)
+  local store = built(dir, fs_tree())
+  assert(Fs.mkdirs(dir .. "/o"))
+  assert(Fs.write(dir .. "/o/cosmic.db", "not a database"))
+  local before = assert(sys.getcwd())
+  assert(sys.chdir(dir))
+  local sources = docs.databases({ store })
+  assert(sys.chdir(before))
+  assert(#sources.handles == 1 and sources.handles[1] == store, tostring(#sources.handles))
+  local looked = assert(docs.view(sources.handles, sources.public))
+  local found = assert(docs.lookup(looked, "Fs.read"))
+  assert(#found > 0 and found.exact)
 end
