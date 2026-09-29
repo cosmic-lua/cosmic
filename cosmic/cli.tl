@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, archive, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, codec, archive, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -100,7 +100,36 @@ local record Cli
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against o/cosmic.db, or the binary's own database when there is
   --- none, or the one database an option names. o/ is looked for in
-  --- the working directory only, never above it. The
+  --- the working directory only, never above it. `cosmic sql --from
+  --- <file> ['<statement>']` asks it of a data file instead, to count,
+  --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
+  --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
+  --- BY type'`): each `--from` is loaded as a table of an in-memory
+  --- database, named for the file's stem (`--from name=file` names it,
+  --- and `-` reads standard input), read as JSON, as JSON Lines for
+  --- `.jsonl` and `.ndjson`, as CSV for `.csv` and as TSV for `.tsv` and
+  --- `.tab`; `--as json|ndjson|csv|tsv` overrides the extension, and
+  --- standard input needs it. `--as`, `--at '<path>'` and `--raw` apply
+  --- to the `--from` before them, and `--at` reads the rows from
+  --- the array at a path, as `cosmic json` reads one (a CSV or TSV has
+  --- no path). A CSV or TSV (RFC 4180, quotes and all) has a header
+  --- line naming the columns, in that order, and a row per record; a record with more
+  --- or fewer fields than the header is refused, naming its line, and a
+  --- blank line is skipped, except in a one-column file, where one before
+  --- the last record is an empty cell (blank lines at the end are dropped, so a final empty cell is written `""` to be kept). Its
+  --- cells are typed by one rule: a cell that is plainly a number (an
+  --- optional `-`, digits, an optional fraction or exponent; no `+`, no
+  --- leading zero, no spaces) is an integer or a real, an empty cell is
+  --- NULL, and anything else, `007` and ZIP codes included, is text;
+  --- `--raw` keeps every cell text, the empty one `''`. An array of
+  --- objects is a table of them, with a column per key, an array of
+  --- scalars a `value` column, and any other value one row; a nested
+  --- object or array is JSON text for `json_extract`, a boolean is 0 or
+  --- 1, `_json` is the whole row, and a key that would collide (`A` with
+  --- `a`, or `_json`, `rowid`) is renamed `_2`. With no statement it prints each
+  --- table's row count, columns with the types stored, and a sample row.
+  --- A missing column or table is answered with the ones there are.
+  --- Exit codes as below, 1 for a file it cannot read or load. The
   --- first line names the columns (a statement without any prints
   --- none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
@@ -133,8 +162,8 @@ local record Cli
   --- nothing and only answers by its exit status; `--keys` lists an
   --- object's keys, sorted, one per line, or an array's length;
   --- `--shape` prints `Json.describe` of the value. Only a lookup: no
-  --- filter, no transform. Exits 0 when the path is found, 1 when it is
-  --- not, with the message `Json.get` gives on standard error (a
+  --- filter, no transform; to count or sum, use `cosmic sql --from`.
+  --- Exits 0 when the path is found, 1 when it is not, with the message `Json.get` gives on standard error (a
   --- `null` value is found), 2 for a command line it cannot read or a
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
@@ -167,6 +196,25 @@ local record Cli
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
   archive: string
+  --- `cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [file|-]`:
+  --- bytes to text and back, for a token or a checksum, with no script
+  --- to write. It reads the file, or standard input when the file is `-`
+  --- or absent, and writes the encoding on one line and a newline; with
+  --- `-d` it writes the bytes the text spells, and no newline. The
+  --- encodings are those of `cosmic.codec` and no others; `-d` is the
+  --- one spelling of decode, `base64 -d` and `-D` differing between
+  --- platforms. Encoding does not wrap unless `--wrap N` gives the
+  --- columns, unlike GNU base64, which wraps at 76. Decoding ignores
+  --- ASCII whitespace, and is otherwise strict: an invalid character,
+  --- misplaced padding, a bad length or nonzero trailing bits exits 2
+  --- and names the byte offset, from 0, in the input as given. base64
+  --- must be padded with `=` and base64url must not be, as each is
+  --- written; `--lenient` accepts the other spelling (missing padding on
+  --- base64, `=` padding on base64url) and is refused for hex. The whole
+  --- input is read at once. It prints no verdict line, which would be in
+  --- the data a pipe reads; exits 0 when done, 2 for a command line, an
+  --- input or a write it cannot honor
+  codec: string
   --- `cosmic docs [q]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
   --- or words to search the documentation for; a module lists the
@@ -230,7 +278,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", archive = "archive", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", codec = "codec", archive = "archive", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -259,6 +307,14 @@ local module: Module = {
       ["--db"] = { value = "path", about = "run against this file" },
       ["--build"] = { about = "run against o/build.db" },
       ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
+      ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
+        "named for its stem, or `name=file`; repeat for a join" },
+      ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
+        "or tsv, rather than by its extension" },
+      ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
+        "no number is read, an empty cell is '' not NULL" },
+      ["--at"] = { value = "path", about = "read the --from before it from the array at this " ..
+        "path ($.rows), not the document" },
     },
     json = {
       ["--compact"] = { about = "print the value on one line" },
@@ -274,6 +330,12 @@ local module: Module = {
       ["--force"] = { about = "extract: replace existing files" },
       ["--reproducible"] = { about = "create: fix every modification time, so the same tree packs alike" },
     },
+    codec = {
+      ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
+      ["--decode"] = { about = "decode text to bytes, ignoring whitespace" },
+      ["--wrap"] = { value = "n", about = "wrap encoded text at n columns; no wrapping by default" },
+      ["--lenient"] = { about = "with -d, accept missing base64 padding, or base64url padding" },
+    },
     bom = {
       ["--licenses"] = { about = "print each component's license notices" },
       ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
@@ -288,7 +350,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "archive", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "archive", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 
