@@ -120,6 +120,8 @@ COSMIC_SYSCALL(wait, 3);
  * ---@field EAGAIN integer nothing to take or send now: wait, then ask again
  * ---@field EINTR integer a guard caught a signal while `wait` waited
  * ---@field ETIMEDOUT integer `wait`'s time ran out
+ * ---@field EADDRINUSE integer an address taken: a socket file or port another has
+ * ---@field ECONNREFUSED integer nothing listens at an address
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
@@ -127,6 +129,8 @@ COSMIC_SYSCALL(wait, 3);
 COSMIC_CONSTANT(EAGAIN)
 COSMIC_CONSTANT(EINTR)
 COSMIC_CONSTANT(ETIMEDOUT)
+COSMIC_CONSTANT(EADDRINUSE)
+COSMIC_CONSTANT(ECONNREFUSED)
 COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(ENAMETOOLONG)
 COSMIC_CONSTANT(SOCKET_NAME_MAX)

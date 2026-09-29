@@ -27,6 +27,7 @@ local sys = require("cosmic.sys")
 local verb_list = require("build.verb_list")
 local verb_spec = require("build.verb_spec")
 local verdict = require("build.verdict")
+local plural = require("build.plural")
 
 local log = verdict.log
 
@@ -536,7 +537,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     return 0
   end
   log:say(index_help())
-  log:verdict("help", true, #Cli.order .. " verbs, " .. clock.took(started))
+  log:verdict("help", true, plural.count(#Cli.order, "verb") .. ", " .. clock.took(started))
   return 0
 end
 

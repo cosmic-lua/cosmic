@@ -34,6 +34,7 @@
 --- A test that this host cannot give the sandbox it is about says so
 --- with `skip`, as it returns early: the run counts it skipped rather
 --- than passed.
+
 -- TODO: take `environment` and `program` from build.this_program, which
 -- a test calls to say what a process of this program it starts needs
 -- and how to start one past its launcher, once each can be read from the
@@ -91,16 +92,17 @@ local record Test
     --- (a port, brackets, a leading zero) are refused, naming this
     --- rule (`network_trouble`).
     network: {string}
+    -- TODO: audit what a process an unsandboxed worker starts reads, once
+    -- a host without spawn's sandbox (macOS: core/process.h's `unveil` is
+    -- Linux's alone) can observe it: today such a read is seen by no
+    -- audit but a sandboxed run's, where it finds nothing.
+
     --- Whether the tests hand a process they start what no observation
     --- accounts for: a descriptor, a path of /proc. Starting one needs no
     --- declaration: a sandboxed worker holds every process it starts to
     --- what the module declares, and where a worker runs unsandboxed
     --- (macOS, a host refusing user namespaces) a test that starts one
     --- never stands, and the audit asks nothing of it.
-    -- TODO: audit what a process an unsandboxed worker starts reads, once
-    -- a host without spawn's sandbox (macOS: core/process.h's `unveil` is
-    -- Linux's alone) can observe it: today such a read is seen by no
-    -- audit but a sandboxed run's, where it finds nothing.
     processes: boolean
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
@@ -143,6 +145,7 @@ local record Test
     -- build/test_worker.tl). The descriptor is refused by core/check.h's
     -- `cosmic_checkfd`, and a sandboxed worker that does not declare
     -- `tool` has no name to open the program by.
+
     --- Whether the tests, or the processes they start, read the system's
     --- own programs and files: /usr, /bin, /sbin, /lib and its kin, and
     --- /etc, as a host program or its dynamic loader needs them -- a

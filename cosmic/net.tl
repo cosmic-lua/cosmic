@@ -68,6 +68,20 @@ local record Net
   end
 
   record ListenOptions
+    --- For "unix": take over a socket file a listener left behind -- one
+    --- that exited without `close`, killed or crashed -- rather than
+    --- fail "Address in use" there, as a daemon restarting at its
+    --- control socket does. The path is taken over only where it is a
+    --- socket file and connecting to it is refused: a live listener's
+    --- file, or any other file, is left alone, and a live listener sees
+    --- the connection that asked, which sends nothing. Refused is not
+    --- always gone: macOS refuses a live listener whose backlog is full
+    --- as it refuses a dead one, and every platform refuses a socket
+    --- bound but not yet listening -- another `listen` in its moment
+    --- between the two, as when two start at once -- so theirs is taken
+    --- over too; and one that binds there between the check and the
+    --- removal loses its file.
+    reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
     timeout_ms: integer
@@ -189,6 +203,15 @@ local conn_mt: metatable<Net.Conn> = {
 }
 
 --- The connection over `fd`, which it owns from here on.
+-- TODO: a descriptor `raw.accept`, `raw.connect` or `raw.listen`
+-- answers is a bare integer until `new_conn` or `new_listener` wraps
+-- it, so running out of memory in between -- `listen`'s `raw.bound`
+-- and address table, its lstat of the file it made, or the wrap's own
+-- table and closures -- leaks the descriptor and, for a unix listener,
+-- leaves its socket file behind. Have core/socket.c answer a userdata
+-- that owns the descriptor (and a unix listener's path, to unlink),
+-- releasing both at collection until `new_conn` or `new_listener`
+-- takes it over.
 local function new_conn(fd: integer, timeout_ms: integer | nil): Net.Conn
   local open = true
   -- Each direction's sticky failure: once a read or a write fails for
@@ -340,10 +363,41 @@ local function raw_address(address: Net.Address): raw_socket.Address
   return { kind = address.kind, path = address.path, host = address.host, port = address.port }
 end
 
+--- How long `left_behind` waits to connect: a live listener on Linux
+--- whose backlog is full keeps a connection waiting for room, which
+--- then times out rather than being refused.
+local PROBE_MS <const> = 1000
+
+--- The type bits of a socket file (S_IFSOCK) in `Stat.mode`, the same
+--- on Linux and macOS.
+local SOCKET_TYPE <const> = 0xC000
+
+--- What `reclaim` finds at `absolute`, which a bind found taken:
+--- "refused", a socket file connecting to which (`address`) is refused,
+--- to take over; "gone", nothing there any longer, to bind again; or
+--- "", anything else, to leave alone.
+-- TODO: take a lock beside the path (a file of its own, held while
+-- the check, the removal and the bind run) so two `reclaim`s starting
+-- at once cannot each take the other's socket for one left behind,
+-- once cosmic.sys carries flock.
+local function left_behind(address: Net.Address, absolute: string): string
+  local st, _, lstat_errno = sys.lstat(absolute)
+  if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
+  if st.mode & 0xF000 ~= SOCKET_TYPE then return "" end
+  local fd, _, errno = raw.connect(raw_address(address), PROBE_MS)
+  if fd ~= nil then
+    local _, _ = sys.close(fd)
+    return ""
+  end
+  if errno == raw.ECONNREFUSED then return "refused" end
+  return errno == sys.ENOENT and "gone" or ""
+end
+
 --- Listens at `address`. A unix one makes its socket file, and fails
 --- where the path is already there -- a socket file left behind by a
 --- listener that did not close included -- rather than take the name
---- from whatever holds it. A TCP one fails "Address in use" at a port
+--- from whatever holds it, unless `reclaim` takes a socket file left
+--- behind by a listener that is gone. A TCP one fails "Address in use" at a port
 --- another listens at; its `address` names the port it has.
 function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listener | nil, string
   opts = opts or {}
@@ -367,6 +421,16 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     absolute = cwd .. "/" .. absolute
   end
   local fd, trouble, errno = raw.listen(raw_address(address), backlog)
+  if fd == nil and errno == raw.EADDRINUSE and opts.reclaim then
+    local found = left_behind(address, absolute)
+    if found == "refused" then
+      local removed, why, number = sys.unlink(absolute)
+      if not removed and number ~= sys.ENOENT then
+        return nil, named(address) .. ": " .. why
+      end
+    end
+    if found ~= "" then fd, trouble, errno = raw.listen(raw_address(address), backlog) end
+  end
   if fd == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
   -- The socket file the bind made, to remove at close. A process that
   -- replaced the name in the moment since would have its file taken
