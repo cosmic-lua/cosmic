@@ -167,15 +167,12 @@ local HEADER <const> = "cosmic-test-report-2"
 --- worker calls.
 -- TODO: drop build.filesystem_observations, and build.digest, which it
 -- alone requires here, once the worker no longer reports its reads, the
--- observation log and core/observed.c removed (plan 4.2); and
--- cosmic.errors, cosmic.sqlite and cosmic.store once cosmic.test takes
--- `trace` from cosmic.internal.errors rather than cosmic.errors
--- (plan 2.7).
+-- observation log and core/observed.c removed (plan 4.2).
 worker.loads = {
   "build.cache_names", "build.confine", "build.digest", "build.filesystem_observations",
   "build.key_parts", "build.test_inputs", "build.test_worker", "build.this_program",
-  "cmd.cosmic.main", "cosmic.coverage", "cosmic.env", "cosmic.errors", "cosmic.fs",
-  "cosmic.proc", "cosmic.removed", "cosmic.sqlite", "cosmic.store", "cosmic.test",
+  "cmd.cosmic.main", "cosmic.coverage", "cosmic.env", "cosmic.fs", "cosmic.proc",
+  "cosmic.removed", "cosmic.test",
 }
 
 -- Taken at load, ahead of any test that could replace them on the

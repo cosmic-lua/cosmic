@@ -1386,8 +1386,6 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
     ["cosmic.test"] = "build.analyzer reads a test's `Test.needs` by its fields " ..
       "in a parse, which reaches a projection only as the rows the parse stores",
-    ["cosmic.errors"] = "reached only through cosmic.test, which builds its " ..
-      "failures with it; no projection holds one",
   }
   local reached: {string:boolean} = {}
   local stack: {string} = { "build.writer" }

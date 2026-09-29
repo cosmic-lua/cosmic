@@ -129,19 +129,6 @@ local unfollowed: {string:{string:boolean}} = {
   ["cmd.cosmic.main"] = { ["build.dispatch"] = true },
 }
 
---- The modules `source` requires by value -- anywhere, a lazy require
---- inside a function too -- rather than only as `local type`, which
---- Teal erases.
-local function value_requires(source: string): {string:boolean}
-  local out: {string:boolean} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    if not line:match("^%s*local%s+type%s") then
-      for name in line:gmatch("require%(%s*[\"']([%w_.]+)[\"']%s*%)") do out[name] = true end
-    end
-  end
-  return out
-end
-
 --- Every module of the tree a module the harness runs requires by value
 --- (what every worker loads, and the sandbox's maker, `harness_own`) is
 --- in the harness's digest, or an edit to it moves neither a key nor
@@ -163,7 +150,7 @@ local function test_the_harness_holds_what_it_runs_requires()
     local required = assert(Sqlite.text_rows(db,
       "SELECT requires FROM imports i WHERE path = ?1 AND EXISTS " ..
       "(SELECT 1 FROM modules m WHERE m.path = i.requires)", { { text = name } }))
-    local by_value = value_requires(source)
+    local by_value = test.value_requires(source)
     for _, row in ipairs(required) do
       local wanted = row[1]
       if by_value[wanted] and not named[wanted] and
@@ -176,4 +163,54 @@ local function test_the_harness_holds_what_it_runs_requires()
   assert(#missing == 0, "the harness runs what its digest does not hold -- name each " ..
     "in build/test.tl's `harness_own`, or build/test_worker.tl's `worker.loads` where " ..
     "a worker loads it: " .. table.concat(missing, ", "))
+end
+
+--- The harness's `cosmic.*` modules are exactly those
+--- build/harness_epoch.tl's `library` names, each with its reason: a
+--- module of the harness that comes to require another -- cosmic.time
+--- for a clock the raw binding gives -- fails here with the rule,
+--- rather than passing once its digest is acknowledged.
+local function test_the_harness_names_its_library()
+  local db = assert(Sqlite.open("o/cosmic.db", false))
+  local found, trouble = test.harness(db)
+  db:close()
+  assert(found ~= nil, trouble)
+  local held: {string:boolean} = {}
+  local unnamed: {string} = {}
+  for _, name in ipairs(found.names) do
+    if name:match("^cosmic%.") then
+      held[name] = true
+      if harness_epoch.library[name] == nil then unnamed[#unnamed + 1] = name end
+    end
+  end
+  local unheld: {string} = {}
+  for name, reason in pairs(harness_epoch.library) do
+    assert(reason ~= "", name .. " is in `library` with no reason")
+    if not held[name] then unheld[#unheld + 1] = name end
+  end
+  table.sort(unnamed)
+  table.sort(unheld)
+  assert(#unnamed == 0, "the harness reaches " .. table.concat(unnamed, ", ") ..
+    ", which build/harness_epoch.tl's `library` does not name: a module of the harness " ..
+    "reaches the host through raw bindings and the library `library` names, each " ..
+    "with its reason; take what it needs from a raw binding, or name the module there " ..
+    "with why the harness must reach it")
+  assert(#unheld == 0, "build/harness_epoch.tl's `library` names " ..
+    table.concat(unheld, ", ") .. ", which no module of the harness reaches: " ..
+    "delete its entry")
+end
+
+--- A `local type` require, which Teal erases, and one in a comment are
+--- no value requires; a lazy one inside a function is.
+local function test_value_requires_skips_type_only_and_commented_requires()
+  local found = test.value_requires(table.concat({
+    'local type Child = require("cosmic.child")',
+    '-- local Time = require("cosmic.time")',
+    'local Fs = require("cosmic.fs")',
+    'local function later(): any',
+    "  return require('cosmic.sqlite')",
+    'end',
+  }, "\n"))
+  assert(found["cosmic.fs"] and found["cosmic.sqlite"])
+  assert(not found["cosmic.child"] and not found["cosmic.time"])
 end

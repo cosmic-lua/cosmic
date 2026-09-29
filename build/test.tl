@@ -104,6 +104,7 @@
 
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
+local Compress = require("cosmic.compress")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
@@ -131,6 +132,7 @@ local shared_compiles = require("build.shared_compiles")
 local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
+local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
 local hashing = require("build.digest")
 local harness_epoch = require("build.harness_epoch")
@@ -1694,6 +1696,13 @@ local harness_own <const>: {string} = { "build.test_sandbox", "build.caches",
 --- worker's holds -- which names of the tree and its declarations a
 --- `require` or a lookup in the store refuses (`tree_names`,
 --- `declared_names`) -- is held so too.
+-- TODO: hold only the part of build.test that makes a key, gives a
+-- worker its holds and looks a verdict up, walked as `key_roots` are,
+-- once it is a module of its own (plan 2.7b, after plan 4.2 removes the
+-- observed path): today build.test is held whole and unwalked, so an
+-- edit to its census or report output acknowledges the harness, and
+-- what it requires beyond `key_code` (cosmic.child, cosmic.time and the
+-- like) is outside build/harness_epoch.tl's `library` rule.
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts" }
 local key_own <const>: {string} = { "build.test" }
 
@@ -1747,18 +1756,55 @@ local function closure_of(roots: {string}, own: {string},
   return names
 end
 
---- The names `key_roots` and `key_own` hold (`closure_of`).
--- TODO: walk only the requires a module runs, not a `local type` one
--- Teal erases, whose effect is in the importer's bytecode (plan 2.7-3):
--- the `imports` table follows both, so a type-only edge to cosmic.child
--- (build.this_program's, build.test_worker's) keeps it in the harness,
--- and with it what it requires: cosmic.time, and cosmic.stream, which
--- requires cosmic.hash, which requires cosmic.codec. No module of the
--- key's code calls cosmic.hash or cosmic.codec itself since
--- build.digest; build.test's own cosmic.time, which times a run and
--- marks an unstable read, is no module this walk follows (`key_own`).
-local function key_code(imports: {string:{string}}): {string}
-  return closure_of(key_roots, key_own, imports)
+--- The modules `source` requires by value -- anywhere, a lazy require
+--- inside a function too -- rather than only as `local type`, which
+--- Teal erases, or in a comment. A require written in a string counts
+--- too, and so does one past a comment on the same line: read beside
+--- the `imports` table, which names only the requires the build found,
+--- it errs toward following one.
+function test.value_requires(source: string): {string:boolean}
+  local out: {string:boolean} = {}
+  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+    if not line:match("^%s*local%s+type%s") and not line:match("^%s*%-%-") then
+      for name in line:gmatch("require%(%s*[\"']([%w_.]+)[\"']%s*%)") do out[name] = true end
+    end
+  end
+  return out
+end
+
+--- The names `key_roots` and `key_own` hold (`closure_of`), each
+--- root's requires walked where it requires them by value
+--- (`test.value_requires`, over the source text `source_of` answers):
+--- a `local type` require is erased, and what the imported type does at
+--- run time -- an `is` against a record's `where`, an enum's test -- is
+--- compiled into the importer's bytecode, which the harness's digests
+--- hold. A module whose source `source_of` does not answer is followed
+--- as `imports` has it.
+local function key_code(imports: {string:{string}},
+                        source_of: function(string): string | nil): {string}
+  local by_value: {string:{string}} = {}
+  local seen: {string:boolean} = {}
+  local stack: {string} = {}
+  for _, name in ipairs(key_roots) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if not seen[name] then
+      seen[name] = true
+      local required = imports[name] or {}
+      local source = source_of(name)
+      if source ~= nil then
+        local run = test.value_requires(source)
+        local kept: {string} = {}
+        for _, wanted in ipairs(required) do
+          if run[wanted] then kept[#kept + 1] = wanted end
+        end
+        required = kept
+      end
+      by_value[name] = required
+      for _, wanted in ipairs(required) do stack[#stack + 1] = wanted end
+    end
+  end
+  return closure_of(key_roots, key_own, by_value)
 end
 
 --- The names `store_writer` holds, with what they require (`closure_of`).
@@ -1806,7 +1852,17 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
   for _, list in ipairs({ worker.loads, harness_own }) do
     for _, name in ipairs(list) do runs[#runs + 1] = name end
   end
-  for _, list in ipairs({ worker.loads, harness_own, key_code(imports) }) do
+  -- A module's source text, where `db` holds it as a raw deflate
+  -- stream (build.schema's `modules`): nil, so `key_code` follows every
+  -- require `imports` names, where it does not.
+  local function source_of(name: string): string | nil
+    local rows, _ = Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
+      { { text = name } })
+    if rows == nil or #rows ~= 1 or rows[1][1].blob == nil then return nil end
+    local inflated, _ = Compress.inflate("raw", rows[1][1].blob)
+    return inflated
+  end
+  for _, list in ipairs({ worker.loads, harness_own, key_code(imports, source_of) }) do
     for _, name in ipairs(list) do
       if sources[name] == nil then
         return nil, name .. ", which a worker runs or which makes or reads a key, " ..
@@ -2894,18 +2950,18 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
   return limits, ""
 end
 
---- Whether this host can run a worker sandboxed (`test_sandbox.available`),
+--- Whether this host can run a worker sandboxed (`test_sandbox_probe.available`),
 --- and why not where it cannot.
 local function sandbox_here(): boolean, string
   local start, start_trouble = worker.program()
   if start == nil then return false, "the test runner cannot find itself: " .. start_trouble end
-  local directory, trouble = test_sandbox.probe_directory()
+  local directory, trouble = test_sandbox_probe.directory()
   if directory == nil then return false, "a directory to try it in: " .. trouble end
   local env: {string:string} = {}
   for name, value in pairs(worker_view()) do env[name] = value end
   for name, value in pairs(start.env) do env[name] = value end
   env.TMPDIR = test_sandbox.scratch
-  local ok, why = test_sandbox.available(start.argv, env, start.fds, directory)
+  local ok, why = test_sandbox_probe.available(start.argv, env, start.fds, directory)
   local _, _ = Fs.remove_tree(directory)
   if not ok then return false, why end
   return true, ""

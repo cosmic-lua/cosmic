@@ -76,8 +76,6 @@ allowed["build.confine.must_confine"] = "a test's own declaration: " ..
 allowed["build.confine.held_to_sandbox"] = "what a test whose " ..
   "assertion is about a nested run's sandbox asks, to fail where a run held to " ..
   "sandboxing gave that run none, rather than return unchecked"
-allowed["build.test_sandbox.refusal"] = "tested directly: the test hands it each errno " ..
-  "a host refusing user namespaces answers, which no host running the suite can be made to"
 allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..
   "line in the checker's own words"
 allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..
@@ -99,6 +97,11 @@ allowed["build.importer.tree_code"] = "tested directly: the test holds what a " 
 allowed["build.harness_epoch.acknowledged"] = "the digest of each module of the " ..
   "harness a person last acknowledged, which only its test reads: a record of a choice, " ..
   "which the key leaves to `epoch`"
+allowed["build.harness_epoch.library"] = "the standard-library modules the harness " ..
+  "may reach, each with its reason, which only its test reads: a rule the test holds " ..
+  "the harness's digests to, not code the harness runs"
+allowed["build.test.value_requires"] = "tested directly: the harness's test reads, " ..
+  "by it, what each module the harness runs requires by value, as `key_code` walks it"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
   "than probe it per row, and no behaviour tells the two apart"
