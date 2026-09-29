@@ -477,16 +477,42 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
  * none could be a relaunch of it. A worker of `cosmic test` whose
  * module does not declare `tool` is held so (build/confine.tl's
  * `forbid_running`) before its test loads.
- * TODO: keep a process such a worker starts from the descriptor too, as
- * /proc/<the worker's pid>/fd/<it>: a host program (a module declaring
- * `system`, `sh -c 'cat /proc/$PPID/fd/254'`) opens it there, past
- * `open`'s refusal, which only this core's Lua goes through. Making a
- * process held so undumpable (PR_SET_DUMPABLE 0) keeps any process
- * without CAP_SYS_PTRACE over it out of its /proc/<pid>/fd -- but not
- * root in a sandbox, who holds it in the worker's user namespace, and
- * it moves the owner of all of the worker's /proc/<pid>, which what the
- * worker's own children read of it would have to be checked against. */
+ *
+ * Such a process is made undumpable too (`keep_artifact`), so what it
+ * starts cannot take the descriptor as /proc/<its pid>/fd/<it> -- a
+ * host program's `cat /proc/$PPID/fd/254`, which `open`'s refusal, in
+ * this core's Lua alone, never sees. Following a link of another
+ * process's /proc/<pid> (fd, map_files, cwd, root, exe) asks
+ * PTRACE_MODE_READ of it, which an undumpable process grants only to
+ * one holding CAP_SYS_PTRACE in the user namespace its memory was made
+ * in. None the worker starts holds it: in a sandbox every capability is
+ * given up for good before the worker runs (`drop_capabilities`), root
+ * as any user, and what it starts has none to gain; unsandboxed it has
+ * the program by name anyway. The process itself is its own tracer
+ * still, so its /proc/self stays its own to read. What moves is the
+ * owner of its /proc/<pid>, which the kernel gives root of that user
+ * namespace, or the host's where that has none: a child of it on its
+ * memory before exec (`spawn_child`), a process it confines or takes
+ * offline, is refused writing its /proc/self/uid_map there, where the
+ * process is not root (EACCES). A process held so is refused every
+ * mount already (Landlock), so what this takes from it is a network
+ * namespace of its own without a root of its own, which no test of the
+ * tree that does not declare `tool` asks for. A file of its own
+ * /proc/self that only its owner may read (environ, auxv) it may no
+ * longer read either, where it is not root; no test of the tree does.
+ * Nor, undumpable, does it write a core dump when it crashes. */
 static bool artifact_kept;
+
+#if defined(__linux__)
+/* Marks this process as held from running its core (`artifact_kept`)
+ * and undumpable, so nothing it starts reaches its artifact descriptor
+ * through /proc. 0, or an errno. */
+static int keep_artifact (void) {
+  if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0) return errno;
+  artifact_kept = true;
+  return 0;
+}
+#endif
 
 #if defined(__linux__)
 /* Whether `path` is one of the `count` paths of the list at `index`, or
@@ -558,13 +584,15 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1) {
       close(fd);
     }
   }
+  /* Whether the process will be held from running its own core, asked
+   * before it is held: the answer names no path the ruleset changes. */
+  char self[PATH_MAX];
+  bool keeps = !cosmic_executable_path(self, sizeof self) || !listed_beneath(L, 1, count, self);
   if (number == 0 && prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) number = errno;
   if (number == 0 && syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) number = errno;
   close(ruleset);
+  if (number == 0 && keeps) number = keep_artifact();
   if (number != 0) return cosmic_fail_effect(L, number);
-  char self[PATH_MAX];
-  if (!cosmic_executable_path(self, sizeof self) || !listed_beneath(L, 1, count, self))
-    artifact_kept = true;
   return cosmic_ok(L);
 #else
   (void)count;
