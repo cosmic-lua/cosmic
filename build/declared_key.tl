@@ -40,8 +40,7 @@
 --- - the host it runs on (`host_identity`): its kernel and processor,
 ---   the user and capabilities the tests run with, which /proc a
 ---   sandbox gets and what the host says of itself; and, only for a
----   module that declares `system`, or a `host` directory, which is
----   keyed by its name alone (`host`), what the host has installed
+---   module that declares `system`, what the host has installed
 ---   (`system_identity`): its packages and the system it says it is;
 --- - the module's graph key (`build.positions`' `graph_key`), over its
 ---   import graph's kinds and sources, the standard library's included;
@@ -203,8 +202,7 @@ local record declared_key
     --- The host's identity (`host_identity`), which every key holds.
     host: string
     --- What the host has installed (`system_identity`), which only the
-    --- key of a module that declares `system`, or a `host` directory,
-    --- holds; nil for none.
+    --- key of a module that declares `system` holds; nil for none.
     system: string
     --- Where an artifact runs the tests (Store.meta's
     --- `runtime_context` "portable-v1": o/bin/cosmic, or a portable
@@ -709,13 +707,12 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
 end
 
 --- What a path outside the tree holds, as a key keeps it: a file by its
---- contents, and anything else by what it is.
--- TODO: key a host directory by what it holds -- /usr's entries' stamps
--- take half a second to walk, every run -- once something cheaper
--- answers for it (a package database's stamp, or a digest the host
--- keeps): today a directory is keyed by its name alone, and a verdict
--- stands across an update of what it holds, as it does across one of
--- the kernel.
+--- contents, and anything else by what it is. A declared one is a file,
+--- or /proc (`cosmic.test`'s `host`), which every worker is given and no
+--- key could hold by what it holds: a directory is refused before any
+--- key is made (`test_inputs.resolve`). What the system's own
+--- directories hold, which a module that declares `system` is given, is
+--- keyed by the package database (the TODO on `system_identity`).
 local function host(digests: declared_key.Digests, path: string): string
   return once(digests, "h\0" .. path, function(): string
     local _, answer = entry(digests, path, true)
@@ -854,10 +851,8 @@ function declared_key.preimage(digests: declared_key.Digests,
     return declared ~= nil and ("v\0" .. declared) or ("h\0" .. path)
   end
   table.sort(hosts, function(a: string, b: string): boolean return named(a) < named(b) end)
-  -- What the host has installed, for a module given the system's paths,
-  -- and for one given a directory of the host's, which `host` keys by
-  -- its name alone: the package database stands for what either holds.
-  -- /proc and /dev are no package's: every worker is given them.
+  -- What the host has installed, for a module given the system's paths:
+  -- the package database stands for what they hold.
   local installed = effective.system
   local spelled = effective.spelled or {}
   for _, path in ipairs(hosts) do
@@ -874,9 +869,7 @@ function declared_key.preimage(digests: declared_key.Digests,
         if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
         lines[#lines + 1] = part("v", declared, answer)
       else
-        local answer = host(digests, path)
-        if answer == "dir" and not confine.in_runtime(path) then installed = true end
-        lines[#lines + 1] = part("h", path, answer)
+        lines[#lines + 1] = part("h", path, host(digests, path))
       end
     end
   end

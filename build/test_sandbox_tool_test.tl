@@ -61,20 +61,22 @@ end
 
 --- A worker is given the tree's store, its closure's files and what its
 --- module declares of the tree, each at its name under /tree; its
---- scratch directory to write, at /tmp; the host paths it declares at
---- their own names; and no network unless it declares some. A path
---- that is not there is not given: a read of it finds nothing either way.
+--- scratch directory to write, at /tmp; the host files it declares at
+--- their own names; and no network but its own loopback. A path that is
+--- not there is not given: a read of it finds nothing either way.
 local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: string)
-  local root, scratch, host = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
-  for _, dir in ipairs({ root .. "/o", root .. "/a", root .. "/data", scratch, host }) do
-    assert(Fs.mkdirs(dir))
+  local root, scratch, dir = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
+  for _, made in ipairs({ root .. "/o", root .. "/a", root .. "/data", scratch, dir }) do
+    assert(Fs.mkdirs(made))
   end
   for _, file in ipairs({ "o/cosmic.db", "a/x.tl", "data/f" }) do
     assert(Fs.write(root .. "/" .. file, "x"))
   end
+  local host = dir .. "/given"
+  assert(Fs.write(host, "h"))
   local inputs = effective({ "a/x.tl", "a/missing.tl" })
   inputs.reads = { "data/", "../outside" }
-  inputs.host = { host .. "/" }
+  inputs.host = { host }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   local unveil = plan.sandbox.unveil
   assert(plan.over == 0 and plan.sandbox.offline == true)
@@ -167,7 +169,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   inputs.caches, inputs.cache_paths = {}, {}
   local alone = test_sandbox.plan(root, scratch, inputs, {})
   assert(holds(alone.sandbox.unveil.reads, stamp))
-  inputs.host = { host .. "/" }
+  inputs.host = { host }
   -- A host path where the sandbox has its own -- its scratch directory,
   -- or above it, or /tmp or /tree themselves -- cannot be given, and
   -- one a variable names is named as declared.
@@ -184,7 +186,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   local linked = test_sandbox.plan(root, scratch, inputs, {})
   assert(linked.trouble:find("is where its sandbox has its scratch directory", 1, true),
     linked.trouble)
-  inputs.host, inputs.spelled = { host .. "/" }, {}
+  inputs.host, inputs.spelled = { host }, {}
   assert(test_sandbox.plan(root, scratch, inputs, {}).trouble == "")
   -- Offline, whatever it declares: the loopback addresses it may
   -- declare, its own loopback answers.

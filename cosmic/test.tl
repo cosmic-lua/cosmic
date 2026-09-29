@@ -52,21 +52,23 @@ local record Test
     --- Paths of the tree, relative to its root, each a file or a
     --- directory and everything beneath it.
     reads: {string}
-    --- Absolute paths outside the tree, each a file or a directory and
-    --- everything beneath it: the host's own files. A path whose first
-    --- name is `$NAME` is where the environment variable NAME says,
-    --- wherever that is -- `"$PRODUCT/bin/tool"`, `"$PRODUCT"` -- and
-    --- declares NAME too. The variable is looked up in the environment
-    --- the tests are given: where it is unset, empty or relative, each
-    --- test of the module fails, naming it, as it does where any `host`
-    --- path is the tree's, or above it. Such a path is keyed by the
-    --- variable's name and by everything it holds, not by where it is,
-    --- so the same contents elsewhere key the same, and a verdict
-    --- reached there stands here: a test must not depend on where the
-    --- variable says, as it must not on where the tree is. Every file
-    --- beneath a directory is read to key it, so declare the narrowest
-    --- paths the tests read -- a checkout's `$ROOT/o/bin/cosmic`, not
-    --- `$ROOT`.
+    --- Absolute paths outside the tree, each a file of the host's -- or
+    --- /proc, or a path beneath it, which every worker is given and no
+    --- key could hold by what it holds. A directory is refused: one
+    --- written with a "/" after it, or a variable's whole path, fails the
+    --- build, naming its line; one that is a directory on the host fails
+    --- each test of the module, naming it. Declare the files the tests
+    --- read -- a checkout's `$ROOT/o/bin/cosmic`, not `$ROOT`. A path
+    --- whose first name is `$NAME` is where the environment variable NAME
+    --- says, wherever that is -- `"$PRODUCT/bin/tool"` -- and declares
+    --- NAME too. The variable is looked up in the environment the tests
+    --- are given: where it is unset, empty or relative, each test of the
+    --- module fails, naming it, as it does where any `host` path is the
+    --- tree's, or above it. Such a path is keyed by the variable's name
+    --- and by what the file holds, not by where it is, so the same
+    --- contents elsewhere key the same, and a verdict reached there
+    --- stands here: a test must not depend on where the variable says,
+    --- as it must not on where the tree is.
     host: {string}
     --- Environment variables beyond the pinned ones; `"*"` is the
     --- whole environment, which a process started without an `env` of

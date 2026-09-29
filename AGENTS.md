@@ -91,7 +91,7 @@
    what it declares -- its closure, its `Test.needs`, their contents and
    values, the core -- and by the host (its kernel, processor, user and
    capabilities; its packages and system only for a module that declares
-   `system`, or a `host` directory), before it runs
+   `system`), before it runs
    (`build/declared_key.tl`): it stands while none of that changes, and
    nothing is assumed. The test harness -- what every worker loads, the
    sandbox's plan, the code that computes a key -- is keyed by
@@ -217,7 +217,11 @@
    a shell, `sleep`, a compiler, o/bin/cosmic's `#!/bin/sh` launcher --
    must; a test that starts cosmic's core past the launcher
    (build.this_program's `program`) needs none, and one that reads a file or two
-   of the system names them in `host`. `--audit` names a host program a
+   of the system names them in `host`. A `host` path names a file, or
+   /proc: a directory is refused -- by the build where it is written as
+   one (a "/" after it, a variable's whole path), and at the test's
+   start where the host has one there -- so declare the files a test
+   reads, which its key holds by their contents. `--audit` names a host program a
    test ran undeclared. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
    and the run shares no verdict, unless `COSMIC_TEST_KEY=declared`;

@@ -1,3 +1,4 @@
+local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local test_inputs = require("build.test_inputs")
 local type analyzer = require("build.analyzer")
@@ -184,6 +185,30 @@ local function test_a_host_path_that_cannot_be_given_is_named()
   end
   assert(trouble({ "$PRODUCT/f" }, { PRODUCT = "/fixture/product" }) == "")
   assert(trouble({ "$PRODUCT/f" }, { PRODUCT = "/fixture/product/" }) == "")
+end
+
+--- A `host` path that is a directory where the host has it, written
+--- out or where a variable says, fails its module's tests, naming the
+--- declaration: a key holds a host path by what the file holds, and none
+--- walks a directory (R3). A path that is not there is given, as a file
+--- of another platform's is (/proc, which no key could hold by what it
+--- holds: build/declared_key_test.tl, which declares it).
+local function test_a_host_directory_is_refused_but_proc(tmp: string)
+  local dir = assert(Fs.absolute(tmp)) .. "/dir"
+  assert(Fs.mkdirs(dir))
+  assert(Fs.write(dir .. "/f", "f"))
+  local function trouble(host: {string}): string
+    local m, by_path = tree(declaring({ host = host }))
+    local effective = test_inputs.effective(m, by_path, staged)
+    test_inputs.resolve(effective, { D = dir }, { "/fixture/tree" })
+    return effective.unresolved
+  end
+  for _, declared in ipairs({ dir, "$D", "$D/" }) do
+    local said = trouble({ dir .. "/f", declared })
+    assert(said == string.format("Test.needs host %q: %s is a directory; host names files, " ..
+      "or /proc: declare the files the tests read", declared, dir), said)
+  end
+  assert(trouble({ dir .. "/f", "$D/f", dir .. "/missing" }) == "")
 end
 
 --- A path as a declaration spells it.

@@ -1044,13 +1044,14 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.env == 1 and got.env[1] == "PATH")
   assert(#got.network == 2 and got.network[1] == "127.0.0.1" and got.network[2] == "127.0.0.2")
   assert(got.processes and not got.tool and got.nests and got.store)
-  -- A host path a variable names, whole or beneath it.
+  -- A host file a variable names, and /proc, a directory, beneath which
+  -- no key could hold what anything holds.
   local named = assert(declared(lines({
     'local Test = require("cosmic.test")',
-    'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$PRODUCT", "$_P1/" } }',
+    'Test.needs { host = { "$FIXTURE_ROOT/o/bin/cosmic", "$_P1/x", "/proc/", "/proc/self/" } }',
   })))
-  assert(#named.host == 3 and named.host[1] == "$FIXTURE_ROOT/o/bin/cosmic" and
-    named.host[2] == "$PRODUCT" and named.host[3] == "$_P1/")
+  assert(#named.host == 4 and named.host[1] == "$FIXTURE_ROOT/o/bin/cosmic" and
+    named.host[2] == "$_P1/x" and named.host[3] == "/proc/" and named.host[4] == "/proc/self/")
   local hosts = assert(declared(lines({
     'local t = require("cosmic.test")',
     't.needs({ network = { "127.0.0.1" } })',
@@ -1106,6 +1107,13 @@ local function test_a_malformed_needs_call_is_refused()
     { 'Test.needs { network = { "localhost" } }',
       'network "localhost": network takes loopback addresses' },
     { 'Test.needs { network = false }', "network takes a list of string literals, written out" },
+    -- A host path names a file, or /proc (R3).
+    { 'Test.needs { host = { "/etc/" } }', 'host: "/etc/" names a directory; host names ' ..
+      "files, or /proc: declare the files the tests read" },
+    { 'Test.needs { host = { "$PRODUCT" } }', 'host: "$PRODUCT" names all PRODUCT holds, a ' ..
+      "directory; host names files, or /proc" },
+    { 'Test.needs { host = { "$PRODUCT/" } }', 'names all PRODUCT holds, a directory' },
+    { 'Test.needs { host = { "$PRODUCT/o/bin/" } }', '"$PRODUCT/o/bin/" names a directory' },
     { 'Test.needs { reads = { "x\\ty" } }',
       'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
     { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },

@@ -1003,12 +1003,19 @@ local input_field_order: {string} = {}
 for name in pairs(input_fields) do input_field_order[#input_field_order + 1] = name end
 table.sort(input_field_order)
 
+--- What a `host` path that names a directory is refused with: the rule.
+local HOST_FILES <const> = "host names files, or /proc: declare the files the tests read"
+
 --- A path of `reads` or `host` that names something a prefix can hold:
 --- relative to the tree for `reads`, absolute for `host` -- or, for
---- `host`, starting with `$NAME`, the path the variable NAME holds
---- (`build.test_inputs`' `variable_of`) -- and never climbing with "..",
---- nor spelled with "." or an empty name, which a match by prefix would
---- read as another path. "" when it is one, else why not.
+--- `host`, starting with `$NAME`, a path beneath the one the variable
+--- NAME holds (`build.test_inputs`' `variable_of`) -- and never climbing
+--- with "..", nor spelled with "." or an empty name, which a match by
+--- prefix would read as another path. A `host` path names a file, or
+--- /proc (R3): not one written as a directory, with a "/" after it, nor
+--- a variable's whole path; one that is a directory on the host fails
+--- its tests as they start (`build.test_inputs`' `resolve`). "" when it
+--- is one, else why not.
 local function input_path_trouble(field: string, path: string): string
   if path == "" then return "an empty path" end
   local quoted = "\"" .. path .. "\""
@@ -1021,9 +1028,14 @@ local function input_path_trouble(field: string, path: string): string
       return quoted .. " names no variable: write $NAME or $NAME/path, NAME of letters, " ..
         "digits and _, not starting with a digit"
     end
-    -- The variable's whole path.
-    if rest == "" or rest == "/" then return "" end
+    -- The variable's whole path, a directory by intent.
+    if rest == "" or rest == "/" then
+      return quoted .. " names all " .. name .. " holds, a directory; " .. HOST_FILES
+    end
     path, absolute = rest, true
+  end
+  if field == "host" and path:sub(-1) == "/" and path:sub(1, 6) ~= "/proc/" then
+    return quoted .. " names a directory; " .. HOST_FILES
   end
   if path:find("/$", 1, true) ~= nil then
     if field == "reads" then

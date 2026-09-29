@@ -3,8 +3,8 @@
 --- for the process table's `spawn` that holds each process it starts to
 --- that (`enter`); and what a sandboxed worker of this very
 --- program is given and held to (`worker_unveil`, `forbid_running`,
---- `itself`), with the paths every sandbox gives (`in_system`,
---- `in_runtime`) and where a path leads as one binds it (`resolution`).
+--- `itself`), with the system's paths a sandbox gives (`in_system`)
+--- and where a path leads as one binds it (`resolution`).
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -185,15 +185,6 @@ end
 -- it can read there without that entering the key: refused, as the
 -- TODO there asks, once no container the tree is tested in masks /proc.
 local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
-
---- Whether `path`, absolute, is one of `runtime_paths` or beneath one:
---- what every sandboxed worker is given, and no package installs.
-function confine.in_runtime(path: string): boolean
-  for _, runtime_path in ipairs(runtime_paths) do
-    if Fs.within(path, runtime_path) then return true end
-  end
-  return false
-end
 
 --- What a confined process has without its test naming it, each where
 --- this host has it (and, in a sandboxed worker, where the worker was

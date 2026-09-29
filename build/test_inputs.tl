@@ -28,6 +28,7 @@
 --- with what observation saw (`build.filesystem_observations`), test
 --- by test.
 
+local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local cache_names = require("build.cache_names")
@@ -46,9 +47,9 @@ local record test_inputs
     --- Paths of the tree, each a file or a directory and all beneath
     --- it: the fuzz corpora, and what the module declares.
     reads: {string}
-    --- Absolute paths outside the tree, the same way: as the module
-    --- declares them until `resolve` puts each it declares by a variable
-    --- (`$NAME/path`) where that variable's value says.
+    --- Absolute paths outside the tree, each a file or /proc: as the
+    --- module declares them until `resolve` puts each it declares by a
+    --- variable (`$NAME/path`) where that variable's value says.
     host: {string}
     --- Environment variables, pinned or declared, by name; `"*"` for
     --- the whole environment.
@@ -309,13 +310,25 @@ end
 --- variable's value in `environment` says (`resolved`), spelling it as
 --- declared in `spelled`, notes where each variable it declares is
 --- (`located`), and says why one cannot be given in `unresolved`: see
---- `resolved`, whose `roots` this takes.
+--- `resolved`, whose `roots` this takes -- or a directory there, but for
+--- /proc, which `cosmic.test`'s `host` never names.
 function test_inputs.resolve(effective: test_inputs.Effective, environment: {string:string},
                              roots: {string})
   local host: {string} = {}
   effective.spelled, effective.located, effective.unresolved = {}, {}, ""
   for _, declared in ipairs(effective.host) do
     local path, trouble = test_inputs.resolved(declared, environment, roots)
+    -- A file, or /proc: a directory no key holds by what it holds (R3).
+    -- One not there is none, as a file of another platform's is not.
+    local st: sys.Stat = nil
+    if path ~= nil then
+      local found, _ = sys.stat(path)
+      st = found
+    end
+    if st ~= nil and st.kind == "dir" and not beneath(path, "/proc") then
+      path, trouble = nil, string.format("Test.needs host %q: %s is a directory; host names " ..
+        "files, or /proc: declare the files the tests read", declared, path)
+    end
     if path == nil then
       if effective.unresolved == "" then effective.unresolved = trouble end
     else
@@ -596,7 +609,13 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
     parts[#parts + 1] = field .. " = " .. literal_list(all)
   end
   list_field("reads", declared.reads, true)
-  list_field("host", declared.host, true)
+  -- A host path is a file, or /proc, whatever beneath it was read.
+  local host_files: {string} = {}
+  for _, path in ipairs(wanted.host or {}) do
+    host_files[#host_files + 1] = beneath(path, "/proc") and "/proc" or path
+  end
+  if wanted.host ~= nil then wanted.host = host_files end
+  list_field("host", declared.host, false)
   list_field("env", declared.env, false)
   -- A loopback address is declared; any other host is one no test may
   -- reach (`cosmic.test`'s `network`), which the declaration cannot hold.
