@@ -143,13 +143,22 @@ local function compiler_environment(): {string:any}
   return environment
 end
 
---- Loads the compiler out of the store.
-function teal.load(): compiler | nil, string
+--- Loads the compiler out of the store; with `strip`, without its
+--- debug information: the same code, which compiles to the same Lua,
+--- but whose errors and tracebacks name no line of it. Under Lua's line
+--- hook -- a test's coverage -- the VM finds the line of each
+--- instruction a function with line information runs, which is most of
+--- what the hook costs (`build/compiler_test.tl`).
+function teal.load(strip?: boolean): compiler | nil, string
   local bytes, trouble = Store.bytecode("vendor.tl")
   if bytes == nil then
     return nil, "the compiler is not in this binary: " .. trouble
   end
-  local chunk, why = load(bytes, "@vendor.tl", "b", compiler_environment())
+  local environment = compiler_environment()
+  local chunk, why = load(bytes, "@vendor.tl", "b", environment)
+  if strip and chunk ~= nil then
+    chunk, why = load(string.dump(chunk, true), "=vendor.tl", "b", environment)
+  end
   if chunk == nil then
     return nil, "the compiler would not load: " .. tostring(why)
   end
