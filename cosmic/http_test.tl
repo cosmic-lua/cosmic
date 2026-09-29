@@ -4,10 +4,13 @@
 --- (`Options.script`), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
+local Child = require("cosmic.child")
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- Requests to a closed local port, which a loopback alone answers:
@@ -82,6 +85,31 @@ local function test_a_redirect_is_not_followed_when_follow_is_false()
   assert(response.status == 302)
   assert(body == "moved")
   assert(response.headers["location"] == "/next")
+end
+
+local function test_a_redirect_to_a_scheme_outside_redirect_protocols_is_refused()
+  local response, why = Http.open(url, { redirect_protocols = { "https" },
+    script = { reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "no") } })
+  assert(response == nil, "the redirect to http was followed")
+  assert(why:find("disabled (in redirect)", 1, true) ~= nil, why)
+end
+
+local function test_a_redirect_to_a_listed_scheme_is_followed()
+  for _, protocols in ipairs({ { "http" }, { "http", "https" } } as {{string}}) do
+    local response, body = fetch({ reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "yes") },
+      { redirect_protocols = protocols })
+    assert(response.status == 200 and body == "yes", body)
+  end
+end
+
+local function test_a_redirect_to_https_is_attempted_when_only_https_is_listed()
+  -- a canned reply cannot finish a TLS handshake, so the hop fails there:
+  -- what matters is that it is a TLS failure, not a refused scheme
+  local response, why = Http.open(url, { redirect_protocols = { "https" },
+    script = { reply("302 Found", "Location: https://other.test/next\r\n"), reply("200 OK", "", "no") } })
+  assert(response == nil)
+  assert(why:find("not supported or disabled", 1, true) == nil, why)
+  assert(why:find("Protocol", 1, true) == nil, why)
 end
 
 local function test_a_303_after_post_is_followed_with_get()
@@ -318,7 +346,7 @@ local function test_download_writes_verifies_and_renames(tmp: string)
     script = { reply("200 OK", "", data) } })
   assert(ok, trouble)
   assert(Fs.read(path) == data)
-  local names = assert(Fs.list(tmp))
+  local names = (assert(Fs.list(tmp)))
   assert(#names == 1 and names[1] == "got", "a temporary file was left behind")
 end
 
@@ -474,6 +502,22 @@ local function test_zero_integer_options_are_accepted()
   local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ms = 0,
     max_redirects = 0, low_speed_bytes = 0, low_speed_seconds = 0 })
   assert(response.status == 200 and body == "ok")
+end
+
+local function test_redirect_protocols_takes_a_list_of_http_and_https()
+  local err = raised({ redirect_protocols = "https" as {string} })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = {} })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "ftp" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "HTTPS" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  -- a name is compared whole, not up to a NUL: "http\0s" is not "http"
+  err = raised({ redirect_protocols = { "http\0s" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "https\0" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
 end
 
 local function test_a_boolean_option_takes_only_a_boolean()
@@ -789,4 +833,101 @@ local function test_a_close_variable_aborts_an_upload()
   end
   local response, why = kept:response()
   assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
+end
+
+local function test_a_cancelled_download_removes_its_part_file_and_makes_no_target(tmp: string)
+  local path = tmp .. "/got.bin"
+  local asked = 0
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", string.rep("x", 200000)) },
+    cancelled = function(): boolean
+      asked = asked + 1
+      return asked > 1
+    end,
+  })
+  assert(not ok and why == "cancelled", why)
+  assert(asked > 1, "asked between chunks")
+  assert(Fs.stat(path) == nil, "the target was created")
+  local names = (assert(Fs.list(tmp)))
+  for _, name in ipairs(names) do
+    assert(name ~= "got.bin" and not name:find("got.bin", 1, true), "left behind: " .. name)
+  end
+end
+
+local function test_a_download_never_cancelled_completes(tmp: string)
+  local path = tmp .. "/got.bin"
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean return false end,
+  })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+end
+
+local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: string)
+  local path = tmp .. "/got.bin"
+  local asked = 0
+  local total = 0
+  -- the ask after the last chunk, before the rename, is the last: an
+  -- interrupt that came in that window still leaves nothing
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean
+      asked = asked + 1
+      total = asked
+      return false
+    end,
+  })
+  assert(ok, why)
+  local last = total
+  -- one ask before the chunk, one before the read that finds the end,
+  -- and the last, with the body complete
+  assert(last == 3, "asked " .. tostring(last))
+  assert(Fs.remove(path))
+  asked = 0
+  ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean
+      asked = asked + 1
+      return asked == last
+    end,
+  })
+  assert(not ok and why == "cancelled", tostring(why))
+  assert(Fs.stat(path) == nil, "the target was created")
+  local names = (assert(Fs.list(tmp)))
+  assert(#names == 0, "left behind: " .. table.concat(names, ","))
+end
+
+local function test_a_caught_signal_ends_an_open_that_waits()
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local response, why = Http.open(url, { script = { reply("200 OK", "", "x") } })
+  local caught = assert(guard:release())
+  assert(response == nil and why == "interrupted", tostring(why))
+  assert(caught == sys.SIGINT, tostring(caught))
+end
+
+-- TODO: a caught signal ending a body `read`, and a streamed `write` or
+-- `finish`, that wait on a connection that stays open with nothing to
+-- send, once the tree has a loopback server that can bind, accept and
+-- stall; the scripted transport closes after its reply, so the transfer
+-- is done before a read can wait. Only the open's wait is driven here,
+-- and the wait loops share `cosmic_signal_caught`.
+
+local function test_a_download_checks_every_digest_it_is_given(tmp: string)
+  local path = tmp .. "/two.bin"
+  local s256 = Hash.hex_sha256("hello")
+  local s512 = Codec.hex(Hash.digest("sha512", "hello"))
+  local ok, why = Http.download(url, path, { script = { reply("200 OK", "", "hello") },
+    sha256 = s256, sha512 = s512:upper() })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+  local other = tmp .. "/other.bin"
+  local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
+    sha256 = s256, sha512 = string.rep("0", 128) })
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true), bad_why)
+  assert(Fs.stat(other) == nil, "the target was created")
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(name == "two.bin", "left behind: " .. name)
+  end
 end

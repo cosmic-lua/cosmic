@@ -4,6 +4,8 @@
 --- cosmic/http_test.tl it declares only loopback, so it is keyed and
 --- runs offline. The program run as a process is build/fetch_tool_test.tl's.
 
+local Child = require("cosmic.child")
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -211,4 +213,184 @@ local function test_sha256_on_standard_output_with_a_bad_status_sends_nothing()
   local ran = run({ "--sha256", Hash.hex_sha256("no"), url }, { reply("404 Not Found", "", "no") })
   assert(ran.code == 1 and ran.out == "", ran.out)
   assert(ran.err:find("HTTP 404", 1, true), ran.err)
+end
+
+-- TODO: drive a real https start that redirects to http (refused) and
+-- to https (followed) through `fetch.run`, once the tree has a loopback
+-- TLS server (a certificate the test trusts and a socket that can bind
+-- and accept); none exists, and a canned reply cannot finish a
+-- handshake, so only the decision (`redirect_protocols`, `refusal`) and
+-- cosmic/http_test.tl's scripted http cases are covered.
+local function test_an_https_start_limits_redirects_to_https_unless_allowed()
+  local limited = fetch.redirect_protocols("https://example.test/a", false)
+  assert(#limited == 1 and limited[1] == "https")
+  limited = fetch.redirect_protocols("HTTPS://example.test/a", false)
+  assert(#limited == 1 and limited[1] == "https")
+  assert(fetch.redirect_protocols("https://example.test/a", true) == nil)
+  assert(fetch.redirect_protocols("http://example.test/a", false) == nil)
+end
+
+local function test_a_refused_downgrade_is_named_plainly()
+  local curl = 'Protocol "http" is disabled (in redirect)'
+  local said = fetch.refusal(curl, { "https" })
+  assert(said:find("refused a redirect from https to http", 1, true) ~= nil, said)
+  assert(said:find("--allow-downgrade", 1, true) ~= nil, said)
+  assert(fetch.refusal(curl, nil) == curl, "a fetch not limited to https says what curl said")
+  assert(fetch.refusal("Could not resolve host", { "https" }) == "Could not resolve host")
+end
+
+local function test_an_http_redirect_from_an_http_start_is_still_followed()
+  local ran = run({ url }, { reply("302 Found", "Location: http://other.test/x\r\n"), reply("200 OK", "", "ok") })
+  assert(ran.code == 0 and ran.out == "ok", ran.err)
+end
+
+local function test_allow_downgrade_is_a_flag_and_not_a_usage_error()
+  local ran = run({ "--allow-downgrade", url }, { reply("200 OK", "", "ok") })
+  assert(ran.code == 0 and ran.out == "ok", ran.err)
+end
+
+local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
+  local path = tmp .. "/got.txt"
+  local argv: {integer:string} = { "fetch", url, "-o", path }
+  local err: {string} = {}
+  local code = fetch.run(argv, {
+    script = { reply("200 OK", "", string.rep("y", 200000)) },
+    out = function(_text: string): boolean, string return true, "" end,
+    err = function(line: string) err[#err + 1] = line end,
+    cancelled = function(): boolean return true end,
+  })
+  assert(code == 1, tostring(code))
+  assert(table.concat(err):find("cancelled", 1, true) ~= nil, table.concat(err))
+  assert(Fs.stat(path) == nil, "the target was created")
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(not name:find("got.txt", 1, true), "left behind: " .. name)
+  end
+end
+
+--- The guard `-o` holds is closed on every way out, a complaint that
+--- raises included: left open, it would hold SIGINT and SIGTERM for the
+--- rest of the process, and a later `Child.guard` would be refused.
+local function test_the_guard_is_closed_when_a_complaint_raises(tmp: string)
+  local ok, trouble = pcall(fetch.run, { "fetch", url, "-o", tmp .. "/got" } as {integer:string}, {
+    script = { reply("404 Not Found", "", "no") },
+    out = function(_text: string): boolean, string return true, "" end,
+    err = function(_line: string) error("stderr is gone") end,
+  })
+  assert(not ok and tostring(trouble):find("stderr is gone", 1, true) ~= nil, tostring(trouble))
+  local guard, why = Child.guard()
+  assert(guard ~= nil, "the guard was left open: " .. tostring(why))
+  assert(guard:close())
+end
+
+local function sha512_of(text: string): string
+  return Codec.hex(Hash.digest("sha512", text))
+end
+
+local function test_a_sha256_fragment_verifies_and_refuses(tmp: string)
+  local good = Hash.hex_sha256("hello")
+  local ran = run({ url .. "#sha256=" .. good }, { reply("200 OK", "", "hello") })
+  assert(ran.code == 0 and ran.out == "hello", ran.err)
+  local bad = run({ url .. "#sha256=" .. string.rep("0", 64) }, { reply("200 OK", "", "hello") })
+  assert(bad.code == 1 and bad.out == "", bad.err)
+  assert(bad.err:find("sha256 mismatch: want " .. string.rep("0", 64) .. ", got " .. good, 1, true), bad.err)
+  local path = tmp .. "/frag.txt"
+  local filed = run({ url .. "#sha256=" .. good:upper(), "-o", path }, { reply("200 OK", "", "hello") })
+  assert(filed.code == 0 and Fs.read(path) == "hello", filed.err)
+end
+
+local function test_a_sha512_fragment_verifies_and_refuses()
+  local good = sha512_of("hello")
+  local ran = run({ url .. "#sha512=" .. good }, { reply("200 OK", "", "hello") })
+  assert(ran.code == 0 and ran.out == "hello", ran.err)
+  local bad = run({ url .. "#sha512=" .. string.rep("0", 128) }, { reply("200 OK", "", "hello") })
+  assert(bad.code == 1 and bad.out == "", bad.err)
+  assert(bad.err:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. good, 1, true), bad.err)
+  local flagged = run({ "--sha512", good:upper(), url }, { reply("200 OK", "", "hello") })
+  assert(flagged.code == 0 and flagged.out == "hello", flagged.err)
+end
+
+local function test_the_sum_aliases_work()
+  local ran = run({ url .. "#sha256sum=" .. Hash.hex_sha256("hello") }, { reply("200 OK", "", "hello") })
+  assert(ran.code == 0 and ran.out == "hello", ran.err)
+  local ran512 = run({ url .. "#sha512sum=" .. sha512_of("hello") }, { reply("200 OK", "", "hello") })
+  assert(ran512.code == 0, ran512.err)
+  local bad = run({ url .. "#sha256sum=" .. string.rep("1", 64) }, { reply("200 OK", "", "hello") })
+  assert(bad.code == 1, bad.err)
+end
+
+local function test_the_fragment_never_reaches_the_request_or_a_message()
+  local ran = run({ "--head", "--json", url .. "#frag" }, { reply("200 OK", "") })
+  assert(ran.code == 0, ran.err)
+  assert(not ran.out:find("#", 1, true), ran.out)
+  local secret = string.rep("a", 64)
+  local failed = run({ url .. "#sha256=" .. secret }, { reply("404 Not Found", "", "no") })
+  assert(failed.code == 1 and not failed.err:find("#", 1, true) and not failed.err:find(secret, 1, true), failed.err)
+  local refused = run({ "http://cosmic.test:notaport/x#sha256=" .. secret }, {})
+  assert(not refused.err:find("#", 1, true), refused.err)
+end
+
+local function test_a_flag_and_fragment_that_disagree_are_refused_before_any_request()
+  local a, b = Hash.hex_sha256("hello"), string.rep("2", 64)
+  -- no script: a request would fail as exit 1, not the usage error
+  local ran = run({ "--sha256", a, url .. "#sha256=" .. b }, {})
+  assert(ran.code == 2 and ran.out == "", tostring(ran.code) .. ran.err)
+  assert(ran.err:find("--sha256", 1, true) and ran.err:find("#sha256", 1, true), ran.err)
+  assert(ran.err:find(a, 1, true) and ran.err:find(b, 1, true), ran.err)
+  local same = run({ "--sha256", a:upper(), url .. "#sha256=" .. a }, { reply("200 OK", "", "hello") })
+  assert(same.code == 0 and same.out == "hello", same.err)
+  local twice = run({ url .. "#sha256=" .. a .. "&sha256sum=" .. b }, {})
+  assert(twice.code == 2, twice.err)
+end
+
+local function test_different_algorithms_must_both_match(tmp: string)
+  local s256, s512 = Hash.hex_sha256("hello"), sha512_of("hello")
+  local ran = run({ "--sha256", s256, url .. "#sha512=" .. s512 }, { reply("200 OK", "", "hello") })
+  assert(ran.code == 0 and ran.out == "hello", ran.err)
+  local wrong512 = run({ "--sha256", s256, url .. "#sha512=" .. string.rep("0", 128) },
+    { reply("200 OK", "", "hello") })
+  assert(wrong512.code == 1 and wrong512.out == "" and wrong512.err:find("sha512 mismatch", 1, true), wrong512.err)
+  local wrong256 = run({ "--sha512", s512, url .. "#sha256=" .. string.rep("0", 64) },
+    { reply("200 OK", "", "hello") })
+  assert(wrong256.code == 1 and wrong256.err:find("sha256 mismatch", 1, true), wrong256.err)
+  local path = tmp .. "/both.txt"
+  local filed = run({ url .. "#sha256=" .. s256, "--sha512", string.rep("0", 128), "-o", path },
+    { reply("200 OK", "", "hello") })
+  assert(filed.code == 1, filed.err)
+  assert(Fs.stat(path) == nil, "the target was created")
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(not name:find("both.txt", 1, true), "left behind: " .. name)
+  end
+end
+
+local function test_bad_hex_in_a_recognized_fragment_is_a_usage_error()
+  for _, fragment in ipairs({ "sha256=abc", "sha256=" .. string.rep("g", 64), "sha256=",
+      "sha512=" .. string.rep("a", 64), "sha256sum=" .. string.rep("a", 65) } as {string}) do
+    local ran = run({ url .. "#" .. fragment }, {})
+    assert(ran.code == 2 and ran.out == "", fragment .. ": " .. tostring(ran.code) .. ran.err)
+    assert(ran.err:find("hex digits", 1, true), ran.err)
+  end
+  local flag = run({ "--sha512", string.rep("a", 64), url }, {})
+  assert(flag.code == 2, flag.err)
+end
+
+local function test_an_unrecognized_fragment_is_dropped()
+  for _, fragment in ipairs({ "", "section", "a=b", "&&", "shape=1", "egg=x&hashtag", "x#y" } as {string}) do
+    local ran = run({ url .. "#" .. fragment }, { reply("200 OK", "", "hello") })
+    assert(ran.code == 0 and ran.out == "hello", fragment .. ": " .. ran.err)
+  end
+  local mixed = run({ url .. "#egg=x&sha256=" .. Hash.hex_sha256("hello") }, { reply("200 OK", "", "hello") })
+  assert(mixed.code == 0, mixed.err)
+  local head = run({ "--head", url .. "#sha256=" .. Hash.hex_sha256("x") }, { reply("200 OK", "") })
+  assert(head.code == 2, head.err)
+end
+
+local function test_a_fragment_that_looks_like_a_checksum_is_refused()
+  local hex = Hash.hex_sha256("hello")
+  for _, fragment in ipairs({ "sha1=abc", "SHA256=" .. hex, "sha-256=" .. hex, "sha256:" .. hex,
+      "sha256", "md5=abc", "Sha512sum=" .. hex, "egg=x&sha256x=1", "checksum=" .. hex } as {string}) do
+    -- no script: a request would fail as exit 1, not the usage error
+    local ran = run({ url .. "#" .. fragment }, {})
+    assert(ran.code == 2 and ran.out == "", fragment .. ": " .. tostring(ran.code) .. ran.err)
+    assert(ran.err:find("looks like a checksum", 1, true), ran.err)
+  end
 end

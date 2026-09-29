@@ -16,6 +16,7 @@
 --- file, verifying a checksum while it goes.
 
 local Codec = require("cosmic.codec")
+local Hash = require("cosmic.hash")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace, which never satisfies an ordinary
@@ -44,6 +45,19 @@ local record Http
   --- into a GET, as RFC 9110 says. `method` is case-sensitive, as
   --- HTTP's are, and defaults to GET, or POST when there is a `body`.
   ---
+  --- `redirect_protocols`, a list of "http" and "https", names the
+  --- schemes a redirect may lead to (default both; the start URL's own
+  --- is not limited by it): `{"https"}` refuses a redirect to http, so
+  --- a request that started over https never falls back to plaintext,
+  --- and the redirect refused fails the request. An empty list or any
+  --- other entry raises (`follow = false` is how to take no redirect).
+  ---
+  --- While a `Child.guard` is open and has caught SIGINT or SIGTERM, an
+  --- open still waiting for its response fails with "interrupted", and
+  --- so does a body's `read` that has no data to give, or a streamed
+  --- body's `write` or `finish` that must wait. The signal stays the
+  --- guard's to read.
+  ---
   --- A connection not made within `connect_timeout_ms` (default
   --- 30000) fails, and so does a transfer that moves fewer than
   --- `low_speed_bytes` (default 1) per second for `low_speed_seconds`
@@ -68,8 +82,21 @@ local record Http
   --- a header name or value holding CR, LF or NUL (or a name that is
   --- empty or holds ':'), a URL holding NUL or one curl rejects.
   record Options is raw_http.Options
-    --- Http.download only: the expected sha256, as lowercase hex.
+    --- Http.download only: the expected sha256 and sha512, as hex. Each
+    --- given is computed while the body is written and must match, or the
+    --- download fails naming the algorithm, the digest wanted and the one
+    --- got, leaving no file.
     sha256: string
+    sha512: string
+    --- Http.download only: asked before each chunk is read and once
+    --- more when the body is complete, before it is renamed into place;
+    --- when it answers true the download stops, removes its temporary
+    --- file, never creates `path`, and fails with "cancelled". It is how
+    --- a caller holding a `Child.guard` ends a download on SIGINT. A wait
+    --- for data ends too when that guard catches a signal: the open or
+    --- the read fails, which the download reports as "cancelled" when
+    --- this answers true then.
+    cancelled: function(): boolean
   end
 
   --- An open response, and a `cosmic.stream` Reader of its body.
@@ -251,19 +278,28 @@ end
 --- to a fresh temporary file beside it -- created exclusively, so two
 --- downloads never share one and a planted symlink is never followed --
 --- and renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.sha256` is given, verified -- a reader never sees
+--- disk and, when `opts.sha256` or `opts.sha512` is given, verified -- a reader never sees
 --- a partial file at the final name. Fails on a non-2xx status (a
 --- redirect `opts.follow` already took does not count) or a checksum
---- mismatch, and removes the temporary file on every failure.
+--- mismatch, and removes the temporary file on every failure, `opts.cancelled`'s
+--- answering true ("cancelled") included.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
-  local want = opts ~= nil and opts.sha256 or ""
-  local hashing: Stream.Hashing = nil
-  if want ~= "" then
-    local made, hasher_trouble = Stream.hashing("sha256")
-    if made == nil then
-      return false, hasher_trouble
-    end
-    hashing = made
+  local checks: {{string}} = {}
+  local hashings: {Stream.Hashing} = {}
+  --- Starts hashing for `algorithm` when `wanted` names a digest: the
+  --- failure to, or "".
+  local function start_hashing(algorithm: Hash.Algorithm, wanted: string): string
+    if wanted == nil or wanted == "" then return "" end
+    local made, hasher_trouble = Stream.hashing(algorithm)
+    if made == nil then return hasher_trouble end
+    checks[#checks + 1] = { algorithm, wanted:lower() }
+    hashings[#hashings + 1] = made
+    return ""
+  end
+  if opts ~= nil then
+    local trouble = start_hashing("sha256", opts.sha256)
+    if trouble == "" then trouble = start_hashing("sha512", opts.sha512) end
+    if trouble ~= "" then return false, trouble end
   end
   local response, open_trouble = Http.open(url, opts)
   if response == nil then
@@ -281,10 +317,29 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
   end
   local part, fd = temporary.path, temporary.fd
   local writer = Stream.to_fd(fd)
-  if hashing ~= nil then writer = Stream.tee(writer, hashing) end
-  local copied, trouble = Stream.copy(response, writer)
+  for _, hashing in ipairs(hashings) do writer = Stream.tee(writer, hashing) end
+  local ok, trouble = true, ""
+  while true do
+    if opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then
+      ok, trouble = false, "cancelled"
+      break
+    end
+    local chunk, read_trouble = response:read()
+    if chunk == nil then
+      if read_trouble ~= "" then
+        ok, trouble = false, read_trouble
+        -- a read that ended for a caught signal answers as a cancel does
+        if opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then trouble = "cancelled" end
+      end
+      break
+    end
+    ok, trouble = writer:write(chunk)
+    if not ok then break end
+  end
   local _, _ = response:close()
-  local ok = copied ~= nil
+  if ok and opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then
+    ok, trouble = false, "cancelled"
+  end
   if ok then
     ok, trouble = Fs.fsync(fd)
   end
@@ -292,13 +347,16 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
   if ok and not closed then
     ok, trouble = false, close_trouble
   end
-  if ok and hashing ~= nil then
-    local digest, digest_trouble = hashing:digest()
-    if digest == nil then
-      ok, trouble = false, digest_trouble
-    elseif Codec.hex(digest) ~= want:lower() then
-      ok, trouble = false, path .. ": sha256 mismatch: want " .. want ..
-        ", got " .. Codec.hex(digest)
+  if ok then
+    for i, check in ipairs(checks) do
+      local digest, digest_trouble = hashings[i]:digest()
+      if digest == nil then
+        ok, trouble = false, digest_trouble
+      elseif Codec.hex(digest) ~= check[2] then
+        ok, trouble = false, path .. ": " .. check[1] .. " mismatch: want " ..
+          check[2] .. ", got " .. Codec.hex(digest)
+      end
+      if not ok then break end
     end
   end
   if ok then
