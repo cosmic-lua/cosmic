@@ -26,6 +26,9 @@ local record State
     elapsed_ms: integer
     sandbox: string
     parts: {string:string}
+    --- What its verdict cache held as it began, as its census line
+    --- said it (`SuiteOutput.held` reads it); nil where it said none.
+    held: string
   end
   key_parts: {{string}}
   suite_columns: {string}
@@ -51,7 +54,7 @@ CREATE TABLE IF NOT EXISTS suite_runs (
   ran INTEGER, stood INTEGER, every INTEGER, assumed INTEGER, shared INTEGER,
   failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, host_features TEXT,
   host TEXT, system TEXT, runtime TEXT, compiler TEXT, harness TEXT,
-  launcher TEXT, program TEXT);
+  launcher TEXT, program TEXT, held TEXT);
 ]]
 
 function State.canonical_directory(path: string): string
@@ -138,6 +141,10 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   for _, part in ipairs(State.key_parts) do
     selected[#selected + 1] = part[2] .. " IS NULL, COALESCE(" .. part[2] .. ", '')"
   end
+  -- An operations database written before the column was lacks it.
+  local has_held = #assert(Sqlite.text_rows(db,
+    "SELECT 1 FROM pragma_table_info('suite_runs') WHERE name = 'held'")) > 0
+  selected[#selected + 1] = has_held and "held IS NULL, COALESCE(held, '')" or "1, ''"
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
     " FROM suite_runs ORDER BY id"))
   local out: {State.SuiteRun} = {}
@@ -157,6 +164,7 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
       column = column + 2
     end
     row.parts = parts
+    if cells[column] ~= "1" then row.held = cells[column + 1] end
     out[#out + 1] = row as State.SuiteRun
   end
   return out
@@ -183,6 +191,8 @@ function State.suite(path: string, row: State.SuiteRun)
     columns[#columns + 1] = part[2]
     values[#values + 1] = maybe_text(parts[part[1]])
   end
+  columns[#columns + 1] = "held"
+  values[#values + 1] = maybe_text(row.held)
   local marks: {string} = {}
   for i = 1, #columns do marks[i] = "?" .. i end
   local db = State.open(path)
