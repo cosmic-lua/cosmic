@@ -184,6 +184,9 @@ end
 local function module_doc(parsed: ast.Parsed): string
   local first_token = parsed.tokens[1]
   local comments = first_token ~= nil and first_token.comments or nil
+  -- TODO: read the run after a leading shebang line or blank lines as
+  -- the module's too: a script opening with `#!` and a comment lists
+  -- blank in `cosmic docs`, and its record or function keeps the run alone.
   if comments == nil or #comments == 0 or comments[1].y ~= 1 then
     return ""
   end
@@ -402,6 +405,10 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
   end
   local depth = 0
   local last = first
+  -- Where a comment starts on each line the type spans: a comment inside
+  -- a signature is left out, as it would swallow the words after it
+  -- once the lines are joined.
+  local comment_at: {integer: integer} = {}
   for at = first, #tokens do
     local token = tokens[at]
     local tk = token.tk
@@ -410,10 +417,19 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
        and previous.tk ~= "," and previous.tk ~= "|" and previous.tk ~= ":" then
       break
     end
-    if tk == "(" or tk == "{" or tk == "[" then
+    if token.comments ~= nil and at > first then
+      for _, comment in ipairs(token.comments) do
+        if comment_at[comment.y] == nil then
+          comment_at[comment.y] = comment.x
+        end
+      end
+    end
+    if tk == "(" or tk == "{" or tk == "[" or tk == "<" then
       depth = depth + 1
-    elseif tk == ")" or tk == "}" or tk == "]" then
+    elseif tk == ")" or tk == "}" or tk == "]" or tk == ">" then
       depth = depth - 1
+    elseif tk == ">>" then
+      depth = depth - 2
     end
     last = at
   end
@@ -421,7 +437,17 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
   if end_token.y == field.y then
     return line_at(lines, field.y)
   end
-  return span_text(lines, field.y, 1, end_token.y, end_token.x + #end_token.tk)
+  local parts: {string} = {}
+  for line_no = field.y, end_token.y do
+    local line = lines[line_no] or ""
+    local to = line_no == end_token.y and end_token.x + #end_token.tk - 1 or #line
+    local cut = comment_at[line_no]
+    if cut ~= nil and line_no ~= end_token.y and cut - 1 < to then
+      to = cut - 1
+    end
+    parts[#parts + 1] = line:sub(1, to)
+  end
+  return String.trim((table.concat(parts, " "):gsub("%s+", " ")))
 end
 
 --- Adds the entries for one record, interface, or enum body under
@@ -463,6 +489,9 @@ local function record_docs(lines: {string}, tokens: {compiler.Token}, symbol: st
         end
       end
       local field_symbol = symbol .. "." .. name
+      if field.typename == "generic" and field.t ~= nil then
+        field = field.t
+      end
       local nested = field.typename == "typedecl" and definition_of(field) or nil
       if nested ~= nil and (nested.typename == "record"
          or nested.typename == "interface" or nested.typename == "enum") then
