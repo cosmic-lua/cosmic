@@ -10,6 +10,8 @@
 local Sqlite = require("cosmic.sqlite")
 
 local record symbols
+  guides: {string}
+  internal_guides: {string:string}
 end
 
 --- Whether a module is the public standard library's own: what a
@@ -27,6 +29,51 @@ function symbols.public_only(column: string, public: boolean): string
   end
   return "(" .. column .. " LIKE 'cosmic.%' AND " .. column ..
     " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
+end
+
+--- The user guides (`doc/guides/<name>.md`) a binary carries: the ones
+--- a reader of `cosmic docs` is meant to find. A guide about how the
+--- runtime is built is left to the tree (`internal_guides`). Every
+--- guide is in one list or the other: `build.tree_checks` refuses a
+--- guide in neither, so a new one is never left out by mistake.
+symbols.guides = { "command-line", "project", "quickstart" }
+
+--- The guides a binary does not carry, each with its reason.
+symbols.internal_guides = {
+  ["portable-runtime"] = "how the release artifact is built, for those working on cosmic",
+}
+
+--- Whether a module is a user guide a public source answers for: the
+--- module a guide compiles as (`doc.guides.quickstart`).
+function symbols.is_public_guide(module: string): boolean
+  for _, name in ipairs(symbols.guides) do
+    if module == "doc.guides." .. name then
+      return true
+    end
+  end
+  return false
+end
+
+--- The condition under which the SQL `column` names a user guide's
+--- module (one of the user guides above).
+function symbols.guide_module(column: string): string
+  local names: {string} = {}
+  for _, name in ipairs(symbols.guides) do
+    names[#names + 1] = "'doc.guides." .. name .. "'"
+  end
+  return column .. " IN (" .. table.concat(names, ", ") .. ")"
+end
+
+--- `public_only`, and the user guides too: what a public source's
+--- docs rows may hold. Only a guide's own row is carried (its prose),
+--- not the helpers its generated test module declares, so this is a
+--- condition on `docs` rows alone.
+function symbols.public_docs(column: string, public: boolean): string
+  if not public then
+    return "1"
+  end
+  return "(" .. symbols.public_only(column, true) .. " OR " ..
+    symbols.guide_module(column) .. ")"
 end
 
 --- The condition under which the SQL `name` ends in `.` or `:` and then
@@ -92,7 +139,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
     local rows, _ = Sqlite.text_rows(db,
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
       symbols.named_where("d") .. " AND " ..
-      symbols.public_only("d.module", public[index] == true) ..
+      symbols.public_docs("d.module", public[index] == true) ..
       " ORDER BY module, symbol",
       { { text = query } })
     if rows ~= nil then
