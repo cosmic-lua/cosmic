@@ -47,6 +47,7 @@ local Flags = require("cosmic.flags")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 --- The `cosmic codec` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
@@ -293,7 +294,7 @@ local function arguments(argv: {integer:string}): Request | nil, string
     wrap = 0, lenient = parsed.set["--lenient"] or false,
   }
   if #words > 2 then
-    return nil, "give an encoding and a file at most, not " .. #words .. " words"
+    return nil, "give an encoding and a file at most, not " .. plural.count(#words, "word")
   end
   request.file = words[2]
   if request.file == "" then return nil, bare.empty_file end

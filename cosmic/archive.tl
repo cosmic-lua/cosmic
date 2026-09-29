@@ -11,6 +11,12 @@ local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 
+-- TODO: share one plural helper with build.plural once the library has an
+-- internal Teal module to hold it: cosmic.* cannot require build.plural.
+local function counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+end
+
 local record Archive
   --- Shared with `cosmic.tar`'s own Entry.kind; zip only ever produces
   --- "file", "dir" or "symlink".
@@ -485,8 +491,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     end
     if bytes_left ~= nil and copied > bytes_left then
       local _, _ = w:abort()
-      return false, "archive: more than " .. tostring(opts.max_bytes) ..
-        " bytes to extract, at " .. entry.path
+      return false, "archive: more than " .. counted(opts.max_bytes, "byte") ..
+        " to extract, at " .. entry.path
     end
     if bytes_left ~= nil then bytes_left = bytes_left - copied end
     local ok, wtrouble = w:close()
@@ -586,8 +592,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if wanted then
         if entries_left ~= nil then
           if entries_left <= 0 then
-            return bail("archive: more than " .. tostring(opts.max_entries) ..
-              " entries to extract")
+            return bail("archive: more than " .. counted(opts.max_entries, "entry", "entries") ..
+              " to extract")
           end
           entries_left = entries_left - 1
         end

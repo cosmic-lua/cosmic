@@ -88,6 +88,11 @@ local record Test
     --- (a port, brackets, a leading zero) are refused, naming this
     --- rule (`network_trouble`).
     network: {string}
+    -- TODO: audit what a process an unsandboxed worker starts reads, once
+    -- a host without spawn's sandbox (macOS: core/process.h's `unveil` is
+    -- Linux's alone) can observe it: today such a read is seen by no
+    -- audit but a sandboxed run's, where it finds nothing.
+
     --- Whether the tests hand a process they start what no observation
     --- accounts for: a descriptor, a path of /proc. Starting one needs no
     --- declaration: a sandboxed worker holds every process it starts to
@@ -95,12 +100,6 @@ local record Test
     --- (macOS, a host refusing user namespaces) a test that starts one
     --- never stands, and the audit asks nothing of it.
     processes: boolean
-
-    -- TODO: audit what a process an unsandboxed worker starts reads, once
-    -- a host without spawn's sandbox (macOS: core/process.h's `unveil` is
-    -- Linux's alone) can observe it: today such a read is seen by no
-    -- audit but a sandboxed run's, where it finds nothing.
-
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
     --- and nothing else -- not the store beyond their closure (`store`),
@@ -122,7 +121,9 @@ local record Test
     --- the rows of modules of the tree outside their import closure.
     --- Without it, a sandboxed worker is given at o/cosmic.db the store
     --- of its module's import closure alone, which its key holds, and a
-    --- `require` reaches only that closure. Every other lookup in the
+    --- `require` reaches only that closure; unsandboxed under
+    --- COSMIC_TEST_KEY=declared, the worker attaches that store in the
+    --- projection's place, though what it starts reads o/cosmic.db. Every other lookup in the
     --- store is held to the closure too, from the module's load until
     --- the worker ends: `Store.bytecode`, `Store.source` or
     --- `Store.requires` of a module outside it, or the store's searcher
@@ -136,7 +137,6 @@ local record Test
     --- through the descriptor a portable start keeps on it: that read is
     --- refused, whatever the test declares.
     store: boolean
-
     -- `Store.meta` is not held (the TODO on `hold_store` in
     -- build/test_worker.tl). The descriptor is refused by core/check.h's
     -- `cosmic_checkfd`, and a sandboxed worker that does not declare

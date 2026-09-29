@@ -75,6 +75,7 @@
 
 local String = require("cosmic.string")
 local tree = require("build.c.tree")
+local plural = require("build.plural")
 
 local type Node = tree.Node
 
@@ -1151,7 +1152,7 @@ local function returned_shape(ctx: Context, name: string, body: Node,
     local count = constant(n.children[1])
     if count == nil then return end
     if count > d.count then
-      report(ctx, n, "returned-shape", "returns " .. count .. " values where binding " ..
+      report(ctx, n, "returned-shape", "returns " .. plural.count(count, "value") .. " where binding " ..
         call .. " is declared to return " .. d.count .. " (core/syscalls.h or core/process.h)")
     elseif d.fallible and count == 2 then
       report(ctx, n, "returned-shape", "returns 2 values where a failure of binding " ..

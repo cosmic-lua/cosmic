@@ -3,9 +3,11 @@
 --- tree with the defect it is for planted in it, and passes the same
 --- tree without it.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
 
 --- Lines as one source file's text.
@@ -383,6 +385,150 @@ local function test_a_run_names_each_check(dir: string)
                           "docs queries", "quieted", "rendered docs", "doc references" }) do
     assert(seen[name], name .. " reported nothing on a projection that has none of the tree")
   end
+end
+
+--- A public `---` doc that carries a TODO or cites the build, the C or an
+--- internal module is refused with the rule and the fix; a `--` comment
+--- may hold both, a private symbol's doc is not shown, and an
+--- exemption whose doc no longer breaks the rule is stale.
+local function test_a_public_doc_naming_internals_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local record thing",
+      "end",
+      "--- Does it, as build/thing.tl does.",
+      "function thing.a() end",
+      "--- Does it. TODO: do more.",
+      "function thing.b() end",
+      "--- Does it through core/thing.c and cosmic.internal.thing.",
+      "function thing.c() end",
+      "--- Does it as build.thing does, or vendor/thing, not build.zig.",
+      "function thing.d() end",
+      "--- Does it plainly (127.a.b.c, <errno.h>, e.g. `o/build.db`, and the build.then it did).",
+      "function thing.e() end",
+      "-- TODO: do more, as build/thing.tl does.",
+      "",
+      "function thing.f() end",
+      "--- Private, in core/thing.c.",
+      "local function g() end",
+      "return thing"),
+    ["build/thing.tl"] = source("local record thing", "end", "return thing"),
+    ["build/zig.tl"] = source("local record zig", "end", "return zig"),
+  })
+  local found = tree_checks.public_docs(db, {})
+  local text = table.concat(found, "\n")
+  assert(#found == 6, text)
+  assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl`.*%(path rule%) %-%- say what a caller needs")
+    ~= nil, text)
+  assert(found[2]:find("^cosmic/thing%.tl:7: .*`TODO:` %(todo rule%).*`%-%-` comment") ~= nil, text)
+  assert(found[3]:find("^cosmic/thing%.tl:9: .*`core/thing%.c`") ~= nil, text)
+  assert(found[4]:find("^cosmic/thing%.tl:9: .*`cosmic%.internal%.thing%.`") ~= nil, text)
+  assert(found[5]:find("^cosmic/thing%.tl:11: .*`build%.thing`") ~= nil, text)
+  assert(found[6]:find("^cosmic/thing%.tl:11: .*`vendor/thing,`") ~= nil, text)
+  local excused = {
+    ["cosmic.thing a path"] = "a",
+    ["cosmic.thing b todo"] = "b",
+    ["cosmic.thing c path"] = "c",
+    ["cosmic.thing d path"] = "d",
+    ["cosmic.thing e path"] = "unneeded",
+  }
+  found = tree_checks.public_docs(db, excused)
+  assert(#found == 1 and found[1]:find("^cosmic.thing e path: exempt, but") ~= nil,
+    table.concat(found, "\n"))
+  local clean = fixture.database(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local record thing",
+      "end",
+      "--- Does it, and says what a caller needs.",
+      "function thing.a() end",
+      "return thing"),
+    ["build/internal.tl"] = source(
+      "--- Cites core/thing.c, TODO: freely.",
+      "local record internal",
+      "end",
+      "return internal"),
+  })
+  found = tree_checks.public_docs(clean, {})
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- A literal plural after a number is refused -- joined by `..` to a
+--- length, `tostring(...)` or a literal, or after a `%d` -- with the fix;
+--- `plural.count`, a verb after a number, a label (`at byte %d`), a
+--- comment and a test source pass, and an exemption nothing needs is stale.
+local function test_a_literal_plural_after_a_number_is_refused(dir: string)
+  local db = fixture.database(dir, {
+    ["build/count.tl"] = source(
+      "local record count",
+      "end",
+      "function count.a(rows: {string}): string",
+      "  return #rows .. \" tests\"",
+      "end",
+      "function count.b(n: integer): string",
+      "  return \"has \" .. tostring(n) ..",
+      "    \" files in it\"",
+      "end",
+      "function count.c(n: integer): string",
+      "  return (\"%d of %d tests\"):format(n, n)",
+      "end",
+      "function count.d(a: integer, b: integer): string",
+      "  return (a - b) .. \" rows\"",
+      "end",
+      "function count.e(stores: integer): string",
+      "  return stores .. \" closure stores\"",
+      "end",
+      "return count"),
+    ["build/fine.tl"] = source(
+      "local plural = { count = function(n: integer, s: string): string return s end }",
+      "local record fine",
+      "end",
+      "function fine.a(rows: {string}, at: integer, name: string): string",
+      "  -- #rows .. \" tests\" in a comment",
+      "  return plural.count(#rows, \"test\") .. name .. \" is here\" ..",
+      "    (\"at byte %d needs\"):format(at) .. (\"%d of %s\"):format(at, name) ..",
+      "    (\"iters=%d\"):format(at) .. #rows .. \" is the count\" .. name .. \" needs it\"",
+      "end",
+      "return fine"),
+    ["build/fine_test.tl"] = source(
+      "local function test_x(rows: {string})",
+      "  local _ = #rows .. \" tests\"",
+      "end"),
+  })
+  local built = assert(teal.load())
+  local found = tree_checks.plurals(db, built, {}, {})
+  local text = table.concat(found, "\n")
+  assert(#found == 5, text)
+  assert(found[1]:find("^build/count%.tl:4: .*`tests`.*plural%.count") ~= nil, text)
+  assert(found[2]:find("^build/count%.tl:8: .*`files`") ~= nil, text)
+  assert(found[3]:find("^build/count%.tl:11: .*`tests`.*plural%.noun") ~= nil, text)
+  assert(found[4]:find("^build/count%.tl:14: .*`rows`") ~= nil, text)
+  assert(found[5]:find("^build/count%.tl:17: .*`stores`") ~= nil, text)
+  found = tree_checks.plurals(db, built, { { "ci/x.tl", "return #arg .. \" arguments\"\n" } }, {
+    ["build/count.tl:tests"] = "always many", ["build/count.tl:files"] = "always many",
+    ["build/count.tl:rows"] = "always many", ["build/count.tl:stores"] = "always many",
+    ["build/fine.tl:tests"] = "unneeded" })
+  assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil
+    and found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+end
+
+--- The `ci/` sources the plural check reads are the modules of
+--- `ci/cosmic_ci`, tests left out; `ci/fixtures` are all tests.
+local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string)
+  local base = dir .. "/tree/ci/cosmic_ci"
+  assert(Fs.mkdirs(base .. "/sub"))
+  assert(Fs.write(base .. "/b.tl", "return 2\n"))
+  assert(Fs.write(base .. "/a.tl", "return 1\n"))
+  assert(Fs.write(base .. "/a_test.tl", "return 3\n"))
+  assert(Fs.write(base .. "/sub/c.tl", "return 4\n"))
+  assert(Fs.write(base .. "/notes.md", "no\n"))
+  local found = tree_checks.ci_sources(dir .. "/tree")
+  local names: {string} = {}
+  for _, row in ipairs(found) do names[#names + 1] = row[1] .. "=" .. row[2]:gsub("\n", "") end
+  assert(table.concat(names, ",") == "ci/cosmic_ci/a.tl=return 1,ci/cosmic_ci/b.tl=return 2,ci/cosmic_ci/sub/c.tl=return 4",
+    table.concat(names, ","))
+  assert(#tree_checks.ci_sources(dir .. "/nowhere") == 0)
 end
 
 --- A guide under doc/guides that is neither a user guide nor named

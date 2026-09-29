@@ -98,4 +98,18 @@ local function test_a_worker_is_started_as_its_command_line_says()
     })
     assert(held.argv[3] == flag, hold .. ": " .. table.concat(held.argv, " "))
   end
+  -- Given the store of its closure, it names it ahead of the closure;
+  -- `open`, which gives it the whole projection, names none.
+  for _, open in ipairs({ false, true }) do
+    local given = worker.invocation({
+      start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
+      module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "", held = "",
+      hold = "none", open = open, store = "/stores/a.db", closure = { "suite.a_test" },
+      tree = {}, declared = {},
+    })
+    local said = table.concat(given.argv, " ", 11)
+    local wanted = open and "--open suite.a_test --tree --declared" or
+      "--store /stores/a.db suite.a_test --tree --declared"
+    assert(said == wanted, said)
+  end
 end

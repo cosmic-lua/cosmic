@@ -26,6 +26,7 @@ local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 --- The `cosmic archive` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
@@ -845,7 +846,7 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
       if not ok then return false, added end
       if more == nil and more_why ~= "" then return false, full .. ": " .. more_why end
       if more ~= nil and more ~= "" then
-        return false, full .. ": grew past " .. tostring(size) .. " bytes as it was read"
+        return false, full .. ": grew past " .. plural.count(size, "byte") .. " as it was read"
       end
       return true, ""
     end

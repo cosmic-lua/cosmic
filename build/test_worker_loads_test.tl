@@ -60,3 +60,33 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
     assert(not ran[name], "a worker loaded " .. name)
   end
 end
+
+--- Given `--store`, a worker attaches that store in place of the
+--- tree's o/cosmic.db, as an unsandboxed worker keyed by declarations
+--- is given the store of its closure: one that is not there fails it
+--- before anything loads, naming it.
+local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
+  local root = assert(Fs.absolute("."))
+  assert(Fs.mkdirs(tmp .. "/tmp"))
+  local missing = tmp .. "/missing/closure.db"
+  local started = this_program.program({ "test", "--worker", root, "build.key_parts",
+    "test_none", tmp .. "/tmp", tmp .. "/children", "", "", "--store", missing,
+    "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
+    cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
+    fds = { [worker.report_fd] = "capture" }, timeout_ms = 30000,
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 2, tostring(result.code) .. ": " .. tostring(result.stdout))
+  assert(tostring(result.stdout):find(missing, 1, true), tostring(result.stdout))
+  -- Without it, the same worker attaches the tree's own and runs.
+  started = this_program.program({ "test", "--worker", root, "build.key_parts",
+    "test_none", tmp .. "/tmp", tmp .. "/children-again", "", "",
+    "build.key_parts", "--tree", "build.key_parts", "--declared" }, {
+    cwd = root, stdin = "null", stdout = "capture", stderr = "stdout",
+    fds = { [worker.report_fd] = "capture" }, timeout_ms = 30000,
+  })
+  result = assert(Child.run(started.argv, started.options))
+  local report = worker.decode(result.captured[worker.report_fd])
+  assert(report ~= nil, tostring(result.stdout))
+  assert(report.message == "build.key_parts has no test named test_none", report.message)
+end

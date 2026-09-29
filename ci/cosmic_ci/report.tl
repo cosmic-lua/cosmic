@@ -33,6 +33,7 @@ local Stream = require("cosmic.stream")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local Zip = require("cosmic.zip")
+local Plural = require("cosmic_ci.plural")
 
 local record Report
   record Step
@@ -280,9 +281,9 @@ local function matched_restored(now: {string:string}, held: string): string, str
     end
   end
   if not named then return "unnamed", "" end
-  if matched > 0 then return "matched", string.format("%d of %d rows", matched, rows) end
+  if matched > 0 then return "matched", string.format("%d of %s", matched, Plural.count(rows, "row")) end
   return "moved", string.format("runtime or harness not among the restored cache's " ..
-    "(%d rows)", rows)
+    "(%s)", Plural.count(rows, "row"))
 end
 
 --- Sets `qualifies` and `why` of each of the first `shown` of `runs`,

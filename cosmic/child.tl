@@ -1257,6 +1257,11 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   return start(argv, opts)
 end
 
+-- TODO: carry a settled group's lingering members on Child.Result, a
+-- field beside the exit status, and answer the handle with "" here:
+-- build/test.tl reads the trouble beside the handle's result today, and
+-- build.contracts exempts this pair from the error-slot rules until then.
+
 --- Waits for the first of several handles to finish, servicing every
 --- one's streams meanwhile, and returns it settled: its `wait()` answers
 --- at once. Nil and "" when `timeout_ms` passes first -- no handle
