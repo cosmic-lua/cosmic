@@ -464,7 +464,7 @@ end
 --- `cosmic fix [--check] [path...]`.
 --- @param argv {integer:string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
-function fix.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.fix)
   if parsed == nil then
@@ -710,7 +710,7 @@ fix.spec = {
   name = "fix",
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",
   tests = { "build.fix.fix_test" },
-  run = function(argv: {integer:string}): integer return fix.run(argv) end,
+  run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

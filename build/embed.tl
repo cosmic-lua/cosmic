@@ -422,7 +422,7 @@ end
 --- and its executables under `o/bin/` -- only those whose `main.tl` is
 --- under one of the paths, when there are any. Ends in a verdict line
 --- that names what was written, or says why nothing was.
-function embed.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.build)
   if parsed == nil then
@@ -455,7 +455,7 @@ embed.spec = {
   name = "build",
   guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
   tests = { "build.embed_test", "build.embed_tool_test" },
-  run = function(argv: {integer:string}): integer return embed.run(argv) end,
+  run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

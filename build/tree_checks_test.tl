@@ -37,6 +37,39 @@ local function test_an_unearned_export_and_a_stale_allowance_are_refused(dir: st
     table.concat(found, "\n"))
 end
 
+--- A module that exports `spec` is a verb's entry, as one that exports
+--- `run` or `main` is a program's: what only its own test calls is
+--- excused. One exporting none of the three is still refused.
+local function test_a_module_exporting_spec_is_a_program_entry(dir: string)
+  local function tree(entry: string, field: string): {string: string}
+    return {
+      ["build/verb.tl"] = source(
+        "local record verb",
+        "  --- the entry",
+        "  " .. field .. ": {string: string}",
+        "end",
+        "function verb.step() end",
+        entry,
+        "return verb"),
+      ["build/lister.tl"] = source(
+        "local verb = require(\"build.verb\")",
+        "return { entry = verb." .. field .. " }"),
+      ["build/verb_test.tl"] = source(
+        "local verb = require(\"build.verb\")",
+        "local function test_step()",
+        "  verb.step()",
+        "end"),
+    }
+  end
+  local with_spec = fixture.database(dir, tree("verb.spec = { name = \"verb\" }", "spec"))
+  local found = tree_checks.exports(with_spec, {})
+  assert(#found == 0, table.concat(found, "\n"))
+  local without = fixture.database(dir, tree("verb.other = { name = \"verb\" }", "other"))
+  found = tree_checks.exports(without, {})
+  assert(#found >= 1 and found[1]:find("build%.verb%.step: nothing outside") ~= nil,
+    table.concat(found, "\n"))
+end
+
 --- An anchor module of one documented string field, `field`.
 local function anchor(name: string, field: string): string
   return source(

@@ -2928,7 +2928,7 @@ end
 --- when every test passed.
 --- @param argv the command line, which a stale tool re-enters after
 ---   rebuilding itself
-function test.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
@@ -3711,7 +3711,7 @@ test.spec = {
   name = "test",
   guide = "none: the verb is for the tree's own checks and is described by `cosmic help test`; the quickstart is about reading data and writing programs, not running a tree's suite",
   tests = { "build.test_test", "build.test_selection_test" },
-  run = function(argv: {integer:string}): integer return test.run(argv) end,
+  run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "exact module names, source paths and directories",
 }
