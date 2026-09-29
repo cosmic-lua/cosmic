@@ -30,7 +30,7 @@ if [ "${1-}" = zig-cache ]; then
   echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
   # zig's global cache -- libc, compiler-rt and its standard library,
   # keyed by content -- is used where actions/cache restored it,
-  # outside the checkout, as is the project cache (below).
+  # outside the checkout, as its project cache is (the seed, below).
   echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
   # Where ci.yml restored the zig-build cache, whose zig-cache the
   # driver's builds use in place. Spelled from $RUNNER_TEMP, not

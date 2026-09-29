@@ -33,7 +33,7 @@
 # in its config. It removes the link and the directories the move made,
 # and changes nothing when the tree never moved, or is back already, so
 # it can run twice, or after a move that stopped halfway.
-set -e
+set -eu
 
 case "${1-}" in
   "" | --name | --restore) ;;
