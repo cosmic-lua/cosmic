@@ -30,14 +30,17 @@
     # manual run are `full`: the checked core, the product and portable
     # suites, the regressions, attestation and provenance.
     COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
-    # Whether this run saves the caches every run restores: a push to
-    # main and the scheduled run, no other. The driver reads neither.
+    # Whether this run's platform legs save the caches every run
+    # restores: a push to main and the scheduled run, no other (a push
+    # to main that reuses the queue's run saves from `seed`, having no
+    # platform legs). The driver reads neither.
     COSMIC_CI_SAVES: "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') }}",
   },
 
   # A newer push supersedes a branch's run. Main's pushes run one at a
   # time and to the end, so their saves land in commit order and each
-  # completed run can publish a prerelease; the scheduled run and a
+  # completed run can publish a prerelease (one that reuses the queue's
+  # run takes a minute or two, so few wait); the scheduled run and a
   # manual one take groups of their own, so no push cancels them or is
   # cancelled by them.
   concurrency: {
@@ -46,9 +49,54 @@
   },
 
   jobs: {
+    # A push to main tests the commit the merge queue just tested, so it
+    # first looks for that run (queue-seed.sh find): found, `seed` saves
+    # the queue's caches and relays its products in place of `platform`.
+    # Every push runs it, a branch's with its steps skipped, so a branch
+    # push shows it run rather than skipped (its runner's start delays
+    # the legs, by up to about 100 s in a burst); the queue, the
+    # scheduled and a manual run skip it. A lookup that fails is none,
+    # and the legs run: its timeout is above the lookup's budget
+    # (queue-seed.sh's TRIES * (WAIT_SECONDS + 2 * CALL_SECONDS)).
+    reuse: {
+      if: "github.event_name == 'push'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 8,
+      permissions: {contents: "read", actions: "read"},
+      outputs: {run: "${{ steps.find.outputs.run }}"},
+      steps: [
+        {
+          if: "github.ref == 'refs/heads/main'",
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/.github/scripts/queue-seed.sh\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "find the merge queue's passing run of this commit",
+          id: "find",
+          if: "github.ref == 'refs/heads/main'",
+          "continue-on-error": true,
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            SHA: "${{ github.sha }}",
+            # The platform legs, each of which must have left a seed.
+            LEGS: "linux-x86_64 linux-aarch64 macos-aarch64 alpine-x86_64",
+          },
+          run: "sh .github/scripts/queue-seed.sh find",
+        },
+      ],
+    },
+
     # Every leg builds the complete product, runs the same Cosmic bytes
-    # in its platform environment, and uploads them for the join.
+    # in its platform environment, and uploads them for the join; on a
+    # push to main whose commit passed the queue, `seed` does instead.
     platform: {
+      needs: "reuse",
+      if: "!cancelled() && needs.reuse.outputs.run == ''",
       # The leg's name is the check's, so a ruleset needs no matrix.
       name: "${{ matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.shell }}"}},
@@ -513,6 +561,36 @@
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
 
+        # The queue's leg keeps what main would save, under the keys it
+        # would save it under, for main's push of this commit to save
+        # (the `seed` job): only a queue run that passed is reused.
+        {
+          name: "keep what main would save of this leg",
+          if: "success() && github.event_name == 'merge_group'",
+          "working-directory": ".",
+          shell: "sh",
+          env: {
+            VERDICTS_PREFIX: "${{ steps.host-id.outputs.verdicts }}",
+            VERDICTS_DIGEST: "${{ steps.verdicts-trim.outputs.digest }}",
+            VERDICTS_RESTORED: "${{ steps.verdicts-restore.outputs.cache-matched-key }}",
+            COMPILES_PREFIX: "compiles-${{ matrix.name }}-",
+            COMPILES_DIGEST: "${{ steps.compiles-trim.outputs.digest }}",
+            COMPILES_RESTORED: "${{ steps.compiles-restore.outputs.cache-matched-key }}",
+          },
+          run: "sh .github/scripts/queue-seed.sh stage",
+        },
+        {
+          name: "upload what main would save of this leg",
+          if: "success() && github.event_name == 'merge_group'",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "seed-${{ matrix.name }}",
+            path: "${{ runner.temp }}/seed",
+            "if-no-files-found": "error",
+            "retention-days": 1,
+          },
+        },
+
         # Whatever failed (a failing verdict takes a passing one out),
         # where the rows differ from the entry restored.
         {
@@ -539,12 +617,106 @@
       ],
     },
 
+    # On a push to main whose commit passed the merge queue, each leg's
+    # runner saves what that leg of the queue's run would have saved had
+    # it been main's (queue-seed.sh stage), under the keys it named, and
+    # relays its product for the join and prerelease.yml. On the leg's
+    # own runner: an entry's version hashes its path, which is the
+    # runner's. Seeds stand only on a run whose every leg passed.
+    # TODO: a branch push shows this job as a skipped check, the one
+    # exception build/workflows_test.tl's
+    # test_a_branch_push_starts_no_job_it_skips names. Moving it, with a
+    # lookup of its own, to a workflow on a push to main alone would end
+    # that, at the cost of a second lookup that could disagree with
+    # this one's and saves no longer in this run's concurrency group.
+    seed: {
+      needs: "reuse",
+      if: "needs.reuse.outputs.run != ''",
+      strategy: {
+        "fail-fast": false,
+        matrix: {
+          include: [
+            {name: "linux-x86_64", runner: "ubuntu-24.04"},
+            {name: "linux-aarch64", runner: "ubuntu-24.04-arm"},
+            {name: "macos-aarch64", runner: "macos-15"},
+            {name: "alpine-x86_64", runner: "ubuntu-24.04"},
+          ],
+        },
+      },
+      "runs-on": "${{ matrix.runner }}",
+      permissions: {actions: "read"},
+      "timeout-minutes": 10,
+      steps: [
+        {
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "seed-${{ matrix.name }}",
+            path: "${{ runner.temp }}",
+            "run-id": "${{ needs.reuse.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "read the keys the queue's leg named",
+          id: "keys",
+          shell: "sh",
+          run: "grep -E '^(verdicts=verdicts|compiles=compiles|driver-checked=driver-checked-v2)-${{ matrix.name }}-[A-Za-z0-9._-]+$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+        },
+        {
+          name: "save test verdicts",
+          if: "steps.keys.outputs.verdicts != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/verdicts", key: "${{ steps.keys.outputs.verdicts }}"},
+        },
+        {
+          name: "save compiles and parses",
+          if: "steps.keys.outputs.compiles != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/build-cache", key: "${{ steps.keys.outputs.compiles }}"},
+        },
+        {
+          name: "save the CI driver check's marker",
+          if: "steps.keys.outputs.driver-checked != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/driver-checked", key: "${{ steps.keys.outputs.driver-checked }}"},
+        },
+        # This run's product is the queue run's: the join checks it as
+        # a leg's own, and prerelease.yml publishes it from this run.
+        # TODO: name the queue's run, which built and tested the product,
+        # in the prerelease's source.json, whose SOURCE_RUN_URL names this
+        # run (its `reuse` summary names the queue's): prerelease.yml
+        # would read it from an output of this run it can find, such as a
+        # small artifact.
+        {
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "portable-product-${{ matrix.name }}",
+            path: "${{ runner.temp }}/product",
+            "run-id": "${{ needs.reuse.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "upload the queue run's attested product",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "portable-product-${{ matrix.name }}",
+            path: "${{ runner.temp }}/product",
+            "if-no-files-found": "error",
+            "retention-days": 7,
+          },
+        },
+      ],
+    },
+
     # The one check a ruleset requires, whatever the scope: it fails when
-    # any leg failed or was cancelled, and on a full run it is also the
-    # provenance join, proving every leg attested identical bytes. Steps,
-    # not a job of its own, which a branch push would show as skipped.
+    # any leg failed or was cancelled (a seeded run's `seed` legs; a
+    # `reuse` that failed found nothing, and the platform legs ran), and
+    # on a full run it is also the provenance join, proving every leg
+    # attested identical bytes. Steps, not a job of its own, which a
+    # branch push would show as skipped.
     ci: {
-      needs: "platform",
+      needs: ["reuse", "platform", "seed"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
@@ -552,8 +724,11 @@
       steps: [
         {
           name: "every leg passed",
-          env: {RESULT: "${{ needs.platform.result }}"},
-          run: "echo \"platform: $RESULT\"; [ \"$RESULT\" = success ]",
+          env: {
+            QUEUE_RUN: "${{ needs.reuse.outputs.run }}",
+            RESULT: "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.platform.result }}",
+          },
+          run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT\"; [ \"$RESULT\" = success ]",
         },
         # Only a full run's legs attest and upload a product.
         {

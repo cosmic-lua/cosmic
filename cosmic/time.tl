@@ -363,6 +363,12 @@ local function make_zone(name: string, rules: Rules): Time.Zone
   return zone
 end
 
+--- The zone a POSIX TZ string's rules make, with no transitions of its
+--- own: `p` holds every moment.
+local function posix_zone(tz: string, p: Posix): Time.Zone
+  return make_zone(tz, { transitions = {}, kinds = {}, first = p.std, footer = p, named = false })
+end
+
 --- The rules of `zone`; raises, on behalf of the public function's
 --- caller, for a table no function here made.
 local function rules_for(zone: Time.Zone): Rules
@@ -933,7 +939,7 @@ end
 function Time.zone_from_posix(tz: string): Time.Zone | nil, string
   local p, why = parse_posix(tz)
   if p == nil then return nil, why end
-  return make_zone(tz, { transitions = {}, kinds = {}, first = p.std, footer = p, named = false }), ""
+  return posix_zone(tz, p), ""
 end
 
 --- The zone name a path names by where it sits, as
@@ -1078,7 +1084,7 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone | nil, string
         return nil, ("TZ=%s names no zone this binary carries, and is no POSIX TZ string: %s%s"):format(
           tz, why, zone_name and "; " .. NEWER_ZONES or "")
       end
-      zone = make_zone(tz, { transitions = {}, kinds = {}, first = p.std, footer = p, named = false })
+      zone = posix_zone(tz, p)
     end
   end
   if cacheable then
@@ -1102,6 +1108,17 @@ local DISAMBIGUATIONS <const>: {string:boolean} = {
   reject = true, earlier = true, later = true, compatible = true,
 }
 
+--- `how`, "reject" when nil; raises, blaming the caller of the
+--- function that asks, for one that is none of `Disambiguation`'s.
+local function disambiguation_of(how: Time.Disambiguation): Time.Disambiguation
+  how = how or "reject"
+  if not DISAMBIGUATIONS[how] then
+    error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
+      tostring(how), 3)
+  end
+  return how
+end
+
 --- `c` as a zone writes local time: `2026-03-08T02:30`, with seconds
 --- when it has any.
 local function local_text(c: Time.Civil): string
@@ -1122,11 +1139,7 @@ end
 --- is always `ns`. Raises for a `disambiguation` that is none of
 --- `Disambiguation`'s, or a `zone` no function here made.
 function Time.from_civil(c: Time.Civil, zone?: Time.Zone, opts?: Time.CivilOptions): integer | nil, string
-  local how = opts ~= nil and opts.disambiguation or "reject"
-  if not DISAMBIGUATIONS[how] then
-    error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
-      tostring(how), 2)
-  end
+  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
   if zone == nil then return moment(c, 0) end
   local rules = rules_for(zone)
   local s, why = seconds_of(c)
@@ -1194,11 +1207,7 @@ function Time.add_calendar(ns: integer, change: Time.Change,
     error("time: overflow is \"reject\" or \"clamp\", not " .. tostring(overflow), 2)
   end
   local zone = opts ~= nil and opts.zone or nil
-  local how = opts ~= nil and opts.disambiguation or "reject"
-  if not DISAMBIGUATIONS[how] then
-    error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
-      tostring(how), 2)
-  end
+  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
   local c = Time.civil(ns, zone)
   local index = c.year * 12 + (c.month - 1) + years * 12 + months
   c.year, c.month = index // 12, index % 12 + 1
@@ -1385,8 +1394,6 @@ local function tag_problem(body: string): string
   return nil
 end
 
---- RFC 3339 text and its RFC 9557 suffix: `parse_rfc3339`'s and
---- `parse_rfc3339_zoned`'s work.
 --- The offset `+hh:mm` or `-hh:mm` at `at` in `text` spells, in seconds
 --- east of UTC, or nil and why not: hours through 23, minutes through 59.
 local function offset_at(text: string, at: integer, what: string): integer | nil, string
@@ -1423,6 +1430,8 @@ local function fixed_zone(offset: integer): Time.Zone
   return zone
 end
 
+--- RFC 3339 text and its RFC 9557 suffix: `parse_rfc3339`'s and
+--- `parse_rfc3339_zoned`'s work.
 local function parse(text: string): Time.Zoned | nil, string
   local c: Time.Civil = {}
   local why = date_into(text, c)
@@ -1527,7 +1536,7 @@ end
 --- moment, and must be the zone's then, to the minute, unless it is `Z`
 --- or `-00:00`, which say the local offset is unknown. Nil and why for
 --- anything else, a leap second, a moment outside the range, a zone
---- neither the host nor the binary has, an offset the zone does not
+--- the binary does not carry, an offset the zone does not
 --- have then, or a critical `[!key=value]` tag.
 function Time.parse_rfc3339(text: string): integer | nil, string
   local zoned, why = parse(text)
@@ -1797,13 +1806,8 @@ local INPUT_FORMS <const> = "expected RFC 3339 (2026-09-25T04:09:21Z), a date (2
   "a local time (2026-09-25T04:09[:21]) or @<epoch seconds>"
 
 -- `parse_input` less the forms' names in its failures.
-local function read_input(text: string, zone?: Time.Zone,
-    opts?: Time.CivilOptions): Time.Zoned | nil, string
-  local how = opts ~= nil and opts.disambiguation or "compatible"
-  if not DISAMBIGUATIONS[how] then
-    error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
-      tostring(how), 2)
-  end
+local function read_input(text: string, zone: Time.Zone | nil,
+    how: Time.Disambiguation): Time.Zoned | nil, string
   if text:sub(1, 1) == "@" then
     local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
     if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
@@ -1898,7 +1902,8 @@ end
 --- that is none of its type's or a `zone` no function here made.
 function Time.parse_input(text: string, zone?: Time.Zone,
     opts?: Time.CivilOptions): Time.Zoned | nil, string
-  local zoned, why = read_input(text, zone, opts)
+  local how = disambiguation_of(opts ~= nil and opts.disambiguation or "compatible")
+  local zoned, why = read_input(text, zone, how)
   if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
   return zoned, ""
 end
