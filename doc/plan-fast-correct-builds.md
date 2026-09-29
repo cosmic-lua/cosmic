@@ -517,8 +517,10 @@ Accepted or out of scope:
   backstop.
 - Landed: the list (#2397, `ci/darwin-tests.txt`, 14 modules, run as
   `platform darwin-suite` after the verdicts upload). The two worker
-  changes are in review (key holds the tree's path; closure store via
-  `--store`; macOS gating runs place the tree by leg).
+  changes landed too (#2403): an unenforced key holds the tree's path,
+  the worker reads its closure store (`--store`), and macOS gating runs
+  place the tree by leg (the nightly by commit). `--all` now runs every
+  test in an observed-key run as well.
 - Change: a hand-maintained list of test modules that exercise a
   darwin branch, with a test that the list's modules exist. The macOS
   leg's gating run stands on nothing for those. The evidence for the
@@ -604,7 +606,11 @@ fresh. There are now 8 fixtures, including #2288's `self_rebuild_test`.
     `build/filesystem_observations.tl:146` and `core/store.c:79`.
 - Measure before PR 4 and after PR 5, with the local recipe.
 
-### 4.3 One SQLite module for the shared caches
+### 4.3 One SQLite module for the shared caches: landed (#2402)
+
+Also bounded the WAL switch's wait by the clock (it grew with the
+square of the timeout). cache_trim waits on a trim verb and the pin.
+
 
 Still three copies of the WAL, busy_timeout and corrupt/set-aside code:
 `build/shared_compiles.tl:335–406`, `build/shared_verdicts.tl:195–229`
