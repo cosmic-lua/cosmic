@@ -15,6 +15,7 @@
 #include "crypto.h"
 #include "hash.h"
 #include "process.h"
+#include "socket.h"
 #include "http.h"
 #include "json.h"
 #include "guard.h"
@@ -128,6 +129,7 @@ static const struct raw_module {
     open_observations},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
+  {"cosmic.net", "cosmic.internal.socket", cosmic_open_socket},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
   {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
 };

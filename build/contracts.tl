@@ -318,8 +318,9 @@ local function resolved(t: Type | nil): Type | nil
 end
 
 --- The tables of C bindings, which answer `nil | false, error, errno`:
---- the public syscall table and the raw process table.
-local binding_modules <const>: {string} = { "cosmic.sys", "cosmic.internal.process" }
+--- the public syscall table and the raw process and socket tables.
+local binding_modules <const>: {string} = { "cosmic.sys", "cosmic.internal.process",
+  "cosmic.internal.socket" }
 
 --- Each table of C bindings the checker in `env` has loaded, by the
 --- type id of its record, to its module's name: what `check` takes as
