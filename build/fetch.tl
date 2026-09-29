@@ -69,11 +69,11 @@
 --- Certificates are always verified; there is no option that turns that
 --- off, and none will be added.
 
+local bare = require("build.bare")
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
-local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
@@ -185,38 +185,18 @@ local function is_url(url: string): boolean
   return host:match("^[^:]*") ~= ""
 end
 
--- TODO: move onto build/bare.tl once #2342 merges: `redact` is
--- `bare.redact_url`, `escaped` is `bare.escape(text, { keep_tab_newline = true })`,
--- and `standard`, `complain`'s prefix and the write-failure complaint are
--- `bare.out`, `bare.err`, `bare.complainer` and `bare.delivered`. Left
--- as it is now so that change, which rewrites this file, merges cleanly.
-
---- `url` with any userinfo replaced by `***`, for every place the verb
---- prints one: a password in a URL must not reach a log.
-local function redact(url: string): string
-  local scheme, authority, rest = url:match("^(%a+://)([^/?#]*)(.*)$")
-  if scheme == nil or not authority:find("@", 1, true) then return url end
-  return scheme .. "***@" .. authority:match("([^@]*)$") .. rest
-end
-
 --- `text` with every byte a terminal would act on -- below 0x20 but a
---- tab, and 0x7f -- written `\xNN`, so a hostile server's header cannot
---- inject an escape sequence or a line of its own.
+--- tab and a newline, and 0x7f -- written `\xNN`, so a hostile server's
+--- header cannot inject an escape sequence or a line of its own. A
+--- newline passes because it is harmless here: curl splits header lines
+--- at it, and `--head` splits a joined Set-Cookie value at it and
+--- prefixes each piece with the header name, so a newline never starts a
+--- line the server chose.
 local function escaped(text: string): string
-  local safe = text:gsub("[%z\1-\8\11-\31\127]", function(byte: string): string
-    return string.format("\\x%02X", byte:byte())
-  end)
-  return safe
+  return bare.escape(text, { keep_tab_newline = true })
 end
 
-local standard: verb.Io = {
-  out = function(text: string): boolean, string
-    return Fs.put(Fs.stdout, text)
-  end,
-  err = function(line: string)
-    local _, _ = Fs.put(Fs.stderr, line .. "\n")
-  end,
-}
+local standard: verb.Io = { out = bare.out, err = bare.err }
 
 --- Closes a response, which always succeeds.
 local function done(response: Http.Response)
@@ -232,15 +212,16 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- the URL as given (curl's, Http.download's) is rewritten to it.
   local shown = ""
   local given = ""
+  local say = bare.complainer("fetch", to.err)
   local function complain(line: string)
     if given ~= "" and shown ~= given then
       line = line:gsub(given:gsub("%p", "%%%0"), (shown:gsub("%%", "%%%%")))
     end
-    to.err("cosmic: fetch: " .. line)
+    say(line)
   end
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
-    return 2
+    return bare.refused
   end
   local flags, trouble = Flags.parse(argv, 2, spec)
   if flags == nil then return refuse(trouble) end
@@ -252,7 +233,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- is taken off first, and only the digests it names are kept.
   local url, fragment = parsed.words[1]:match("^([^#]*)#(.*)$")
   if url == nil then url = parsed.words[1] end
-  shown, given = redact(url), url
+  shown, given = bare.redact_url(url), url
   if not is_url(url) then
     return refuse(url .. " is not an http:// or https:// URL")
   end
@@ -311,12 +292,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false)
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. status)
-    return 1
+    return bare.failed
   end
   local function written(ok: boolean, why: string): integer
-    if ok then return 0 end
-    complain("standard output: " .. why)
-    return 2
+    return bare.written(complain, ok, why)
   end
 
   if target ~= nil then
@@ -327,7 +306,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       if not ok then
         complain(verb.refusal(why, options.redirect_protocols))
       end
-      return ok and 0 or 1
+      return ok and bare.ok or bare.failed
     end
     -- Held for the download and closed however it leaves, a raise of
     -- `complain` included: closing delivers a caught signal again, so the
@@ -344,7 +323,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local response, open_trouble = Http.open(url, options)
   if response == nil then
     complain(shown .. ": " .. verb.refusal(open_trouble, options.redirect_protocols))
-    return 1
+    return bare.failed
   end
   local ok2 = response.status >= 200 and response.status < 300
 
@@ -355,12 +334,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     local text: string
     if as_json then
       local encoded, encode_trouble = Json.encode({
-        status = response.status, url = redact(response.url), headers = response.headers,
+        status = response.status, url = bare.redact_url(response.url), headers = response.headers,
       }, { pretty = true })
       if encoded == nil then
         complain(encode_trouble)
         done(response)
-        return 1
+        return bare.failed
       end
       text = encoded .. "\n"
     else
@@ -376,7 +355,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     done(response)
     local code = written(to.out(text))
-    if code == 0 and not ok2 then return failed_status(response.status) end
+    if code == bare.ok and not ok2 then return failed_status(response.status) end
     return code
   end
 
@@ -390,14 +369,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     done(response)
     if body == nil then
       complain(shown .. ": " .. read_trouble)
-      return 1
+      return bare.failed
     end
     for _, algorithm in ipairs(algorithms) do
       local wanted = wants[algorithm.name]
       local got = wanted ~= nil and digest_of(algorithm.name, body)
       if wanted ~= nil and got ~= wanted then
         complain(shown .. ": " .. algorithm.name .. " mismatch: want " .. wanted .. ", got " .. got)
-        return 1
+        return bare.failed
       end
     end
     return written(to.out(body))
@@ -409,9 +388,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       done(response)
       if read_trouble ~= "" then
         complain(shown .. ": " .. read_trouble)
-        return 1
+        return bare.failed
       end
-      return 0
+      return bare.ok
     end
     local sent, why = to.out(chunk)
     if not sent then
