@@ -71,13 +71,13 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
 
-  ["build.declared_key"] = "0b4df3c2535d7b4c03b8fafc7ade593aa6faddd2530fa54a1b1f44eccbe38796",
+  ["build.declared_key"] = "879bc80dbfd40d18f3e5f220a6eac261912071261ac3099a6a2f5bc189bdd1cf",
 
   ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
 
   ["build.filesystem_observations"] = "ca600b34e5959f900fd089ec298dda56bfb5cb08e8bc153cef8b2ccfe408b224",
 
-  ["build.key_parts"] = "0b6b9c26839b92e7c30c018086cce7fe1e81f6f91307e092e9cd9c0ba9356a5c",
+  ["build.key_parts"] = "2f2ce8af4d238b79db14c11fb27dadba90c608885ca1c3044292de6632169b98",
 
   ["build.launcher"] = "9dff6e6443e223fa5a99bb960d8046b47ea47bb506ffd08798771153715a2305",
 
@@ -87,13 +87,13 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
-  ["build.test"] = "c902b4ccd0fd2dcbc2767f91eea4a26b984403caef7c3c25d72eea36bc05bcfd",
+  ["build.test"] = "880a4279a1a61c55bd5c7e621738a9061b558658d602d26e0cb4fec3cbcf6cf4",
 
   ["build.test_inputs"] = "309b687417091781ed335c2b7378163882bf0803574fa2954f4a5b9f48cf2cc8",
 
-  ["build.test_sandbox"] = "e2dc150a1bc4401879766319a8b2532b42d57b65fa8980c156ae8ad69ae2bb5b",
+  ["build.test_sandbox"] = "cfbb580a7b0b648d7e40aa41390d64a157214bc27a65034364106e47050289b7",
 
-  ["build.test_worker"] = "fa3fcb2b65ccb759bb3df97dfb6335d0476d0468503540115e94aa0825bacb81",
+  ["build.test_worker"] = "7c4b7b1765bdabc460fa7d37de3aad6a2d1c10429650b7d923c03a7bd093244d",
 
   ["build.this_program"] = "543c40bf6abd96f03c599f91a873433d13a533ef19a6d6fca30085dc8b7c2265",
 
@@ -117,7 +117,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
 
-  ["cosmic.test"] = "89159ae518dbc4106b3b50f84f3b9fc5b89688792fb6c010263eb59f411c96e3",
+  ["cosmic.test"] = "86a30f3747a06a18553a62c6427bc3140ae35190c0b1f1059b387ed3bd6ccfb2",
 
 }
 
