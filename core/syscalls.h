@@ -377,6 +377,15 @@ COSMIC_SYSCALL(getpid, 0);
 COSMIC_SYSCALL(getuid, 0);
 
 /*
+ * --- Whether this process may be dumped, and its /proc files are its own user's to read and write (prctl's PR_GET_DUMPABLE): 1 where so, 0 where they are root's, 2 where a core dump would be root's alone. With `set`, 0 or 1, it is made so first. ENOSYS off Linux.
+ * ---@param set? integer 0 or 1 to make it so, or nil to only ask
+ * ---@return integer|nil dumpable 0, 1 or 2, or nil on failure
+ * ---@return string error what went wrong, when dumpable is nil
+ * ---@return integer errno the error number, when dumpable is nil
+ */
+COSMIC_SYSCALL(dumpable, 1);
+
+/*
  * --- Sets the file mode creation mask, the permission bits a new file or
  * --- directory is made without, for this process and every child it
  * --- starts afterwards.

@@ -149,6 +149,23 @@ COSMIC_SYSCALL(getuid, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(dumpable, 1) {
+#if defined(__linux__)
+  if (!lua_isnoneornil(L, 1)) {
+    int set = cosmic_checkint(L, 1);
+    if (set != 0 && set != 1) return luaL_argerror(L, 1, "dumpable is set to 0 or 1");
+    if (prctl(PR_SET_DUMPABLE, set, 0, 0, 0) != 0) return cosmic_fail(L, errno);
+  }
+  int now = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
+  if (now < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, (lua_Integer)now);
+  return 1;
+#else
+  if (!lua_isnoneornil(L, 1)) (void)cosmic_checkint(L, 1);
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
 COSMIC_SYSCALL(clock_gettime, 1) {
   int which = cosmic_checkint(L, 1);
   struct timespec now;
@@ -729,9 +746,10 @@ static int plain_name (const char *name) {
 }
 
 #if defined(__linux__)
-/* Writes `text` to the file at `path` whole: 0, or an errno. */
-static int write_whole (const char *path, const char *text) {
-  int fd = open(path, O_WRONLY | O_CLOEXEC);
+/* Writes `text` whole to the file at `path`, relative to the directory
+ * `dir` holds (AT_FDCWD for this process's own): 0, or an errno. */
+static int write_whole_at (int dir, const char *path, const char *text) {
+  int fd = openat(dir, path, O_WRONLY | O_CLOEXEC);
   if (fd < 0) return errno;
   size_t left = strlen(text);
   int number = 0;
@@ -744,6 +762,11 @@ static int write_whole (const char *path, const char *text) {
   }
   close(fd);
   return number;
+}
+
+/* Writes `text` to the file at `path` whole: 0, or an errno. */
+static int write_whole (const char *path, const char *text) {
+  return write_whole_at(AT_FDCWD, path, text);
 }
 
 /* The mode a directory made at `path` in the root being built takes:
@@ -1402,11 +1425,11 @@ static _Noreturn int start_program (void *argument) {
    * namespace (`map_from_outside`) -- but makes it as that user, as an
    * unprivileged caller's child's is made: its filesystem ids are that
    * user's and group's, and the capabilities over files that change
-   * takes out of effect are put back. The kernel makes its memory -- the
-   * parent's too -- undumpable as its ids or capabilities change, which
-   * is put back each time, as a process that ran no setuid program is:
-   * so the parent's /proc stays as it was, and the child's own /proc
-   * files are its own to write its maps in. */
+   * takes out of effect are put back. The kernel makes its memory
+   * undumpable as its ids or capabilities change, which is made
+   * dumpable again each time, so the child's own /proc files are its
+   * own to write its maps in; that memory is the parent's too, which
+   * puts back what it had once the child has exec'd. */
   if (plan->dropping) {
     syscall(SYS_setfsgid, plan->drop_gid);
     syscall(SYS_setfsuid, plan->drop_uid);
@@ -1458,12 +1481,15 @@ static _Noreturn int start_program (void *argument) {
 
 /* What an unveiled child that gives root up (`spawn`'s `user`) shares
  * with the process that maps its user namespace from outside
- * (`map_from_outside`): the plan, the child's pid, the pipe the child
+ * (`map_from_outside`): the plan, the child's pid, its /proc directory,
+ * which the child opened itself -- so a map is written to it alone,
+ * whatever pid another process may come to have -- the pipe the child
  * says over that it has made the namespace, and the errno the mapping
  * failed with, ECHILD until it is done. */
 struct outside_map {
   const struct spawn_plan *plan;
   pid_t child;
+  int proc;
   int told;
   int tell;
   int error;
@@ -1489,14 +1515,11 @@ static _Noreturn int map_from_outside (void *argument) {
   ssize_t got;
   while ((got = read(map->told, &byte, 1)) < 0 && errno == EINTR) {}
   int failure = got == 1 && byte == 1 ? 0 : ECHILD;
+  /* The child is its parent, and waits for it. */
+  if (!failure && (pid_t)syscall(SYS_getppid) != map->child) failure = ECHILD;
   const char *const files[2] = { "uid_map", "gid_map" };
   const char *const maps[2] = { map->plan->outer_uid_map, map->plan->outer_gid_map };
-  for (int i = 0; !failure && i < 2; i++) {
-    char path[64];
-    int length = snprintf(path, sizeof path, "/proc/%ld/%s", (long)map->child, files[i]);
-    failure = length < 0 || (size_t)length >= sizeof path ? ENAMETOOLONG
-                                                           : write_whole(path, maps[i]);
-  }
+  for (int i = 0; !failure && i < 2; i++) failure = write_whole_at(map->proc, files[i], maps[i]);
   map->error = failure;
   _exit(failure ? 127 : 0);
 }
@@ -1535,13 +1558,14 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
   int failure = 0;
   /* One that gives root up is mapped from outside (`map_from_outside`),
    * by a process started before its namespace is made, and waited for. */
-  struct outside_map outside = { plan, (pid_t)syscall(SYS_getpid), -1, -1, ECHILD };
+  struct outside_map outside = { plan, (pid_t)syscall(SYS_getpid), -1, -1, -1, ECHILD };
   pid_t helper = -1;
   if (plan->dropping) {
     int made[2];
-    if (pipe(made) != 0) {
-      failure = errno;
-    } else {
+    failure = raise_descriptor(open("/proc/self", O_RDONLY | O_DIRECTORY | O_CLOEXEC), top,
+                               &outside.proc);
+    if (!failure && pipe(made) != 0) failure = errno;
+    if (!failure) {
       failure = raise_descriptor(made[0], top, &outside.told);
       int other = raise_descriptor(made[1], top, &outside.tell);
       if (!failure) failure = other;
@@ -1564,6 +1588,7 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
     if (reaped < 0 && !failure) failure = errno;
     if (!failure) failure = outside.error;
   }
+  if (outside.proc >= 0) close(outside.proc);
   if (outside.told >= 0) close(outside.told);
   if (outside.tell >= 0) close(outside.tell);
   if (!failure && !plan->dropping)
@@ -2397,7 +2422,18 @@ int cosmic_spawn_unobserved (lua_State *L) {
   end_sandbox_inits();
 #endif
   int fork_error = 0;
+  /* A child that gives root up shares this process's memory while its
+   * ids change, which makes that memory dumpable or not as the kernel
+   * and the child set it (`start_program`): whatever it was here, it is
+   * put back once the child has exec'd. */
+#if defined(__linux__)
+  int dumpable = dropping ? prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) : -1;
+#endif
   pid_t pid = start_child(&plan, &fork_error);
+#if defined(__linux__)
+  if ((dumpable == 0 || dumpable == 1) && prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != dumpable)
+    prctl(PR_SET_DUMPABLE, dumpable, 0, 0, 0);
+#endif
   close(status_write);
   if (given != envp) free(given);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);

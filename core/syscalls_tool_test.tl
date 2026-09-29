@@ -322,14 +322,47 @@ local function run_confined(tmp: string, probe: string, script: string,
   return status, said
 end
 
---- A child given a `user` and `group` runs as them, with no
---- supplementary group and no capability in effect, as an unprivileged
---- caller's child does -- where this process is root, which a run of
---- this test unsandboxed as root is. A caller that may not map them --
+--- Of /proc/self's `file`, uid_map or gid_map, whether it maps `id`.
+local function maps_here(file: string, id: integer): boolean
+  local fd = sys.open("/proc/self/" .. file, sys.O_RDONLY)
+  if fd == nil then return false end
+  local text = sys.read(fd, 65536) or ""
+  sys.close(fd)
+  for line in text:gmatch("[^\n]+") do
+    local inside, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
+    local first, many = math.tointeger(tonumber(inside)), math.tointeger(tonumber(count))
+    if first ~= nil and many ~= nil and id >= first and id < first + many then return true end
+  end
+  return false
+end
+
+--- Whether this process may start a child as `id`: root, holding
+--- CAP_SETGID, CAP_SETUID and CAP_SETFCAP in effect, in a namespace
+--- that maps root and `id` (core/process.h's `Sandbox.user`).
+local function may_run_as(id: integer): boolean
+  local fd = assert(sys.open("/proc/self/status", sys.O_RDONLY))
+  local status = assert(sys.read(fd, 65536))
+  sys.close(fd)
+  local caps = status:match("\nCapEff:%s+(%x+)") or "0"
+  local low = math.tointeger(tonumber(caps:sub(-8), 16)) or 0
+  return status:match("\nUid:%s+%d+%s+(%d+)") == "0" and (low >> 6) & 1 == 1 and
+    (low >> 7) & 1 == 1 and (low >> 31) & 1 == 1 and maps_here("uid_map", 0) and
+    maps_here("uid_map", id) and maps_here("gid_map", 0) and maps_here("gid_map", id)
+end
+
+--- A child given a `user` and `group` runs as them -- with no
+--- supplementary group, whatever this process has, no capability in
+--- effect, in a user namespace that maps that user alone, so root's
+--- files are the overflow id's there, and on a root every mount of
+--- which is nosuid, so a setuid-root program runs as it does -- as an
+--- unprivileged caller's child does, where this process may map them
+--- (`may_run_as`): root, as a run of this test unsandboxed as root is.
+--- This process stays as dumpable as it was, though the child shares
+--- its memory while its ids change. A caller that may not map them --
 --- one not root, as a sandboxed worker, which runs as a user of its own
---- where the runner is root (build.test_sandbox's `runs_as`), always
---- is -- is refused EPERM. Neither is 0, each needs the other, and
---- neither is given without `unveil`.
+--- where the runner is root (build.test_sandbox's `runs_as`), or root in
+--- a namespace that maps root alone -- is refused EPERM. Neither is 0,
+--- each needs the other, and neither is given without `unveil`.
 local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   local probe = probe_in(tmp)
   local reads = probe_reads(probe)
@@ -342,21 +375,39 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
     assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
       sandbox), "a user is refused unless given with its group and unveil, and not as root")
   end
+  local root = may_run_as(user)
+  -- A setuid-root copy of the probe, where this process may make one.
+  local setuid = tmp .. "/setuid-probe"
+  assert(stand_in.place(probe, setuid))
+  if root then
+    assert(sys.chown(setuid, 0, 0))
+    assert(sys.chmod(setuid, 0x9ed)) -- 04755
+  end
+  reads[#reads + 1] = setuid
   local report = create(tmp .. "/report")
+  -- Undumpable while it starts the child, where it may map the user:
+  -- a caller not root that is undumpable could not open its child's
+  -- maps (they are root's then), whether it gives a user or not.
+  local was: integer = nil
+  if root then
+    was = assert(sys.dumpable())
+    assert(sys.dumpable(0) == 0)
+  end
   local pid, trouble, errno = process.spawn(probe, { probe,
-    "status-field Uid; status-field Gid; status-field Groups; status-field CapEff" },
-    nil, nil, nil, report, report, false, nil,
+    "status-field Uid; status-field Gid; status-field Groups; status-field CapEff; " ..
+    "print uid_map; cat /proc/self/uid_map; print mountinfo; cat /proc/self/mountinfo; " ..
+    "print setuid; run " .. setuid .. " status-field Uid" },
+    nil, "/", nil, report, report, false, nil,
     { unveil = { reads = reads, writes = {} }, offline = true, user = user, group = user })
+  if was ~= nil then
+    local held = assert(sys.dumpable())
+    assert(sys.dumpable(was) == was)
+    assert(held == 0, "the caller was left dumpable: " .. tostring(held))
+  end
   if pid == nil then
     sys.close(report)
-    if errno ~= sys.EPERM then
-      unsandboxable("unveiling", trouble)
-      return
-    end
-    local status = assert(sys.open("/proc/self/status", sys.O_RDONLY))
-    local own = assert(sys.read(status, 65536))
-    sys.close(status)
-    assert(not own:find("\nUid:%s+%d+%s+0%s"), "root refused a user: " .. trouble)
+    assert(not root, "root, mapping " .. tostring(user) .. ", refused it: " .. trouble)
+    if errno ~= sys.EPERM then unsandboxable("unveiling", trouble) end
     return
   end
   local status = assert(process.waitpid(pid, false))
@@ -364,9 +415,19 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   sys.close(report)
   assert(status.code == 0, said)
   local id = tostring(user)
-  assert(said:find("Uid:%s+" .. id .. "%s+" .. id .. "%s+" .. id .. "%s+" .. id), said)
-  assert(said:find("Gid:%s+" .. id .. "%s+" .. id .. "%s+" .. id .. "%s+" .. id), said)
-  assert(said:find("Groups:%s*\n") and said:find("CapEff:%s+0+%s"), said)
+  local ids = id .. "%s+" .. id .. "%s+" .. id .. "%s+" .. id
+  assert(said:find("^Uid:%s+" .. ids) and said:find("\nGid:%s+" .. ids), said)
+  assert(said:find("\nGroups:[ \t]*\n") and said:find("\nCapEff:%s+0+\n"), said)
+  local uid_map = assert(said:match("\nuid_map\n(.-)\nmountinfo\n"), said)
+  assert(uid_map:match("^%s*" .. id .. "%s+" .. id .. "%s+1%s*$"),
+    "its namespace maps more than its user: " .. uid_map)
+  local mountinfo = assert(said:match("\nmountinfo\n(.-)\nsetuid\n"), said)
+  for line in mountinfo:gmatch("[^\n]+") do
+    local options = line:match("^%S+ %S+ %S+ %S+ %S+ (%S+)")
+    assert(options ~= nil and ("," .. options .. ","):find(",nosuid,", 1, true),
+      "a mount of its root is not nosuid: " .. line)
+  end
+  assert(said:match("\nsetuid\nUid:%s+" .. ids), "a setuid-root program ran as root: " .. said)
 end
 
 --- A path given with a name in `at` is bound there, and not at its own
