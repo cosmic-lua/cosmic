@@ -109,13 +109,14 @@ function Fixture.hash(path: string): string
 end
 
 --- The fixture's own environment for a child it starts, with `extra` set
---- over it. The child shares no compiles or parses (COSMIC_BUILD_CACHE=0)
---- unless `extra` says otherwise. The fixture's own run shares one file
---- with the leg's other fixtures (`Orchestration.fixture`), but a tree a
---- child builds (a fresh checkout's boot, the product rebuilding itself)
---- is what a fixture checks compiles, and work another child or fixture
---- left in that file would stand in for it (fixed_point_test,
---- self_rebuild_test).
+--- over it, made of `base` rather than of the fixture's own (`environment`
+--- makes it of that): a copy, which `base` keeps nothing of. The child
+--- shares no compiles or parses (COSMIC_BUILD_CACHE=0) unless `extra`
+--- says otherwise. The fixture's own run shares one file with the leg's
+--- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
+--- fresh checkout's boot, the product rebuilding itself) is what a
+--- fixture checks compiles, and work another child or fixture left in
+--- that file would stand in for it (fixed_point_test, self_rebuild_test).
 ---
 --- Nor does a `cosmic test` the child runs sandbox its workers
 --- (COSMIC_TEST_SANDBOX=0): what a fixture asserts of such a run is its
@@ -123,14 +124,21 @@ end
 --- (`Orchestration.fixture`), which a sandbox of the child's would nest
 --- in only as deep as the host allows. So it means the same on every
 --- host, as AGENTS.md asks of a test's own `cosmic test`.
-function Fixture.environment(extra?: {string:string}): {string:string}
-  local environment = Env.all()
+function Fixture.environment_of(base: {string:string},
+    extra?: {string:string}): {string:string}
+  local environment: {string:string} = {}
+  for name, value in pairs(base) do environment[name] = value end
   environment.COSMIC_BUILD_CACHE = "0"
   environment.COSMIC_TEST_SANDBOX = "0"
   if extra then
     for name, value in pairs(extra) do environment[name] = value end
   end
   return environment
+end
+
+--- `environment_of` the fixture's own environment.
+function Fixture.environment(extra?: {string:string}): {string:string}
+  return Fixture.environment_of(Env.all(), extra)
 end
 
 local function preview(path: string): string

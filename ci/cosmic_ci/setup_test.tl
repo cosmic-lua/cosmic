@@ -93,7 +93,11 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
   local files = RuntimeSetup.files_but_tests(root, "build", "build/c_test.tl")
   assert(table.concat(files, " ") == "build/a.tl build/b.tl build/c_test.tl",
     table.concat(files, " "))
+  -- The files' times move between the two packs, as a checkout's do
+  -- from one run to the next: the tars must not.
+  for _, relative in ipairs(closure) do assert(Fs.set_mtime(root .. "/" .. relative, 1000000000)) end
   RuntimeSetup.pack(root, closure, tmp .. "/one.tar")
+  for _, relative in ipairs(closure) do assert(Fs.set_mtime(root .. "/" .. relative, 2000000000)) end
   RuntimeSetup.pack(root, closure, tmp .. "/two.tar")
   local one = assert(Fs.read(tmp .. "/one.tar"))
   assert(one == assert(Fs.read(tmp .. "/two.tar")), "the same files packed differently")

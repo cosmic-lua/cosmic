@@ -446,10 +446,61 @@ local function test_a_sandboxed_fixture_keeps_verdicts_beside_the_legs(tmp: stri
   end
 end
 
---- The `Test.needs` call of the fixture module `source`, as written.
-local function declaration(source: string): string
+--- What `fixture_run` gives a fixture, on a Linux leg (its suites
+--- sandboxed and required to be) and on macOS's (keyed by declaration,
+--- no sandbox): one of `sandboxed_fixtures` runs as the leg's suites do
+--- and keeps its verdicts in fixtures.db; any other runs unsandboxed and
+--- shares none; and a sandboxed one given no product is refused.
+local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local legs: {string:{string:string}} = {
+    linux = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must" },
+    macos = { COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_KEY = "declared" },
+  }
+  for leg, values in pairs(legs) do
+    local function env(): {string:string}
+      local out: {string:string} = { COSMIC_CI_EVENT = "push",
+        COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db", COSMIC_FIXTURE_PRODUCT = tmp .. "/product" }
+      for name, value in pairs(values) do out[name] = value end
+      return out
+    end
+    local sandboxed = Orchestration.fixture_run("runtime", env(), tmp .. "/tmp", tmp .. "/c.db")
+    assert(sandboxed.COSMIC_VERDICT_CACHE == tmp .. "/v/fixtures.db", leg .. ": " ..
+      tostring(sandboxed.COSMIC_VERDICT_CACHE))
+    assert(sandboxed.COSMIC_TEST_NO_SHARED == nil, leg .. ": a push's fixture stands on nothing")
+    assert(sandboxed.COSMIC_TEST_SANDBOX == values.COSMIC_TEST_SANDBOX,
+      leg .. ": the fixture's workers are not held as the leg's are")
+    assert(sandboxed.COSMIC_TEST_KEY == values.COSMIC_TEST_KEY,
+      leg .. ": the fixture is not keyed as the leg's suites are")
+    local plain = Orchestration.fixture_run("self_driven", env(), tmp .. "/tmp", tmp .. "/c.db")
+    assert(plain.COSMIC_VERDICT_CACHE == "0" and plain.COSMIC_TEST_NO_SHARED == "1" and
+      plain.COSMIC_TEST_SANDBOX == "0" and plain.COSMIC_TEST_KEY == nil,
+      leg .. ": an unsandboxed fixture shares verdicts")
+    local bare = env()
+    bare.COSMIC_FIXTURE_PRODUCT = nil
+    local refused, why = pcall(Orchestration.fixture_run, "identity", bare, tmp .. "/tmp",
+      tmp .. "/c.db")
+    assert(not refused and tostring(why):find("product", 1, true),
+      leg .. ": a sandboxed fixture ran with no product to key it by")
+  end
+end
+
+--- The source of the fixture module `source` with its comments taken
+--- out, so a path commented out of a declaration is none of it.
+local function code_of(source: string): string
   local text = Fixture.read("fixtures/" .. source .. "_test.tl")
-  return (assert(text:match("\nTest%.needs%s*(%b{})"), source .. ": no Test.needs"))
+  return (text:gsub("%-%-[^\n]*", ""))
+end
+
+--- The `host` paths the `Test.needs` call of the fixture module `source`
+--- declares.
+local function declared_host(source: string): {string:boolean}
+  local needs = assert(code_of(source):match("\nTest%.needs%s*%(?%s*(%b{})"),
+    source .. ": no Test.needs")
+  local host = assert(needs:match("host%s*=%s*(%b{})"), source .. ": no host")
+  local out: {string:boolean} = {}
+  for path in host:gmatch('"([^"]*)"') do out[path] = true end
+  return out
 end
 
 --- A sandboxed fixture's verdict is shared across runs and commits, so
@@ -471,10 +522,10 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   for _, name in ipairs(names) do
     if Orchestration.sandboxed_fixtures[name] then
       sandboxed = sandboxed + 1
-      assert(declaration(name):find('"$COSMIC_FIXTURE_PRODUCT/cosmic"', 1, true),
+      assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/cosmic"],
         name .. ": a sandboxed fixture's key does not hold the product")
     else
-      assert(not Fixture.read("fixtures/" .. name .. "_test.tl"):find("\nTest%.needs"),
+      assert(not code_of(name):find("\nTest%.needs"),
         name .. ": an unsandboxed fixture declares what nothing holds it to")
     end
   end

@@ -23,6 +23,8 @@ local record Orchestration
   sandboxed_fixtures: {string:boolean}
   fixture: function(env: {string:string}, tmpdir: string, compiles: string,
     verdicts?: string): {string:string}
+  fixture_run: function(source: string, env: {string:string}, tmpdir: string,
+    compiles: string): {string:string}
   forget_run: function(env: {string:string})
   suite_run: function(extra?: {string:string}): {string}, {string:string}
   suite_verdicts: function(env: {string:string}, name: string): string
@@ -524,6 +526,18 @@ end
 --- are in every verdict's key, so no fixture stands on a verdict another
 --- product reached (orchestration_test.tl holds each to it).
 ---
+-- TODO: once ci/cosmic-driver.pin names a release carrying #2364's
+-- system-path walk and #2403's tree key part, these fixtures' verdicts
+-- hold what they do not yet: each declares `system`, which the pinned
+-- driver keys only by the host's package database, os-release,
+-- COSMIC_SYSTEM_ID and COSMIC_HOST_ID -- not by what the system's paths
+-- hold, so a /bin/sh or uname changed under the same packages and image
+-- moves no fixture's key -- and the macOS leg's workers, which no
+-- sandbox holds (COSMIC_TEST_KEY=declared), are keyed by no place of the
+-- fixture project, so a verdict that turned on its path would stand in a
+-- project elsewhere. Then the system paths are keyed by what they hold,
+-- and an unenforced worker's verdict by the project's path.
+---
 --- The rest run unsandboxed, as before, and share nothing: `format`,
 --- `self_rebuild`, `fixed_point` and `self_driven` write a checkout and
 --- compile it cold, with zig's caches and the host's toolchain, and
@@ -592,27 +606,37 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string,
   return env
 end
 
+--- The environment the fixture ci/fixtures/<source>_test.tl runs in,
+--- made of `env`, the operation's (`environment`, its COSMIC_FIXTURE_*
+--- among it), by `fixture`: one of `sandboxed_fixtures` keeps its
+--- verdicts in `fixtures.db` beside the file COSMIC_VERDICT_CACHE of
+--- `env` names (`suite_verdicts`), and must be given the product its
+--- verdicts are keyed by (COSMIC_FIXTURE_PRODUCT); any other shares none.
+function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
+    compiles: string): {string:string}
+  local sandboxed = Orchestration.sandboxed_fixtures[source] == true
+  assert(not sandboxed or (env.COSMIC_FIXTURE_PRODUCT or "") ~= "",
+    "a sandboxed fixture is given the product its verdict is keyed by: " .. source)
+  local verdicts: string | nil = nil
+  if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
+  return Orchestration.fixture(env, tmpdir, compiles, verdicts)
+end
+
 local function fixture_test(c: Context, work: string, name: string,
     source: string, timeout_ms: integer, extra: {string:string}): integer
   assert(name:match("^[%w-]+$"), "invalid fixture test name")
   assert(source:match("^[%w_]+$"), "invalid fixture test source")
-  local sandboxed = Orchestration.sandboxed_fixtures[source] == true
-  -- The product whose bytes key a shared verdict (`sandboxed_fixtures`).
-  assert(not sandboxed or (extra.COSMIC_FIXTURE_PRODUCT or "") ~= "",
-    "a sandboxed fixture is given the product its verdict is keyed by: " .. source)
   local project = fixture_project(c, work)
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics); mkdir(diagnostics .. "/tmp")
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
-  local verdicts: string | nil = nil
-  if sandboxed then verdicts = Orchestration.suite_verdicts(Env.all(), "fixtures") end
   -- No --census: a fixture's run holds too few tests for its key parts
   -- to say much, and an unsandboxed one's are keyed by nothing.
   local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
-    Orchestration.fixture(environment(extra), diagnostics .. "/tmp",
-      work .. "/fixture-compiles.db", verdicts))
+    Orchestration.fixture_run(source, environment(extra), diagnostics .. "/tmp",
+      work .. "/fixture-compiles.db"))
   record_suite(c, "fixture " .. name, status, out)
   return status
 end

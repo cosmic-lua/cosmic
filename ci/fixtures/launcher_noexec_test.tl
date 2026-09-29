@@ -11,11 +11,12 @@ local Runner = require("cosmic_ci.runner")
 -- which a sandboxed worker is given none of, so this case runs apart from
 -- launcher_test.tl's, unsandboxed and keyed by nothing
 -- (cosmic_ci/orchestration.tl's `phase_fixtures`).
--- TODO: run this case sandboxed with launcher_test.tl's once a sandboxed
--- worker can be given a noexec directory of its own to write (a
--- `Test.needs` field for one, mounted noexec in its root by
--- build/test_sandbox.tl); today its scratch directory is the only one it
--- writes, and that one runs what it holds.
+-- TODO: run this case sandboxed with launcher_test.tl's once
+-- ci/cosmic-driver.pin names a release whose `Test.needs` can give a
+-- sandboxed worker a noexec directory of its own to write (a field for
+-- one, mounted noexec in its root by build/test_sandbox.tl), which no
+-- release, nor main, has yet: today its scratch directory is the only
+-- one it writes, and that one runs what it holds.
 
 local setup, run = LauncherFixture.setup, LauncherFixture.run
 local outcome_ok, only_core = LauncherFixture.outcome_ok, LauncherFixture.only_core

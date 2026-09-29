@@ -102,15 +102,18 @@ function RuntimeSetup.files_but_tests(root: string, directory: string,
 end
 
 --- Writes `out`, a tar of each of `files` beneath `root`, at its path
---- relative to it, in order: the same files make the same bytes (every
---- time 0, each mode as the file has it), so a fixture that declares
---- the tar (`Test.needs`'s `host`) is keyed by what it holds alone.
+--- relative to it, in order, each with its mode and time: the writer is
+--- `deterministic`, so every time is written as 0 and the same files make
+--- the same bytes wherever and whenever the checkout was made, and a
+--- fixture that declares the tar (`Test.needs`'s `host`) is keyed by what
+--- it holds alone.
 function RuntimeSetup.pack(root: string, files: {string}, out: string)
   local collected = Stream.collect()
   local writer = Tar.writer(collected, { deterministic = true })
   for _, relative in ipairs(files) do
-    local mode = assert(Fs.stat(root .. "/" .. relative)).mode & 0x1ff
-    assert(writer:add_file(relative, Fixture.read(root .. "/" .. relative), { mode = mode }))
+    local st = assert(Fs.stat(root .. "/" .. relative))
+    assert(writer:add_file(relative, Fixture.read(root .. "/" .. relative),
+      { mode = st.mode & 0x1ff, mtime = st.mtime }))
   end
   assert(writer:close())
   Fixture.write(out, collected:result())
