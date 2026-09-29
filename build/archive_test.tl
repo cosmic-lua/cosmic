@@ -142,7 +142,7 @@ local function test_list_json_is_an_array_of_objects_for_each_format(tmp: string
     local rows = assert(Json.decode(ran.out)) as {{string:any}}
     assert(#rows == 4, format .. ": " .. ran.out)
     assert(rows[2].path == "proj/a.txt" and rows[2].size == 5 and rows[2].type == "file", format)
-    assert(math.type(rows[2].mode) == "integer" and math.type(rows[2].mtime) == "integer", format)
+    assert(rows[2].mode == "0644" and math.type(rows[2].mtime) == "integer", format)
     assert(rows[1].type == "dir", format)
   end
 end
@@ -441,4 +441,96 @@ local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
     assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
     assert(ran.err:find("cosmic archive list", 1, true), ran.err)
   end
+end
+
+--- A ustar header, alone, for an entry of `flag` (`"1"` a hard link)
+--- that `Tar.Writer` cannot write, followed by the end of the archive.
+local function raw_entry(path: string, flag: string, linkname: string): string
+  local function field(text: string, width: integer): string
+    return text .. string.rep("\0", width - #text)
+  end
+  local head = field(path, 100) .. field("0000644", 8) .. field("0000000", 8) ..
+    field("0000000", 8) .. field("00000000000", 12) .. field("00000000000", 12) ..
+    "        " .. flag .. field(linkname, 100) .. "ustar\0" .. "00"
+  head = head .. string.rep("\0", 512 - #head)
+  local sum = 0
+  for index = 1, #head do sum = sum + head:byte(index) end
+  local check = string.format("%06o\0 ", sum)
+  return head:sub(1, 148) .. check .. head:sub(157) .. string.rep("\0", 1024)
+end
+
+local function test_a_fifo_in_a_directory_is_refused_by_name(tmp: string)
+  local src = make_tree(tmp)
+  assert(sys.mkfifo(src .. "/tree/sub/pipe"))
+  for _, out in ipairs({ "f.zip", "f.tar.gz" }) do
+    local ran = in_dir(src, { "create", tmp .. "/" .. out, "tree" })
+    assert(ran.code == 2 and ran.out == "", ran.out)
+    assert(ran.err:find("tree/sub/pipe: neither a file, a directory nor a symlink", 1, true), ran.err)
+    assert(not Fs.exists(tmp .. "/" .. out), "nothing is written")
+  end
+  local named = in_dir(src, { "create", tmp .. "/n.zip", "tree/sub/pipe" })
+  assert(named.code == 2 and named.err:find("tree/sub/pipe", 1, true), named.err)
+end
+
+local function test_a_refusal_partway_leaves_the_entries_before_it(tmp: string)
+  local dest = tmp .. "/dest"
+  local link = make_tar(tmp .. "/a.tar", { file_member("first.txt", "1"),
+    link_member("out", "../../elsewhere"), file_member("last.txt", "2") })
+  local ran = run({ "extract", link, "-C", dest })
+  assert(ran.code == 2, ran.err)
+  assert(Fs.read(dest .. "/first.txt") == "1", "the entry before the refusal stays written")
+  assert(not Fs.exists(dest .. "/out") and not Fs.exists(dest .. "/last.txt"))
+  local dots = make_tar(tmp .. "/b.tar", { file_member("kept.txt", "1"),
+    file_member("../gone.txt", "2") })
+  assert(run({ "extract", dots, "-C", tmp .. "/dest2" }).code == 2)
+  assert(Fs.read(tmp .. "/dest2/kept.txt") == "1")
+  assert(not Fs.exists(tmp .. "/gone.txt"))
+end
+
+local function test_a_hard_link_is_refused(tmp: string)
+  local path = tmp .. "/h.tar"
+  assert(Fs.write(path, raw_entry("hard", "1", "target")))
+  local ran = run({ "extract", path, "-C", tmp .. "/dest" })
+  assert(ran.code == 2 and ran.err:find("hardlink", 1, true), ran.err)
+  assert(not Fs.exists(tmp .. "/dest/hard"))
+  assert(run({ "list", path }).out:find("hard -> target\t0\t0644\thardlink", 1, true))
+end
+
+local function test_force_never_writes_through_a_symlink_in_the_target(tmp: string)
+  local outside = tmp .. "/outside.txt"
+  assert(Fs.write(outside, "precious"))
+  local dest = tmp .. "/dest"
+  assert(Fs.mkdirs(dest))
+  assert(Fs.symlink(outside, dest .. "/file"))
+  assert(Fs.mkdirs(tmp .. "/outdir"))
+  assert(Fs.symlink(tmp .. "/outdir", dest .. "/dir"))
+  -- A file named for a link replaces the link, not what it leads to.
+  local replace = run({ "extract", "--force", make_tar(tmp .. "/a.tar",
+    { file_member("file", "new") }), "-C", dest })
+  assert(replace.code == 0, replace.err)
+  assert(Fs.read(outside) == "precious", "the file the link led to is untouched")
+  assert(Fs.read(dest .. "/file") == "new")
+  -- A path through a link that is already there is refused.
+  local through = run({ "extract", "--force", make_tar(tmp .. "/b.tar",
+    { file_member("dir/f.txt", "x") }), "-C", dest })
+  assert(through.code == 2, through.err)
+  assert(not Fs.exists(tmp .. "/outdir/f.txt"))
+end
+
+local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: string)
+  -- a -> b, b -> ..: the second leaves the target.
+  local chain = run({ "extract", make_tar(tmp .. "/a.tar",
+    { link_member("a", "b"), link_member("b", "..") }), "-C", tmp .. "/one/dest" })
+  assert(chain.code == 2, chain.err)
+  assert(not Fs.exists(tmp .. "/one/dest/b"))
+  -- b -> ., a -> b/..: a target through another link is refused.
+  local hop = run({ "extract", make_tar(tmp .. "/b.tar",
+    { link_member("b", "."), link_member("a", "b/..") }), "-C", tmp .. "/two/dest" })
+  assert(hop.code == 2, hop.err)
+  -- A directory, then a link of its name, then a file under it.
+  local dir_link = run({ "extract", make_tar(tmp .. "/c.tar",
+    { dir_member("d"), link_member("d", "."), file_member("d/f.txt", "x") }),
+    "-C", tmp .. "/three/dest" })
+  assert(dir_link.code == 2, dir_link.err)
+  assert(not Fs.exists(tmp .. "/three/dest/f.txt"))
 end

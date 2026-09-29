@@ -102,6 +102,9 @@ end
 --- standard input written out to a temporary one, since the readers
 --- want a file to detect a format from and to seek in. The temporary
 --- directory is removed after.
+-- TODO: stream standard input rather than holding it whole and writing
+-- it out, once Archive.open can take a Stream.Reader (it opens a path,
+-- and a zip needs positional reads of one).
 local function with_archive(file: string, to: verb.Io, body: function(string): Outcome): Outcome
   if file ~= "-" then return body(file) end
   if Proc.is_tty(Fs.stdin) then
@@ -150,7 +153,7 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
       for _, entry in ipairs(entries) do
         local row: {string:any} = {
           path = entry.path, type = entry.kind, size = entry.size,
-          mode = entry.mode & 0xfff, mtime = entry.mtime,
+          mode = string.format("%04o", entry.mode & 0xfff), mtime = entry.mtime,
         }
         if entry.linkpath ~= "" then row.linkpath = entry.linkpath end
         rows[#rows + 1] = row
@@ -238,6 +241,14 @@ local function extract(file: string, dest: string, force: boolean, members: {str
           (#clashes > 5 and ", ..." or "") .. "); nothing written, use --force to replace")
       end
     end
+    -- No rollback: `Archive.extract` streams entries out as it reads
+    -- them, so a refusal partway (an escaping link, a path through a
+    -- symlink, a corrupt body) leaves the entries before it written.
+    -- Undoing them would mean unpacking into a staging directory and
+    -- moving it into place, which breaks extracting into a directory
+    -- that already holds files, as `tar -x` does; only what a look at
+    -- the listing can settle first (a missing member, an overwrite) is
+    -- checked before anything is written.
     local written, extract_why = Archive.extract(path, dest, {
       links = "create",
       filter = selected,
@@ -329,11 +340,21 @@ local function gather(paths: {string}, skip_file: string | nil, format: string):
     local rooted, _ = Fs.is_dir(given)
     if (root and rooted) or (not root and by_name[name].kind == "dir") then
       local seen: {{string, string}} = {}
+      local odd: string | nil
       local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: string): boolean
-        if kind == "dir" or kind == "link" then seen[#seen + 1] = { relative, kind } end
+        if kind == "dir" or kind == "link" then
+          seen[#seen + 1] = { relative, kind }
+        elseif kind ~= "file" and odd == nil then
+          -- A fifo, a socket or a device: `Fs.walk` lists only files,
+          -- directories and links, so it is met here or not at all.
+          odd = relative
+        end
         return false
       end)
       if listed == nil then return nil, fail(2, walk_why) end
+      if odd ~= nil then
+        return nil, fail(2, given .. "/" .. odd .. ": neither a file, a directory nor a symlink")
+      end
       for _, relative in ipairs(listed) do seen[#seen + 1] = { relative, "file" } end
       for _, pair in ipairs(seen) do
         local sub = add(root and pair[1] or (name .. "/" .. pair[1]), given .. "/" .. pair[1])

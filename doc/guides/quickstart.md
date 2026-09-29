@@ -69,8 +69,10 @@ script with `cosmic.json`. `cosmic help json` has the rest.
 mode, type), and `--json` an array of objects for `cosmic
 json`; `cosmic archive extract release.zip -C out [member...]` unpacks
 all or some of it, refusing a path that escapes `out` and a file it would
-overwrite (unless `--force`); `cosmic archive create out.tar.gz dir
---reproducible` packs a tree, as a zip or a gzip tar. The format is read from
+overwrite (unless `--force`) -- only that and a missing member write
+nothing; an unsafe entry stops extraction after the entries before it, which
+stay written; `cosmic archive create out.tar.gz dir
+--reproducible` packs a tree (fixed times, file modes kept), as a zip or a gzip tar. The format is read from
 the file's bytes, not its name; `-` reads standard input. `cosmic help archive`
 has the rest.
 

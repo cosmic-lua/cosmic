@@ -143,23 +143,25 @@ local record Cli
   --- release ships, with no script. `list <file>|-` prints one entry
   --- per line -- path (a symlink's `path -> target`), size, mode in
   --- octal, and type, tab-separated, control bytes escaped -- or, with
-  --- `--json`, an array of objects (path, type, size, mode, mtime and
-  --- a symlink's linkpath) for `cosmic json`.
+  --- `--json`, an array of objects (path, type, size, mode as the same
+  --- octal string, mtime and a symlink's linkpath) for `cosmic json`.
   --- `extract <file>|- [-C dir] [member...]` unpacks into dir (the
   --- working directory by default) and prints the paths written; a
   --- member is a path in the archive and takes what is under it. The
   --- format -- zip, tar, or tar under gzip, xz or bzip2 -- is read from
   --- the file's first bytes, not its name. An absolute path, a `..`,
   --- or a symlink out of the target is refused (`Archive.extract`), and
-  --- so is replacing an existing path unless `--force` is given, with
-  --- nothing written for that refusal or for a member not in the
-  --- archive. `create <out> <path>...` packs the paths and what is under
+  --- so is replacing an existing path unless `--force` is given. Only
+  --- that refusal and a member not in the archive write nothing: an
+  --- unsafe entry stops the extraction after the entries before it,
+  --- which stay written. `create <out> <path>...` packs the paths and what is under
   --- them, sorted by name, as a zip or a gzip tar, by the extension of
   --- out (`.zip`, `.tar.gz`, `.tgz`); `--reproducible` fixes every
   --- modification time (tar 0, zip 1980) so the same tree packs to the
-  --- same bytes. `.tar.xz` and `.tar.bz2` are refused: there is no
+  --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
   --- encoder for either. Paths must be relative and stay under the
-  --- working directory; a symlink cannot go in a zip. Prints no verdict
+  --- working directory; a symlink cannot go in a zip, and a fifo,
+  --- socket or device is refused, named, wherever it is found. Prints no verdict
   --- line, its output being data for a pipe. Exits 0 when done, 1 for a
   --- member or a path that is not there or files it would overwrite, 2
   --- for a command line, an archive it cannot read or one it refuses
