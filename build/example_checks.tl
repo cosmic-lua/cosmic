@@ -65,27 +65,66 @@ end
 
 --- The name a finding says is unknown (`unknown variable: X`,
 --- `unknown type: X`), or nil.
-local function unknown_name(finding: string): string
+local function unknown_name(finding: string): string | nil
   return finding:match("unknown variable: ([%w_]+)") or finding:match("unknown type: ([%w_]+)")
 end
 
---- Whether `file` (an example file's text) declares `name` at its top
---- level as a helper: a `local function`, `local record`, `local type`
---- or `local NAME`. The analyzer carries such a declaration above an
---- example that uses it when it is short (`build.analyzer`), so one
---- still unknown to a shown example was too long to carry.
-local function declares_helper(file: string, name: string): boolean
+--- The names a top-level line of an example file declares as a helper
+--- (`local function f`, `local record R`, `local type T = ...`,
+--- `local a <const>, b = ...`), none for anything else, a `require`
+--- included: that is an import, which the shown text carries by the
+--- names its function uses.
+local function declared_names(line: string): {string}
+  local out: {string} = {}
+  if line:match("^local%s") == nil or line:match("=%s*require%s*%(") ~= nil
+      or line:match("^local%s+record%s+Example%f[^%w_]") ~= nil
+      or line:match("^local%s+Example%f[^%w_]") ~= nil then
+    return out
+  end
+  local named = line:match("^local%s+function%s+([%w_]+)")
+  for _, keyword in ipairs({ "record", "type", "enum", "interface" }) do
+    named = named or line:match("^local%s+" .. keyword .. "%s+([%w_]+)")
+  end
+  if named ~= nil then
+    out[1] = named
+    return out
+  end
+  local names = line:sub(7):match("^([^=:]*)")
+  for name in (names:gsub("<[%w_]+>", "")):gmatch("[%w_]+") do
+    out[#out + 1] = name
+  end
+  return out
+end
+
+--- What an example file (its text) says about `name`, a name a shown
+--- example lacks: if a top-level helper declares it, it was too long
+--- to carry (`build.analyzer`); if `name` is `Example` and a helper
+--- calls `Example.x`, the copy has no such table. Nil for any other.
+local function helper_trouble(file: string, name: string): string | nil
+  local helper = ""
+  local sibling: string = nil
   for line in file:gmatch("[^\n]+") do
-    for _, keyword in ipairs({ "function", "record", "type", "enum", "interface" }) do
-      if line:match("^local " .. keyword .. " " .. name .. "%f[^%w_]") ~= nil then
-        return true
+    local declared = declared_names(line)
+    if #declared > 0 then
+      helper = declared[1]
+      for _, each in ipairs(declared) do
+        if each == name then
+          return "uses helper " .. name .. ", too long to carry: inline it"
+        end
+      end
+    elseif line:match("^%S") ~= nil and line:match("^end") == nil
+        and line:match("^[})%]]") == nil then
+      helper = ""
+    end
+    if helper ~= "" and name == "Example" and sibling == nil then
+      sibling = line:match("Example%.([%w_]+)")
+      if sibling ~= nil then
+        return "helper " .. helper .. " calls Example." .. sibling ..
+          ", which a copy does not carry"
       end
     end
-    if line:match("^local " .. name .. "%f[^%w_]") ~= nil then
-      return true
-    end
   end
-  return false
+  return nil
 end
 
 --- Every public example's rendered source, compiled as it is copied.
@@ -110,14 +149,12 @@ local function examples(db: Sqlite.Handle, built: compiler,
     local told: {string: boolean} = {}
     for _, line in ipairs(problems(built, env, where, chunk(row[3], row[4]))) do
       local name = unknown_name(line)
-      if name ~= nil and declares_helper(file, name) then
-        if not told[name] then
-          told[name] = true
-          out[#out + 1] = where .. ": uses helper " .. name ..
-            ", too long to carry: inline it"
-        end
-      else
+      local said = name ~= nil and helper_trouble(file, name) or nil
+      if said == nil then
         out[#out + 1] = line
+      elseif not told[said] then
+        told[said] = true
+        out[#out + 1] = where .. ": " .. said
       end
     end
   end

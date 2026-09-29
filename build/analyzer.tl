@@ -907,22 +907,88 @@ local function block_text(lines: {string}, y: integer, x: integer,
   return table.concat(parts, "\n")
 end
 
---- Whether `word` appears in `code` as a whole identifier, not inside a
---- longer name.
-local function mentions(code: string, word: string): boolean
-  local from = 1
-  while true do
-    local at, to = code:find(word, from, true)
-    if at == nil then
-      return false
+--- The field that points back up the tree, never followed.
+local back_up: {string: boolean} = { if_parent = true }
+
+--- Every name the code under `root` refers to, as `used`: the free
+--- variables of its expressions (a name bound by a `local`, a
+--- parameter or a loop variable in scope is no reference to a file's
+--- own declaration, and neither is a word in a string or a comment)
+--- and the first name of each type it writes (`Release` in
+--- `x: Release`, `Fs` in `Fs.Stat`). Scoping follows the blocks
+--- `references_of` does; a type's name is not scoped, since a local
+--- rarely shadows a type.
+local function uses_of(root: ast.Node, used: {string: boolean})
+  local scopes: {{string: boolean}} = { {} }
+  local function bound(name: string): boolean
+    for at = #scopes, 1, -1 do
+      if scopes[at][name] then return true end
     end
-    local before = at > 1 and code:sub(at - 1, at - 1) or ""
-    local after = code:sub(to + 1, to + 1)
-    if before:match("[%w_]") == nil and after:match("[%w_]") == nil then
-      return true
-    end
-    from = to + 1
+    return false
   end
+  local function bind(name: string | nil)
+    if name ~= nil then scopes[#scopes][name] = true end
+  end
+  local walk: function(ast.Node)
+  local function walk_all(list: ast.Node | nil)
+    if list ~= nil then walk(list) end
+  end
+  walk = function(n: ast.Node)
+    local kind = n.kind
+    if kind == "variable" then
+      if n.tk ~= nil and not bound(n.tk) then used[n.tk] = true end
+    elseif kind == "local_declaration" then
+      walk_all(n.exps)
+      for _, var in ipairs(n.vars or {}) do bind(var.tk) end
+    elseif kind == "local_type" then
+      bind(n.var ~= nil and n.var.tk or nil)
+    elseif kind == "local_function" or kind == "record_function"
+        or kind == "global_function" or kind == "function" then
+      if kind == "local_function" and n.name ~= nil then bind(n.name.tk) end
+      scopes[#scopes + 1] = {}
+      for _, parameter in ipairs(n.args or {}) do bind(parameter.tk) end
+      walk_all(n.body)
+      scopes[#scopes] = nil
+    elseif kind == "fornum" or kind == "forin" then
+      walk_all(n.from)
+      walk_all(n.to)
+      walk_all(n.step)
+      walk_all(n.exps)
+      scopes[#scopes + 1] = {}
+      bind(n.var ~= nil and n.var.tk or nil)
+      for _, var in ipairs(n.vars or {}) do bind(var.tk) end
+      walk_all(n.body)
+      scopes[#scopes] = nil
+    elseif kind == "repeat" then
+      -- Lua keeps the body's locals in scope through `until`.
+      scopes[#scopes + 1] = {}
+      for _, stmt in ipairs(n.body or {}) do walk(stmt) end
+      walk_all(n.exp)
+      scopes[#scopes] = nil
+    elseif kind == "statements" then
+      scopes[#scopes + 1] = {}
+      for _, stmt in ipairs(n) do walk(stmt) end
+      scopes[#scopes] = nil
+    else
+      for _, child in ipairs(ast.children(n, back_up)) do walk(child) end
+    end
+  end
+  walk(root)
+  -- Types hang off nodes as tables of their own (a `TypeNode`); any
+  -- table below `root` that is a nominal type names its first part.
+  local seen: {any: boolean} = {}
+  local function types(value: any)
+    if not (value is {any: any}) or seen[value] then return end
+    seen[value] = true
+    local names = value.names
+    if value.typename == "nominal" and names is {string} and names[1] ~= nil then
+      used[names[1]] = true
+    end
+    for key, child in pairs(value) do
+      if key ~= "if_parent" then types(child) end
+    end
+  end
+  types(root)
 end
 
 --- A file-local declaration an example may use: a `local function`,
@@ -933,6 +999,7 @@ local record Helper
   names: {string}
   code: string
   lines: integer
+  node: ast.Node
 end
 
 --- The longest helper an example carries above its function, in lines,
@@ -950,6 +1017,7 @@ local MAX_HELPER_TOTAL <const> = 30
 local record Preamble
   requires: {{string}}
   calls: {string}
+  call_nodes: {ast.Node}
   helpers: {Helper}
 end
 
@@ -979,7 +1047,7 @@ local function leftmost(stmt: ast.Node): ast.Node
 end
 
 local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
-  local out: Preamble = { requires = {}, calls = {}, helpers = {} }
+  local out: Preamble = { requires = {}, calls = {}, call_nodes = {}, helpers = {} }
   for index, stmt in ipairs(nodes) do
     local after = nodes[index + 1]
     local next_start = after ~= nil and leftmost(after) or nil
@@ -1014,7 +1082,8 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
         end
       end
       local first = stmt.y
-      while first > 1 and lines[first - 1]:match("^%-%-") ~= nil do
+      -- Only `---` doc lines go with it: a `--` note is the author's.
+      while first > 1 and lines[first - 1]:match("^%-%-%-") ~= nil do
         first = first - 1
       end
       local code = own_text(block_text(lines, first, 1, until_y, until_x))
@@ -1026,12 +1095,13 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
       end
       if plain and not is_require then
         local _, breaks = code:gsub("\n", "\n")
-        out.helpers[#out.helpers + 1] = { names = names, code = code, lines = breaks + 1 }
+        out.helpers[#out.helpers + 1] = { names = names, code = code, lines = breaks + 1, node = stmt }
       end
     elseif stmt.kind == "op" and stmt.op ~= nil and stmt.op.op == "@funcall" then
       local start = leftmost(stmt)
       local code = block_text(lines, start.y, start.x, until_y, until_x)
       out.calls[#out.calls + 1] = own_text(code)
+      out.call_nodes[#out.call_nodes + 1] = stmt
     end
   end
   return out
@@ -1045,12 +1115,16 @@ end
 --- calls (a `Test.needs{...}` a test module makes once, at its top) are
 --- carried by the file's first example, since they are not inside any
 --- example of their own.
-local function preamble_text(pre: Preamble, body: string, first: boolean): string
+local function preamble_text(pre: Preamble, body_node: ast.Node, first: boolean): string
   local calls: {string} = {}
   if first then
     calls = pre.calls
   end
-  local wanted = body .. "\n" .. table.concat(calls, "\n")
+  local used: {string: boolean} = {}
+  uses_of(body_node, used)
+  if first then
+    for _, node in ipairs(pre.call_nodes) do uses_of(node, used) end
+  end
   -- Helpers the body names, and those they name in turn, until no
   -- more is asked for. One too long to carry is left out, and so is
   -- what only it names.
@@ -1063,11 +1137,11 @@ local function preamble_text(pre: Preamble, body: string, first: boolean): strin
     for at, helper in ipairs(pre.helpers) do
       if not carried[at] and not refused[at] then
         for _, name in ipairs(helper.names) do
-          if not carried[at] and not refused[at] and mentions(wanted, name) then
+          if not carried[at] and not refused[at] and used[name] then
             if helper.lines <= MAX_HELPER_LINES and total + helper.lines <= MAX_HELPER_TOTAL then
               carried[at] = true
               total = total + helper.lines
-              wanted = wanted .. "\n" .. helper.code
+              uses_of(helper.node, used)
               changed = true
             else
               refused[at] = true
@@ -1079,7 +1153,7 @@ local function preamble_text(pre: Preamble, body: string, first: boolean): strin
   end
   local out: {string} = {}
   for _, required in ipairs(pre.requires) do
-    if mentions(wanted, required[1]) then
+    if used[required[1]] then
       out[#out + 1] = required[2]
     end
   end
@@ -1127,7 +1201,7 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.Examp
         local body = own_text(block_text(lines, stmt.y, stmt.x, until_y, until_x))
         out[#out + 1] = { name = tk,
           text = doc_before(lines, stmt.comments, stmt.y),
-          source = preamble_text(pre, body, #out == 0) .. body,
+          source = preamble_text(pre, stmt, #out == 0) .. body,
           line = stmt.y }
       end
     end
@@ -1193,9 +1267,6 @@ local function invalidate(scopes: Scopes, name: string)
     end
   end
 end
-
---- The field that points back up the tree, never followed.
-local back_up: {string: boolean} = { if_parent = true }
 
 --- The module `call` names when it is `require("<module>")`, a call
 --- of `require` on one string literal; nil for any other expression.

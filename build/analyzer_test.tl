@@ -1548,3 +1548,72 @@ local function test_a_long_helper_is_not_carried()
   local found = examples(source)
   assert(found[1].source == "function Example.read()\n  print(long())\nend", found[1].source)
 end
+
+--- A helper is carried by a free name of the body alone: a body-local
+--- of the same name, a word in a string and one in a comment carry
+--- nothing, and neither does a plain `--` note above a carried helper.
+local function test_helpers_are_carried_by_free_names_only()
+  local found = examples(lines({
+    "local function text(): string",
+    "  return \"x\"",
+    "end",
+    "",
+    "local function quoted(): string",
+    "  return \"y\"",
+    "end",
+    "",
+    "local function noted(): string",
+    "  return \"z\"",
+    "end",
+    "",
+    "-- TODO: a note that stays in the file.",
+    "--- Really used.",
+    "local function used(): string",
+    "  return \"u\"",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local text = \"mine\"",
+    "  -- noted() is only in this comment",
+    "  print(text, \"quoted()\", used())",
+    "end",
+  }))
+  assert(found[1].source == lines({
+    "--- Really used.",
+    "local function used(): string",
+    "  return \"u\"",
+    "end",
+    "",
+    "function Example.read()",
+    "  local text = \"mine\"",
+    "  -- noted() is only in this comment",
+    "  print(text, \"quoted()\", used())",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A name that is bound before the helper's name would be read, in a
+--- nested function's parameter, does not carry the helper either; a
+--- multi-name `local` is carried whole.
+local function test_a_parameter_shadows_a_helper_and_a_multi_name_local_is_whole()
+  local found = examples(lines({
+    "local A <const>, B <const> = 1, 2",
+    "",
+    "local function shadowed(): string",
+    "  return \"s\"",
+    "end",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "function Example.read()",
+    "  local f = function(shadowed: string): string return shadowed end",
+    "  print(f(\"a\"), B)",
+    "end",
+  }))
+  assert(found[1].source:find("^local A <const>, B <const> = 1, 2\n\nfunction Example%.read"),
+    found[1].source)
+end
