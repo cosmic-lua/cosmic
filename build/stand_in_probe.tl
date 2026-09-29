@@ -287,7 +287,7 @@ local verbs: {string:function(string, string): integer} = {
     return put_all(1, value ~= nil and name .. "=" .. value .. "\n" or name .. " unset\n")
   end,
   connect = function(path: string): integer
-    local conn, trouble = Net.connect(Net.unix(path))
+    local conn, trouble = Net.connect(Net.unix(path), { timeout_ms = 5000 })
     if conn == nil then return put_all(1, trouble .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")

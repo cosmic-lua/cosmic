@@ -45,24 +45,26 @@ struct target {
 };
 
 /* The "tcp" address of the table at `index` in `*out`: 0, or EINVAL for
- * a host that is no numeric IPv4 or IPv6 address, which a caller may
- * meet at runtime (a name given where an address was meant). A host
- * that is no string, or a port outside 0 to 65535, raises. */
+ * a host that is no numeric IPv4 or IPv6 address -- a name, a NUL in
+ * it, an IPv6 scope -- which a caller may meet at runtime. A host that
+ * is no string, or a port that is no integer from 0 to 65535, raises. */
 static int tcp_address_of (lua_State *L, int index, struct target *out) {
   lua_getfield(L, index, "port");
-  int exact = 0;
-  lua_Integer port = lua_tointegerx(L, -1, &exact);
-  if (!exact || port < 0 || port > 65535) {
+  lua_Integer port = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : -1;
+  if (port < 0 || port > 65535) {
     return luaL_argerror(L, index, "port must be a whole number from 0 to 65535");
   }
   lua_pop(L, 1);
   lua_getfield(L, index, "host");
   if (lua_type(L, -1) != LUA_TSTRING) return luaL_argerror(L, index, "host must be a string");
-  const char *host = lua_tostring(L, -1);
+  size_t size = 0;
+  const char *host = lua_tolstring(L, -1, &size);
   struct sockaddr_in *v4 = (struct sockaddr_in *)&out->address;
   struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->address;
   int failure = 0;
-  if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+  if (strlen(host) != size) {
+    failure = EINVAL;
+  } else if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
     v4->sin_family = AF_INET;
     v4->sin_port = htons((uint16_t)port);
     out->length = (socklen_t)sizeof *v4;
@@ -257,25 +259,31 @@ static int paused (int64_t deadline, int64_t *pause) {
   return cosmic_signal_caught() ? EINTR : 0;
 }
 
+/* Waits until `fd` has `events`, in slices: 0 once it has, ETIMEDOUT
+ * once `deadline` has passed, EINTR once a guard has caught a signal,
+ * or why poll failed. */
+static int ready (int fd, short events, int64_t deadline) {
+  for (;;) {
+    if (cosmic_signal_caught()) return EINTR;
+    int left = slice(deadline);
+    struct pollfd watched = { fd, events, 0 };
+    int found = poll(&watched, 1, left);
+    if (found > 0) return 0;
+    if (found < 0 && errno != EINTR) return errno;
+    if (found == 0 && left == 0) return ETIMEDOUT;
+  }
+}
+
 /* Waits for the connection `fd` has in progress to be made or refused,
  * in slices as `paused` does: 0 once made, its failure (SO_ERROR) once
  * refused, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
  * caught a signal. */
 static int settled (int fd, int64_t deadline) {
-  for (;;) {
-    if (cosmic_signal_caught()) return EINTR;
-    int left = slice(deadline);
-    struct pollfd watched = { fd, POLLOUT, 0 };
-    int ready = poll(&watched, 1, left);
-    if (ready > 0) {
-      int failure = 0;
-      socklen_t size = sizeof failure;
-      if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) return errno;
-      return failure;
-    }
-    if (ready < 0 && errno != EINTR) return errno;
-    if (ready == 0 && left == 0) return ETIMEDOUT;
-  }
+  int failure = ready(fd, POLLOUT, deadline);
+  if (failure != 0) return failure;
+  socklen_t size = sizeof failure;
+  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) return errno;
+  return failure;
 }
 
 COSMIC_SYSCALL(listen, 2) {
@@ -286,8 +294,11 @@ COSMIC_SYSCALL(listen, 2) {
   if (failure != 0) return cosmic_fail(L, failure);
   int fd = stream_socket(target.address.ss_family);
   if (fd < 0) return cosmic_fail(L, errno);
+#if defined(__linux__)
   /* A port left in TIME_WAIT by a listener before this one is taken
-   * again, as every server does. */
+   * again, as every server does. Linux alone: on macOS the same option
+   * also lets a bind to one address take a port another socket holds
+   * on every address, and its traffic with it. */
   int on = 1;
   if (target.address.ss_family != AF_UNIX &&
       setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on) != 0) {
@@ -295,6 +306,7 @@ COSMIC_SYSCALL(listen, 2) {
     close(fd);
     return cosmic_fail(L, failure);
   }
+#endif
   failure = reach(fd, &target, true);
   if (failure == 0 && listen(fd, backlog) != 0) failure = errno;
   if (failure != 0) {
@@ -417,15 +429,9 @@ COSMIC_SYSCALL(wait, 3) {
   int fd = cosmic_checkfd(L, 1);
   int writable = lua_toboolean(L, 2);
   int64_t deadline = deadline_of(L, 3);
-  for (;;) {
-    if (cosmic_signal_caught()) return cosmic_fail_effect(L, EINTR);
-    int left = slice(deadline);
-    struct pollfd watched = { fd, writable ? POLLOUT : POLLIN, 0 };
-    int ready = poll(&watched, 1, left);
-    if (ready > 0) return cosmic_ok(L);
-    if (ready < 0 && errno != EINTR) return cosmic_fail_effect(L, errno);
-    if (ready == 0 && left == 0) return cosmic_fail_effect(L, ETIMEDOUT);
-  }
+  int failure = ready(fd, writable ? POLLOUT : POLLIN, deadline);
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  return cosmic_ok(L);
 }
 
 /* The table is filled from the header's own entries, as core/syscalls.c

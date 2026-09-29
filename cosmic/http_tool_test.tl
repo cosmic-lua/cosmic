@@ -53,6 +53,11 @@ local function test_a_cert_file_holding_no_certificates_is_passed_over(tmp: stri
   end
 end
 
+--- A caught signal ending a wait on a stalled connection is tested here,
+--- not in cosmic/http_test.tl: the scripted transport closes after its
+--- reply, and a server that stalls runs beside a blocking client only in
+--- a process of its own.
+---
 --- A client of this program running `body`, a standalone script's
 --- function of its arguments, against a local server that stalls: once
 --- the client has written `marker`, which it does just before the call

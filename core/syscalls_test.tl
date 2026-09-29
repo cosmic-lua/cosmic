@@ -662,9 +662,10 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
       return said
     end
     local socket = tmp .. "/none.sock: "
-    assert(connected({}) == socket .. "Operation not permitted\n", connected({}))
-    assert(connected({ "unix" }) == socket .. "No such file or directory\n",
-      connected({ "unix" }))
+    local unpromised = connected({})
+    assert(unpromised == socket .. "Operation not permitted\n", unpromised)
+    local promised = connected({ "unix" })
+    assert(promised == socket .. "No such file or directory\n", promised)
   end
 end
 

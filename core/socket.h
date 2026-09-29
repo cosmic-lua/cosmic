@@ -39,14 +39,14 @@ int cosmic_open_socket (lua_State *L);
 /*
  * --- Where a socket is, read by its `kind`.
  * ---@class Address
- * ---@field kind string "unix", a socket file named by `path`, or "tcp", a TCP port of a host's
+ * ---@field kind string "unix", a socket file named by `path`, or "tcp", a TCP `port` of a `host`
  * ---@field path string the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes, which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
- * ---@field host string the host's numeric IPv4 or IPv6 address, for "tcp": a name is not looked up, and fails with EINVAL
+ * ---@field host string the host's numeric IPv4 or IPv6 address, for "tcp": a name is not looked up, nor an IPv6 scope read, and either fails with EINVAL, as a NUL in it does
  * ---@field port integer the port, for "tcp", from 0 to 65535: 0 to listen at a port the kernel chooses, which `bound` then names
  */
 
 /*
- * --- Makes a stream socket listening at an address. A unix one is a new socket file: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and the file made is left for the caller to remove. A TCP one takes a port left in TIME_WAIT (SO_REUSEADDR), and fails with EADDRINUSE on one a listener holds.
+ * --- Makes a stream socket listening at an address. A unix one is a new socket file: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and the file made is left for the caller to remove. A TCP one fails with EADDRINUSE on a port a listener holds; on Linux it takes one left in TIME_WAIT (SO_REUSEADDR), where macOS refuses it until TIME_WAIT ends.
  * ---@param address Address where to listen
  * ---@param backlog integer how many connections may wait to be accepted, from 1
  * ---@return integer|nil fd the listening descriptor, or nil on failure

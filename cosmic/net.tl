@@ -59,7 +59,8 @@ local record Net
     --- too long", naming the bound, rather than naming another file.
     path: string
     --- For "tcp": the host's numeric IPv4 or IPv6 address ("127.0.0.1",
-    --- "::1"). A name is not looked up, and fails "Invalid argument".
+    --- "::1"). A name is not looked up, nor an IPv6 scope ("%lo") read:
+    --- either fails "Invalid argument".
     host: string
     --- For "tcp": the port, from 0 to 65535. A listener at 0 is at a
     --- port the kernel chose, which its `address` names.
@@ -166,7 +167,8 @@ local function said(trouble: string, errno: integer, address?: Net.Address): str
       raw.SOCKET_NAME_MAX .. " bytes here)"
   end
   if errno == raw.EINVAL and address ~= nil and address.kind == "tcp" then
-    return trouble .. " (a host is a numeric IPv4 or IPv6 address; a name is not looked up)"
+    return trouble .. " (not a numeric IPv4 or IPv6 address: a name is not looked up, " ..
+      "nor an IPv6 scope read)"
   end
   return trouble
 end

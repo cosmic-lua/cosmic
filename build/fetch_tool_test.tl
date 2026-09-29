@@ -1,6 +1,7 @@
 --- `cosmic fetch` run as this program: no verdict line, exit 2 for a
---- refused command line and 1 for a fetch that fails, all offline (a
---- closed local port). The fetches themselves are in `fetch_test.tl`.
+--- refused command line and 1 for a fetch that fails, and a download
+--- interrupted by a signal, all offline on the loopback. The fetches
+--- themselves are in `fetch_test.tl`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -43,8 +44,7 @@ end
 --- The verb's own interrupt wiring, run as a process: a `Child.guard`,
 --- `Http.download` asking it between chunks, the guard closed after. The
 --- interrupt is sent from inside the download (its second ask, so a
---- chunk is already written), which makes it deterministic where a timed
---- kill of a slow server would not be.
+--- chunk is already written); the next test sends it from outside.
 local function test_an_interrupted_download_leaves_no_file_and_dies_of_the_signal(tmp: string)
   local fixture = tmp .. "/interrupted.tl"
   assert(Fs.write(fixture, [[

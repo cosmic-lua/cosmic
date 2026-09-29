@@ -904,11 +904,6 @@ local function test_a_caught_signal_ends_an_open_that_waits()
   assert(caught == sys.SIGINT, tostring(caught))
 end
 
--- A caught signal ending a body `read`, a streamed `write` and `close`
--- that wait on a stalled connection is cosmic/http_tool_test.tl's: the
--- scripted transport closes after its reply, and a server that stalls
--- runs beside a client only in a process of its own.
-
 local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local path = tmp .. "/two.bin"
   local s256 = Hash.hex_sha256("hello")
