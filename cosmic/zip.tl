@@ -13,8 +13,9 @@ local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
 
--- TODO: share one plural helper with build.plural once the library has an
--- internal Teal module to hold it: cosmic.* cannot require build.plural.
+-- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
+-- require build/, and a shared module under cosmic.internal would be
+-- reachable by any program's require; three lines copied is the lesser cost.
 local function counted(n: integer, singular: string, several?: string): string
   return n .. " " .. (n == 1 and singular or several or singular .. "s")
 end
