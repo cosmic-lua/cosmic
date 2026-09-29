@@ -10,6 +10,8 @@
 local Sqlite = require("cosmic.sqlite")
 
 local record symbols
+  guides: {string}
+  internal_guides: {string:string}
 end
 
 --- Whether a module is the public standard library's own: what a
@@ -31,13 +33,20 @@ end
 
 --- The user guides (`doc/guides/<name>.md`) a binary carries: the ones
 --- a reader of `cosmic docs` is meant to find. A guide about how the
---- runtime is built (`portable-runtime`) is left to the tree.
-local guides: {string} = { "command-line", "project", "quickstart" }
+--- runtime is built is left to the tree (`internal_guides`). Every
+--- guide is in one list or the other: `build.tree_checks` refuses a
+--- guide in neither, so a new one is never left out by mistake.
+symbols.guides = { "command-line", "project", "quickstart" }
+
+--- The guides a binary does not carry, each with its reason.
+symbols.internal_guides = {
+  ["portable-runtime"] = "how the release artifact is built, for those working on cosmic",
+}
 
 --- Whether a module is a user guide a public source answers for: the
 --- module a guide compiles as (`doc.guides.quickstart`).
 function symbols.is_public_guide(module: string): boolean
-  for _, name in ipairs(guides) do
+  for _, name in ipairs(symbols.guides) do
     if module == "doc.guides." .. name then
       return true
     end
@@ -49,7 +58,7 @@ end
 --- module (one of the user guides above).
 function symbols.guide_module(column: string): string
   local names: {string} = {}
-  for _, name in ipairs(guides) do
+  for _, name in ipairs(symbols.guides) do
     names[#names + 1] = "'doc.guides." .. name .. "'"
   end
   return column .. " IN (" .. table.concat(names, ", ") .. ")"

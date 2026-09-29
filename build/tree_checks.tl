@@ -871,6 +871,30 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string | nil): {string
   return out
 end
 
+--- Every `doc/guides/*.md` is either a user guide, which the binary
+--- carries (`symbols.guides`), or one named in `symbols.internal_guides`
+--- with its reason. A guide in neither would silently not ship.
+function tree_checks.guides(db: Sqlite.Handle): {string}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path FROM modules WHERE path GLOB 'doc.guides.*' ORDER BY path")
+  if rows == nil then
+    return { "reading the guides: " .. trouble }
+  end
+  local known: {string: boolean} = {}
+  for _, name in ipairs(symbols.guides) do known[name] = true end
+  for name in pairs(symbols.internal_guides) do known[name] = true end
+  local out: {string} = {}
+  for _, row in ipairs(rows) do
+    local name = row[1]:sub(#"doc.guides." + 1)
+    if not known[name] then
+      out[#out + 1] = "doc/guides/" .. name .. ".md is in neither `symbols.guides` nor " ..
+        "`symbols.internal_guides` (build/symbols.tl): name it in one, so it ships or " ..
+        "is left out on purpose"
+    end
+  end
+  return out
+end
+
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
 function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil): {string}
@@ -884,6 +908,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil): {string}
     { name = "quieted", lines = tree_checks.quieted(db) },
     { name = "declarations", lines = tree_checks.declarations(db) },
     { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
+    { name = "guides", lines = tree_checks.guides(db) },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

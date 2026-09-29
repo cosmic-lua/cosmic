@@ -249,10 +249,13 @@ function generate.prose(source: string): string
   local fence: string | nil = nil
   local titled = false
   for line in String.lines(source) do
+    -- A fence closes with the opener's own marker in a run at least as
+    -- long (`build.doctest.markdown`).
     local marker = line:match("^%s*([`~][`~][`~]+)")
     if fence == nil and marker ~= nil then
-      fence = marker:sub(1, 1)
-    elseif fence ~= nil and marker ~= nil and marker:sub(1, 1) == fence then
+      fence = marker
+    elseif fence ~= nil and marker ~= nil and marker:sub(1, 1) == fence:sub(1, 1) and
+        #marker >= #fence and line:match("^%s*[`~]+%s*$") ~= nil then
       fence = nil
     end
     if fence ~= nil or marker ~= nil then

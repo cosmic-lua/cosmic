@@ -128,9 +128,6 @@ hello big world
 
 ## the verbs
 
-Each verb builds the project's tree, the root's, wherever inside it
-you run the verb.
-
 ```text
 cosmic fix                          format every file, and check it parses
 cosmic test                         run every test and example
@@ -146,7 +143,7 @@ skips one whose code and inputs have not changed since it last passed.
 build` writes `o/bin/tally`, one file that runs on its own with nothing
 beside it, and `cosmic build cmd/tally` writes only that one. `cosmic
 docs` lists your own modules with the standard library's, and `cosmic
-docs tally.words` shows a function with the examples that call it.
+docs Tally.words` shows a function with the examples that call it.
 
 ## trying it
 
