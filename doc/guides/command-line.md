@@ -54,8 +54,11 @@ or `-h` anywhere on a verb's line, before a `--`, does the same.
 ```teal
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 
+-- Run it outside any tree, so no build is involved.
+local dir = assert(Fs.mkdtemp("help-"))
 local relaunch = assert(Proc.relaunch())
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
@@ -63,7 +66,8 @@ local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "help"
 argv[#argv + 1] = "db"
 local result = assert(Child.run(argv,
-  { env = env, fds = relaunch.fds, stdout = "capture", timeout_ms = 10000 }))
+  { env = env, fds = relaunch.fds, cwd = dir, stdout = "capture", timeout_ms = 10000 }))
+assert(Fs.remove_tree(dir))
 local out = result.stdout or ""
 print(out:match("^`cosmic db[^`]*`"))
 local verbs = 0
