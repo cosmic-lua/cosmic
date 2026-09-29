@@ -218,11 +218,11 @@ end
 --- scratch directory is left alone.
 -- TODO: judge a scratch directory's owner by a lock it holds rather than
 -- its pid, and name the directory by something no pid namespace
--- repeats, once cosmic.sys carries flock: a process confined in a pid
--- namespace of its own (core/process.h's `unveil`) sees none outside
--- it, so, given this cache to write, it would take a live one's
--- directory for gone, and two confined ones, each its namespace's pid
--- 2, would share one.
+-- repeats, once ci/cosmic-driver.pin names a release that carries
+-- sys.flock: a process confined in a pid namespace of its own
+-- (core/process.h's `unveil`) sees none outside it, so, given this
+-- cache to write, it would take a live one's directory for gone, and
+-- two confined ones, each its namespace's pid 2, would share one.
 function Zig.sweep(cache: string)
   local names, _ = Fs.list(cache)
   if names == nil then

@@ -399,6 +399,9 @@ end
 local type Note = function(kind: string, given: any, answer: string, resolved?: string)
 local noting: {Note} = {}
 
+--- What hears of each file SQLite opened (`observations.hear_sqlite`).
+local sqlite_hearers: {function(path: string)} = {}
+
 --- Notes each file SQLite opened or asked after since the last drain as
 --- an open by every running capture: it read them in C, through
 --- `cosmic.sqlite`'s VFS, past every binding of the syscall table. What a
@@ -414,6 +417,20 @@ local function drain_sqlite()
   for _, path in ipairs(sqlite.observed()) do
     local resolved = observations.resolution(path)
     for _, note in ipairs(noting) do note("o", path, "", resolved) end
+    for _, hear in ipairs(sqlite_hearers) do hear(path) end
+  end
+end
+
+--- Has `hear` hear each file SQLite opened that a drain takes, as it
+--- was named, until the function this answers is called: a sandboxed
+--- worker's record of what its sandbox refused (build.refusals), which
+--- sees no file SQLite opens past `cosmic.sqlite`'s `open`.
+function observations.hear_sqlite(hear: function(path: string)): function()
+  sqlite_hearers[#sqlite_hearers + 1] = hear
+  return function()
+    for at = #sqlite_hearers, 1, -1 do
+      if sqlite_hearers[at] == hear then table.remove(sqlite_hearers, at) break end
+    end
   end
 end
 

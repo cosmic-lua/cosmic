@@ -80,7 +80,12 @@
 --- variables, the network, processes no sandbox holds, the tool, the
 --- projection. `--audit` runs every test it chooses and names, module by
 --- module, whatever one read beyond them (`build.test_inputs`), with the
---- declaration that would hold it, and fails the run when any did.
+--- declaration that would hold it, and fails the run when any did:
+--- sandboxed, what its sandbox refused it, which is what it reads that
+--- its module does not declare (`build.refusals`), and unsandboxed, what
+--- `build.filesystem_observations` saw it read. A sandboxed test that
+--- fails on the first file it was refused is named for that one: once
+--- it is declared, an audit again names the next.
 --- Each worker runs sandboxed to them (`build.test_sandbox`), with the
 --- tree at /tree and its scratch directory beneath /tmp
 --- (`test_sandbox.scratch`), and so does every
@@ -1072,7 +1077,8 @@ end
 ---
 --- `tool` names the program running the tests, a read of which is a
 --- `tool` finding, as one of o/bin/cosmic is. `sandboxed` says the reads
---- were a sandboxed worker's. It found nothing of what it was not given,
+--- were a sandboxed worker's: what it was refused (`build.refusals`),
+--- where the host has each path. It found nothing of what it was not given,
 --- so a read that found nothing is judged by what the host has there
 --- instead; and its environment is only what its module declares, so a
 --- read of all of it, by a process started with the worker's own, is no
@@ -2430,6 +2436,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   -- What the records keep: a skip is no pass.
   local kept_pass = passed and skipped == ""
   local reads: {observations.Observation} = {}
+  -- What the audit, and a sandboxed test's failure, judge: what a
+  -- sandboxed worker was refused (build.refusals), which is what it
+  -- read that its module does not declare, or what an unsandboxed one
+  -- read.
+  local judged_reads: {observations.Observation} = {}
   local elapsed = wall_ns
   local cacheable = false
   if reported ~= nil then
@@ -2440,13 +2451,25 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
         job.plan.kept, job.plan.made)
       reported.test_reads = test_sandbox.to_host(reported.test_reads, rec.root, job.scratch,
         job.plan.kept, job.plan.made)
+      judged_reads = test_sandbox.to_host(reported.refusals, rec.root, job.scratch,
+        job.plan.kept, job.plan.made)
     end
     reads = observations.join(reported.load_reads, reported.test_reads)
+    -- TODO: drop the unsandboxed audit, of what the observation log saw
+    -- a worker read, once that log goes (plan 4.2's PR 4): an audit then
+    -- needs a worker the kernel can sandbox, and says so where none can
+    -- be, as COSMIC_TEST_SANDBOX=1 does.
+    if job.plan == nil then judged_reads = reads end
+    -- TODO: run a sandboxed test that failed again, given what it was
+    -- refused beyond its declarations, until it passes or is refused
+    -- nothing more, so that one audit names all it reads undeclared, not
+    -- what it met before its first failure, once `test_sandbox.plan` can
+    -- give a worker paths no declaration names.
     if rec.audit ~= nil then
       local by_test = rec.audit[job.m.path] or {}
       rec.audit[job.m.path] = by_test
-      by_test[job.name] = test.audited(rec.root, job.scratch, rec.effective[job.m.path], reads,
-        rec.tool, rec.sandbox)
+      by_test[job.name] = test.audited(rec.root, job.scratch, rec.effective[job.m.path],
+        judged_reads, rec.tool, job.plan ~= nil)
     end
     elapsed = reported.elapsed_ns
     cacheable = reported.loaded and not rec.keyed and
@@ -2524,8 +2547,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     -- Sandboxed, a read of what the module does not declare found
     -- nothing: name each, and the declaration that would give it.
     rec.tool = rec.tool or confine.itself()
-    local findings = test.audited(rec.root, job.scratch, rec.effective[job.m.path], reads,
-      rec.tool, true)
+    local findings = test.audited(rec.root, job.scratch, rec.effective[job.m.path],
+      judged_reads, rec.tool, true)
     local lines = test_inputs.report(job.m, { [job.name] = findings })
     if #lines > 0 then
       message = message .. "\n  sandboxed, it read what its module does not declare:"
@@ -3605,10 +3628,12 @@ local function run(argv: {integer:string}): integer
         -- TODO: key every unsandboxed run by its declared inputs, as
         -- COSMIC_TEST_KEY=declared does, and retire the switch with
         -- `standing`, `assumable`, `identity_of` and `test.verdict_key`,
-        -- once --audit finds what a test reads undeclared by other means
-        -- than build.filesystem_observations' log (a sandbox that logs
-        -- what it refuses): today a run not given it is keyed by what it
-        -- was seen to read, and shares no verdict.
+        -- once CI's fixtures run sandboxed, sharing verdicts (plan 4.1),
+        -- and every hole plan 3.1 names is closed or accepted (M3):
+        -- --audit already finds what a sandboxed test reads undeclared
+        -- from what its sandbox refused it (build.refusals), past
+        -- build.filesystem_observations' log. Today a run not given it is
+        -- keyed by what it was seen to read, and shares no verdict.
         -- Forced (--all, COSMIC_TEST_ALL or an audit), it runs whatever
         -- stands, as a keyed test does.
         local stood, reads, key: test.Verdict, {observations.Observation}, string = nil, nil, nil

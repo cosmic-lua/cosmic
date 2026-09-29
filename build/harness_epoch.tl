@@ -56,7 +56,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = 7
+harness_epoch.epoch = 8
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
@@ -67,7 +67,7 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "8beec2912c9583fe4d30987adc85c146c718272a9407ae6ac6ce38ec3b74306c",
 
-  ["build.confine"] = "539edaae58c45eb352c27691d5c771167cb5c64a2a833c205f7b45aaa28ecb50",
+  ["build.confine"] = "b4ab5b3448e320ba28831eaa258d12b6d3e194614765e0ee51aa3d186cb2e885",
 
   ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
 
@@ -75,7 +75,7 @@ harness_epoch.acknowledged = {
 
   ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
 
-  ["build.filesystem_observations"] = "f2fa54f04186073b0908ce7ddbdae36827a7942796d7f886f04c34f85ecaed3e",
+  ["build.filesystem_observations"] = "18e948ed2f53e41b3ea5c1daae9de045feede780f4606c8521dc3569838425a6",
 
   ["build.key_parts"] = "2f2ce8af4d238b79db14c11fb27dadba90c608885ca1c3044292de6632169b98",
 
@@ -83,17 +83,19 @@ harness_epoch.acknowledged = {
 
   ["build.plural"] = "52aa9695f4dffc58d017a83027ef65807b8d22b794b6d286a82ab70009250e69",
 
+  ["build.refusals"] = "10cc00599608ddebac5839ae63e43ebfb3a7de2703ec475e400fc051fe10fcee",
+
   ["build.shared_sqlite"] = "d1a6f3376ebfb4eaa5b96a0bfd283e34e07a250f984f2f2e3b7f1fe978d18047",
 
   ["build.shared_verdicts"] = "614deb5514fd569cd3e438c28ea7551c0033ce100f2f42a91be3fc2945b9b06c",
 
-  ["build.test"] = "ad4263355ab4279d5ad425acd3b9b9edde921385c7368d296352f403e24bfa4b",
+  ["build.test"] = "8cd033b826b501eec3e829da0cd95fc865dc0e8c2fcb7a3f1e05ebb6586fcc01",
 
   ["build.test_inputs"] = "73600e0ad4cc72061f59bb556723015e07bc6f76345f6e405f4a8d4510b960aa",
 
   ["build.test_sandbox"] = "ada0359bd0e9c066a85a4281911cc048debafeca531a3eb86971026a225cbfe1",
 
-  ["build.test_worker"] = "8c598d4cc919e62ebd899c98802d9a29d1be2ec5fe3dd5171af3d442fae6ee0d",
+  ["build.test_worker"] = "41aa5af6578846176263f084532dd9c35d46917b53b48bb54b6ef2a17547d910",
 
   ["build.this_program"] = "543c40bf6abd96f03c599f91a873433d13a533ef19a6d6fca30085dc8b7c2265",
 
