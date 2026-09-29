@@ -10,9 +10,10 @@
 ---
 --- The list is empty, because the rules worth writing are lint fixes.
 ---
---- `build.ast.rewrite` refuses any single hit that would drop a comment
---- and reports it in `RewriteResult.refused` instead of applying it.
--- TODO: add rules here once lint rules exist.
+--- `build.ast.rewrite` refuses any single hit that would drop a comment.
+--- `apply` fails on such a hit, naming the rule, the line and the
+--- comments, so the file is reported and left as it was rather than
+--- half fixed with nothing said.
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
@@ -32,10 +33,9 @@ local rules: {Rule} = {}
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string
 --- @param name string Filename used in diagnostics
---- @return string|nil The rewritten source, or nil when a rule failed
+--- @return string|nil The rewritten source, or nil when a rule failed or
+--- had a hit refused
 --- @return string Error message on failure
--- TODO: report `result.refused`. As it is, a hit `ast.rewrite` refuses
--- for a comment it would drop is skipped and nothing says so.
 local function apply(built: compiler, source: string,
                      name: string): string | nil, string
   local out = source
@@ -47,6 +47,16 @@ local function apply(built: compiler, source: string,
     local result, trouble = ast.rewrite(built, out, name, pattern, r.replacement)
     if result == nil then
       return nil, r.name .. ": " .. trouble
+    end
+    if #result.refused > 0 then
+      local said: {string} = {}
+      -- `refused` runs last hit first; report in source order.
+      for i = #result.refused, 1, -1 do
+        local refusal = result.refused[i]
+        said[#said + 1] = "line " .. ast.span_start(refusal.node).y ..
+          " would drop " .. table.concat(refusal.comments, ", ")
+      end
+      return nil, r.name .. ": hit refused, " .. table.concat(said, "; ")
     end
     out = result.code
   end
