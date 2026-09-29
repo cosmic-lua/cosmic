@@ -21,6 +21,13 @@ local Hash = require("cosmic.hash")
 local Compress = require("cosmic.compress")
 local sys = require("cosmic.sys")
 
+-- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
+-- require build/, and a shared module under cosmic.internal would be
+-- reachable by any program's require; three lines copied is the lesser cost.
+local function counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+end
+
 local record Stream
   interface Reader
     read: function(Reader, max?: integer): string | nil, string
@@ -350,8 +357,8 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): string | nil, str
     local chunk, trouble = reader:read(n - got)
     if chunk == nil then
       if trouble ~= "" then return nil, trouble end
-      return nil, "unexpected end of stream: wanted " .. tostring(n) ..
-        " bytes, got " .. tostring(got)
+      return nil, "unexpected end of stream: wanted " .. counted(n, "byte") ..
+        ", got " .. tostring(got)
     end
     parts[#parts + 1] = chunk
     got = got + #chunk
@@ -373,7 +380,7 @@ function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
     local chunk, trouble = reader:read(want)
     if chunk == nil then
       if trouble ~= "" then return false, trouble end
-      return false, "unexpected end of stream: skipping " .. tostring(n) .. " bytes"
+      return false, "unexpected end of stream: skipping " .. counted(n, "byte")
     end
     left = left - #chunk
   end
@@ -477,7 +484,7 @@ function Stream.lines(reader: Stream.Reader, max?: integer): Stream.Lines
     chunk, at, parts, held = "", 1, {}, 0
     return nil, failed
   end
-  local too_long = "stream: a line is longer than " .. tostring(limit) .. " bytes"
+  local too_long = "stream: a line is longer than " .. counted(limit, "byte")
   local lines: Stream.Lines = {}
   lines.read = function(_self: Stream.Lines): string | nil, string
     if failed ~= "" then return nil, failed end

@@ -19,6 +19,13 @@ local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
+-- A copy of build.plural's count, kept here on purpose. cosmic.* cannot
+-- require build/, and a shared module under cosmic.internal would be
+-- reachable by any program's require; three lines copied is the lesser cost.
+local function counted(n: integer, singular: string, several?: string): string
+  return n .. " " .. (n == 1 and singular or several or singular .. "s")
+end
+
 local record Time
   --- A moment as a calendar names it: UTC's, or a zone's local time.
   record Civil
@@ -719,8 +726,8 @@ local function parse_tzif(data: string): Rules | nil, string
   end
   local length = times * (size + 1) + types * 6 + chars + isstd + isut
   if at + length - 1 > #data then
-    return nil, ("truncated: the data block at byte %d needs %d bytes, and %d remain"):format(at,
-      length, #data - at + 1)
+    return nil, ("truncated: the data block at byte %d needs %s, and %d remain"):format(at,
+      counted(length, "byte"), #data - at + 1)
   end
 
   local transitions: {integer} = {}
@@ -809,7 +816,7 @@ local function parse_tzif(data: string): Rules | nil, string
     at = close + 1
   end
   if at <= #data then
-    return nil, ("%d bytes past the end, at byte %d"):format(#data - at + 1, at)
+    return nil, ("%s past the end, at byte %d"):format(counted(#data - at + 1, "byte"), at)
   end
   return rules, ""
 end
@@ -1344,7 +1351,7 @@ end
 local function field(text: string, at: integer, count: integer, name: string): integer | nil, string
   local n = digits_at(text, at, count)
   if n == nil then
-    return nil, ("%s: expected %d digits at byte %d"):format(name, count, at)
+    return nil, ("%s: expected %s at byte %d"):format(name, counted(count, "digit"), at)
   end
   return n, ""
 end
@@ -1740,7 +1747,7 @@ function Time.parse_duration(text: string): Time.Duration | nil, string
       return nil, ("expected a number at byte %d of the duration"):format(at)
     end
     if #digits > 9 then
-      return nil, ("the number at byte %d has %d digits: at most 9"):format(at, #digits)
+      return nil, ("the number at byte %d has %s: at most 9"):format(at, counted(#digits, "digit"))
     end
     local number = digits_at(text, at, #digits)
     at = at + #digits

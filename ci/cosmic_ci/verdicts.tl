@@ -3,9 +3,11 @@
 --- (build/shared_verdicts.tl in the candidate), which ci.yml restores
 --- before the leg's suites and saves after them. It holds `verdicts.db`,
 --- the native suite's; `portable.db` beside it, the portable suite's;
---- or, in ci.yml's checked job, which runs no other suite, `checked.db`
---- alone, the checked suite's (COSMIC_CI_CHECKED_SUITE;
---- cosmic_ci/orchestration.tl's `suite_verdicts`).
+--- `fixtures.db`, the sandboxed fixtures' (cosmic_ci/orchestration.tl's
+--- `sandboxed_fixtures`); or, in ci.yml's checked job, which runs no
+--- other suite, `checked.db` alone, the checked suite's
+--- (COSMIC_CI_CHECKED_SUITE; cosmic_ci/orchestration.tl's
+--- `suite_verdicts`).
 ---
 --- A file bounds itself at 8192 rows and thirty days, some 3 KB a row
 --- (the lines each test hit, deflated, most of it), and SQLite keeps
@@ -23,14 +25,15 @@
 ---
 --- A file none of whose rows the run reached (the portable suite's, on
 --- a run that has none, or on a leg that skips it,
---- COSMIC_CI_PORTABLE_SUITE) keeps them all: that is no sign they are
---- dead. Like the suites, which never fail over the cache, a trim that
+--- COSMIC_CI_PORTABLE_SUITE; the fixtures', on a run whose scope runs
+--- none) keeps them all: that is no sign they are dead. Like the suites, which never fail over the cache, a trim that
 --- cannot read it never fails the leg (cosmic_ci/cache_trim.tl).
 
 local CacheTrim = require("cosmic_ci.cache_trim")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Plural = require("cosmic_ci.plural")
 
 local record Verdicts
 end
@@ -101,7 +104,7 @@ function Verdicts.command(argv: {string}, env: {string:string}): integer, string
   if #kept > 0 then
     local digest, trouble = CacheTrim.digest(kept)
     if trouble ~= "" then errs[#errs + 1] = "verdicts-trim: " .. trouble .. "\n" end
-    outs[#outs + 1] = "verdicts-trim: digest " .. digest .. " of " .. #kept .. " caches\n"
+    outs[#outs + 1] = "verdicts-trim: digest " .. digest .. " of " .. Plural.count(#kept, "cache") .. "\n"
     local unsaid = CacheTrim.output(env, "digest", digest)
     if unsaid ~= "" then errs[#errs + 1] = "verdicts-trim: " .. unsaid .. "\n" end
   end
@@ -231,7 +234,7 @@ local function merge_file(from: string, into: string): string, string
         if not inserted then return false, insert_trouble end
         local after, after_trouble = counted(db, "SELECT count(*) FROM main." .. q)
         if after == nil then return false, after_trouble end
-        added[#added + 1] = (after - before) .. " rows to " .. name
+        added[#added + 1] = Plural.count(after - before, "row") .. " to " .. name
       end
     end
     local committed, commit_trouble = db:exec("COMMIT")

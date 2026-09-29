@@ -31,6 +31,7 @@
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
+local plural = require("build.plural")
 
 local type Node = ast.Node
 
@@ -153,7 +154,7 @@ local function same_comments(before: {compiler.Token},
                              after: {compiler.Token}): boolean, string
   local was, now = comments(before), comments(after)
   if #was ~= #now then
-    return false, "had " .. #was .. " comments, now has " .. #now
+    return false, "had " .. plural.count(#was, "comment") .. ", now has " .. #now
   end
   for i, text in ipairs(was) do
     if now[i] ~= text then

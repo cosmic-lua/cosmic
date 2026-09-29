@@ -32,8 +32,9 @@ end
 
 local chunk_size = 1 << 16
 
---- The whole of a file as bytes. Use this for the common io.open/io.read or
---- io.lines case when streaming and Lua file handles are unnecessary.
+--- Reads the whole of a file as bytes, loading it in one call. Use this for
+--- the common io.open/io.read or io.lines case when streaming and Lua file
+--- handles are unnecessary.
 function Fs.read(path: string): string | nil, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
@@ -194,9 +195,9 @@ function Fs.mkdirs(path: string): boolean, string
   return false, path .. ": " .. why
 end
 
---- A fresh, empty directory under the system temp directory, named with
---- `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the temp
---- directory when it is set, and `/tmp` otherwise.
+--- A fresh, empty temporary directory under the system temp directory,
+--- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
+--- temp directory when it is set, and `/tmp` otherwise.
 function Fs.mkdtemp(prefix: string): string | nil, string
   local base = Env.get_or("TMPDIR", "/tmp")
   local template = base .. "/" .. prefix .. "XXXXXX"
@@ -642,6 +643,11 @@ local function copy_bytes(from: string, to: string): boolean, string
   return true, ""
 end
 
+-- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
+-- ino, dev and nlink; it needs a map from (dev, ino) to the first copy
+-- and a binding for link(2)), and the owner when run as root (once
+-- cosmic.sys carries lchown).
+
 --- Copies the tree at `from` to a new `to`, as `cp -Rp` does: each
 --- regular file's bytes, each directory, and each symbolic link as a link to the
 --- same target, never followed. Every permission bit is kept, the umask
@@ -653,10 +659,6 @@ end
 --- else in the tree (a device, a socket, a named pipe) stops the copy
 --- with its path, and a copy that stops leaves what it made so far in
 --- place.
--- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
--- ino, dev and nlink; it needs a map from (dev, ino) to the first copy
--- and a binding for link(2)), and the owner when run as root (once
--- cosmic.sys carries lchown).
 function Fs.copy_tree(from: string, to: string): boolean, string
   local present, present_trouble, number = sys.lstat(to)
   if present ~= nil then

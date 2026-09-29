@@ -57,7 +57,7 @@ local function describe(path: string): integer | nil, string
     is_table[row[1]] = true
   end
   local st, _ = Fs.stat(path)
-  log:say(path .. "  " .. (st ~= nil and st.size or 0) .. " bytes")
+  log:say(path .. "  " .. plural.count(st ~= nil and st.size or 0, "byte"))
   log:say("  " .. column("rows", 8) .. column("pages", 8) ..
     column("bytes", 10) .. column("payload", 10) .. "  name")
   for _, row in ipairs(sizes) do
@@ -94,8 +94,8 @@ local function builds(path: string): boolean, string
   end
   log:say("builds, latest first")
   for _, row in ipairs(rows) do
-    log:say("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. row[3] ..
-      " files staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
+    log:say("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. plural.count(math.tointeger(tonumber(row[3])) or 0, "file") ..
+      " staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
       row[6] .. " cached  " .. row[7])
   end
   return true, ""
@@ -323,7 +323,7 @@ local function run(argv: {integer:string}): integer
         local st, _ = Fs.stat(stores .. "/" .. entry)
         bytes = bytes + (st ~= nil and st.size or 0)
       end
-      log:say(stores .. "  " .. #listed .. " closure stores, " .. bytes .. " bytes")
+      log:say(stores .. "  " .. plural.count(#listed, "closure store") .. ", " .. plural.count(bytes, "byte"))
     end
   end
   if seen == 0 then

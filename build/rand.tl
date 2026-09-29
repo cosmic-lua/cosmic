@@ -44,6 +44,7 @@ local Rand = require("cosmic.rand")
 local Time = require("cosmic.time")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 --- The `cosmic rand` verb: `run` is what `build/dispatch.tl` calls.
 local record verb
@@ -193,11 +194,11 @@ local function arguments(argv: {integer:string}): Request | nil, string
   local words = request.words
   if command == "int" then
     if #words ~= 2 then
-      return nil, "give a low and a high bound, not " .. #words .. " words"
+      return nil, "give a low and a high bound, not " .. plural.count(#words, "word")
     end
   elseif command == "pick" or command == "shuffle" then
     if #words > 1 then
-      return nil, "give one file at most, not " .. #words .. " words"
+      return nil, "give one file at most, not " .. plural.count(#words, "word")
     end
     if words[1] == "" then return nil, bare.empty_file end
   elseif #words > 0 then
@@ -408,7 +409,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       if command == "pick" then
         wanted = request.count or 1
         if wanted > #items then
-          complain(("cannot pick %d of %d lines"):format(wanted, #items))
+          complain(("cannot pick %d of %s"):format(wanted, plural.count(#items, "line")))
           code = 2
           return
         end

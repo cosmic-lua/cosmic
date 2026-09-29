@@ -16,6 +16,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
+local Plural = require("cosmic_ci.plural")
 
 local record CacheTrim
   --- What a trim left, and what it found.
@@ -220,7 +221,7 @@ function CacheTrim.file(verb: string, path: string, since: integer,
       table.concat(trimmed.unstamped, ", ") .. "\n"
   end
   return out .. verb .. ": " .. what .. "; " .. path .. " " .. trimmed.before_bytes ..
-    " -> " .. trimmed.after_bytes .. " bytes\n", err
+    " -> " .. Plural.count(trimmed.after_bytes, "byte") .. "\n", err
 end
 
 --- Feeds `hasher` the rows of the cache at `path`: every table of it

@@ -8,6 +8,7 @@
 --- binding cannot exist without its type.
 
 local String = require("cosmic.string")
+local plural = require("build.plural")
 
 local record Parameter
   name: string
@@ -384,9 +385,8 @@ function generator.read(header: string): Declarations | nil, string
   end
   local _, written = header:gsub("\n%s*COSMIC_CONSTANT%(", "")
   if written ~= declared then
-    return nil, "Constants: the header writes " .. tostring(written) ..
-      " COSMIC_CONSTANT lines for " .. tostring(declared) ..
-      " fields; one stands outside the block after `Constants`"
+    return nil, "Constants: the header writes " .. plural.count(written, "COSMIC_CONSTANT line") ..
+      " for " .. plural.count(declared, "field") .. "; one stands outside the block after `Constants`"
   end
   return { calls = calls, classes = classes }
 end
