@@ -24,8 +24,8 @@ end
 --- its own under a directory one test shares.
 local written = 0
 
---- The shipped database the tree `files` would build to, written as
---- a file of its own under `dir` and opened read-only. `files` maps each file's path
+--- The shipped database the tree `files` would build to, written as a
+--- file of its own under `dir` and opened read-only. `files` maps each file's path
 --- in the tree (`cosmic/fs.tl`, `cosmic/fs_example.tl`, `app/main.tl`,
 --- `core/syscalls.h`) to its contents; a path decides a module's import
 --- path and kind as it does in a tree. Nothing is compiled, so a source
