@@ -68,8 +68,8 @@ as the host runner user, and their `run:` steps in a container of the image
 needs (`.github/scripts/leg-container.sh`): each step runs there through the
 `leg-shell` shell as an unprivileged `runner` user created, as root, with
 the same uid as the host runner, so it owns what the actions wrote with no
-hand-over. See `.github/workflows/ci.yml` for the exact step order, the
-container's options and why each is needed.
+hand-over. See `.github/workflows/ci.yml` for the exact step order, and
+"the workflow", below, for the container's options and why each is needed.
 
 Orchestration copies `cosmic_ci/` once per fixture into a separate, external
 fixture project, since each fixture needs a fresh working database; each runs
@@ -199,3 +199,171 @@ the login's stdin (and in no argument, message or docker environment),
 joins each of `ARCHES` (blank-separated) under `<SOURCE_COMMIT>`, the commit
 of the ci-images run that built them, prints the
 index's `name@digest`, and appends it to `GITHUB_STEP_SUMMARY`.
+
+## the workflow
+
+`.github/workflows/ci.yml` says what each step does; this is why.
+
+### scope, saves and concurrency
+
+The workflow decides two things once, in its top-level `env`:
+`COSMIC_CI_SCOPE` is `full` for the merge queue, main (a push, the
+scheduled run) and a manual run, and `light` for a branch push;
+`COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled
+run, the only runs that save a cache. The driver reads neither (both
+are `COSMIC_CI_*`, which a suite's workers are never given).
+
+A newer push supersedes a branch's run, but every main run finishes (a
+prerelease is published only from a completed run) and main's pushes
+run one at a time, in one concurrency group, so the caches they save
+land in commit order and a restore's newest entry is never an older
+commit's saved late. GitHub keeps one pending run per group and cancels
+it when a third arrives, so a commit that lands while main is busy and
+another run waits gets no run and no prerelease; a pin moves to a later
+one. The scheduled run has a group of its own: pending behind a push,
+the next push would cancel it. Running beside main's pushes its saves
+can land after a newer commit's, which costs the next run only the rows
+that commit moved, never a wrong one. A manual run has a group per ref:
+it saves nothing, so in main's group it could cancel a pending push, or
+be cancelled by one. Pushes to the merge queue's `gh-readonly-queue/`
+branches are ignored: they run as `merge_group`, and a push run there
+would share its group and cancel it, which the queue reads as a failure.
+
+### the Linux legs' container
+
+spawn's sandbox (`core/process.h`'s `Sandbox`) confines a test's child
+in a new user namespace, where it mounts, unveils and goes offline. A
+Linux leg's container needs these relaxations for it, and no more; a
+probe, as uid 65534, of the ubuntu and alpine images on ubuntu-24.04
+(x86_64) and the ubuntu image on ubuntu-24.04-arm (aarch64) found every
+part (landlock, pledge, offline, unveil, unveil+offline) held with all
+of them, and each item says what failed without it:
+
+1. The host's `kernel.apparmor_restrict_unprivileged_userns=1` (GitHub's
+   hosts set it) withholds a new user namespace's capabilities from a
+   process no AppArmor profile lets have them: with it on, no container
+   option let any part that needs a namespace hold. `leg-container.sh`
+   turns it off before the container starts.
+2. Docker's default seccomp profile allows `unshare`, `mount`, `umount2`
+   and `mount_setattr` only with `CAP_SYS_ADMIN`, and `pivot_root` to
+   none, so a user namespace is refused with EPERM.
+   `seccomp-profile.sh` narrows `.github/seccomp/default.json` (moby's
+   default at a pinned commit, checked by its sha256) to allow just
+   those five, not `seccomp=unconfined`, which drops every other rule.
+3. Docker's default AppArmor profile denies mount: with the narrowed
+   seccomp profile alone, unveil still failed with EACCES. So the
+   container runs unconfined by AppArmor.
+4. Docker's masked `/proc` paths keep a confined child from a procfs of
+   its own, so the container starts with `systempaths=unconfined`.
+
+The runner creates a job's `container:` before any step runs, so
+neither the sysctl nor the profile could be set up for it; a step starts
+the container instead, with `--init`, as the job's was (a process-group
+kill leaves orphans, and the suite checks they are gone, not zombies
+nobody collects). The runners are ephemeral VMs.
+
+### the leg's host
+
+Every declared-key verdict's key holds what of the host no file on it
+tells (`COSMIC_HOST_ID`, `build/declared_key.tl`'s `host_identity`): on
+a Linux leg its image and how it is started (all of it
+`leg-container.sh`'s and `seccomp-profile.sh`'s, which are hashed), and
+the engine's version; on macOS the runner's image label. Not ci.yml,
+whose every edit would move it. The verdict cache is also named by the
+processor features a core chooses code by and the kernel's release and
+version (`host-features.sh`), which differ between runners of one leg:
+named by the container alone, a run restored another runner's cache and
+none of its verdicts stood. The step was "name the leg's container", as
+`leg-container.sh` still calls it: an edit to that file moves every
+Linux leg's `COSMIC_HOST_ID`, and so its verdicts, which an edit to
+ci.yml does not, so the stale name waits for its next real change.
+
+### the caches
+
+An entry is keyed by its content, saved from one place and restored
+everywhere else. Only `COSMIC_CI_SAVES` runs save the verdicts, the
+compiles and parses, the zig build outputs and the driver check's
+marker (the pinned zig and the driver's bootstrap are saved by any run
+that misses their exact key, which names only the pin). A branch or the
+merge queue restores main's and saves nothing: a PR's later pushes
+stand on main's entries, not its earlier push's. GitHub searches a
+ref's own entries before main's, so a branch's entry saved before only
+main saved still wins over main's newer one under the same prefix.
+Which entry a restore takes decides only how many tests stand, never
+whether a verdict or a compile is right: every row is keyed by its own
+inputs.
+
+The verdicts and the compiles are trimmed to the rows the run used
+since its start and saved under their prefix and a digest of those
+rows, so a run that reached only what it restored names that entry
+again and saves nothing new. Saved whole, a leg's verdicts came to about
+40 MB compressed a main push, most of it under keys no later run
+reaches, since every change to `build/` moves every key; trimmed, 8 to
+13 MB. The cost: main's saved file holds only its newest commit's keys,
+so a branch based on an older main whose keys a `build/` change has
+since moved runs every test again. A run that failed keeps what it
+restored with what it reached (`whole`). The compiles are saved only
+where the native build and suite passed.
+
+zig's caches are restored outside the checkout, at the same path every
+run, since zig keys what it compiles by path. There is one entry per
+leg, even where two legs share a target: two legs saving one key in
+parallel means only one ever wins, and the other restores a cache
+another host built. An entry is never replaced under its own key, so
+each save takes one of its own:
+
+    zig-build-<leg>-<vendor>-<scope>-<core>-<run>-<attempt>
+
+`vendor` hashes what compiles the vendored libraries (the pin,
+`build.zig`, `build/zig.tl`, `vendor/`, `patch/` and its applier, the
+configuration headers they read from `core/`) but not the trees zig
+never compiles (tl, tzdata, cacert). `core` hashes the core's own C.
+`scope` is `full`, where assemble passed; a `light` entry, saved before
+only main saved, is still restored last. The restore takes the newest
+entry for this vendor part (`full` with this core part, else `full`,
+else any); off main, where none has this vendor part, a second step
+takes the leg's newest of any, since in one step a ref's own older entry
+would win over main's.
+
+Main saves an entry only where assemble passed and it had nothing
+`full` for this vendor part, so once per vendor part and leg, not once
+per core change. The scheduled run restores nothing, compiles cold and
+saves a compact entry. An entry saved per core change would be past the
+repository's 10 GB cache at main's rate: a whole entry is about 0.5 GB
+for the four legs, and it grows with each save, since zig never prunes
+its cache and a save carries all it restored. When main saved after
+every run, GitHub evicted the least recently used entries, the fuzz
+job's and other legs' own among them, which then built cold. The
+nightly cold build is what bounds an entry. The cost: a vendor change's
+first main run builds cold (minutes a leg), and a core change is
+compiled again, incrementally, by every run after it until the nightly
+save. Where assemble fails on the first main run after a vendor change,
+nothing is saved, so every main run builds vendor/ cold until one
+passes assemble or the nightly saves; a branch stays warm through the
+restore of another vendor part.
+
+actions/cache archives with `tar -C $GITHUB_WORKSPACE` and a path
+relative to it, which names nothing through the link `place-tree.sh`
+leaves when the tree is more than one directory deep. So the tree moves
+back where it was checked out for the saves, and again at the end for
+checkout's post step, whose git refuses a repository at another path and
+leaves its credentials behind. The move means a test whose verdict
+turns on the tree's path meets it on the macOS leg (unsandboxed; a
+Linux leg's workers see the tree at /tree) only where its key moved or
+on the scheduled run, which stands on nothing; the TODO on
+`build/test.tl`'s `launch` would give such a worker a fixed path.
+
+The CI driver check's marker is keyed by what cosmic_ci's tests read
+(`ci/`, `bin/`, the scripts, the driver action and ci.yml) and the
+leg's host; an exact hit skips the check, except on the scheduled and
+manual runs.
+
+### artifacts
+
+`ci-driver-<leg>`, `portable-product-<leg>` and
+`platform-diagnostics-<leg>` are kept seven days. The `ci` join reads
+the products within the run, and prerelease.yml as the run completes;
+a re-run of either job more than seven days later cannot download them.
+`report` reads the driver databases, so its suite rows cover about the
+last week; a run whose artifacts expired it reports from its step times
+alone.
