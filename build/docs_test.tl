@@ -235,6 +235,28 @@ local function test_a_module_listing_shows_function_typed_fields(dir: string)
   assert(not text:find("visit", 1, true), text)
 end
 
+--- A function-typed field written over several lines is stored as its
+--- first line alone; the listing does not print that as a signature.
+local function test_a_module_listing_skips_a_truncated_field_signature(dir: string)
+  local db = built(dir, { ["cosmic/calls.tl"] = source(
+    "--- A table of calls.",
+    "",
+    "local record calls",
+    "  gen: function(input: string, env: string,",
+    "                options: any): string",
+    "  exists: function(path: string): boolean",
+    "end",
+    "",
+    "return calls") })
+  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(docs.render(view({ db }), found[1]))
+  local text = table.concat(lines, "\n")
+  assert(text:find("  function calls.exists(path: string): boolean", 1, true), text)
+  assert(text:find("\n  field calls.gen", 1, true), text)
+  assert(not text:find("function calls.gen", 1, true), text)
+  assert(not text:find("env: string,", 1, true), text)
+end
+
 --- A record's plain data field is not a function: only a field whose
 --- type is a function is listed as one.
 local function test_a_module_listing_leaves_out_data_fields(dir: string)

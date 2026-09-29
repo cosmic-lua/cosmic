@@ -263,7 +263,11 @@ end
 --- A call the module's own record declares as a field of function type
 --- (`lstat: function(...)` in `cosmic.sys`'s syscall table) is listed
 --- too, as a function; a record's plain data field, and any field of a
---- nested record (its symbol is dotted), is not.
+--- nested record (its symbol is dotted), is not. Nor is a field typed
+--- `function` without parentheses, a generic one (`function<T>(...)`),
+--- or an alias of a function type: only the literal `name: function(`
+--- form is. A field whose stored signature is cut off (see `listed`)
+--- stays a `field` row.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
@@ -953,6 +957,20 @@ function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   return out
 end
 
+--- Whether `signature`, which starts at a `(`, closes that parenthesis: a
+--- multi-line field's signature is stored as its first line alone, and
+--- printing that would look complete.
+local function closes(signature: string): boolean
+  local depth = 0
+  for char in signature:gmatch("[()]") do
+    depth = depth + (char == "(" and 1 or -1)
+    if depth == 0 then
+      return true
+    end
+  end
+  return false
+end
+
 --- One declared symbol as a module's listing shows it: a function or
 --- method by its signature (a function-typed field as `function` and its
 --- name, then the signature's parameters and results), anything else (a record's signature spans
@@ -973,7 +991,7 @@ local function listed(item: docs.Entry): string
   elseif item.kind == "field" and item.signature ~= "" and
          not item.signature:find("\n", 1, true) then
     local rest = item.signature:match("^[%w_]+: function(%(.*)$")
-    if rest ~= nil then
+    if rest ~= nil and closes(rest) then
       shown = "function " .. item.source_symbol .. rest
     end
   end
