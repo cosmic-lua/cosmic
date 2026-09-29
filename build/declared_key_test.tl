@@ -19,8 +19,9 @@ local Test = require("cosmic.test")
 --- whichever system this is, what the host says of itself, and a file a
 --- link leads out of the tree to.
 Test.needs{
-  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc/",
-    "/usr/lib/os-release", "/usr/lib/sysimage/rpm/", "/var/lib/dpkg/status", "/var/lib/rpm/" },
+  host = { "/etc/os-release", "/etc/passwd", "/lib/apk/db/installed", "/proc",
+    "/usr/lib/os-release", "/usr/lib/sysimage/rpm/rpmdb.sqlite", "/var/lib/dpkg/status",
+    "/var/lib/rpm/Packages", "/var/lib/rpm/rpmdb.sqlite" },
   env = { "COSMIC_HOST_ID", "COSMIC_SYSTEM_ID" },
 }
 

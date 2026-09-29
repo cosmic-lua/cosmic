@@ -72,6 +72,16 @@ end
 
 --- A checkout of the suite at `root`, its data file holding `data`, its
 --- outside test reading the directory beside `root` named outside.
+-- TODO: declare outside/f, the file this fixture and `early_suite`'s
+-- read, rather than their directory, once these tests have another
+-- input a key does not hold to fail on: a declared host directory is
+-- keyed by its name alone, which is how a failure here meets another
+-- checkout's pass under the same key. Declaring the file keys its
+-- contents, and test_a_failure_here_is_not_answered_from_elsewhere
+-- then fails (its third checkout stands) while
+-- test_a_failure_that_read_less_is_not_answered_from_elsewhere passes
+-- without reaching the rule it holds. Due with R3, which refuses a host
+-- directory (doc/plan-fast-correct-builds.md, stage 3.0c).
 local function checkout(root: string, data: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/data.txt", data))
