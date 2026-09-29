@@ -405,6 +405,8 @@ end
 --- why.
 verb.spec = {
   name = "fetch",
+  guide = "questions about a data file",
+  tests = { "build.fetch_test", "build.fetch_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a URL",

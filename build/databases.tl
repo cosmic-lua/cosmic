@@ -349,6 +349,8 @@ end
 --- The `db` verb as `build/verb_list.tl` lists it.
 databases.spec = {
   name = "db",
+  guide = "none: reports on the tree's databases for its maintainers, described by `cosmic help db`",
+  tests = { "build.verbs_store_test" },
   run = run,
   bare = false,
   takes = "the sources whose rows to count",

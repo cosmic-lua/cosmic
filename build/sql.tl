@@ -767,6 +767,8 @@ end
 --- test_sql_never_stages_the_tree).
 sql.spec = {
   name = "sql",
+  guide = "questions about a data file",
+  tests = { "build.sql_test", "build.sql_tool_test", "build.sql_store_test" },
   run = function(argv: {integer:string}): integer return sql.run(argv) end,
   bare = false,
   takes = "one statement",

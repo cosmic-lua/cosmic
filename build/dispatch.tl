@@ -521,6 +521,8 @@ end
 
 help_spec = {
   name = "help",
+  guide = "none: the verb that describes the others, itself described by `cosmic help help`",
+  tests = { "build.verbs_store_test" },
   run = function(argv: {integer:string}): integer
     return help(argv, nil)
   end,

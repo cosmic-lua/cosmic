@@ -428,6 +428,8 @@ end
 --- given, never the tree.
 verb.spec = {
   name = "codec",
+  guide = "bytes to text and back",
+  tests = { "build.codec_test", "build.codec_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "an encoding and a file",

@@ -1,7 +1,9 @@
 --- The verb registry (build/verb_list.tl): each listed module carries a
 --- `spec` that says what it is, and the list, `cosmic.cli`'s `order` (the
 --- prose of every verb is held in build/verbs_store_test.tl, which reads
---- each one's help) and the verbs dispatch reaches agree.
+--- each one's help) and the verbs dispatch reaches agree. A module's `spec`
+--- missing from the list, and a verb's guide and tests, are held over the
+--- whole tree by build/tree_checks.tl's `verbs`.
 
 local Cli = require("cosmic.cli")
 local verb_list = require("build.verb_list")
@@ -25,11 +27,6 @@ local function test_every_listed_module_has_its_spec()
   end
 end
 
--- TODO: a build module that exports a `spec` but is missing from
--- build/verb_list.tl goes unnoticed: no verb dispatches to it and nothing
--- fails. Check it over the whole tree in build/tree_checks.tl, with the
--- rest of each verb's registration (help prose, a quickstart section, a
--- test module), once specs name their guide and tests (P4).
 local function test_a_name_is_listed_once()
   local seen: {string:boolean} = {}
   for _, spec in ipairs(verb_list.specs()) do

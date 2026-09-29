@@ -485,6 +485,8 @@ end
 --- rebuilds first, as `docs` does.
 bom.spec = {
   name = "bom",
+  guide = "none: lists the components a binary carries, described by `cosmic help bom`; the quickstart does not cover it",
+  tests = { "build.bom_test", "build.bom_verb_test" },
   run = function(argv: {integer:string}): integer return bom.run(argv) end,
   bare = false,
   takes = "nothing",

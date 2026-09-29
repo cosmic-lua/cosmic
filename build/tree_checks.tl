@@ -614,9 +614,271 @@ function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | 
   return Sqlite.open(path, false)
 end
 
+--- A spec table's top-level fields as its source writes them: `name`,
+--- `guide` and the like as string literals, `tests` as a list of them.
+--- A field of another shape (a variable, a long string, a list with a
+--- non-literal in it) is `nonliteral`.
+local record Fields
+  strings: {string:string}
+  lists: {string:{string}}
+  nonliteral: {string:boolean}
+end
+
+--- The value of the string literal that opens at `at` (a quote) and the
+--- index after its closing quote.
+local function scan_string(text: string, at: integer): string, integer
+  local quote = text:sub(at, at)
+  local named: {string:string} = { n = "\n", t = "\t" }
+  local out: {string} = {}
+  local i = at + 1
+  while i <= #text do
+    local c = text:sub(i, i)
+    if c == quote then
+      return table.concat(out), i + 1
+    elseif c == "\\" then
+      local after = text:sub(i + 1, i + 1)
+      out[#out + 1] = named[after] or after
+      i = i + 2
+    else
+      out[#out + 1] = c
+      i = i + 1
+    end
+  end
+  return table.concat(out), i
+end
+
+--- One token of a spec's source: a string literal (`kind` "str", its
+--- `value` unescaped), a long string ("long"), a name ("word") or a mark
+--- ("mark"), one character.
+local record Token
+  kind: string
+  value: string
+end
+
+--- The tokens of the table that opens at the first `{` of `text` from
+--- `start`, through its closing brace. Comments are skipped, and a string's
+--- braces and quotes stay its own.
+local function tokens_of(text: string, start: integer): {Token}
+  local out: {Token} = {}
+  local i = text:find("{", start, true)
+  if i == nil then return out end
+  local depth = 0
+  while i <= #text do
+    local c = text:sub(i, i)
+    if text:sub(i, i + 1) == "--" then
+      i = text:find("\n", i, true) or #text + 1
+    elseif c == "\"" or c == "'" then
+      local value, after = scan_string(text, i)
+      out[#out + 1] = { kind = "str", value = value }
+      i = after
+    elseif text:match("^%[=*%[", i) ~= nil then
+      local level = text:match("^%[(=*)%[", i)
+      local close = text:find("]" .. level .. "]", i, true)
+      out[#out + 1] = { kind = "long", value = "" }
+      i = close ~= nil and close + #level + 2 or #text + 1
+    elseif c:match("[%a_]") then
+      local word = text:match("^[%w_]+", i)
+      out[#out + 1] = { kind = "word", value = word }
+      i = i + #word
+    else
+      if c == "{" then depth = depth + 1 end
+      if c == "}" then depth = depth - 1 end
+      if not c:match("%s") then out[#out + 1] = { kind = "mark", value = c } end
+      i = i + 1
+      if depth == 0 then break end
+    end
+  end
+  return out
+end
+
+--- The top-level fields of the spec table that opens after `start` in
+--- `text`. The projection holds a table's signature and docs but not its
+--- values (`build.docs`), so a spec's fields are read from its source, as
+--- literals; a first occurrence of a name wins, and a `name = "..."` that
+--- a function body inside the table writes at its own top level would be
+--- taken for a field (a spec's `run` is one line that calls another
+--- function, so none does).
+local function spec_fields(text: string, start: integer): Fields
+  local fields: Fields = { strings = {}, lists = {}, nonliteral = {} }
+  local tokens = tokens_of(text, start)
+  local depth = 0
+  local i = 1
+  while i <= #tokens do
+    local token = tokens[i]
+    if token.kind == "mark" and token.value == "{" then
+      depth = depth + 1
+    elseif token.kind == "mark" and token.value == "}" then
+      depth = depth - 1
+    elseif depth == 1 and token.kind == "word" and tokens[i + 1] ~= nil
+      and tokens[i + 1].value == "=" and tokens[i + 1].kind == "mark"
+      and tokens[i + 2] ~= nil and tokens[i + 2].value ~= "=" then
+      local name, value = token.value, tokens[i + 2]
+      if value.kind == "str" then
+        if fields.strings[name] == nil then fields.strings[name] = value.value end
+        i = i + 2
+      elseif value.kind == "mark" and value.value == "{" then
+        local list: {string} = {}
+        local j = i + 3
+        while tokens[j] ~= nil and not (tokens[j].kind == "mark" and tokens[j].value == "}") do
+          if tokens[j].kind == "str" then
+            list[#list + 1] = tokens[j].value
+          elseif not (tokens[j].kind == "mark" and (tokens[j].value == "," or tokens[j].value == ";")) then
+            fields.nonliteral[name] = true
+          end
+          j = j + 1
+        end
+        if fields.lists[name] == nil then fields.lists[name] = list end
+        i = j
+      elseif value.kind == "long" or value.kind == "word" then
+        fields.nonliteral[name] = true
+        i = i + 2
+      end
+    end
+    i = i + 1
+  end
+  return fields
+end
+
+--- Each verb's registration (build/verb_spec.tl) that its module leaves
+--- short: a module of `db` that assigns a `spec` but that
+--- build/verb_list.tl does not require, so nothing dispatches to it; a
+--- listed verb whose module has no spec assigned as a table literal to
+--- `<x>.spec` or `<x>.<y>_spec` at the start of a line, which nothing
+--- here could then read; a `guide` that names no `## ` heading of
+--- `quickstart` (the text of doc/guides/quickstart.md) whose section
+--- mentions `cosmic <name>`, nor gives a reason ("none: ..."); and
+--- `tests` that is empty or names a module that is no test of `db`.
+---
+--- A spec is read from its module's source, where `name`, `guide` and
+--- `tests` must be literals (`spec_fields`): the listing module cannot be
+--- loaded here (it reaches `build.fix`, which runs this), and the
+--- projection holds no table's values, so there is no row to read
+--- instead. The limit is decided: a spec built any other way (a local
+--- table exported afterward, fields computed) is refused as a listed verb
+--- with no spec here, not passed over. `help`, which dispatch assigns to a
+--- local and no list holds, is not read. A verb's `Cli` prose is held by
+--- build/verbs_store_test.tl, and a bare verb's `passthrough` by
+--- build/verb_list_test.tl.
+---
+--- With no `quickstart` (its file unread, which `fix` has reported), the
+--- guides are not held to it.
+function tree_checks.verbs(db: Sqlite.Handle, quickstart: string | nil): {string}
+  local out: {string} = {}
+  local required, trouble = Sqlite.text_rows(db,
+    "SELECT requires FROM imports WHERE path = 'build.verb_list'")
+  if required == nil then
+    return { "reading the imports: " .. trouble }
+  end
+  local listed: {string:boolean} = {}
+  for _, row in ipairs(required) do listed[row[1]] = true end
+  local modules, module_trouble = Sqlite.text_rows(db,
+    "SELECT path, kind, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
+  if modules == nil then
+    return { "reading the modules: " .. module_trouble }
+  end
+  local kinds: {string:string} = {}
+  local texts: {string:string} = {}
+  for _, row in ipairs(modules) do
+    kinds[row[1]] = row[2]
+    texts[row[1]] = row[3]
+  end
+
+  -- Each `## ` heading of the quickstart, outside a fenced block, and the
+  -- text of its section.
+  local sections: {string:string} = {}
+  local current: string | nil = nil
+  local fenced = false
+  for line in ((quickstart or "") .. "\n"):gmatch("([^\n]*)\n") do
+    if line:match("^```") then fenced = not fenced end
+    local heading = not fenced and line:match("^## (.+)$") or nil
+    if heading ~= nil then
+      current = heading
+      sections[heading] = sections[heading] or ""
+    elseif current ~= nil then
+      sections[current] = sections[current] .. line .. "\n"
+    end
+  end
+
+  -- The spec each listed entry loads, `require("<module>").<field>`, so a
+  -- listed verb whose spec cannot be read is not passed over.
+  local expected: {string:{string}} = {}
+  for entry_module, field in (texts["build.verb_list"] or ""):gmatch(
+      "require%(\"([%w_.]+)\"%)%.([%w_]*spec)") do
+    expected[entry_module] = expected[entry_module] or {}
+    table.insert(expected[entry_module], field)
+  end
+  local found_fields: {string:{string:boolean}} = {}
+
+  for _, row in ipairs(modules) do
+    if row[2] ~= "test" then
+      local assigned = 0
+      local at = 1
+      while true do
+        local first, last, field = row[3]:find("\n[%w_]+%.([%w_]*spec) = {", at)
+        if first == nil then break end
+        at = last + 1
+        if field == "spec" or field:match("^[%w_]*_spec$") ~= nil then
+          assigned = assigned + 1
+          found_fields[row[1]] = found_fields[row[1]] or {}
+          found_fields[row[1]][field] = true
+          local spec = spec_fields(row[3], last)
+          local name = spec.strings.name or "?"
+          if not listed[row[1]] then
+            out[#out + 1] = "`" .. name .. "` (" .. row[1] .. ") assigns a `spec` but " ..
+              "build/verb_list.tl does not list its module, so no verb dispatches to it -- " ..
+              "list it there"
+          end
+          local guide = spec.strings.guide
+          if guide == nil then
+            out[#out + 1] = "`" .. name .. "` has no guide as a string literal: name its `## ` " ..
+              "heading in doc/guides/quickstart.md, or \"none: <why>\""
+          elseif guide:sub(1, 5) == "none:" then
+            if guide:sub(6):match("^%s*$") then
+              out[#out + 1] = "`" .. name .. "` has no guide and gives no reason after \"none:\""
+            end
+          elseif quickstart ~= nil then
+            local section = sections[guide]
+            if section == nil then
+              out[#out + 1] = "`" .. name .. "`'s guide is \"" .. guide .. "\", which is no `## ` " ..
+                "heading of doc/guides/quickstart.md -- name one, or \"none: <why>\""
+            elseif not section:find("cosmic " .. name, 1, true) then
+              out[#out + 1] = "`" .. name .. "`'s guide is \"" .. guide .. "\", whose section " ..
+                "never mentions `cosmic " .. name .. "` -- name the section that does, or " ..
+                "\"none: <why>\""
+            end
+          end
+          local tests = spec.lists.tests
+          if tests == nil or #tests == 0 or spec.nonliteral.tests then
+            out[#out + 1] = "`" .. name .. "` names no test module in `tests`, as string literals"
+          end
+          for _, test in ipairs(tests or {}) do
+            if kinds[test] ~= "test" then
+              out[#out + 1] = "`" .. name .. "`'s tests name " .. test ..
+                ", which is no test module of the tree"
+            end
+          end
+        end
+      end
+    end
+  end
+  local unread: {string} = {}
+  for entry_module, fields in pairs(expected) do
+    for _, field in ipairs(fields) do
+      if not (found_fields[entry_module] or {})[field] then
+        unread[#unread + 1] = "build/verb_list.tl loads `" .. entry_module .. "`'s `" .. field ..
+          "`, but that module assigns no `<x>." .. field .. " = {` table literal at the start " ..
+          "of a line, which is how a spec is read here"
+      end
+    end
+  end
+  table.sort(unread)
+  for _, line in ipairs(unread) do out[#out + 1] = line end
+  return out
+end
+
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
-function tree_checks.run(db: Sqlite.Handle): {string}
+function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil): {string}
   local out: {string} = {}
   for _, check in ipairs({
     { name = "exports", lines = tree_checks.exports(db) },
@@ -626,6 +888,7 @@ function tree_checks.run(db: Sqlite.Handle): {string}
     { name = "docs queries", lines = tree_checks.queries(db) },
     { name = "quieted", lines = tree_checks.quieted(db) },
     { name = "declarations", lines = tree_checks.declarations(db) },
+    { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

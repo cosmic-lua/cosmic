@@ -426,6 +426,8 @@ end
 --- is given, never the tree: never stale-checked.
 verb.spec = {
   name = "hash",
+  guide = "the digest of a file",
+  tests = { "build.hash_test", "build.hash_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the files to digest",

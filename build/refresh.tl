@@ -620,6 +620,8 @@ end
 --- rebuilds first, as `bom` does.
 refresh.spec = {
   name = "refresh",
+  guide = "none: refreshes the vendored CA bundle for the tree's maintainers, described by `cosmic help refresh`",
+  tests = { "build.refresh_test", "build.refresh_tool_test", "build.refresh_store_test" },
   run = function(argv: {integer:string}): integer return refresh.run(argv) end,
   bare = false,
   takes = "the datasets to fetch",

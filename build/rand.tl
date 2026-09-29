@@ -442,6 +442,8 @@ end
 --- checked.
 verb.spec = {
   name = "rand",
+  guide = "a random id, token or number",
+  tests = { "build.rand_test", "build.rand_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its words",

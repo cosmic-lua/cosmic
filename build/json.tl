@@ -314,6 +314,8 @@ end
 --- is given, never the tree, so never stale-checked either.
 verb.spec = {
   name = "json",
+  guide = "a quick question about a JSON file",
+  tests = { "build.json_test", "build.json_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a path and a file",

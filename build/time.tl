@@ -388,6 +388,8 @@ end
 --- the zones the binary carries, never the tree: never stale-checked.
 verb.spec = {
   name = "time",
+  guide = "a quick question about a time",
+  tests = { "build.time_test", "build.time_tool_test" },
   run = function(argv: {integer:string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its times",
