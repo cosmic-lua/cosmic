@@ -71,8 +71,9 @@ end
 --- package.loaded; package.preload and package.searchers can provide loaders.
 --- Unlike stock path-based Lua, package.path, package.cpath,
 --- package.loadlib and package.searchpath are absent. package.config reports
---- the platform's path syntax but does not restore path-based loading. _G is the environment;
---- _VERSION identifies Lua. dofile/loadfile are removed: paths are not modules.
+--- the platform's path syntax but does not restore path-based loading.
+--- _G is the environment; _VERSION identifies Lua. dofile/loadfile are
+--- removed: paths are not modules.
 function Example.load_chunk()
   local environment: {any:any} = { answer = 40 }
   local chunk, trouble = load("return answer + 2", "example", "t", environment)
@@ -117,8 +118,9 @@ function Example.table_operations()
 end
 
 --- string.byte/string.char convert bytes; string.len counts bytes; string.sub
---- requires i and uses inclusive byte indices (j defaults to -1). string.rep accepts an optional separator and
---- string.reverse reverses bytes. string.lower/string.upper use the runtime's
+--- requires i and uses inclusive byte indices (j defaults to -1).
+--- string.rep accepts an optional separator and string.reverse reverses
+--- bytes. string.lower/string.upper use the runtime's
 --- C locale and are not Unicode case conversion.
 function Example.string_bytes()
   local a, b = string.byte("AB", 1, 2)
@@ -173,8 +175,8 @@ function Example.math_numeric()
 end
 
 --- math.sin, math.cos, math.tan, math.asin, math.acos and math.atan(y[, x]) use
---- radians; math.rad/math.deg convert. math.sqrt, math.exp and math.log(x[, base]) operate
---- on floats. math.frexp/math.ldexp split/rebuild binary exponents. Constants
+--- radians; math.rad/math.deg convert. math.sqrt, math.exp and
+--- math.log(x[, base]) operate on floats. math.frexp/math.ldexp split/rebuild binary exponents. Constants
 --- are math.pi, math.huge, math.maxinteger, math.mininteger; math.ult compares
 --- unsigned integers. math.log defaults to the natural logarithm.
 --- Compatibility math.atan2, math.cosh, math.sinh, math.tanh,
@@ -296,8 +298,8 @@ end
 --- argument count or type reports the expected function signature. `name?: T`
 --- marks an optional trailing position, and `...: T` accepts more T arguments.
 --- Generics preserve input/output relationships; `<T is Constraint>` restricts
---- types. Multiple returns fill assignments
---- left-to-right, and only a final expression expands. Varargs use `...`.
+--- types. Multiple returns fill assignments left-to-right, and only a
+--- final expression expands. Varargs use `...`.
 function Example.generics_functions_returns()
   local interface HasName
     name: string
@@ -324,8 +326,24 @@ end
 --- an external surface. Libraries often report failure as nil plus an error;
 --- callers should inspect the documented convention.
 function Example.modules_declarations_nil_error()
-  local loaded = package.loaded["cosmic.removed_example"]
-  assert(loaded == nil or type(loaded) == "table")
+  local Fs = require("cosmic.fs")
+  assert(require("cosmic.fs") == Fs and package.loaded["cosmic.fs"] == Fs)
+  local data, trouble = Fs.read("/no/such/file")
+  assert(data == nil and trouble ~= "")
+end
+
+--- `Removed.message(name, field)` says what replaces a removed global: the
+--- text a compile error shows for `io.open`. A field with no entry says where
+--- to look instead, and a name that is not removed says only that it is
+--- unavailable.
+function Example.replacement_for_a_removed_global()
+  local Removed = require("cosmic.removed")
+  local open_hint = Removed.message("io", "open")
+  assert(open_hint:find("io.open is not available", 1, true) ~= nil)
+  assert(open_hint:find("Fs.read(path)", 1, true) ~= nil)
+  assert(Removed.message("os", "getenv"):find("Env.get(name)", 1, true) ~= nil)
+  assert(Removed.message("debug", "getinfo"):find("no replacement", 1, true) ~= nil)
+  assert(Removed.message("print") == "print is not available")
 end
 
 return Example

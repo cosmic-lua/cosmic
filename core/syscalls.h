@@ -105,7 +105,7 @@ int cosmic_open_syscalls (lua_State *L);
  * --- through a descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>, a link to
  * --- one) is refused, EACCES, before anything is opened.
  * ---@param path string the path to open
- * ---@param flags integer the O_* flags, such as `sys.O_RDONLY`
+ * ---@param flags integer the O_* flags, such as `O_RDONLY` or `O_WRONLY | O_CREAT`
  * ---@param mode? integer the mode for a newly created file, default 0o644
  * ---@return integer|nil fd the descriptor, or nil on failure
  * ---@return string error what went wrong, when fd is nil
@@ -179,7 +179,7 @@ COSMIC_SYSCALL(write, 2);
  * --- Moves a descriptor's offset and returns the new one.
  * ---@param fd integer the descriptor to move
  * ---@param offset integer how far to move
- * ---@param whence integer one of `syscalls.SEEK_SET`, `_CUR`, `_END`
+ * ---@param whence integer one of `SEEK_SET`, `SEEK_CUR`, `SEEK_END`
  * ---@return integer|nil offset the new offset, or nil on failure
  * ---@return string error what went wrong, when offset is nil
  * ---@return integer errno the error number, when offset is nil
@@ -458,7 +458,7 @@ COSMIC_SYSCALL(uname, 0);
 
 /*
  * --- Reads a clock, in nanoseconds.
- * ---@param clock integer one of `syscalls.CLOCK_REALTIME`, `_MONOTONIC`
+ * ---@param clock integer one of `CLOCK_REALTIME`, `CLOCK_MONOTONIC`
  * ---@return integer|nil nanoseconds the reading, or nil on failure
  * ---@return string error what went wrong, when nanoseconds is nil
  * ---@return integer errno the error number, when nanoseconds is nil

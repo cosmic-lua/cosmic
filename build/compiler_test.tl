@@ -29,7 +29,14 @@ local function test_the_compiler_compiles_itself_to_itself()
   local source = patched_source()
   if source == nil then return end
   local carried = assert(Store.source("vendor.tl"))
-  local built = assert(teal.load())
+  -- The compiler without its line information, which it compiles to
+  -- no other Lua: every test runs under the coverage line hook, which
+  -- for each instruction of a function with line information finds its
+  -- line, and the compiler's lines are no coverage of the tree's. With
+  -- them, compiling itself took 4.5 s on the release core and 24 s on
+  -- the checked core idle, 38 s on a loaded 4-core host, past the
+  -- runner's 30; without them, about 3 s and 9 s.
+  local built = assert(teal.load(true))
   local env = assert(built.new_env({ defaults = {
     feat_lax = "off", gen_compat = "off", gen_target = "5.4",
   } }))

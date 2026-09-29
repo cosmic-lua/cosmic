@@ -75,7 +75,7 @@ local function test_classes_and_fields_carry_their_prose()
   assert(by_symbol["O_RDONLY"].text == "open for reading", by_symbol["O_RDONLY"].text)
   local module = by_symbol[""].text
   assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
-    "and on macOS. Derived from core/syscalls.h.", module)
+    "and on macOS.", module)
 end
 
 --- The table is documented under the name every caller gives it,

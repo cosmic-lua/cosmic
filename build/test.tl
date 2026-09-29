@@ -80,7 +80,8 @@
 --- module, whatever one read beyond them (`build.test_inputs`), with the
 --- declaration that would hold it, and fails the run when any did.
 --- Each worker runs sandboxed to them (`build.test_sandbox`), with the
---- tree at /tree and its scratch directory at /tmp, and so does every
+--- tree at /tree and its scratch directory beneath /tmp
+--- (`test_sandbox.scratch`), and so does every
 --- process it starts: a read of anything else finds nothing.
 ---
 --- Where the kernel cannot sandbox a worker (macOS, a host refusing user
@@ -2056,7 +2057,7 @@ end
 --- The environment the workers of `m`'s tests are given, which a
 --- variable they read is keyed by: nil for every worker's own, where
 --- they run unsandboxed and unkeyed. Keyed, it is what a sandbox gives
---- one (`test_sandbox.environment`), TMPDIR its /tmp, whether or not a
+--- one (`test_sandbox.environment`), TMPDIR its scratch directory, whether or not a
 --- sandbox holds it (`launch`).
 local function view_of(rec: Recording, m: importer.Module): {string:string} | nil
   if not rec.keyed then return nil end
@@ -2571,14 +2572,21 @@ end
 --- processes report.
 --- Removing the scratch directory with `Fs.remove_tree` removes the
 --- link without following it, and the real directory beside it.
--- TODO: keep the link, which a sandboxed worker sees at /tmp/tmp as an
+-- TODO: keep the link, which a sandboxed worker sees in `test_sandbox.scratch` as an
 -- unsandboxed one sees it under the host's temporary directory: it
 -- stands in for macOS's /var on every host, and does not depend on
 -- where the checkout is. Drop it only once a case of its own on the
 -- macOS leg catches a path resolved on one side of a comparison and not
 -- the other, which the link catches on every leg today.
 function test.scratch(): string | nil, string
-  local made, trouble = Fs.mkdtemp("cosmic-test-")
+  -- Padded so the scratch directory's path is as long on this host as
+  -- a sandbox's is, and as macOS's is (`test_sandbox.scratch_length`),
+  -- past the temporary directory's resolved path and mkdtemp's six.
+  local base, base_trouble = Fs.absolute(Env.get_or("TMPDIR", "/tmp"))
+  if base == nil then return nil, base_trouble end
+  local separator = base:sub(-1) == "/" and 0 or 1
+  local made, trouble = Fs.mkdtemp(test_sandbox.padded("cosmic-test-",
+    test_sandbox.scratch_length - #base - separator - 6))
   if made == nil then return nil, trouble end
   local scratch, absolute_trouble = Fs.absolute(made)
   if scratch == nil then
@@ -2712,7 +2720,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   local tmp = scratch .. "/tmp"
   job.tmp = tmp
   -- Sandboxed, the worker has the tree at /tree, where it runs, and
-  -- its scratch directory at /tmp (`build.test_sandbox`).
+  -- its scratch directory at `test_sandbox.scratch`.
   local env: {string:string} = worker_view()
   local root, inside, cwd: string, string, string = rec.root, scratch, nil
   local sandbox: Child.Sandbox = nil
@@ -2749,7 +2757,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     -- Keyed but unsandboxed (COSMIC_TEST_KEY=declared), the worker is
     -- given the environment its key holds (the pinned variables and its
     -- declared ones) with TMPDIR its scratch directory, as a sandbox
-    -- gives it at /tmp. The key names that /tmp, not this path, which is
+    -- gives it at `test_sandbox.scratch`. The key names that, not this path, which is
     -- new every run. Nothing holds it to the rest of what it declares.
     --
     -- A test that declares loopback addresses is keyed as offline, as

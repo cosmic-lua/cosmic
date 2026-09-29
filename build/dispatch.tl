@@ -31,14 +31,11 @@ local verdict = require("build.verdict")
 local log = verdict.log
 
 -- Require build modules lazily inside what needs them, so a verb's command
--- line loads that verb's module alone (`verb_list.find`). Only the whole
--- `cosmic help`, which prints every verb's `Spec.takes` and `Spec.exits`,
--- loads them all.
+-- line loads that verb's module alone (`verb_list.find`). Only `cosmic help`
+-- of a verb loads its spec, and `cosmic help exit` loads them all.
 
-local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
-
---- The one-line-per-verb usage block `cosmic help` prints, generated
---- from `cosmic.cli`'s own fields (`Cli.run`, `Cli.test`, ...) so this
+--- The full text of each verb's `cosmic help <verb>`, generated from
+--- `cosmic.cli`'s own fields (`Cli.run`, `Cli.test`, ...) so this
 --- wording is never a second, hand-kept copy of what `cosmic docs
 --- build` (or any verb `Cli.order` names) already answers.
 --- Falls back to naming the lookup that failed, rather than silently
@@ -85,44 +82,6 @@ local function verb_help(verbs: {string}): string
   return table.concat(lines, "\n")
 end
 
-local help_head = [[
-Lua's `io`, `os`, and `debug` are not present; code that reaches for
-one is told the replacement for the very field it used -- by the
-compiler, or at run time by a chunk `load` was handed. `io` is
-`cosmic.fs`: `Fs.stdout`, `.stderr`, `.stdin` are descriptors, written
-and read with `Fs.put`/`Fs.take`. `os` is `cosmic.time`, `cosmic.env`,
-and `cosmic.proc`. `debug` is `cosmic.errors.trace`. `print` still
-works, an ordinary global written over the same syscall table
-`cosmic.fs` uses.
-
-]]
-
---- The paragraph's opening: the rest of it is each verb's `Spec.takes`.
-local help_takes_intro = "A verb takes paths to narrow it:"
-
-local help_middle = [[
-
-`fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
-operator and bracket, the spacing around each, and two columns of
-indentation per level of block -- from the tree rather than from
-whichever two tokens ended up adjacent, so `local x <const> = 5` is
-one unit attached to the name and can never come back as `local x <
-const > = 5`. It carries over where the lines break and where they do
-not, and never rewraps one. Type syntax is written as the original
-bytes. Nothing is written until the result has been parsed again and
-found to mean the same thing, comments included.
-
-That indentation is the indentation of LINES THAT OPEN SOMETHING: a
-statement, a block's closing keyword. A line that continues one keeps
-the column it was written at, moved with the statement it belongs to,
-and so does an entry of a table spread over several lines, a comment
-on a line of its own, and the body of a record or enum -- which is
-copied out as the bytes it was read from. Lining those up is a
-judgement about a whole line, which is the author's here, not the
-tool's.
-
-]]
-
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
 local help_verdict = "ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL (...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
@@ -165,34 +124,53 @@ end
 --- written by hand is.
 local help_width <const> = 70
 
---- The clause of `cosmic help`'s paragraph on what verbs take: verbs that take
---- the same share one clause, at the place of the first.
-local function takes_clauses(specs: {verb_spec.Spec}): {string}
-  local order: {string} = {}
-  local names: {string:{string}} = {}
-  for _, spec in ipairs(specs) do
-    if names[spec.takes] == nil then
-      order[#order + 1] = spec.takes
-      names[spec.takes] = {}
-    end
-    local group = names[spec.takes]
-    group[#group + 1] = spec.name
+--- What `cosmic help fix` says of how it lays a file out, after the
+--- options: the design of the formatter, which no other verb's help
+--- needs.
+local fix_layout = [[
+Each line is decided from the parsed tree, not from adjacent tokens:
+every keyword, operator, bracket and the spacing around it, so `local
+x <const> = 5` cannot come back as `local x < const > = 5`. Lines keep
+the breaks they had and are never rewrapped; type syntax keeps its
+original bytes. Nothing is written until the result parses again to
+the same tree, comments included.
+
+Two columns of indentation per block apply to lines that open
+something: a statement or a block's closing keyword. A line that
+continues one keeps its column, moved with its statement, as do table
+entries spread over several lines, a comment on a line of its own,
+and the body of a record or enum, which is copied as read. Lining
+those up is the author's judgement, not the tool's.]]
+
+--- What each verb's own text says of its command line, after its
+--- options: what it takes and how it ends, from the verb's spec
+--- (build/verb_spec.tl) and wrapped here.
+--- @param verb the verb's name
+--- @param spec the verb's spec, or nil for a verb that has none (a file
+---   run, `--standalone`, `-e`, `--version`)
+local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
+  if spec == nil then
+    return wrapped("Prints only what its program prints, and exits with what it returns, "
+      .. "as `cosmic help exit` says.", help_width)
   end
-  local clauses: {string} = {}
-  for _, takes in ipairs(order) do
-    clauses[#clauses + 1] = listed(names[takes]) .. " " .. takes
+  local paragraphs: {string} = {}
+  if verb == "fix" then
+    paragraphs[1] = fix_layout
   end
-  return clauses
+  paragraphs[#paragraphs + 1] = wrapped("Takes " .. spec.takes .. ".", help_width)
+  if spec.exits ~= nil then
+    paragraphs[#paragraphs + 1] = wrapped(spec.exits, help_width)
+  else
+    paragraphs[#paragraphs + 1] = wrapped("Ends in a verdict line, `" .. verb .. ": PASS (...)` or `"
+      .. verb .. ": FAIL (...)`, and an exit code: see `cosmic help exit`.", help_width)
+  end
+  return table.concat(paragraphs, "\n\n")
 end
 
---- The closing prose of `cosmic help`: the paragraphs that say what each
---- verb takes and how the bare ones exit are written from the specs
---- (build/verb_spec.tl) and wrapped here; the rest is prose about no one
---- verb in particular, written by hand.
+--- The text of `cosmic help exit`: the verdict line and exit codes the
+--- verbs share, then how each verb that prints no verdict exits.
 --- @param specs every verb's spec, in help's order
-local function help_suffix(specs: {verb_spec.Spec}): string
-  local clauses = takes_clauses(specs)
-  clauses[#clauses] = "and " .. clauses[#clauses]
+local function exit_help(specs: {verb_spec.Spec}): string
   local bare: {string} = {}
   local sentences: {string} = {}
   for _, spec in ipairs(specs) do
@@ -201,10 +179,48 @@ local function help_suffix(specs: {verb_spec.Spec}): string
       sentences[#sentences + 1] = spec.exits or ""
     end
   end
-  return help_head .. wrapped(help_takes_intro .. " " .. table.concat(clauses, "; ") .. ".",
-      help_width) .. "\n" .. help_middle
-    .. wrapped("Every verb but " .. listed(bare) .. " " .. help_verdict .. " " ..
-      table.concat(sentences, " "), help_width) .. "\n"
+  return wrapped("Every verb but " .. listed(bare) .. " " .. help_verdict .. " " ..
+    table.concat(sentences, " "), help_width) .. "\n"
+end
+
+--- The index `cosmic help` prints: what `cosmic` is, each verb's usage
+--- and purpose in the sections `Cli.groups` names, and where to read more.
+local function index_help(): string
+  local width = 0
+  for _, verb in ipairs(Cli.order) do
+    width = math.max(width, #Cli.usage[verb])
+  end
+  local lines = {
+    "cosmic -- a runtime for self-contained command-line software",
+    "",
+    "cosmic runs Teal and Lua programs with a standard library that needs",
+    "nothing installed, and builds them into single executables. Its",
+    "verbs run code, work on a project, do quick jobs at the shell, and",
+    "look things up.",
+  }
+  for _, group in ipairs(Cli.groups) do
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = group[1] .. ":"
+    for slot = 2, #group do
+      local verb = group[slot]
+      lines[#lines + 1] = "  " .. Cli.usage[verb] .. string.rep(" ", width - #Cli.usage[verb] + 2)
+        .. Cli.summary[verb]
+    end
+  end
+  for _, line in ipairs({
+    "",
+    "More:",
+    "  cosmic help <verb>       a verb's full text, with its options",
+    "  cosmic help exit         verdict lines and exit codes",
+    "  cosmic docs              every module of the standard library",
+    "  cosmic docs <module>     a module, or a symbol such as Fs.read",
+    "",
+    "Lua's io, os and debug are absent (print stays): `cosmic docs",
+    "cosmic.removed` names what replaces each.",
+  }) do
+    lines[#lines + 1] = line
+  end
+  return table.concat(lines, "\n") .. "\n"
 end
 
 --- The directory a path sits in, absolute.
@@ -456,8 +472,8 @@ end
 --- verb, so it is declared here and set once `help` exists.
 local help_spec: verb_spec.Spec
 
---- `cosmic help [verb]`: the whole discovery surface, or one verb's line
---- of it, and a verdict line.
+--- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
+--- exit codes, and a verdict line.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
@@ -479,7 +495,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       for slot, word in pairs(argv) do line[slot] = word end
       line[2] = spelled
     end
-    local parsed, parse_trouble = Flags.parse(line, 2, {})
+    local parsed, parse_trouble = Flags.parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
       log:complain("help: " .. parse_trouble)
       log:verdict("help", false, parse_trouble)
@@ -493,7 +509,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
     return 2
   end
   if #words == 1 then
-    local known = false
+    local known = words[1] == "exit"
     for _, verb in ipairs(Cli.order) do
       if verb == words[1] then
         known = true
@@ -505,13 +521,21 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       log:verdict("help", false, "no such verb: " .. words[1])
       return 2
     end
-    log:say(verb_help(words))
+    local specs = verb_list.specs()
+    specs[#specs + 1] = help_spec
+    if words[1] == "exit" then
+      log:say(exit_help(specs))
+    else
+      local spec: verb_spec.Spec | nil = nil
+      for _, candidate in ipairs(specs) do
+        if candidate.name == words[1] then spec = candidate end
+      end
+      log:say(verb_help(words) .. "\n" .. spec_notes(words[1], spec) .. "\n")
+    end
     log:verdict("help", true, "1 verb, " .. clock.took(started))
     return 0
   end
-  local specs = verb_list.specs()
-  specs[#specs + 1] = help_spec
-  log:say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix(specs))
+  log:say(index_help())
   log:verdict("help", true, #Cli.order .. " verbs, " .. clock.took(started))
   return 0
 end
@@ -524,7 +548,7 @@ help_spec = {
     return help(argv, nil)
   end,
   bare = false,
-  takes = "a verb",
+  takes = "a verb, or `exit`",
 }
 
 --- The spec of the verb a command line's first word names, loading the

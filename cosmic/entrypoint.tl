@@ -1,8 +1,8 @@
 --- What runs a file or a built binary: the shape neither `cosmic
 --- <file.tl>`'s own `--help` line nor any single function's doc
 --- comment states on its own, since no single function IS the rule --
---- `cmd/<name>/main.tl` is a path shape `build/embed.tl` matches, not
---- a symbol of its own. `cosmic docs <word>` finds each field below
+--- `cmd/<name>/main.tl` is a path shape the build recognizes, not a
+--- symbol of its own. `cosmic docs <word>` finds each field below
 --- directly, the same way it finds any other symbol.
 local record Entrypoint
   --- the tree: a project's own working directory and everything

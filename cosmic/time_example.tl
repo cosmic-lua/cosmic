@@ -21,6 +21,39 @@ function Example.sleep_ns()
   assert(waited >= 1000000, tostring(waited))
 end
 
+--- A duration as people write it: a calendar part (years, months, days)
+--- and an exact part in nanoseconds, with one sign for the whole. Text
+--- that is not one is refused with why.
+function Example.parse_duration()
+  local d = assert(Time.parse_duration("1y2mo3d4h5m6.5s"))
+  print(d.years, d.months, d.days, d.nanoseconds)
+  assert(d.years == 1 and d.months == 2 and d.days == 3)
+  assert(d.nanoseconds == ((4 * 60 + 5) * 60 + 6) * 1000000000 + 500000000)
+  local back = Time.parse_duration("-90m")
+  assert(back ~= nil and back.nanoseconds == -90 * 60 * 1000000000)
+  local none, why = Time.parse_duration("5 minutes")
+  assert(none == nil)
+  print(why)
+end
+
+--- Whatever form a user typed, as a moment: a date is its first moment
+--- on the calendar of the zone given (UTC's by default), a local time
+--- reads on that calendar too, RFC 3339 keeps its own offset, and `@`
+--- reads seconds since 1970.
+function Example.parse_input()
+  local date = assert(Time.parse_input("2026-09-25"))
+  local stamp = assert(Time.parse_input("2026-09-25T00:00:00Z"))
+  assert(date.ns == stamp.ns)
+  local epoch = assert(Time.parse_input("@1700000000"))
+  assert(epoch.ns == 1700000000 * 1000000000 and epoch.zone == nil)
+  local tokyo = assert(Time.zone("Asia/Tokyo"))
+  local local_time = assert(Time.parse_input("2026-09-25T09:00", tokyo))
+  assert(local_time.ns == stamp.ns, "09:00 in Tokyo is midnight UTC")
+  local bad, why = Time.parse_input("next tuesday")
+  assert(bad == nil)
+  print(why)
+end
+
 --- A moment named on the UTC calendar, and written as RFC 3339 text.
 function Example.civil()
   local ns = 951782400 * 1000000000 + 250000000

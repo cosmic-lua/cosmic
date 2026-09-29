@@ -4,6 +4,18 @@
 --- alphabet, a bad length, misplaced padding, or nonzero trailing bits
 --- -- answers `nil` and a reason rather than a guess, so every string a
 --- decoder accepts encodes back to exactly itself.
+---
+--- - `Codec.hex` and `Codec.unhex`: lower-case hex, the way to show a
+---   digest or a key. The decoder reads either case.
+--- - `Codec.base64` and `Codec.unbase64`: the standard alphabet, padded,
+---   for data in text formats and headers.
+--- - `Codec.base64url` and `Codec.unbase64url`: the URL- and
+---   filename-safe alphabet, unpadded, for tokens and file names.
+--- - `Codec.encoder` and `Codec.decoder`: the same encodings a chunk at a
+---   time, for data that does not fit in one string.
+---
+---     local text = Codec.base64("hello")      -- "aGVsbG8="
+---     local bytes = assert(Codec.unbase64(text))
 
 local record Codec
   --- The encodings `encoder` and `decoder` take by name.
@@ -27,7 +39,10 @@ local record Codec
   --- and gives all the output it has at each call. After `finish`,
   --- `update` and `finish` raise.
   record Coder
+    --- Feeds a chunk; answers the output that is ready, possibly "".
     update: function(Coder, chunk: string): string | nil, string
+    --- Ends the input; answers what is left, or `nil` and why a
+    --- decoder's text was refused.
     finish: function(Coder): string | nil, string
   end
 end
