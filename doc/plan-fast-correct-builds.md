@@ -708,7 +708,7 @@ Items, in order:
    older than 24 h. A doc-only skip is not safe: `doc/guides/*.md`
    compile into tests.
    - Shows: a branch five commits behind main stands on verdicts.
-8. **The portable suite narrowed (S): in progress.** It reruns exactly
+8. **The portable suite narrowed (S): landed (#2360).** It reruns exactly
    the native suite's ran set on every leg (72 of 72 leg-runs), 89 to
    153 s a leg, about 7.9 runner-minutes a queue run. It stays apart
    from the native suite's verdicts by design (it exists to run tests
@@ -716,10 +716,13 @@ Items, in order:
    x86-64 legs (glibc and musl) and the scheduled run on every leg
    (`COSMIC_CI_PORTABLE_SUITE`). Expected: median gate 10.1 to about
    9.2 min.
-9. **A queue run restores the seed of the run ahead of it (M):
-   proposed.** Stacked queue runs restore main's newest save, which
-   lacks the key part the run ahead moves; the run ahead's `seed-<leg>`
-   artifact has it.
+9. **A queue run takes the verdicts of the run ahead of it (M):
+   landed (#2362).** Stacked queue runs restored main's newest save,
+   which lacks the key part the run ahead moves. The run ahead uploads
+   `verdicts-<leg>` as soon as its native suite passes; a leg boots,
+   then waits for it (to a 150 s deadline; none on an `--all` run) and
+   merges the rows (`verdicts-merge`, insert-or-ignore) before its
+   suite. Caches can't carry it: each queue entry has its own ref.
 
 Expected after items 2 to 5: the queue about 8 min wall and 34
 runner-minutes, main about 1.5 min and 4, about 38 per landed change.
