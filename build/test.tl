@@ -1641,11 +1641,14 @@ end
 --- or that writes what it is given (`binary_harness`).
 local record Harness
   --- The digest of the test harness over each module's source and
-  --- bytecode (`test.harness`), which build/harness_epoch.tl's
-  --- `acknowledged` records: what a worker runs, and the code that
+  --- bytecode (`test.harness`): what a worker runs, and the code that
   --- makes and reads its key. No key holds it; each holds the epoch in
   --- its place.
   digest: string
+  --- The same, a digest per module of it by its name, which
+  --- build/harness_epoch.tl's `acknowledged` records one to a line, so
+  --- two changes to different modules of the harness merge cleanly.
+  modules: {string:string}
   --- The modules the digest holds, and those of them the harness runs
   --- -- what every worker loads and `harness_own` -- whose requires
   --- build/harness_epoch_test.tl holds to `names`.
@@ -1778,7 +1781,8 @@ end
 --- rows. Each module of the harness -- what a worker loads,
 --- `harness_own` and `key_code`, but build.harness_epoch, which records
 --- the digest -- is held by its name, its source's hash and its
---- bytecode's, so the digest is the same wherever the tree is, and a
+--- bytecode's, as a whole and one by one (`modules`), so the digest is
+--- the same wherever the tree is, and a
 --- compiler that makes other bytecode of the same source moves it as
 --- an edit does; so is each the salt holds (`store_code`), as the
 --- store's bytes follow from both. Nil and why where
@@ -1819,13 +1823,16 @@ function test.harness(db: Sqlite.Handle): Harness | nil, string
       if name ~= epoch_module then names[#names + 1] = name end
     end
   end
+  local each: {string:string} = {}
+  for _, name in ipairs(names) do each[name] = declared_key.harness({ name }, compiled) end
   local salted = store_code(imports)
   for _, name in ipairs(salted) do
     if compiled[name] == nil then
       return nil, name .. ", which writes a closure store, is no module the binary carries"
     end
   end
-  return { digest = declared_key.harness(names, compiled), names = names, runs = runs,
+  return { digest = declared_key.harness(names, compiled), modules = each, names = names,
+    runs = runs,
     store_salt = declared_key.harness(salted, compiled), carried = carried }, ""
 end
 

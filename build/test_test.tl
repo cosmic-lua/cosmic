@@ -867,6 +867,10 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     set(name, source, bytecode)
     local edited = assert(test.harness(db))
     set(name, "return 'a key'\n", "bytecode")
+    for other, digest in pairs(before.modules) do
+      assert((edited.modules[other] ~= digest) == (other == name and edited.digest ~= before.digest),
+        "an edit to " .. name .. " moved " .. other .. "'s own digest")
+    end
     return (edited.digest ~= before.digest and "harness" or "") ..
       (edited.store_salt ~= before.store_salt and "store" or "")
   end
