@@ -94,6 +94,39 @@ What the runs since show:
 
 ### Milestone M1 (to measure)
 
+**Second measurement (2026-09-29, 13 gating runs after #2320,
+#2326 to #2334).** 7 qualify (core and harness unmoved); 10 are
+needed, so M1 is not yet decided. Over the 7:
+
+- Median gating run 10.8 min: missed (target under 9).
+- Checked suite stands on a median 55.7%, best 74.6%: missed (90).
+- Main push median 56 s, at most 90 s: met (under 6 min).
+- 35.9 runner-minutes per landed change: met (under 45).
+
+Why runs don't stand, from the runs and a local reproduction:
+
+1. Six of 13 went `--all`: their PR changed a module
+   `build/harness_epoch.tl` acknowledges. Its 44 modules include
+   `cosmic.time`, `codec`, `hash`, `stream`, `fs`, `string`, `sqlite`,
+   `store` and `build.analyzer`, which ordinary PRs edit.
+2. An edit to any `*.d.tl` moves every test's key: every closure store
+   carries every declaration whole (`build/closure_store.tl`), and a
+   test's key holds its store's address. #2327 renamed two parameters
+   in `cosmic/internal/store.d.tl`, and 2216 of 2216 ran.
+3. Queue runs stack: each restores main's newest seed, 0 to 2 commits
+   behind, and inherits what the runs ahead of it changed.
+4. About 540 `tool`/`store` tests rerun on any code edit, so a code
+   change stands on at most about 75%; they are also the slow tests,
+   so standing barely shortens the checked suite. 90% of about 2400
+   means at most 240 run, under 2.4's floor.
+
+The gate itself is linux-x86_64 in 9 of 13 runs: its checked suite
+takes 178 to 345 s and its fixtures 95 to 163 s; macOS's fixtures take
+170 to 266 s. 4.5's item 3 and the fixture items move it; more tests
+standing does not.
+
+(The first measurement follows.)
+
 A first measurement (2026-09-28): only 1 of 5 gating runs after #2291
 qualified. It stood on 96.6% of the checked suite, gated in 6.0 min, and
 took 43.8 runner-minutes. The other three landed changes moved the core
