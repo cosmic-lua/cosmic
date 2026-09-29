@@ -50,6 +50,7 @@ local layout = require("build.c.layout")
 local rules = require("build.c.rules")
 local tree = require("build.c.tree")
 local Zig = require("build.zig")
+local plural = require("build.plural")
 
 local record c
   --- What checking one file came to: its findings, or why it could not
@@ -336,8 +337,8 @@ local function outcome(root: string, file: string, result: Child.Result, trouble
     return { file = file, trouble = "clang could not read it:\n" .. (err:gsub("\n+$", "")) }
   end
   if result.truncated then
-    return { file = file, trouble = "its syntax tree is larger than " .. limit ..
-      " bytes, the most that is read of one" }
+    return { file = file, trouble = "its syntax tree is larger than " .. plural.count(limit, "byte") ..
+      ", the most that is read of one" }
   end
   local decls = tree.parse(tostring(result.stdout or ""), root)
   return { file = file, findings = rules.check(decls, file, declared) },

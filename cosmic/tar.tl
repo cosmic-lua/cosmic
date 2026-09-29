@@ -705,7 +705,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
     if not ok then return false, trouble end
     if data is string then
       if #data ~= size then
-        return sink:fail("tar: add_file: body is " .. counted(#data, "byte") .. ", not " .. tostring(size))
+        return sink:fail("tar: add_file: body is " .. counted(#data, "byte") .. ", not " .. counted(size, "byte"))
       end
       ok, trouble = sink:put(data)
       if not ok then return false, trouble end

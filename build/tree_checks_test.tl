@@ -6,6 +6,7 @@
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
 
 --- Lines as one source file's text.
@@ -403,7 +404,7 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
       "function thing.c() end",
       "--- Does it as build.thing does, or vendor/thing.",
       "function thing.d() end",
-      "--- Does it plainly (127.a.b.c, e.g. `o/build.db`).",
+      "--- Does it plainly (127.a.b.c, <errno.h>, e.g. `o/build.db`, and the build.then it did).",
       "function thing.e() end",
       "-- TODO: do more, as build/thing.tl does.",
       "",
@@ -411,15 +412,18 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
       "--- Private, in core/thing.c.",
       "local function g() end",
       "return thing"),
+    ["build/thing.tl"] = source("local record thing", "end", "return thing"),
   })
   local found = tree_checks.public_docs(db, {})
   local text = table.concat(found, "\n")
-  assert(#found == 4, text)
-  assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl` %(path rule%) %-%- say what a caller needs")
+  assert(#found == 6, text)
+  assert(found[1]:find("^cosmic/thing%.tl:5: cosmic%.thing a: .*`build/thing%.tl`.*%(path rule%) %-%- say what a caller needs")
     ~= nil, text)
   assert(found[2]:find("^cosmic/thing%.tl:7: .*`TODO:` %(todo rule%).*`%-%-` comment") ~= nil, text)
   assert(found[3]:find("^cosmic/thing%.tl:9: .*`core/thing%.c`") ~= nil, text)
-  assert(found[4]:find("^cosmic/thing%.tl:11: .*`build%.thing`") ~= nil, text)
+  assert(found[4]:find("^cosmic/thing%.tl:9: .*`cosmic%.internal%.thing%.`") ~= nil, text)
+  assert(found[5]:find("^cosmic/thing%.tl:11: .*`build%.thing`") ~= nil, text)
+  assert(found[6]:find("^cosmic/thing%.tl:11: .*`vendor/thing%.`") ~= nil, text)
   local excused = {
     ["cosmic.thing a path"] = "a",
     ["cosmic.thing b todo"] = "b",
@@ -467,6 +471,12 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
       "function count.c(n: integer): string",
       "  return (\"%d of %d tests\"):format(n, n)",
       "end",
+      "function count.d(a: integer, b: integer): string",
+      "  return (a - b) .. \" rows\"",
+      "end",
+      "function count.e(stores: integer): string",
+      "  return stores .. \" closure stores\"",
+      "end",
       "return count"),
     ["build/fine.tl"] = source(
       "local plural = { count = function(n: integer, s: string): string return s end }",
@@ -474,9 +484,9 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
       "end",
       "function fine.a(rows: {string}, at: integer, name: string): string",
       "  -- #rows .. \" tests\" in a comment",
-      "  return plural.count(#rows, \"test\") .. name .. \" tests\" ..",
+      "  return plural.count(#rows, \"test\") .. name .. \" is here\" ..",
       "    (\"at byte %d needs\"):format(at) .. (\"%d of %s\"):format(at, name) ..",
-      "    (\"iters=%d\"):format(at) .. #rows .. \" is the count\"",
+      "    (\"iters=%d\"):format(at) .. #rows .. \" is the count\" .. name .. \" needs it\"",
       "end",
       "return fine"),
     ["build/fine_test.tl"] = source(
@@ -484,16 +494,21 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
       "  local _ = #rows .. \" tests\"",
       "end"),
   })
-  local found = tree_checks.plurals(db, {})
+  local built = assert(teal.load())
+  local found = tree_checks.plurals(db, built, {}, {})
   local text = table.concat(found, "\n")
-  assert(#found == 3, text)
+  assert(#found == 5, text)
   assert(found[1]:find("^build/count%.tl:4: .*`tests`.*plural%.count") ~= nil, text)
-  assert(found[2]:find("^build/count%.tl:7: .*`files`") ~= nil, text)
+  assert(found[2]:find("^build/count%.tl:8: .*`files`") ~= nil, text)
   assert(found[3]:find("^build/count%.tl:11: .*`tests`.*plural%.noun") ~= nil, text)
-  found = tree_checks.plurals(db, { ["build/count.tl:tests"] = "always many",
-    ["build/count.tl:files"] = "always many", ["build/fine.tl:tests"] = "unneeded" })
-  assert(#found == 1 and found[1]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil,
-    table.concat(found, "\n"))
+  assert(found[4]:find("^build/count%.tl:14: .*`rows`") ~= nil, text)
+  assert(found[5]:find("^build/count%.tl:17: .*`stores`") ~= nil, text)
+  found = tree_checks.plurals(db, built, { { "ci/x.tl", "return #arg .. \" arguments\"\n" } }, {
+    ["build/count.tl:tests"] = "always many", ["build/count.tl:files"] = "always many",
+    ["build/count.tl:rows"] = "always many", ["build/count.tl:stores"] = "always many",
+    ["build/fine.tl:tests"] = "unneeded" })
+  assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil
+    and found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
 end
 
 --- A guide under doc/guides that is neither a user guide nor named

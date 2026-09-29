@@ -68,6 +68,7 @@ local type Sqlite = require("cosmic.sqlite")
 
 local log = require("build.verdict").log
 local verb_spec = require("build.verb_spec")
+local plural = require("build.plural")
 
 local record fix
   --- The verb's registration: see build/verb_spec.tl.
@@ -625,7 +626,7 @@ local function run(argv: {integer:string}): integer
     rounds = rounds + 1
     if checking or not wrapped then break end
     if rounds >= 50 then
-      failures[#failures + 1] = "wrapping asserts did not settle after " .. rounds .. " builds"
+      failures[#failures + 1] = "wrapping asserts did not settle after " .. plural.count(rounds, "build")
       break
     end
   end
@@ -643,7 +644,7 @@ local function run(argv: {integer:string}): integer
       if guide == nil then
         findings[#findings + 1] = "tree checks: " .. guide_trouble
       end
-      local found = tree_checks.run(db, guide)
+      local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root))
       for _, line in ipairs(found) do
         findings[#findings + 1] = line
       end
@@ -685,7 +686,7 @@ local function run(argv: {integer:string}): integer
   if #failures > 0 or #findings > 0 then
     local said: {string} = {}
     if #failures > 0 then
-      said[#said + 1] = #failures .. " of " .. counted .. " files refused"
+      said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
     end
     if #findings > 0 then
       said[#said + 1] = #findings .. " found by the tree checks"
@@ -694,11 +695,11 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   if checking and #changed > 0 then
-    log:verdict("fix", false, #changed .. " of " .. counted .. " files to fix, " ..
+    log:verdict("fix", false, #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
       clock.took(started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
-  log:verdict("fix", true, counted .. " files, " .. #changed ..
+  log:verdict("fix", true, plural.count(counted, "file") .. ", " .. #changed ..
     (checking and " to fix, " or " fixed, ") .. clock.took(started))
   return 0
 end

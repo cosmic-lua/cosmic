@@ -252,7 +252,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string
     local name = algorithm.name
     if #digest ~= algorithm.digits or digest:find("[^%x]") then
-      return source .. " wants " .. tostring(algorithm.digits) .. " hex digits, not " .. digest
+      return source .. " wants " .. plural.count(algorithm.digits, "hex digit") .. ", not " .. digest
     end
     digest = digest:lower()
     if wants[name] ~= nil and wants[name] ~= digest then

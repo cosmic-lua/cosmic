@@ -3,6 +3,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Runner = require("cosmic_ci.runner")
+local Plural = require("cosmic_ci.plural")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
 -- well under a second. Native decoder compilation opts into its larger bound.
@@ -60,8 +61,8 @@ end
 
 function Fixture.small(path: string, limit: integer): string
   local size = assert(Fs.stat(path)).size
-  assert(size <= limit, path .. ": expected at most " .. tostring(limit) ..
-    " bytes, found " .. tostring(size))
+  assert(size <= limit, path .. ": expected at most " .. Plural.count(limit, "byte") ..
+    ", found " .. tostring(size))
   return Fixture.read(path)
 end
 

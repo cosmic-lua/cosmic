@@ -376,7 +376,7 @@ Checked_methods.read = function(self: Checked, max: integer): string | nil, stri
       self.failed = trouble
     elseif self.seen ~= self.size then
       self.failed = "zip: size mismatch: " .. counted(self.seen, "byte") .. ", recorded " ..
-        tostring(self.size)
+        counted(self.size, "byte")
     elseif (self.state or 0) ~= self.crc then
       self.failed = "zip: crc32 mismatch"
     else
@@ -557,7 +557,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   local cd_offset = c.start
   if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
     return nil, "zip: entry " .. buf:sub(name_start, name_end) .. " (offset " ..
-      tostring(local_offset) .. ", " .. tostring(csize) .. " compressed bytes) runs past " ..
+      tostring(local_offset) .. ", " .. counted(csize, "compressed byte") .. ") runs past " ..
       "the start of the central directory at " .. tostring(cd_offset)
   end
   if bare and kind ~= "symlink" then return CHECKED, "" end
@@ -952,7 +952,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
     end
     if hint ~= nil and hint ~= usize then
       return sink:fail("zip: " .. path .. ": body is " .. counted(usize, "byte") .. ", not " ..
-        tostring(hint))
+        counted(hint, "byte"))
     end
     if wide then
       ok, trouble = put(DESCRIPTOR_SIG .. le32(crc) .. le64(csize) .. le64(usize))

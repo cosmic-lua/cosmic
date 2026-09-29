@@ -4,9 +4,10 @@
 --- finding what stands in for it, every docs query a compile advertises
 --- answered, every quieted method one a module declares, every
 --- declaration's requires declared, every verb's spec listed and
---- readable, no public `---` doc citing the build or carrying a TODO, and
---- no literal plural after a number. Each asks the tree's projection, `o/cosmic.db`, which holds
---- every module's docs, uses, imports, examples and source.
+--- readable, no public doc citing the build or carrying a TODO, and no
+--- literal plural after a number. Each asks the tree's projection,
+--- `o/cosmic.db`, which holds every module's docs, uses, imports,
+--- examples and source.
 ---
 --- A test reads its own module's closure and no more (the rule the
 --- suite's `store` declaration is kept to), so these are not tests.
@@ -21,11 +22,13 @@
 --- tree's own, so its test can hand it a fixture database and a list of
 --- its own.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local closure_store = require("build.closure_store")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
+local ast = require("build.ast")
 local docs = require("build.docs")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
@@ -33,6 +36,8 @@ local symbols = require("build.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
 local type compiler = require("build.compiler")
+
+local type Node = ast.Node
 
 local record tree_checks
 end
@@ -906,65 +911,124 @@ doc_exempt["cosmic.cli Cli.todos todo"] = "`cosmic todos` lists the tree's " ..
 doc_exempt["cosmic.coverage native_lines path"] = "the doc shows the shape of a hit's " ..
   "path (`core/syscalls.c`) as an example of the data a caller reads"
 
---- The rules a public `---` doc comment is held to: a name, the Lua
---- pattern that finds it, and what to do instead.
-local doc_rules: {{string}} = {
-  { "todo", "TODO:", "move the TODO to a `--` comment where the better fix would go" },
-  { "path", "%f[%w_]build/", "say what a caller needs, not where the build keeps it" },
-  { "path", "[^/%w_]build%.[a-z_]", "say what a caller needs, not which build module does it" },
-  { "path", "%f[%w_]core/", "say what a caller needs, not which C file does it" },
-  { "path", "cosmic%.internal", "say what a caller needs, not which internal module does it" },
-  { "path", "cosmic/internal/", "say what a caller needs, not which internal module does it" },
-  { "path", "%f[%w_]vendor/", "say what a caller needs, not which vendored tree does it" },
-  { "path", "%f[%w_][%w_][%w_]+%.[ch]%f[^%w_]", "say what a caller needs, not which C file does it" },
+--- The rules a public doc is held to: a name, the Lua pattern that
+--- finds a candidate, whether the candidate breaks the rule (given the
+--- text around it and the tree's module names), and what to do instead.
+local record DocRule
+  name: string
+  pattern: string
+  breaks: function(before: string, hit: string, after: string, modules: {string: boolean}): boolean
+  fix: string
+end
+
+--- Whether `hit`, a `build.<name>` found in prose, names a module of the
+--- tree (or a package under one): `build.this_program`, not "the build."
+local function names_a_module(hit: string, modules: {string: boolean}): boolean
+  local name = hit:match("^build%.([%w_.]*[%w_])")
+  while name ~= nil and name ~= "" do
+    if modules["build." .. name] then return true end
+    name = name:match("^(.*)%.[^.]*$")
+  end
+  return false
+end
+
+local doc_rules: {DocRule} = {
+  { name = "todo", pattern = "TODO:", fix = "move the TODO to a `--` comment where the better fix would go",
+    breaks = function(_b: string, _h: string, _a: string, _m: {string: boolean}): boolean
+      return true
+    end },
+  { name = "path", pattern = "%f[%w_]build/", fix = "say what a caller needs, not where the build keeps it",
+    breaks = function(_b: string, _h: string, _a: string, _m: {string: boolean}): boolean
+      return true
+    end },
+  { name = "path", pattern = "%f[%w_]build%.[%w_]+[%w_.]*", fix = "say what a caller needs, not which build module does it",
+    breaks = function(before: string, hit: string, _a: string, modules: {string: boolean}): boolean
+      return before ~= "/" and before ~= "." and names_a_module(hit, modules)
+    end },
+  { name = "path", pattern = "%f[%w_]core/", fix = "say what a caller needs, not which C file does it",
+    breaks = function(_b: string, _h: string, _a: string, _m: {string: boolean}): boolean
+      return true
+    end },
+  { name = "path", pattern = "cosmic%.internal%f[^%w_]",
+    fix = "say what a caller needs, not which internal module does it",
+    breaks = function(_b: string, _h: string, _a: string, _m: {string: boolean}): boolean
+      return true
+    end },
+  { name = "path", pattern = "cosmic/internal/", fix = "say what a caller needs, not which internal module does it",
+    breaks = function(_b: string, _h: string, _a: string, _m: {string: boolean}): boolean
+      return true
+    end },
+  { name = "path", pattern = "%f[%w_]vendor/", fix = "say what a caller needs, not which vendored tree does it",
+    breaks = function(_b: string, _h: string, _a: string, _m: {string: boolean}): boolean
+      return true
+    end },
+  -- A C file's name: a word of three letters or more and `.c` or `.h`,
+  -- not a system header in angle brackets nor the tail of a dotted name.
+  { name = "path", pattern = "%f[%w_][%l_][%l_][%l_]+%.[ch]%f[^%w_]",
+    fix = "say what a caller needs, not which C file does it",
+    breaks = function(before: string, _h: string, after: string, _m: {string: boolean}): boolean
+      return before ~= "<" and before ~= "." and after ~= ">" and after ~= "."
+    end },
 }
 
---- Every `---` doc text of `db` that a public source shows
---- (`symbols.shown_docs`: a public module's, and `core/syscalls.h`'s,
---- which is `cosmic.sys`) that carries a `TODO:`
---- or cites an implementation path, as `<file>:<line>: <module>
---- <symbol>: ...` with the fix, and then each name in `excused` (by
---- default `doc_exempt`) that nothing answers to any more.
+--- Every `---` doc text that a public source shows in `db` (see
+--- `symbols.shown_docs`: a public module's, `core/syscalls.h`'s, which
+--- is `cosmic.sys`, and the shipped user guides'), and every `--` run
+--- adjacent to a declaration, which `cosmic docs` folds into its doc
+--- text, that carries a `TODO:` or cites an implementation path, one
+--- line per hit as `<file>:<line>: <module> <symbol>: ...` with the
+--- fix, and then each name in `excused` (by default `doc_exempt`) that
+--- nothing answers to any more.
 ---
---- A `---` comment is what `cosmic docs` shows a caller, in a binary
---- that carries neither the build nor the C. A TODO belongs in a `--`
---- comment (AGENTS.md); a path or a `build.` module is a fact about the
---- implementation, which the doc says as what a caller can rely on.
---- The paths refused are `build/`, `build.<module>`, `core/`,
---- `cosmic.internal`, `cosmic/internal/`, `vendor/` and a `.c` or `.h`
---- file name.
+--- A doc is what `cosmic docs` shows a caller, in a binary that carries
+--- neither the build nor the C. A TODO belongs in a `--` comment set
+--- off from the doc by a blank line (AGENTS.md); a path or a `build.`
+--- module is a fact about the implementation, which the doc says as
+--- what a caller can rely on. The paths refused are `build/`, a
+--- `build.<module>` the tree has, `core/`, `cosmic.internal`,
+--- `cosmic/internal/`, `vendor/` and a C file's name (`foo.c`, not a
+--- header in angle brackets).
 function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}): {string}
   excused = excused or doc_exempt
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
-    symbols.shown_docs("d", true) .. " AND " .. symbols.public_only("d.module", true) ..
-    " AND d.text <> '' ORDER BY d.file, d.line, d.id")
+    symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
   if rows == nil then
     return { "reading the public docs: " .. trouble }
   end
+  local names, names_trouble = Sqlite.text_rows(db, "SELECT path FROM modules")
+  if names == nil then
+    return { "reading the modules: " .. names_trouble }
+  end
+  local modules: {string: boolean} = {}
+  for _, row in ipairs(names) do modules[row[1]] = true end
   local out: {string} = {}
   local found: {string: boolean} = {}
   for _, row in ipairs(rows) do
-    local said: {string: boolean} = {}
+    local text = " " .. row[3] .. " "
+    local seen: {string: boolean} = {}
     for _, rule in ipairs(doc_rules) do
-      -- Padded, so a pattern that wants a character before it finds a
-      -- name at the start of the text.
-      local padded = " " .. row[3]
-      local from, to = padded:find(rule[2])
-      if from ~= nil then
-        -- The whole word around the match, not the character a pattern
-        -- wants before it.
-        if padded:sub(from, from):match("%s") then from = from + 1 end
-        while from > 1 and not padded:sub(from - 1, from - 1):match("%s") do from = from - 1 end
-        while to < #padded and not padded:sub(to + 1, to + 1):match("%s") do to = to + 1 end
-        local hit = padded:sub(from, to)
-        local key = row[1] .. " " .. (row[2] ~= "" and row[2] or "(module)") .. " " .. rule[1]
-        found[key] = true
-        if excused[key] == nil and not said[rule[1]] then
-          said[rule[1]] = true
-          out[#out + 1] = row[4] .. ":" .. row[5] .. ": " .. row[1] .. " " ..
-            (row[2] ~= "" and row[2] or "(module)") .. ": its `---` doc text has `" ..
-            hit .. "` (" .. rule[1] .. " rule) -- " .. rule[3]
+      local at = 1
+      while true do
+        local from, to = text:find(rule.pattern, at)
+        if from == nil then break end
+        at = to + 1
+        local hit = text:sub(from, to)
+        -- The whole word around the match, for the finding.
+        local start, stop = from, to
+        while start > 1 and not text:sub(start - 1, start - 1):match("%s") do start = start - 1 end
+        while stop < #text and not text:sub(stop + 1, stop + 1):match("%s") do stop = stop + 1 end
+        local word = text:sub(start, stop)
+        local before, after = text:sub(from - 1, from - 1), text:sub(to + 1, to + 1)
+        if rule.breaks(before, hit, after, modules) then
+          local key = row[1] .. " " .. (row[2] ~= "" and row[2] or "(module)") .. " " .. rule.name
+          found[key] = true
+          if excused[key] == nil and not seen[word] then
+            seen[word] = true
+            out[#out + 1] = row[4] .. ":" .. row[5] .. ": " .. row[1] .. " " ..
+              (row[2] ~= "" and row[2] or "(module)") .. ": its doc text has `" .. word ..
+              "` (" .. rule.name .. " rule) -- " .. rule.fix
+          end
         end
       end
     end
@@ -981,77 +1045,183 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
   return out
 end
 
---- The uses of a literal plural after a number that may stay, by
---- `<file>:<noun>` (the noun as written, `tests`), and why each does.
+--- The literal plurals after a number that may stay, by
+--- `<file>:<noun>`, and why each does. An entry masks every place in
+--- that file that puts `<noun>` after a number, so the reason holds for
+--- all of them.
 local plural_exempt: {string: string} = {}
 
 plural_exempt["build/vendor.tl:files"] = "runs on the bootstrap release " ..
   "(bin/vendor), which cannot require build.plural"
 plural_exempt["build/confine.tl:paths"] = "a count above the unveil limit, so never 1; " ..
   "every worker loads build.confine, and none loads build.plural"
+plural_exempt["build/fetch.tl:digests"] = "\"name different sha256 digests\": two differ, so never 1"
+plural_exempt["build/test.tl:seconds"] = "the limit is math.maxinteger // 1000, never 1"
+plural_exempt["build/test.tl:tables"] = "a label before its value (\"tables <digest>\"), not a count"
+plural_exempt["cosmic/net.tl:bytes"] = "SOCKET_NAME_MAX is the platform's sun_path size, never 1"
 plural_exempt["build/patch.tl:matches"] = "runs on the bootstrap release " ..
   "(bin/vendor applies patches), which cannot require build.plural"
 plural_exempt["build/zig.tl:attempts"] = "runs on the bootstrap release " ..
   "(bin/zig), which cannot require build.plural"
 
---- The identifiers that name a count when they stand before `..`.
-local COUNT_NAMES: {string: boolean} = {
-  count = true, n = true, total = true, number = true, size = true,
-}
-
---- The words after a number that are verbs, not nouns: `at byte %d needs`.
-local VERBS: {string: boolean} = {
-  does = true, needs = true, names = true, leaves = true, takes = true, lacks = true,
-  gives = true, holds = true, reads = true, starts = true, ends = true, makes = true,
-  returns = true, wants = true, uses = true, sets = true, means = true, comes = true,
-}
+--- Words after a number that are verbs or particles, not nouns:
+--- `at byte %d needs`, `n .. " and files"`.
+local NOT_NOUNS: {string: boolean} = {}
+for word in ([[does needs names leaves takes lacks gives holds reads starts ends makes returns
+  wants uses sets means comes always perhaps sometimes towards whereas afterwards
+  is was are were has have had must cannot can not no will would and or but in on at of to for
+  by from with the a an as if than that which when while so then after before until once now
+  also only never still both either]]):gmatch("%S+") do
+  NOT_NOUNS[word] = true
+end
 
 --- The words before a `%d` that make it a position or a name, not a
 --- count: `at byte %d`, `line %d`.
-local LABELS: {string: boolean} = {
-  byte = true, offset = true, line = true, column = true, index = true, position = true,
-  transition = true, version = true, entry = true, step = true, char = true, character = true,
-  field = true, row = true, column_ = true, type = true, code = true, number = true,
-  errno = true, signal = true, exit = true, status = true, port = true, pid = true,
-}
+local LABELS: {string: boolean} = {}
+for word in ([[byte offset line column index position transition version entry step char
+  character field row type code number errno signal exit status port pid]]):gmatch("%S+") do
+  LABELS[word] = true
+end
 
---- The noun `text` (what follows the `"` of a literal) starts with after
---- one space, when it is a plural spelled with a final `s`.
-local function plural_after_space(text: string): string | nil
-  local word = text:match("^ ([a-z]+s)%f[^%w_]")
-  if word == nil or #word < 4 or word:match("ss$") or word:match("[iu]s$") or VERBS[word] then
+--- The nouns a count is taken of, which a plural after a bare name
+--- (`n .. " files"`) must be one of: a name in front of any other plural
+--- is as likely a subject in front of its verb (`name .. " lists"`).
+local UNITS: {string: boolean} = {}
+for word in ([[bytes files lines rows tests modules entries paths words comments sources targets
+  builds attempts assets products releases digests digits seconds minutes hours milliseconds values
+  fields stores compilers verbs components patches tables keys columns caches databases
+  instructions inputs iters draws tries arguments errors failures directories members
+  functions symbols steps bits chunks pieces sites hits results workers processes
+  threads children hosts addresses tokens labels parts jobs items]]):gmatch("%S+") do
+  UNITS[word] = true
+end
+
+--- Whether `word` reads as a plural noun: lowercase, an `s` at its end,
+--- and none of the words that end so and are not.
+local function is_plural_noun(word: string): boolean
+  return #word >= 4 and word:match("^%l+$") ~= nil and word:sub(-1) == "s"
+    and not word:match("ss$") and not word:match("[iu]s$") and not NOT_NOUNS[word]
+end
+
+--- The plural noun `text` leads with, after one space: its first word,
+--- or its second when the first is not a particle or verb (` closure
+--- stores`); nil when it leads with neither.
+local function plural_after_space(text: string, counted: boolean): string | nil
+  local first, rest = text:match("^ (%a+)(.*)$")
+  if first == nil then return nil end
+  if is_plural_noun(first) then
+    if counted or UNITS[first] then return first end
     return nil
   end
-  return word
+  if not first:match("^%l+$") or NOT_NOUNS[first] then return nil end
+  local second = rest:match("^ (%l+)%f[^%a]")
+  if second ~= nil and is_plural_noun(second) and (counted or UNITS[second]) then return second end
+  return nil
 end
 
---- Whether the code that ends at `before` (a line's text up to a `..`)
---- ends in a number: a length (`#rows`), `tostring(...)`, a numeric
---- literal, or a name that says it counts.
-local function ends_in_number(before: string): boolean
-  before = before:gsub("%s+$", "")
-  if before:match("[^%w_.]%d+$") or before:match("^%d+$") then return true end
-  if before:match("tostring%b()$") then return true end
-  if before:match("#[%w_.:]+$") or before:match("#[%w_.:]+%b()$") then return true end
-  local name = before:match("[%w_]+$")
-  return name ~= nil and COUNT_NAMES[name] == true
+--- The plural noun the format `text` puts after a `%d` (`%d files`),
+--- and where in `text` the number is, for each place it does. A `%d`
+--- that follows a label (`at byte %d`) or a noun followed by `=` is a
+--- name, not a count.
+local function format_plurals(text: string): {string}
+  local found: {string} = {}
+  local at = 1
+  while true do
+    local first, last = string.find(text, "%d ", at, true)
+    if first == nil then break end
+    at = last
+    local noun = plural_after_space(text:sub(last, last + 60), true)
+    local label = text:sub(math.max(1, first - 12), first - 1):match("(%l+) $")
+    if noun ~= nil and not LABELS[label or ""] then
+      local after = text:sub(last + 1):match("^.-" .. noun .. "(.?)")
+      if after ~= "=" then found[#found + 1] = noun end
+    end
+  end
+  return found
 end
 
---- Every place in the Teal sources of `db` under `build/`, `cmd/` and
---- `cosmic/` (a test's excepted) that writes a number and then a
---- literal plural noun, as `<file>:<line>: ...` with the fix, and then
---- each name in `excused` (by default `plural_exempt`) that nothing
---- answers to any more.
+--- Whether `node` is a number by its shape: a length, `tostring(...)`, a
+--- literal, or arithmetic (parenthesized or not).
+local function counted(node: Node): boolean
+  local inner = node
+  if node.kind == "paren" and node.e1 ~= nil then inner = node.e1 end
+  local info = inner.op
+  if inner.kind == "integer" or inner.kind == "number" then return true end
+  if inner.kind ~= "op" or info == nil then return false end
+  if info.op == "#" then return true end
+  if info.op == "@funcall" then
+    local callee = inner.e1
+    return callee ~= nil and callee.tk == "tostring"
+  end
+  return info.op == "+" or info.op == "-" or info.op == "*" or info.op == "//"
+    or info.op == "%" or info.op == "/"
+end
+
+--- Whether `node` is a `..`.
+local function is_concat(node: Node): boolean
+  local info = node.op
+  return node.kind == "op" and info ~= nil and info.op == ".."
+end
+
+--- The literal string a concatenation starts with, whether its
+--- operand is that string or a chain of `..` that begins with one.
+local function leading_literal(node: Node): string | nil
+  if node.kind == "string" then return node.conststr end
+  if is_concat(node) and node.e1 ~= nil then return leading_literal(node.e1) end
+  return nil
+end
+
+--- Every literal plural noun `source` puts after a number, as
+--- `{line, noun, snippet, fix}`: after a value that is not provably a
+--- string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`,
+--- `(a - b) .. " rows"`, any name, field or call), or after a `%d` in a
+--- literal.
+local function plural_sites(built: compiler, source: string, file: string):
+    {{string}} | nil, string
+  local parsed, trouble = ast.parse(built, source, file)
+  if parsed == nil then return nil, trouble end
+  local sites: {{string}} = {}
+  ast.walk(parsed.node, function(node: Node)
+    local left, right = node.e1, node.e2
+    if is_concat(node) and left ~= nil and right ~= nil and left.kind ~= "string"
+        and not is_concat(left) then
+      local literal = leading_literal(right)
+      local noun = literal ~= nil and plural_after_space(literal, counted(left)) or nil
+      if literal ~= nil and noun ~= nil then
+        sites[#sites + 1] = { tostring(right.y), noun, "... .. \"" .. literal:sub(1, 24),
+          "write `plural.count(n, singular)` (with the plural as a third argument when it is " ..
+          "not the singular and an `s`)" }
+      end
+    elseif node.kind == "string" and node.conststr ~= nil and node.conststr:find("%%d ") then
+      for _, noun in ipairs(format_plurals(node.conststr)) do
+        sites[#sites + 1] = { tostring(node.y), noun, "%d " .. noun,
+          "print `plural.noun(n, singular)` beside the number" }
+      end
+    end
+  end)
+  return sites
+end
+
+--- Every place in the Teal sources under `build/`, `cmd/` and
+--- `cosmic/` of `db` (a test's excepted), and in `extra` (`{file,
+--- source}` pairs, `ci_sources`'s), that puts a literal plural noun
+--- after a number, as `<file>:<line>: ...` with the fix, and then each
+--- name in `excused` (by default `plural_exempt`) that nothing answers
+--- to any more. `built` parses the sources.
 ---
---- The two spellings refused are a number joined to a literal by `..`
---- (`#rows .. " tests"`, `tostring(n) .. " files"`) and a `%d` in a
---- format string followed by a literal plural (`"%d files"`). Either
---- prints "1 tests"; `plural.count(n, "test")` is right for every
---- count, and `plural.noun` when the line prints the number itself.
---- The rule reads the text: the number is recognized by its shape (a
---- length, `tostring(...)`, a literal, or a name `COUNT_NAMES` holds),
---- so a count held in another name is not seen.
-function tree_checks.plurals(db: Sqlite.Handle, excused?: {string: string}): {string}
+--- The two spellings refused are a value that is not provably a string
+--- joined to a literal by `..` (`#rows .. " tests"`, `tostring(n) ..
+--- " files"`, `(a - b) .. " rows"`, `count .. " closure stores"`), and a
+--- `%d` in a literal followed by one (`"%d files"`). Either prints "1
+--- tests"; `plural.count(n, "test")` is right for every count, and
+--- `plural.noun` when the line prints the number itself. The noun is
+--- the first word of the literal after its space, or the second when
+--- the first is not a verb or particle; a value in front of a verb
+--- (`name .. " needs"`) is passed over, and a count spelled by a name
+--- in front of a plural that is right for it (a count that cannot be 1)
+--- goes in `plural_exempt` with the reason.
+function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{string}},
+    excused?: {string: string}): {string}
   excused = excused or plural_exempt
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules WHERE kind <> 'test' " ..
@@ -1060,63 +1230,24 @@ function tree_checks.plurals(db: Sqlite.Handle, excused?: {string: string}): {st
   if rows == nil then
     return { "reading the sources: " .. trouble }
   end
-  local sources: {{string}} = rows
+  local sources: {{string}} = {}
+  for _, row in ipairs(rows) do sources[#sources + 1] = row end
+  for _, row in ipairs(extra or {}) do sources[#sources + 1] = row end
   local out: {string} = {}
   local found: {string: boolean} = {}
-  local function flag(file: string, line: integer, noun: string, snippet: string, fix: string)
-    local key = file .. ":" .. noun
-    found[key] = true
-    if excused[key] == nil then
-      out[#out + 1] = file .. ":" .. line .. ": `" .. snippet .. "` puts the literal plural `" ..
-        noun .. "` after a number, which reads \"1 " .. noun .. "\" -- " .. fix
-    end
-  end
   for _, row in ipairs(sources) do
-    local file, text = row[1], row[2]
-    -- Positions of the line starts, so a match reports the line it is on.
-    local starts: {integer} = { 1 }
-    local from = 1
-    while true do
-      local newline = string.find(text, "\n", from, true)
-      if newline == nil then break end
-      starts[#starts + 1] = newline + 1
-      from = newline + 1
-    end
-    local function line_of(position: integer): integer
-      local low, high = 1, #starts
-      while low < high do
-        local mid = (low + high + 1) // 2
-        if starts[mid] <= position then low = mid else high = mid - 1 end
-      end
-      return low
-    end
-    local at = 1
-    while true do
-      local first, last = string.find(text, "%.%.%s*\"", at)
-      if first == nil then break end
-      at = last + 1
-      local number = line_of(first)
-      local before = text:sub(starts[number], first - 1)
-      local noun = plural_after_space(text:sub(last + 1))
-      if noun ~= nil and not before:match("^%s*%-%-") and ends_in_number(before) then
-        flag(file, number, noun, (before:match("[%w_#.:()]+%s*$") or "") .. ".. \"" .. noun,
-          "write `plural.count(n, singular)` (with the plural as a third argument when it is " ..
-          "not the singular and an `s`)")
-      end
-    end
-    at = 1
-    while true do
-      local first, last = string.find(text, "%%d %l+s%f[^%w_]", at)
-      if first == nil then break end
-      at = last + 1
-      local noun = text:sub(first + 3, last)
-      local number = line_of(first)
-      local label = text:sub(math.max(1, first - 12), first - 1):match("(%l+) $")
-      if #noun >= 4 and not noun:match("ss$") and not noun:match("[iu]s$")
-          and not VERBS[noun] and not LABELS[label or ""] and text:sub(last + 1, last + 1) ~= "="
-          and not text:sub(starts[number], first):match("^%s*%-%-") then
-        flag(file, number, noun, "%d " .. noun,
-          "print `plural.noun(n, singular)` beside the number")
+    local sites, parse_trouble = plural_sites(built, row[2], row[1])
+    if sites == nil then
+      out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. parse_trouble
+    else
+      for _, site in ipairs(sites) do
+        local key = row[1] .. ":" .. site[2]
+        found[key] = true
+        if excused[key] == nil then
+          out[#out + 1] = row[1] .. ":" .. site[1] .. ": `" .. site[3] ..
+            "` puts the literal plural `" .. site[2] .. "` after a number, which reads \"1 " ..
+            site[2] .. "\" -- " .. site[4]
+        end
       end
     end
   end
@@ -1132,10 +1263,31 @@ function tree_checks.plurals(db: Sqlite.Handle, excused?: {string: string}): {st
   return out
 end
 
+--- The Teal sources of `ci/` under `root`, out of the projection (ci is
+--- a tree of its own), as `{file, source}` pairs: every module of
+--- `ci/cosmic_ci` that is not a test.
+function tree_checks.ci_sources(root: string): {{string}}
+  local out: {{string}} = {}
+  local listed, _ = Fs.walk(root .. "/ci/cosmic_ci")
+  for _, name in ipairs(listed or {}) do
+    if name:match("%.tl$") and not name:match("_test%.tl$") then
+      local text, _ = Fs.read(root .. "/ci/cosmic_ci/" .. name)
+      if text ~= nil then out[#out + 1] = { "ci/cosmic_ci/" .. name, text } end
+    end
+  end
+  table.sort(out, function(a: {string}, b: {string}): boolean return a[1] < b[1] end)
+  return out
+end
+
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
-function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil): {string}
+--- The plurals are checked when `built`, the compiler that parses the
+--- sources, is given, with `extra` sources besides the projection's.
+function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: compiler,
+    extra?: {{string}}): {string}
   local out: {string} = {}
+  local plurals: {string} = {}
+  if built ~= nil then plurals = tree_checks.plurals(db, built, extra) end
   for _, check in ipairs({
     { name = "exports", lines = tree_checks.exports(db) },
     { name = "doc anchors", lines = tree_checks.anchors(db) },
@@ -1147,7 +1299,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil): {string}
     { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
     { name = "guides", lines = tree_checks.guides(db) },
     { name = "public docs", lines = tree_checks.public_docs(db) },
-    { name = "plurals", lines = tree_checks.plurals(db) },
+    { name = "plurals", lines = plurals },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

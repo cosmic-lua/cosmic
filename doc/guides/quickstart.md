@@ -192,8 +192,8 @@ refers to it, to see how others call it before you do:
       function Hash.hex_sha256(data: string): string  (91 uses, 2 examples)
     ...
     $ cosmic uses Hash.hex_sha256
-    build/artifact_test.tl:40: cosmic.hash hex_sha256
-    build/bom.tl:210: cosmic.hash hex_sha256
+    lib/report_test.tl:40: cosmic.hash hex_sha256
+    cmd/audit/main.tl:210: cosmic.hash hex_sha256
     ...
 
 `cosmic help docs` and `cosmic help uses` have the rest.
