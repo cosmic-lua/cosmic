@@ -51,6 +51,12 @@ local record Http
   --- and the redirect refused fails the request. An empty list or any
   --- other entry raises (`follow = false` is how to take no redirect).
   ---
+  --- While a `Child.guard` is open and has caught SIGINT or SIGTERM, an
+  --- open still waiting for its response fails with "interrupted", and
+  --- so does a body's `read` that has no data to give, or a streamed
+  --- body's `write` or `finish` that must wait. The signal stays the
+  --- guard's to read.
+  ---
   --- A connection not made within `connect_timeout_ms` (default
   --- 30000) fails, and so does a transfer that moves fewer than
   --- `low_speed_bytes` (default 1) per second for `low_speed_seconds`
@@ -77,16 +83,14 @@ local record Http
   record Options is raw_http.Options
     --- Http.download only: the expected sha256, as lowercase hex.
     sha256: string
-    --- Http.download only: asked before each chunk is read; when it
-    --- answers true the download stops, removes its temporary file,
-    --- never creates `path`, and fails with "cancelled". It is how a
-    --- caller holding a `Child.guard` ends a download on SIGINT.
-    -- TODO: stop a read that is waiting on a stalled connection too,
-    -- once core/http.c's wait can return when the signal guard
-    -- (child_cancelled in core/syscalls.c) has caught one; today
-    -- `cancelled` is asked only between chunks, so a server that
-    -- sends nothing holds the download until data arrives or
-    -- `low_speed_seconds` ends it.
+    --- Http.download only: asked before each chunk is read and once
+    --- more when the body is complete, before it is renamed into place;
+    --- when it answers true the download stops, removes its temporary
+    --- file, never creates `path`, and fails with "cancelled". It is how
+    --- a caller holding a `Child.guard` ends a download on SIGINT. A wait
+    --- for data ends too when that guard catches a signal: the open or
+    --- the read fails, which the download reports as "cancelled" when
+    --- this answers true then.
     cancelled: function(): boolean
   end
 
@@ -309,13 +313,20 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
     end
     local chunk, read_trouble = response:read()
     if chunk == nil then
-      if read_trouble ~= "" then ok, trouble = false, read_trouble end
+      if read_trouble ~= "" then
+        ok, trouble = false, read_trouble
+        -- a read that ended for a caught signal answers as a cancel does
+        if opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then trouble = "cancelled" end
+      end
       break
     end
     ok, trouble = writer:write(chunk)
     if not ok then break end
   end
   local _, _ = response:close()
+  if ok and opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then
+    ok, trouble = false, "cancelled"
+  end
   if ok then
     ok, trouble = Fs.fsync(fd)
   end

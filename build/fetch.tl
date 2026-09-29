@@ -47,8 +47,8 @@
 --- An interrupt (SIGINT or SIGTERM) during an `-o` download removes the
 --- temporary file, never creates the target, and exits by that signal:
 --- the verb holds a `Child.guard` for the download, `Http.download`
---- asks it between chunks, and closing the guard delivers the signal
---- again. What it cannot help, and stays so, is a kill nothing can
+--- asks it between chunks and a wait for data ends when it catches one,
+--- and closing the guard delivers the signal again. What it cannot help, and stays so, is a kill nothing can
 --- catch (SIGKILL) or that the verb does not hold (SIGHUP), which
 --- leave the `.part` file beside the target: a plain limit of the
 --- platform, not a gap.
@@ -218,26 +218,24 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   if target ~= nil then
     options.sha256 = want
-    -- Held only for the download; closing it delivers a caught signal
-    -- again, so the process still dies of it. A guard already open, or
-    -- one that cannot be had, leaves the download uninterruptible as
-    -- it was.
-    local guard: Child.Guard = nil
-    if to.cancelled == nil then
-      local held, _ = Child.guard()
-      guard = held
+    local function download(interrupted: function(): boolean): integer
+      options.cancelled = to.cancelled or interrupted
+      local ok, why = Http.download(url, target, options)
+      if not ok then
+        complain(verb.refusal(why, options.redirect_protocols))
+      end
+      return ok and 0 or 1
     end
-    options.cancelled = to.cancelled or function(): boolean
-      return guard ~= nil and guard:cancelled() ~= 0
+    -- Held for the download and closed however it leaves, a raise of
+    -- `complain` included: closing delivers a caught signal again, so the
+    -- process still dies of it. A guard already open, or one that cannot
+    -- be had, leaves the download uninterruptible as it was.
+    local held, _ = Child.guard()
+    if held == nil then
+      return download(function(): boolean return false end)
     end
-    local ok, why = Http.download(url, target, options)
-    if not ok then
-      complain(verb.refusal(why, options.redirect_protocols))
-    end
-    if guard ~= nil then
-      local _, _ = guard:close()
-    end
-    return ok and 0 or 1
+    local guard <close> = held
+    return download(function(): boolean return guard:cancelled() ~= 0 end)
   end
 
   local response, open_trouble = Http.open(url, options)

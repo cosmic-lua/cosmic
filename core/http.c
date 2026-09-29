@@ -59,6 +59,7 @@
 #include "fault.h"
 #include "memory.h"
 #include "observed.h"
+#include "process.h"
 #include "store.h"
 
 #define HANDLE_TYPE "cosmic.http.handle"
@@ -410,9 +411,10 @@ static const char *opt_redirect_protocols (lua_State *L) {
   lua_Unsigned count = lua_rawlen(L, -1);
   for (lua_Unsigned i = 1; i <= count; i++) {
     lua_rawgeti(L, -1, (lua_Integer)i);
-    const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
-    if (name != NULL && strcmp(name, "http") == 0) allowed |= 1;
-    else if (name != NULL && strcmp(name, "https") == 0) allowed |= 2;
+    size_t length = 0;
+    const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : NULL;
+    if (name != NULL && length == 4 && memcmp(name, "http", 4) == 0) allowed |= 1;
+    else if (name != NULL && length == 5 && memcmp(name, "https", 5) == 0) allowed |= 2;
     else bad_option(L, "redirect_protocols", want);
     lua_pop(L, 1);
   }
@@ -876,6 +878,7 @@ static int handle_read (lua_State *L) {
   if (t->body_len == 0) {
     resume(t);
     while (t->body_len == 0 && !t->done) {
+      if (cosmic_signal_caught()) return failed(L, "interrupted");
       const char *which = NULL;
       CURLMcode mc = pump_once(&which);
       if (mc != CURLM_OK) return MULTI_FAILED(L, which, mc);
@@ -959,6 +962,10 @@ static int handle_write (lua_State *L) {
    * paused the transfer, which sends no more until the caller reads it:
    * the write stops there rather than wait on itself. */
   while (t->upload_len > 0 && !t->done && !(t->ready && t->paused)) {
+    if (cosmic_signal_caught()) {
+      lua_pushliteral(L, "interrupted");
+      return upload_failed(L);
+    }
     const char *which = NULL;
     CURLMcode mc = pump_once(&which);
     if (mc != CURLM_OK) {
@@ -984,6 +991,10 @@ static int handle_finish (lua_State *L) {
   t->upload_ended = 1;
   resume(t);
   while (!t->ready) {
+    if (cosmic_signal_caught()) {
+      lua_pushliteral(L, "interrupted");
+      return upload_failed(L);
+    }
     const char *which = NULL;
     CURLMcode mc = pump_once(&which);
     if (mc != CURLM_OK) {
@@ -1372,6 +1383,10 @@ static int open_request (lua_State *L, int streamed) {
     return MULTI_FAILED(L, "curl_multi_add_handle", mc);
   }
   while (!streamed && !t->ready) {
+    if (cosmic_signal_caught()) {
+      transfer_release(t);
+      return failed(L, "interrupted");
+    }
     mc = pump_once(&which);
     if (mc != CURLM_OK) {
       transfer_release(t);

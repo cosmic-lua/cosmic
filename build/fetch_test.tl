@@ -4,6 +4,7 @@
 --- cosmic/http_test.tl it declares only loopback, so it is keyed and
 --- runs offline. The program run as a process is build/fetch_tool_test.tl's.
 
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -263,4 +264,19 @@ local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find("got.txt", 1, true), "left behind: " .. name)
   end
+end
+
+--- The guard `-o` holds is closed on every way out, a complaint that
+--- raises included: left open, it would hold SIGINT and SIGTERM for the
+--- rest of the process, and a later `Child.guard` would be refused.
+local function test_the_guard_is_closed_when_a_complaint_raises(tmp: string)
+  local ok, trouble = pcall(fetch.run, { "fetch", url, "-o", tmp .. "/got" } as {integer:string}, {
+    script = { reply("404 Not Found", "", "no") },
+    out = function(_text: string): boolean, string return true, "" end,
+    err = function(_line: string) error("stderr is gone") end,
+  })
+  assert(not ok and tostring(trouble):find("stderr is gone", 1, true) ~= nil, tostring(trouble))
+  local guard, why = Child.guard()
+  assert(guard ~= nil, "the guard was left open: " .. tostring(why))
+  assert(guard:close())
 end

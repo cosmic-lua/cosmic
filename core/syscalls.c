@@ -2498,6 +2498,10 @@ static void catch_child_cancel (int number) {
   child_cancelled = number;
 }
 
+bool cosmic_signal_caught (void) {
+  return child_cancelled != 0;
+}
+
 static void child_signal_set (sigset_t *set) {
   sigemptyset(set);
   sigaddset(set, SIGINT);

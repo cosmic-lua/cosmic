@@ -4,10 +4,12 @@
 --- (`Options.script`), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- Requests to a closed local port, which a loopback alone answers:
@@ -510,6 +512,11 @@ local function test_redirect_protocols_takes_a_list_of_http_and_https()
   assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = { "HTTPS" } })
   assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  -- a name is compared whole, not up to a NUL: "http\0s" is not "http"
+  err = raised({ redirect_protocols = { "http\0s" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "https\0" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
 end
 
 local function test_a_boolean_option_takes_only_a_boolean()
@@ -855,3 +862,53 @@ local function test_a_download_never_cancelled_completes(tmp: string)
   assert(ok, why)
   assert(Fs.read(path) == "hello")
 end
+
+local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: string)
+  local path = tmp .. "/got.bin"
+  local asked = 0
+  local total = 0
+  -- the ask after the last chunk, before the rename, is the last: an
+  -- interrupt that came in that window still leaves nothing
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean
+      asked = asked + 1
+      total = asked
+      return false
+    end,
+  })
+  assert(ok, why)
+  local last = total
+  -- one ask before the chunk, one before the read that finds the end,
+  -- and the last, with the body complete
+  assert(last == 3, "asked " .. tostring(last))
+  assert(Fs.remove(path))
+  asked = 0
+  ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean
+      asked = asked + 1
+      return asked == last
+    end,
+  })
+  assert(not ok and why == "cancelled", tostring(why))
+  assert(Fs.stat(path) == nil, "the target was created")
+  local names = (assert(Fs.list(tmp)))
+  assert(#names == 0, "left behind: " .. table.concat(names, ","))
+end
+
+local function test_a_caught_signal_ends_an_open_that_waits()
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local response, why = Http.open(url, { script = { reply("200 OK", "", "x") } })
+  local caught = assert(guard:release())
+  assert(response == nil and why == "interrupted", tostring(why))
+  assert(caught == sys.SIGINT, tostring(caught))
+end
+
+-- TODO: a caught signal ending a body `read`, and a streamed `write` or
+-- `finish`, that wait on a connection that stays open with nothing to
+-- send, once the tree has a loopback server that can bind, accept and
+-- stall; the scripted transport closes after its reply, so the transfer
+-- is done before a read can wait. Only the open's wait is driven here,
+-- and the wait loops share `cosmic_signal_caught`.
