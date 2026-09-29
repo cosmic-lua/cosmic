@@ -1,16 +1,13 @@
---- Names cosmic's own runtime surface removes from the global
---- environment, and what to write instead of each. `build.teal` strips
---- every one of these from the checker's own environment too, so
---- touching one is refused at compile time -- `unknown variable: os`,
---- `module not found: 'io'` -- and a program that reaches for one
---- anyway (a chunk handed to `load`) is stopped by `core/surface.c` at
---- run time. Both say the same thing, `message`'s own text, naming the
---- replacement for the very field used (`os.getenv` is `Env.get`), so
---- the two can never drift apart. `cosmic docs os` (or any field below)
---- answers the same thing directly, any time. `members` does the same
---- at compile time for a member a `cosmic.*` module no longer has.
---- Language-library help remains in the checked examples returned by ordinary
---- documentation search; this record inventories removed globals only.
+--- The standard globals cosmic removes (`io`, `os`, `debug`, `dofile`,
+--- `loadfile`) and what to write instead of each. Using one is refused
+--- at compile time (`unknown variable: os`), and a chunk handed to
+--- `load` that reaches for one fails at run time; both errors say
+--- what to use instead, naming the replacement for the very field used
+--- (`os.getenv` is `Env.get`). `cosmic docs os` (or any field below)
+--- answers the same thing directly. `members` does the same at compile
+--- time for a member a `cosmic.*` module no longer has. Help on the
+--- language's other libraries is in the checked examples that ordinary
+--- documentation search returns.
 local record Removed
   --- unavailable; see cosmic.fs for byte/file operations and standard-stream
   --- descriptors, cosmic.stream to read or write a file in chunks, and
@@ -34,11 +31,9 @@ end
 
 local record Module
   fields: Removed
-  --- The same names `build.teal` strips from the checker's own
-  --- environment, so each one fails to resolve at compile time instead
-  --- of at the moment a running program reaches for it -- see
-  --- `build.teal`'s `environment_for`. Order does not matter to the
-  --- stripping; `fields` names the same five for the docs.
+  --- The removed globals, the same five `fields` names. Each fails to
+  --- resolve at compile time rather than when a running program reaches
+  --- for it.
   order: {string}
   --- What to write instead of one removed field, by its dotted name
   --- (`os.getenv`), including the `require` that brings it in.
@@ -47,8 +42,8 @@ local record Module
   --- has no entry for.
   names: {string:string}
   --- What to write instead of a member a `cosmic.*` module no longer
-  --- has, by the module's name and the member's (`cosmic.hash.hex`):
-  --- `build.teal` says it after the checker's `invalid key` for it, or,
+  --- has, by the module's name and the member's (`cosmic.hash.hex`).
+  --- The compiler says it after its `invalid key` for the member, or,
   --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
   --- after its `unknown type`.
   -- TODO: a field removed from a record a caller builds as a table
@@ -63,6 +58,7 @@ local record Module
   -- call a nil value". Say it there too, as `core/surface.c` does for a
   -- removed global, once a module's record can answer a missing field.
   members: {string:string}
+  --- What to write instead of `name`, or of its field `field`.
   message: function(name: string, field?: string): string
 end
 
@@ -220,9 +216,9 @@ local module: Module = {
 }
 
 --- What to write instead of `name` (`os`), or of its field `field`
---- (`getenv`) when one is given: one line, the same for a compile
---- refused by `build.teal` and for `core/surface.c` stopping a running
---- program, which both call this.
+--- (`getenv`) when one is given: one line, the text a compile error
+--- and a run-time failure both show. For a name with no entry, it says
+--- only that the name is not available, or where to look.
 function module.message(name: string, field?: string): string
   local dotted = field ~= nil and name .. "." .. field or name
   local instead = field ~= nil and module.replacements[dotted] or nil

@@ -109,6 +109,7 @@ local record Time
     disambiguation: Time.Disambiguation
   end
 
+  --- What `format_rfc3339` may be told. Every field is optional.
   record FormatOptions
     --- Digits of fraction to write, 0 through 9, cut toward the past; by
     --- default as many as the nanoseconds need, none when they are zero.
@@ -148,8 +149,11 @@ local record Time
   --- part in nanoseconds. Every field has the duration's one sign: a
   --- negative duration has each field at most zero.
   record Duration
+    --- Whole years of the calendar part.
     years: integer
+    --- Whole months of the calendar part.
     months: integer
+    --- Whole days of the calendar part.
     days: integer
     --- The hours, minutes and seconds, as nanoseconds.
     nanoseconds: integer
@@ -1936,8 +1940,10 @@ function Time.monotonic_ns(): integer
   return reading
 end
 
---- Sleeps, as `sleep` or `nanosleep` does, resuming the wait when a
---- signal interrupts it.
+--- Sleeps for `nanoseconds`, as `sleep` or `nanosleep` does, resuming
+--- the wait when a signal interrupts it, so the whole time passes.
+--- Answers `true` and "" once it has, or `false` and why when the
+--- system refuses the sleep. Raises when `nanoseconds` is negative.
 function Time.sleep_ns(nanoseconds: integer): boolean, string
   local ok, trouble = sys.nanosleep(nanoseconds)
   if not ok then

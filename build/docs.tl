@@ -735,7 +735,8 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
   for index, db in ipairs(databases) do
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT path FROM modules UNION SELECT path FROM decls " ..
-      "WHERE path IN (SELECT module FROM docs) ORDER BY path")
+      "WHERE path IN (SELECT module FROM docs) UNION SELECT module FROM docs " ..
+      "WHERE symbol = '' AND module GLOB 'doc.guides.*' ORDER BY path")
     if rows == nil then
       return nil, trouble
     end
@@ -987,7 +988,8 @@ function docs.index(view: docs.View): {docs.Summary} | nil, string
   local out: {docs.Summary} = {}
   for module, owner in pairs(view.owners) do
     local listed = module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" and
-      (view.public[owner] ~= true or symbols.is_public_module(module))
+      (view.public[owner] ~= true or symbols.is_public_module(module) or
+        symbols.is_public_guide(module))
     if listed then
       out[#out + 1] = { module = module, text = said[module] or "" }
     end
@@ -1474,7 +1476,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
   -- A verb's options are data, `Cli.options`, not prose: shown under
-  -- its field as `cosmic help` shows them, and searched by
+  -- its field as `cosmic help <verb>` shows them, and searched by
   -- `by_options`.
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
   if verb ~= nil and Cli.options[verb] ~= nil then

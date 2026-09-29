@@ -50,6 +50,32 @@ function Example.query()
   assert(db:close())
 end
 
+--- Two inserts that stand or fall together. When the work answers `false`
+--- nothing is kept, and `transact` answers why; when it raises, the
+--- rollback happens first and the same error is raised again.
+function Example.transact()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE t (n INTEGER)"))
+  local ok, why = Sqlite.transact(db, function(): boolean, string
+    assert(Sqlite.run(db, "INSERT INTO t VALUES (1)"))
+    return false, "changed my mind"
+  end)
+  assert(not ok and why == "changed my mind", why)
+  local raised, err = pcall(Sqlite.transact, db, function(): boolean, string
+    assert(Sqlite.run(db, "INSERT INTO t VALUES (2)"))
+    error("boom", 0)
+  end)
+  assert(not raised and (err as any) == "boom", tostring(err))
+  local count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
+  assert(count[1][1].integer == 0)
+  assert(Sqlite.transact(db, function(): boolean, string
+    return Sqlite.run(db, "INSERT INTO t VALUES (3)")
+  end))
+  count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
+  assert(count[1][1].integer == 1)
+  assert(db:close())
+end
+
 --- The SQLite the core carries, for a report or a feature check.
 function Example.version()
   print(Sqlite.version)

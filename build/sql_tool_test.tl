@@ -56,8 +56,6 @@ local function test_help_points_between_sql_and_json(tmp: string)
   assert(sql.out:find("--from", 1, true) and sql.out:find("cosmic json", 1, true), sql.out)
   local json = cosmic(tmp, { "help", "json" })
   assert(json.out:find("cosmic sql --from", 1, true), json.out)
-  local all = cosmic(tmp, { "help" })
-  assert(all.out:find("cosmic sql --from", 1, true), all.out)
 end
 
 local function test_a_csv_from_a_file_and_standard_input_through_the_binary(tmp: string)

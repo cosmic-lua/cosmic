@@ -430,13 +430,18 @@ local carry: {string} = {
   -- written one. So a doc row about any other module is carried only for
   -- the catalog, whose guidance is the doc comment of the function an
   -- error came from (core/main.c, `build.embed`).
+  --
+  -- A user guide (`symbols.guide_module`) is a generated test module, so
+  -- `dropped` names it, but its own row -- the guide's prose -- is what
+  -- `cosmic docs quickstart` answers with.
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
     "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
     "source_symbol, exported, kind, signature, text, file, line " ..
-    "FROM whole.docs d WHERE module NOT IN dropped AND (" ..
+    "FROM whole.docs d WHERE (d.symbol = '' AND " ..
+    symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
     " OR EXISTS (SELECT 1 FROM whole.catalog c WHERE c.module = d.module " ..
-    "AND c.symbol = d.source_symbol) OR " .. carried_internal_types .. ") ORDER BY id",
+    "AND c.symbol = d.source_symbol) OR " .. carried_internal_types .. ")) ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..
     symbols.public_only("u.module", true) .. " AND " ..

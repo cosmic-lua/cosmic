@@ -1703,3 +1703,30 @@ local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
   local depth = assert(docs.lookup(looked, "Thing.Config.depth"))
   assert(#depth == 1 and depth[1].signature == "depth: integer", tostring(#depth))
 end
+
+--- A binary carries a user guide as its own doc row, with no module
+--- row beside it. A public source lists it with the guide's first
+--- sentence, finds it by its bare name, and shows the whole prose; a
+--- guide the binary does not carry is not there.
+local function test_a_public_source_lists_and_finds_a_user_guide(_: string)
+  local db = database({
+    { "cosmic.fs", "", "module", "", "Files.", "cosmic/fs.tl", "1" },
+    { "doc.guides.quickstart", "", "module", "",
+      "A tour of the library. It shows each module.\n\n## first step\n\nDo this.",
+      "doc/guides/quickstart.md", "1" },
+    { "doc.guides.portable-runtime", "", "module", "", "How it is built.",
+      "doc/guides/portable-runtime.md", "1" },
+  }, {}, { "cosmic.fs" })
+  local public = assert(docs.view({ db }, { true }))
+  local listed: {string} = {}
+  for _, summary in ipairs((assert(docs.index(public)))) do
+    listed[#listed + 1] = summary.module .. "|" .. summary.text
+  end
+  assert(table.concat(listed, "\n") == "cosmic.fs|Files.\n" ..
+    "doc.guides.quickstart|A tour of the library.", table.concat(listed, "\n"))
+  local found = assert(docs.lookup(public, "quickstart"))
+  assert(#found == 1 and found[1].module == "doc.guides.quickstart", tostring(#found))
+  local lines = table.concat(assert(docs.render(public, found[1])), "\n")
+  assert(lines:find("## first step", 1, true) ~= nil, lines)
+  assert(#assert(docs.lookup(public, "portable-runtime")) == 0, "an internal guide is public")
+end

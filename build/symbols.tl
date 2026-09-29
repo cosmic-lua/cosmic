@@ -10,6 +10,8 @@
 local Sqlite = require("cosmic.sqlite")
 
 local record symbols
+  guides: {string}
+  internal_guides: {string:string}
 end
 
 --- Whether a module is the public standard library's own: what a
@@ -29,6 +31,39 @@ function symbols.public_only(column: string, public: boolean): string
     " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
 end
 
+--- The user guides (`doc/guides/<name>.md`) a binary carries: the ones
+--- a reader of `cosmic docs` is meant to find. A guide about how the
+--- runtime is built is left to the tree (`internal_guides`). Every
+--- guide is in one list or the other: `build.tree_checks` refuses a
+--- guide in neither, so a new one is never left out by mistake.
+symbols.guides = { "command-line", "project", "quickstart" }
+
+--- The guides a binary does not carry, each with its reason.
+symbols.internal_guides = {
+  ["portable-runtime"] = "how the release artifact is built, for those working on cosmic",
+}
+
+--- Whether a module is a user guide a public source answers for: the
+--- module a guide compiles as (`doc.guides.quickstart`).
+function symbols.is_public_guide(module: string): boolean
+  for _, name in ipairs(symbols.guides) do
+    if module == "doc.guides." .. name then
+      return true
+    end
+  end
+  return false
+end
+
+--- The condition under which the SQL `column` names a user guide's
+--- module (one of the user guides above).
+function symbols.guide_module(column: string): string
+  local names: {string} = {}
+  for _, name in ipairs(symbols.guides) do
+    names[#names + 1] = "'doc.guides." .. name .. "'"
+  end
+  return column .. " IN (" .. table.concat(names, ", ") .. ")"
+end
+
 --- The condition under which `alias` (a row of `docs`) is a `local`
 --- declaration the module never hands out: not the module's surface.
 function symbols.local_declaration(alias: string): string
@@ -36,17 +71,18 @@ function symbols.local_declaration(alias: string): string
 end
 
 --- The rows of `docs`, under the alias `alias`, that a source shows: as
---- `public_only`, and in a public source, no symbol the module keeps to
+--- `public_only` and the user guides, and in a public source, no symbol the module keeps to
 --- itself: a `local` declaration (a record, enum, type or function) and
 --- what is declared under it, and a field or function whose name starts
 --- with `_`. A metamethod (`__call`) is part of a record's surface, so it
 --- stays. Every other source shows them, since it is a reader's own
 --- tree or cosmic's.
 function symbols.public_docs(alias: string, public: boolean): string
-  local module = symbols.public_only(alias .. ".module", public)
   if not public then
-    return module
+    return "1"
   end
+  local module = "(" .. symbols.public_only(alias .. ".module", true) .. " OR " ..
+    symbols.guide_module(alias .. ".module") .. ")"
   local symbol = alias .. ".symbol"
   local dotted = "replace(" .. symbol .. ", ':', '.')"
   -- The declaration is found by where it is written, `source_symbol`: a
@@ -124,7 +160,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
     local rows, _ = Sqlite.text_rows(db,
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
       symbols.named_where("d") .. " AND " ..
-      symbols.public_only("d.module", public[index] == true) ..
+      symbols.public_docs("d", public[index] == true) ..
       " ORDER BY module, symbol",
       { { text = query } })
     if rows ~= nil then

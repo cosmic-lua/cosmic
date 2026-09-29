@@ -324,8 +324,24 @@ end
 --- an external surface. Libraries often report failure as nil plus an error;
 --- callers should inspect the documented convention.
 function Example.modules_declarations_nil_error()
-  local loaded = package.loaded["cosmic.removed_example"]
-  assert(loaded == nil or type(loaded) == "table")
+  local Fs = require("cosmic.fs")
+  assert(require("cosmic.fs") == Fs and package.loaded["cosmic.fs"] == Fs)
+  local data, trouble = Fs.read("/no/such/file")
+  assert(data == nil and trouble ~= "")
+end
+
+--- `Removed.message(name, field)` says what replaces a removed global: the
+--- text a compile error shows for `io.open`. A field with no entry says where
+--- to look instead, and a name that is not removed says only that it is
+--- unavailable.
+function Example.replacement_for_a_removed_global()
+  local Removed = require("cosmic.removed")
+  local open_hint = Removed.message("io", "open")
+  assert(open_hint:find("io.open is not available", 1, true) ~= nil)
+  assert(open_hint:find("Fs.read(path)", 1, true) ~= nil)
+  assert(Removed.message("os", "getenv"):find("Env.get(name)", 1, true) ~= nil)
+  assert(Removed.message("debug", "getinfo"):find("no replacement", 1, true) ~= nil)
+  assert(Removed.message("print") == "print is not available")
 end
 
 return Example

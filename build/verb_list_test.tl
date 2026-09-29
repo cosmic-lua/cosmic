@@ -72,8 +72,8 @@ local function test_every_option_table_is_a_verbs()
   end
 end
 
---- `cosmic help` gathers each verb's clause with the others', in the list's
---- order, so a clause that leans on its neighbours ("instead", "likewise")
+--- `cosmic help exit` gathers each bare verb's clause with the others', in the
+--- list's order, so a clause that leans on its neighbours ("instead", "likewise")
 --- says something else there than in its own module.
 local function test_a_spec_prose_stands_by_itself()
   for _, spec in ipairs(verb_list.specs()) do
