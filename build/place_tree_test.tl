@@ -55,14 +55,15 @@ end
 
 --- Runs the script with `argument` for a checkout at `workspace`,
 --- asserting it succeeds.
-local function place(workspace: string, argument?: string)
+local function place(workspace: string, argument?: string, leg?: string): string
   local env: {string:string} = { PATH = Env.get("PATH") or "/usr/bin:/bin",
-    GITHUB_SHA = SHA, COSMIC_WORKER = "linux-x86_64", GITHUB_WORKSPACE = workspace }
+    GITHUB_SHA = SHA, COSMIC_WORKER = leg or "linux-x86_64", GITHUB_WORKSPACE = workspace }
   local argv = { "/bin/sh", SCRIPT }
   if argument then argv[#argv + 1] = argument end
   local result = assert(Child.run(argv,
     { env = env, stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
+  return result.stderr or ""
 end
 
 --- Everything under `root`, a line each: a link with its target, a
@@ -126,5 +127,24 @@ local function test_a_restore_after_a_move_stopped_halfway_finishes_it()
   assert(Fs.remove(workspace))
   place(workspace, "--restore")
   assert(layout(root) == before, layout(root))
+  assert(Fs.remove_tree(root))
+end
+
+local function test_a_restore_leaves_a_directory_above_the_tree_that_is_not_empty()
+  -- Two deep for this commit and leg: the directory above the tree is
+  -- the move's own.
+  local leg = "macos-aarch64"
+  local relative = name(SHA, leg)
+  local top = relative:match("^[^/]+")
+  assert(top ~= relative, relative)
+  local root, workspace = checkout()
+  place(workspace, nil, leg)
+  assert(Fs.write(root .. "/" .. top .. "/stray", "stray\n"))
+  local said = place(workspace, "--restore", leg)
+  -- The tree is back where it was checked out, and the stray is named.
+  assert(Fs.readlink(workspace) == nil, layout(root))
+  assert(Fs.read(workspace .. "/ci/driver.tl") == "driver\n", layout(root))
+  assert(Fs.read(root .. "/" .. top .. "/stray") == "stray\n", layout(root))
+  assert(said:find("not empty", 1, true) and said:find("stray", 1, true), said)
   assert(Fs.remove_tree(root))
 end
