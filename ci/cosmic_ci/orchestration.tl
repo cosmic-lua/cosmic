@@ -1016,12 +1016,28 @@ local function phase_portable(p: PlatformContext): integer
   local executable = portable_d .. "/cosmic-portable"
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
-  -- Where the other suites stand on verdicts (`stands`), it stands on
-  -- its own (`suite_verdicts`), never on the local suite's;
-  -- elsewhere it runs every test, as they do.
-  local s = suite(portable_context, "portable", executable, portable_d,
-    { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
-      COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") })
+  local s = 0
+  -- The suite reruns the local suite's tests under the portable build,
+  -- whose artifact carries the cores o/bin/cosmic does (`ProductSetup`);
+  -- each leg's launcher, runtime and identity fixtures still run the
+  -- portable product's launcher (phase_fixtures). So a gating run runs
+  -- it on the two x86-64 legs, a glibc host and a musl one, and the
+  -- others set COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a
+  -- manual one keep it on every leg (ci.yml). A leg that skips it still checks the
+  -- artifact unchanged since assemble (attest), and its portable.db
+  -- keeps what was restored whole, since the run reached none of it
+  -- (cosmic_ci/verdicts.tl).
+  if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
+    Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
+      "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
+  else
+    -- Where the other suites stand on verdicts (`stands`), it stands on
+    -- its own (`suite_verdicts`), never on the local suite's;
+    -- elsewhere it runs every test, as they do.
+    s = suite(portable_context, "portable", executable, portable_d,
+      { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
+        COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") })
+  end
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
     assert(read(portable_d .. "/portable-artifact.before.sha256") ==
@@ -1041,6 +1057,13 @@ local function phase_portable_boundary(p: PlatformContext): integer
   local fresh = p.fresh
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
+  -- No suite ran (phase_portable), so no database and no cache of its
+  -- to hold across the boundary.
+  if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
+    Fs.put(Fs.stderr, "portable boundary: skipped on this leg " ..
+      "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
+    return 0
+  end
   local s = snapshot(portable_context, portable_d, "portable-boundary",
     portable_d .. "/cosmic-portable"); if s ~= 0 then return s end
   if p.trailing == "success" then

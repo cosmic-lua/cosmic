@@ -22,8 +22,9 @@
 --- failed.
 ---
 --- A file none of whose rows the run reached -- the portable suite's,
---- on a run that has none -- keeps them all: that is no sign they are
---- dead. Like the suites, which never fail over the cache, a trim that
+--- on a run that has none, or on a leg that skips it
+--- (COSMIC_CI_PORTABLE_SUITE) -- keeps them all: that is no sign they
+--- are dead. Like the suites, which never fail over the cache, a trim that
 --- cannot read it never fails the leg (cosmic_ci/cache_trim.tl).
 
 local CacheTrim = require("cosmic_ci.cache_trim")
