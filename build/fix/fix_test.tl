@@ -20,6 +20,7 @@ local Fs = require("cosmic.fs")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
+local type links = require("build.links")
 local render_mod = require("build.fix.render")
 local teal = require("build.teal")
 
@@ -176,7 +177,7 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       what .. " should be reported as missing, not judged on its suffix: " ..
       picked.refused[i])
   end
-  assert(picked.refused[3]:find("not a Teal or C source, or YAML", 1, true) ~= nil,
+  assert(picked.refused[3]:find("not a Teal or C source, YAML, Markdown or Zig", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
     picked.refused[3])
 end
@@ -344,4 +345,91 @@ local function test_yaml_is_laid_out_in_place(tmp: string)
   changed = {}
   fix.lay_out({ path }, true, changed, {})
   assert(#changed == 0, "a laid-out file is left alone")
+end
+
+--- Markdown and Zig are taken to have their links checked, named or
+--- under a directory named, past the build's output; they are not Teal
+--- to render.
+local function test_markdown_and_zig_are_taken_to_be_checked(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/doc"))
+  assert(Fs.mkdirs(tmp .. "/o"))
+  assert(Fs.write(tmp .. "/build.zig", "const x = 1;\n"))
+  assert(Fs.write(tmp .. "/doc/a.md", "# A\n"))
+  assert(Fs.write(tmp .. "/o/b.md", "# B\n"))
+  local all = assert(fix.chosen(tmp, {}))
+  assert(table.concat(all.checked, " ") == "build.zig doc/a.md", table.concat(all.checked, " "))
+  assert(#all.files == 0, "Markdown is no Teal source")
+  local named = assert(fix.chosen(tmp, { tmp .. "/doc/a.md", tmp .. "/doc" }))
+  assert(#named.refused == 0, table.concat(named.refused, "\n"))
+  assert(#named.checked == 2 and named.checked[1] == tmp .. "/doc/a.md", table.concat(named.checked, " "))
+end
+
+--- A world on disk under `root`, where no symbol is known but `known`.
+local function on_disk(root: string, known: {string: {string}}): links.Context
+  return {
+    root = root,
+    kind = function(path: string): string | nil
+      local st, _ = Fs.stat(path)
+      if st == nil then return nil end
+      return st.kind == "dir" and "dir" or "file"
+    end,
+    read = function(path: string): string | nil
+      local text, _ = Fs.read(path)
+      return text
+    end,
+    symbols = function(query: string): {string} | nil, string
+      return known[query] or {}, ""
+    end,
+    member = function(_: string, _: string): {string} | nil, string
+      return {}, ""
+    end,
+  }
+end
+
+--- A link that resolves passes and one that does not fails, naming its
+--- file, line and target, in each kind of file fix reads links in.
+local function test_a_broken_link_fails_in_each_kind_of_file(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.mkdirs(root .. "/doc"))
+  assert(Fs.write(root .. "/doc/guide.md", table.concat({
+    "# Guide",
+    "",
+    "See [the design](design.md), [`Known.thing`] and [`build.zig`].",
+    "Not [here](#nowhere), nor [there](missing.md).",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/doc/design.md", "# Design\n"))
+  assert(Fs.write(root .. "/a.tl", table.concat({
+    "--- Calls [`helper`], documented in [the guide](doc/guide.md#guide).",
+    "local function helper()",
+    "end",
+    "",
+    "-- Not [`nothing`].",
+    "return helper",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/b.c", table.concat({
+    "/* [`count`] counts; [`uncounted`] is not here. */",
+    "static int count (int n) {",
+    "  return n;",
+    "}",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/build.zig", table.concat({
+    "/// Builds with [`step`]; see [the guide](doc/guide.md).",
+    "const step = \"// [`not_a_comment`]\";",
+    "// But [`no_step`].",
+    "",
+  }, "\n")))
+  local context = on_disk(root, { ["Known.thing"] = { "known.Known.thing" } })
+  local files = { root .. "/doc/guide.md", root .. "/a.tl", root .. "/b.c", root .. "/build.zig" }
+  local found = table.concat(fix.links(context, built, files), "\n")
+  local want = table.concat({
+    root .. "/doc/guide.md:4: link: #nowhere does not resolve (no heading of guide.md has the anchor #nowhere)",
+    root .. "/doc/guide.md:4: link: missing.md does not resolve (no declaration, symbol or file by that name)",
+    root .. "/a.tl:5: link: nothing does not resolve (no declaration, symbol or file by that name)",
+    root .. "/b.c:1: link: uncounted does not resolve (no declaration, symbol or file by that name)",
+    root .. "/build.zig:3: link: no_step does not resolve (no declaration, symbol or file by that name)",
+  }, "\n")
+  assert(found == want, "got:\n" .. found .. "\nwant:\n" .. want)
 end

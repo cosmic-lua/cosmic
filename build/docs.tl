@@ -1330,6 +1330,58 @@ function docs.named_all(view: docs.View, names: {string}): {docs.Entry} | nil, s
   return found, ""
 end
 
+--- What `query` names exactly, by the rule `docs.lookup` answers an
+--- exact query with: the public modules a bare lowercase name ends
+--- (only those, when there are any), else every row `named` finds,
+--- else the module the index lists under that whole name. It neither
+--- searches nor counts uses, so it is cheap to ask once per name.
+function docs.exact(view: docs.View, query: string): {docs.Entry} | nil, string
+  if query:match("^%l[%w_]*$") ~= nil then
+    local modules, modules_trouble = across(view,
+      function(db: Sqlite.Handle, _: boolean): {docs.Entry} | nil, string
+        return modules_ending(db, query)
+      end, entry_module)
+    if modules == nil then
+      return nil, modules_trouble
+    end
+    if #modules > 0 then
+      return modules, ""
+    end
+  end
+  local found, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+      return named(db, public, query)
+    end, entry_module)
+  if found == nil then
+    return nil, trouble
+  end
+  if #found == 0 and view.owners[query] ~= nil then
+    local owner = view.owners[query]
+    return module_symbol(view.databases[owner], view.public[owner] == true, query)
+  end
+  return found, ""
+end
+
+--- The rows of `module` whose symbol is `name`, as the symbol column
+--- reads (`read`, `Writer.write`) or as the source spells it
+--- (`Fs.read`), a method's `:` read as `.`; none when the view holds no
+--- such module. The database that owns the module answers.
+function docs.member(view: docs.View, module: string, name: string): {docs.Entry} | nil, string
+  local owner = view.owners[module]
+  if owner == nil then
+    return {}, ""
+  end
+  local rows, trouble = Sqlite.text_rows(view.databases[owner],
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.symbol <> '' AND " ..
+    "(replace(d.symbol, ':', '.') = ?2 OR replace(d.source_symbol, ':', '.') = ?2) AND " ..
+    symbols.shown_docs("d", view.public[owner] == true) .. " ORDER BY d.id",
+    { text(module), text((name:gsub(":", "."))) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
 --- Every place across `databases` that refers to what `query` names.
 function docs.uses(view: docs.View, query: string): {docs.Use} | nil, string
   local found, trouble = across(view,

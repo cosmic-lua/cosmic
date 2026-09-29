@@ -519,4 +519,10 @@ function c.laid_out(source: string): string | nil, string
   return layout.rendered(source)
 end
 
+--- Every comment of `source`, a C file, markers and all, with the line
+--- it starts on.
+function c.comments(source: string): {layout.Comment}
+  return layout.comments(source)
+end
+
 return c
