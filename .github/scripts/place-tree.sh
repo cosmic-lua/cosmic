@@ -9,13 +9,26 @@
 #
 # A test must not depend on where the tree is (AGENTS.md): a verdict is
 # shared between checkouts, which key an in-tree path by its name under
-# the tree. So the tree moves beside $GITHUB_WORKSPACE, one to three
-# directories deep, each name of its own length, all chosen by a sha256
-# of the commit ($GITHUB_SHA) and the leg ($COSMIC_WORKER). A re-run of
-# a commit meets the same path, so a failure it finds is found again; a
+# the tree. So the tree moves beside $GITHUB_WORKSPACE, to a directory
+# whose name, its length and its digits, a sha256 of the commit
+# ($GITHUB_SHA) and the leg ($COSMIC_WORKER) chooses. A re-run of a
+# commit meets the same path, so a failure it finds is found again; a
 # new commit meets a new one, so a test that turns on the tree's
 # absolute path fails some run rather than none. The log names both
 # inputs and the path, and `--name` with the same two gives it again.
+#
+# Only the name varies, never the depth: the tree is always one
+# directory below $GITHUB_WORKSPACE's parent, as deep as the workspace
+# itself. actions/cache names a path outside the workspace, such as
+# $RUNNER_TEMP (<work>/_temp beside <work>/<repo>/<repo>), relative to
+# $GITHUB_WORKSPACE (`../../_temp/...`, by `path.relative`) and archives
+# it with `tar -C $GITHUB_WORKSPACE`, which enters the link: from a tree
+# any deeper, `../..` names a directory under <work>/<repo> instead, and
+# the save finds nothing. At depth one it names <work> as it would
+# unmoved, so the saves run with the tree moved. That costs nothing a
+# varied depth would catch: the absolute path still moves by commit and
+# leg, which is what fails a test that depends on it, and a sandboxed
+# worker sees the tree at /tree wherever it is.
 #
 # $GITHUB_WORKSPACE becomes a link to it, relative so it resolves both
 # in a job container and on its host: what a job reads from there (a
@@ -30,9 +43,9 @@
 # checkout's resolves the path too, and a git that finds a repository
 # at a path other than the one it was told is safe refuses it (git
 # 2.43's "dubious ownership"), which leaves the checkout's credentials
-# in its config. It removes the link and the directories the move made,
-# and changes nothing when the tree never moved, or is back already, so
-# it can run twice, or after a move that stopped halfway.
+# in its config. It removes the link, and changes nothing when the tree
+# never moved, or is back already, so it can run twice, or after a move
+# that stopped halfway.
 set -eu
 
 case "${1-}" in
@@ -59,15 +72,8 @@ byte() {
 # ci/run-local runs the driver from a path with one (its drop_env is
 # split on spaces) and shows its phases take it: the suite itself does.
 seed=$(printf 'commit %s\nleg %s\n' "$GITHUB_SHA" "$COSMIC_WORKER" | digest)
-relative=""
-depth=$(( $(byte "$seed" 0) % 3 + 1 ))
-at=1
-while [ "$at" -le "$depth" ]; do
-  length=$(( $(byte "$seed" "$at") % 24 + 1 ))
-  name=$(printf '%s %s\n' "$seed" "$at" | digest | cut -c1-"$length")
-  relative="$relative${relative:+/}$name"
-  at=$(( at + 1 ))
-done
+length=$(( $(byte "$seed" 0) % 24 + 1 ))
+relative=$(printf '%s 1\n' "$seed" | digest | cut -c1-"$length")
 
 if [ "${1-}" = --name ]; then
   echo "$relative"
@@ -91,33 +97,14 @@ if [ "${1-}" = --restore ]; then
     mv "$tree" "$GITHUB_WORKSPACE"
     echo "the tree is back at $GITHUB_WORKSPACE from $tree"
   fi
-  # The directories the move made above the tree, left empty by now, or
-  # by a restore that stopped before it removed them. One something wrote
-  # into while the tree sat below it is not empty: it is named, with what
-  # it holds, and left, since it is under $GITHUB_WORKSPACE's parent on a
-  # runner the job does not outlive, and the tree is back, which is what
-  # the steps after this one need.
-  # TODO: find what writes beside the tree in the checked job (a 3-deep
-  # path, runs 36523079141 and 36524071104, left the top directory not
-  # empty) and stop it, then fail here again on a directory not empty.
-  above=$(dirname "$relative")
-  while [ "$above" != . ]; do
-    if [ -d "$parent/$above" ] && ! rmdir "$parent/$above" 2>/dev/null; then
-      echo "place-tree.sh: left $parent/$above, which is not empty:" >&2
-      ls -la "$parent/$above" >&2 || :
-    fi
-    above=$(dirname "$above")
-  done
   exit 0
 fi
 
-# Placed already: nothing to move. (ci.yml puts the tree back around its
-# zig cache save and moves it here again after.)
+# Placed already, as by a step that runs twice: nothing to move.
 if [ -L "$GITHUB_WORKSPACE" ] && [ "$(readlink "$GITHUB_WORKSPACE")" = "$relative" ]; then
   echo "the tree is at $tree already"
   exit 0
 fi
-mkdir -p "$(dirname "$tree")"
 mv "$GITHUB_WORKSPACE" "$tree"
 ln -s "$relative" "$GITHUB_WORKSPACE"
 echo "the tree is at $tree (commit $GITHUB_SHA, leg $COSMIC_WORKER)"

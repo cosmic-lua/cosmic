@@ -346,9 +346,8 @@
 
         # To a path of this commit's and leg's own, so a test that turns
         # on the tree's path fails some run (place-tree.sh).
-        # TODO: move it on the macOS leg alone (and drop the put-back and
-        # re-move around the zig cache save on the Linux legs) once
-        # "check the pinned CI driver" runs cosmic_ci's tests sandboxed:
+        # TODO: move it on the macOS leg alone once "check the pinned CI
+        # driver" runs cosmic_ci's tests sandboxed:
         # the tree's own suites here already see it at /tree wherever it
         # is (COSMIC_TEST_SANDBOX=1), and the pinned release sandboxes
         # its workers by default and knows `system`, but cosmic_ci's
@@ -408,17 +407,9 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
 
-        # The last build of zig's caches is above, so they are saved here.
-        # actions/cache's relative paths break through place-tree.sh's
-        # link, so the tree goes back for the saves and moves again after.
-        {
-          name: "put the tree back for the zig cache save",
-          if: "always()",
-          "working-directory": ".",
-          shell: "sh",
-          run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
-        },
-
+        # The last build of zig's caches is above, so they are saved here,
+        # with the tree moved: place-tree.sh keeps it one directory deep,
+        # where actions/cache's paths relative to the workspace resolve.
         # Only where assemble passed and nothing `full` for this vendor
         # part was restored, or on the scheduled run: once per vendor
         # part and leg, not per core change, which the cache cannot hold.
@@ -441,12 +432,6 @@
             path: "${{ runner.temp }}/driver-checked",
             key: "${{ steps.driver-check-restore.outputs.cache-primary-key }}",
           },
-        },
-
-        {
-          name: "move the tree to its own path again",
-          "working-directory": ".",
-          run: "sh .github/scripts/place-tree.sh",
         },
 
         {
@@ -556,9 +541,9 @@
           run: "docker rm -f cosmic-leg || :",
         },
 
-        # Whatever failed, before the saves and checkout's post step: at
-        # another path git refuses the repository and leaves the
-        # checkout's credentials behind (place-tree.sh). On the host.
+        # Whatever failed, before checkout's post step: at another path
+        # git refuses the repository and leaves the checkout's
+        # credentials behind (place-tree.sh). On the host.
         {
           name: "move the tree back to where it was checked out",
           if: "always()",
@@ -828,9 +813,9 @@
           shell: "sh",
           run: "docker rm -f cosmic-leg || :",
         },
-        # Before the seed and the save: actions/cache names the verdicts
-        # by a path relative to the workspace, which names nothing
-        # through place-tree.sh's link; and before checkout's post step.
+        # Before checkout's post step, whose git refuses the repository
+        # at another path (place-tree.sh); the seed and the save come
+        # after it too.
         {
           name: "move the tree back to where it was checked out",
           if: "env.COSMIC_CI_SCOPE == 'full' && always()",
