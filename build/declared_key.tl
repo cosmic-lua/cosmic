@@ -5,9 +5,9 @@
 ---
 --- A sandboxed worker reads its declared inputs, and besides them what
 --- every worker is given (build.confine's `worker_unveil`): /proc, the
---- devices every program takes for granted (/dev/null, /dev/zero,
---- /dev/urandom), the program's core -- and the program itself only
---- where its module declares `tool` -- and a store at
+--- devices a program takes for granted (/dev/null, /dev/zero,
+--- /dev/urandom) and /dev/full, the program's core -- and the program
+--- itself only where its module declares `tool` -- and a store at
 --- o/cosmic.db, held as below -- and the system's own paths (/usr,
 --- /bin, /lib, /etc and the like) only where its module declares
 --- `system`; and it runs as whoever runs the tests, with their

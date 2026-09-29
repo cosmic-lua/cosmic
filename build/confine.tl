@@ -194,23 +194,19 @@ end
 --- /dev/null (a child's "null" stream), /proc/self/exe and
 --- /proc/thread-self/children, and nothing of /usr, /lib or /etc;
 --- /dev/zero it does not open, but a program takes it for granted as it
---- does /dev/null, and its every answer is the same. /proc alone does
---- not enter a key: a sandboxed process's is a procfs of its own pid
---- namespace, holding its own processes and nothing of the host's. The
---- devices' every answer is the same, or none a key could hold
---- (/dev/urandom's).
+--- does /dev/null; /dev/full is where a write fails with ENOSPC, for a
+--- test of how a program meets a failed write, and macOS has none.
+--- /proc alone does not enter a key: a sandboxed process's is a
+--- procfs of its own pid namespace, holding its own processes and
+--- nothing of the host's. The devices' every answer is the same, or none
+--- a key could hold (/dev/urandom's), so the key holds them through the
+--- host's identity alone.
 -- TODO: keep a confined process from the host's state where the kernel
 -- refuses it a procfs of its own and it has the host's /proc (a
 -- container masking parts of it: core/syscalls.c's `place_proc`), which
 -- it can read there without that entering the key: refused, as the
 -- TODO there asks, once no container the tree is tested in masks /proc.
--- TODO: give a confined process /dev/full too, where a write fails
--- with ENOSPC, so build/codec_tool_test.tl's failed-write case checks
--- something on a Linux leg, where every worker is sandboxed: today only
--- an unsandboxed Linux run reaches it, and macOS has none. That moves
--- the harness epoch; its key holds it as it holds these, through the
--- host's identity, since it has no contents to digest.
-local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/urandom", "/proc" }
+local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/full", "/dev/urandom", "/proc" }
 
 --- What a confined process has without its test naming it, each where
 --- this host has it (and, in a sandboxed worker, where the worker was

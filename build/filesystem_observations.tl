@@ -366,9 +366,9 @@ local S_IFIFO <const> = 0x1000
 local S_IFCHR <const> = 0x2000
 
 --- Whether a device is one whose every answer is the same, or random,
---- and so no input: /dev/null, /dev/zero or /dev/urandom.
+--- and so no input: /dev/null, /dev/zero, /dev/full or /dev/urandom.
 local function inert_device(st: sys.Stat): boolean
-  for _, name in ipairs({ "/dev/null", "/dev/zero", "/dev/urandom" }) do
+  for _, name in ipairs({ "/dev/null", "/dev/zero", "/dev/full", "/dev/urandom" }) do
     local device, _ = sys.stat(name)
     if device ~= nil and device.ino == st.ino and device.dev == st.dev then return true end
   end

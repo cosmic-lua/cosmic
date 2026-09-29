@@ -76,7 +76,7 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "8-072f7458" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "9-757b1277" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
   ["build.artifact"] = "9144fb3a0cbaead8ab175937bf1d56d197034a31307d15b28e9a212c48196ed9",
@@ -87,15 +87,15 @@ harness_epoch.acknowledged = {
 
   ["build.caches"] = "8beec2912c9583fe4d30987adc85c146c718272a9407ae6ac6ce38ec3b74306c",
 
-  ["build.confine"] = "3cb2a6a09c9f10c2107894b2474d082f7b03851a05c0aa479bf9478808411dfc",
+  ["build.confine"] = "3622734b110dbe953f2d67a2114ae25c8c1fe869cd9bd4001f37b64c5f072dac",
 
   ["build.core_image"] = "bd5b49295b707e7d6e36087401d0779d6b06c09286fc730706f994658ba7bf3f",
 
-  ["build.declared_key"] = "e46c8e9efea80f98469301511250c126be0af4e035c96fe3fd400101ab572988",
+  ["build.declared_key"] = "1955426fbf2600d23f377d9fc00e5abad47b30ae759c94439940f340df9898c4",
 
   ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
 
-  ["build.filesystem_observations"] = "87ba66bb66cf8ca18310d2c8c3aca841c2f23e355b2f72ce6d7353c6b9a2ead7",
+  ["build.filesystem_observations"] = "18e948ed2f53e41b3ea5c1daae9de045feede780f4606c8521dc3569838425a6",
 
   ["build.key_parts"] = "2f2ce8af4d238b79db14c11fb27dadba90c608885ca1c3044292de6632169b98",
 
@@ -109,7 +109,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "a618d99e7a14fc72b74fda26dbf73d988a8473dda34be888b86e530bf752e5d0",
 
-  ["build.test"] = "c6ecb150ad8b2e1ee59560460719cc10ee9f8a16fb063845ec304ad11ad1fcc5",
+  ["build.test"] = "3ab679baae0070f0809108ef209fa397afb90b75cd31063cdbe247c133a28a1e",
 
   ["build.test_inputs"] = "73600e0ad4cc72061f59bb556723015e07bc6f76345f6e405f4a8d4510b960aa",
 
@@ -139,7 +139,7 @@ harness_epoch.acknowledged = {
 
   ["cosmic.string"] = "579df77a2498f37f1867b377dd5609f64074028ef7d7b7e5919f86435f61d96a",
 
-  ["cosmic.test"] = "ca3f07bbd05d072595d1a0df599480add3ced80720359d61d24c385ba2ee4b89",
+  ["cosmic.test"] = "269d1ef5770480bfb8d2ef03aeb5074c3f78ab35dc87892fe5d8c354da7ad743",
 
 }
 
@@ -177,6 +177,7 @@ harness_epoch.retired = {
   "5",
   "6",
   "7",
+  "072f7458",
 }
 
 return harness_epoch
