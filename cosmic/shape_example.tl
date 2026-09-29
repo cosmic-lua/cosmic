@@ -7,46 +7,46 @@ local Shape = require("cosmic.shape")
 
 local Example = {}
 
-local record Release
-  tag: string
-  draft: boolean
-  assets: {string}
-end
-
---- A release as JSON decodes it: `any`, until a shape says otherwise.
---- `null_value` keeps the draft's null, which `optional` reads as nil.
-local function decoded(): any
-  local text = '{"tag": "v1", "draft": null, "assets": ["lua", "zip"], "author": "someone"}'
-  local value, err = Json.decode(text, { null_value = Json.null })
-  assert(err == "", err)
-  return value
-end
-
 --- One call checks the value, and every read after it is a typed read.
 --- The result's type comes from the annotation on the declaration.
 function Example.into()
+  local record Release
+    tag: string
+    draft: boolean
+    assets: {string}
+  end
+  -- `null_value` keeps the draft's null, which `optional` reads as nil.
+  local text = '{"tag": "v1", "draft": null, "assets": ["lua", "zip"], "author": "someone"}'
+  local value = assert(Json.decode(text, { null_value = Json.null }))
   local RELEASE <const> = Shape.record({
     tag = Shape.string,
     draft = Shape.optional(Shape.boolean),
     assets = Shape.list(Shape.string),
   })
-  local release, err: Release | nil, string = Shape.into(decoded(), RELEASE)
+  local release, err: Release | nil, string = Shape.into(value, RELEASE)
   assert(release ~= nil, err)
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
   -- The answer holds what the spec names and nothing else.
-  local text = Json.encode(release)
-  print(text)
-  assert(text == '{"assets":["lua","zip"],"tag":"v1"}', text)
+  local encoded = Json.encode(release)
+  print(encoded)
+  assert(encoded == '{"assets":["lua","zip"],"tag":"v1"}', encoded)
 end
 
 --- A value that does not fit names the first place it went wrong.
 function Example.into_failure()
+  local record Release
+    tag: string
+    draft: boolean
+    assets: {string}
+  end
+  local text = '{"tag": "v1", "draft": null, "assets": ["lua", "zip"], "author": "someone"}'
+  local value = assert(Json.decode(text, { null_value = Json.null }))
   local RELEASE <const> = Shape.record({
     tag = Shape.string,
     assets = Shape.list(Shape.integer),
   })
-  local _, err: Release | nil, string = Shape.into(decoded(), RELEASE)
+  local _, err: Release | nil, string = Shape.into(value, RELEASE)
   print(err)
   assert(err == "$.assets[1]: expected integer, got string", err)
 end
@@ -55,12 +55,14 @@ end
 --- lists each value that does not fit, by its path, in the order the
 --- walk meets them; `into` answers the typed value once it is empty.
 function Example.failures()
+  local text = '{"tag": "v1", "draft": null, "assets": ["lua", "zip"], "author": "someone"}'
+  local value = assert(Json.decode(text, { null_value = Json.null }))
   local RELEASE <const> = Shape.record({
     tag = Shape.integer,
     draft = Shape.string,
     assets = Shape.list(Shape.integer),
   })
-  local failures = Shape.failures(decoded(), RELEASE)
+  local failures = Shape.failures(value, RELEASE)
   for _, f in ipairs(failures) do print(f.message) end
   assert(#failures == 4, "one per value that does not fit")
   assert(failures[1].message == "$.assets[1]: expected integer, got string", failures[1].message)

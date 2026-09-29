@@ -53,7 +53,7 @@ end
 
 --- A checker environment that answers `cosmic.*` from this binary's own
 --- sources and nothing else: no path is searched.
-local function environment(built: compiler): compiler.Env | nil, string
+function standalone.environment(built: compiler): compiler.Env | nil, string
   teal.serve_standard(built)
   local env, trouble = built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
@@ -96,7 +96,7 @@ local function generate(file: string, source: string): string | nil, string
   if built == nil then
     return nil, load_trouble
   end
-  local env, env_trouble = environment(built)
+  local env, env_trouble = standalone.environment(built)
   if env == nil then
     return nil, env_trouble
   end

@@ -40,6 +40,19 @@ local record Item
 end
 
 local record generate
+  --- One guide example as a reader copies it: the statements of its
+  --- opening block and its `continue` blocks, joined as the generated
+  --- test joins them.
+  record Entry
+    source: string
+    --- The doc line of the block that opens it.
+    line: integer
+    --- Whether `file=` companions come with it: its code then reads
+    --- them through the generated test's `tmp`, and is a project's
+    --- entry rather than a script to run alone.
+    companions: boolean
+    output: boolean
+  end
 end
 
 --- Whether a block's content opens with a shebang line. A shebang is
@@ -151,6 +164,28 @@ local function to_items(blocks: {Block}): {Item} | nil, string
     end
   end
   return items, ""
+end
+
+--- The examples a doc's blocks make, as `Entry` values, skips left out:
+--- what `from_blocks` turns into functions, without the wrapping, so a
+--- check can hold each to compiling on its own.
+--- @return {generate.Entry} | nil nil on the grammar error `from_blocks` names
+--- @return string why
+function generate.entries(blocks: {Block}): {generate.Entry} | nil, string
+  local items, trouble = to_items(blocks)
+  if items == nil then
+    return nil, trouble
+  end
+  local out: {generate.Entry} = {}
+  for _, item in ipairs(items) do
+    local example = item.example
+    if item.kind == "example" and example ~= nil then
+      out[#out + 1] = { source = table.concat(example.statements, "\n\n"),
+        line = example.line, companions = #example.files > 0,
+        output = example.has_output }
+    end
+  end
+  return out, ""
 end
 
 --- Appends the lines of `text` to `out`, indenting every non-blank one
