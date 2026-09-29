@@ -75,8 +75,8 @@ int f(lua_State *L) {
 ]]))
 end
 
---- The bug core/surface.c's print once had: luaL_tolstring pushes its
---- string above the buffer, and luaL_addstring then writes over it.
+--- luaL_tolstring pushes its string above the open buffer, and
+--- luaL_addstring then writes over it.
 local function test_a_buffer_call_above_a_pushed_value_is_found(tmp: string)
   one(findings(tmp, header .. [[
 int f(lua_State *L) {
@@ -635,13 +635,13 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
   none(only(outcomes[1].findings, "single-file"))
 end
 
---- Checking C starts its compilers held to what they are given (build.confine's
---- `declaring`): what names the pinned zig is read, and every header a
---- compiler read but the pinned zig's own -- one beside the file
---- included -- so a test of it stands on them, and a header's change
---- runs it again; and each compiler is heard of by what it was given,
---- never as a process nothing holds, but where the kernel could confine
---- none.
+--- Checking C starts its compilers held to what they are given
+--- (build.confine's `declaring`). What names the pinned zig is read, and
+--- so is every header a compiler read but the pinned zig's own, one
+--- beside the included file among them; a test of it stands on those
+--- reads, and a change to a header runs it again. Each compiler is
+--- observed by what it was given, never as a process nothing holds,
+--- except where the kernel can confine none.
 local function test_checking_reads_what_the_compiler_read(tmp: string)
   assert(Fs.write(tmp .. "/extra.h", "int extra(void);\n"))
   local zig_cache = assert(Fs.cache_path("zig"))
