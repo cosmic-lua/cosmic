@@ -162,6 +162,29 @@ local function wrap_zip(zr: Zip.Reader): Archive.Reader
   return ar
 end
 
+--- The tar `source` holds, of format `kind` ("tar", "gzip", "xz" or
+--- "bzip2"): the reader `Archive.open` and `Archive.open_stream` share.
+--- `label` names the input in a complaint.
+local function open_tar(kind: string, source: Stream.Reader, label: string):
+    Archive.Reader | nil, string
+  if kind == "tar" then return wrap_tar(Tar.reader(source), nil), "" end
+  local codec: Compress.Stream
+  local ctrouble: string
+  if kind == "gzip" then
+    codec, ctrouble = Compress.inflater("gzip")
+  elseif kind == "xz" then
+    codec, ctrouble = Compress.xz_decoder()
+  else
+    codec, ctrouble = Compress.bz2_decoder()
+  end
+  if codec == nil then
+    local _, _ = source:close()
+    return nil, "archive: " .. label .. ": " .. ctrouble
+  end
+  local transformed = Stream.transform(source, codec)
+  return wrap_tar(Tar.reader(transformed), transformed), ""
+end
+
 --- Detects `path`'s format from its first bytes and returns a reader
 --- over its entries, uniform whether it turns out to be a zip, a
 --- plain ustar tar, or a tar compressed with gzip, xz, or bzip2.
@@ -177,28 +200,47 @@ function Archive.open(path: string): Archive.Reader | nil, string
     if zr == nil then return nil, ztrouble end
     return wrap_zip(zr), ""
   end
-  if kind == "tar" then
-    local raw, otrouble = Stream.open(path)
-    if raw == nil then return nil, otrouble end
-    return wrap_tar(Tar.reader(raw), nil), ""
+  if kind == "unknown" then
+    return nil, "archive: " .. path .. ": not a recognized archive format"
   end
-  if kind == "gzip" or kind == "xz" or kind == "bzip2" then
-    local codec: Compress.Stream
-    local ctrouble: string
-    if kind == "gzip" then
-      codec, ctrouble = Compress.inflater("gzip")
-    elseif kind == "xz" then
-      codec, ctrouble = Compress.xz_decoder()
-    else
-      codec, ctrouble = Compress.bz2_decoder()
+  local raw, otrouble = Stream.open(path)
+  if raw == nil then return nil, otrouble end
+  return open_tar(kind, raw, path)
+end
+
+--- Like `open`, for an archive that arrives as a stream (a pipe, a
+--- socket) rather than as a file: a plain, gzip, xz or bzip2 tar, read
+--- as `source` yields it, so memory stays bounded however long it is.
+--- The format is detected from the first bytes, which are not lost.
+--- A zip is refused, since reading one means seeking in it: write the
+--- stream to a file and `open` that. Closing the reader closes `source`,
+--- which is closed here as well when this fails.
+function Archive.open_stream(source: Stream.Reader): Archive.Reader | nil, string
+  local parts: {string} = {}
+  local have = 0
+  while have < 262 do
+    local chunk, trouble = source:read(262 - have)
+    if chunk == nil then
+      if trouble ~= "" then
+        local _, _ = source:close()
+        return nil, "archive: " .. trouble
+      end
+      break
     end
-    if codec == nil then return nil, "archive: " .. path .. ": " .. ctrouble end
-    local raw, otrouble = Stream.open(path)
-    if raw == nil then return nil, otrouble end
-    local transformed = Stream.transform(raw, codec)
-    return wrap_tar(Tar.reader(transformed), transformed), ""
+    parts[#parts + 1] = chunk
+    have = have + #chunk
   end
-  return nil, "archive: " .. path .. ": not a recognized archive format"
+  local head = table.concat(parts)
+  local kind = detect(head)
+  if kind == "zip" then
+    local _, _ = source:close()
+    return nil, "archive: a zip cannot be read from a stream; write it to a file and open that"
+  end
+  if kind == "unknown" then
+    local _, _ = source:close()
+    return nil, "archive: not a recognized archive format"
+  end
+  return open_tar(kind, Stream.prepend(head, source), "stream")
 end
 
 local function listed_open(_e: Archive.Entry): Stream.Reader | nil, string

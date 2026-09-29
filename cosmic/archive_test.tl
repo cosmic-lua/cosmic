@@ -62,6 +62,74 @@ local function test_open_detects_a_zip_by_its_local_header_signature(tmp: string
   assert(by["adir/short.txt"].kind == "file" and by["adir/short.txt"].size == 11)
 end
 
+--- The entries of `reader`, by path, and closes it.
+local function walked(reader: Archive.Reader): {string:Archive.Entry}
+  local by: {string:Archive.Entry} = {}
+  while true do
+    local e, why = reader:next()
+    if e == nil then
+      assert(why == "", why)
+      break
+    end
+    by[e.path] = e
+  end
+  assert(reader:close())
+  return by
+end
+
+local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_time(tmp: string)
+  local path = tmp .. "/a.tar"
+  make_tar(path)
+  local bytes = assert(Fs.read(path))
+  -- A source that answers a byte per read splits the peek across reads.
+  local at = 1
+  local source: Stream.Reader = {}
+  source.read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    if at > #bytes then return nil, "" end
+    at = at + 1
+    return bytes:sub(at - 1, at - 1), ""
+  end
+  source.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local by = walked((assert(Archive.open_stream(source))))
+  assert(by["adir/short.txt"].size == 11)
+  assert(by["adir/link"].linkpath == "short.txt")
+end
+
+local function test_open_stream_reads_gzip_xz_and_bzip2_tars()
+  for _, b64 in ipairs({ TAR_GZ_B64, TAR_XZ_B64, TAR_BZ2_B64 }) do
+    local bytes = assert(Codec.unbase64(b64))
+    local by = walked((assert(Archive.open_stream(Stream.from_string(bytes)))))
+    local n = 0
+    for _ in pairs(by) do n = n + 1 end
+    assert(n > 0)
+  end
+end
+
+local function test_open_stream_refuses_a_zip_and_an_unrecognized_stream(tmp: string)
+  local path = tmp .. "/a.zip"
+  make_zip(path)
+  local r, why = Archive.open_stream(Stream.from_string((assert(Fs.read(path)))))
+  assert(r == nil and why:find("zip", 1, true) ~= nil, why)
+  r, why = Archive.open_stream(Stream.from_string("just some text"))
+  assert(r == nil and why:find("not a recognized archive format", 1, true) ~= nil, why)
+  r, why = Archive.open_stream(Stream.from_string(""))
+  assert(r == nil and why:find("not a recognized archive format", 1, true) ~= nil, why)
+end
+
+local function test_open_stream_fails_on_a_truncated_gzip_stream()
+  local bytes = assert(Codec.unbase64(TAR_GZ_B64))
+  local r = assert(Archive.open_stream(Stream.from_string(bytes:sub(1, #bytes - 30))))
+  local failed = false
+  while true do
+    local e, why = r:next()
+    if e == nil then
+      failed = why ~= ""
+      break
+    end
+  end
+  assert(failed, "a truncated stream passed as complete")
+end
+
 local function test_open_refuses_an_unrecognized_file(tmp: string)
   local path = tmp .. "/plain.txt"
   assert(Fs.write(path, "just some text, not an archive"))
