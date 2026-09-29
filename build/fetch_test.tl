@@ -1,6 +1,6 @@
 --- `cosmic fetch` in process, over `cosmic.http`'s scripted transport
 --- (`Io.script`: a canned reply per connection, so no test reaches the
---- network), and one refusal on a closed local port. Like
+--- network), and refusals on a local port closed for them. Like
 --- cosmic/http_test.tl it declares only loopback, so it is keyed and
 --- runs offline. The program run as a process is build/fetch_tool_test.tl's.
 
@@ -9,6 +9,7 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local fetch = require("build.fetch")
 
@@ -154,13 +155,19 @@ local function test_a_bad_url_or_command_line_is_a_usage_error()
   end
 end
 
+--- A port a listener held and closed, which nothing listens at now.
+local function closed_port(): integer
+  local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  local port = listener.address.port
+  assert(listener:close())
+  return port
+end
+
 local function test_a_refused_connection_fails()
-  -- Port 1 is never listening (as cosmic/http_test.tl's probe is);
-  -- TODO: bind and close an ephemeral port instead, once a socket
-  -- module of the tree can bind one.
-  local ran = run({ "http://127.0.0.1:1/" }, nil)
+  local refused = "http://127.0.0.1:" .. closed_port() .. "/"
+  local ran = run({ refused }, nil)
   assert(ran.code == 1, tostring(ran.code) .. ran.err)
-  assert(ran.out == "" and ran.err:find("cosmic: fetch: http://127.0.0.1:1/", 1, true) == 1, ran.err)
+  assert(ran.out == "" and ran.err:find("cosmic: fetch: " .. refused, 1, true) == 1, ran.err)
 end
 
 local function test_a_failed_write_to_standard_output_exits_two()
@@ -189,7 +196,7 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   local json = run({ "--head", "--json", secret }, { reply("200 OK", "") })
   assert(json.code == 0 and not json.out:find("hunter2", 1, true), json.out)
   assert(json.out:find("***@cosmic.test", 1, true), json.out)
-  local refused = run({ "http://user:hunter2@127.0.0.1:1/" }, nil)
+  local refused = run({ "http://user:hunter2@127.0.0.1:" .. closed_port() .. "/" }, nil)
   assert(refused.code == 1 and not refused.err:find("hunter2", 1, true), refused.err)
 end
 
@@ -217,9 +224,9 @@ end
 
 -- TODO: drive a real https start that redirects to http (refused) and
 -- to https (followed) through `fetch.run`, once the tree has a loopback
--- TLS server (a certificate the test trusts and a socket that can bind
--- and accept); none exists, and a canned reply cannot finish a
--- handshake, so only the decision (`redirect_protocols`, `refusal`) and
+-- TLS server (a certificate the test trusts, and TLS over a
+-- `cosmic.net` connection); a canned reply cannot finish a handshake,
+-- so only the decision (`redirect_protocols`, `refusal`) and
 -- cosmic/http_test.tl's scripted http cases are covered.
 local function test_an_https_start_limits_redirects_to_https_unless_allowed()
   local limited = fetch.redirect_protocols("https://example.test/a", false)

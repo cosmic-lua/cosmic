@@ -2807,7 +2807,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     hold = hold,
     open = declared ~= nil and declared.store,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
-    sandbox = sandbox,
+    sandbox = sandbox, program = job.plan ~= nil and job.plan.program or nil,
   })
   local handle, trouble = Child.start(command.argv, command.options)
   if handle == nil then

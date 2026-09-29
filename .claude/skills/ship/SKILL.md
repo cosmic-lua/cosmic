@@ -29,6 +29,10 @@ dropped from what to change.
   `o/bin/cosmic docs <words>` searches every doc comment and example by
   what it does (`cosmic docs find program path` answers `Proc.find`),
   and open PRs may already carry it.
+- One branch per PR, named for the change and cut fresh from
+  `origin/main`: never reuse a branch whose PR has merged or closed, even
+  one a session was started on or told to push to; open the next PR
+  from a new branch instead.
 - `git fetch origin`, then
   `git worktree add -b <branch> "$(git rev-parse --show-toplevel)/../wt-<name>" origin/main`.
   Run everything after from that worktree's root, by absolute path. Keep

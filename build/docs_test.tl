@@ -1092,12 +1092,54 @@ local function test_a_qualified_name_lists_only_its_own_uses()
   local method = assert(docs.uses(view({ db }), "Fs:write"))
   assert(#method == 1 and method[1].module == "cosmic.fs", tostring(#method))
   assert(#assert(docs.uses(view({ db }), "write")) == 2, "a last name finds both")
-  -- `Writer` may be a module's own record, as `Fs` is: the uses table
-  -- keeps no record names to tell.
-  assert(#assert(docs.uses(view({ db }), "Writer.write")) == 2)
+  -- `Writer` is no module's own record here, so it is a use of the
+  -- `Writer.write` recorded as such and of no bare `write`.
+  assert(#assert(docs.uses(view({ db }), "Writer.write")) == 1)
   assert(#assert(docs.uses(view({ db }), "Zip.Writer.add_file")) == 1)
   assert(#assert(docs.uses(view({ db }), "cosmic.Zip.Writer.add_file")) == 0,
     "one name past the record, and no more")
+end
+
+--- A qualifier is the record of the module the use is of: `Fs.read` is
+--- not a use of another module's `read`, though both are recorded as
+--- `read`; the module's last name answers too, in either case, and a
+--- bare `read` still finds every one.
+local function test_a_qualifier_names_the_module_it_is_a_use_of(dir: string)
+  local db = built(dir, {
+    ["cosmic/fs.tl"] = source(
+      "local record Fs",
+      "end",
+      "--- Reads.",
+      "function Fs.read(): string return '' end",
+      "return Fs"),
+    ["cosmic/csv.tl"] = source(
+      "local record Csv",
+      "end",
+      "--- Reads rows.",
+      "function Csv.read(): string return '' end",
+      "return Csv"),
+    ["app/main.tl"] = source(
+      "local Fs = require('cosmic.fs')",
+      "local Csv = require('cosmic.csv')",
+      "local _ = Fs.read()",
+      "local _ = Csv.read()",
+      "local _ = Csv.read()"),
+  })
+  local function modules(query: string): string
+    local out: {string} = {}
+    for _, use in ipairs((assert(docs.uses(view({ db }), query)))) do
+      out[#out + 1] = use.module
+    end
+    return table.concat(out, ",")
+  end
+  assert(modules("Fs.read") == "cosmic.fs", modules("Fs.read"))
+  assert(modules("fs.read") == "cosmic.fs", modules("fs.read"))
+  assert(modules("Csv.read") == "cosmic.csv,cosmic.csv", modules("Csv.read"))
+  assert(modules("read") == "cosmic.csv,cosmic.csv,cosmic.fs", modules("read"))
+  assert(modules("Sys.read") == "", modules("Sys.read"))
+  -- What `docs` counts is what `uses` lists.
+  local found = assert(docs.lookup(view({ db }), "Csv.read"))
+  assert(found[1].uses == 2, tostring(found[1].uses))
 end
 
 --- A method on a nested record is found by the name its uses are

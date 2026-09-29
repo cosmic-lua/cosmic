@@ -207,11 +207,11 @@ as `lstat`, is there. A failure returns nil, the error, and the errno.
 
 ```teal
 local Fs = require("cosmic.fs")
-local syscalls = require("cosmic.sys")
+local sys = require("cosmic.sys")
 
 local dir = assert(Fs.mkdtemp("quickstart-"))
-assert(syscalls.mkdir(dir .. "/made"))
-local stat = assert(syscalls.lstat(dir .. "/made"))
+assert(sys.mkdir(dir .. "/made"))
+local stat = assert(sys.lstat(dir .. "/made"))
 print(stat.kind)
 assert(Fs.remove_tree(dir))
 ```

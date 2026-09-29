@@ -20,6 +20,8 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -42,12 +44,48 @@ struct target {
   char directory[PATH_MAX];
 };
 
+/* The "tcp" address of the table at `index` in `*out`: 0, or EINVAL for
+ * a host that is no numeric IPv4 or IPv6 address -- a name, a NUL in
+ * it, an IPv6 scope -- which a caller may meet at runtime. A host that
+ * is no string, or a port that is no integer from 0 to 65535, raises. */
+static int tcp_address_of (lua_State *L, int index, struct target *out) {
+  lua_getfield(L, index, "port");
+  lua_Integer port = lua_isinteger(L, -1) ? lua_tointeger(L, -1) : -1;
+  if (port < 0 || port > 65535) {
+    return luaL_argerror(L, index, "port must be a whole number from 0 to 65535");
+  }
+  lua_pop(L, 1);
+  lua_getfield(L, index, "host");
+  if (lua_type(L, -1) != LUA_TSTRING) return luaL_argerror(L, index, "host must be a string");
+  size_t size = 0;
+  const char *host = lua_tolstring(L, -1, &size);
+  struct sockaddr_in *v4 = (struct sockaddr_in *)&out->address;
+  struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->address;
+  int failure = 0;
+  if (strlen(host) != size) {
+    failure = EINVAL;
+  } else if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+    v4->sin_family = AF_INET;
+    v4->sin_port = htons((uint16_t)port);
+    out->length = (socklen_t)sizeof *v4;
+  } else if (inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
+    v6->sin6_family = AF_INET6;
+    v6->sin6_port = htons((uint16_t)port);
+    out->length = (socklen_t)sizeof *v6;
+  } else {
+    failure = EINVAL;
+  }
+  lua_pop(L, 1);
+  return failure;
+}
+
 /* Where the table at `index` says a socket is, in `*out`: 0, or the
  * errno a caller meets at runtime (a path holding a NUL, a directory
- * past PATH_MAX, a file's own name past SOCKET_NAME_MAX). An address no
- * correct program passes -- a kind the table does not read, a path that
- * is no string or is empty -- raises. Nothing is left on the stack, and
- * nothing of it is kept but the copies in `*out`. */
+ * past PATH_MAX, a file's own name past SOCKET_NAME_MAX, a host that is
+ * no numeric address). An address no correct program passes -- a kind
+ * the table does not read, a path that is no string or is empty, a port
+ * out of range -- raises. Nothing is left on the stack, and nothing of
+ * it is kept but the copies in `*out`. */
 static int address_of (lua_State *L, int index, struct target *out) {
   memset(&out->address, 0, sizeof out->address);
   out->length = 0;
@@ -55,10 +93,12 @@ static int address_of (lua_State *L, int index, struct target *out) {
   luaL_checktype(L, index, LUA_TTABLE);
   lua_getfield(L, index, "kind");
   const char *kind = lua_tostring(L, -1);
-  if (kind == NULL || strcmp(kind, "unix") != 0) {
-    return luaL_argerror(L, index, "kind must be \"unix\"");
+  bool tcp = kind != NULL && strcmp(kind, "tcp") == 0;
+  if (!tcp && (kind == NULL || strcmp(kind, "unix") != 0)) {
+    return luaL_argerror(L, index, "kind must be \"unix\" or \"tcp\"");
   }
   lua_pop(L, 1);
+  if (tcp) return tcp_address_of(L, index, out);
   lua_getfield(L, index, "path");
   if (lua_type(L, -1) != LUA_TSTRING) return luaL_argerror(L, index, "path must be a string");
   const char *path = cosmic_path(L, lua_gettop(L));
@@ -219,6 +259,33 @@ static int paused (int64_t deadline, int64_t *pause) {
   return cosmic_signal_caught() ? EINTR : 0;
 }
 
+/* Waits until `fd` has `events`, in slices: 0 once it has, ETIMEDOUT
+ * once `deadline` has passed, EINTR once a guard has caught a signal,
+ * or why poll failed. */
+static int ready (int fd, short events, int64_t deadline) {
+  for (;;) {
+    if (cosmic_signal_caught()) return EINTR;
+    int left = slice(deadline);
+    struct pollfd watched = { fd, events, 0 };
+    int found = poll(&watched, 1, left);
+    if (found > 0) return 0;
+    if (found < 0 && errno != EINTR) return errno;
+    if (found == 0 && left == 0) return ETIMEDOUT;
+  }
+}
+
+/* Waits for the connection `fd` has in progress to be made or refused,
+ * in slices as `paused` does: 0 once made, its failure (SO_ERROR) once
+ * refused, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
+ * caught a signal. */
+static int settled (int fd, int64_t deadline) {
+  int failure = ready(fd, POLLOUT, deadline);
+  if (failure != 0) return failure;
+  socklen_t size = sizeof failure;
+  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) != 0) return errno;
+  return failure;
+}
+
 COSMIC_SYSCALL(listen, 2) {
   struct target target;
   int failure = address_of(L, 1, &target);
@@ -227,6 +294,19 @@ COSMIC_SYSCALL(listen, 2) {
   if (failure != 0) return cosmic_fail(L, failure);
   int fd = stream_socket(target.address.ss_family);
   if (fd < 0) return cosmic_fail(L, errno);
+#if defined(__linux__)
+  /* A port left in TIME_WAIT by a listener before this one is taken
+   * again, as every server does. Linux alone: on macOS the same option
+   * also lets a bind to one address take a port another socket holds
+   * on every address, and its traffic with it. */
+  int on = 1;
+  if (target.address.ss_family != AF_UNIX &&
+      setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on) != 0) {
+    failure = errno;
+    close(fd);
+    return cosmic_fail(L, failure);
+  }
+#endif
   failure = reach(fd, &target, true);
   if (failure == 0 && listen(fd, backlog) != 0) failure = errno;
   if (failure != 0) {
@@ -266,22 +346,55 @@ COSMIC_SYSCALL(connect, 2) {
   if (fd < 0) return cosmic_fail(L, errno);
   /* A unix socket connects at once or answers EAGAIN, its listener's
    * backlog full, where a blocking one would wait: this waits in
-   * slices, asking again, as `wait` does.
-   * TODO: answer a connection still in progress (EINPROGRESS) with its
-   * descriptor, and give its outcome through SO_ERROR once `wait` says
-   * it is writable, once an address of a kind that connects over time
-   * ("tcp") is read. */
+   * slices, asking again, as `wait` does. A TCP one answers EINPROGRESS
+   * and connects over time, which `settled` waits out. */
   int64_t pause = 1;
   for (;;) {
     failure = reach(fd, &target, false);
-    if (failure == 0) break;
-    if (failure == EAGAIN) failure = paused(deadline, &pause);
-    if (failure != 0 && failure != EINTR) {
-      close(fd);
-      return cosmic_fail(L, failure);
+    if (failure == EAGAIN) {
+      failure = paused(deadline, &pause);
+      if (failure == 0) continue;
+    } else if (failure == EINPROGRESS) {
+      failure = settled(fd, deadline);
     }
+    break;
+  }
+  if (failure != 0) {
+    close(fd);
+    return cosmic_fail(L, failure);
   }
   lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(bound, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return cosmic_fail(L, errno);
+  char host[INET6_ADDRSTRLEN];
+  int port = 0;
+  const char *named = NULL;
+  if (address.ss_family == AF_INET) {
+    struct sockaddr_in *v4 = (struct sockaddr_in *)&address;
+    named = inet_ntop(AF_INET, &v4->sin_addr, host, sizeof host);
+    port = ntohs(v4->sin_port);
+  } else if (address.ss_family == AF_INET6) {
+    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&address;
+    named = inet_ntop(AF_INET6, &v6->sin6_addr, host, sizeof host);
+    port = ntohs(v6->sin6_port);
+  } else {
+    return cosmic_fail(L, EAFNOSUPPORT);
+  }
+  if (named == NULL) return cosmic_fail(L, errno);
+  lua_createtable(L, 0, 3);
+  lua_pushliteral(L, "tcp");
+  lua_setfield(L, -2, "kind");
+  lua_pushstring(L, host);
+  lua_setfield(L, -2, "host");
+  lua_pushinteger(L, port);
+  lua_setfield(L, -2, "port");
   return 1;
 }
 
@@ -316,15 +429,9 @@ COSMIC_SYSCALL(wait, 3) {
   int fd = cosmic_checkfd(L, 1);
   int writable = lua_toboolean(L, 2);
   int64_t deadline = deadline_of(L, 3);
-  for (;;) {
-    if (cosmic_signal_caught()) return cosmic_fail_effect(L, EINTR);
-    int left = slice(deadline);
-    struct pollfd watched = { fd, writable ? POLLOUT : POLLIN, 0 };
-    int ready = poll(&watched, 1, left);
-    if (ready > 0) return cosmic_ok(L);
-    if (ready < 0 && errno != EINTR) return cosmic_fail_effect(L, errno);
-    if (ready == 0 && left == 0) return cosmic_fail_effect(L, ETIMEDOUT);
-  }
+  int failure = ready(fd, writable ? POLLOUT : POLLIN, deadline);
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  return cosmic_ok(L);
 }
 
 /* The table is filled from the header's own entries, as core/syscalls.c

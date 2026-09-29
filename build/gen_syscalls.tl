@@ -423,7 +423,7 @@ end
 --- The public syscall table, `cosmic.sys`.
 local syscalls_target: Target = {
   header = "core/syscalls.h",
-  record_name = "syscalls",
+  record_name = "sys",
   summary = {
     "The syscall table: one C function per call, the same on Linux",
     "and on macOS.",
