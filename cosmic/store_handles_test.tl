@@ -1,7 +1,7 @@
 --- The cases of cosmic/store_test.tl that read the store beyond their
 --- module's closure, through `Store.databases()`: the handles it hands
---- out, and the binary's own database among them
---- (cosmic/store_tool_test.tl starts this program).
+--- out, the binary's own database among them, and the binary's alone
+--- inside `Store.alone` (cosmic/store_tool_test.tl starts this program).
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -70,4 +70,34 @@ local function test_a_store_database_handle_only_reads()
   local packed = assert(Compress.deflate("zlib", "unaffected"))
   assert(Compress.inflate("zlib", packed, 10) == "unaffected")
   assert(Store.bytecode("cosmic.compress"))
+end
+
+--- Inside `alone` only the binary's own database is searched, nothing
+--- can be attached or set aside again, and every database is back
+--- after it, whether the function returned or raised.
+local function test_alone_searches_only_the_binarys_own_database()
+  local before = #Store.databases()
+  assert(before >= 2, "a test's tree is attached ahead of the binary's")
+  local inside = 0
+  local attached, nested = true, true
+  Store.alone(function()
+    inside = #Store.databases()
+    attached = pcall(Store.attach, "/nonexistent/cosmic.db")
+    nested = pcall(Store.alone, function() end)
+  end)
+  assert(inside == 1, tostring(inside))
+  assert(not attached and not nested)
+  assert(#Store.databases() == before)
+  local ok, trouble = pcall(function(): string
+    Store.alone(function() error("boom", 0) end)
+    return ""
+  end)
+  assert(not ok and trouble == "boom", tostring(trouble))
+  assert(#Store.databases() == before)
+  -- More results than a C function has free slots are dropped, not kept.
+  local many = assert(load("local t = {} for i = 1, 100 do t[i] = i end " ..
+    "return table.unpack(t)"))
+  Store.alone(many)
+  assert(#Store.databases() == before)
+  assert(Store.meta("compiler") ~= nil)
 end

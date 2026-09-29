@@ -1235,7 +1235,7 @@ end
 declared_key.compiler_readers = {
   "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
   "build.store_meta_readers_test", "build.test", "build.tree_checks", "core.allocation_test",
-  "cosmic.store_tool_test", "doc.guides.portable-runtime",
+  "cosmic.store_handles_test", "doc.guides.portable-runtime",
 }
 
 --- Whether an import closure, the names of its modules, holds a module
