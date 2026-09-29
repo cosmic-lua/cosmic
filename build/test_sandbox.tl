@@ -23,7 +23,10 @@
 ---   its TMPDIR;
 --- - the host caches the module declares (`build.caches`), writable,
 ---   each at its own name, made first where missing, and the variables
----   that locate them;
+---   that locate them -- but for the cores a portable cosmic extracts,
+---   where the program's own core is: for the `bootstrap` cache, the
+---   worker has cores of its own in its scratch directory
+---   (`cache_writes`);
 --- - /proc and the devices every program takes for granted, the
 ---   program's core and the stamp that says the core was verified, and
 ---   the program itself only for a module that declares `tool`
@@ -33,8 +36,9 @@
 ---   one a variable names (`$NAME/path`) where the variable says, as
 ---   `test_inputs.resolve` put it, refused where that is the tree's,
 ---   the scratch directory's, or above either;
---- - no network but a loopback, unless the module declares `network`
----   beyond loopback hosts (`test_inputs.offline`);
+--- - no network but a loopback of its own, which answers the loopback
+---   addresses a module may declare (`cosmic.test`'s `network`), as the
+---   host's would;
 --- - the pinned environment and the variables it declares, `"*"` for
 ---   all of the runner's (`environment`).
 ---
@@ -120,6 +124,11 @@ function test_sandbox.mode(): string | nil, string
     "or leave it unset", test_sandbox.switch, value)
 end
 
+--- Where a sandboxed worker that declares the `bootstrap` cache has
+--- cores of its own, which COSMIC_PORTABLE_CACHE names to it: beneath
+--- its scratch directory, which a portable cosmic it starts makes.
+local own_cores <const> = test_sandbox.scratch .. "/cores"
+
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's (`build.test`'s `worker_environment`), the pinned
 --- variables, those `effective` declares -- all of them for `"*"`; and
@@ -134,6 +143,29 @@ function test_sandbox.environment(environment: {string:string},
     for name in pairs(effective.env) do out[name] = environment[name] end
   end
   out.TMPDIR = test_sandbox.scratch
+  -- The cores of its own a worker that declares the `bootstrap` cache
+  -- writes (`cache_writes`).
+  for _, name in ipairs(effective.caches or {}) do
+    if name == "bootstrap" then out.COSMIC_PORTABLE_CACHE = own_cores end
+  end
+  return out
+end
+
+--- The host caches a sandboxed worker of `effective` writes, with
+--- `environment` the runner's view of a worker's: each it declares
+--- (`effective.cache_paths`) but the cores a portable cosmic extracts
+--- (`caches.cores`), where this program's own core is. A core another
+--- cosmic extracted there after the worker was held would be one it
+--- could run however it was held, and one it could write over this
+--- program's; so it has cores of its own instead (`own_cores`), and is
+--- given the host's only to read, where its own core is.
+function test_sandbox.cache_writes(effective: test_inputs.Effective,
+                                   environment: {string:string}): {string}
+  local cores = caches.cores(environment)
+  local out: {string} = {}
+  for _, path in ipairs(effective.cache_paths or {}) do
+    if path ~= cores then out[#out + 1] = path end
+  end
   return out
 end
 
@@ -251,17 +283,33 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   at[scratch] = test_sandbox.scratch
   -- Each host cache the module declares, writable at its own name, made
   -- first where it is not there yet, so a fresh host has one to bind.
-  local made, trouble = caches.make(effective.cache_paths or {})
-  for _, path in ipairs(effective.cache_paths or {}) do writes[#writes + 1] = path end
+  local cache_writes = test_sandbox.cache_writes(effective, environment)
+  local made, trouble = caches.make(cache_writes)
+  -- Its own cores, made here, before the worker is held: a ruleset that
+  -- keeps it from running this program walks the directories above the
+  -- program as they are then, and where the program is beneath /tmp's
+  -- name on the host, a directory made there after would run nothing.
+  for _, name in ipairs(effective.caches or {}) do
+    if name == "bootstrap" and made then
+      local cores = scratch .. own_cores:sub(#test_sandbox.scratch + 1)
+      local there, _ = sys.stat(cores)
+      if there == nil then
+        local ok, why = sys.mkdir(cores, 0x1c0) -- 0700, as the launcher makes a cache
+        if not ok then made, trouble = false, cores .. ": " .. why end
+      end
+    end
+  end
+  for _, path in ipairs(cache_writes) do writes[#writes + 1] = path end
   -- A path given to read at its own name that a cache given to write
-  -- holds already -- this program's core and the stamp beside it, in
-  -- the cores directory the `bootstrap` cache is -- is not given again
-  -- on top of it. Bound there, its mount point would be the host's own
-  -- file, seen through the cache's bind, and a mount onto a file the
-  -- host renames another over as it is made fails ENOENT (the kernel's
-  -- lock_mount finds its dentry unlinked): the stamp each start writes
-  -- until one holds, early in a run on a new core, failed the worker's
-  -- start so. The key still holds it (`held`), and the cache gives it.
+  -- holds already is not given again on top of it. Bound there, its
+  -- mount point would be the host's own file, seen through the cache's
+  -- bind, and a mount onto a file the host renames another over as it
+  -- is made fails ENOENT (the kernel's lock_mount finds its dentry
+  -- unlinked): this program's core and the stamp beside it, when the
+  -- cores directory was a cache given to write, failed the worker's
+  -- start so early in a run on a new core, as each start wrote the
+  -- stamp until one held. The key still holds it (`held`), and the
+  -- cache gives it.
   -- TODO: bind each path given inside another at a mount point of the
   -- sandbox's own (core/syscalls.c's build_root: the file bound first at
   -- a name in its tmpfs, then moved into place), so no mount point is the
@@ -274,7 +322,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     local held_by_cache = false
     if at[path] == nil then
       local real = confine.resolution(path)
-      for _, cache in ipairs(effective.cache_paths or {}) do
+      for _, cache in ipairs(cache_writes) do
         local cache_real = confine.resolution(cache)
         if Fs.within(path, cache) or (real ~= "" and cache_real ~= "" and
             Fs.within(real, cache_real)) then
@@ -318,12 +366,22 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   end
   table.sort(made_dirs)
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
-  -- Offline, too, where every host declared is a loopback one, which
-  -- the worker's own loopback answers as the host's would: the answer
-  -- `declared_key.keyable` takes, which must be this one.
-  local offline = test_inputs.offline(effective)
+  -- Offline, always: a module declares only loopback addresses, which
+  -- the worker's own loopback answers as the host's would. Keying it is
+  -- sound so:
+  --
+  -- - a new network namespace reaches only the worker's own processes,
+  --   and an abstract unix socket is its namespace's alone
+  --   (core/process.h's `Sandbox`), so what a test reaches there is
+  --   what it started; and
+  -- - its `lo` carries 127/8, so a connection to a closed port there
+  --   (127.0.0.1:1, 127.0.0.2:1) is refused as on the host's, and a bind
+  --   finds no host listener or socket in TIME_WAIT in its way.
+  --
+  -- A test that needed a service of the host's on its loopback fails,
+  -- rather than standing on a verdict that service gave.
   return {
-    sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = offline },
+    sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
     env = test_sandbox.environment(environment, effective),
     over = over,
     trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
@@ -334,12 +392,12 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
 end
 
 --- Whether a worker given `writes` to write -- the host caches its
---- module declares -- can be kept from running `programs`, this very
---- program (`confine.forbid_running`): not where one of them is
---- beneath a path it may write, by its name or where it resolves -- the
---- cores directory a portable cosmic extracts to, which the `bootstrap`
---- cache holds -- since a core another cosmic extracts there after the
---- worker holds itself could not be run.
+--- module declares, as `cache_writes` gives them -- can be kept from
+--- running `programs`, this very program (`confine.forbid_running`):
+--- not where one of them is beneath a path it may write, by its name or
+--- where it resolves -- where COSMIC_PORTABLE_CACHE names a directory
+--- beneath another cache, say -- since a core another cosmic extracts
+--- there after the worker holds itself could not be run.
 function test_sandbox.forbiddable(writes: {string}, programs: {string}): boolean
   for _, path in ipairs(writes) do
     local writable = confine.resolution(path)
@@ -430,8 +488,11 @@ end
 --- is the kernel refusing a user namespace -- none may be made (ENOSPC:
 --- user.max_user_namespaces is 0), or none for this user (EPERM or
 --- EACCES: a container's seccomp profile, AppArmor's
---- kernel.apparmor_restrict_unprivileged_userns) -- and `trouble` as it
---- is otherwise.
+--- kernel.apparmor_restrict_unprivileged_userns), or, for EPERM, this
+--- process held by a Landlock ruleset, whose domain refuses every mount:
+--- a run started in a test worker's process whose environment dropped
+--- `confine.held_variable`, which would have named it -- and `trouble`
+--- as it is otherwise.
 function test_sandbox.refusal(trouble: string): string
   local why: string = nil
   if trouble:find("No space left on device", 1, true) then
@@ -440,6 +501,10 @@ function test_sandbox.refusal(trouble: string): string
       trouble:find("Permission denied", 1, true) then
     why = "this host refuses this user a user namespace (a container's seccomp " ..
       "profile, or kernel.apparmor_restrict_unprivileged_userns)"
+    if trouble:find("Operation not permitted", 1, true) then
+      why = why .. ", or this process is held by a Landlock ruleset: declare " ..
+        "`nests = true` in the starting test's Test.needs"
+    end
   end
   if why == nil then return trouble end
   return why .. " (" .. trouble .. ")"

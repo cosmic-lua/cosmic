@@ -1,7 +1,8 @@
 --- `cosmic.store`'s cases that read nothing beyond this module's
 --- closure: an attach that fails, and the tz database the binary
---- carries. cosmic/store_tool_test.tl holds those that read the store's
---- handles or start this program.
+--- carries. cosmic/store_handles_test.tl holds those that read the
+--- store's handles, and cosmic/store_tool_test.tl the one that starts
+--- this program.
 
 local Store = require("cosmic.store")
 

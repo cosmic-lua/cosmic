@@ -36,7 +36,7 @@ end
 --- in-process (`build.invoke`), which is dispatch alone, `test
 --- --worker` is `test` refusing an option it does not know.
 local function test_dispatch_starts_no_worker(tmp: string)
-  for _, mode in ipairs({ "--worker", "--worker-no-tool" }) do
+  for _, mode in ipairs({ "--worker", "--worker-no-tool", "--worker-held" }) do
     local result = invoke.run({ "test", mode, tmp, "a_test", "test_a", tmp .. "/tmp",
       tmp .. "/children" }, { cwd = tmp })
     local err = result.stderr or ""

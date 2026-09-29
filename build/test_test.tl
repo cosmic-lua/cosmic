@@ -624,96 +624,56 @@ end
 
 --- A stat's times and inode are no part of what the tree holds, so the
 --- shared key leaves them out, and under o/ a checkout's own key does
---- too. A test that declares it reads them
---- (`observations.reads_stat_times`) is keyed by them in both: a file
---- whose modification time alone moved runs it again, here and in any
---- sibling, where one that did not declare still stands.
-local function test_a_declared_test_keys_a_stat_s_times_whole(tmp: string)
+--- too; the access time, which a read moves, no key holds. So no test
+--- depends on the times of a file it did not make (build/test.tl's
+--- `held_stat`): a file whose modification time alone moved leaves the
+--- test standing in any sibling.
+local function test_a_shared_key_leaves_a_stat_s_times_out(tmp: string)
   local root = assert(sys.realpath(tmp))
   assert(Fs.mkdirs(root .. "/o"))
   for _, relative in ipairs({ "f", "o/f" }) do
     local path = root .. "/" .. relative
     assert(Fs.write(path, "same"))
     local stat_read: observations.Observation = { kind = "s", path = path, answer = "" }
-    local declaration: observations.Observation = { kind = "z", path = "", answer = "" }
-    local function keys(): test.VerdictKey, test.VerdictKey
-      local undeclared = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime",
-        { stat_read }, {})
-      local declared = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime",
-        { declaration, stat_read }, {})
-      return undeclared, declared
+    local function key(): test.VerdictKey
+      return test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", { stat_read }, {})
     end
-    local undeclared, declared = keys()
+    local before = key()
     local st = assert(sys.stat(path))
     assert(sys.utimensat(path, nil, nil, st.mtime + 1, st.mtime_ns))
-    local undeclared_after, declared_after = keys()
-    assert(declared_after.key ~= declared.key, relative .. ": a declared test's own key " ..
-      "kept a moved modification time out")
-    assert(declared_after.shared ~= declared.shared, relative .. ": a declared test's " ..
-      "shared key kept a moved modification time out")
-    assert(undeclared_after.shared == undeclared.shared, relative .. ": an undeclared " ..
-      "test's shared key holds a modification time")
+    local after = key()
+    assert(after.shared == before.shared, relative .. ": a shared key holds a modification time")
     if relative == "o/f" then
-      assert(undeclared_after.key == undeclared.key, "an undeclared test's own key holds " ..
-        "the time of a file under o/")
+      assert(after.key == before.key, "a checkout's own key holds the time of a file under o/")
     end
-    -- The access time, which a read moves, no key holds, a declared
-    -- one's included: a key over it would fall to the test's own reads.
-    -- Setting it moves the change time too, so it is set to before the
-    -- modification time and then moved by a read alone, as relatime
-    -- does and strictatime, where the filesystem keeps access times.
+    -- Setting the access time moves the change time too, so it is set to
+    -- before the modification time and then moved by a read alone, as
+    -- relatime does and strictatime, where the filesystem keeps them.
     assert(sys.utimensat(path, st.atime - 10, 0, nil, nil))
-    local undeclared_set, declared_set = keys()
+    local set = key()
     assert(Fs.read(path))
-    local undeclared_read, declared_read = keys()
-    assert(declared_read.key == declared_set.key, relative .. ": a declared test's key " ..
-      "holds the access time")
-    assert(undeclared_read.key == undeclared_set.key, relative .. ": an undeclared " ..
-      "test's key holds the access time")
+    assert(key().key == set.key, relative .. ": a key holds the access time")
   end
 end
 
---- A declared test that opened a file of the tree may have read its
---- times through the descriptor (an `fstat`), which is not logged: the
---- file's stat is keyed whole beside its bytes.
-local function test_a_declared_test_keys_the_stat_of_each_file_it_opened(tmp: string)
-  local root = assert(sys.realpath(tmp))
-  local path = root .. "/f"
-  assert(Fs.write(path, "same"))
-  local reads: {observations.Observation} = {
-    { kind = "z", path = "", answer = "" }, { kind = "o", path = path, answer = "" } }
-  local before = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", reads, {})
-  local st = assert(sys.stat(path))
-  assert(sys.utimensat(path, nil, nil, st.mtime + 1, st.mtime_ns))
-  local after = test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", reads, {})
-  assert(after.shared ~= before.shared, "an opened file's times entered no declared key")
-end
-
---- A declared test's confined process may read the times of what it
---- was given under the tree: each such path is keyed by the stamps of
---- everything beneath it too, not only by its contents, so a file
---- beneath it whose modification time alone moved runs the test again.
-local function test_a_declared_test_keys_the_times_a_confined_process_was_given(tmp: string)
+--- A path a confined process was given under the tree is keyed by what
+--- it holds, not by the times of what is beneath it: a file whose
+--- modification time alone moved leaves the shared key as it was.
+local function test_a_path_a_confined_process_was_given_is_keyed_by_contents(tmp: string)
   local root = assert(sys.realpath(tmp))
   assert(Fs.mkdirs(root .. "/given"))
   local file = root .. "/given/f"
   assert(Fs.write(file, "same"))
   local given: observations.Observation = { kind = "u", path = root .. "/given", answer = "" }
-  local declaration: observations.Observation = { kind = "z", path = "", answer = "" }
-  local function keys(): test.VerdictKey, test.VerdictKey
-    return test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", { given }, {}),
-      test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", { declaration, given },
-        {})
+  local function key(): test.VerdictKey
+    return test.verdict_key(root, {}, "mod.tl name", "modkey", "runtime", { given }, {})
   end
-  local undeclared, declared = keys()
+  local before = key()
   local st = assert(sys.stat(file))
   assert(sys.utimensat(file, nil, nil, st.mtime + 1, st.mtime_ns))
-  local undeclared_after, declared_after = keys()
-  assert(declared_after.key ~= declared.key, "a declared key kept a given path's times out")
-  assert(declared_after.shared ~= declared.shared,
-    "a declared shared key kept a given path's times out")
-  assert(undeclared_after.shared == undeclared.shared,
-    "an undeclared shared key holds a given path's times")
+  assert(key().shared == before.shared, "a shared key holds a given path's times")
+  assert(Fs.write(file, "other"))
+  assert(key().shared ~= before.shared, "a shared key missed what a given path holds")
 end
 
 --- A test that digests a path of the tree (`sys.tree_digest`) is keyed

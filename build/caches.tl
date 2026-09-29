@@ -24,6 +24,7 @@ local zig_caches = require("build.zig_caches")
 --- analyzer checks a declaration against, and so are the variables that
 --- locate each (`cache_names.variables`).
 local record caches
+  cores: function(environment: {string:string}): string | nil
 end
 
 --- Where the cache `name` is for a tree at `root`, with `environment`
@@ -55,15 +56,22 @@ local function paths(name: string, root: string, environment: {string:string}): 
   elseif name == "bootstrap" then
     local bootstrap, _ = Fs.cache_path("bootstrap", environment)
     add(bootstrap)
-    local portable = environment.COSMIC_PORTABLE_CACHE
-    if portable ~= nil then
-      add(portable)
-    else
-      local cores, _ = Fs.cache_path("cores", environment)
-      add(cores)
-    end
+    add(caches.cores(environment))
   end
   return out
+end
+
+--- Where a portable cosmic's launcher extracts its cores, with
+--- `environment` the variables that locate it: COSMIC_PORTABLE_CACHE,
+--- or the `cores` cache (`Fs.cache_path`). Nil where neither names a
+--- directory. This program's own core is there, where it is a portable
+--- artifact, so a sandboxed worker that declares the `bootstrap` cache
+--- is given cores of its own to write instead (`build.test_sandbox`).
+function caches.cores(environment: {string:string}): string | nil
+  local portable = environment.COSMIC_PORTABLE_CACHE
+  if portable ~= nil then return portable end
+  local cores, _ = Fs.cache_path("cores", environment)
+  return cores
 end
 
 --- Every directory the caches `names` are, as `paths` finds each.

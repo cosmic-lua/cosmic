@@ -91,7 +91,7 @@
    what it declares -- its closure, its `Test.needs`, their contents and
    values, the core -- and by the host (its kernel, processor, user and
    capabilities; its packages and system only for a module that declares
-   `system`, or a `host` directory), before it runs
+   `system`), before it runs
    (`build/declared_key.tl`): it stands while none of that changes, and
    nothing is assumed. The test harness -- what every worker loads, the
    sandbox's plan, the code that computes a key -- is keyed by
@@ -112,14 +112,18 @@
    merge-queue run whose change moves that file runs every test
    (`--all`). `COSMIC_TEST_HARNESS_EPOCH` stands in for a bump in the
    tests of the runner alone (`build/sandboxed_verdicts_test.tl`);
-   never set it to run a suite. A test whose module declares the network has no
-   key: it runs every time, and the summary counts it so -- unless it
-   declares only loopback hosts (`localhost`, `::1`, `127.a.b.c`), whose
-   worker runs offline, on a loopback of its own, and is keyed. A
+   never set it to run a suite. A test reaches no network but loopback,
+   and loopback is 127/8: `Test.needs` takes `network` as a list of
+   addresses `127.a.b.c`, whose worker, like every sandboxed one, runs
+   offline on a loopback of its own and is keyed; `network = true`, any
+   other host, `::1` and `localhost` are refused, for this tree and
+   every project, naming the rule. A test that needs a service starts
+   its own on 127.0.0.1. A
    worker, and every process it starts, is given at o/cosmic.db the
    store of its module's import closure alone, keyed by its address.
-   Sandboxed or not, a worker whose module declares neither `store` nor
-   `tool` holds every other lookup in the store to that closure too
+   Sandboxed or not, a worker whose module does not declare `store`
+   (`tool` does not lift it) holds every other lookup in the store to
+   that closure too
    (`build/test_worker.tl`'s `hold_store`): `Store.bytecode` or
    `Store.source` of a module of the tree outside it, or a searcher
    called by hand, answers none, `Store.meta` of a row its key does not
@@ -142,12 +146,20 @@
    host's identity, and the program, its core and its database, keyed
    through the runtime's identity but for the database's modules, which
    the hold above keeps a test from reading through the store unless it
-   declares `store` or `tool`, nor through the descriptor a portable
+   declares `store`, nor through the descriptor a portable
    start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this
    program declares `tool = true`: sandboxed, one that does not is
-   refused it, and `--audit` names it.
+   refused it, and `--audit` names it. `tool` gives the program and
+   nothing else. A test that confines a process in a root of its own --
+   a sandbox that unveils, build.confine's `confine`, or a `cosmic test`
+   it starts whose workers are sandboxed -- declares `nests = true`:
+   sandboxed, every other worker is held by a Landlock ruleset, under
+   which the kernel refuses the mounts a root is made of, so such a
+   start is refused outright, naming `nests`, and fails the test rather
+   than falling back to running unconfined; a `cosmic test` started
+   there refuses to sandbox its workers, and `--audit` names it.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a
    test is keyed instead by what it was seen to read, and shares no
    verdict: environment variables it reads are part of its key, and one
@@ -156,9 +168,8 @@
    can hold: it is assumed to pass as it last did until it, or what it
    loads, changes -- the summary counts it "assumed" -- and runs when
    named, or on `--all`. A key holds of a stat of the tree only its
-   kind, size and mode across checkouts: a test whose verdict turns on
-   a file's times, inode, device or link count calls
-   `observations.reads_stat_times()`, which keys them whole.
+   kind, size and mode across checkouts (the rule beside `Test.needs`
+   below).
    `COSMIC_TEST_KEY=declared` keys an unsandboxed run as a sandboxed
    one instead, by what each test declares, and shares its verdicts
    apart from sandboxed ones: its worker gets only the environment it
@@ -189,7 +200,11 @@
    `o/bin/cosmic docs cosmic.test`); `o/bin/cosmic test --audit` runs
    every test and names what each read undeclared, with the `needs`
    call that would hold it. Keep it clean, narrowing a test before declaring
-   a large set. What it declares, it declares for the processes it
+   a large set. No key holds a file's times, inode, device, link count or
+   owner, which differ in every checkout: a test must not depend on them
+   for a file it did not make; one that needs them makes its own files in
+   its temporary directory and sets them (`utimensat`, a fresh file for a
+   new inode). What it declares, it declares for the processes it
    starts too, which inherit its worker's sandbox and environment; build
    a process's environment from build.this_program's `environment()` only where
    the test means to choose it. The closure is what the build
@@ -205,7 +220,11 @@
    a shell, `sleep`, a compiler, o/bin/cosmic's `#!/bin/sh` launcher --
    must; a test that starts cosmic's core past the launcher
    (build.this_program's `program`) needs none, and one that reads a file or two
-   of the system names them in `host`. `--audit` names a host program a
+   of the system names them in `host`. A `host` path names a file, or
+   /proc: a directory is refused -- by the build where it is written as
+   one (a "/" after it, a variable's whole path), and at the test's
+   start where the host has one there -- so declare the files a test
+   reads, which its key holds by their contents. `--audit` names a host program a
    test ran undeclared. Where none can be (macOS, a host refusing user
    namespaces), or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed
    and the run shares no verdict, unless `COSMIC_TEST_KEY=declared`;

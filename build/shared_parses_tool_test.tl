@@ -116,6 +116,8 @@ local function environment(tmp: string): {string:string}, string
   env.COSMIC_BUILD_CACHE = path
   env.COSMIC_TEST_ALL = nil
   env.COSMIC_SANDBOX = nil
+  -- It runs no test, so it sandboxes none: the same on every host.
+  env.COSMIC_TEST_SANDBOX = "0"
   return env, path
 end
 

@@ -11,9 +11,10 @@ local this_program = require("build.this_program")
 local work = require("build.work")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, and what holds a run to
---- sandboxing (`confine.held_to_sandbox`).
-Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true }
+--- The program itself, which its tests start, roots of their own for the
+--- sandboxed workers of a run they start (`nests`), and what holds a run
+--- to sandboxing (`confine.held_to_sandbox`).
+Test.needs{ env = { "COSMIC_CI_REQUIRE_SANDBOX" }, tool = true, nests = true }
 
 --- A project whose module directory and one test are links into a
 --- tree beside it, and a `loop -> .`: `tmp/project`.

@@ -2,7 +2,7 @@
 --- read it -- a confined child's end with the program that started it,
 --- an offline child's loopback, and the executable's own path -- and
 --- those that confine a child in a root of its own (unveiling), which
---- only a worker that declares `tool` can (see `Test.needs` below).
+--- only a worker that declares `nests` can (see `Test.needs` below).
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -17,16 +17,15 @@ local stand_in = require("build.stand_in")
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What these cases are tested on: /proc, the whole environment, which
 --- this program started again inherits, processes they hold, and the
---- program itself, which they start and read. A worker that does not
---- declare `tool` is held to running anything but it through a Landlock
---- domain (build.confine's `forbid_running`), under which the kernel
---- refuses the mounts that unveil a child's root: so the unveiling
---- cases declare it too.
+--- program itself, which they start and read; and `nests`, since the
+--- unveiling cases give a child a root of its own, which a worker held
+--- by a Landlock ruleset cannot (build.confine's `forbid_running`).
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   processes = true,
   tool = true,
+  nests = true,
 }
 
 local type Searcher = function(string): any, any
