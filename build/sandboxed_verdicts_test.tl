@@ -25,12 +25,13 @@ local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
 local Test = require("cosmic.test")
 
---- What a sandboxed run of `cosmic test` needs of the host, and the
---- program it runs.
+--- What a sandboxed run of `cosmic test` needs of the host, the
+--- program it runs, and roots of their own for its workers (`nests`).
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 -- What these tests start is this very program.
@@ -286,7 +287,10 @@ local function test_a_sandboxed_checkout_told_to_share_nothing_runs_everything(t
 end
 
 --- A checkout whose tests run this program: one that declares `tool`,
---- and one that does not, which must find it refused.
+--- and two that do not, which must find it refused: one of them
+--- declares the `bootstrap` cache, where a portable cosmic extracts its
+--- cores, and is given cores of its own rather than the ones this
+--- program's core is among.
 local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/o/bin"))
@@ -322,7 +326,7 @@ local function test_runs_the_tool()
   assert(result.ok)
 end
 ]]))
-  assert(Fs.write(root .. "/suite/undeclared_test.tl", started .. [[
+  local refused = [[
 
 local function test_is_refused_the_tool()
   -- The program is not given it at all, and its core is refused it,
@@ -341,25 +345,35 @@ local function test_is_refused_the_tool()
   assert(exe == nil, "the program ran through /proc/self/exe")
   local _ = exe_trouble
 end
-]]))
+]]
+  assert(Fs.write(root .. "/suite/undeclared_test.tl", started .. refused))
+  assert(Fs.write(root .. "/suite/bootstrap_test.tl", started .. [[
+local Test = require("cosmic.test")
+
+Test.needs { caches = { "bootstrap" } }
+]] .. refused))
 end
 
 --- Sandboxed, a test that runs this program undeclared is refused it,
---- and one that declares `tool` runs again when the tool changes -- the
---- tool's own modules, which it runs, are none of its closure's.
+--- whether or not it declares the `bootstrap` cache, and one that
+--- declares `tool` runs again when the tool changes -- the tool's own
+--- modules, which it runs, are none of its closure's -- where the others
+--- stand, keyed by nothing of it.
 local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   local root = tmp .. "/root"
   tool_checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
+  -- The `bootstrap` cache, made where the runner can make it.
+  env.XDG_CACHE_HOME = tmp .. "/cache"
   local first = run(root, tmp .. "/first.out", env, nil, true)
   if unsandboxed(first) then return end
-  assert(first:find("test: PASS", 1, true) and first:find("2 ran, 0 stood", 1, true), first)
+  assert(first:find("test: PASS", 1, true) and first:find("3 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 2 stood", 1, true), again)
+  assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
   assert(Fs.write(root .. "/o/bin/stand-in", "two\n"))
   local rebuilt = run(root, tmp .. "/rebuilt.out", env)
-  assert(rebuilt:find("1 ran, 1 stood", 1, true), rebuilt)
+  assert(rebuilt:find("1 ran, 2 stood", 1, true), rebuilt)
 end
 
 --- This program, rebuilt at `path` with `statements` run on the

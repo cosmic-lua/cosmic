@@ -57,6 +57,19 @@ local record worker
     modules: {string}
   end
 
+  --- How a sandboxed worker is held by a Landlock ruleset
+  --- (`confine.forbid_running`) before anything of its test loads:
+  --- "forbid" to running anything but this very program, for one whose
+  --- module does not declare `tool`; "mounts", running anything, for one
+  --- that declares `tool` -- which holds it, as any ruleset does, to
+  --- confining nothing in a root of its own; and "none" for one whose
+  --- module declares `nests`, or that runs unsandboxed.
+  enum Hold
+    "forbid"
+    "mounts"
+    "none"
+  end
+
   --- What starts one test's worker (`invocation`).
   record Invocation
     --- How this program is started again (`program`).
@@ -76,9 +89,9 @@ local record worker
     scratch: string
     needs: string
     held: string
-    --- Whether it may not run this program (`--worker-no-tool`), and
-    --- whether the store's hold is off (`--open`).
-    no_tool: boolean
+    --- How its Landlock ruleset holds it (`hold_flag`), and whether the
+    --- store's hold is off (`--open`).
+    hold: worker.Hold
     open: boolean
     --- The names of the module's import closure, of every module of
     --- the tree, and of what only a declaration of the tree answers
@@ -473,9 +486,10 @@ local function meta_keys(closure: {string:boolean}): {string:boolean}
 end
 
 --- Puts up the store's hold (core/store.c's `store_hold`) for the tests
---- of `module_path`, whose module declares neither `store`, whose key
---- holds the whole projection, nor `tool`, whose key holds the program
---- and the modules it carries; answers what takes it down. `closure`
+--- of `module_path`, whose module does not declare `store`, whose key
+--- holds the whole projection -- `tool` lifts no part of it: the
+--- program's modules, which its key holds, are not the rest of the
+--- tree's -- and answers what takes it down. `closure`
 --- is the set of the names its import closure holds, `tree` of the
 --- tree's modules, and `declared` of the names only a declaration of
 --- the tree answers for (`cosmic.sys`, the core's raw modules).
@@ -545,6 +559,10 @@ function worker.program(): Proc.Relaunch | nil, string
   return { argv = { executable }, env = {}, fds = {} }, ""
 end
 
+--- What stands for `--worker` on a worker's command line for each
+--- `Hold` but "none".
+local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = "--worker-held" }
+
 --- The command line and the start options of the worker `given`
 --- describes: `start`'s program (`program`), then `test --worker
 --- <root> <module> <test> <scratch>/tmp <scratch>/children <needs>
@@ -561,7 +579,7 @@ end
 function worker.invocation(given: worker.Invocation): worker.Command
   local argv: {string} = {}
   for i, value in ipairs(given.start.argv) do argv[i] = value end
-  for _, value in ipairs({ "test", given.no_tool and "--worker-no-tool" or "--worker",
+  for _, value in ipairs({ "test", hold_flag[given.hold] or "--worker",
                            given.root, given.module_path, given.name, given.scratch .. "/tmp",
                            given.scratch .. "/children", given.needs, given.held }) do
     argv[#argv + 1] = value
@@ -683,12 +701,15 @@ end
 --- closure into a refusal, never into a load; and `declared` the names
 --- only a declaration of the tree answers for, which the store's hold
 --- holds too (`hold_store`), unless `--open` comes ahead of the closure:
---- its module declares `store` or `tool`. `--worker-no-tool` in
+--- its module declares `store`. `--worker-no-tool` in
 --- place of `--worker` holds the worker, before anything of the test
 --- loads, to running anything but this very program
 --- (`confine.forbid_running`): a sandboxed worker's whose module
 --- does not declare `tool`, so what the program would run -- the tool's
 --- own modules, which no key of the test holds -- is none of its test's.
+--- `--worker-held` holds it by a ruleset that forbids running nothing:
+--- one whose module declares `tool` but not `nests`, which may confine
+--- no process in a root of its own (`Hold`).
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
@@ -699,11 +720,12 @@ function worker.run(argv: {integer:string}): integer
     log:complain("test --worker needs a root, a module, a test and two directories")
     return 2
   end
-  if argv[2] == "--worker-no-tool" then
-    local forbidden, forbid_trouble = confine.forbid_running(confine.itself())
+  if argv[2] == "--worker-no-tool" or argv[2] == "--worker-held" then
+    local no_tool = argv[2] == "--worker-no-tool"
+    local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {})
     if not forbidden then
-      log:complain("test --worker-no-tool: this program cannot be kept from running itself: " ..
-        forbid_trouble)
+      log:complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " ..
+        "ruleset: " .. forbid_trouble)
       return 2
     end
   end

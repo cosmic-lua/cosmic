@@ -56,6 +56,9 @@ local record test_inputs
     network: {string:boolean}
     processes: boolean
     tool: boolean
+    --- Whether its worker is left unheld by Landlock, so a process it
+    --- starts may have a root of its own (`cosmic.test`'s `nests`).
+    nests: boolean
     store: boolean
     --- Whether its worker is given the system's own paths
     --- (`confine.worker_unveil`), and its key the host's packages
@@ -82,8 +85,8 @@ local record test_inputs
 
   --- One input a test read that its effective inputs do not hold,
   --- named by the field of `cosmic.test`'s `Needs` that would declare it:
-  --- "reads", "host", "env", "network", "processes", "tool", "store"
-  --- or "system".
+  --- "reads", "host", "env", "network", "processes", "tool", "nests",
+  --- "store" or "system".
   record Finding
     field: string
     value: string
@@ -182,7 +185,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string}): test_inputs.Effective
   local out: test_inputs.Effective = {
     files = {}, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, system = false, caches = {},
+    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
     cache_paths = {}, variables = {}, named = {}, spelled = {}, located = {}, unresolved = "",
   }
   local files, fuzzes = closure(m, by_path, declarations)
@@ -214,6 +217,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     table.sort(out.variables)
     for _, name in ipairs(declared.network) do out.network[name] = true end
     out.processes, out.tool, out.store = declared.processes, declared.tool, declared.store
+    out.nests = declared.nests == true
     out.system = declared.system == true
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do
@@ -548,7 +552,7 @@ end
 --- The fields of `cosmic.test`'s `Needs`, in the order a suggestion
 --- writes them.
 local field_order: {string} = {
-  "reads", "host", "env", "network", "processes", "tool", "store", "system",
+  "reads", "host", "env", "network", "processes", "tool", "nests", "store", "system",
 }
 
 --- The audit of one test module, as lines to print: what its tests read
@@ -578,7 +582,7 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
   }
   local declared: analyzer.Declared = m.inputs or {
     line = 0, reads = {}, host = {}, env = {}, network = {},
-    processes = false, tool = false, store = false, system = false, caches = {},
+    processes = false, tool = false, nests = false, store = false, system = false, caches = {},
   }
   -- Each value by the tests that read it, and those tests by the set of
   -- them, so tests that read alike share a line.
@@ -662,9 +666,10 @@ function test_inputs.report(m: Module, found: {string:{test_inputs.Finding}}): {
     list_field("network", declared.network, false)
     wanted.network = was
   end
-  for _, flag in ipairs({ "processes", "tool", "store", "system" }) do
+  for _, flag in ipairs({ "processes", "tool", "nests", "store", "system" }) do
     local on = flag == "processes" and declared.processes or flag == "tool" and declared.tool or
-      flag == "store" and declared.store or flag == "system" and declared.system
+      flag == "nests" and declared.nests or flag == "store" and declared.store or
+      flag == "system" and declared.system
     if on or wanted[flag] ~= nil then parts[#parts + 1] = flag .. " = true" end
   end
   if #(declared.caches or {}) > 0 then
@@ -696,6 +701,7 @@ function test_inputs.canonical(maybe: analyzer.Declared | nil): string
   list("network", declared.network)
   if declared.processes then lines[#lines + 1] = "processes true" end
   if declared.tool then lines[#lines + 1] = "tool true" end
+  if declared.nests then lines[#lines + 1] = "nests true" end
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   list("caches", declared.caches or {})
@@ -715,7 +721,7 @@ function test_inputs.as_declared(needs: inputs.Needs | nil): analyzer.Declared |
   end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = network, processes = needs.processes == true,
-    tool = needs.tool == true, store = needs.store == true, system = needs.system == true,
+    tool = needs.tool == true, nests = needs.nests == true, store = needs.store == true, system = needs.system == true,
     caches = needs.caches or {} }
 end
 

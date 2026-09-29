@@ -513,11 +513,11 @@ end
 ---   skip writing the same one again, never from a binary.
 ---
 --- And every sandboxed worker runs this same binary, whether its test
---- declares `tool` or not; one that declares neither `tool` nor `store`
---- reads through `Store.meta` only the rows its key holds, and
---- `boot_hash` (`build.test_worker`'s `held_meta`), while one that
---- declares either has these same rows in reach, which its key holds
---- by the program's image and the rows it carries, but for these.
+--- declares `tool` or not; one that does not declare `store` reads
+--- through `Store.meta` only the rows its key holds, and `boot_hash`
+--- (`build.test_worker`'s `held_meta`), while one that declares it has
+--- these same rows in reach, which its key holds by the projection's
+--- contents, but for these.
 -- Remembered under "program-v2", as `launcher_identity` under
 -- "launcher-v2", since a core carrying DWARF came to be keyed by its
 -- image: what either remembered by the earlier formula is not read.

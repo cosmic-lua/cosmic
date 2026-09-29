@@ -4,11 +4,13 @@ local Test = require("cosmic.test")
 --- What the probe reads of the host, and the shell it starts under each
 --- sandbox, which inherits the environment: it asks what the host holds,
 --- and a host confines a shell with the system's paths by design -- what
---- a confined test that starts one needs -- so this keeps `system`.
+--- a confined test that starts one needs -- so this keeps `system`; and
+--- `nests`, since the parts it tries unveil a root of the shell's own.
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   processes = true,
+  nests = true,
   system = true,
 }
 

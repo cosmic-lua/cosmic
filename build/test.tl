@@ -1159,9 +1159,13 @@ function test.audited(root: string, scratch: string, effective: test_inputs.Effe
       -- held by its sandbox, and an unsandboxed one's run never stands
       -- (`cosmic.test`'s `processes`) -- but for what it runs, above.
     elseif kind == "x" then
-      -- A request's URL, which names its scheme; any other is what no
-      -- observation could account for, which a process is handed.
-      if path:match("^%s*%a[%w+.-]*:") ~= nil then
+      -- A start refused a root of its own, which a worker a Landlock
+      -- ruleset holds cannot make (`confine.nests_note`); a request's
+      -- URL, which names its scheme; any other is what no observation
+      -- could account for, which a process is handed.
+      if path:sub(1, #confine.nests_note) == confine.nests_note then
+        if not effective.nests then add("nests", path:sub(#confine.nests_note + 1)) end
+      elseif path:match("^%s*%a[%w+.-]*:") ~= nil then
         if not test_inputs.covers_network(effective, path) then add("network", path) end
       elseif not effective.processes and not sandboxed then
         add("processes", "unobservable: " .. path)
@@ -2089,19 +2093,18 @@ end
 --- Whether a sandboxed worker of `m`'s tests can be kept from running
 --- this program where its module does not declare `tool`
 --- (`confine.forbid_running`): not where it may write a directory
---- the program is in -- the cores a portable cosmic extracts, which the
---- `bootstrap` cache names (`build.caches`) -- since a core another
+--- the program is in (`test_sandbox.forbiddable`), since a core another
 --- cosmic extracts there after the worker holds itself could not be
---- run. Such a worker is keyed as if it declared `tool` instead.
--- TODO: hold such a worker too, once the core it runs is kept apart
--- from the cores a test's own cosmic extracts (a directory of the
--- worker's own for it, bound by the sandbox): today its verdict holds
--- o/bin in its key, but nothing keeps it from running a stale program.
+--- run. The cores a portable cosmic extracts, where the program's own
+--- core is, are none of them: a worker that declares the `bootstrap`
+--- cache has cores of its own (`test_sandbox.cache_writes`). Such a
+--- worker is keyed as if it declared `tool` instead.
 local function can_forbid(rec: Recording, m: importer.Module): boolean
   local found = rec.forbiddable[m.path]
   if found ~= nil then return found end
   rec.tool = rec.tool or confine.itself()
-  found = test_sandbox.forbiddable(rec.effective[m.path].cache_paths or {}, rec.tool)
+  found = test_sandbox.forbiddable(test_sandbox.cache_writes(rec.effective[m.path],
+    worker_view()), rec.tool)
   rec.forbiddable[m.path] = found
   return found
 end
@@ -2109,9 +2112,10 @@ end
 --- How a sandboxed worker of `m`'s tests stands to running this
 --- program: "declared" where its module declares `tool`, "forbidden"
 --- where it is kept from running it (`can_forbid`), and "allowed" where
---- it cannot be, which its key holds as if its module declared `tool`
---- (`Spec.runs_tool`). Its key and its command line (`--worker-no-tool`)
---- both take it from here.
+--- it is not -- its module declares `nests`, whose worker no Landlock
+--- ruleset holds, or it cannot be -- which its key holds as if its
+--- module declared `tool` (`Spec.runs_tool`). Its key and its command
+--- line (`hold_of`) both take it from here.
 local enum ToolUse
   "declared"
   "forbidden"
@@ -2119,8 +2123,28 @@ local enum ToolUse
 end
 
 local function tool_use(rec: Recording, m: importer.Module): ToolUse
-  if rec.effective[m.path].tool then return "declared" end
+  local effective = rec.effective[m.path]
+  if effective.tool then return "declared" end
+  if effective.nests then return "allowed" end
   return can_forbid(rec, m) and "forbidden" or "allowed"
+end
+
+-- TODO: have `--audit` name a `nests` its tests never used -- no start
+-- in a root of its own among what they did -- once the capture notes such
+-- a start that succeeded, as it notes one refused (`confine.nests_note`):
+-- an unneeded `nests` is sound, but leaves the worker unheld and keys it
+-- as running the program, so its module runs again on every change to a
+-- module the program carries.
+--- How a worker of `m`'s tests is held by a Landlock ruleset
+--- (`worker.Hold`): not at all unsandboxed, nor where its module declares
+--- `nests`, which lets its tests confine a process in a root of its own;
+--- to running anything but this program where it may not run it
+--- (`tool_use`); and otherwise to running anything, which holds it to
+--- making no root of its own, since the kernel refuses every mount under
+--- a ruleset.
+local function hold_of(rec: Recording, m: importer.Module): worker.Hold
+  if not rec.sandbox or rec.effective[m.path].nests then return "none" end
+  return tool_use(rec, m) == "forbidden" and "forbid" or "mounts"
 end
 
 --- Whether a worker of `m`'s tests can read the compiler's identity,
@@ -2705,15 +2729,26 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program (`confine.forbid_running`): what it would run
-  -- is no input of its test's key. A module whose key holds the whole
-  -- projection, or the program and the modules it carries, has no hold
-  -- on the store (`build.test_worker`).
+  -- is no input of its test's key; and one whose module does not
+  -- declare `nests` may not make a root of its own (`hold_of`), which
+  -- every process it starts learns from its environment
+  -- (`confine.held_variable`). Only a module whose key holds the whole
+  -- projection has no hold on the store (`build.test_worker`): one
+  -- that declares `tool` is keyed by the program's modules, not by
+  -- the rest of the tree's.
   local declared = job.m.inputs
+  local hold = hold_of(rec, job.m)
+  if rec.sandbox then
+    local given: {string:string} = {}
+    for name, value in pairs(env) do given[name] = value end
+    given[confine.held_variable] = hold ~= "none" and job.m.path or nil
+    env = given
+  end
   local command = worker.invocation({
     start = start, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, needs = test_inputs.canonical(declared), held = held,
-    no_tool = rec.sandbox and tool_use(rec, job.m) == "forbidden",
-    open = declared ~= nil and (declared.store or declared.tool),
+    hold = hold,
+    open = declared ~= nil and declared.store,
     closure = rec.closures[job.m.path], tree = rec.tree_names, declared = rec.declared_names,
     sandbox = sandbox,
   })
@@ -3077,6 +3112,19 @@ function test.run(argv: {integer:string}): integer
   local declared = key_choice == "declared"
   local unenforced = "each test is keyed by what it declares, which nothing holds it to"
   local sandboxed, sandbox_summary = false, ""
+  -- A run started, however deep, in a worker a Landlock ruleset holds
+  -- can sandbox none of its own, whose roots are made of mounts: it
+  -- fails, naming what lets that worker's test nest one, rather than
+  -- run them unsandboxed and pass having confined nothing.
+  local holder = Env.get(confine.held_variable)
+  if sandbox_mode ~= "off" and holder ~= nil and holder ~= "" then
+    local _, _ = work.close(handle)
+    log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
+      "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
+      "worker's sandbox: declare nests = true in its Test.needs, or start the run with " ..
+      test_sandbox.switch .. "=0")
+    return 1
+  end
   if sandbox_mode ~= "off" then
     local why: string
     sandboxed, why = sandbox_here()

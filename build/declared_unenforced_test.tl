@@ -18,10 +18,11 @@ local Test = require("cosmic.test")
 
 --- What a run of `cosmic test` needs of the host, and the program it
 --- runs; and whether this run is held to sandboxing, for the one case
---- that starts a sandboxed run.
+--- that starts a sandboxed run, which `nests` lets it start.
 Test.needs{
   env = { "COSMIC_CI_REQUIRE_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 --- The summary of an unenforced run.

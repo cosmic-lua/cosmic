@@ -1034,7 +1034,7 @@ local function test_a_needs_call_is_read_as_data()
     '  host = { "/etc/localtime" },',
     '  env = { "PATH" },',
     "  network = true,",
-    "  processes = true, tool = false, store = true,",
+    "  processes = true, tool = false, nests = true, store = true,",
     "}",
   }))
   assert(got ~= nil, trouble)
@@ -1043,7 +1043,7 @@ local function test_a_needs_call_is_read_as_data()
   assert(#got.host == 1 and got.host[1] == "/etc/localtime")
   assert(#got.env == 1 and got.env[1] == "PATH")
   assert(#got.network == 1 and got.network[1] == "*")
-  assert(got.processes and not got.tool and got.store)
+  assert(got.processes and not got.tool and got.nests and got.store)
   -- A host path a variable names, whole or beneath it.
   local named = assert(declared(lines({
     'local Test = require("cosmic.test")',
@@ -1096,7 +1096,7 @@ end
 --- refused, naming its line and what is wrong with it.
 local function test_a_malformed_needs_call_is_refused()
   local cases: {{string}} = {
-    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, network" },
+    { 'Test.needs { reeds = { "a" } }', "no field reeds; it has caches, env, host, nests, network" },
     { 'Test.needs { reads = { "x\\ty" } }',
       'reads: "x\\ty": write declared paths plainly, without escapes or long brackets' },
     { 'Test.needs { env = { "A\\65" } }', "write declared paths plainly" },

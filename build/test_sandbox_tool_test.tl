@@ -23,12 +23,14 @@ local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
 
---- What a worker's plan gives it of the host, the program it runs, and
+--- What a worker's plan gives it of the host, the program it runs,
+--- roots of their own for the sandboxed workers it starts (`nests`), and
 --- what holds a run to sandboxing (`unsandboxed`).
 Test.needs{
   host = { "/dev/urandom", "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 --- Makes `root`, a tree for a suite, with a stand-in program
@@ -149,7 +151,21 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   assert(holds(nested.sandbox.unveil.writes, tmp .. "/caches/cores") and
     not holds(nested.sandbox.unveil.reads, stamp))
   assert(holds(nested.held, stamp))
-  inputs.cache_paths = {}
+  -- The `bootstrap` cache: cores of its own, made in its scratch
+  -- directory before it starts -- a ruleset that holds it walks what is
+  -- there then -- and named to it, not the host's, which the cores
+  -- directory this program's core is in stays.
+  inputs.caches, inputs.cache_paths = { "bootstrap" }, { tmp .. "/caches/cores" }
+  local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
+    tmp .. "/caches/cores" })
+  assert(own_cores.trouble == "", own_cores.trouble)
+  assert(own_cores.env.COSMIC_PORTABLE_CACHE == "/tmp/cores",
+    tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
+  local cores = assert(sys.stat(scratch .. "/cores"))
+  assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
+  assert(not holds(own_cores.sandbox.unveil.writes, tmp .. "/caches/cores") and
+    holds(own_cores.sandbox.unveil.reads, stamp))
+  inputs.caches, inputs.cache_paths = {}, {}
   local alone = test_sandbox.plan(root, scratch, inputs, {})
   assert(holds(alone.sandbox.unveil.reads, stamp))
   inputs.host = { host .. "/" }

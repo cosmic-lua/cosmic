@@ -11,7 +11,7 @@ local record this_program
   --- The variables `environment` passes on: what a process of this
   --- very program reads of its environment to run at all, and whether a
   --- `cosmic test` it runs sandboxes its workers, as the run around it
-  --- was asked to.
+  --- was asked to, and whether it can.
   runtime_environment: {string}
 
   --- How to start this very program (`program`): the command line and
@@ -24,14 +24,15 @@ end
 
 this_program.runtime_environment = {
   "HOME", "XDG_CACHE_HOME", "PATH", "TMPDIR", "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE",
-  "COSMIC_BUILD_CACHE", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX",
+  "COSMIC_BUILD_CACHE", "COSMIC_AUTO_BOOT", "COSMIC_TEST_SANDBOX", confine.held_variable,
 }
 
 --- What of the environment a process of this very program needs, for a
 --- test to start one with rather than all of its own: where its caches
 --- are, where temporary files go and programs are found, which shared
---- verdicts and compiles it keeps, whether it may boot and whether a `cosmic test`
---- sandboxes its workers -- each of `runtime_environment` this process
+--- verdicts and compiles it keeps, whether it may boot, whether a `cosmic test`
+--- sandboxes its workers and whether it can (`confine.held_variable`)
+--- -- each of `runtime_environment` this process
 --- has, read by name, so the test reads no more of the environment than
 --- these -- but for TMPDIR, which, while a test runs, is its own
 --- directory (build.confine's `test_directory`): what the process

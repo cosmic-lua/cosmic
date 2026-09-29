@@ -91,6 +91,11 @@ local function test_a_refused_user_namespace_is_said_plainly()
   for _, errno in ipairs({ "Operation not permitted", "Permission denied" }) do
     local refused = test_sandbox.refusal("start: " .. errno)
     assert(refused:find("refuses this user a user namespace", 1, true), refused)
+    -- A Landlock domain, which a test worker's process may be held by,
+    -- refuses a mount EPERM alone.
+    assert((refused:find("held by a Landlock ruleset: declare `nests = true` in the " ..
+      "starting test's Test.needs", 1, true) ~= nil) == (errno == "Operation not permitted"),
+      refused)
   end
   assert(test_sandbox.refusal("start: Bad address") == "start: Bad address")
 end

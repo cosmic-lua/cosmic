@@ -17,13 +17,14 @@ local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
 --- hung one left running would be found; the program itself, which the
---- tests start; and what holds a run to sandboxing
---- (`unsandboxed`).
+--- tests start, and roots of their own for its sandboxed workers
+--- (`nests`); and what holds a run to sandboxing (`unsandboxed`).
 Test.needs{
   host = { "/proc" },
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   processes = true,
   tool = true,
+  nests = true,
 }
 
 --- The environment a run of `cosmic test` these tests start is given:

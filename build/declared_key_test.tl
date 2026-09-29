@@ -255,7 +255,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     files = { ["suite/t_test.tl"] = true, ["suite/lib.tl"] = true },
     reads = { "suite/data/" }, host = { hostdir .. "/host.txt" },
     env = { DECLARED = true, H = true }, network = { ["127.0.0.1"] = true },
-    processes = true, tool = true, store = true, system = true,
+    processes = true, tool = true, nests = true, store = true, system = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" },
     variables = { "DECLARED", "H" }, named = { H = true },
     spelled = { [hostdir .. "/host.txt"] = "$H/host.txt" }, located = { H = hostdir },
@@ -339,6 +339,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       network = declaration .. ": a test that reaches beyond loopback has no key " ..
         "(`declared_key.keyable`)",
       processes = declaration, variables = declaration,
+      nests = declaration .. ", and, where the module does not declare `tool`, " ..
+        "`runs_tool` (build.test's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",
       cache_paths = "where the host keeps its caches: content-addressed, which never " ..
         "changes a result (build.caches)",

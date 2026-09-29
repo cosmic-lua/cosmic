@@ -10,6 +10,7 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
 local stand_in = require("build.stand_in")
+local type raw_process = require("cosmic.internal.process")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -17,15 +18,15 @@ local stand_in = require("build.stand_in")
 -- which gives and keys nothing but says what the tests need wrongly.
 --- What the observer is tested observing: the environment, processes it
 --- confines, and /proc, where the stand-in a test starts finds itself;
---- and `tool`, not to run this program, but because a worker that does
---- not declare it is held to running anything but it through a Landlock
---- domain (build.confine's `forbid_running`), under which the kernel
---- refuses the mounts that confine a process in a root of its own.
+--- `nests`, since the processes it confines have roots of their own;
+--- and `tool`, since a process confined is given the program (the TODO
+--- above build.confine's `forbid_running`).
 Test.needs{
   host = { "/proc" },
   env = { "*" },
   processes = true,
   tool = true,
+  nests = true,
 }
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -34,6 +35,19 @@ Test.needs{
 --- needs nothing of the system's own.
 local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/stand-in")))
+end
+
+local type Searcher = function(string): any, any
+
+--- The raw process table build.confine stands in for the spawn of.
+local function raw_process_table(): raw_process
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("build.confine")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_process -- cast: the table core/process.h defines
+    end
+  end
+  error("build.confine is handed no raw table")
 end
 
 --- What a confined process ran with, seen from the run's reads: "p"
@@ -179,4 +193,153 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
   local fresh = assert(sys.realpath(own .. "/real")) .. "/fresh/cache"
   assert(said[3] == fresh .. "\n", said[3])
   assert(Fs.is_dir(fresh), "the launcher's cache is made where its name leads")
+end
+
+--- Calls `fn` with the process table's `spawn` refusing, as a kernel
+--- with no user namespaces for this user does, every spawn given a
+--- sandbox, and answers how many it refused.
+local function refusing_sandboxes(fn: function()): integer
+  local process = raw_process_table()
+  local spawn = process.spawn
+  local refused = 0
+  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
+                       cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                       stderr: integer | nil, process_group: boolean,
+                       fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
+                       integer | nil, string, integer
+    if sandbox ~= nil then
+      refused = refused + 1
+      return nil, "Operation not permitted", sys.EPERM
+    end
+    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
+  end
+  local ok, trouble: boolean, any = pcall(fn)
+  process.spawn = spawn
+  if not ok then error(trouble, 0) end
+  return refused
+end
+
+--- Where the kernel cannot confine a process it starts as it would have,
+--- in the same directory, and the run is noted "p"; so too a process
+--- given more paths than a sandbox holds. Under COSMIC_SANDBOX=must
+--- there is no fallback to see (build/must_confine_test.tl holds that
+--- mode to refusing it).
+local function test_an_unconfinable_process_starts_unconfined(tmp: string)
+  if sys.getenv("COSMIC_SANDBOX") == "must" then return end
+  local probe = probe_in(tmp)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own))
+  local many: {string} = {}
+  for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
+  local run: observations.Run = nil
+  local sandboxed = refusing_sandboxes(function()
+    run = observations.call(function()
+      confine.confine({ reads = { probe } })
+      assert(Child.run({ probe, "cwd where" }))
+      many[#many + 1] = probe
+      confine.confine({ reads = many })
+      assert(Child.run({ probe, "exit 0" }))
+      confine.confine(nil)
+    end, nil, { tree = tmp .. "/tree", own = { own } })
+  end)
+  assert(run.passed, run.message)
+  assert(sandboxed == 1, "only the first was tried confined: " .. tostring(sandboxed))
+  local notes, _ = confined_notes(run)
+  assert(notes == "p " .. probe .. "\np " .. probe .. "\n", notes)
+  assert(assert(Fs.read(own .. "/where")) == assert(Fs.absolute(own)) .. "\n")
+end
+
+--- Under `must_confine`, a program exec could not run at all -- a
+--- directory, say, which exec refuses with EACCES, an errno a refused
+--- sandbox answers too -- fails as its own: the test hears the spawn's
+--- failure as it was, and nothing is refused.
+local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own))
+  for _, sandboxes in ipairs({ "refused", "real" }) do
+    local trouble: string = nil
+    local run: observations.Run = nil
+    local function attempt()
+      run = observations.call(function()
+        confine.must_confine({})
+        local ran: any = nil
+        ran, trouble = Child.run({ own })
+        confine.confine(nil)
+        assert(ran == nil, "a directory ran")
+      end, nil, { tree = tmp .. "/tree", own = { own } })
+    end
+    if sandboxes == "refused" then refusing_sandboxes(attempt) else attempt() end
+    assert(run.passed, sandboxes .. ": " .. run.message)
+    assert(not trouble:find("could not start confined", 1, true), trouble)
+  end
+end
+
+--- A process started with a sandbox of its own that unveils and takes
+--- the network is noted by what it was given, as a confined one is; one
+--- held only by a pledge is not held to what it reads, and is a "p".
+local function test_an_unveiled_sandbox_of_its_own_is_noted_by_what_it_was_given(tmp: string)
+  local probe = probe_in(tmp)
+  local own, given = tmp .. "/own", tmp .. "/given"
+  for _, dir in ipairs({ own, given }) do assert(Fs.mkdirs(dir)) end
+  local process = raw_process_table()
+  local reads: {string} = { given, probe }
+  if sys.stat("/proc") ~= nil then reads[#reads + 1] = "/proc" end
+  local ran = true
+  local run = observations.call(function()
+    local pid, _, errno = process.spawn(probe, { probe, "exit 0" }, nil, "/", nil, nil,
+      nil, false, nil, { unveil = { reads = reads, writes = { own } }, offline = true })
+    if pid == nil then
+      ran = false
+      assert(errno ~= nil)
+    else
+      assert(process.waitpid(pid, false))
+    end
+    local pledged = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil,
+      false, nil, { pledge = {} })
+    if pledged ~= nil then assert(process.waitpid(pledged, false)) end
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  local notes, _ = confined_notes(run)
+  if ran then
+    assert(notes:find("u " .. given .. "\n", 1, true), notes)
+    assert(not notes:find("x " .. probe, 1, true), notes)
+  else
+    assert(notes:find("x " .. probe .. "\n", 1, true), notes)
+  end
+  assert(notes:find("p " .. probe .. "\n", 1, true), "a pledge alone: " .. notes)
+  assert(not notes:find(own, 1, true), notes)
+end
+
+--- A sandbox is noted as the core reads it: raw, so a field a metatable
+--- answers for holds nothing; and a path given that leads into /proc
+--- or /sys, however spelled, is the host's state.
+local function test_an_unveiled_sandbox_is_read_as_the_core_reads_it(tmp: string)
+  local probe = probe_in(tmp)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own))
+  local process = raw_process_table()
+  -- The stand-in finds itself through /proc, so it is given that too:
+  -- given, it runs to its end.
+  local reads: {string} = { "//proc/sys/kernel/random", probe }
+  if sys.stat("/proc") ~= nil then reads[#reads + 1] = "/proc" end
+  local run = observations.call(function()
+    local hidden = setmetatable({} as {string:any}, { __index = function(_: any, key: string): any
+      if key == "unveil" then return { reads = reads } end
+      return nil
+    end }) as raw_process.Sandbox
+    hidden.offline = true
+    local pid = process.spawn(probe, { probe, "exit 0" }, nil, "/", nil, nil, nil, false,
+      nil, hidden)
+    if pid ~= nil then assert(assert(process.waitpid(pid, false)).code == 0) end
+    local given = process.spawn(probe, { probe, "exit 0" }, nil, "/", nil, nil, nil,
+      false, nil, { unveil = { reads = reads }, offline = true })
+    if given ~= nil then assert(assert(process.waitpid(given, false)).code == 0) end
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  local notes, _ = confined_notes(run)
+  -- The first holds nothing unveiled, so it is a process like any other.
+  assert(notes:find("p " .. probe .. "\n", 1, true), notes)
+  assert(notes:find("x //proc/sys/kernel/random\n", 1, true) or
+    notes:find("x " .. probe .. "\n", 1, true), notes)
+  assert(not notes:find("u //proc", 1, true), notes)
 end

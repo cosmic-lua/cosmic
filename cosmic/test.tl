@@ -87,14 +87,28 @@ local record Test
     -- audit but a sandboxed run's, where it finds nothing.
     processes: boolean
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
-    --- program running them.
+    --- program running them, or start either: it gives them the program
+    --- and nothing else -- not the store beyond their closure (`store`),
+    --- nor a root of their own for what they start (`nests`).
     tool: boolean
+    --- Whether the tests confine a process in a root of its own: a
+    --- `sandbox` that unveils (`cosmic.child`), or a `cosmic test` they
+    --- start whose workers are sandboxed. A sandboxed worker whose
+    --- module does not declare it is held by a Landlock ruleset, under
+    --- which the kernel refuses every mount, and a root of its own is
+    --- made of mounts: such a start is refused, naming this field, and
+    --- the test fails, where otherwise it could pass having confined
+    --- nothing. The tests of the sandbox itself declare it. Off the
+    --- Linux sandbox -- on macOS, or unsandboxed under
+    --- COSMIC_TEST_KEY=declared -- no worker is held, so a test that
+    --- confines without it passes there and fails on a Linux leg.
+    nests: boolean
     --- Whether the tests read the tree's projection, `o/cosmic.db`, or
     --- the rows of modules of the tree outside their import closure.
     --- Without it, a sandboxed worker is given at o/cosmic.db the store
     --- of its module's import closure alone, which its key holds, and
     --- a `require` reaches only that closure; and unless the module
-    --- declares `store` or `tool`, every other lookup in the store is
+    --- declares `store`, every other lookup in the store is
     --- held to it too (`build.test_worker`'s `hold_store`), from the
     --- module's load until the worker ends: `Store.bytecode`,
     --- `Store.source` or `Store.requires` of a module of the tree
@@ -149,7 +163,8 @@ end
 --- in the source to the same table (`build.analyzer`).
 Test.fields = {
   reads = "list", host = "list", env = "list", network = "either",
-  processes = "flag", tool = "flag", store = "flag", system = "flag", caches = "list",
+  processes = "flag", tool = "flag", nests = "flag", store = "flag", system = "flag",
+  caches = "list",
 }
 
 --- What a test runner installed as `__runner` on this module's table

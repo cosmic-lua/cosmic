@@ -118,8 +118,9 @@
    worker runs offline, on a loopback of its own, and is keyed. A
    worker, and every process it starts, is given at o/cosmic.db the
    store of its module's import closure alone, keyed by its address.
-   Sandboxed or not, a worker whose module declares neither `store` nor
-   `tool` holds every other lookup in the store to that closure too
+   Sandboxed or not, a worker whose module does not declare `store`
+   (`tool` does not lift it) holds every other lookup in the store to
+   that closure too
    (`build/test_worker.tl`'s `hold_store`): `Store.bytecode` or
    `Store.source` of a module of the tree outside it, or a searcher
    called by hand, answers none, `Store.meta` of a row its key does not
@@ -142,12 +143,20 @@
    host's identity, and the program, its core and its database, keyed
    through the runtime's identity but for the database's modules, which
    the hold above keeps a test from reading through the store unless it
-   declares `store` or `tool`, nor through the descriptor a portable
+   declares `store`, nor through the descriptor a portable
    start keeps on the program, which every binding refuses
    (core/check.h's `cosmic_checkfd`), nor, sandboxed, by the program's
    own name, which only a `tool`'s worker is given. A test that starts this
    program declares `tool = true`: sandboxed, one that does not is
-   refused it, and `--audit` names it.
+   refused it, and `--audit` names it. `tool` gives the program and
+   nothing else. A test that confines a process in a root of its own --
+   a sandbox that unveils, build.confine's `confine`, or a `cosmic test`
+   it starts whose workers are sandboxed -- declares `nests = true`:
+   sandboxed, every other worker is held by a Landlock ruleset, under
+   which the kernel refuses the mounts a root is made of, so such a
+   start is refused outright, naming `nests`, and fails the test rather
+   than falling back to running unconfined; a `cosmic test` started
+   there refuses to sandbox its workers, and `--audit` names it.
    Unsandboxed (`COSMIC_TEST_SANDBOX=0`, or where the kernel cannot), a
    test is keyed instead by what it was seen to read, and shares no
    verdict: environment variables it reads are part of its key, and one

@@ -17,11 +17,13 @@ local this_program = require("build.this_program")
 local shared_verdicts = require("build.shared_verdicts")
 local Test = require("cosmic.test")
 
---- The program itself, which its tests start, and what holds a run to
---- sandboxing (`shares`).
+--- The program itself, which its tests start, roots of their own for
+--- the sandboxed workers of the runs they start (`nests`), and what
+--- holds a run to sandboxing (`shares`).
 Test.needs{
   env = { "COSMIC_SANDBOX", "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_TEST_SANDBOX" },
   tool = true,
+  nests = true,
 }
 
 --- Runs `cosmic test` on `root` with `words` after it, answering what
