@@ -351,50 +351,12 @@ static int unix_owner_push (lua_State *L, const struct target *target, struct ow
   return 0;
 }
 
-/* Milliseconds on the monotonic clock. */
-static int64_t now_ms (void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
-
-/* The longest a wait sleeps before it asks again whether a guard caught
- * a signal. A signal that lands between that question and the sleep
- * only sets the guard's flag, so a sleep with no bound could outlast
- * it forever; each slice bounds how late it is seen, as core/http.c's
- * one-second polls and cosmic.child's do. */
-#define SLICE_MS 100
-
 /* The deadline argument `arg`'s timeout in milliseconds makes, on the
  * monotonic clock, or -1 for a timeout of -1, no limit. */
 static int64_t deadline_of (lua_State *L, int arg) {
   lua_Integer timeout = luaL_checkinteger(L, arg);
   luaL_argcheck(L, timeout >= -1 && timeout <= INT_MAX, arg, "timeout is out of range");
-  return timeout < 0 ? -1 : now_ms() + timeout;
-}
-
-/* How long a wait for `deadline` may sleep now: a slice at most, 0 once
- * it has passed. */
-static int slice (int64_t deadline) {
-  if (deadline < 0) return SLICE_MS;
-  int64_t remaining = deadline - now_ms();
-  if (remaining <= 0) return 0;
-  return remaining < SLICE_MS ? (int)remaining : SLICE_MS;
-}
-
-/* Sleeps `*pause` milliseconds, doubling it up to a slice for the next
- * time, before a call that answered EAGAIN is asked again: 0 to ask
- * again, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
- * caught a signal. */
-static int paused (int64_t deadline, int64_t *pause) {
-  if (cosmic_signal_caught()) return EINTR;
-  int most = slice(deadline);
-  if (most == 0) return ETIMEDOUT;
-  int64_t ms = *pause < most ? *pause : most;
-  *pause = *pause * 2 < SLICE_MS ? *pause * 2 : SLICE_MS;
-  struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000L };
-  nanosleep(&ts, NULL);
-  return cosmic_signal_caught() ? EINTR : 0;
+  return timeout < 0 ? -1 : cosmic_now_ms() + timeout;
 }
 
 /* Waits until `fd` has `events`, in slices: 0 once it has, ETIMEDOUT
@@ -403,7 +365,7 @@ static int paused (int64_t deadline, int64_t *pause) {
 static int ready (int fd, short events, int64_t deadline) {
   for (;;) {
     if (cosmic_signal_caught()) return EINTR;
-    int left = slice(deadline);
+    int left = cosmic_wait_slice(deadline);
     struct pollfd watched = { fd, events, 0 };
     int found = poll(&watched, 1, left);
     if (found > 0) return 0;
@@ -413,7 +375,7 @@ static int ready (int fd, short events, int64_t deadline) {
 }
 
 /* Waits for the connection `fd` has in progress to be made or refused,
- * in slices as `paused` does: 0 once made, its failure (SO_ERROR) once
+ * in slices as `cosmic_paused` does: 0 once made, its failure (SO_ERROR) once
  * refused, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
  * caught a signal. */
 static int settled (int fd, int64_t deadline) {
@@ -537,7 +499,7 @@ COSMIC_SYSCALL(connect, 2) {
   for (;;) {
     failure = reach(owned->fd, &target, false);
     if (failure == EAGAIN) {
-      failure = paused(deadline, &pause);
+      failure = cosmic_paused(deadline, &pause);
       if (failure == 0) continue;
     } else if (failure == EINPROGRESS) {
       failure = settled(owned->fd, deadline);

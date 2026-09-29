@@ -563,14 +563,15 @@ COSMIC_SYSCALL(ftruncate, 2);
 /*
  * --- Locks the file a descriptor is open on, as `flock(2)` does: the
  * --- lock belongs to the open file, so another open of the same file,
- * --- in this process or another, is refused it, and it is released
- * --- when every descriptor of that open is closed -- when the
- * --- process ends, too. "exclusive" excludes every other lock,
- * --- "shared" only an exclusive one, and "unlock" releases what this
- * --- open holds. A lock another open holds is waited for until
- * --- `timeout_ms` has passed, "Operation timed out", or a
- * --- `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
- * --- call", each seen within a tenth of a second.
+ * --- in this process or another, is refused a lock that conflicts with
+ * --- it, and it is released when every descriptor of that open is
+ * --- closed -- when the process ends, too. "exclusive" conflicts with
+ * --- every other lock, "shared" only with an exclusive one, and
+ * --- "unlock" releases what this open holds. A conflicting lock is
+ * --- waited for until `timeout_ms` has passed, "Operation timed out",
+ * --- or a `Child.guard` catches SIGINT or SIGTERM, "Interrupted system
+ * --- call", each seen within a tenth of a second. Over NFS or SMB, an
+ * --- exclusive lock needs a descriptor open for writing.
  * ---@param fd integer the descriptor, open on the file to lock
  * ---@param how string "exclusive", "shared" or "unlock"
  * ---@param timeout_ms? integer how long to wait, in milliseconds, from 0 (the default: ask once); -1 for no limit

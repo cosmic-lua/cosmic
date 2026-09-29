@@ -898,17 +898,6 @@ COSMIC_SYSCALL(ftruncate, 2) {
   return cosmic_ok(L);
 }
 
-/* The longest a lock wait sleeps before it asks again whether a guard
- * caught a signal, as core/socket.c's waits do: a signal that lands
- * between the question and the sleep only sets the guard's flag. */
-#define LOCK_SLICE_MS 100
-
-static int64_t lock_clock_ms (void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
-
 COSMIC_SYSCALL(flock, 3) {
   int fd = cosmic_checkfd(L, 1);
   static const char *const names[] = {"exclusive", "shared", "unlock", NULL};
@@ -919,23 +908,14 @@ COSMIC_SYSCALL(flock, 3) {
   /* Asked without waiting, and again after each sleep, so the wait
    * can end at a deadline or a caught signal, which a blocking
    * flock could not. */
-  int64_t deadline = timeout < 0 ? -1 : lock_clock_ms() + timeout;
+  int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
   int64_t pause = 1;
   for (;;) {
     if (flock(fd, operation | LOCK_NB) == 0) return cosmic_ok(L);
     if (errno == EINTR) continue;
     if (errno != EWOULDBLOCK) return cosmic_fail_effect(L, errno);
-    if (cosmic_signal_caught()) return cosmic_fail_effect(L, EINTR);
-    int64_t most = LOCK_SLICE_MS;
-    if (deadline >= 0) {
-      int64_t remaining = deadline - lock_clock_ms();
-      if (remaining <= 0) return cosmic_fail_effect(L, ETIMEDOUT);
-      if (remaining < most) most = remaining;
-    }
-    int64_t ms = pause < most ? pause : most;
-    pause = pause * 2 < LOCK_SLICE_MS ? pause * 2 : LOCK_SLICE_MS;
-    struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000L };
-    nanosleep(&ts, NULL);
+    int failure = cosmic_paused(deadline, &pause);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
   }
 }
 

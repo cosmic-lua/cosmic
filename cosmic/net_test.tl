@@ -364,7 +364,7 @@ end
 --- A reclaim waits its turn while another holds the lock beside the
 --- path, taking nothing: without it, two reclaims starting at once
 --- could each find the other's socket refused and remove it.
-local function test_reclaim_waits_for_another_s_lock_before_it_looks(tmp: string)
+local function test_reclaim_refuses_to_look_while_another_holds_the_lock(tmp: string)
   local path = tmp .. "/s.sock"
   local ino = left_behind(tmp, path)
   local held = assert(sys.open(path .. ".lock", sys.O_RDONLY | sys.O_CREAT, 0x180))
@@ -394,6 +394,43 @@ local function test_reclaim_without_its_lock_file_fails_and_takes_nothing(tmp: s
   local server, why = Net.listen(Net.unix(path), { reclaim = true })
   assert(server == nil and why == path .. ".lock: Is a directory", why)
   assert(assert(sys.lstat(path)).ino == ino, "the socket file was taken without the lock")
+end
+
+--- `cosmic.net` loaded over `raw`, as the store's searcher would hand
+--- it the raw socket module.
+local function net_over(raw: {string: any}): Net
+  for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
+    local loader, extra = searcher("cosmic.net")
+    if type(loader) == "function" and type(extra) == "table" then
+      setmetatable(raw, { __index = extra })
+      return (loader as function(string, any): Net)("cosmic.net", raw)
+    end
+  end
+  error("no searcher handed over the raw socket module")
+end
+
+--- A raise while a reclaim holds its lock releases the lock: held on,
+--- it would keep every later reclaim of the path waiting until it
+--- timed out.
+local function test_a_raise_under_the_reclaim_lock_releases_it(tmp: string)
+  local path = tmp .. "/s.sock"
+  left_behind(tmp, path)
+  local raising = net_over({ listen = function(): any error("raised under the lock") end })
+  local ok, err = pcall(raising.listen, Net.unix(path), { reclaim = true })
+  assert(not ok and tostring(err):find("raised under the lock", 1, true) ~= nil, tostring(err))
+  local probe = assert(sys.open(path .. ".lock", sys.O_RDWR, 0))
+  assert(sys.flock(probe, "exclusive"))
+  assert(sys.close(probe))
+  local _server <close> = assert(Net.listen(Net.unix(path), { reclaim = true }))
+end
+
+--- A path ending in "/" names no socket file to reclaim, and makes no
+--- lock file inside the directory it names.
+local function test_reclaim_refuses_a_path_ending_in_a_slash(tmp: string)
+  local server, why = Net.listen(Net.unix(tmp .. "/"), { reclaim = true })
+  assert(server == nil and why == tmp .. "/: Is a directory", why)
+  assert(Fs.stat(tmp .. "/.lock") == nil, "a lock file was made in the directory")
+  assert(not pcall(Net.listen, Net.unix(""), { reclaim = true }))
 end
 
 local DEEP_PART <const> = string.rep("d", 200)

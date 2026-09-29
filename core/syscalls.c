@@ -2548,6 +2548,30 @@ bool cosmic_signal_caught (void) {
   return child_cancelled != 0;
 }
 
+int64_t cosmic_now_ms (void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+int cosmic_wait_slice (int64_t deadline) {
+  if (deadline < 0) return COSMIC_WAIT_SLICE_MS;
+  int64_t remaining = deadline - cosmic_now_ms();
+  if (remaining <= 0) return 0;
+  return remaining < COSMIC_WAIT_SLICE_MS ? (int)remaining : COSMIC_WAIT_SLICE_MS;
+}
+
+int cosmic_paused (int64_t deadline, int64_t *pause) {
+  if (cosmic_signal_caught()) return EINTR;
+  int most = cosmic_wait_slice(deadline);
+  if (most == 0) return ETIMEDOUT;
+  int64_t ms = *pause < most ? *pause : most;
+  *pause = *pause * 2 < COSMIC_WAIT_SLICE_MS ? *pause * 2 : COSMIC_WAIT_SLICE_MS;
+  struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000L };
+  nanosleep(&ts, NULL);
+  return cosmic_signal_caught() ? EINTR : 0;
+}
+
 static void child_signal_set (sigset_t *set) {
   sigemptyset(set);
   sigaddset(set, SIGINT);

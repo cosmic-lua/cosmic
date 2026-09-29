@@ -85,11 +85,16 @@ local record Net
     --- listening -- a listen without `reclaim` in its moment between the
     --- two -- so theirs is taken over too; and one that binds there
     --- between the check and the removal loses its file. The lock file
-    --- stays after the listener closes. Where it cannot be made or
-    --- locked -- a directory or a link at its name, a directory not
-    --- writable here, another's lock held for 10 seconds, a signal a
-    --- `Child.guard` caught -- the listen fails, naming the lock file,
-    --- rather than reclaim without it.
+    --- stays after the listener closes. Where it cannot be opened or
+    --- locked, the listen fails, naming the lock file, rather than
+    --- reclaim without it: "Permission denied" for one another user
+    --- made (it is made mode 0600, and Linux's fs.protected_regular
+    --- refuses another's in a sticky directory such as /tmp) or in a
+    --- directory not writable here; "File name too long" for a path
+    --- within 5 bytes of the longest a path may be; "timed out" for
+    --- another's lock held 10 seconds; "interrupted" for a signal a
+    --- `Child.guard` caught; and a directory or a link at its name
+    --- fails too. A path ending in "/" fails "Is a directory".
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
@@ -364,21 +369,40 @@ local SOCKET_TYPE <const> = 0xC000
 --- a probe and two binds: far past that, the holder is stuck.
 local LOCK_MS <const> = 10 * PROBE_MS
 
---- The descriptor holding the lock `reclaim` takes beside `address`'s
---- path; nil and why not, the lock file named. The lock file is never
---- removed: a reclaim waiting on one removed would then lock a file no
---- longer at the name, while the next reclaim makes and locks another.
-local function reclaim_lock(address: Net.Address): integer | nil, string
+--- The lock `reclaim` holds, released when it goes out of scope,
+--- whether the listen returns or raises.
+local record ReclaimLock
+  fd: integer
+  metamethod __close: function(ReclaimLock)
+end
+
+local reclaim_lock_mt: metatable<ReclaimLock> = {
+  __close = function(self: ReclaimLock)
+    local _, _ = sys.close(self.fd)
+  end,
+}
+
+--- The lock `reclaim` takes beside `address`'s path; nil and why not,
+--- the lock file named. The lock file is never removed: a reclaim
+--- waiting on one removed would then lock a file no longer at the name,
+--- while the next reclaim makes and locks another.
+local function reclaim_lock(address: Net.Address): ReclaimLock, string
   local name = address.path .. ".lock"
+  -- Open for writing, which an exclusive lock over NFS or SMB needs;
+  -- O_NONBLOCK so a FIFO at the name opens without waiting for a
+  -- writer, O_NOCTTY so a terminal there does not become this
+  -- process's.
   local fd, why = sys.open(name,
-    sys.O_RDONLY | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
+    sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
   if fd == nil then return nil, name .. ": " .. why end
+  local lock: ReclaimLock = { fd = fd }
+  setmetatable(lock, reclaim_lock_mt)
   local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
   if not ok then
     local _, _ = sys.close(fd)
     return nil, name .. ": " .. said(trouble, errno)
   end
-  return fd, ""
+  return lock, ""
 end
 
 --- What `reclaim` finds at `address`'s path, which a bind found taken,
@@ -397,6 +421,26 @@ local function left_behind(address: Net.Address): string
   end
   if errno == raw.ECONNREFUSED then return "refused" end
   return errno == sys.ENOENT and "gone" or ""
+end
+
+--- A unix listener at `address`; with `reclaim`, taking over a socket
+--- file left behind, under the lock the caller holds.
+local function listened(address: Net.Address, backlog: integer, timeout_ms: integer | nil,
+    reclaim: boolean): Net.Listener | nil, string
+  local socket, trouble, errno = raw.listen(raw_address(address), backlog)
+  if socket == nil and errno == raw.EADDRINUSE and reclaim then
+    local found = left_behind(address)
+    if found == "refused" then
+      local removed, why, number = sys.unlink(address.path)
+      if not removed and number ~= sys.ENOENT then
+        trouble, errno = why, number
+        found = ""
+      end
+    end
+    if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
+  end
+  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
+  return new_listener(socket, { kind = address.kind, path = address.path }, timeout_ms), ""
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
@@ -420,27 +464,12 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     end
     return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ms), ""
   end
-  local lock: integer | nil = nil
-  if opts.reclaim then
-    local locking: string
-    lock, locking = reclaim_lock(address)
-    if lock == nil then return nil, locking end
-  end
-  local socket, trouble, errno = raw.listen(raw_address(address), backlog)
-  if socket == nil and errno == raw.EADDRINUSE and lock ~= nil then
-    local found = left_behind(address)
-    if found == "refused" then
-      local removed, why, number = sys.unlink(address.path)
-      if not removed and number ~= sys.ENOENT then
-        trouble, errno = why, number
-        found = ""
-      end
-    end
-    if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
-  end
-  if lock ~= nil then local _, _ = sys.close(lock) end
-  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
-  return new_listener(socket, { kind = address.kind, path = address.path }, opts.timeout_ms), ""
+  if not opts.reclaim then return listened(address, backlog, opts.timeout_ms, false) end
+  assert(address.path ~= "", "path must not be empty")
+  if address.path:sub(-1) == "/" then return nil, named(address) .. ": Is a directory" end
+  local lock <close>, locking = reclaim_lock(address)
+  if lock == nil then return nil, locking end
+  return listened(address, backlog, opts.timeout_ms, true)
 end
 
 --- Connects to `address`. A unix one fails "No such file or directory"
