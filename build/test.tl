@@ -2917,6 +2917,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
+      -- TODO: spare a stray in the process group of a worker still
+      -- running, which a test of its own may be waiting on (an orphan it
+      -- left to outlive a process it started, as build/stand_in_test.tl's
+      -- test_what_start_and_run_leave_running_runs_on does), rather than
+      -- end it the moment any other worker ends; that test then drops
+      -- the grouped run it makes to adopt its orphans itself.
       if not rec.sandbox then Child.end_strays() end
       sweep(rec, running)
     end
