@@ -89,7 +89,7 @@ end
 --- set it, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1 -- so a run
 --- held to it proves the runs it starts sandbox theirs, nested in its
 --- own as they are (CI's unprivileged runner nests them, as
---- build/shared_verdicts_test.tl's `shares` holds it to). Elsewhere, a
+--- build/shared_verdicts_tool_test.tl's `shares` holds it to). Elsewhere, a
 --- host that refuses a worker's workers a sandbox of their own -- one
 --- running the tests as root, this test's run confined in a sandbox
 --- already -- checks nothing here.
