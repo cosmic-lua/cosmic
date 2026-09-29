@@ -51,7 +51,8 @@
   jobs: {
     # A push to main tests the commit the merge queue just tested, so it
     # first looks for that run (queue-seed.sh find): found, `seed` saves
-    # the queue's caches and relays its products in place of `platform`.
+    # the queue's caches and relays its products in place of `platform`
+    # and `checked`.
     # Every push runs it, a branch's with its steps skipped, so a branch
     # push shows it run rather than skipped (its runner's start delays
     # the legs, by up to about 100 s in a burst); the queue, the
