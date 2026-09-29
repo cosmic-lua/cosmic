@@ -415,6 +415,60 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   assert(r:close())
 end
 
+--- Runs `create` of `out` from `src` with every `Stream.open` of a
+--- ".txt" file counted, and each read past the end given `extra` more
+--- bytes when it is not "" (a file that grows as it is read). Returns
+--- the run, the opens and the closes the archive made.
+local function create_counting(src: string, out: string, extra: string): Ran, integer, integer
+  local real_open = Stream.open
+  local opens, closes = 0, 0
+  local patched = Stream as {string:any}
+  patched.open = function(path: string): Stream.Reader | nil, string
+    local opened, why = real_open(path)
+    if opened == nil or path:sub(-4) ~= ".txt" then return opened, why end
+    opens = opens + 1
+    local inner: Stream.Reader = opened
+    local wrapped: Stream.Reader = {}
+    local grown = false
+    wrapped.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+      local got, trouble = inner:read(max)
+      if got == nil and trouble == "" and extra ~= "" and not grown then
+        grown = true
+        return extra, ""
+      end
+      return got, trouble
+    end
+    wrapped.close = function(_self: Stream.Reader): boolean, string
+      closes = closes + 1
+      return inner:close()
+    end
+    return wrapped, ""
+  end
+  local ok, ran = pcall(in_dir, src, { "create", out, "tree" })
+  patched.open = real_open
+  assert(ok, ran)
+  return ran as Ran, opens, closes
+end
+
+local function test_create_closes_every_file_it_opens(tmp: string)
+  local src = make_tree(tmp)
+  for _, name in ipairs({ "out.zip", "out.tar.gz" }) do
+    local ran, opens, closes = create_counting(src, tmp .. "/" .. name, "")
+    assert(ran.code == 0, ran.err)
+    assert(opens > 0 and opens == closes, name .. ": " .. tostring(opens) .. " opened, " ..
+      tostring(closes) .. " closed")
+  end
+end
+
+local function test_create_a_zip_of_a_file_that_grew_fails_and_leaves_no_archive(tmp: string)
+  local src = make_tree(tmp)
+  local out = tmp .. "/grew.zip"
+  local ran, opens, closes = create_counting(src, out, "grown")
+  assert(ran.code == 2 and ran.err:find("bytes, not", 1, true), ran.err)
+  assert(opens > 0 and opens == closes)
+  assert(not Fs.exists(out), "a failed create left an archive behind")
+end
+
 local function test_create_a_gzip_tar_round_trips_with_a_symlink(tmp: string)
   local src = make_tree(tmp)
   assert(Fs.symlink("a.txt", src .. "/tree/link"))

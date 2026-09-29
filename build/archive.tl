@@ -417,7 +417,12 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
     add_file = function(name: string, full: string, mode: integer, mtime: integer, size: integer): boolean, string
       local body, why = Stream.open(full)
       if body == nil then return false, why end
-      return writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
+      -- Tar reads only the size it was given, so the body is not read
+      -- to its end: close it here, on every path.
+      local ok, added = writer:add_file(name, body, { mode = mode, mtime = mtime, size = size })
+      local _, _ = body:close()
+      if not ok then return false, added end
+      return true, ""
     end
     add_dir = function(name: string, mode: integer, mtime: integer): boolean, string
       return writer:add_dir(name, { mode = mode, mtime = mtime })

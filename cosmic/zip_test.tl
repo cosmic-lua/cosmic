@@ -562,6 +562,8 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
   assert(header:sub(1, 4) == "PK\3\4")
   assert(rd32(header, 5) & 0xFFFF == 45, "version needed")
   assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
+  -- With the field there, the header's own sizes are the sentinel.
+  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF)
   assert(not w:close())
 end
 

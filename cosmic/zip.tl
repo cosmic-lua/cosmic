@@ -765,8 +765,10 @@ local function local_header(name: string, method: integer, dos_time: integer, do
   local version = 20
   if wide or usize >= U32_MAX or csize >= U32_MAX then
     extra = zip64_extra({ usize, csize })
-    if usize >= U32_MAX or csize >= U32_MAX then usize, csize = U32_MAX, U32_MAX end
-    version = 45
+    -- Whenever the field is there, the fields it stands for are the
+    -- sentinel (a streamed entry's, which announces zip64 before it
+    -- knows either size, included).
+    usize, csize, version = U32_MAX, U32_MAX, 45
   end
   return LFH_SIG .. le16(version) .. le16(flags or 0) .. le16(method) .. le16(dos_time) ..
     le16(dos_date) .. le32(crc) .. le32(csize) .. le32(usize) .. le16(#name) ..
