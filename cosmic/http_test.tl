@@ -191,9 +191,9 @@ local function test_a_body_shorter_than_its_content_length_is_a_read_error()
 end
 
 local function test_open_returns_once_the_headers_arrive_before_any_body()
-  -- The headers come, the body never does. `open` used to wait for the
-  -- first body byte, so it failed here (and, on a live server that
-  -- stalls after its headers, tripped the low-speed limit) though the
+  -- The headers come, the body never does. An `open` that waited for
+  -- the first body byte would fail here (and, on a live server that
+  -- stalls after its headers, trip the low-speed limit) though the
   -- response's headers had arrived.
   local response, trouble = Http.open(url, { script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nX-Here: yes\r\n\r\n",
@@ -304,11 +304,10 @@ local function test_a_non_string_option_throws()
 end
 
 local function test_a_malformed_url_fails()
-  -- A port out of range: curl rejects this outright
-  -- (CURLE_URL_MALFORMAT), with no network access attempted -- unlike
-  -- "http:///no-host-here", which curl takes for "http://no-host-here"
-  -- and looks up, or a bare "example.com/" with no scheme, which curl
-  -- happily guesses "http://" onto and would actually try to reach.
+  -- A port out of range is rejected outright (CURLE_URL_MALFORMAT), with
+  -- no network access attempted. Other odd URLs would be looked up:
+  -- curl reads "http:///no-host-here" as "http://no-host-here", and
+  -- guesses "http://" onto a bare "example.com/".
   local response, trouble = Http.open("http://127.0.0.1:99999/")
   assert(response == nil)
   assert(trouble:find("URL", 1, true) ~= nil, trouble)
@@ -321,9 +320,7 @@ local function test_an_unsupported_scheme_fails()
 end
 
 local function test_connection_refused_on_a_closed_local_port()
-  -- Port 1 is the classic "closed, and never going to be listening"
-  -- probe port; nothing here binds it, and it is not a privileged
-  -- range issue since we are only connecting, not binding.
+  -- Nothing binds port 1, so the connection is refused.
   local response, trouble = Http.open("http://127.0.0.1:1/",
     { connect_timeout_ms = 2000 })
   assert(response == nil)
@@ -351,8 +348,8 @@ local function test_download_writes_verifies_and_renames(tmp: string)
 end
 
 local function test_download_never_writes_through_a_planted_part_file(tmp: string)
-  -- it used to open path .. ".part" with O_TRUNC, following a symlink
-  -- someone else put there, and sharing it with a concurrent download
+  -- Opening path .. ".part" with O_TRUNC would follow a symlink someone
+  -- else put there, and share the file with a concurrent download.
   local path = tmp .. "/got"
   assert(Fs.write(tmp .. "/victim", "keep me"))
   assert(Fs.symlink(tmp .. "/victim", path .. ".part"))
@@ -441,9 +438,9 @@ local function test_an_ordinary_header_is_sent()
   assert(sent:find("\r\nX-Fine: a normal value\r\n", 1, true) ~= nil, sent)
 end
 
--- curl reads a method, header name and header value as C strings: a NUL
--- used to cut each short, so `X-A: v1` went out for "v1\0INJECT" and a
--- plain GET for "GET\0junk". Each is refused before any connection.
+-- curl reads a method, header name and header value as C strings, so a
+-- NUL would cut each short: `X-A: v1` would go out for "v1\0INJECT" and
+-- a plain GET for "GET\0junk". Each is refused before any connection.
 local function test_a_header_value_with_a_nul_is_rejected()
   local response, trouble = Http.open(url,
     { headers = { ["X-A"] = "v1\0INJECT" }, script = { reply("200 OK", "") } })
@@ -486,7 +483,7 @@ local function test_an_integer_option_takes_no_fraction()
 end
 
 local function test_a_negative_timeout_is_refused_not_ignored()
-  -- curl refused -5 and kept its default: no timeout at all
+  -- curl refuses -5 and keeps its default, which is no timeout at all.
   local err = raised({ timeout_ms = -5 })
   assert(err:find("opts.timeout_ms must be between 0 and", 1, true) ~= nil, err)
 end
@@ -526,21 +523,21 @@ local function test_a_boolean_option_takes_only_a_boolean()
 end
 
 local function test_non_table_headers_raise_naming_the_option()
-  -- used to be "bad extra argument #-1 to 'open'"
+  -- The message names the option, not a bad argument number.
   local err = raised({ headers = "X-A: 1" as {string:string} })
   assert(err:find("opts.headers must be a table", 1, true) ~= nil, err)
   assert(err:find("#-1", 1, true) == nil, err)
 end
 
 local function test_a_non_string_script_entry_raises()
-  -- used to become an empty reply
+  -- A non-string entry is refused, not read as an empty reply.
   local err = raised({ script = { reply("200 OK", ""), 42 as string } })
   assert(err:find("opts.script must be a list of strings", 1, true) ~= nil, err)
 end
 
 local function test_an_option_curl_refuses_is_an_error_naming_it()
-  -- curl refuses a string option over 8 MB; the refusal used to be
-  -- ignored, and the request went ahead with no URL set at all
+  -- curl refuses a string option over 8 MB. Ignoring the refusal would
+  -- send the request with no URL set at all.
   local response, trouble = Http.open(url .. string.rep("a", 8000000), { script = {} })
   assert(response == nil)
   assert(trouble:find("CURLOPT_URL", 1, true) ~= nil, trouble)

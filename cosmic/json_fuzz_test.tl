@@ -275,8 +275,8 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
--- Most drawn texts parse -- 44% strictly and 51% as JSON5, where a
--- generator of edits and token soup reached 13% and 15% -- so the walk
+-- Most drawn texts parse -- 44% strictly and 51% as JSON5, far above
+-- the 13% and 15% that edits and token soup alone reach -- so the walk
 -- into Lua values and the re-encoding checks run on most; a share under
 -- a fifth fails the run.
 local function test_decode_is_total_on_mutated_json(tmp: string)
@@ -318,10 +318,10 @@ local CHARS <const> = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\r", "\
   "\xc3\xa9", "\xe2\x82\xac", "\xf0\x9f\x98\x80" }
 
 -- TODO: a recipe's strings and tables read their count from one byte
--- first, as the generators here no longer do, so cutting a recipe's bytes
--- drops a middle element only by reshaping everything after it; a byte
--- before each element whose low values stop, as `Fuzz.more` draws, would
--- let shrinking drop any (measure "encoded" and "refused" again).
+-- first, unlike the generators here, so cutting a recipe's bytes drops
+-- a middle element only by reshaping everything after it; a byte before
+-- each element whose low values stop, as `Fuzz.more` draws, would let
+-- shrinking drop any (measure "encoded" and "refused" again).
 local function recipe_value(r: Recipe, depth: integer, parent: {any: any}): any
   local op = next_byte(r) % 13
   if depth > 6 and op >= 7 then op = op % 7 end

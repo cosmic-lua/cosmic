@@ -1381,8 +1381,9 @@ local function test_select_descent_over_a_large_document_lays_out_each_container
   for i = 1, 16000 do
     parts[i] = '{"id": ' .. i .. ', "tags": ["a", "b"], "in": {"id": -' .. i .. '}}'
   end
-  -- 16000 x 7 values is over 100k: the root, rows, and per record the
-  -- record, tags and in are 48002 containers.
+  -- 16000 records of 7 values each is over 100k values, of which 48002
+  -- are containers: the root, rows, and per record the record, tags and
+  -- in.
   local counter = { 0 }
   local doc = counted(decoded('{"rows": [' .. table.concat(parts, ",") .. ']}'), counter)
   local ids = assert(Json.select(doc, pat("$..id")))

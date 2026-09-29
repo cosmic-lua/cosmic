@@ -244,7 +244,7 @@ end
 
 local function test_transform_writer_drains_a_decoder_in_bounded_writes()
   -- 16 MiB of zeros compresses to a few KiB; a writer that never
-  -- drained `pending()` handed all 16 MiB to `finish` at close.
+  -- drained `pending()` would hand all 16 MiB to `finish` at close.
   local plain_size = 16 * 1024 * 1024
   local packed = assert(Compress.deflate("zlib", string.rep("\0", plain_size)))
   local total, largest = 0, 0
@@ -266,11 +266,10 @@ end
 
 local function test_transform_serves_small_reads_from_one_large_batch()
   -- A codec that hands back its entire input as one batch on the
-  -- first update, then nothing more. `transform` used to re-slice the
-  -- whole remaining batch on every read (`pending = pending:sub(want
-  -- + 1)`), which is quadratic when a caller reads in small pieces --
-  -- this proves reads of any size still see the batch intact and in
-  -- order, not just that it eventually finishes.
+  -- first update, then nothing more. Re-slicing the whole remaining
+  -- batch on every read (`pending = pending:sub(want + 1)`) would be
+  -- quadratic for small reads; reads of any size must still see the
+  -- batch intact and in order.
   local given = false
   local codec: Fake = {}
   codec.pending = function(_self: Fake): boolean return false end
