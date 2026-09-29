@@ -471,7 +471,7 @@ that is cheap.
    - Change: a cores directory the worker owns, bound by the sandbox.
    - Shows: a `bootstrap`-cache test that runs `o/bin/cosmic` is
      refused.
-6. **The artifact's other ways in (M, C and a boot).**
+6. **The artifact's other ways in (M, C and a boot): landed (#2396).**
    - A host program reads the artifact at `/proc/<worker>/fd/<n>`
      (`core/syscalls.c:474`; `PR_SET_DUMPABLE`).
    - A link can be swapped between the check and the call
@@ -479,7 +479,7 @@ that is cheap.
    - Shows: `sh -c 'cat /proc/$PPID/fd/<n>'` in a `system` test fails.
    - A host-program tree's database read by name (`build/confine.tl:400`)
      is out of scope: projects only.
-7. **The program bound at its host path, for `tool` workers (M, C and a
+7. **The program bound at its host path, for `tool` workers (landed, #2396; M, C and a
     boot)** (`build/test_sandbox.tl:180`), with the mount-point race
     beside it (`build/test_sandbox.tl:265`, same `build_root` code).
     - Shows: a `tool` test's `Proc.executable()` is `/tree/o/bin/cosmic`.
@@ -515,6 +515,10 @@ Accepted or out of scope:
 
 - Decision: the macOS leg's scheduled run stays `--all`, and is the
   backstop.
+- Landed: the list (#2397, `ci/darwin-tests.txt`, 14 modules, run as
+  `platform darwin-suite` after the verdicts upload). The two worker
+  changes are in review (key holds the tree's path; closure store via
+  `--store`; macOS gating runs place the tree by leg).
 - Change: a hand-maintained list of test modules that exercise a
   darwin branch, with a test that the list's modules exist. The macOS
   leg's gating run stands on nothing for those. The evidence for the
@@ -539,7 +543,7 @@ Accepted or out of scope:
 
 ## Stage 4: fewer paths, less code (two to three weeks)
 
-### 4.0 Move the driver pin
+### 4.0 Move the driver pin: landed (#2387, next-c2916062)
 
 A bump to any `next-` prerelease after 165d091 (#2279) unblocks
 `ci/cosmic_ci/orchestration.tl:409` now. 4.1 needs it. The rest of the
@@ -723,6 +727,13 @@ Items, in order:
    then waits for it (to a 150 s deadline; none on an `--all` run) and
    merges the rows (`verdicts-merge`, insert-or-ignore) before its
    suite. Caches can't carry it: each queue entry has its own ref.
+   - First stacked runs (2026-09-29): #2398's run found and merged the
+     run ahead's rows in 1 to 3 s, but none matched (#2398 moved the
+     core, so every key's runtime moved); #2396's skipped it because it
+     changed build/harness_epoch.tl, which runs `--all`. A payoff waits
+     on a stacked pair that moves neither core nor harness. Cost noted:
+     re-acknowledging a harness module alone runs the queue `--all`
+     (about 25 to 30 runner-minutes), by design.
 
 Expected after items 2 to 5: the queue about 8 min wall and 34
 runner-minutes, main about 1.5 min and 4, about 38 per landed change.
