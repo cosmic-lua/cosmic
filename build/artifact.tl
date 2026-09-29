@@ -9,11 +9,17 @@
 --- None of them writes a path; callers publish the returned bytes through
 --- the repository's existing atomic file writer.
 
-local Codec = require("cosmic.codec")
-local Hash = require("cosmic.hash")
 local core_image = require("build.core_image")
+local hashing = require("build.digest")
+local key_parts = require("build.key_parts")
 local launcher_template = require("build.launcher")
 local type raw_store = require("cosmic.internal.store")
+
+-- Hashed and spelled through build.digest and build.key_parts, not
+-- cosmic.hash or cosmic.codec: a verdict key that holds a program's
+-- identity (build.declared_key) turns on no library module outside the
+-- harness (build.test's `harness`).
+local sha256, hex = hashing.sha256, key_parts.hex
 
 local extra: any = select(2, ...)
 local trusted_store: raw_store | nil = nil
@@ -124,7 +130,7 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
       uname_arch = uname_arch,
       offset = 0,
       length = #image,
-      digest = Hash.sha256(image),
+      digest = sha256(image),
     }
   end
   if #targets == 0 or #targets > max_entries then
@@ -152,7 +158,7 @@ local function launcher(targets: {Target}, test_hooks: boolean,
         target.uname_os, target.uname_arch, target.uname_os, target.target_id,
         target.configuration_id, target.offset, target.offset // core_alignment,
         target.length,
-        Codec.hex(target.digest))
+        hex(target.digest))
     end
   end
   if #arms == 0 then
@@ -385,13 +391,13 @@ function artifact.keyed_head(head: string): string
     local keyed = image ~= nil and ("i" .. image) or ("b" .. digest)
     entries[#entries + 1] = string.pack(">I4I4", target, configuration) .. keyed
     arms[#arms + 1] = { string.format("cosmic_offset=%d; cosmic_block=%d; cosmic_length=%d; " ..
-      "cosmic_sha256=%s ", offset, offset // core_alignment, length, Codec.hex(digest)),
-      "cosmic_core=" .. Codec.hex(keyed) .. " " }
+      "cosmic_sha256=%s ", offset, offset // core_alignment, length, hex(digest)),
+      "cosmic_core=" .. hex(keyed) .. " " }
     was_end = offset + length
   end
   if not imaged then return head end
   for _, core in ipairs(cores) do
-    if Hash.sha256(core[1]) ~= core[2] then return head end
+    if sha256(core[1]) ~= core[2] then return head end
   end
   gaps[#gaps + 1] = head:sub(was_end + 1, manifest_offset)
   for _, gap in ipairs(gaps) do

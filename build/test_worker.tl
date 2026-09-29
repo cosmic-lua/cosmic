@@ -165,17 +165,16 @@ local HEADER <const> = "cosmic-test-report-2"
 --- rather than trusted to a walk of the `imports` table, which follows
 --- `local type` requires Teal erases and requires inside functions no
 --- worker calls.
--- TODO: drop build.filesystem_observations once the worker no longer
--- reports its reads, the observation log and core/observed.c removed
--- (plan 4.2); cosmic.hash and cosmic.codec, which it requires, once it
--- digests through a build.digest raw module (a row in core/store.c's
--- `raw_modules`, plan 2.7); and cosmic.errors, cosmic.sqlite and
--- cosmic.store once cosmic.test takes `trace` from
--- cosmic.internal.errors rather than cosmic.errors (plan 2.7).
+-- TODO: drop build.filesystem_observations, and build.digest, which it
+-- alone requires here, once the worker no longer reports its reads, the
+-- observation log and core/observed.c removed (plan 4.2); and
+-- cosmic.errors, cosmic.sqlite and cosmic.store once cosmic.test takes
+-- `trace` from cosmic.internal.errors rather than cosmic.errors
+-- (plan 2.7).
 worker.loads = {
-  "build.cache_names", "build.confine", "build.filesystem_observations", "build.key_parts",
-  "build.test_inputs", "build.test_worker", "build.this_program", "cmd.cosmic.main",
-  "cosmic.codec", "cosmic.coverage", "cosmic.env", "cosmic.errors", "cosmic.fs", "cosmic.hash",
+  "build.cache_names", "build.confine", "build.digest", "build.filesystem_observations",
+  "build.key_parts", "build.test_inputs", "build.test_worker", "build.this_program",
+  "cmd.cosmic.main", "cosmic.coverage", "cosmic.env", "cosmic.errors", "cosmic.fs",
   "cosmic.proc", "cosmic.removed", "cosmic.sqlite", "cosmic.store", "cosmic.test",
 }
 

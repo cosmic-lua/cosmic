@@ -139,17 +139,36 @@
 --- each hash by what `lstat` said of the file, its change time included,
 --- and o/build.db keeps them from run to run.
 
-local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local confine = require("build.confine")
 local core_image = require("build.core_image")
+local hashing = require("build.digest")
 local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
+
+-- Hashed and spelled through build.digest and build.key_parts, and
+-- timed through the binding, not cosmic.hash, cosmic.codec or
+-- cosmic.time: a key's value turns on no library module outside the
+-- harness (build.test's `harness`).
+local hex, hex_sha256 = key_parts.hex, hashing.hex_sha256
+
+--- The realtime clock, in nanoseconds since the epoch, straight from
+--- the binding.
+local function now_ns(): integer
+  local reading, trouble = sys.clock_gettime(sys.CLOCK_REALTIME)
+  if reading == nil then error("clock_gettime(CLOCK_REALTIME): " .. trouble, 2) end
+  return reading
+end
+
+--- The monotonic clock, in nanoseconds, straight from the binding.
+local function monotonic_ns(): integer
+  local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
+  if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2) end
+  return reading
+end
 
 local record declared_key
   --- build.key_parts', answered as this module's own.
@@ -336,8 +355,8 @@ local function contents(digests: declared_key.Digests, path: string, st: sys.Sta
   local data, _ = Fs.read(path)
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end
-  local hash = Hash.hex_sha256(data)
-  if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
+  local hash = hex_sha256(data)
+  if st.mtime * 1000000000 + st.mtime_ns < now_ns() - settle_ns then
     digests.hashed[path] = said .. "\0" .. hash
   end
   return hash
@@ -417,7 +436,7 @@ local function carried_digest(database: string): string | nil, string
         end
       end
       local _, _ = db:close()
-      if trouble == "" then answer = Hash.hex_sha256(table.concat(lines, "\n")) end
+      if trouble == "" then answer = hex_sha256(table.concat(lines, "\n")) end
     end
   end
   local _, _ = Fs.remove_tree(scratch)
@@ -438,7 +457,7 @@ local function remembered(digests: declared_key.Digests, name: string, st: sys.S
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end
   local hash = compute(data)
-  if st.mtime * 1000000000 + st.mtime_ns < Time.now_ns() - settle_ns then
+  if st.mtime * 1000000000 + st.mtime_ns < now_ns() - settle_ns then
     digests.hashed[name] = said .. "\0" .. hash
   else
     -- Too fresh to keep for a later run, but a program just rebuilt is
@@ -501,13 +520,13 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
       -- A core that carries debug information, as the checked core
       -- does, by its image (build.core_image).
       local image = core_image.digest(data)
-      return Hash.hex_sha256(image ~= nil and ("image\n" .. image) or ("file\n" .. data))
+      return hex_sha256(image ~= nil and ("image\n" .. image) or ("file\n" .. data))
     end
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.
-    return Hash.hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
-      Hash.hex_sha256(artifact.keyed_head(split.head)) .. "\n" .. carried) or ("unread\n" .. data))
+    return hex_sha256(carried ~= nil and ("artifact\n" .. tostring(split.host) .. "\n" ..
+      hex_sha256(artifact.keyed_head(split.head)) .. "\n" .. carried) or ("unread\n" .. data))
   end)
 end
 
@@ -528,13 +547,13 @@ function declared_key.runtime_identity(digests: declared_key.Digests, raw: strin
   if was ~= nil then said, image = was:match("^([^\0]*)\0(%x+)$") end
   if said == nil then
     local core, _ = artifact.trusted_core()
-    if core == nil or Codec.hex(core.digest) ~= host_image then return raw end
+    if core == nil or hex(core.digest) ~= host_image then return raw end
     local digest = core_image.digest(core.bytes)
     if digest == nil then
       said, image = "whole", host_image
     else
       said, image = string.format("image %d %d", core.target_id, core.configuration_id),
-        Codec.hex(digest)
+        hex(digest)
     end
     digests.hashed[name] = said .. "\0" .. image
   end
@@ -560,8 +579,8 @@ function declared_key.launcher_identity(digests: declared_key.Digests, path: str
   if st == nil or st.kind ~= "file" then return "missing" end
   return remembered(digests, "launcher-v2\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
-    if split == nil then return Hash.hex_sha256("file\n" .. data) end
-    return Hash.hex_sha256("head\n" .. tostring(split.host) .. "\n" ..
+    if split == nil then return hex_sha256("file\n" .. data) end
+    return hex_sha256("head\n" .. tostring(split.host) .. "\n" ..
       artifact.keyed_head(split.head))
   end)
 end
@@ -676,7 +695,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
     end
     walk(path, "", 0)
     if refused ~= nil then return "refused " .. refused end
-    return "dir " .. Hash.hex_sha256(table.concat(lines, "\n"))
+    return "dir " .. hex_sha256(table.concat(lines, "\n"))
   end)
 end
 
@@ -714,15 +733,15 @@ local inputs_of: function(declared_key.Digests, declared_key.Spec): string
 --- of the tree (`leads_out`).
 function declared_key.compute(digests: declared_key.Digests,
                               spec: declared_key.Spec): string | nil, string
-  local started = Time.monotonic_ns()
+  local started = monotonic_ns()
   -- All but the test's name is its module's, and the same for each of
   -- its tests: digested once, while a snapshot holds.
   local inputs = once(digests, "m\0" .. spec.group, function(): string
     return inputs_of(digests, spec)
   end)
-  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
   if inputs:sub(1, 8) == "refused " then return nil, inputs:sub(9) end
-  return Hash.hex_sha256(version .. "\n" .. declared_key.key_part("i", spec.id, "") .. "\n" ..
+  return hex_sha256(version .. "\n" .. declared_key.key_part("i", spec.id, "") .. "\n" ..
     inputs), ""
 end
 
@@ -861,7 +880,7 @@ end
 inputs_of = function(digests: declared_key.Digests, spec: declared_key.Spec): string
   local preimage, why = declared_key.preimage(digests, spec)
   if preimage == nil then return "refused " .. why end
-  return Hash.hex_sha256(preimage)
+  return hex_sha256(preimage)
 end
 
 --- The processor's features a core running on `machine` chooses code
@@ -1034,7 +1053,7 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 -- reached as a member of a group stands for a user not in it.
 function declared_key.host_identity(digests: declared_key.Digests,
                                     sources?: declared_key.HostSources): string
-  local started = Time.monotonic_ns()
+  local started = monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
   local system = system_of(from)
@@ -1083,8 +1102,8 @@ function declared_key.host_identity(digests: declared_key.Digests,
   local host_id = from.host_id
   if host_id == nil then host_id = sys.getenv(host_variable) or "" end
   lines[#lines + 1] = "host " .. host_id
-  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
+  return hex_sha256(table.concat(lines, "\n"))
 end
 
 --- What the host has installed, as the key of a module given the
@@ -1112,7 +1131,7 @@ end
 -- by the OS build alone, so a verdict stands across an update of them.
 function declared_key.system_identity(digests: declared_key.Digests,
                                       sources?: declared_key.HostSources): string
-  local started = Time.monotonic_ns()
+  local started = monotonic_ns()
   local from: declared_key.HostSources = sources or {}
   local lines: {string} = {}
   for _, path in ipairs(from.packages or package_databases) do
@@ -1130,8 +1149,8 @@ function declared_key.system_identity(digests: declared_key.Digests,
   local system_id = from.system_id
   if system_id == nil then system_id = sys.getenv(system_variable) or "" end
   lines[#lines + 1] = "system " .. system_id
-  digests.spent_ns = digests.spent_ns + (Time.monotonic_ns() - started)
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  digests.spent_ns = digests.spent_ns + (monotonic_ns() - started)
+  return hex_sha256(table.concat(lines, "\n"))
 end
 
 --- What of `host_identity` differs between runners of one CI leg, as
@@ -1159,7 +1178,7 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
     end
     parts[#parts + 1] = text or ""
   end
-  return Hash.hex_sha256(table.concat(parts)):sub(1, 16)
+  return hex_sha256(table.concat(parts)):sub(1, 16)
 end
 
 --- A digest of the modules `names` names, each by its name and what
@@ -1178,7 +1197,7 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
     end
   end
   table.sort(lines)
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  return hex_sha256(table.concat(lines, "\n"))
 end
 
 --- What this very program is, for a test that runs it: each of `paths`
@@ -1197,7 +1216,7 @@ function declared_key.program_identity(digests: declared_key.Digests, paths: {st
       "missing"
     ::continue::
   end
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  return hex_sha256(table.concat(lines, "\n"))
 end
 
 return declared_key

@@ -36,7 +36,7 @@ harness_epoch.acknowledged = {
 
   ["build.analyzer"] = "bae201b05376598e0533493225c02aeea745620f5483dfe7a51d907420f7065a",
 
-  ["build.artifact"] = "dfbd62c141aeb4056a79c168828a2c9d1b60feb79f2c6809bc46ba1b48538e92",
+  ["build.artifact"] = "f1a807f869ab0a6f20755397dfe26f8a4e4b4b57cacd33a17ae6cadfb726cb7d",
 
   ["build.ast"] = "7963f834f90d0fff826ac5d8ea5feee70bb277be5eb2e3ac353865902fb210ef",
 
@@ -60,11 +60,13 @@ harness_epoch.acknowledged = {
 
   ["build.confine"] = "eb933cd6fded6fb3dbab3ac4b94fd5a33b63f4e01478bb5315ee5c3f51a2f9d3",
 
-  ["build.core_image"] = "ea93af27983a200a82f9820f1964a52e8eacf04f4c29f438b7bacbbf2c38a684",
+  ["build.core_image"] = "34c93a6b28c550fb039fed57b17e399279b9b472f09650e825742c0b6a2a58aa",
 
-  ["build.declared_key"] = "4d145eda79974d5891d5fbd53de8add0aa899f680f7729491d7c24bffd42185e",
+  ["build.declared_key"] = "e3f79d072e18cd991608c7b5dac2398172bc459010d6ffe785fadc2afe8d24fd",
 
-  ["build.filesystem_observations"] = "58d83c23cef5c822327c7f74790a2903f46f78831f0240cf36c14739a2c614e2",
+  ["build.digest"] = "67bafa67ae11e35c36e9a2a0d35fcf0a9ace9a27ea40fe0194ae38dc132ccd67",
+
+  ["build.filesystem_observations"] = "39afd0160f16c2765e7825c0546531b82e680ea4207b06bfa8145cca6aa54665",
 
   ["build.inputs"] = "c8d331965b9a38ab42180191f0348bebc853105cefbd51139c990328141005ec",
 
@@ -76,13 +78,13 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "8ecbc0fe94947133dc8ddb0bec2869bcbfe9bbdf3269fd21d455677436ed2178",
 
-  ["build.test"] = "8d78cb4a02cfa2a1fa7553701c72b0c9547c8ef5729c471c5595ff327eaebbcb",
+  ["build.test"] = "1820c77b838a5197fe96fb3fc1155f3b3fbbe0ca658732dc2b0f939d6b70da85",
 
   ["build.test_inputs"] = "b380668f9c8195a51131864e8bdbe6fc3a8c769324a8198db0720ffd47e288a5",
 
   ["build.test_sandbox"] = "1fb51b14f2ef32a5aa30675d79f80b41a8f68a871125ef75264930b9991de868",
 
-  ["build.test_worker"] = "e9422bfb0f2db1f2ae8d9226945febd974cf6d3b0088d761cd9d517acd37d4f4",
+  ["build.test_worker"] = "5b023dc68f5d42f50bf6a3c35e9a103459e6a57d8522c8df3091b9fc5adcf395",
 
   ["build.this_program"] = "5d3b4cd43a514a2957d3bb6dae0827a3ca67245c473709cb644de5d61dc20a52",
 

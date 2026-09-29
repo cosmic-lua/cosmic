@@ -45,7 +45,12 @@
 --- would be its header alone, and bytes no header names are read, if at
 --- all, by what the image cannot answer for.
 
-local Hash = require("cosmic.hash")
+local hashing = require("build.digest")
+
+-- Hashed through build.digest, not cosmic.hash: a verdict key that
+-- holds a core's image (build.declared_key) turns on no library module
+-- outside the harness (build.test's `harness`).
+local sha256_hasher, hex_sha256 = hashing.sha256_hasher, hashing.hex_sha256
 
 local record core_image
 end
@@ -142,7 +147,7 @@ end
 function core_image.digest(bytes: string): string | nil
   local found = layout(bytes)
   if found == nil then return nil end
-  local hasher, _ = Hash.hasher("sha256")
+  local hasher, _ = sha256_hasher()
   if hasher == nil then return nil end
   -- e_shoff (at 40, 8 bytes) left out, then e_flags, e_ehsize,
   -- e_phentsize and e_phnum (48 to 57) kept, then e_shentsize, e_shnum
@@ -175,7 +180,7 @@ end
 --- instead, under a domain of its own.
 function core_image.runtime(image: string, target_id: integer, configuration_id: integer,
                             basis: string): string
-  return Hash.hex_sha256("cosmic-runtime-image-v1\0" ..
+  return hex_sha256("cosmic-runtime-image-v1\0" ..
     string.pack(">I4I4", target_id, configuration_id) .. image ..
     string.pack(">I8", #basis) .. basis)
 end
