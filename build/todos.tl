@@ -238,7 +238,7 @@ end
 --- `blame_all` under a `Child.guard`: SIGINT or SIGTERM ends every git
 --- still running, then this process when the guard closes, as
 --- `build.test` does for its workers. Unguarded when this process
---- already holds a guard (`todos.run` called in-process under one),
+--- already holds a guard (todos's `run` called in-process under one),
 --- where a signal acts as it would.
 local function blame_files(root: string,
                            lines: {string:{integer}},
@@ -523,7 +523,7 @@ end
 --- commit first, then a verdict line.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.todos` itself -- see `build.reboot.stale_exit`
-function todos.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
@@ -644,7 +644,7 @@ todos.spec = {
   name = "todos",
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
   tests = { "build.todos_test", "build.todos_git_test" },
-  run = function(argv: {integer:string}): integer return todos.run(argv) end,
+  run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

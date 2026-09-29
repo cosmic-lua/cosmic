@@ -717,7 +717,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- .. runtime`: nothing kept a raw space out of any of them -- `id` (a
   -- test's own "path name") carries one, and `runtime` is the runtime
   -- identity and the digest of the binary's data tables joined by
-  -- " tables " (`test.run`). Framed instead through the same
+  -- " tables " (test's `run`). Framed instead through the same
   -- `key_part` hex-encoding every read line already uses, so two distinct
   -- (id, module_key, runtime) triples can never concatenate to the same
   -- string regardless of what future caller or identity format hands them.
@@ -2928,7 +2928,7 @@ end
 --- when every test passed.
 --- @param argv the command line, which a stale tool re-enters after
 ---   rebuilding itself
-function test.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
@@ -3533,7 +3533,7 @@ function test.run(argv: {integer:string}): integer
     end
   end
   if #jobs > 0 then
-    -- Nil when this process already holds a guard: `test.run` called
+    -- Nil when this process already holds a guard: test's `run` called
     -- in-process under one (build.invoke runs verbs so, though not
     -- `test` today). The run then goes unguarded, a signal acting as it
     -- would, rather than taking the signals from the guard's owner.
@@ -3711,7 +3711,7 @@ test.spec = {
   name = "test",
   guide = "none: the verb is for the tree's own checks and is described by `cosmic help test`; the quickstart is about reading data and writing programs, not running a tree's suite",
   tests = { "build.test_test", "build.test_selection_test" },
-  run = function(argv: {integer:string}): integer return test.run(argv) end,
+  run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "exact module names, source paths and directories",
 }

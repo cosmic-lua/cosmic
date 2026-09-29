@@ -537,7 +537,7 @@ end
 local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...] [dataset...]"
 
 --- `cosmic refresh`'s command line: see `Cli.refresh`.
-function refresh.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local function finish(code: integer, detail: string): integer
     log:verdict("refresh", code == 0, detail .. ", " .. clock.took(started))
@@ -622,7 +622,7 @@ refresh.spec = {
   name = "refresh",
   guide = "none: refreshes the vendored CA bundle for the tree's maintainers, described by `cosmic help refresh`",
   tests = { "build.refresh_test", "build.refresh_tool_test", "build.refresh_store_test" },
-  run = function(argv: {integer:string}): integer return refresh.run(argv) end,
+  run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "the datasets to fetch",
   fresh = true,

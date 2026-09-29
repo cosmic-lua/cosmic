@@ -1116,7 +1116,7 @@ end
 --- `cosmic docs <query>`: prints what the query names and ends in a
 --- verdict line; fails when nothing matches. With no query, lists
 --- every module (`docs.index`).
-function docs.run(argv: {integer:string}): integer
+local function run(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("docs: " .. parse_trouble)
@@ -1255,7 +1255,7 @@ docs.spec = {
   name = "docs",
   guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
-  run = function(argv: {integer:string}): integer return docs.run(argv) end,
+  run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
   takes = "words to search for",
 }

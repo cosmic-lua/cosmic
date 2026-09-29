@@ -50,20 +50,6 @@ for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
-for _, name in ipairs({ "docs", "fix", "test" }) do
-  allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
-    "which its own module holds; kept a member because ci/fixtures/self_rebuild_test.tl " ..
-    "rewrites the line that declares it"
-end
--- TODO: let an exported `spec` count as a module's entry point in
--- `unearned`, as `run` and `main` do; then these four `run`s, and the
--- three above once the fixture rewrites another line, can be local and
--- their entries here go.
-for _, name in ipairs({ "bom", "embed", "refresh", "todos" }) do
-  allowed["build." .. name .. ".run"] = "reached through the verb's `spec` (build/verb_spec.tl), " ..
-    "which its own module holds; kept a member because a module that exports `run` is a " ..
-    "program's entry, and its other exports may be used by its test alone (see `unearned`)"
-end
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.work.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
@@ -159,7 +145,8 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 --- for a module only tests import (`build/docs_fixture.tl`, test
 --- support), a use from a test other than the module's own; and for a
 --- program in `build/`, `cmd/` or `eval/` -- a module whose record
---- exports `main` or `run`, which fetches, execs or reads the working
+--- exports `main`, `run` or `spec` (a verb's entry,
+--- build/verb_spec.tl), which fetches, execs or reads the working
 --- tree and prints -- a use from its own tests, which drive each step
 --- directly on a fixture. A module's own tests are `<module>_test`,
 --- `<module>_<topic>_test` and the tests in its directory when it is
@@ -205,7 +192,7 @@ local function unearned(db: Sqlite.Handle): {string} | nil, string
     "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
     "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
     "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
-    "AND p.symbol IN ('main', 'run'))))) " ..
+    "AND p.symbol IN ('main', 'run', 'spec'))))) " ..
     "ORDER BY d.file, d.line")
   if rows == nil then
     return nil, trouble
