@@ -123,13 +123,19 @@ local tables: {{string}} = {
 --- creation order, after every ordinary table. External-content mode
 --- (`content=`) keeps the searchable text in the content table itself
 --- rather than duplicating it into the index's own shadow storage.
+--- The documentation and example indexes stem their words (`porter`), so
+--- a search for "reading files" finds a comment that says "reads a
+--- file". `catalog_fts` keeps the plain tokenizer: an error message is
+--- matched as it is spelled, not as a query in words.
 local virtual_tables: {{string}} = {
   { "docs_fts",
-    "USING fts5(symbol, signature, text, content=docs, content_rowid=id)" },
+    "USING fts5(symbol, signature, text, content=docs, content_rowid=id, " ..
+    "tokenize='porter unicode61')" },
   { "catalog_fts",
     "USING fts5(message, text, content=catalog, content_rowid=id)" },
   { "examples_fts",
-    "USING fts5(name, text, source, content=examples, content_rowid=id)" },
+    "USING fts5(name, text, source, content=examples, content_rowid=id, " ..
+    "tokenize='porter unicode61')" },
 }
 
 --- The settings a reproducible file depends on. They are stated rather

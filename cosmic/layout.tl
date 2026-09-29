@@ -1,6 +1,7 @@
---- Where a project's files go so cosmic finds them: tests in
---- `<name>_test.tl`, examples in `<name>_example.tl`, and modules named
---- by their path from the project root. Each field below is one
+--- Where a project's files go so cosmic finds them. To write a test, add a
+--- `<name>_test.tl` file: tests live in `<name>_test.tl`, examples in
+--- `<name>_example.tl`, and modules are named by their path from the
+--- project root. Each field below is one
 --- convention. A field is named for the file it shapes (`tests`), not
 --- for a verb: `cosmic docs test` is `cosmic.cli`'s, the verb.
 local record Layout
