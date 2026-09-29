@@ -1324,17 +1324,29 @@ end
 --- its own descendants -- a process group it started, say, which its
 --- own group's SIGKILL never reached -- and that this process adopted
 --- as their subreaper. Each is sent SIGKILL, with its group when it
---- leads one, until none is left or a second has passed. Returns how
---- many were ended. Only a Linux process that adopts orphans can find
---- them; elsewhere this returns 0 and they are init's.
-function Child.end_strays(): integer
+--- leads one, until none is left or a second has passed; a stray in
+--- one of the process groups `spared` names is left running. Returns
+--- how many were ended. Only a Linux process that adopts orphans can
+--- find them; elsewhere this returns 0 and they are init's.
+function Child.end_strays(spared?: {integer}): integer
   if not adopting then return 0 end
+  local groups: {integer:boolean} = {}
+  for _, group in ipairs(spared or {}) do groups[group] = true end
   local ended = 0
   local seen: {integer:boolean} = {}
   local deadline = now() + KILL_REAP_NS
   while true do
     collect()
     local found = strays()
+    if found ~= nil and next(groups) ~= nil then
+      local ending: {integer} = {}
+      for _, pid in ipairs(found) do
+        -- Not answered: ended as before.
+        local group, _ = sys.getpgid(pid)
+        if group == nil or not groups[group] then ending[#ending + 1] = pid end
+      end
+      found = ending
+    end
     if found == nil or #found == 0 or now() >= deadline then return ended end
     for _, pid in ipairs(found) do
       local _, _ = sys.kill(-pid, sys.SIGKILL)
