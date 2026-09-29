@@ -22,6 +22,7 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local key_parts = require("build.key_parts")
 local observations = require("build.filesystem_observations")
+local refusals = require("build.refusals")
 local test_inputs = require("build.test_inputs")
 
 --- The store's raw table, which the searcher hands this module as its
@@ -46,6 +47,10 @@ local record worker
     elapsed_ns: integer
     load_reads: {observations.Observation}
     test_reads: {observations.Observation}
+    --- What a sandboxed worker's module load and test were refused
+    --- (build.refusals), as the worker saw each path; none for one
+    --- unsandboxed.
+    refusals: {observations.Observation}
     load_hits: Coverage.Hits
     test_hits: Coverage.Hits
     --- The name of every module in the worker's `package.loaded` once
@@ -180,7 +185,7 @@ local HEADER <const> = "cosmic-test-report-2"
 -- observation log and core/observed.c removed (plan 4.2).
 worker.loads = {
   "build.cache_names", "build.confine", "build.digest", "build.filesystem_observations",
-  "build.key_parts", "build.test_inputs", "build.test_worker", "build.this_program",
+  "build.key_parts", "build.refusals", "build.test_inputs", "build.test_worker", "build.this_program",
   "cmd.cosmic.main", "cosmic.coverage", "cosmic.env", "cosmic.fs", "cosmic.proc",
   "cosmic.removed", "cosmic.test",
 }
@@ -285,6 +290,7 @@ function worker.encode(report: worker.Report): string
   }
   encode_reads(lines, "load-read", report.load_reads)
   encode_reads(lines, "test-read", report.test_reads)
+  encode_reads(lines, "refused", report.refusals or {})
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
   for _, name in ipairs(report.modules or {}) do lines[#lines + 1] = "module " .. hex(name) end
@@ -297,7 +303,8 @@ function worker.decode(text: string): worker.Report | nil, string
   if text == nil or text == "" then return nil, "no report" end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
-    load_reads = {}, test_reads = {}, load_hits = {}, test_hits = {}, modules = {},
+    load_reads = {}, test_reads = {}, refusals = {}, load_hits = {}, test_hits = {},
+    modules = {},
   }
   local first = true
   local finished = false
@@ -318,14 +325,15 @@ function worker.decode(text: string): worker.Report | nil, string
         report.elapsed_ns = math.tointeger(tonumber(rest)) or 0
       elseif tag == "message" then
         report.message = unhex(rest) or ""
-      elseif tag == "load-read" or tag == "test-read" then
+      elseif tag == "load-read" or tag == "test-read" or tag == "refused" then
         local kind, path, answer = rest:match("^(.) ([0-9a-f]*) ([0-9a-f]*)$")
         local decoded_path = path ~= nil and unhex(path) or nil
         local decoded_answer = answer ~= nil and unhex(answer) or nil
         if decoded_path == nil or decoded_answer == nil then
           return nil, "a malformed read: " .. line
         end
-        local into = tag == "load-read" and report.load_reads or report.test_reads
+        local into = tag == "load-read" and report.load_reads or
+          tag == "test-read" and report.test_reads or report.refusals
         into[#into + 1] = { kind = kind, path = decoded_path, answer = decoded_answer }
       elseif tag == "load-hit" or tag == "test-hit" then
         local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
@@ -844,10 +852,15 @@ function worker.run(argv: {integer:string}): integer
   -- alone, not for the worker's own work around them; the store's is
   -- up from here until the process ends (`hold_store`).
   if hold ~= nil then hold() end
+  -- Sandboxed, what the module's load and its test are refused is what
+  -- they read undeclared (build.refusals): for the audit, and the
+  -- message of a test that fails.
+  local recording = held_paths ~= "" and refusals.start(root .. "/o/cosmic.db") or nil
   local captured = observations.capture(function(): any
     return held(function(): any return require(module_path) end)
   end, resolving)
   runner.loaded = true
+  if recording ~= nil then recording.watch() end
   local loaded, produced, load_reads = captured.ok, captured.produced, captured.reads
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
@@ -887,6 +900,7 @@ function worker.run(argv: {integer:string}): integer
       report.elapsed_ns = finished - started
     end
   end
+  if recording ~= nil then report.refusals = recording.stop() end
   if children ~= nil then
     local into = report.test_hits or report.load_hits
     child_hits(children, into or {})
