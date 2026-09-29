@@ -1248,10 +1248,7 @@ end
 --- The `docs` verb as `build/verb_list.tl` lists it.
 docs.spec = {
   name = "docs",
-  -- TODO: give `cosmic docs` a quickstart section of its own (looking a
-  -- symbol up, then `cosmic uses` it) and name it here: "below cosmic.fs"
-  -- mentions it only as the way to list cosmic.sys's calls.
-  guide = "below cosmic.fs",
+  guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
   run = function(argv: {integer:string}): integer return docs.run(argv) end,
   bare = false,
@@ -1261,7 +1258,7 @@ docs.spec = {
 --- The `uses` verb as `build/verb_list.tl` lists it.
 docs.uses_spec = {
   name = "uses",
-  guide = "none: answers where a symbol is referred to, a lookup the quickstart does not walk through; `cosmic help uses` has it",
+  guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
   run = run_uses,
   bare = false,

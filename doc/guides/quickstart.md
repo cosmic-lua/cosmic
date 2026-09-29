@@ -173,6 +173,31 @@ a local `2026-03-08T02:30` (read in `--from`; a gap or overlap resolved by
 `--disambiguate`) or `@<epoch>`. `--json` prints the fields. `cosmic help
 time` has the rest.
 
+## looking up a symbol and where it is used
+
+`cosmic docs cosmic.hash` lists what a module offers: each function's
+signature, with how many places use it and how many examples it has, ahead
+of the rest of its prose. `cosmic docs hex_sha256` (or `Hash.hex_sha256`)
+shows one symbol, with its doc comment and its examples. Words search the
+documentation instead, so `cosmic docs sha256 hex` finds the same function
+when you do not know its name; with no argument, `cosmic docs` lists every
+module. Then `cosmic uses Hash.hex_sha256` prints each `file:line` that
+refers to it, to see how others call it before you do:
+
+    $ cosmic docs cosmic.hash
+    cosmic.hash (cosmic/hash.tl)
+      Content hashes and message authentication, over the vendored
+      mbedtls.
+    ...
+      function Hash.hex_sha256(data: string): string  (91 uses, 2 examples)
+    ...
+    $ cosmic uses Hash.hex_sha256
+    build/artifact_test.tl:40: cosmic.hash hex_sha256
+    build/bom.tl:210: cosmic.hash hex_sha256
+    ...
+
+`cosmic help docs` and `cosmic help uses` have the rest.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function
