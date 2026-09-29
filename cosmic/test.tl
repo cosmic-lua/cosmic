@@ -1,4 +1,6 @@
---- What a test module tells `cosmic test` about itself: what its tests
+--- To write a test, put top-level `local function test_*` functions in a
+--- `<name>_test.tl` file (`cosmic.layout`). This module is what such a
+--- module tells `cosmic test` about itself: what its tests
 --- read beyond their default inputs, with `needs`:
 ---
 ---     local Test = require("cosmic.test")

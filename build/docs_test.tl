@@ -5,6 +5,7 @@ local docs = require("build.docs")
 local sys = require("cosmic.sys")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local symbols = require("build.symbols")
 
 --- Whether the tree is cosmic's own. No test here reads the binary's
 --- own databases, or the tree's o/cosmic.db, whole: `docs.databases`
@@ -646,6 +647,39 @@ local function test_searches_the_documentation_for_words(dir: string)
   assert(#one == 1 and one[1].source_symbol == "Fs.write")
   local none = assert(docs.lookup(view({ db }), "nothing_like_this"))
   assert(#none == 0)
+end
+
+--- A search stems its words, so "writing" finds a comment that says
+--- "Writes". When no member carries every word, the closest ones follow:
+--- those with at least half of them, and never on one word alone.
+local function test_a_search_stems_and_offers_the_closest_when_none_has_every_word(dir: string)
+  local db = built(dir, fs_tree())
+  local stemmed = assert(docs.lookup(view({ db }), "writing"))
+  assert(stemmed[1].source_symbol == "Fs.write", tostring(stemmed[1].source_symbol))
+  local some = assert(docs.lookup(view({ db }), "create parent unheard whole"))
+  assert(some.closest and not some.exact)
+  assert(some[1].source_symbol == "Fs.write", some[1].source_symbol)
+  local seen: {string:boolean} = {}
+  for _, entry in ipairs(some) do
+    assert(not seen[entry.source_symbol], "repeated " .. entry.source_symbol)
+    seen[entry.source_symbol] = true
+  end
+  assert(seen["Fs.read"] == nil, "one word of four is not enough")
+  local junk = assert(docs.lookup(view({ db }), "unheard whole"))
+  assert(#junk == 0, "one of two words is not enough")
+  local whole = assert(docs.lookup(view({ db }), "whole file"))
+  assert(whole[1].symbol == "read", "a member comes before its module: " .. whole[1].symbol)
+end
+
+--- A name counts as documented by an example only when the example
+--- spells it whole: the index stems words, so `Fs.reads` reaches an
+--- example of `Fs.read`, which the compiler's hint must not follow.
+local function test_a_misspelt_name_is_not_a_known_example(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("load", "Loads a file.", "  local _ = Fs.read(\"x\")"),
+  }))
+  assert(symbols.has_example_query({ db }, { false }, "Fs.read"))
+  assert(not symbols.has_example_query({ db }, { false }, "Fs.reads"))
 end
 
 --- A qualified name that names nothing answers from its qualifier:
@@ -1812,4 +1846,78 @@ local function test_a_public_source_lists_and_finds_a_user_guide(_: string)
   local lines = table.concat(assert(docs.render(public, found[1])), "\n")
   assert(lines:find("## first step", 1, true) ~= nil, lines)
   assert(#assert(docs.lookup(public, "portable-runtime")) == 0, "an internal guide is public")
+end
+
+--- The helpers an example carries show between its requires and its
+--- function, on the page of a symbol it calls and on another's, and only
+--- the function counts toward "the shorter" in the ranking.
+local function test_an_example_page_shows_its_helpers_above_the_function(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "local function path(): string",
+      "  return \"x\"",
+      "end",
+      "",
+      "--- Reads a file back.",
+      "function Example.read()",
+      "  print(Fs.read(path()))",
+      "end",
+      "",
+      "return Example"),
+  }))
+  local looked = view({ db })
+  local page = table.concat(assert(docs.render(looked,
+    assert(docs.lookup(looked, "Fs.read"))[1])), "\n")
+  assert(page:find('    local Fs = require("cosmic.fs")\n\n    local function path(): string\n' ..
+    '      return "x"\n    end\n\n    function Example.read()', 1, true), page)
+end
+
+--- With a top-level call also carried, a page of a symbol the call is
+--- not about keeps the helpers and drops the call.
+local function test_helpers_stay_when_the_calls_are_dropped(dir: string)
+  local db = built(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "",
+      "local record Thing",
+      "end",
+      "",
+      "--- Declares something.",
+      "function Thing.declare(value: string)",
+      "end",
+      "",
+      "--- Does another thing.",
+      "function Thing.other()",
+      "end",
+      "",
+      "return Thing"),
+    ["cosmic/thing_example.tl"] = source(
+      "local Thing = require(\"cosmic.thing\")",
+      "",
+      "Thing.declare{ value = \"x\" }",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "local function again()",
+      "  Thing.other()",
+      "end",
+      "",
+      "--- The call at the top.",
+      "function Example.first()",
+      "  again()",
+      "end",
+      "",
+      "return Example"),
+  })
+  local looked = view({ db })
+  local other = table.concat(assert(docs.render(looked,
+    assert(docs.lookup(looked, "Thing.other"))[1])), "\n")
+  assert(not other:find("Thing.declare", 1, true), other)
+  assert(other:find('    local Thing = require("cosmic.thing")\n\n    local function again()', 1, true), other)
 end

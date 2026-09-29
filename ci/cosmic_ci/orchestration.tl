@@ -21,7 +21,11 @@ local record Orchestration
   harness_moved: function(root: string, base: string): boolean, string
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string})
-  fixture: function(env: {string:string}, tmpdir: string, compiles: string): {string:string}
+  sandboxed_fixtures: {string:boolean}
+  fixture: function(env: {string:string}, tmpdir: string, compiles: string,
+    verdicts?: string): {string:string}
+  fixture_run: function(source: string, env: {string:string}, tmpdir: string,
+    compiles: string): {string:string}
   forget_run: function(env: {string:string})
   suite_run: function(extra?: {string:string}): {string}, {string:string}
   suite_verdicts: function(env: {string:string}, name: string): string
@@ -428,7 +432,12 @@ end
 -- direct children inside them have the shorter bounds defined by fixture.tl.
 local product_test_timeout_ms <const> = 60000
 local format_test_timeout_ms <const> = 300000
-local launcher_test_timeout_ms <const> = 180000
+-- The sandboxed fixtures (`sandboxed_fixtures`) take 6 to 28 s where
+-- they run, under ci/run-local on a loaded four-core host (launcher 6 s,
+-- runtime 10 s, identity 28 s), and 4 to 6 s where their verdicts stand;
+-- each bound is several times that.
+local launcher_test_timeout_ms <const> = 60000
+local launcher_noexec_test_timeout_ms <const> = 60000
 local self_rebuild_test_timeout_ms <const> = 180000
 -- Each self-rebuild test rebuilds the tool (about 20 s, several at once),
 -- past the runner's default 30 s per test on a loaded machine.
@@ -451,7 +460,7 @@ local fixed_point_per_test_timeout_s <const> = "240"
 -- without the core's C compile they were sized for (about 110 s of it).
 local self_driven_test_timeout_ms <const> = 600000
 local self_driven_per_test_timeout_s <const> = "480"
-local runtime_test_timeout_ms <const> = 180000
+local runtime_test_timeout_ms <const> = 90000
 -- The sandbox probe starts six trivial children; its bound is the
 -- tree's own load, which a booted tree has already paid.
 local sandbox_probe_timeout_ms <const> = 60000
@@ -505,18 +514,70 @@ local function fixture_project(c: Context, work: string): string
   return project
 end
 
---- `env`, an operation's environment, made a fixture's `cosmic test`'s:
---- its temporary files under `tmpdir`, its workers unsandboxed, and no
---- verdict but one it reaches itself.
+--- The fixtures (ci/fixtures/<name>_test.tl) whose workers run
+--- sandboxed, where the leg sandboxes its suites, and whose verdicts are
+--- shared (`fixture`). Each declares with `Test.needs` every path it
+--- reads by the variable that says where it is -- the product
+--- (COSMIC_FIXTURE_PRODUCT), the runtime setup's directory
+--- (COSMIC_FIXTURE_RUNTIME), the launcher contract's
+--- (COSMIC_FIXTURE_LAUNCHER) or the format decoders'
+--- (COSMIC_FIXTURE_FORMAT) -- so its key holds what each holds, not
+--- where it is. Each declares the product's `cosmic` among them, which
+--- `fixture_test` gives it: the bytes the leg attests (`phase_attest`)
+--- are in every verdict's key, so no fixture stands on a verdict another
+--- product reached (orchestration_test.tl holds each to it).
 ---
---- A fixture reads the candidate and its products where variables of
---- `env` say (COSMIC_FIXTURE_*), which no verdict's key holds. A verdict
---- another run reached (of another commit's products, in a leg's
---- restored cache, COSMIC_VERDICT_CACHE) would stand for this one's, so
---- a fixture neither reads nor writes the shared verdicts, whatever the
+-- TODO: once ci/cosmic-driver.pin names a release carrying #2364's
+-- system-path walk and #2403's tree key part, these fixtures' verdicts
+-- hold what they do not yet: each declares `system`, which the pinned
+-- driver keys only by the host's package database, os-release,
+-- COSMIC_SYSTEM_ID and COSMIC_HOST_ID -- not by what the system's paths
+-- hold, so a /bin/sh or uname changed under the same packages and image
+-- moves no fixture's key -- and the macOS leg's workers, which no
+-- sandbox holds (COSMIC_TEST_KEY=declared), are keyed by no place of the
+-- fixture project, so a verdict that turned on its path would stand in a
+-- project elsewhere. Then the system paths are keyed by what they hold,
+-- and an unenforced worker's verdict by the project's path.
+---
+--- The rest run unsandboxed, as before, and share nothing: `format`,
+--- `self_rebuild`, `fixed_point` and `self_driven` write a checkout and
+--- compile it cold, with zig's caches and the host's toolchain, and
+--- `launcher_noexec` needs the host's own noexec mount
+--- (launcher_noexec_test.tl's TODO).
+Orchestration.sandboxed_fixtures = {
+  product = true, runtime = true, launcher = true, identity = true,
+}
+
+--- `env`, an operation's environment, made a fixture's `cosmic test`'s:
+--- its temporary files under `tmpdir`.
+---
+--- Given `verdicts`, a fixture of `sandboxed_fixtures`: its workers run
+--- as the leg's suites' do -- sandboxed where the leg requires it
+--- (COSMIC_CI_REQUIRE_SANDBOX, `environment`), keyed by what they declare
+--- where it keys by declaration (COSMIC_CI_DECLARED_KEYS) -- and it
+--- stands on and keeps the verdicts of the file `verdicts` names,
+--- `fixtures.db` beside the leg's `verdicts.db` (`suite_verdicts`),
+--- which ci.yml restores and saves with them, and stands on none another
+--- run reached where the leg's suites do not (`stands`). Its project is
+--- made afresh each run (`fixture_project`), so what stands is only what
+--- the shared file holds, under a key that holds what the fixture
+--- declares it reads, the product among them.
+-- TODO: hand a merge-queue run's fixtures.db to the run behind it, as
+-- its verdicts.db is (ci.yml's "keep the suite's verdicts for the run
+-- behind in the queue", `verdicts-merge`): that upload is made once the
+-- native suite passes, before the fixtures run, so the run behind
+-- restores main's fixtures.db alone, and a fixture stands there only
+-- where neither change ahead moved the product. Wants a second upload
+-- after the fixtures, and a wait for it before the run behind's.
+---
+--- Without, a fixture that writes a checkout or reads the host beyond
+--- what a sandbox gives: its workers unsandboxed, and no verdict but one
+--- it reaches itself. It reads the candidate and its products where
+--- variables of `env` say (COSMIC_FIXTURE_*), which no key of its holds,
+--- so it neither reads nor writes the shared verdicts, whatever the
 --- event. Nor can a verdict of its own stand: its project, and the o/
---- under it, is made afresh for each run (`fixture_project`), and it
---- names the file it runs, so none is assumed.
+--- under it, is made afresh for each run, and it names the file it
+--- runs, so none is assumed.
 ---
 --- Its compiles and parses (COSMIC_BUILD_CACHE) are the file `compiles`
 --- names, which the leg's fixtures share with one another and with
@@ -529,28 +590,37 @@ end
 --- what the tool built from it compiles again (fixed_point_test,
 --- self_rebuild_test), it must compile and parse.
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
-    compiles: string): {string:string}
+    compiles: string, verdicts?: string): {string:string}
   env.TMPDIR = tmpdir
-  -- Unsandboxed: a fixture reads and runs the candidate and its
-  -- products where the host has them, which its environment names
-  -- (COSMIC_FIXTURE_*), and a sandboxed worker would be given none of.
-  -- TODO: run the fixtures sandboxed, and drop COSMIC_TEST_SANDBOX=0
-  -- here, once each fixture declares in its `Test.needs` the paths it
-  -- reads by the variable that says where they are (host
-  -- "$COSMIC_FIXTURE_ROOT/...", _PRODUCT, _RUNTIME) and `system` where
-  -- it starts the system's programs (/usr/bin/env, sh), which a
-  -- sandboxed worker is given none of otherwise. The pinned driver
-  -- carries both host paths a variable names and `system`; no fixture
-  -- declares either yet, and none has been run sandboxed.
+  env.COSMIC_BUILD_CACHE = compiles
+  if verdicts ~= nil then
+    env.COSMIC_VERDICT_CACHE = verdicts
+    Orchestration.shares(env)
+    return env
+  end
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_BUILD_CACHE = compiles
   env.COSMIC_TEST_NO_SHARED = "1"
   -- Nor is it keyed by what it declares, on a leg whose suites are
-  -- (COSMIC_CI_DECLARED_KEYS): it shares no verdict for a key to name,
-  -- and what it declares is not yet what it reads (the TODO above).
+  -- (COSMIC_CI_DECLARED_KEYS): it shares no verdict for a key to name.
   env.COSMIC_TEST_KEY = nil
   return env
+end
+
+--- The environment the fixture ci/fixtures/<source>_test.tl runs in,
+--- made of `env`, the operation's (`environment`, its COSMIC_FIXTURE_*
+--- among it), by `fixture`: one of `sandboxed_fixtures` keeps its
+--- verdicts in `fixtures.db` beside the file COSMIC_VERDICT_CACHE of
+--- `env` names (`suite_verdicts`), and must be given the product its
+--- verdicts are keyed by (COSMIC_FIXTURE_PRODUCT); any other shares none.
+function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
+    compiles: string): {string:string}
+  local sandboxed = Orchestration.sandboxed_fixtures[source] == true
+  assert(not sandboxed or (env.COSMIC_FIXTURE_PRODUCT or "") ~= "",
+    "a sandboxed fixture is given the product its verdict is keyed by: " .. source)
+  local verdicts: string | nil = nil
+  if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
+  return Orchestration.fixture(env, tmpdir, compiles, verdicts)
 end
 
 local function fixture_test(c: Context, work: string, name: string,
@@ -561,12 +631,12 @@ local function fixture_test(c: Context, work: string, name: string,
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics); mkdir(diagnostics .. "/tmp")
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
-  -- No --census: a fixture's run is keyed by nothing (`fixture`), so
-  -- there are no key parts to say.
+  -- No --census: a fixture's run holds too few tests for its key parts
+  -- to say much, and an unsandboxed one's are keyed by nothing.
   local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
-    Orchestration.fixture(environment(extra), diagnostics .. "/tmp",
+    Orchestration.fixture_run(source, environment(extra), diagnostics .. "/tmp",
       work .. "/fixture-compiles.db"))
   record_suite(c, "fixture " .. name, status, out)
   return status
@@ -1075,7 +1145,7 @@ local function phase_assemble(p: PlatformContext): integer
     product_test_timeout_ms, {
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_FIXTURE_TARGET = target,
-    COSMIC_FIXTURE_DECODER = contract .. "/format/format-test-" .. target,
+    COSMIC_FIXTURE_FORMAT = contract .. "/format",
     COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
   }); if s ~= 0 then return s end
   s = checked(c, "selected format mutation", { contract .. "/format/format-test-" .. target, contract .. "/format/program" }); if s ~= 0 then return s end
@@ -1162,15 +1232,32 @@ local function phase_portable_boundary(p: PlatformContext): integer
   return 0
 end
 
+--- The candidate's tracked source, unpacked afresh at `destination`
+--- from the `git archive` assemble made of it (`archive`, beside
+--- `p.fresh`, where the portable suite has written its o/ since): the
+--- tree a fixture that boots or rebuilds one copies
+--- (COSMIC_FIXTURE_SOURCE, `Fixture.source_tree`), the one the product
+--- was booted from.
+local function fixture_source(p: PlatformContext, destination: string): integer
+  return step(p.operation, "fixture source extract", function(): boolean, string
+    assert(Fs.remove_tree(destination))
+    mkdir(destination)
+    local written, trouble = Archive.extract(p.fresh .. ".tar", destination,
+      { links = "create" })
+    return written ~= nil, trouble
+  end)
+end
+
 local function phase_fixtures(p: PlatformContext): integer
   local c = p.operation
-  local root = p.root
   local target = p.target
   local work = p.work
   local product = p.product
   local contract = p.contract
   local runtime = p.runtime
-  local s = 0
+  local source = work .. "/fixture-source"
+  local s = fixture_source(p, source)
+  if s ~= 0 then return s end
   -- What the self-rebuild regression finds -- a rename, an unlink or a
   -- lock gone wrong under a running tool -- shows on glibc Linux and on
   -- macOS's file system, so a gating run runs it on those two legs, and
@@ -1182,7 +1269,7 @@ local function phase_fixtures(p: PlatformContext): integer
   else
     s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
       self_rebuild_test_timeout_ms, {
-      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_RUNTIME = runtime,
       COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
     }); if s ~= 0 then return s end
@@ -1200,32 +1287,36 @@ local function phase_fixtures(p: PlatformContext): integer
   else
     s = fixture_test(c, work, "fixed-point-regression", "fixed_point",
       fixed_point_test_timeout_ms, {
-      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
     }); if s ~= 0 then return s end
   end
   s = fixture_test(c, work, "self-driven-regression", "self_driven",
     self_driven_test_timeout_ms, {
-    COSMIC_FIXTURE_ROOT = root,
+    COSMIC_FIXTURE_SOURCE = source,
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
     runtime_test_timeout_ms, {
-    COSMIC_FIXTURE_ROOT = root,
+    COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_FIXTURE_RUNTIME = runtime,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "launcher-regression", "launcher",
     launcher_test_timeout_ms, {
-    COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher/launcher.test",
-    COSMIC_FIXTURE_LAUNCHER_SOCKET = contract ..
-      "/launcher/payloads/socket-" .. target,
+    COSMIC_FIXTURE_PRODUCT = product,
+    COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
+    COSMIC_FIXTURE_TARGET = target,
+  }); if s ~= 0 then return s end
+  s = fixture_test(c, work, "launcher-noexec-regression", "launcher_noexec",
+    launcher_noexec_test_timeout_ms, {
+    COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
     COSMIC_FIXTURE_TARGET = target,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "identity-regression", "identity",
     identity_test_timeout_ms, {
-    COSMIC_FIXTURE_ROOT = root,
+    COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_FIXTURE_RUNTIME = runtime,
     COSMIC_TEST_TIMEOUT = identity_per_test_timeout_s,
   }); if s ~= 0 then return s end

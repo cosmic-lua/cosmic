@@ -35,6 +35,22 @@ local function test_a_worker_is_given_only_the_variables_it_may_read()
   assert(all.UNDECLARED == "u" and all.TMPDIR == test_sandbox.scratch)
 end
 
+--- Run unsandboxed, a worker that declares the `bootstrap` cache has
+--- the host's cores, not the sandbox's own, whose path no host has: a
+--- compiler build/c/init.tl confines to them would not start.
+local function test_an_unenforced_worker_has_the_hosts_cores()
+  local inputs = effective({})
+  inputs.caches = { "bootstrap" }
+  local sandboxed = test_sandbox.environment({ PATH = "/bin" }, inputs)
+  assert(sandboxed.COSMIC_PORTABLE_CACHE ~= nil)
+  local env = test_sandbox.unenforced_environment({ PATH = "/bin" }, inputs, "/host/scratch")
+  assert(env.TMPDIR == "/host/scratch" and env.COSMIC_PORTABLE_CACHE == nil,
+    tostring(env.COSMIC_PORTABLE_CACHE))
+  local named = test_sandbox.unenforced_environment({ COSMIC_PORTABLE_CACHE = "/host/cores" },
+    inputs, "/host/scratch")
+  assert(named.COSMIC_PORTABLE_CACHE == "/host/cores", tostring(named.COSMIC_PORTABLE_CACHE))
+end
+
 --- What a sandboxed worker reports it read at /tree and its scratch
 --- directory (`test_sandbox.scratch`) is put back
 --- where the host has the tree and the scratch directory, in the path
