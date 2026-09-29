@@ -4,6 +4,7 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local c = require("build.c")
+local confine = require("build.confine")
 local observations = require("build.filesystem_observations")
 local rules = require("build.c.rules")
 
@@ -634,10 +635,13 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
   none(only(outcomes[1].findings, "single-file"))
 end
 
---- Checking C starts its compilers as declared processes: what names the
---- pinned zig is read, and every header a compiler read but the pinned
---- zig's own -- one beside the file included -- so a test of it stands on
---- them, and a header's change runs it again.
+--- Checking C starts its compilers held to what they are given (build.confine's
+--- `declaring`): what names the pinned zig is read, and every header a
+--- compiler read but the pinned zig's own -- one beside the file
+--- included -- so a test of it stands on them, and a header's change
+--- runs it again; and each compiler is heard of by what it was given,
+--- never as a process nothing holds, but where the kernel could confine
+--- none.
 local function test_checking_reads_what_the_compiler_read(tmp: string)
   assert(Fs.write(tmp .. "/extra.h", "int extra(void);\n"))
   local zig_cache = assert(Fs.cache_path("zig"))
@@ -648,20 +652,33 @@ local function test_checking_reads_what_the_compiler_read(tmp: string)
   local read: {string: boolean} = {}
   local listed: {string: boolean} = {}
   local whole_environment = false
-  local started: {string} = {}
+  local given = 0
+  local unheld: {string} = {}
   for _, observation in ipairs(run.reads) do
     if observation.kind == "o" then read[observation.path] = true end
     if observation.kind == "d" then listed[observation.path] = true end
     if observation.kind == "e" and observation.path == "\0environ" then
       whole_environment = true
     end
-    if observation.kind == "h" or observation.kind == "p" or observation.kind == "x" then
-      started[#started + 1] = observation.kind
+    if observation.kind == "u" then
+      given = given + 1
+    else
+      -- The compiler is given the pinned zig's install; the check reads
+      -- nothing of it.
+      assert(not Fs.within(observation.path, zig_cache), observation.path)
     end
-    assert(not Fs.within(observation.path, zig_cache), observation.path)
+    if observation.kind == "p" or observation.kind == "x" then
+      unheld[#unheld + 1] = observation.kind .. " " .. observation.path
+    end
   end
-  assert(#started > 0, "no compiler was started")
-  for _, kind in ipairs(started) do assert(kind == "h", table.concat(started, " ")) end
+  if #unheld > 0 then
+    -- Only a worker that runs in no sandbox, where the kernel can give
+    -- its compilers none, starts them unconfined.
+    assert(not confine.held_to_sandbox(), table.concat(unheld, "\n"))
+    for _, line in ipairs(unheld) do assert(line:sub(1, 2) == "p ", line) end
+  else
+    assert(given > 0, "no compiler was started")
+  end
   for _, path in ipairs({ root .. "/bin/zig.pin", root .. "/build/zig.tl",
                           root .. "/core/guard.h", tmp .. "/extra.h" }) do
     assert(read[path], path .. " was not read")
@@ -691,4 +708,27 @@ local function test_an_escaped_header_path_is_read_as_itself(tmp: string)
     if observation.kind == "o" and observation.path == tmp .. "/d $x#y/h h.h" then read = true end
   end
   assert(read, "the header was not read under its own name")
+end
+
+--- A compiler reads nothing it was not given: a header named by a path
+--- of the tree that neither this module declares nor the check gives
+--- its compilers -- AGENTS.md, in every checkout -- is not found, held
+--- by the worker's sandbox or, in a worker that runs in none, by the
+--- root of its own the check confines it to.
+local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
+  assert(Fs.write(tmp .. "/case.c", '#include "' .. root .. '/AGENTS.md"\n'))
+  local outcome: c.Outcome = nil
+  local run = observations.call(function()
+    outcome = c.check(root, { "case.c" }, tmp)[1]
+  end, nil)
+  assert(run.passed, run.message)
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "p" then
+      -- The kernel could confine none: the compiler read what it found.
+      assert(not confine.held_to_sandbox(), "a compiler ran unconfined: " .. observation.path)
+      return
+    end
+  end
+  assert(outcome.findings == nil, "the header was read")
+  assert(outcome.trouble:find("AGENTS.md' file not found", 1, true), outcome.trouble)
 end

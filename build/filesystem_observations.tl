@@ -392,12 +392,9 @@ local function contained(fd: integer): boolean
     (format == S_IFCHR and inert_device(st))
 end
 
---- While a `declared` call runs, a process it starts is noted "h", not
---- "p". `noting` holds every running capture's own `note` -- one wraps
---- another when a test captures its own calls -- for a declaration that
---- did not hold, which each of them must hear.
+--- Every running capture's own `note` -- one wraps another when a test
+--- captures its own calls -- for what each of them must hear.
 local type Note = function(kind: string, given: any, answer: string, resolved?: string)
-local declaring = 0
 local noting: {Note} = {}
 
 --- Notes each file SQLite opened or asked after since the last drain as
@@ -503,29 +500,6 @@ local function drain_all()
   end
 end
 
---- Calls `fn`, which starts processes whose every input it has read
---- itself, through the calls observed here: a process started meanwhile
---- is noted "h", a declared one, which a key can hold, rather than "p".
---- `fn` answers whether its declaration held -- whether it could read
---- everything each process read -- and when it did not, the run is noted
---- "x" and never stands. Outside a capture this only calls `fn`. `fn`
---- must not yield: a coroutine never resumed would leave its processes'
---- successors declared.
--- TODO: move the one declared process, build/c/init.tl's zig, onto
--- build.confine's `confine` -- its toolchain and caches given it, the
--- toolchain keyed like any other path outside the tree -- and retire
--- `declared`, which trusts its caller to have named what a process
--- reads rather than having the kernel hold it to that.
-function observations.declared(what: string, fn: function(): boolean)
-  declaring = declaring + 1
-  local ok, held = pcall(fn)
-  declaring = declaring - 1
-  if not ok then error(held, 0) end
-  if not held then
-    for _, note in ipairs(noting) do note("x", what, "") end
-  end
-end
-
 --- The tree each running capture resolves paths outside of, by its
 --- `note`: none for one given no `resolving`.
 local trees: {any:string} = {}
@@ -552,7 +526,7 @@ end
 --- `restore` answers the first spawn `must_confine` refused meanwhile,
 --- or nil.
 ---
---- A "p" (a process started, not `declared`) or an "x" (a query no key can hold: a
+--- A "p" (a process started that no sandbox a key knows holds) or an "x" (a query no key can hold: a
 --- request over the network, or a relative path when the working
 --- directory cannot be told) makes the run's verdict one that
 --- never stands.
@@ -773,13 +747,12 @@ local function start(resolving: observations.Resolving | nil):
     held = resolving ~= nil and resolving.held or nil,
     unkeyable = resolving ~= nil and resolving.unkeyable or nil,
     own = test_own,
-    declaring = function(): boolean return declaring > 0 end,
     program = note_program,
     given = note_unveiled,
     variable = function(name: string, value: string | nil)
       note("e", name, getenv_answer(value))
     end,
-    unconfined = function(program: any) note(declaring > 0 and "h" or "p", program, "") end,
+    unconfined = function(program: any) note("p", program, "") end,
     unkeyed = function(why: any) note("x", why, "") end,
   })
   noting[#noting + 1] = note

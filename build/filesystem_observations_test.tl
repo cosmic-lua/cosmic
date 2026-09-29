@@ -5,6 +5,7 @@ local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local confine = require("build.confine")
 local declared_key = require("build.declared_key")
 local observations = require("build.filesystem_observations")
 local stand_in = require("build.stand_in")
@@ -368,32 +369,35 @@ local function test_a_relative_path_is_noted_from_the_working_directory(tmp: str
   assert(sys.chdir == chdir, "a wrapper was left installed")
 end
 
---- A process started inside `declared` is noted "h", one outside it "p",
---- and a declaration that did not hold, or one that raised, leaves the
---- run unkeyable or the count of running declarations as it was.
-local function test_a_declared_process_is_noted_apart(tmp: string)
+--- A process a library's work starts (build.confine's `declaring`) is
+--- held by the sandbox this worker runs in, which it inherits, and heard
+--- of by what that gives it -- even in a capture of the test's own,
+--- which knows no sandbox -- or, in a worker that runs in none, confined
+--- to what the library declared: noted "u", never "p", unless the
+--- kernel could confine nothing. One started after it, declared by
+--- nothing, is noted "p" by a capture that knows no sandbox.
+local function test_a_process_a_library_declares_is_held(tmp: string)
   local probe = probe_in(tmp)
   local run = observations.call(function()
-    observations.declared("held", function(): boolean
+    confine.declaring({ reads = { probe }, writes = {} }, function()
       assert(Child.run({ probe, "exit 0" }))
-      return true
     end)
-    observations.declared("not held", function(): boolean return false end)
-    local raised = pcall(observations.declared, "raised", function(): boolean
-      error("boom")
-    end)
-    assert(not raised)
     assert(Child.run({ probe, "exit 0" }))
   end, nil)
   assert(run.passed, run.message)
   local kinds: {string} = {}
   for _, observation in ipairs(run.reads) do
-    if observation.kind == "h" or observation.kind == "p" or observation.kind == "x" then
-      kinds[#kinds + 1] = observation.kind .. " " .. observation.path
-    end
+    local kind = observation.kind
+    if (kind == "u" or kind == "p") and kinds[#kinds] ~= kind then kinds[#kinds + 1] = kind end
   end
-  local text = table.concat(kinds, "\n")
-  assert(text == "h " .. probe .. "\nx not held\np " .. probe, text)
+  local text = table.concat(kinds, " ")
+  if text == "p" then
+    -- The kernel confined neither: only a worker that runs in no
+    -- sandbox, where it cannot give one, meets that.
+    assert(not confine.held_to_sandbox(), "the declared process ran unconfined")
+    return
+  end
+  assert(text == "u p", text)
 end
 
 --- What a confined process ran with, seen from the run's reads: "p"
