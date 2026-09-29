@@ -590,6 +590,14 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   -- What it starts is held too: the program may not run the copy.
   assert(status_of(probe, { probe, "run " .. elsewhere .. " || exit 7" }) == 7)
   assert(sys.rename(given .. "/a/f", given .. "/b/f"))
+  -- So may one in a directory made after the hold, beneath none -- but
+  -- not into one where it could be run, which it could not before.
+  local later = tmp .. "/later"
+  assert(sys.mkdir(later, 0x1c0) and sys.mkdir(later .. "/a", 0x1c0))
+  sys.close(create(later .. "/f"))
+  assert(sys.rename(later .. "/f", later .. "/a/f"))
+  local moved, _, moved_errno = sys.rename(later .. "/a/f", given .. "/a/f")
+  assert(not moved and moved_errno == sys.EXDEV, "a file moved to where it could be run")
   -- Reading and writing are as they were.
   local written = create(tmp .. "/after")
   assert(sys.write(written, "w") == 1)

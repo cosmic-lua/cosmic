@@ -114,7 +114,7 @@ end
 --- is not named here.
 local compiler_readers <const>: {string} = {
   "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.store_meta_readers_test", "build.test", "build.tree_checks", "core.allocation_test",
+  "build.rebuild", "build.store_meta_readers_test", "build.test", "build.tree_checks", "core.allocation_test",
   "cosmic.store_handles_test", "doc.guides.portable-runtime",
 }
 

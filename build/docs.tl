@@ -221,6 +221,22 @@ local function modules_ending(db: Sqlite.Handle, query: string): {docs.Entry} | 
   return entries_of(rows)
 end
 
+--- What a module with no documentation row of its own answers for its
+--- name: the symbol it hands out, which carries the module's comment
+--- (a `cmd/<name>/main.tl` that returns a function has no record to
+--- hold it). `module` is the module's whole name.
+local function module_symbol(db: Sqlite.Handle, public: boolean,
+                             module: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+    symbols.shown_docs("d", public) .. " ORDER BY d.exported DESC, d.id LIMIT 1",
+    { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
 --- The rows named `query` exactly: a symbol as declared (`Fs.read`), a
 --- symbol's last name alone (`read`, matching every `X.read` and
 --- `X:read`), or a module's own row (`cosmic.fs`).
@@ -849,6 +865,22 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     end
     return lookup(exact, true, named_count), ""
   end
+  -- A module the index lists is always answered, though it has no row
+  -- of its own to name it.
+  if view.owners[query] ~= nil then
+    local owner = view.owners[query]
+    local held, held_trouble = module_symbol(view.databases[owner], view.public[owner] == true, query)
+    if held == nil then
+      return nil, held_trouble
+    end
+    if #held > 0 then
+      local counted, count_trouble = effective_counts(view, held)
+      if not counted then
+        return nil, count_trouble
+      end
+      return lookup(held, true, #held), ""
+    end
+  end
   local found: {docs.Entry} = {}
   local qualifier, name = query:match("^([%w_]+)[.:]([%w_]+)$")
   if qualifier ~= nil then
@@ -1222,6 +1254,10 @@ local function run(argv: {integer:string}): integer
   if exit ~= nil then
     return exit
   end
+  local built, build_trouble = require("build.rebuild").here("docs")
+  if not built then
+    log:complain("docs: not rebuilt, answering from the last build: " .. build_trouble)
+  end
   local started = Time.monotonic_ns()
   local query = table.concat(parsed.words, " ")
   local sources = docs.databases()
@@ -1308,6 +1344,10 @@ local function run_uses(argv: {integer:string}): integer
   local exit = reboot.stale_exit(argv)
   if exit ~= nil then
     return exit
+  end
+  local built, build_trouble = require("build.rebuild").here("uses")
+  if not built then
+    log:complain("uses: not rebuilt, answering from the last build: " .. build_trouble)
   end
   local started = Time.monotonic_ns()
   local sources = docs.databases()

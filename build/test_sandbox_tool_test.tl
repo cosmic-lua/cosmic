@@ -13,6 +13,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
@@ -57,6 +58,80 @@ local function holds(list: {string}, value: string): boolean
     if each == value then return true end
   end
   return false
+end
+
+--- A path a bind of another shows already, at the same place and as
+--- the same file, is not bound again on top of it -- a mount point that
+--- would be the host's own file, which a rename over it fails -- but
+--- one a link on the way leads elsewhere is: the other's bind leaves
+--- the link, which the sandbox would follow to what it does not have.
+local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
+  local root, scratch, dir = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
+  for _, made in ipairs({ root .. "/o", root .. "/data", scratch, dir, tmp .. "/elsewhere" }) do
+    assert(Fs.mkdirs(made))
+  end
+  for _, file in ipairs({ "o/cosmic.db", "data/x.tl" }) do
+    assert(Fs.write(root .. "/" .. file, "x"))
+  end
+  assert(Fs.write(tmp .. "/elsewhere/y.tl", "y"))
+  assert(sys.symlink(tmp .. "/elsewhere/y.tl", root .. "/data/y.tl"))
+  assert(Fs.write(dir .. "/given", "h"))
+  local inputs = effective({ "data/x.tl", "data/y.tl" })
+  inputs.reads = { "data" }
+  inputs.host = { dir, dir .. "/given" }
+  local plan = test_sandbox.plan(root, scratch, inputs, {})
+  local unveil = plan.sandbox.unveil
+  assert(holds(unveil.reads, root .. "/data") and unveil.at[root .. "/data"] == "/tree/data")
+  assert(not holds(unveil.reads, root .. "/data/x.tl") and unveil.at[root .. "/data/x.tl"] == nil)
+  assert(holds(unveil.reads, root .. "/data/y.tl") and
+    unveil.at[root .. "/data/y.tl"] == "/tree/data/y.tl")
+  assert(holds(unveil.reads, dir) and not holds(unveil.reads, dir .. "/given"))
+  -- What a process the worker starts is keyed by is as it was.
+  assert(holds(plan.held, dir .. "/given") and holds(plan.held, "/tree/data"))
+end
+
+--- The program is named in the tree, at /tree/o/bin/cosmic, where it is
+--- the tree's own o/bin/cosmic by where each resolves -- a tree here
+--- whose o/bin/cosmic leads to this program -- and where this program
+--- is a portable artifact, whose relaunch names the path; a worker whose
+--- module declares `tool` then has it there alone, with the rest of
+--- o/bin, not at its own name. In another tree it keeps its own name
+--- -- but where that is beneath /tree, as this worker's is sandboxed,
+--- where the other's worker has a tree of its own: there it has it at
+--- /program/<its name>. A worker that is not a tool keeps the
+--- runner's name, which it has no way to read.
+local function test_the_tree_s_own_program_is_named_in_the_tree(tmp: string)
+  local other, tree, scratch = tmp .. "/other", tmp .. "/tree", tmp .. "/scratch"
+  for _, made in ipairs({ other .. "/o/bin", tree .. "/o/bin", scratch }) do
+    assert(Fs.mkdirs(made))
+  end
+  assert(Fs.write(other .. "/o/bin/cosmic", "p"))
+  local inputs = effective({})
+  inputs.tool = true
+  local relaunch, _ = Proc.relaunch()
+  local executable, _ = Proc.executable()
+  if relaunch == nil or relaunch.argv[2] ~= "--artifact" or executable == nil then
+    assert(test_sandbox.plan(other, scratch, inputs, {}).program == nil)
+    return -- no portable artifact to name
+  end
+  local elsewhere = test_sandbox.plan(other, scratch, inputs, {})
+  if Fs.within(executable, "/tree") then
+    local placed = "/program/" .. Fs.basename(executable)
+    assert(elsewhere.program == placed, tostring(elsewhere.program))
+    assert(elsewhere.sandbox.unveil.at[executable] == placed)
+  else
+    assert(elsewhere.program == nil, tostring(elsewhere.program))
+  end
+  assert(holds(elsewhere.sandbox.unveil.reads, executable))
+  assert(sys.symlink(executable, tree .. "/o/bin/cosmic"))
+  local plan = test_sandbox.plan(tree, scratch, inputs, {})
+  assert(plan.program == "/tree/o/bin/cosmic", tostring(plan.program))
+  -- A worker that is not a tool keeps the runner's name.
+  local plain = test_sandbox.plan(tree, scratch, effective({}), {})
+  assert(plain.program == nil, tostring(plain.program))
+  local unveil = plan.sandbox.unveil
+  assert(holds(unveil.reads, tree .. "/o/bin") and unveil.at[tree .. "/o/bin"] == "/tree/o/bin")
+  assert(not holds(unveil.reads, executable), executable .. " is given at its own name")
 end
 
 --- A worker is given the tree's store, its closure's files and what its

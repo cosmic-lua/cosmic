@@ -310,7 +310,10 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
   /* Only the joined form is held to name its descriptor's file. The
    * two-argument form's path is the launcher's, or the one Proc.relaunch
    * hands on from a parent whose artifact may since have been renamed or
-   * replaced, which the retained descriptor exists to survive. */
+   * replaced, which the retained descriptor exists to survive -- or the
+   * name a parent gives the child for it where the child sees the file
+   * elsewhere: `cosmic test` names a sandboxed worker's program
+   * /tree/o/bin/cosmic (build/test_sandbox.tl's `program_name`). */
   struct stat path_stat;
   if (startup->artifact_path_names_descriptor &&
       (stat(startup->artifact_path, &path_stat) != 0 ||
