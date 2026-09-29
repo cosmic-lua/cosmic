@@ -10,6 +10,7 @@ local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
+local sandbox_skip = require("build.sandbox_skip")
 
 -- TODO: declare /proc for Linux alone once a declaration can name a
 -- host path per platform (a `host` entry for Linux and one for macOS):
@@ -58,15 +59,13 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
   return fds
 end
 
---- Whether the run holds this host to confining a process, as
---- core/syscalls_test.tl's `sandbox_required` says: without
---- COSMIC_SANDBOX=must, a case here whose sandbox the kernel refuses
---- returns early, passing unchecked, as that module's cases do.
--- TODO: count each sandbox test that returns early here as skipped, as
--- core/syscalls_test.tl's TODO on `sandbox_required` says, once
--- build/test.tl's tally has a skipped verdict.
-local function sandbox_required(): boolean
-  return sys.getenv("COSMIC_SANDBOX") == "must"
+--- Says a sandbox test is skipped (`Test.skip`) where this Linux host
+--- refuses the sandbox it is about (build.sandbox_skip), as core/syscalls_test.tl's
+--- `unsandboxable` does, as it returns early: the run counts it skipped
+--- rather than passed, and a run held to sandboxing (COSMIC_SANDBOX=must
+--- among them) fails it.
+local function unsandboxable(what: string, trouble: string)
+  sandbox_skip.refused("the kernel gives no " .. what .. ": " .. tostring(trouble))
 end
 
 --- A stand-in program built under `tmp` (build/stand_in.tl).
@@ -135,7 +134,7 @@ sys.nanosleep(30 * 1000000000)
   assert(sys.kill(parent, sys.SIGKILL))
   assert(process.waitpid(parent, false))
   if said:find("^refused ") then
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but: " .. said)
+    unsandboxable("unveiling", said)
     return
   end
   local child = assert(math.tointeger(tonumber(said:match("^(%d+)\n"))), said)
@@ -178,7 +177,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
     { offline = true })
   if pid == nil then
     sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no network namespace: " .. trouble)
+    unsandboxable("network namespace", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
@@ -229,7 +228,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     { unveil = { reads = reads, writes = { out } }, offline = true })
   if pid == nil then
     sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
+    unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
@@ -295,15 +294,15 @@ end
 
 --- Starts `probe` on `script`, confined to `probe_reads`, offline unless
 --- `online`, in /, with `output` its standard output and error: its pid,
---- or nil where the kernel will not confine it, which fails the test
---- under COSMIC_SANDBOX=must.
+--- or nil where the kernel will not confine it, which skips the test
+--- (`unsandboxable`).
 local function start_confined(probe: string, script: string, output: integer,
                               online?: boolean): integer | nil
   local pid, trouble, errno = process.spawn(probe, { probe, script }, nil, "/", nil,
     output, output, false, nil,
     { unveil = { reads = probe_reads(probe) }, offline = not online })
   if pid ~= nil then return pid end
-  assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
+  unsandboxable("unveiling", trouble)
   assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
     errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
   return nil
@@ -352,7 +351,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
       at = { [tree] = "/tree", [scratch] = "/tmp", [probe] = "/probe" } }, offline = true })
   if pid == nil then
     sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
+    unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return
@@ -384,9 +383,12 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
         at = { [tree] = "/tree", [tree .. "/sub/f"] = placed } }, offline = true })
     if escaped ~= nil then process.waitpid(escaped, false) end
     assert(escaped == nil, "placed through a link at " .. placed)
-    assert(sys.errno_name(escaped_errno) == "ELOOP" or (not sandbox_required() and
-      (escaped_errno == sys.ENOSYS or escaped_errno == sys.EPERM or escaped_errno == sys.EACCES or
-        escaped_errno == sys.EINVAL or escaped_errno == sys.ENOSPC)), tostring(escaped_errno))
+    if sys.errno_name(escaped_errno) ~= "ELOOP" then
+      unsandboxable("unveiling", sys.errno_name(escaped_errno))
+      assert(escaped_errno == sys.ENOSYS or escaped_errno == sys.EPERM or
+        escaped_errno == sys.EACCES or escaped_errno == sys.EINVAL or
+        escaped_errno == sys.ENOSPC, tostring(escaped_errno))
+    end
   end
   assert(sys.stat(victim .. "/new.txt") == nil, "a file was made through the link")
   -- Two paths bound at one name, or a name beneath the old root's, are
@@ -631,7 +633,7 @@ local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: strin
     { unveil = { reads = without, writes = writes }, offline = true })
   if pid == nil then
     sys.close(report)
-    assert(not sandbox_required(), "COSMIC_SANDBOX=must, but no unveiling: " .. trouble)
+    unsandboxable("unveiling", trouble)
     assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
     return

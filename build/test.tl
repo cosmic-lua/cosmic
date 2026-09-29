@@ -227,6 +227,10 @@ local record test
     --- Of those that ran sandboxed, how many no key holds, which run
     --- every time: one whose module reads a link out of the tree.
     every: integer
+    --- Of those that ran, how many passed having said, with
+    --- `Test.skip`, that this host could not check them: no verdict is
+    --- kept of one, so each runs every time.
+    skipped: integer
   end
 
   --- How a run is bounded, from the command line and the environment.
@@ -1939,6 +1943,11 @@ local record Recording
   key_parts: {string:string}
   failures: {string}
   errors: {string}
+  --- Each skipped test's id and why (`Test.skip`), as "<id>: <reason>".
+  skips: {string}
+  --- Whether the run is held to sandboxing (`confine.held_to_sandbox`),
+  --- which fails a skipped test.
+  held: boolean
   --- What each failing test printed, by its id.
   outputs: {string:string}
   --- Each failing test's `<file>:<name>` selector, by its id: what
@@ -2401,6 +2410,24 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     closure = rec.keyed and closure_set(rec, job.m) or nil,
   })
   local reported, passed, message = judged.report, judged.passed, judged.message
+  -- A pass the test said it could not check (`Test.skip`) is kept as no
+  -- verdict, pass or fail, so it runs again on the next run -- and on a
+  -- host that can check it, whose key differs, as its own; and a run
+  -- held to sandboxing, which exists to prove the host checked it all,
+  -- fails it.
+  local skipped = judged.passed and judged.skipped or ""
+  if skipped ~= "" and rec.held then
+    passed, skipped = false, ""
+    message = "skipped (" .. judged.skipped .. "), but the run is held to sandboxing " ..
+      "(COSMIC_TEST_SANDBOX=1, COSMIC_SANDBOX=must or COSMIC_CI_REQUIRE_SANDBOX=1), " ..
+      "which fails a test this host could not check"
+  elseif skipped ~= "" then
+    rec.tally.skipped = rec.tally.skipped + 1
+    rec.skips[#rec.skips + 1] = id .. ": " .. skipped
+    message = "skipped: " .. skipped
+  end
+  -- What the records keep: a skip is no pass.
+  local kept_pass = passed and skipped == ""
   local reads: {observations.Observation} = {}
   local elapsed = wall_ns
   local cacheable = false
@@ -2443,12 +2470,12 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     -- (`test_sandbox.Plan`'s `held`).
     if key == nil then rec.tally.every = rec.tally.every + 1 end
     local held = key ~= nil and declared_of(rec, job.m, id) == key
-    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
+    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
       message, Time.now_ns(), reads, run_key(key or "", key), rec.run_at_ns, elapsed)
     if not saved then
       rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
     end
-    if held then
+    if held and skipped == "" then
       saved, save_trouble = record_verdict(rec.records, key, passed, rec.run_at_ns, rec.run,
         elapsed)
       if not saved then
@@ -2467,7 +2494,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     -- A pass another run shared under its key goes too where it failed.
     if key ~= nil and not passed then
       rec.owed.failed[#rec.owed.failed + 1] = key
-    elseif passed and held and reported ~= nil then
+    elseif kept_pass and held and reported ~= nil then
       rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
         elapsed_ns = elapsed }
     end
@@ -2476,14 +2503,14 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       rec.runtime, reads, rec.key_parts, job.started_ns, view_of(rec, job.m))
     local reached, stable = verdict_reached.key, verdict_reached.stable
     local late = verdict_reached.late
-    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
+    local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
       message, Time.now_ns(), reads, run_key(reached, verdict_reached.shared), rec.run_at_ns,
       elapsed,
       (stable or late) and cacheable, identity_of(rec, job.m))
     if not saved then
       rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
     end
-    if not late then
+    if not late and skipped == "" then
       saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
         elapsed)
       if not saved then
@@ -2909,6 +2936,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- its own behind, outside the group its end reached. This process
       -- adopted them, and ends them before the next test starts and, on
       -- Linux, before what they could still write into is removed.
+      -- A worker still running may have left some here too, orphaned
+      -- when the process that started them ended, which its test may
+      -- still be waiting on: those in the group it leads are spared,
+      -- until its end ends them with its group. An orphan in a group
+      -- the worker itself started is its own to adopt: starting one made
+      -- it a subreaper (`Child.start`).
       -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
       -- of its own, whose init ends when it does, ending everything
       -- left there, before `wait` answers for it. Nothing adopts them
@@ -2919,13 +2952,17 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       -- Linux gives up on a stray that outlives it by a second. Remove
       -- the directory only once no stray is left, once end_strays can
       -- end or wait for strays on macOS and report the ones it gave up on.
-      -- TODO: spare a stray in the process group of a worker still
-      -- running, which a test of its own may be waiting on (an orphan it
-      -- left to outlive a process it started, as build/stand_in_test.tl's
-      -- test_what_start_and_run_leave_running_runs_on does), rather than
-      -- end it the moment any other worker ends; that test then drops
-      -- the grouped run it makes to adopt its orphans itself.
-      if not rec.sandbox then Child.end_strays() end
+      -- TODO: spare an orphan of a running worker that is outside its
+      -- group too -- in a group a descendant started, a `Child.start`
+      -- in a process that ended first, or a session it began (setsid)
+      -- -- by the worker's session, once a worker can be started in a
+      -- session of its own (`Child.Options` taking one); setsid's
+      -- orphan would still escape.
+      if not rec.sandbox then
+        local groups: {integer} = {}
+        for _, job in ipairs(still) do groups[#groups + 1] = job.handle.pid end
+        Child.end_strays(groups)
+      end
       sweep(rec, running)
     end
     running = still
@@ -3014,6 +3051,12 @@ end
 --- Says each of `failures`, sorted, with the selector that reruns its
 --- test and what the test printed; a failed test's message names the
 --- directory it kept (`finish`).
+--- Says each skipped test, with why (`Test.skip`), sorted.
+local function say_skips(rec: Recording)
+  table.sort(rec.skips)
+  for _, skip in ipairs(rec.skips) do log:say("test: SKIP  " .. skip) end
+end
+
 local function say_failures(rec: Recording, failures: {string})
   table.sort(failures)
   for _, failure in ipairs(failures) do
@@ -3368,7 +3411,8 @@ local function run(argv: {integer:string}): integer
   end
   local credited: test.Credited = {}
 
-  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0, every = 0 }
+  local tally: test.Tally = { ran = 0, cached = 0, assumed = 0, shared = 0, every = 0,
+    skipped = 0 }
   local modules_run = #selected_modules
   local failures: {string} = {}
   local errors: {string} = {}
@@ -3390,7 +3434,7 @@ local function run(argv: {integer:string}): integer
     records = records, root = root, hashes = hashes, runtime = runtime,
     run_at_ns = run_at_ns, run = handle.run, key_parts = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    failed = {},
+    failed = {}, skips = {}, held = confine.held_to_sandbox(),
     hits = hits, by_test = by_test, unowned = unowned, tally = tally,
     owed = { kept = {}, used = {}, failed = {} }, shared_keys = {},
     origin = checkout_id(records, root, run_at_ns),
@@ -3811,17 +3855,23 @@ local function run(argv: {integer:string}): integer
         "test_*` of a *_test.tl file, or a function of the `Example` " ..
         "record a *_example.tl file returns")
     end
+    say_skips(rec)
     log:say(cov_line)
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
+    -- A figure the summary adds goes after `stood`: CI's driver reads the
+    -- figures before it by their places (ci/cosmic_ci/suite_output.tl).
     log:verdict("test", true, plural.count(total, "test") .. ", " ..
       plural.count(modules_run, "module") .. "; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " ..
+      (tally.skipped > 0 and (tally.skipped .. " skipped (this host could not check " ..
+        (tally.skipped == 1 and "it" or "them") .. "), ") or "") ..
       (tally.every > 0 and (tally.every .. " run every time (no key holds them), ") or "") ..
       (tally.assumed > 0 and (tally.assumed .. " assumed (--all runs them), ") or "") ..
       (tally.shared > 0 and (tally.shared .. " of them on another checkout's verdict, ") or "") ..
       clock.took(started) .. sandbox_summary)
     return undeclared > 0 and 1 or 0
   end
+  say_skips(rec)
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. records_path .. ": " .. line)

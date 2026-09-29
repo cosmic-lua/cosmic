@@ -143,6 +143,15 @@ COSMIC_SYSCALL(getpid, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(getpgid, 1) {
+  int pid = cosmic_checkint(L, 1);
+  if (pid < 0) return luaL_argerror(L, 1, "pid is out of range");
+  pid_t group = getpgid((pid_t)pid);
+  if (group < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, (lua_Integer)group);
+  return 1;
+}
+
 COSMIC_SYSCALL(getuid, 0) {
   lua_pushinteger(L, (lua_Integer)getuid());
   return 1;

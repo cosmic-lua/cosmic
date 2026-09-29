@@ -10,9 +10,9 @@ local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local test = require("build.test")
-local confine = require("build.confine")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
+local sandbox_skip = require("build.sandbox_skip")
 local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
@@ -41,13 +41,13 @@ end
 --- that is allowed. The workers nest in this test's own sandbox, which a
 --- host may refuse (the kernel lets root nest one only two deep:
 --- core/syscalls.c's `map_ids`); the sandboxed case then checks only what
---- the unsandboxed one does. A run held to sandboxing fails instead
+--- the unsandboxed one does. It says it is skipped (`Test.skip`),
+--- which a run held to sandboxing fails
 --- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or
 --- COSMIC_CI_REQUIRE_SANDBOX=1): CI's unprivileged runners nest them.
 local function unsandboxed(text: string): boolean
   if text:find("; sandboxed)", 1, true) ~= nil then return false end
-  assert(not confine.held_to_sandbox(),
-    "the run is held to sandboxing, but the run it started was not:\n" .. text)
+  sandbox_skip.nested(text)
   return true
 end
 
@@ -170,6 +170,73 @@ local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
       assert(#left == 0, mode .. ": left running: " .. table.concat(left, " "))
     end
   end
+end
+
+--- An unsandboxed worker still running keeps what it left running
+--- after the process that started it ended, which the runner adopts,
+--- while another worker ends. `late` is orphaned to the runner from a
+--- worker that started nothing in a group of its own, and so adopts
+--- nothing itself; it is told to finish only after the other worker has
+--- ended. Started two at a time in the order of their paths, `then`
+--- starts only once `ends` has ended and the runner has ended the
+--- strays it would.
+local function test_a_running_workers_orphan_outlives_another_worker(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local root = tmp .. "/project"
+  local shared = tmp .. "/shared"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.mkdirs(shared))
+  assert(stand_in.place(probe, root .. "/bin/probe"))
+  assert(stand_in.place(probe, shared .. "/late", "wait-for $DIR/go\nwrite $DIR/done done"))
+  local await = [[
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
+
+local function await(path: string, seconds: integer)
+  local deadline = Time.monotonic_ns() + seconds * 1000 * 1000 * 1000
+  while Fs.exists(path) ~= true do
+    assert(Time.monotonic_ns() < deadline, "waited for " .. path)
+    local _, _ = sys.nanosleep(5 * 1000 * 1000)
+  end
+end
+]]
+  local function place(name: string, source: string)
+    local text = source:gsub("SHARED", function(): string return shared end)
+    assert(Fs.write(root .. "/suite/" .. name, text))
+  end
+  local function write(name: string, body: string) place(name, await .. body) end
+  write("orphans_test.tl", [[
+local Child = require("cosmic.child")
+
+local function test_orphans()
+  -- In this worker's group, as `late` is, and so no subreaper made.
+  local r = assert(Child.run({ "bin/probe", "start SHARED/late" },
+    { process_group = false, timeout_ms = 30000 }))
+  assert(r.ok)
+  assert(Fs.write("SHARED/ready", ""))
+  await("SHARED/then", 30)
+  assert(Fs.write("SHARED/go", ""))
+  await("SHARED/done", 10)
+end
+]])
+  write("ends_test.tl", [[
+local function test_ends()
+  await("SHARED/ready", 30)
+end
+]])
+  place("then_test.tl", [[
+local Fs = require("cosmic.fs")
+local function test_then()
+  assert(Fs.write("SHARED/then", ""))
+end
+]])
+  local output = tmp .. "/run.out"
+  local result = invoke(root, output, { "--jobs", "2" })
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(Fs.exists(shared .. "/done"), text)
 end
 
 local function test_limits_must_be_positive_whole_numbers(tmp: string)

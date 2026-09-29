@@ -82,9 +82,6 @@ allowed["build.confine.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.confine.must_confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, with no fallback, which only a test makes"
-allowed["build.confine.held_to_sandbox"] = "what a test whose " ..
-  "assertion is about a nested run's sandbox asks, to fail where a run held to " ..
-  "sandboxing gave that run none, rather than return unchecked"
 allowed["build.fix.spill.message"] = "tested directly: the test writes a refusal " ..
   "line in the checker's own words"
 allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal " ..

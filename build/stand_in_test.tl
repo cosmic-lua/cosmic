@@ -301,12 +301,6 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
   assert(Fs.mkdirs(tmp .. "/bin"))
   local late = tmp .. "/bin/late"
   assert(stand_in.place(probe, late, "wait-for $DIR/go-$@\nwrite $DIR/done-$@ done"))
-  -- A group started first makes this process a subreaper, so `late`,
-  -- orphaned when the script that started it ends, is adopted here.
-  -- Unsandboxed, it would otherwise reach the runner, whose
-  -- `end_strays` kills it as a stray the moment any other worker ends
-  -- (build/test.tl's TODO beside that call).
-  assert(run({ probe }).ok)
   for _, how in ipairs({ "start " .. late .. " started", "run " .. probe .. " start " .. late ..
       " ran" }) do
     local word = how:match("(%S+)$")
