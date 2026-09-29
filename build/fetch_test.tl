@@ -213,6 +213,12 @@ local function test_sha256_on_standard_output_with_a_bad_status_sends_nothing()
   assert(ran.err:find("HTTP 404", 1, true), ran.err)
 end
 
+-- TODO: drive a real https start that redirects to http (refused) and
+-- to https (followed) through `fetch.run`, once the tree has a loopback
+-- TLS server (a certificate the test trusts and a socket that can bind
+-- and accept); none exists, and a canned reply cannot finish a
+-- handshake, so only the decision (`redirect_protocols`, `refusal`) and
+-- cosmic/http_test.tl's scripted http cases are covered.
 local function test_an_https_start_limits_redirects_to_https_unless_allowed()
   local limited = fetch.redirect_protocols("https://example.test/a", false)
   assert(#limited == 1 and limited[1] == "https")
@@ -239,4 +245,22 @@ end
 local function test_allow_downgrade_is_a_flag_and_not_a_usage_error()
   local ran = run({ "--allow-downgrade", url }, { reply("200 OK", "", "ok") })
   assert(ran.code == 0 and ran.out == "ok", ran.err)
+end
+
+local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
+  local path = tmp .. "/got.txt"
+  local argv: {integer:string} = { "fetch", url, "-o", path }
+  local err: {string} = {}
+  local code = fetch.run(argv, {
+    script = { reply("200 OK", "", string.rep("y", 200000)) },
+    out = function(_text: string): boolean, string return true, "" end,
+    err = function(line: string) err[#err + 1] = line end,
+    cancelled = function(): boolean return true end,
+  })
+  assert(code == 1, tostring(code))
+  assert(table.concat(err):find("cancelled", 1, true) ~= nil, table.concat(err))
+  assert(Fs.stat(path) == nil, "the target was created")
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(not name:find("got.txt", 1, true), "left behind: " .. name)
+  end
 end

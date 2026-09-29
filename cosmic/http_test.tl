@@ -343,7 +343,7 @@ local function test_download_writes_verifies_and_renames(tmp: string)
     script = { reply("200 OK", "", data) } })
   assert(ok, trouble)
   assert(Fs.read(path) == data)
-  local names = assert(Fs.list(tmp))
+  local names = (assert(Fs.list(tmp)))
   assert(#names == 1 and names[1] == "got", "a temporary file was left behind")
 end
 
@@ -825,4 +825,33 @@ local function test_a_close_variable_aborts_an_upload()
   end
   local response, why = kept:response()
   assert(response == nil and why:find("aborted", 1, true) ~= nil, why)
+end
+
+local function test_a_cancelled_download_removes_its_part_file_and_makes_no_target(tmp: string)
+  local path = tmp .. "/got.bin"
+  local asked = 0
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", string.rep("x", 200000)) },
+    cancelled = function(): boolean
+      asked = asked + 1
+      return asked > 1
+    end,
+  })
+  assert(not ok and why == "cancelled", why)
+  assert(asked > 1, "asked between chunks")
+  assert(Fs.stat(path) == nil, "the target was created")
+  local names = (assert(Fs.list(tmp)))
+  for _, name in ipairs(names) do
+    assert(name ~= "got.bin" and not name:find("got.bin", 1, true), "left behind: " .. name)
+  end
+end
+
+local function test_a_download_never_cancelled_completes(tmp: string)
+  local path = tmp .. "/got.bin"
+  local ok, why = Http.download(url, path, {
+    script = { reply("200 OK", "", "hello") },
+    cancelled = function(): boolean return false end,
+  })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
 end

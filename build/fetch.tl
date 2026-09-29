@@ -44,17 +44,18 @@
 --- them back; `--sha256` on standard output buffers the whole body in
 --- memory, with no cap. A failed write of the `-o` file is exit 1, a
 --- failed fetch like the rest; only standard output's is 2.
--- TODO: remove the `-o` temporary file when the process is killed by
--- SIGINT: cosmic.child's `Child.guard` already holds SIGINT and SIGTERM
--- as a flag, so this waits only on `Http.download` taking a cancel
--- check to poll between chunks (and on curl's transfer returning to it
--- within its one-second poll), after which the verb opens the guard,
--- lets the download remove its `.part` file, and closes the guard to
--- deliver the signal again. Today an interrupt leaves the `.part` file
--- beside the target.
+--- An interrupt (SIGINT or SIGTERM) during an `-o` download removes the
+--- temporary file, never creates the target, and exits by that signal:
+--- the verb holds a `Child.guard` for the download, `Http.download`
+--- asks it between chunks, and closing the guard delivers the signal
+--- again. What it cannot help, and stays so, is a kill nothing can
+--- catch (SIGKILL) or that the verb does not hold (SIGHUP), which
+--- leave the `.part` file beside the target: a plain limit of the
+--- platform, not a gap.
 --- Certificates are always verified; there is no option that turns that
 --- off, and none will be added.
 
+local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -75,6 +76,9 @@ local record verb
     --- `Http.Options.script`, for a test: canned replies in place of a
     --- connection.
     script: {string}
+    --- What `-o` asks between chunks, for a test: true ends the download
+    --- as an interrupt does. The verb's own is its `Child.guard`'s.
+    cancelled: function(): boolean
   end
   --- The schemes a redirect of `url` may lead to, for
   --- `Http.Options.redirect_protocols`: https only when `url` is https
@@ -214,12 +218,26 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   if target ~= nil then
     options.sha256 = want
+    -- Held only for the download; closing it delivers a caught signal
+    -- again, so the process still dies of it. A guard already open, or
+    -- one that cannot be had, leaves the download uninterruptible as
+    -- it was.
+    local guard: Child.Guard = nil
+    if to.cancelled == nil then
+      local held, _ = Child.guard()
+      guard = held
+    end
+    options.cancelled = to.cancelled or function(): boolean
+      return guard ~= nil and guard:cancelled() ~= 0
+    end
     local ok, why = Http.download(url, target, options)
     if not ok then
       complain(verb.refusal(why, options.redirect_protocols))
-      return 1
     end
-    return 0
+    if guard ~= nil then
+      local _, _ = guard:close()
+    end
+    return ok and 0 or 1
   end
 
   local response, open_trouble = Http.open(url, options)

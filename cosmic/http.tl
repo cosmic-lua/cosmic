@@ -77,6 +77,17 @@ local record Http
   record Options is raw_http.Options
     --- Http.download only: the expected sha256, as lowercase hex.
     sha256: string
+    --- Http.download only: asked before each chunk is read; when it
+    --- answers true the download stops, removes its temporary file,
+    --- never creates `path`, and fails with "cancelled". It is how a
+    --- caller holding a `Child.guard` ends a download on SIGINT.
+    -- TODO: stop a read that is waiting on a stalled connection too,
+    -- once core/http.c's wait can return when the signal guard
+    -- (child_cancelled in core/syscalls.c) has caught one; today
+    -- `cancelled` is asked only between chunks, so a server that
+    -- sends nothing holds the download until data arrives or
+    -- `low_speed_seconds` ends it.
+    cancelled: function(): boolean
   end
 
   --- An open response, and a `cosmic.stream` Reader of its body.
@@ -261,7 +272,8 @@ end
 --- disk and, when `opts.sha256` is given, verified -- a reader never sees
 --- a partial file at the final name. Fails on a non-2xx status (a
 --- redirect `opts.follow` already took does not count) or a checksum
---- mismatch, and removes the temporary file on every failure.
+--- mismatch, and removes the temporary file on every failure, `opts.cancelled`'s
+--- answering true ("cancelled") included.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
   local want = opts ~= nil and opts.sha256 or ""
   local hashing: Stream.Hashing = nil
@@ -289,9 +301,21 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
   local part, fd = temporary.path, temporary.fd
   local writer = Stream.to_fd(fd)
   if hashing ~= nil then writer = Stream.tee(writer, hashing) end
-  local copied, trouble = Stream.copy(response, writer)
+  local ok, trouble = true, ""
+  while true do
+    if opts ~= nil and opts.cancelled ~= nil and opts.cancelled() then
+      ok, trouble = false, "cancelled"
+      break
+    end
+    local chunk, read_trouble = response:read()
+    if chunk == nil then
+      if read_trouble ~= "" then ok, trouble = false, read_trouble end
+      break
+    end
+    ok, trouble = writer:write(chunk)
+    if not ok then break end
+  end
   local _, _ = response:close()
-  local ok = copied ~= nil
   if ok then
     ok, trouble = Fs.fsync(fd)
   end
