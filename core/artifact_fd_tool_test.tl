@@ -131,11 +131,17 @@ assert(sys.rename(spare, link))
 
 --- What the calling child runs: a chmod, and an open that truncates,
 --- of the link as it flips, each many times, counting what each did.
+--- It goes on past `least` calls until each call has met both ends,
+--- for up to `bound_ns`: the flipper starts alongside it and, on a busy
+--- or single processor, may not swap the link before `least` calls are
+--- done. The bound stays well under a suite's per-test timeout, so an
+--- end never met fails the assertions below rather than the clock.
 --- The chmod keeps the owner's access: a walk that meets a link as a
 --- rename replaces it can end at the link's directory (Linux 6.18
 --- does, a few times in 100000), which it changes too.
 local caller <const> = [==[
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local link, stop = LINK, STOP
 local counts = { chmod = { done = 0, refused = 0 }, truncate = { done = 0, refused = 0 } }
 local function said(what, ok, errno)
@@ -147,7 +153,16 @@ local function said(what, ok, errno)
     count.done = count.done + 1
   end
 end
-for _ = 1, 20000 do
+local function met()
+  for _, count in pairs(counts) do
+    if count.done == 0 or count.refused == 0 then return false end
+  end
+  return true
+end
+local least <const>, bound_ns <const> = 20000, 3 * 1000000000
+local deadline, i = Time.monotonic_ns() + bound_ns, 0
+while i < least or (not met() and Time.monotonic_ns() < deadline) do
+  i = i + 1
   local ok, _, errno = sys.chmod(link, 448)
   said("chmod", ok, errno)
   local fd, _, open_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
@@ -201,7 +216,7 @@ local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
     stderr = "capture" }))
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
     filled(caller, values) }, { env = env, fds = fds, stdout = "capture", stderr = "capture",
-    timeout_ms = 60000 }))
+    timeout_ms = 8000 }))
   if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))
