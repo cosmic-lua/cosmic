@@ -162,9 +162,10 @@ local function test_a_moved_tree_sits_beside_the_workspace_where_its_relative_pa
     local relative = name(SHA, leg)
     assert(Fs.readlink(workspace) == relative, layout(root))
     assert(Fs.read(root .. "/cosmic/" .. relative .. "/ci/driver.tl") == "driver\n", layout(root))
-    -- As actions/cache names $RUNNER_TEMP for `tar -C $GITHUB_WORKSPACE`:
-    -- the kernel climbs from the link's target, which is as deep as the
-    -- workspace, so it reaches the same _temp.
+    -- As actions/cache names the runner's temp directory for
+    -- `tar -C $GITHUB_WORKSPACE`: the kernel climbs from the link's
+    -- target, which is as deep as the workspace, so it reaches the same
+    -- _temp.
     assert(Fs.read(workspace .. "/../../_temp/zig-build/entry") == "entry\n",
       leg .. ": " .. layout(root))
     place(workspace, "--restore", leg)
