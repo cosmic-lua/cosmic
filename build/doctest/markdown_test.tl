@@ -1,11 +1,11 @@
---- `build.doctest.markdown` needs no compiler capsule at all -- it only
---- ever reads fence lines and an info string -- so these tests build a
---- markdown fixture as a plain string and call `parse_blocks` directly.
+--- `build.doctest.markdown` needs no compiler capsule: it reads only
+--- fence lines and an info string. These tests build a markdown fixture
+--- as a plain string and call `parse_blocks` directly.
 local markdown = require("build.doctest.markdown")
 
---- Joins lines the way a real doc would read, without a fixture string
---- embedding a literal ``` sequence anywhere in THIS file's own source
---- -- see build/analyzer_test.tl's `lines` for why that would matter.
+--- Joins lines the way a real doc would read, so no fixture string
+--- embeds a literal ``` sequence in this file's own source (see
+--- build/analyzer_test.tl's `lines` for why that matters).
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end
@@ -260,8 +260,8 @@ end
 
 --- A line `<!-- needs: ... -->` outside a fence is the doc's needs
 --- declaration, a block of its own; the same line inside a fence is the
---- fence's text, any other comment is prose, and the `inputs` form it
---- replaced is refused.
+--- fence's text, any other comment is prose, and an `inputs` line is
+--- refused.
 local function test_reads_a_needs_line_outside_a_fence()
   local blocks, trouble = markdown.parse_blocks(doc({
     "# a guide",
