@@ -81,20 +81,6 @@ local record Source
   int: function(lo: integer, hi: integer): integer
 end
 
---- The smallest all-ones mask covering `n`, read as unsigned.
---- TODO: share this with the private `mask_for` of cosmic/rand.tl, once
---- cosmic.rand exports one (it is a copy here so the two agree).
-local function mask_for(n: integer): integer
-  local m = n
-  m = m | (m >> 1)
-  m = m | (m >> 2)
-  m = m | (m >> 4)
-  m = m | (m >> 8)
-  m = m | (m >> 16)
-  m = m | (m >> 32)
-  return m
-end
-
 --- Parses `word` as a whole decimal integer, or nil.
 local function integer_of(word: string): integer | nil
   if not word:match("^[+-]?%d+$") then return nil end
@@ -302,21 +288,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return bytes
   end
 
-  --- Uniform over lo..hi from entropy, by rejection: a 64-bit draw
-  --- masked to the range's width is kept only when it is within the
-  --- range, so no value is likelier than another, as modulo would make
-  --- it.
+  --- Uniform over lo..hi from entropy, by `Rand.uniform`'s rejection.
   local function secret_int(lo: integer, hi: integer): integer
-    local span = hi - lo
-    if span == 0 then return lo end
-    local mask = mask_for(span)
-    while true do
-      local word = string.unpack("<i8", secret(8))
-      local candidate = word & mask
-      if not math.ult(span, candidate) then
-        return lo + candidate
-      end
-    end
+    if lo == hi then return lo end
+    return Rand.uniform(function(): integer
+      return (string.unpack("<i8", secret(8)))
+    end, lo, hi)
   end
 
   --- The replayable, NOT secret, source `--seed` names.

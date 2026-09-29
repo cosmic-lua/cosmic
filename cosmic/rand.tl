@@ -68,6 +68,33 @@ local function mask_for(n: integer): integer
   return m
 end
 
+--- An integer drawn uniformly from `min` through `max`, both included,
+--- from `draw`, a function returning 64 random bits as a Lua integer
+--- (any bit pattern). By rejection: a draw is masked to the width of the
+--- range and kept only when within it, so no value is likelier than
+--- another, as modulo would make it. `draw` is called once per attempt,
+--- at least once even when `min` equals `max`. Raises when `min` is
+--- greater than `max`. It is the sampler of `Source:int`, exported so a
+--- caller with another bit source (the operating system's entropy) shares it.
+--- @param draw function The source of 64 random bits
+--- @param min integer The least value
+--- @param max integer The greatest value
+--- @return integer The value
+function Rand.uniform(draw: function(): integer, min: integer, max: integer): integer
+  if min > max then
+    error(("rand: int(%d, %d): min is greater than max"):format(min, max), 2)
+  end
+  -- The width minus one, as unsigned; max - min wraps into it exactly.
+  local span = max - min
+  local mask = mask_for(span)
+  while true do
+    local candidate = draw() & mask
+    if not math.ult(span, candidate) then
+      return min + candidate
+    end
+  end
+end
+
 --- A source drawing the sequence `seed` names. Every integer is a
 --- distinct seed, zero and negative ones included.
 --- @param seed integer The seed
@@ -84,18 +111,7 @@ function Rand.new(seed: integer): Rand.Source
   local source: Rand.Source = {}
 
   source.int = function(_self: Rand.Source, min: integer, max: integer): integer
-    if min > max then
-      error(("rand: int(%d, %d): min is greater than max"):format(min, max), 2)
-    end
-    -- The width minus one, as unsigned; max - min wraps into it exactly.
-    local span = max - min
-    local mask = mask_for(span)
-    while true do
-      local draw = next64(st) & mask
-      if not math.ult(span, draw) then
-        return min + draw
-      end
-    end
+    return Rand.uniform(function(): integer return next64(st) end, min, max)
   end
 
   source.float = function(_self: Rand.Source): number
