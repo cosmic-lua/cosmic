@@ -7,7 +7,8 @@
 --- names nothing it did not run but `cosmic.removed`, which the core
 --- loads only for a test that reaches for a removed global. Nor does it
 --- run the code that computes a key but the parts it spells
---- (build.key_parts). It starts this program, so it declares `tool`.
+--- (build.key_parts), nor hash through cosmic.hash and cosmic.codec
+--- rather than build.digest. It starts this program, so it declares `tool`.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -55,7 +56,7 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   end
   for _, name in ipairs({ "build.declared_key", "build.artifact", "build.core_image",
                           "build.launcher", "build.verdict", "cosmic.time", "cosmic.log",
-                          "cosmic.string" }) do
+                          "cosmic.string", "cosmic.hash", "cosmic.codec" }) do
     assert(not ran[name], "a worker loaded " .. name)
   end
 end

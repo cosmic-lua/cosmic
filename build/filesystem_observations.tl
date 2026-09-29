@@ -1,14 +1,9 @@
 --- Filesystem queries whose answers may affect a test verdict.
 
 local Fs = require("cosmic.fs")
--- TODO: digest over the raw hash table rather than `Hash.hex_sha256`,
--- once a build.digest raw module (a row in core/store.c's
--- `raw_modules`) hashes keys (plan 2.7): a worker then loads neither
--- cosmic.hash nor cosmic.codec, and a test that replaces
--- `Hash.hex_sha256` on the shared table cannot move a digest here.
-local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
+local hashing = require("build.digest")
 local key_parts = require("build.key_parts")
 
 --- SQLite's table, which records the files SQLite opens in C, and the
@@ -45,6 +40,7 @@ local stat = syscalls.stat
 local environ = syscalls.environ
 local tree_digest = syscalls.tree_digest
 local within = Fs.within
+local hex_sha256 = hashing.hex_sha256
 local hex, unhex, tree_name = key_parts.hex, key_parts.unhex, key_parts.tree_name
 
 --- The calls the stand-in for `spawn` (build.confine's `enter`) makes
@@ -269,7 +265,7 @@ local function environ_answer(environment: {string:string}): string
   for _, name in ipairs(names) do
     parts[#parts + 1] = name .. "=" .. environment[name]
   end
-  return Hash.hex_sha256(table.concat(parts, "\n"))
+  return hex_sha256(table.concat(parts, "\n"))
 end
 
 --- The path an "e" observation of the whole environment carries: a
@@ -927,7 +923,7 @@ function observations.unveiled_answer(path: string, tree: string): string
   end
   return ((walked ~= nil and walked.special) and "unkeyable " or "") ..
     (inside and tree_name(real, real_tree) or real) .. " " ..
-    Hash.hex_sha256(table.concat(parts, "\n"))
+    hex_sha256(table.concat(parts, "\n"))
 end
 
 --- What `sys.tree_digest` of `path` answers now, by its files' contents

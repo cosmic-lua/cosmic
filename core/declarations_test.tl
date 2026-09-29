@@ -27,6 +27,7 @@ local Test = require("cosmic.test")
 -- (`raw_behind`), hands its raw value only for a module the closure
 -- holds.
 local type _artifact = require("build.artifact")
+local type _digest = require("build.digest")
 local type _test_worker = require("build.test_worker")
 local type _observations = require("build.filesystem_observations")
 local type _confine = require("build.confine")
@@ -252,6 +253,7 @@ local makers: {string: function(raw: {string: any}): Made} = {
 --- `test_every_raw_module_has_a_declaration` fails when the two part.
 local wrappers <const>: {string: string} = {
   ["build.artifact"] = "store",
+  ["build.digest"] = "hash",
   ["build.test_worker"] = "store",
   ["build.filesystem_observations"] = "observations",
   ["build.confine"] = "process",

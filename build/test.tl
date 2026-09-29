@@ -109,7 +109,6 @@ local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
@@ -133,6 +132,7 @@ local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local declared_key = require("build.declared_key")
+local hashing = require("build.digest")
 local harness_epoch = require("build.harness_epoch")
 local host_caches = require("build.caches")
 local worker = require("build.test_worker")
@@ -141,6 +141,13 @@ local type compiler = require("build.compiler")
 local log = require("build.verdict").log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
+
+-- Key material -- a file's contents, an observed key and the one it is
+-- shared under, the tool's identity salting a compile -- is hashed
+-- through build.digest, as build.declared_key's is, not cosmic.hash: a
+-- key's value turns on no library module outside the harness
+-- (`harness`).
+local hex_sha256 = hashing.hex_sha256
 
 local record test
   --- The verb's registration: see build/verb_spec.tl.
@@ -519,7 +526,7 @@ local function output_hash(root: string, relative: string,
     return memo:sub(#stat + 2)
   end
   local data, _ = Fs.read(path)
-  local hash = data ~= nil and Hash.hex_sha256(data) or "missing"
+  local hash = data ~= nil and hex_sha256(data) or "missing"
   key_parts[memo_key] = stat .. "\0" .. hash
   return hash
 end
@@ -793,7 +800,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         current = output_hash(root, relative, key_parts)
       elseif current == nil then
         local data, _ = Fs.read(root .. "/" .. relative)
-        current = data ~= nil and Hash.hex_sha256(data) or "missing"
+        current = data ~= nil and hex_sha256(data) or "missing"
       end
     elseif kind == "s" then
       current = observations.stat_answer(root .. "/" .. relative)
@@ -880,8 +887,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     lines[#lines + 1] = part
     shared_lines[#shared_lines + 1] = shared_answer ~= nil and part_of(shared_answer) or part
   end
-  return { key = Hash.hex_sha256(table.concat(lines, "\n")),
-    shared = Hash.hex_sha256(table.concat(shared_lines, "\n")), stable = stable and not late,
+  return { key = hex_sha256(table.concat(lines, "\n")),
+    shared = hex_sha256(table.concat(shared_lines, "\n")), stable = stable and not late,
     late = late }
 end
 
@@ -1741,6 +1748,15 @@ local function closure_of(roots: {string}, own: {string},
 end
 
 --- The names `key_roots` and `key_own` hold (`closure_of`).
+-- TODO: walk only the requires a module runs, not a `local type` one
+-- Teal erases, whose effect is in the importer's bytecode (plan 2.7-3):
+-- the `imports` table follows both, so a type-only edge to cosmic.child
+-- (build.this_program's, build.test_worker's) keeps it in the harness,
+-- and with it what it requires: cosmic.time, and cosmic.stream, which
+-- requires cosmic.hash, which requires cosmic.codec. No module of the
+-- key's code calls cosmic.hash or cosmic.codec itself since
+-- build.digest; build.test's own cosmic.time, which times a run and
+-- marks an unstable read, is no module this walk follows (`key_own`).
 local function key_code(imports: {string:{string}}): {string}
   return closure_of(key_roots, key_own, imports)
 end
@@ -2030,7 +2046,7 @@ end
 local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
   local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
   if rows ~= nil and rows[1] ~= nil then return rows[1][1] end
-  local made = Hash.hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
+  local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
     tostring(Time.monotonic_ns()) .. "\0" .. tostring({}))
   local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
     { text(made) })
@@ -3036,7 +3052,7 @@ local function run(argv: {integer:string}): integer
   -- compiled under it, and the run keys by it.
   local compiler_salt = Env.get("COSMIC_TEST_COMPILER_SALT")
   if not own_tree and compiler_salt ~= nil and compiler_salt ~= "" then
-    tool = Hash.hex_sha256(tool .. "\0" .. compiler_salt)
+    tool = hex_sha256(tool .. "\0" .. compiler_salt)
     compiled_by = tool
   end
   local identity = Store.meta("runtime")
@@ -3475,7 +3491,7 @@ local function run(argv: {integer:string}): integer
       { "host features", declared_key.host_features() },
       { "host", rec.host:sub(1, 12) },
       { "system", (rec.system or ""):sub(1, 12) },
-      { "runtime", Hash.hex_sha256(rec.runtime or ""):sub(1, 12) },
+      { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },
       { "compiler", (rec.compiler or ""):sub(1, 12) },
       -- The key's harness parts, its epoch and timeout, as one word.
       { "harness", string.format("e%dt%d", rec.epoch, rec.timeout_ms) },
