@@ -223,12 +223,13 @@ commit's saved late. GitHub keeps one pending run per group and cancels
 it when a third arrives, so a commit that lands while main is busy and
 another run waits gets no run and no prerelease; a pin moves to a later
 one. A push that reuses the queue's run takes a minute or two, so that
-needs three landings that close together. The scheduled run has a group of its own: pending behind a push,
-the next push would cancel it. Running beside main's pushes its saves
-can land after a newer commit's, which costs the next run only the rows
-that commit moved, never a wrong one. A manual run has a group per ref:
-it saves nothing, so in main's group it could cancel a pending push, or
-be cancelled by one. Pushes to the merge queue's `gh-readonly-queue/`
+needs three landings that close together. The scheduled run has a
+group of its own: pending behind a push, the next push would cancel it.
+Running beside main's pushes its saves can land after a newer
+commit's, which costs the next run only the rows that commit moved,
+never a wrong one. A manual run has a group per ref: it saves nothing,
+so in main's group it could cancel a pending push, or be cancelled by
+one. Pushes to the merge queue's `gh-readonly-queue/`
 branches are ignored: they run as `merge_group`, and a push run there
 would share its group and cancel it, which the queue reads as a failure.
 
@@ -251,9 +252,13 @@ saves and still carries the products, both taken from the queue's run:
 - A push to main first runs `reuse` (`queue-seed.sh find`), which asks
   the API for a `merge_group` run of ci.yml on a
   `gh-readonly-queue/main/` branch whose `head_sha` is the push's, that
-  completed with success and uploaded a seed. The queue lands the merge
-  as its `ci` check passes, a moment before its run completes, so a run
-  still in progress is asked after again, for up to three minutes.
+  completed with success and holds an unexpired `seed-<leg>` for every
+  leg. The queue lands the merge as its `ci` check passes, a moment
+  before its run completes, so a run still in progress, or an API call
+  that failed, is asked after again, every 20 s up to six times, each
+  call cut off at 15 s; the job's timeout is held above that budget. A
+  lookup that fails, or times out, is none: the legs run, and the join
+  reads only theirs.
 - Where it finds one, the platform legs are skipped, and `seed`, on
   each leg's own runner (an entry's version hashes its path, the
   runner's), saves that leg's seed under the keys it names and uploads
@@ -267,7 +272,8 @@ saves and still carries the products, both taken from the queue's run:
   the scheduled and a manual run, which skip `reuse`, the legs run the
   full scope and save as before. A branch push runs `reuse` with its
   steps skipped, so it shows as a check run rather than skipped, at
-  the cost of a few seconds before the legs start; the queue skips it.
+  the cost of its runner's start before the legs start: seconds, up
+  to about 100 s in a burst of runs. The queue skips it.
   `seed`, though, shows as a skipped check on a branch push (a `TODO:`).
 
 What the push gives up is a second run of the same commit: a flake the
@@ -382,8 +388,9 @@ would win over main's.
 Main saves an entry only where assemble passed and it had nothing
 `full` for this vendor part, so once per vendor part and leg, not once
 per core change; a push that reuses the queue's run builds nothing and
-saves none, so that is now the nightly's (the queue's result, above). The scheduled run restores nothing, compiles cold and
-saves a compact entry. An entry saved per core change would be past the
+saves none, so that is now the nightly's (the queue's result, above).
+The scheduled run restores nothing, compiles cold and saves a compact
+entry. An entry saved per core change would be past the
 repository's 10 GB cache at main's rate: a whole entry is about 0.5 GB
 for the four legs, and it grows with each save, since zig never prunes
 its cache and a save carries all it restored. When main saved after
