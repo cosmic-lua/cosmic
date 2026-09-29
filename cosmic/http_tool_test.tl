@@ -6,13 +6,14 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
 local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
---- Requests to a closed local port, which a loopback alone answers:
---- the worker runs offline, and is keyed. And the program itself, which
---- its tests start.
+--- Requests to a local port, closed or one a test serves, which a
+--- loopback alone answers: the worker runs offline, and is keyed. And
+--- the program itself, which its tests start.
 Test.needs{ network = { "127.0.0.1" }, tool = true }
 
 --- What a fresh process, $SSL_CERT_FILE naming `cert_file`, is told
@@ -50,4 +51,95 @@ local function test_a_cert_file_holding_no_certificates_is_passed_over(tmp: stri
     assert(not trouble:find("SSL_CERT_FILE", 1, true), cert_file .. ": " .. trouble)
     assert(trouble:lower():find("connect", 1, true) ~= nil, cert_file .. ": " .. trouble)
   end
+end
+
+--- A client of this program running `body`, a standalone script's
+--- function of its arguments, against a local server that stalls: once
+--- the client has written `marker`, which it does just before the call
+--- that is to wait, it is sent SIGINT, and what it printed is answered.
+--- `serve` is the server's side: it gets the accepted connection and
+--- the request's head, and answers as it will, then stalls.
+local function interrupted(tmp: string, body: string,
+                           serve: function(Net.Conn, string)): string
+  local script = tmp .. "/client.tl"
+  assert(Fs.write(script, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+return function(argv: {string}): integer
+  local url, marker = argv[1], argv[2]
+  local guard = assert(Child.guard())
+]] .. body .. [[
+  local caught = assert(guard:release())
+  Fs.put(Fs.stdout, " " .. tostring(caught))
+  return 0
+end
+]]))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ms = 20000 }))
+  local url = "http://127.0.0.1:" .. server.address.port .. "/"
+  local marker = tmp .. "/marker"
+  local started = this_program.program({ "--standalone", script, url, marker },
+    { stdout = "capture", stderr = "capture" })
+  local child <close> = assert(Child.start(started.argv, started.options))
+  local conn <close> = assert(server:accept())
+  local head = ""
+  while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
+  serve(conn, head)
+  for _ = 1, 2000 do
+    if Fs.stat(marker) ~= nil then break end
+    assert(sys.nanosleep(10 * 1000000))
+  end
+  assert(Fs.stat(marker) ~= nil, "the client never reached its wait")
+  assert(child:stop(sys.SIGINT))
+  local result = assert(child:wait(20000))
+  assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
+  return result.stdout or ""
+end
+
+--- A body `read` that waits on a server that sent part of the body and
+--- stalls ends when a guard catches a signal.
+local function test_a_caught_signal_ends_a_read_that_waits(tmp: string)
+  local said = interrupted(tmp, [[
+  local response = assert(Http.open(url))
+  assert(assert(response:read()) == "part")
+  assert(Fs.write(marker, ""))
+  local data, why = response:read()
+  Fs.put(Fs.stdout, tostring(data) .. " " .. why)
+]], function(conn: Net.Conn, _head: string)
+  assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
+end)
+  assert(said == "nil interrupted " .. sys.SIGINT, said)
+end
+
+--- A streamed `write` that waits on a server that reads none of the
+--- body ends when a guard catches a signal.
+local function test_a_caught_signal_ends_a_write_that_waits(tmp: string)
+  local said = interrupted(tmp, [[
+  local up = assert(Http.upload(url, { method = "PUT" }))
+  assert(Fs.write(marker, ""))
+  local chunk = string.rep("x", 1 << 20)
+  local why = "never waited"
+  for _ = 1, 4096 do
+    local ok, trouble = up:write(chunk)
+    if not ok then
+      why = trouble
+      break
+    end
+  end
+  Fs.put(Fs.stdout, why)
+]], function(_conn: Net.Conn, _head: string) end)
+  assert(said == "interrupted " .. sys.SIGINT, said)
+end
+
+--- A `close` that waits for an answer the server never sends ends when
+--- a guard catches a signal.
+local function test_a_caught_signal_ends_a_close_that_waits(tmp: string)
+  local said = interrupted(tmp, [[
+  local up = assert(Http.upload(url, { body_size = 5 }))
+  assert(up:write("hello"))
+  assert(Fs.write(marker, ""))
+  local ok, why = up:close()
+  Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+]], function(_conn: Net.Conn, _head: string) end)
+  assert(said == "false interrupted " .. sys.SIGINT, said)
 end

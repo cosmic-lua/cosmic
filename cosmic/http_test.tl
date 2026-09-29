@@ -904,12 +904,10 @@ local function test_a_caught_signal_ends_an_open_that_waits()
   assert(caught == sys.SIGINT, tostring(caught))
 end
 
--- TODO: a caught signal ending a body `read`, and a streamed `write` or
--- `finish`, that wait on a connection that stays open with nothing to
--- send, once the tree has a loopback server that can bind, accept and
--- stall; the scripted transport closes after its reply, so the transfer
--- is done before a read can wait. Only the open's wait is driven here,
--- and the wait loops share `cosmic_signal_caught`.
+-- A caught signal ending a body `read`, a streamed `write` and `close`
+-- that wait on a stalled connection is cosmic/http_tool_test.tl's: the
+-- scripted transport closes after its reply, and a server that stalls
+-- runs beside a client only in a process of its own.
 
 local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local path = tmp .. "/two.bin"

@@ -39,12 +39,14 @@ int cosmic_open_socket (lua_State *L);
 /*
  * --- Where a socket is, read by its `kind`.
  * ---@class Address
- * ---@field kind string "unix": a socket file named by `path`
+ * ---@field kind string "unix", a socket file named by `path`, or "tcp", a TCP port of a host's
  * ---@field path string the socket file's path, for "unix", never empty: of any length a path may have, but the file's own name, past its last "/", at most `SOCKET_NAME_MAX` bytes, which a longer one fails with ENAMETOOLONG rather than being cut short. A path past that bound whole is reached from its directory
+ * ---@field host string the host's numeric IPv4 or IPv6 address, for "tcp": a name is not looked up, and fails with EINVAL
+ * ---@field port integer the port, for "tcp", from 0 to 65535: 0 to listen at a port the kernel chooses, which `bound` then names
  */
 
 /*
- * --- Makes a stream socket listening at an address. A unix one is a new socket file: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and the file made is left for the caller to remove.
+ * --- Makes a stream socket listening at an address. A unix one is a new socket file: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and the file made is left for the caller to remove. A TCP one takes a port left in TIME_WAIT (SO_REUSEADDR), and fails with EADDRINUSE on one a listener holds.
  * ---@param address Address where to listen
  * ---@param backlog integer how many connections may wait to be accepted, from 1
  * ---@return integer|nil fd the listening descriptor, or nil on failure
@@ -63,9 +65,9 @@ COSMIC_SYSCALL(listen, 2);
 COSMIC_SYSCALL(accept, 1);
 
 /*
- * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, Linux's waits for room, ETIMEDOUT once the time runs out and EINTR once an open `Child.guard` catches a signal, while macOS's fails ECONNREFUSED at once, as though nothing listened.
+ * --- Connects a new stream socket to an address. A unix one fails ECONNREFUSED where nothing listens at a socket file and ENOENT where there is no file; where its listener's backlog is full, Linux's waits for room, while macOS's fails ECONNREFUSED at once, as though nothing listened. A TCP one waits for the connection to be made, and fails with what refused it: ECONNREFUSED where nothing listens at the port. A wait fails ETIMEDOUT once the time runs out, and EINTR once an open `Child.guard` catches a signal.
  * ---@param address Address where to connect
- * ---@param timeout_ms integer how long to wait for room at most, -1 for no limit
+ * ---@param timeout_ms integer how long to wait at most, -1 for no limit
  * ---@return integer|nil fd the connected descriptor, closed on exec and nonblocking, or nil on failure
  * ---@return string error what went wrong, when fd is nil
  * ---@return integer errno the error number, when fd is nil
@@ -81,6 +83,15 @@ COSMIC_SYSCALL(connect, 2);
  * ---@return integer errno the error number, when sent is nil
  */
 COSMIC_SYSCALL(send, 2);
+
+/*
+ * --- Where a TCP socket is bound: its host and port, the port the kernel chose for one listening at port 0.
+ * ---@param fd integer the descriptor
+ * ---@return Address|nil address its address, or nil on failure: EAFNOSUPPORT for a unix one
+ * ---@return string error what went wrong, when address is nil
+ * ---@return integer errno the error number, when address is nil
+ */
+COSMIC_SYSCALL(bound, 1);
 
 /*
  * --- Ends one direction of a connection, or both: after "write" the peer reads the end of what was sent.
@@ -109,11 +120,13 @@ COSMIC_SYSCALL(wait, 3);
  * ---@field EAGAIN integer nothing to take or send now: wait, then ask again
  * ---@field EINTR integer a guard caught a signal while `wait` waited
  * ---@field ETIMEDOUT integer `wait`'s time ran out
+ * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
  */
 COSMIC_CONSTANT(EAGAIN)
 COSMIC_CONSTANT(EINTR)
 COSMIC_CONSTANT(ETIMEDOUT)
+COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(ENAMETOOLONG)
 COSMIC_CONSTANT(SOCKET_NAME_MAX)

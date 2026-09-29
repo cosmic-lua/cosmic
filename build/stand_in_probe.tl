@@ -5,6 +5,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
@@ -284,6 +285,12 @@ local verbs: {string:function(string, string): integer} = {
   ["env-of"] = function(name: string): integer
     local value = sys.getenv(name)
     return put_all(1, value ~= nil and name .. "=" .. value .. "\n" or name .. " unset\n")
+  end,
+  connect = function(path: string): integer
+    local conn, trouble = Net.connect(Net.unix(path))
+    if conn == nil then return put_all(1, trouble .. "\n") end
+    local _, _ = conn:close()
+    return put_all(1, "connected\n")
   end,
   present = function(path: string): integer
     if exists(path) then return nil end

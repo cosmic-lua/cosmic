@@ -83,6 +83,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,
+  bound = function(_: integer, fd: integer): {any} return { fd } end,
   shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end,
   wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end,
   poll = function(_: integer, fd: integer): {any} return { { fd }, { process.POLLIN }, 0 } end,

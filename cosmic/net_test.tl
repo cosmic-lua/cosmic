@@ -119,10 +119,19 @@ local function test_connecting_to_a_full_backlog(tmp: string)
     end
     held[#held + 1] = conn
   end
-  for _, conn in ipairs(held) do assert(conn:close()) end
   local darwin = assert(sys.uname()).sysname == "Darwin"
   local want = tmp .. "/s.sock: " .. (darwin and "Connection refused" or "timed out")
   assert(why == want, why)
+  -- A signal a guard catches ends the wait for room, which has no limit
+  -- of its own here, rather than asking again for good.
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  local conn, interrupted = Net.connect(server.address)
+  assert(assert(guard:release()) == sys.SIGINT)
+  if conn ~= nil then assert(conn:close()) end
+  want = tmp .. "/s.sock: " .. (darwin and "Connection refused" or "interrupted")
+  assert(conn == nil and interrupted == want, interrupted)
+  for _, held_conn in ipairs(held) do assert(held_conn:close()) end
 end
 
 local function test_accept_with_no_one_connecting_times_out(tmp: string)
