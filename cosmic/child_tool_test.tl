@@ -670,6 +670,28 @@ local function test_end_strays_ends_a_stray_named_as_an_init()
   end
 end
 
+--- `end_strays` leaves running a stray in a group it is told to spare
+--- -- here this process's own, which the stray is orphaned in -- and
+--- ends it once told to spare none.
+local function test_end_strays_spares_a_stray_in_a_spared_group()
+  if not path_exists("/proc/thread-self/children") then return end
+  -- A group started first makes this process the subreaper it adopts
+  -- the stray as.
+  assert(Child.run(lua("")))
+  local r = assert(Child.run(lua(AGAIN .. "local h = again('" .. sleep(30000) ..
+    "', { process_group = false, stdout = \"null\", stderr = \"null\" }) " .. FS ..
+    'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
+    { stdout = "capture", process_group = false })))
+  local pid = assert(math.tointeger(tonumber(r.stdout)))
+  local group = assert(sys.getpgid(0))
+  assert(sys.getpgid(pid) == group)
+  assert(Child.end_strays({ group }) == 0)
+  assert(sys.kill(pid, 0), "the spared stray was ended")
+  assert(Child.end_strays() >= 1)
+  local alive, _, errno = sys.kill(pid, 0)
+  assert(not alive and errno == sys.ESRCH, "the stray survived")
+end
+
 --- Completion is the leader's exit: a descendant that left the group
 --- while holding the captured pipe cannot hold the wait open.
 local function test_an_escaped_writer_does_not_hold_up_the_wait()

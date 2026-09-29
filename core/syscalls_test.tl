@@ -851,6 +851,16 @@ local function test_getpid_is_stable_and_positive()
   assert(sys.getpid() == pid)
 end
 
+--- A process's group is its own group's by pid as by 0; a pid no
+--- process has is refused, and one no pid can be raises.
+local function test_getpgid_names_a_process_group()
+  local group = assert(sys.getpgid(0))
+  assert(group > 0 and sys.getpgid(sys.getpid()) == group)
+  failed_with(sys.ESRCH, sys.getpgid(2147483647))
+  raises(sys.getpgid, -1)
+  raises(sys.getpgid, 2147483648)
+end
+
 local function test_getuid_owns_what_the_process_creates(tmp: string)
   local path = tmp .. "/mine"
   assert(sys.mkdir(path))

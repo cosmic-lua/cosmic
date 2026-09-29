@@ -5,6 +5,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
@@ -52,10 +53,12 @@ end
 local function test_a_failed_standard_output_write_exits_2(tmp: string)
   -- /dev/full is where a write fails with ENOSPC, on Linux.
   if Fs.stat("/dev/full") == nil then return end
+  local full = assert(sys.open("/dev/full", sys.O_WRONLY))
   local started = this_program.program({ "codec", "hex" }, {
-    cwd = tmp, stdout = "/dev/full", stderr = "capture", input = "abc", timeout_ms = 30000,
+    cwd = tmp, stdout = full, stderr = "capture", input = "abc", timeout_ms = 30000,
   })
   local result = assert(Child.run(started.argv, started.options))
+  assert(sys.close(full))
   assert(result.code == 2, tostring(result.code))
   assert((result.stderr or ""):find("cosmic: codec: standard output: ", 1, true), result.stderr)
 end
