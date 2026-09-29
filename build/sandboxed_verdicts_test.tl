@@ -565,7 +565,7 @@ local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
   if unsandboxed(first) then return end
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
-  env.COSMIC_TEST_HARNESS_EPOCH = tostring(harness_epoch.epoch + 1)
+  env.COSMIC_TEST_HARNESS_EPOCH = harness_epoch.epoch .. "0"
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("3 ran, 0 stood", 1, true), moved)
   -- So is the timeout a worker runs under: a pass reached under one

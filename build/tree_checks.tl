@@ -105,6 +105,9 @@ allowed["build.importer.tree_code"] = "tested directly: the test holds what a " 
 allowed["build.harness_epoch.acknowledged"] = "the digest of each module of the " ..
   "harness a person last acknowledged, which only its test reads: a record of a choice, " ..
   "which the key leaves to `epoch`"
+allowed["build.harness_epoch.retired"] = "every token the harness's epoch held " ..
+  "before, which only its test reads: it holds the epoch's count to one past them, so " ..
+  "each bump draws a token of its own"
 allowed["build.harness_epoch.library"] = "the standard-library modules the harness " ..
   "may reach, each with its reason, which only its test reads: a rule the test holds " ..
   "the harness's digests to, not code the harness runs"

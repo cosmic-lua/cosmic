@@ -220,7 +220,7 @@ local record declared_key
     --- The harness's epoch (build/harness_epoch.tl), which stands for
     --- the code every worker runs, the tree's or not, and for the code
     --- that computes this key.
-    epoch: integer
+    epoch: string
     --- The timeout its worker runs under, in milliseconds.
     timeout_ms: integer
     --- The program a test that runs this program runs
@@ -799,7 +799,7 @@ function declared_key.preimage(digests: declared_key.Digests,
     part("m", spec.module_key, ""),
     part("runtime", spec.runtime, ""),
     part("compiler", spec.compiler, ""),
-    part("epoch", tostring(spec.epoch), ""),
+    part("epoch", spec.epoch, ""),
     part("timeout", tostring(spec.timeout_ms), ""),
     part("host", spec.host, ""),
     part("declaration", spec.declaration, ""),

@@ -89,12 +89,12 @@ end
 local function test_the_census_line_says_what_the_cache_held(tmp: string)
   local figures, status = SuiteOutput.read(key_parts .. "\n" ..
     "test: census: 1990 rows under host features 01, runtime bbbbbbbbbbbb, " ..
-    "harness e1t60000; 1 row under no parts named\n" ..
+    "harness e8-072f7458-t60000; 1 row under no parts named\n" ..
     "test: PASS (1994 tests, 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed)\n", 0)
   assert(status == "pass" and figures.stood == 1994)
   local held = SuiteOutput.held(assert(figures.held))
   assert(#held == 2 and held[1].rows == 1990 and held[2].rows == 1)
-  assert(held[1].parts.runtime == "bbbbbbbbbbbb" and held[1].parts.harness == "e1t60000")
+  assert(held[1].parts.runtime == "bbbbbbbbbbbb" and held[1].parts.harness == "e8-072f7458-t60000")
   assert(held[1].parts["host features"] == "01" and next(held[2].parts) == nil)
   -- An empty cache, said so; a run that said nothing has none.
   local empty = SuiteOutput.parse("test: census: no rows\n")
