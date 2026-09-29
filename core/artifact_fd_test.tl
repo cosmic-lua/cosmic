@@ -80,6 +80,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
   isatty = function(_: integer, fd: integer): {any} return { fd } end,
   fsync = function(_: integer, fd: integer): {any} return { fd } end,
   ftruncate = function(_: integer, fd: integer): {any} return { fd, 0 } end,
+  flock = function(_: integer, fd: integer): {any} return { fd, "exclusive" } end,
   set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end,
   accept = function(_: integer, fd: integer): {any} return { fd } end,
   send = function(_: integer, fd: integer): {any} return { fd, "" } end,

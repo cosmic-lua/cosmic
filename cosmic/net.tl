@@ -75,13 +75,27 @@ local record Net
     --- control socket does. The path is taken over only where it is a
     --- socket file and connecting to it is refused: a live listener's
     --- file, or any other file, is left alone, and a live listener sees
-    --- the connection that asked, which sends nothing. Refused is not
-    --- always gone: macOS refuses a live listener whose backlog is full
-    --- as it refuses a dead one, and every platform refuses a socket
-    --- bound but not yet listening -- another `listen` in its moment
-    --- between the two, as when two start at once -- so theirs is taken
-    --- over too; and one that binds there between the check and the
-    --- removal loses its file.
+    --- the connection that asked, which sends nothing. Listens that
+    --- reclaim take turns: each holds a lock on the file
+    --- `path .. ".lock"` from its first bind to its last, so of two
+    --- starting at once the second finds the first listening. A listen
+    --- without `reclaim` takes no turn, and refused is not always gone:
+    --- macOS refuses a live listener whose backlog is full as it refuses
+    --- a dead one, and every platform refuses a socket bound but not yet
+    --- listening -- a listen without `reclaim` in its moment between the
+    --- two -- so theirs is taken over too; and one that binds there
+    --- between the check and the removal loses its file. The lock file
+    --- stays after the listener closes. Where it cannot be opened or
+    --- locked, the listen fails, naming the lock file, rather than
+    --- reclaim without it: "Permission denied" for one another user
+    --- made (it is made mode 0600, and Linux's fs.protected_regular
+    --- refuses another's in a sticky directory such as /tmp) or in a
+    --- directory not writable here; "File name too long" for a path
+    --- within 5 bytes of the longest a path may be; "timed out" for
+    --- another's lock held 10 seconds; "interrupted" for a signal a
+    --- `Child.guard` caught; and a directory or a link at its name
+    --- fails too. A path ending in "/" fails "Is a directory", and an
+    --- empty path raises, as it does without `reclaim`.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
@@ -352,15 +366,50 @@ local PROBE_MS <const> = 1000
 --- on Linux and macOS.
 local SOCKET_TYPE <const> = 0xC000
 
+--- How long `reclaim` waits for another's lock, which each holds for
+--- a probe and two binds: far past that, the holder is stuck.
+local LOCK_MS <const> = 10 * PROBE_MS
+
+--- The lock `reclaim` holds, released when it goes out of scope,
+--- whether the listen returns or raises.
+local record ReclaimLock
+  fd: integer
+  metamethod __close: function(ReclaimLock)
+end
+
+local reclaim_lock_mt: metatable<ReclaimLock> = {
+  __close = function(self: ReclaimLock)
+    local _, _ = sys.close(self.fd)
+  end,
+}
+
+--- The lock `reclaim` takes beside `address`'s path; nil and why not,
+--- the lock file named. The lock file is never removed: a reclaim
+--- waiting on one removed would then lock a file no longer at the name,
+--- while the next reclaim makes and locks another.
+local function reclaim_lock(address: Net.Address): ReclaimLock, string
+  local name = address.path .. ".lock"
+  -- Open for writing, which an exclusive lock over NFS or SMB needs;
+  -- O_NONBLOCK so a FIFO at the name opens without waiting for a
+  -- writer, O_NOCTTY so a terminal there does not become this
+  -- process's.
+  local fd, why = sys.open(name,
+    sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY, 0x180)
+  if fd == nil then return nil, name .. ": " .. why end
+  local ok, trouble, errno = sys.flock(fd, "exclusive", LOCK_MS)
+  if not ok then
+    local _, _ = sys.close(fd)
+    return nil, name .. ": " .. said(trouble, errno)
+  end
+  local lock: ReclaimLock = { fd = fd }
+  return setmetatable(lock, reclaim_lock_mt), ""
+end
+
 --- What `reclaim` finds at `address`'s path, which a bind found taken,
 --- read from the working directory the bind was: "refused", a socket
 --- file connecting to which is refused, to take over; "gone", nothing
 --- there any longer, to bind again; or "", anything else, to leave
 --- alone.
--- TODO: take a lock beside the path (a file of its own, held while
--- the check, the removal and the bind run) so two `reclaim`s starting
--- at once cannot each take the other's socket for one left behind,
--- once cosmic.sys carries flock.
 local function left_behind(address: Net.Address): string
   local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
@@ -372,6 +421,26 @@ local function left_behind(address: Net.Address): string
   end
   if errno == raw.ECONNREFUSED then return "refused" end
   return errno == sys.ENOENT and "gone" or ""
+end
+
+--- A unix listener at `address`; with `reclaim`, taking over a socket
+--- file left behind, under the lock the caller holds.
+local function listened(address: Net.Address, backlog: integer, timeout_ms: integer | nil,
+    reclaim: boolean): Net.Listener | nil, string
+  local socket, trouble, errno = raw.listen(raw_address(address), backlog)
+  if socket == nil and errno == raw.EADDRINUSE and reclaim then
+    local found = left_behind(address)
+    if found == "refused" then
+      local removed, why, number = sys.unlink(address.path)
+      if not removed and number ~= sys.ENOENT then
+        trouble, errno = why, number
+        found = ""
+      end
+    end
+    if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
+  end
+  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
+  return new_listener(socket, { kind = address.kind, path = address.path }, timeout_ms), ""
 end
 
 --- Listens at `address`. A unix one makes its socket file, and fails
@@ -395,19 +464,12 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
     end
     return new_listener(socket, Net.tcp(bound.host, bound.port), opts.timeout_ms), ""
   end
-  local socket, trouble, errno = raw.listen(raw_address(address), backlog)
-  if socket == nil and errno == raw.EADDRINUSE and opts.reclaim then
-    local found = left_behind(address)
-    if found == "refused" then
-      local removed, why, number = sys.unlink(address.path)
-      if not removed and number ~= sys.ENOENT then
-        return nil, named(address) .. ": " .. why
-      end
-    end
-    if found ~= "" then socket, trouble, errno = raw.listen(raw_address(address), backlog) end
-  end
-  if socket == nil then return nil, named(address) .. ": " .. said(trouble, errno) end
-  return new_listener(socket, { kind = address.kind, path = address.path }, opts.timeout_ms), ""
+  if not opts.reclaim then return listened(address, backlog, opts.timeout_ms, false) end
+  if address.path == "" then error("bad argument #1 to 'listen' (path must not be empty)", 2) end
+  if address.path:sub(-1) == "/" then return nil, named(address) .. ": Is a directory" end
+  local lock <close>, locking = reclaim_lock(address)
+  if lock == nil then return nil, locking end
+  return listened(address, backlog, opts.timeout_ms, true)
 end
 
 --- Connects to `address`. A unix one fails "No such file or directory"

@@ -19,6 +19,7 @@
 #define COSMIC_PROCESS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "lua.h"
 #include "syscalls.h"
@@ -37,6 +38,26 @@ int cosmic_open_process (lua_State *L);
  * would. It reads the signal without taking it, so the guard's holder
  * still sees it. */
 bool cosmic_signal_caught (void);
+
+/* The longest a wait sleeps before it asks again whether a guard caught
+ * a signal. A signal that lands between that question and the sleep
+ * only sets the guard's flag, so a sleep with no bound could outlast
+ * it forever; each slice bounds how late it is seen, as core/http.c's
+ * one-second polls and cosmic.child's do. */
+#define COSMIC_WAIT_SLICE_MS 100
+
+/* Milliseconds on the monotonic clock. */
+int64_t cosmic_now_ms (void);
+
+/* How long a wait for `deadline` (on `cosmic_now_ms`'s clock, -1 for
+ * no limit) may sleep now: a slice at most, 0 once it has passed. */
+int cosmic_wait_slice (int64_t deadline);
+
+/* Sleeps `*pause` milliseconds, doubling it up to a slice for the next
+ * time, before a call that answered EAGAIN is asked again: 0 to ask
+ * again, ETIMEDOUT once `deadline` has passed, EINTR once a guard has
+ * caught a signal. */
+int cosmic_paused (int64_t deadline, int64_t *pause);
 
 #if defined(__linux__)
 #include <stdbool.h>

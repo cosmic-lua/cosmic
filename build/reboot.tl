@@ -332,9 +332,11 @@ end
 --- execs (SQLite opens it close-on-exec) never leaves it held. A
 --- sandboxed test worker never takes it, since only the tree's own tool
 --- (`reboot.own_tool`) rebuilds.
--- TODO: hold this with flock on o/rebuild.lock itself, once cosmic.sys
--- carries flock, rather than through an SQLite transaction nothing
--- writes.
+-- TODO: hold this with sys.flock on o/rebuild.lock itself rather than
+-- through an SQLite transaction nothing writes, taking both locks for as
+-- long as a tool that takes only the SQLite one may still run in a
+-- checkout: SQLite's is an fcntl lock, which flock does not see on
+-- Linux, so a tool holding each would rebuild at once.
 -- TODO: have a boot run by hand (`bin/zig build boot`, build/zig.tl)
 -- take this lock too, so a run rebuilding the tool and a boot in the
 -- same checkout wait for one another; a boot this module starts

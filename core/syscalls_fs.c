@@ -15,9 +15,11 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -46,6 +48,7 @@
 #include "guard.h"
 #include "lauxlib.h"
 #include "observed.h"
+#include "process.h"
 #include "portable.h"
 #include "psa/crypto.h"
 #include "store.h"
@@ -893,6 +896,27 @@ COSMIC_SYSCALL(ftruncate, 2) {
     return cosmic_fail_effect(L, errno);
   }
   return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(flock, 3) {
+  int fd = cosmic_checkfd(L, 1);
+  static const char *const names[] = {"exclusive", "shared", "unlock", NULL};
+  static const int operations[] = {LOCK_EX, LOCK_SH, LOCK_UN};
+  int operation = operations[luaL_checkoption(L, 2, NULL, names)];
+  int timeout = cosmic_optint(L, 3, 0);
+  luaL_argcheck(L, timeout >= -1, 3, "timeout is out of range");
+  /* Asked without waiting, and again after each sleep, so the wait
+   * can end at a deadline or a caught signal, which a blocking
+   * flock could not. */
+  int64_t deadline = timeout < 0 ? -1 : cosmic_now_ms() + timeout;
+  int64_t pause = 1;
+  for (;;) {
+    if (flock(fd, operation | LOCK_NB) == 0) return cosmic_ok(L);
+    if (errno == EINTR) continue;
+    if (errno != EWOULDBLOCK) return cosmic_fail_effect(L, errno);
+    int failure = cosmic_paused(deadline, &pause);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
+  }
 }
 
 COSMIC_SYSCALL(access, 2) {
