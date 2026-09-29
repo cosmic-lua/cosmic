@@ -20,7 +20,7 @@
 --- - its scratch directory at `test_sandbox.scratch`, beneath /tmp at
 ---   a name padded to `scratch_length`, writable: the test's own
 ---   directory (`tmp` there, a link to `real` beside it), where
----   the processes it starts write their coverage (/tmp/children), and
+---   the processes it starts write their coverage (`children` there), and
 ---   its TMPDIR;
 --- - the host caches the module declares (`build.caches`), writable,
 ---   each at its own name, made first where missing, and the variables
@@ -51,7 +51,7 @@
 --- when it does, ending whatever it left running there: no descendant of
 --- a sandboxed worker outlives it. Its verdict is keyed by what it was
 --- given (`build.declared_key`), not by what it read. What the worker reports, it reports as it saw
---- it, at /tree and /tmp; `to_host` puts each path back where the host
+--- it, at /tree and `test_sandbox.scratch`; `to_host` puts each path back where the host
 --- has it, for the audit of what it read and for its `runs` row.
 
 local type Child = require("cosmic.child")
@@ -70,7 +70,7 @@ local record test_sandbox
   scratch: string
   --- How long, at least, the path of every test's scratch directory is,
   --- on every host. macOS's own is 75 bytes, its temporary directory
-  --- resolved (/private/var/folders/<2>/<28>/T/) and `build.test`'s
+  --- resolved (/private/var/folders/<2>/<30>/T/) and `build.test`'s
   --- `scratch` beneath it, and a path a test builds there runs past a
   --- bound (a socket file's 104 bytes, a tar name's 100) that a shorter
   --- one elsewhere never meets. Padded to this on every host -- a
@@ -93,7 +93,7 @@ local record test_sandbox
     --- not be made, a `host` path it declares that cannot be given -- or
     --- "".
     trouble: string
-    --- The paths given at their own names beneath /tree or /tmp, where
+    --- The paths given at their own names beneath /tree or `test_sandbox.scratch`, where
     --- the tree and the scratch directory are bound: each is the host's
     --- own there, bound over them, so a read of it stays where it is
     --- (`to_host`).
@@ -148,6 +148,10 @@ end
 --- cores of its own, which COSMIC_PORTABLE_CACHE names to it: beneath
 --- its scratch directory, which a portable cosmic it starts makes.
 local own_cores <const> = test_sandbox.scratch .. "/cores"
+
+--- The sandbox's own /tmp, a tmpfs of its own the scratch directory is
+--- bound beneath (core/syscalls.c's "a /tmp of its own").
+local own_tmp <const> = Fs.dirname(test_sandbox.scratch)
 
 --- A sandboxed worker's environment: of `environment`, the runner's
 --- view of a worker's (`build.test`'s `worker_environment`), the pinned
@@ -276,7 +280,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- Why a `host` path cannot be given: where a variable names it, one
   -- `test_inputs.resolve` could not put anywhere, or one that is where
   -- the sandbox has its own -- its scratch directory, which it gives
-  -- at /tmp, or /tree or /tmp themselves, over which a bind at its
+  -- at `test_sandbox.scratch`, or /tree or that, over which a bind at its
   -- own name would go -- or above it: a variable's value, such as the
   -- host's temporary directory, above every test's scratch directory.
   local refused = effective.unresolved or ""
@@ -435,15 +439,15 @@ end
 
 --- `path` as the host has it, for one a sandboxed worker of the tree at
 --- `root`, its scratch directory `scratch`, saw: one at or beneath
---- /tree or /tmp, where the sandbox bound them, beneath `root` or
---- `scratch` -- but one beneath a path of `kept`, bound at its own name
---- over them -- and any other where the host has it already.
--- TODO: put a read beside a host path given beneath /tmp back where
--- the host has it, once the scratch directory is given at a name no
--- host path can be beneath (a mount point of the sandbox's own, not
--- /tmp): today it is put back in the scratch directory, whose own it
--- could as well be, and a sandboxed failure does not name it;
--- `COSMIC_TEST_SANDBOX=0 cosmic test --audit` names it as it is.
+--- /tree or `test_sandbox.scratch`, where the sandbox bound them,
+--- beneath `root` or `scratch` -- but one beneath a path of `kept`,
+--- bound at its own name over them -- and any other where the host has
+--- it already.
+-- TODO: refuse a host path given beneath `test_sandbox.scratch`, as
+-- one above it is, and drop `kept` for it: a read beside one is put
+-- back in the scratch directory, whose own it could as well be. None
+-- can be there but the host's own padded scratch name, which no test
+-- declares.
 local function host_path(path: string, root: string, scratch: string, kept: {string}): string
   for _, own in ipairs(kept) do
     if Fs.within(path, own) then return path end
@@ -486,7 +490,9 @@ end
 --- directory the sandbox made (`Plan.made`, nil for none) is left out:
 --- what it answers -- the sandbox's own inode, device and times, and
 --- the entries given there -- is none of the host's, and turns on what
---- the module declares, which its key holds.
+--- the module declares, which its key holds; and so is a read of the
+--- sandbox's own /tmp, which holds its scratch directory (moved like
+--- the tree) and what the worker put there, but for a path of `kept`.
 function test_sandbox.to_host(reads: {observations.Observation}, root: string,
                               scratch: string, kept?: {string},
                               made?: {string}): {observations.Observation}
@@ -494,10 +500,21 @@ function test_sandbox.to_host(reads: {observations.Observation}, root: string,
   local own = kept or {}
   local synthetic: {string:boolean} = {}
   for _, dir in ipairs(made or {}) do synthetic[dir] = true end
+  local function given(path: string): boolean
+    for _, path_kept in ipairs(own) do
+      if Fs.within(path, path_kept) then return true end
+    end
+    return false
+  end
   for _, observation in ipairs(reads) do
     local kind, path = observation.kind, observation.path
-    if (kind == "s" or kind == "l") and synthetic[test_inputs.plain(path)] then
+    local plain = test_inputs.plain(path)
+    if (kind == "s" or kind == "l") and synthetic[plain] then
       -- A directory the sandbox made: none of the host's.
+    elseif kind ~= "e" and Fs.within(plain, own_tmp) and
+        not Fs.within(plain, test_sandbox.scratch) and not given(plain) then
+      -- The sandbox's own /tmp, around its scratch directory: none of
+      -- the host's but for a path given at its own name there.
     else
       out[#out + 1] = moved(observation, root, scratch, own)
     end

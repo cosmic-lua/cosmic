@@ -61,7 +61,7 @@ end
 
 --- A worker is given the tree's store, its closure's files and what its
 --- module declares of the tree, each at its name under /tree; its
---- scratch directory to write, at /tmp; the host files it declares at
+--- scratch directory to write, at `test_sandbox.scratch`; the host files it declares at
 --- their own names; and no network but its own loopback. A path that is
 --- not there is not given: a read of it finds nothing either way.
 local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_name(tmp: string)

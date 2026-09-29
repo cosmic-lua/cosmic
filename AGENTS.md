@@ -244,7 +244,9 @@
    macOS's length (`scratch_length` in `build/test_sandbox.tl`), so a
    bound on a path's length (a socket file's, a tar name's) is met on
    every leg, and a directory's name holds a "-": escape a path before
-   putting it in a Lua pattern (`path:gsub("%p", "%%%0")`). Treat an actual
+   putting it in a Lua pattern (`(path:gsub("%p", "%%%0"))`). A worker
+   that writes to /tmp itself, past its TMPDIR, writes to a /tmp of the
+   sandbox's own, which is gone with it. Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and
    the slow work first. To benchmark full test execution, delete only the rows

@@ -58,6 +58,14 @@ local function test_what_a_worker_read_is_put_back_where_the_host_has_it()
     { kind = "o", path = scratch .. "/hostile", answer = "" } }, "/home/me/tree", "/var/s",
     { scratch .. "/host" })
   assert(kept[1].path == scratch .. "/host/f" and kept[2].path == "/var/s/hostile")
+  -- The sandbox's own /tmp, around its scratch directory, is none of
+  -- the host's -- a listing of it, a file the worker put there -- but
+  -- for a path given at its own name beneath it.
+  local own_tmp = test_sandbox.to_host({ { kind = "d", path = "/tmp", answer = "ok" },
+    { kind = "o", path = "/tmp/mine", answer = "" },
+    { kind = "o", path = "/tmp/cache/f", answer = "" } }, "/home/me/tree", "/var/s",
+    { "/tmp/cache" })
+  assert(#own_tmp == 1 and own_tmp[1].path == "/tmp/cache/f")
   -- A stat or an lstat of a directory the sandbox made is none of the
   -- host's, and is left out; one beneath it, or a listing of it, is not.
   local made = test_sandbox.to_host({ { kind = "s", path = "/tree/a", answer = "ok 40" },

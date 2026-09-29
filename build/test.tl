@@ -2056,7 +2056,7 @@ end
 --- The environment the workers of `m`'s tests are given, which a
 --- variable they read is keyed by: nil for every worker's own, where
 --- they run unsandboxed and unkeyed. Keyed, it is what a sandbox gives
---- one (`test_sandbox.environment`), TMPDIR its /tmp, whether or not a
+--- one (`test_sandbox.environment`), TMPDIR its scratch directory, whether or not a
 --- sandbox holds it (`launch`).
 local function view_of(rec: Recording, m: importer.Module): {string:string} | nil
   if not rec.keyed then return nil end
@@ -2571,7 +2571,7 @@ end
 --- processes report.
 --- Removing the scratch directory with `Fs.remove_tree` removes the
 --- link without following it, and the real directory beside it.
--- TODO: keep the link, which a sandboxed worker sees at /tmp/tmp as an
+-- TODO: keep the link, which a sandboxed worker sees in `test_sandbox.scratch` as an
 -- unsandboxed one sees it under the host's temporary directory: it
 -- stands in for macOS's /var on every host, and does not depend on
 -- where the checkout is. Drop it only once a case of its own on the
@@ -2583,8 +2583,9 @@ function test.scratch(): string | nil, string
   -- past the temporary directory's resolved path and mkdtemp's six.
   local base, base_trouble = Fs.absolute(Env.get_or("TMPDIR", "/tmp"))
   if base == nil then return nil, base_trouble end
+  local separator = base:sub(-1) == "/" and 0 or 1
   local made, trouble = Fs.mkdtemp(test_sandbox.padded("cosmic-test-",
-    test_sandbox.scratch_length - #base - 1 - 6))
+    test_sandbox.scratch_length - #base - separator - 6))
   if made == nil then return nil, trouble end
   local scratch, absolute_trouble = Fs.absolute(made)
   if scratch == nil then

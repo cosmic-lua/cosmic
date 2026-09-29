@@ -434,7 +434,7 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
         return false, "file: " .. tostring(file_why) .. "\nstream: " .. tostring(stream_why)
       end
       -- The directory is a pattern's text: escaped, a "-" in its name
-      -- (as macOS's temporary directory has) means itself.
+      -- (as a test's scratch directory's has) means itself.
       local at = case:gsub("%p", "%%%0")
       local file_words = file_why:gsub(at .. "/by%-file", "DEST")
       local stream_words = stream_why:gsub(at .. "/by%-stream", "DEST")
