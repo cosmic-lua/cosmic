@@ -112,7 +112,7 @@ function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Mac | ni
   if started == nil then return nil, why end
   local inner: Hash.Hasher = started
   inner:update(xor_with(padded, 0x36))
-  local outer_pad = xor_with(padded, 0x5c)
+  local outer_pad: string | nil = xor_with(padded, 0x5c)
   local finished = false
   local mac: Hash.Mac = {}
   mac.update = function(_self: Hash.Mac, data: string)
@@ -122,13 +122,18 @@ function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Mac | ni
   mac.digest = function(_self: Hash.Mac): string | nil, string
     if finished then error("hasher is finished", 2) end
     finished = true
+    -- The key-derived pad is not kept past the digest.
+    local pad = outer_pad
+    outer_pad = nil
+    if pad == nil then error("hasher is finished", 2) end
     local first, trouble = inner:digest()
     if first == nil then return nil, trouble end
-    return raw.digest(algorithm, outer_pad .. first), ""
+    return raw.digest(algorithm, pad .. first), ""
   end
   return setmetatable(mac, { __close = function()
     if not finished then
       finished = true
+      outer_pad = nil
       local _, _ = inner:digest()
     end
   end }), ""
