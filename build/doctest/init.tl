@@ -9,6 +9,7 @@ local markdown = require("build.doctest.markdown")
 local generate = require("build.doctest.generate")
 
 local record doctest
+  type Entry = generate.Entry
 end
 
 --- @param source string the doc's own markdown text
@@ -26,6 +27,19 @@ function doctest.extract(source: string, file: string): string | nil, string
     return nil, block_trouble
   end
   return generate.from_blocks(blocks, file, generate.prose(source))
+end
+
+--- The examples of a doc, each as its reader copies it (skips left
+--- out): what `extract` makes into functions, before the wrapping.
+--- @param source string the doc's own markdown text
+--- @return {generate.Entry} | nil nil on a grammar error, as `extract`
+--- @return string why
+function doctest.entries(source: string): {generate.Entry} | nil, string
+  local blocks, block_trouble = markdown.parse_blocks(source)
+  if blocks == nil then
+    return nil, block_trouble
+  end
+  return generate.entries(blocks)
 end
 
 return doctest
