@@ -29,6 +29,38 @@ function symbols.public_only(column: string, public: boolean): string
     " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
 end
 
+--- The condition under which `alias` (a row of `docs`) is a `local`
+--- declaration the module never hands out: not the module's surface.
+function symbols.local_declaration(alias: string): string
+  return "(" .. alias .. ".exported = 0 AND " .. alias .. ".signature LIKE 'local %')"
+end
+
+--- The rows of `docs`, under the alias `alias`, that a source shows: as
+--- `public_only`, and in a public source, no symbol the module keeps to
+--- itself: a `local` declaration (a record, enum, type or function) and
+--- what is declared under it, and a field or function whose name starts
+--- with `_`. A metamethod (`__call`) is part of a record's surface, so it
+--- stays. Every other source shows them, since it is a reader's own
+--- tree or cosmic's.
+function symbols.public_docs(alias: string, public: boolean): string
+  local module = symbols.public_only(alias .. ".module", public)
+  if not public then
+    return module
+  end
+  local symbol = alias .. ".symbol"
+  local dotted = "replace(" .. symbol .. ", ':', '.')"
+  -- The declaration is found by where it is written, `source_symbol`: a
+  -- module's `Fs.walk` and its private `local function walk` share the
+  -- symbol `walk`.
+  local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
+  return module .. " AND (" .. symbol .. " = '' OR (" ..
+    "NOT " .. symbols.local_declaration(alias) .. " AND NOT (" .. alias ..
+    ".kind IN ('field', 'function', 'method') AND (" .. dotted .. " GLOB '*._*' OR " ..
+    dotted .. " GLOB '_*')) AND NOT EXISTS (SELECT 1 FROM docs lr WHERE lr.module = " ..
+    alias .. ".module AND lr.source_symbol = substr(" .. source .. ", 1, instr(" .. source ..
+    " || '.', '.') - 1) AND " .. symbols.local_declaration("lr") .. ")))"
+end
+
 --- The condition under which the SQL `name` ends in `.` or `:` and then
 --- the SQL `last`: `last` is `name`'s last name, or its last few.
 local function ends_in(name: string, last: string): string

@@ -181,7 +181,7 @@ local function test_an_edit_parses_only_what_it_edited(tmp: string)
   checkout(tmp .. "/first")
   built_as(tmp .. "/first", env, "4 sources parsed;")
   checkout(tmp .. "/edited", { ["c.tl"] = project["c.tl"] .. "-- edited\n" })
-  built_as(tmp .. "/edited", env, "; 1 sources parsed, 3 taken from another checkout;")
+  built_as(tmp .. "/edited", env, "; 1 source parsed, 3 taken from another checkout;")
 end
 
 --- The same source parsed from a doc and from the tree is two parses:
@@ -204,7 +204,7 @@ local function test_a_mapped_parse_stands_only_for_a_mapped_one(tmp: string)
   -- same source, parsed again, as its own lines stand; the rest taken.
   local plain = { ["doc/guides/guide.md"] = "", ["guide_test.tl"] = generated }
   checkout(tmp .. "/plain", plain)
-  built_as(tmp .. "/plain", env, "; 1 sources parsed, 3 taken from another checkout;")
+  built_as(tmp .. "/plain", env, "; 1 source parsed, 3 taken from another checkout;")
   assert(doc_line(tmp .. "/plain", "example_1") == tostring(own_line),
     doc_line(tmp .. "/plain", "example_1") .. " " .. own_line)
   local rows = dump(path, "SELECT mapped, count(*) FROM parsed_v1 GROUP BY mapped ORDER BY mapped")
