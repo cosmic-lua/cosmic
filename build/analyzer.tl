@@ -472,6 +472,13 @@ local function record_docs(lines: {string}, tokens: {compiler.Token}, symbol: st
     end
     return
   end
+  -- TODO: a comment trailing a field on its own line (`s: string -- why`)
+  -- becomes the doc text of the next field, since `field_comments` holds
+  -- every comment run above a field; keep a run that starts on the line
+  -- of the field before it out of this one's text.
+  -- TODO: a record's `metamethod` fields (`def.meta_fields`) have no row
+  -- here, so `cosmic docs` never lists a documented `__call` or `__index`;
+  -- walk them as the fields are walked.
   local order = def.field_order
   local fields = def.fields
   local field_comments = def.field_comments
