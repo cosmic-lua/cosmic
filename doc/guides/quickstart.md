@@ -63,6 +63,10 @@ works. Numbers print as `Json.encode` writes them, so `1e2` reads
 `100.0`. It is only a lookup, with no filters: for more, write the
 script with `cosmic.json`. `cosmic help json` has the rest.
 
+## the digest of a file
+
+`cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function

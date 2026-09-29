@@ -35,6 +35,7 @@ local passthrough: {string:string} = {
   standalone = "the words after the file are its program's argv",
   eval = "the words after the chunk are its `...`",
   version = "it prints one line and no verdict",
+  hash = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
   json = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
 }
 
