@@ -189,8 +189,10 @@ Json.depth_limit = raw.depth_limit
 
 --- `raw.decode` of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
-local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer): any | nil, string
-  return raw.decode(text, opts.null_value, opts.max_depth, opts.json5,
+local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
+                           null_value?: any): any | nil, string
+  if null_value == nil then null_value = opts.null_value end
+  return raw.decode(text, null_value, opts.max_depth, opts.json5,
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments)
 end
 
@@ -303,14 +305,10 @@ function Json.lines(reader: Stream.Reader, opts?: Json.DecodeOptions, max?: inte
     error("json: a line limit must be an integer of at least 1", 2)
   end
   local text = Stream.lines(reader, max)
-  local given: Json.DecodeOptions = opts or {}
-  local line_opts: Json.DecodeOptions = {
-    null_value = given.null_value, max_depth = given.max_depth, json5 = given.json5,
-    hash_comments = given.hash_comments,
-    big_numbers_as_strings = given.big_numbers_as_strings,
-    lone_surrogates = given.lone_surrogates,
-  }
-  if line_opts.null_value == nil then line_opts.null_value = Json.null end
+  local line_opts: Json.DecodeOptions = opts or {}
+  -- A `null` line is never nil, which would read as the end.
+  local null_value: any = line_opts.null_value
+  if null_value == nil then null_value = Json.null end
   local number = 0
   local failed = ""
   local lines: Json.Lines = {}
@@ -324,7 +322,7 @@ function Json.lines(reader: Stream.Reader, opts?: Json.DecodeOptions, max?: inte
       end
       number = number + 1
       if line:find("%S") then
-        local value, err = decode_with(line, line_opts, number)
+        local value, err = decode_with(line, line_opts, number, null_value)
         if err ~= "" then
           failed = err
           return nil, failed

@@ -97,10 +97,14 @@
    sandbox's plan, the code that computes a key -- is keyed by
    `epoch` in `build/harness_epoch.tl`, not by its source, so an edit
    to it reruns only the tests that import it; but
-   `build/harness_epoch_test.tl` fails, printing the harness's new
-   digest (its modules' sources and bytecode, so a compiler change that
-   compiles the harness otherwise moves it too), until `acknowledged`
-   there is set to it. Bump `epoch` in the
+   `build/harness_epoch_test.tl` fails until `acknowledged` there
+   holds each harness module's digest (its source and bytecode, so a
+   compiler change that compiles the harness otherwise moves it too),
+   one module to a line between blank ones, sorted, so changes to
+   different modules merge cleanly: it names each module that moved or
+   has no entry, printing the line to set or add, and each stale entry,
+   whose line to delete. Bump
+   `epoch` in the
    same edit where the change can alter a pass or a fail: what a worker
    is given, how it is judged, how a key is computed, and a sandbox's
    hold or bind tightened (a soundness fix that moves no other part of a
