@@ -304,9 +304,8 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
   -- A group started first makes this process a subreaper, so `late`,
   -- orphaned when the script that started it ends, is adopted here.
   -- Unsandboxed, it would otherwise reach the runner, whose
-  -- `end_strays` kills it as a stray the moment any other worker ends.
-  -- TODO: have build/test.tl's `end_strays` spare a stray in the
-  -- process group of a worker still running, then drop this run.
+  -- `end_strays` kills it as a stray the moment any other worker ends
+  -- (build/test.tl's TODO beside that call).
   assert(run({ probe }).ok)
   for _, how in ipairs({ "start " .. late .. " started", "run " .. probe .. " start " .. late ..
       " ran" }) do
