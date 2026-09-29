@@ -95,6 +95,16 @@ exist is answered with the ones that do. `cosmic help sql` has the rest.
 
 `cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
 
+## bytes to text and back
+
+`cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
+standard input on one line (`--wrap N` wraps it; GNU base64's 76 is not
+the default) and with `-d` decodes it, ignoring whitespace and refusing
+a bad character or padding with exit 2 and its byte offset: `printf hi
+| cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
+write it; `--lenient` accepts the other padding. It prints no verdict
+line.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function

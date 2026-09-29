@@ -32,6 +32,7 @@ verb_cases.passthrough = {
   version = "it prints one line and no verdict",
   json = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
   hash = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
+  codec = "its output is data for a pipe, so its exit status is the verdict (build/codec_test.tl)",
 }
 
 --- A command line with one argument more than each verb takes, or why
