@@ -297,6 +297,21 @@ local function test_chown(tmp: string)
   raises(sys.chown, tmp .. "/a", own.uid, 4294967295)
 end
 
+--- dumpable answers whether this process may be dumped, 0, 1 or 2,
+--- and sets it to 0 or 1 first where asked; any other value raises. Off
+--- Linux it is ENOSYS.
+local function test_dumpable()
+  local now, trouble, errno = sys.dumpable()
+  if now == nil then
+    assert(errno == sys.ENOSYS, trouble)
+    return
+  end
+  assert(now == 0 or now == 1 or now == 2, tostring(now))
+  if now ~= 2 then assert(sys.dumpable(now) == now) end
+  raises(sys.dumpable, 2)
+  raises(sys.dumpable, -1)
+end
+
 local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(sys.mkdir(tmp .. "/d"))
   sys.close(create(tmp .. "/d/a"))
