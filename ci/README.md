@@ -130,6 +130,18 @@ saved, except where its own ref holds an entry under the same prefix
 saved before only main saved, which GitHub searches first, until that
 branch or entry goes.
 
+`verdicts-merge DIR` is ci.yml's too, run in a merge queue run before
+its suite: it adds each `.db` in DIR, the verdicts the queue's run
+ahead kept (the run ahead, below), to the cache of the same name beside
+the file `COSMIC_VERDICT_CACHE` names, making it where there is none.
+It is a union, table by table of the tool's formats: a row whose
+primary key the cache holds already is left as it is, and no row is
+made that neither file held, so a second merge adds nothing. A row
+added is stamped used at 0, by no run, so the trim keeps it only where
+this run's suite stood on it. A table of another shape, or with no
+primary key, is left and said so; a cache it cannot merge is said so,
+and never fails the step.
+
 `report [--runs N] [--event E] [--branch B] [--repo OWNER/NAME]
 [--workflow FILE]` is for a person, not a workflow: it reads the last N
 (1 to 100, default 10) completed runs of ci.yml of event E (default
@@ -299,6 +311,37 @@ second restore) and recompiles only what moved, and main has no run
 that builds but a direct push's or a manual one's. Seeding them too
 would move some 130 MB a leg through an artifact for the few hours
 before the nightly.
+
+### the run ahead
+
+Entries stacked in the queue run at once, each on the one before it:
+an entry's base is the head of the run ahead of it, which main has not
+saved verdicts of yet, so its restore takes main's newest, a change or
+more behind, and where the change ahead moved a part every key holds,
+it runs nearly every test again. A cache cannot pass between them (an
+entry is saved under its own ref, which no other reads), so an
+artifact does: each leg of a queue run uploads its native suite's
+verdicts as `verdicts-<leg>` the moment the suite passes, kept a day,
+and the checked job its checked suite's as
+`verdicts-linux-x86_64-checked`. Before its suite, a queue run's leg
+asks the API for the run ahead (`queue-seed.sh ahead`): the
+`merge_group` run on a `gh-readonly-queue/main/` branch whose
+`head_sha` is its base. Where that run holds the leg's artifact, the
+leg downloads it and merges it into what it restored (`verdicts-merge`,
+above), between its boot (`platform boot`) and its native suite
+(`platform local-suite`, the `build` phase's suite, which run-local
+still runs with its boot as `build`). While the run ahead is in
+progress and its leg has not completed, it asks again every 15 s, for
+two and a half minutes at most. The checked job waits a minute and a
+half at most, and not at all for a checked job ahead that will not
+have kept its verdicts by then, some seven minutes after it started.
+A run, or its leg, that completed without the artifact, a base that
+heads no queue run (main's already, whose verdicts the restore took; a
+restore of the base's own entry skips the lookup), a change that moves
+build/harness_epoch.tl (every test runs, standing on none) and a
+failed step are all none, and the suite stands on what was restored.
+Only verdicts pass so, never compiles or the driver check's marker,
+and only from a suite that passed.
 
 ### the checked job
 

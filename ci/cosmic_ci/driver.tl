@@ -104,6 +104,8 @@ local commands: {string:Command} = {
     usage = "SINCE", handler = Compiles.trim_command },
   ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE, and digest them",
     usage = "SINCE|whole", handler = Verdicts.trim_command },
+  ["verdicts-merge"] = { about = "add the verdicts of the merge queue's run ahead, in DIR, to this run's",
+    usage = "DIR", handler = Verdicts.merge_command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",
