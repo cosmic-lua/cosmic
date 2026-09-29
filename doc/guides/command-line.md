@@ -46,9 +46,10 @@ file run gets none.
 
 ## help for one verb
 
-`cosmic help` prints every verb. `cosmic help <verb>` prints only that
-verb's line and its options, then a verdict line; `--help` or `-h`
-anywhere on a verb's line, before a `--`, does the same.
+`cosmic help` prints a short index, a line per verb. `cosmic help <verb>`
+prints that verb's full text and options, then a verdict line; `--help`
+or `-h` anywhere on a verb's line, before a `--`, does the same.
+`cosmic help exit` says what the verdict lines and exit codes mean.
 
 ```teal
 local Child = require("cosmic.child")

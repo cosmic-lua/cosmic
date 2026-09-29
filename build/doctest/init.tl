@@ -25,7 +25,7 @@ function doctest.extract(source: string, file: string): string | nil, string
   if blocks == nil then
     return nil, block_trouble
   end
-  return generate.from_blocks(blocks, file)
+  return generate.from_blocks(blocks, file, generate.prose(source))
 end
 
 return doctest

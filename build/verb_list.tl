@@ -1,5 +1,5 @@
 --- The verbs `cosmic` dispatches to a module of their own, in the order
---- `cosmic help` shows them after the verbs that name a file to run
+--- `cosmic help exit` lists them after the verbs that name a file to run
 --- (`run`, `standalone`, `eval`, `version`) and before `help`, which
 --- build/dispatch.tl holds itself. Each entry loads its module's `spec`
 --- (build/verb_spec.tl) only when asked, so a command line loads the one

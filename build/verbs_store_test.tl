@@ -81,8 +81,6 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
       assert(out:find("\n  " .. shown .. " ", 1, true), verb .. ": " .. out)
     end
   end
-  local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
-  assert(all:find("\n  --jobs <n> ", 1, true), all)
   -- `cosmic docs` shows them under the verb's field too.
   -- Asked nothing, it lists the modules there are.
   local index = verbs_fixture.expect(tmp, "docs", { "docs" }, 0).stdout or ""
@@ -113,30 +111,56 @@ local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
   assert(one:find("`cosmic test ", 1, true), one)
   assert(not one:find("`cosmic fix ", 1, true), one)
   assert(not one:find("cosmic -- a runtime", 1, true), one)
-  local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
-  assert(all:find("`cosmic test ", 1, true), all)
-  assert(all:find("`cosmic fix ", 1, true), all)
   local e = verbs_fixture.expect(tmp, "help", { "help", "-e" }, 0).stdout or ""
   assert(e:find("`cosmic -e", 1, true), e)
   assert(not e:find("`cosmic test ", 1, true), e)
-  -- Every verb's help is one entry, its synopsis first: one paragraph
-  -- before the verdict, where the whole surface is a blank line apart.
+  -- Every verb's text opens with its synopsis, then what it takes and
+  -- how it ends.
   for _, verb in ipairs(Cli.order) do
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout or ""
-    local body = out:match("^(.-)\n+help: ") or ""
-    assert(body:sub(1, 8) == "`cosmic " and not body:find("\n\n", 1, true), verb .. ": " .. out)
+    assert(out:sub(1, 8) == "`cosmic ", verb .. ": " .. out)
+    assert(out:find("\n\nTakes ", 1, true) or out:find("\n\nPrints only", 1, true), verb .. ": " .. out)
   end
 end
 
---- What each verb's spec says of it (build/verb_spec.tl) is what `cosmic
---- help` prints: what it takes, and how a bare verb exits.
-local function test_help_prints_what_each_spec_says(tmp: string)
+--- Bare `cosmic help` is an index, not the text of every verb.
+local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout or ""
-  -- Help wraps what the specs say, so it is read with its lines joined.
-  local joined = " " .. all:gsub("%s+", " ") .. " "
+  local lines = 0
+  for _ in all:gmatch("\n") do lines = lines + 1 end
+  assert(lines < 60, lines .. " lines:\n" .. all)
+  for _, verb in ipairs(Cli.order) do
+    assert(all:find(Cli.usage[verb] .. " ", 1, true), verb .. " is not in the index:\n" .. all)
+    assert(all:find(Cli.summary[verb], 1, true), verb .. " has no line:\n" .. all)
+  end
+  for _, pointer in ipairs({ "cosmic help <verb>", "cosmic help exit", "cosmic docs <module>",
+      "cosmic.removed" }) do
+    assert(all:find(pointer, 1, true), pointer .. ":\n" .. all)
+  end
+  assert(not all:find("--jobs", 1, true), all)
+  local bare = verbs_fixture.expect(tmp, "help", {}, 0).stdout or ""
+  assert(all:find("\nhelp: PASS %(22 verbs") or all:find("\nhelp: PASS (", 1, true), all)
+  assert(all:find("(print stays)", 1, true), all)
+  local asked = verbs_fixture.expect(tmp, "help", { "help", "--help" }, 0).stdout or ""
+  assert(asked:find("\nMore:\n", 1, true), asked)
+  assert(bare:find("\nMore:\n", 1, true) and bare:find("\nQuick tools:\n", 1, true), bare)
+end
+
+--- What each verb's spec says of it (build/verb_spec.tl) is what `cosmic
+--- help <verb>` prints: what it takes, and how a bare verb exits.
+local function test_help_prints_what_each_spec_says(tmp: string)
   for _, spec in ipairs(verb_list.specs()) do
-    assert(joined:find(" `" .. spec.name .. "` ", 1, true), spec.name .. ": named")
+    local out = verbs_fixture.expect(tmp, "help", { "help", spec.name }, 0).stdout or ""
+    -- Help wraps what the specs say, so it is read with its lines joined.
+    local joined = " " .. out:gsub("%s+", " ") .. " "
     assert(joined:find(spec.takes, 1, true), spec.name .. ": takes")
+    if spec.exits ~= nil then
+      assert(joined:find(spec.exits, 1, true), spec.name .. ": exits")
+    end
+  end
+  local exit = verbs_fixture.expect(tmp, "help", { "help", "exit" }, 0).stdout or ""
+  local joined = " " .. exit:gsub("%s+", " ") .. " "
+  for _, spec in ipairs(verb_list.specs()) do
     if spec.exits ~= nil then
       assert(joined:find(spec.exits, 1, true), spec.name .. ": exits")
     end

@@ -157,4 +157,32 @@ function Example.yaml_flow_style()
   assert(ci.name == "ci" and jobs.test["runs-on"] == "ubuntu-24.04")
 end
 
+--- Every leaf of a value as a path and its value, in a fixed order: the
+--- shape of an unfamiliar document at a glance. An empty container is a
+--- leaf itself.
+function Example.flatten()
+  local doc = assert(Json.decode('{"a": [1, {"b": []}], "name": "cosmic"}'))
+  local leaves = assert(Json.flatten(doc))
+  for _, leaf in ipairs(leaves) do
+    print(assert(Json.flat_line(leaf.path, leaf.value)))
+  end
+  assert(#leaves == 3)
+  assert(leaves[1].path == "$.a[1]" and leaves[1].value == 1)
+  assert(leaves[2].path == "$.a[2].b")
+  assert(leaves[3].path == "$.name" and leaves[3].value == "cosmic")
+end
+
+--- Every value a pattern matches, at its concrete path: `..` reaches an
+--- `id` at any depth, and a pattern that matches nothing is an empty
+--- list, not a failure.
+function Example.select()
+  local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
+  local found = assert(Json.select(doc, (assert(Json.parse_pattern("$..id")))))
+  assert(#found == 2)
+  assert(found[1].path == "$.a.id" and found[1].value == 1)
+  assert(found[2].path == "$.b[1].id" and found[2].value == 2)
+  local none = assert(Json.select(doc, (assert(Json.parse_pattern("$.missing")))))
+  assert(#none == 0)
+end
+
 return Example

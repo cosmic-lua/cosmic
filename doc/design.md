@@ -1005,8 +1005,9 @@ which rows it reads; `refresh`, which takes the datasets to fetch;
 in a verdict line
 and an exit code; a file run, `--standalone` and `-e` are programs,
 not verbs, and print only what they print and exit with what they
-return. `cosmic help <verb>` prints that verb's line and its options, and `cosmic
-help` all of them: the whole discovery surface. no other
+return. `cosmic help` prints an index with a line per verb, `cosmic help <verb>`
+that verb's full text and options, and `cosmic help exit` the verdict
+lines and exit codes every verb shares. no other
 stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
 
