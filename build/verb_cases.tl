@@ -31,6 +31,7 @@ verb_cases.passthrough = {
   eval = "the words after the chunk are its `...`",
   version = "it prints one line and no verdict",
   json = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
+  fetch = "its output is the body for a pipe, so its exit status is the verdict (build/fetch_test.tl)",
   time = "its output is data for a pipe, so its exit status is the verdict (build/time_test.tl)",
   hash = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
   archive = "its output is data for a pipe, so its exit status is the verdict (build/archive_test.tl)",

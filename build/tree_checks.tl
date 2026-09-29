@@ -110,8 +110,6 @@ allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path 
   "a tool was started as, which the running one cannot change"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
   "as an older binary would"
-allowed["cosmic.http.open"] = "the public way to read a response as it arrives: " ..
-  "the tree's own callers read theirs whole, through Http.get and Http.download"
 
 --- Every export the projection `db` holds that nothing earns, as
 --- `<file>:<line>: <module>.<member>`, sorted.
