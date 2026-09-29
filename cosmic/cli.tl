@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, fetch, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -139,6 +139,29 @@ local record Cli
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
   json: string
+  --- `cosmic fetch <url> [-o file] [--sha256 hex] [--head [--json]]`: one
+  --- GET, a small curl. With no `-o` the body goes to standard output, so
+  --- `cosmic fetch <url> | cosmic json '.items'` reads it; with `-o` it is
+  --- written to a temporary file beside the target and renamed into place
+  --- only once it is all in and matches `--sha256`, so a failed digest
+  --- leaves nothing at the target. `--sha256` with standard output holds
+  --- the whole body in memory and writes it only once the digest
+  --- matches, since bytes already on a pipe cannot be taken back; on a
+  --- mismatch it exits 1 and names both digests. A status outside 2xx
+  --- fails (exit 1, the status on standard error), as `curl -f` does,
+  --- and nothing turns that off, so an error page never reaches a pipe;
+  --- `--head` prints `HTTP <status>` and the headers, names lowercased
+  --- and sorted, or with `--json` an object of `status`, `url` and
+  --- `headers`, and then fails on a non-2xx too. Redirects are followed,
+  --- up to 10, as `cosmic.http` follows them. Certificates are always
+  --- verified: there is no option that turns it off. GET only, by
+  --- design: for a header, a body or another method write the script
+  --- with `cosmic.http`. It prints no verdict line, which would be in
+  --- the body a pipe reads. Exits 0 when the body was delivered, 1 when
+  --- the fetch failed (no connection, a bad status, a digest that does
+  --- not match, a body that broke off), 2 for a command line, a URL or
+  --- a write to standard output it cannot use
+  fetch: string
   --- `cosmic docs [q]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
   --- or words to search the documentation for; a module lists the
@@ -202,7 +225,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", fetch = "fetch", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -240,6 +263,12 @@ local module: Module = {
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
       ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
     },
+    fetch = {
+      ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
+      ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
+      ["--head"] = { about = "print the status and headers, not the body" },
+      ["--json"] = { about = "with --head, print them as a JSON object" },
+    },
     bom = {
       ["--licenses"] = { about = "print each component's license notices" },
       ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
@@ -254,7 +283,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "fetch", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 

@@ -63,6 +63,10 @@ works. Numbers print as `Json.encode` writes them, so `1e2` reads
 `100.0`. It is only a lookup, with no filters: for more, write the
 script with `cosmic.json`. `cosmic help json` has the rest.
 
+`cosmic fetch <url>` is a small curl: it prints the body, fails on a
+non-2xx, and takes `-o file` and `--sha256 hex`, so `cosmic fetch <url> |
+cosmic json '.items'` works. `cosmic help fetch` has the rest.
+
 ## below cosmic.fs
 
 `cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function
