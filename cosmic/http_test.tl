@@ -5,6 +5,7 @@
 --- reply and records what curl sent.
 
 local Child = require("cosmic.child")
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -912,3 +913,21 @@ end
 -- stall; the scripted transport closes after its reply, so the transfer
 -- is done before a read can wait. Only the open's wait is driven here,
 -- and the wait loops share `cosmic_signal_caught`.
+
+local function test_a_download_checks_every_digest_it_is_given(tmp: string)
+  local path = tmp .. "/two.bin"
+  local s256 = Hash.hex_sha256("hello")
+  local s512 = Codec.hex(Hash.digest("sha512", "hello"))
+  local ok, why = Http.download(url, path, { script = { reply("200 OK", "", "hello") },
+    sha256 = s256, sha512 = s512:upper() })
+  assert(ok, why)
+  assert(Fs.read(path) == "hello")
+  local other = tmp .. "/other.bin"
+  local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
+    sha256 = s256, sha512 = string.rep("0", 128) })
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true), bad_why)
+  assert(Fs.stat(other) == nil, "the target was created")
+  for _, name in ipairs((assert(Fs.list(tmp)))) do
+    assert(name == "two.bin", "left behind: " .. name)
+  end
+end

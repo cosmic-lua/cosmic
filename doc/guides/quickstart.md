@@ -131,7 +131,8 @@ exist is answered with the ones that do. `cosmic help sql` has the rest.
 
 `cosmic fetch <url>` is a small curl: it prints the body, fails on a
 non-2xx, and takes `-o file` and `--sha256 hex`, so `cosmic fetch <url> |
-cosmic json '.items'` works. `cosmic help fetch` has the rest.
+cosmic json '.items'` works. A URL may carry its digest, as pip's do:
+`cosmic fetch -o tool.tgz https://host/tool.tgz#sha256=<hex>` renames the file into place only if it matches. `cosmic help fetch` has the rest.
 
 ## the digest of a file
 
