@@ -2,13 +2,14 @@
 --- database under the cosmic cache directory, beside the one each
 --- checkout keeps in `o/build.db`. The file is `verdicts/verdicts.db` by
 --- default, or the absolute path `COSMIC_VERDICT_CACHE` names; `0` turns
---- the cache off. Only a sandboxed run's verdicts are shared. Its key is
---- the digest of everything its test was given (`build.declared_key`)
---- and names nothing of where the tree is, so a verdict one checkout
---- reached stands in another of the same content, and a fresh worktree
---- runs only what no sibling has run already. An unsandboxed run's
---- verdicts, keyed by what its test was seen to read, are its
---- checkout's alone.
+--- the cache off. A sandboxed run's verdicts are shared. Its key is the
+--- digest of everything its test was given (`build.declared_key`) and
+--- names nothing of where the tree is, so a verdict one checkout reached
+--- stands in another of the same content, and a fresh worktree runs
+--- only what no sibling has run already. An unsandboxed run's verdicts,
+--- keyed the same way but for where the tree is and under a runtime of
+--- their own, are shared only through a file `COSMIC_VERDICT_CACHE`
+--- names (`chosen`), and so only with a checkout at the same path.
 ---
 --- The cache is a plain map from key to verdict. The key reached is the
 --- whole check, so a row holds no evidence of what the run read. It
@@ -125,6 +126,21 @@ function shared_verdicts.location(environment?: {string:string}): string | nil, 
   local dir, trouble = Fs.cache_dir("verdicts", environment)
   if dir == nil then return nil, trouble end
   return dir .. "/verdicts.db", ""
+end
+
+--- Whether `COSMIC_VERDICT_CACHE` names a file, in `environment` or
+--- this process's own: set, and neither empty nor `0`. An unsandboxed
+--- run shares only then (`build.test`), never through the file every
+--- checkout shares by default, since nothing held its workers to what
+--- its keys trust.
+function shared_verdicts.chosen(environment?: {string:string}): boolean
+  local value: string
+  if environment ~= nil then
+    value = environment[variable] or ""
+  else
+    value = Env.get_or(variable, "")
+  end
+  return value ~= "" and value ~= "0"
 end
 
 --- Turns the cache off in `environment`, for a process that is to

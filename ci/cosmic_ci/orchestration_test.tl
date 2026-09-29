@@ -507,8 +507,10 @@ end
 --- its key must hold the product it checks: each declares the product's
 --- `cosmic` by the variable the driver gives it, which keys the verdict
 --- by those bytes, and no other product's verdict stands for it. Each
---- unsandboxed one declares nothing, since nothing holds it to a
---- declaration.
+--- unsandboxed one declares the whole environment and nothing else:
+--- nothing holds it to a declaration, and it shares no verdict for one
+--- to key, but a release that keys every unsandboxed run by declaration
+--- gives its worker only the variables it declares.
 local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   local _ = tmp
   local Orchestration = require("cosmic_ci.orchestration")
@@ -525,8 +527,10 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       assert(declared_host(name)["$COSMIC_FIXTURE_PRODUCT/cosmic"],
         name .. ": a sandboxed fixture's key does not hold the product")
     else
-      assert(not code_of(name):find("\nTest%.needs"),
-        name .. ": an unsandboxed fixture declares what nothing holds it to")
+      local needs = code_of(name):match("\nTest%.needs%s*%(?%s*(%b{})")
+      assert(needs ~= nil and needs:gsub("%s", "") == '{env={"*"}}',
+        name .. ": an unsandboxed fixture declares other than the whole environment: " ..
+        tostring(needs))
     end
   end
   local listed = 0

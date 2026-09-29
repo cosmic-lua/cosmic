@@ -1,5 +1,14 @@
 local Fixture = require("cosmic_ci.fixture")
 
+local Test = require("cosmic.test")
+
+--- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
+--- `fixture`), its workers are given the environment they declare:
+--- all of it, which says where the candidate and its products are
+--- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
+--- keys every unsandboxed run by declaration gives a worker only that.
+Test.needs{ env = { "*" } }
+
 -- A rebuild from a fresh tree compiles all of it (about 20 s on a
 -- runner), and one whose compiler moved compiles it again on
 -- re-entry; the driver bounds each test here (orchestration.tl).

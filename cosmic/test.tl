@@ -104,7 +104,9 @@ local record Test
     --- declaration: a sandboxed worker holds every process it starts to
     --- what the module declares, and where a worker runs unsandboxed
     --- (macOS, a host refusing user namespaces) a test that starts one
-    --- never stands, and the audit asks nothing of it.
+    --- stands on what its module declares, as any test there does,
+    --- which nothing holds the process to, and the audit asks nothing of
+    --- it.
     processes: boolean
     --- Whether the tests read the tool itself, `o/bin/cosmic`, or the
     --- program running them, or start either: it gives them the program
@@ -119,17 +121,17 @@ local record Test
     --- made of mounts: such a start is refused, naming this field, and
     --- the test fails, where otherwise it could pass having confined
     --- nothing. The tests of the sandbox itself declare it. Off the
-    --- Linux sandbox -- on macOS, or unsandboxed under
-    --- COSMIC_TEST_KEY=declared -- no worker is held, so a test that
+    --- Linux sandbox -- on macOS, or with COSMIC_TEST_SANDBOX=0 -- no
+    --- worker is held, so a test that
     --- confines without it passes there and fails on a Linux leg.
     nests: boolean
     --- Whether the tests read the tree's projection, `o/cosmic.db`, or
     --- the rows of modules of the tree outside their import closure.
     --- Without it, a sandboxed worker is given at o/cosmic.db the store
     --- of its module's import closure alone, which its key holds, and a
-    --- `require` reaches only that closure; unsandboxed under
-    --- COSMIC_TEST_KEY=declared, the worker attaches that store in the
-    --- projection's place, though what it starts reads o/cosmic.db. Every other lookup in the
+    --- `require` reaches only that closure; unsandboxed, the worker
+    --- attaches that store in the projection's place, though what it
+    --- starts reads o/cosmic.db. Every other lookup in the
     --- store is held to the closure too, from the module's load until
     --- the worker ends: `Store.bytecode`, `Store.source` or
     --- `Store.requires` of a module outside it, or the store's searcher

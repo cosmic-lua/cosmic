@@ -1,7 +1,9 @@
---- A sandboxed test's verdict key: a digest of what the test was given
+--- A test's verdict key: a digest of what the test was given
 --- (`build.test_sandbox`), computed before it runs, from its declared
 --- inputs alone (`build.test_inputs`), rather than of what it was seen
 --- to read, and a verdict under it stands with no observation to replay.
+--- Every run keys so, sandboxed or not; unsandboxed, the key holds
+--- where the tree is too (`Spec.tree`).
 ---
 --- A sandboxed worker reads its declared inputs, and besides them what
 --- every worker is given (build.confine's `worker_unveil`): /proc, the
@@ -253,7 +255,7 @@ local record declared_key
     --- given the whole projection, keyed by its contents.
     closure_store: string
     --- Where the tree is, for a worker no sandbox gives it at /tree
-    --- (`build.test`'s `launch`, COSMIC_TEST_KEY=declared unsandboxed),
+    --- (`build.test`'s `launch`, unsandboxed),
     --- which sees it where it is: its verdict may turn on that path, so
     --- it stands only in a checkout there. Nil for a sandboxed worker,
     --- whose key names no place of the tree.
@@ -1283,12 +1285,14 @@ end
 --- On macOS, the system's paths are the sealed system volume's, which
 --- the OS build names, and walking them adds nothing; what a
 --- developer's Mac has installed beyond it -- Xcode or its command line
---- tools, /opt/homebrew, /usr/local -- is keyed by nothing here, and
---- stays so: macOS runs its workers unsandboxed, whose verdicts are
---- keyed by what each test was seen to read and shared with no other
---- checkout, and keys them by what they declare only under
---- COSMIC_TEST_KEY=declared, as CI's macOS leg does, whose
---- COSMIC_SYSTEM_ID names its runner image.
+--- tools, /opt/homebrew, /usr/local -- is keyed by nothing here. CI's
+--- macOS leg names its runner image in COSMIC_SYSTEM_ID.
+-- TODO: key what a developer's Mac has installed beyond the sealed
+-- system volume (Xcode's or its command line tools' version, a walk of
+-- /opt/homebrew and /usr/local's bin) for a module that declares
+-- `system`: since every unsandboxed run stands on declared keys (plan
+-- 4.2's PR 3), a `system` test there stands across an upgrade of any
+-- of them until a forced run, where an observed key once ran it.
 -- TODO: key the clock: a test whose verdict turns on the date stands on
 -- one reached another day, which only a forced run (CI's scheduled one)
 -- catches.

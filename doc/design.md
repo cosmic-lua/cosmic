@@ -614,14 +614,12 @@ worktree runs only what no checkout has already run. a test reaches no network
 but loopback addresses of 127/8, which it declares and its worker answers
 offline, on a loopback of its own, keyed like any input: `Test.needs` refuses
 any other host, `::1` and `localhost` among them. one that reads a link out of
-the tree, which no key holds, runs every time. an unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) is keyed
-instead by the module and runtime keys plus observed file contents, stat
-results, directory listings and environment reads; a test that spawns a process
-or makes an unsupported observation outside the tree is only assumed to pass as
-it last did, and none of its verdicts is shared -- unless
-`COSMIC_TEST_KEY=declared` keys it by declared inputs as a sandboxed run is,
-trusting the declarations a sandboxed run elsewhere enforces, and shares its
-verdicts apart from sandboxed ones. each test
+the tree, which no key holds, runs every time. an unsandboxed run (macOS,
+`COSMIC_TEST_SANDBOX=0`) is keyed by declared inputs as a sandboxed run is, and
+by where the tree is, which its workers see, trusting the declarations a
+sandboxed run elsewhere enforces; it keeps its verdicts apart from sandboxed
+ones, and shares them only through a file `COSMIC_VERDICT_CACHE` names, as
+CI's macOS leg does. each test
 that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its
@@ -683,12 +681,12 @@ is given /usr, /bin, /lib and /etc, or that declares a host directory. what
 that key still leaves out is in the `TODO:`s on `host_identity` and
 `system_identity` there and in `ci/cosmic_ci/orchestration.tl`'s `stands`. the
 macOS leg, which has no sandbox, stands on shared verdicts keyed the same way
-(`COSMIC_TEST_KEY=declared`), which nothing holds its workers to: a Linux leg's
+(as every unsandboxed run is), which nothing holds its workers to: a Linux leg's
 sandbox holds the same test, under the same declaration and closure, to them;
 what reads something only on macOS is the gap. its image, beyond the sealed
-system volume, is named by `COSMIC_SYSTEM_ID`. any other unsandboxed
-run is keyed instead by what its tests were observed to read, and shares
-nothing.
+system volume, is named by `COSMIC_SYSTEM_ID`. any other unsandboxed run is
+keyed the same way, and shares nothing unless `COSMIC_VERDICT_CACHE` names a
+file.
 
 what the declared key leaves out, each with a `TODO:` where its fix goes:
 
@@ -729,15 +727,18 @@ and keying them split hosted runners of one leg for nothing.
 `build/dispatched_features_test.tl` fails when the tree comes to ask the
 processor anything else.
 
-what an observed key leaves out, each with a `TODO:` where its fix goes:
+what an observed key leaves out, each with a `TODO:` where its fix goes. no
+run keys a verdict by what it observed any longer: every run, unsandboxed
+too, keys by what its tests declare, and the observation below serves only an
+unsandboxed `--audit` until it goes (plan 4.2's PR 4):
 
 - [x] *the tree's location* (`build/declared_key.tl`, above
   `tree_name`): no input to a test, by rule. a test may not turn on where the
   tree is, nor where the program is; the working directory, a realpath, a
   readlink and the program's own path it reads are keyed by `tree_name` in the
   shared key (whole in a checkout's own), and `Proc.relaunch`'s artifact path
-  is keyed nowhere. a worker no sandbox holds (`COSMIC_TEST_KEY=declared`,
-  the macOS leg) sees the tree where it is rather than at /tree, so its key
+  is keyed nowhere. a worker no sandbox holds (the macOS leg, or
+  `COSMIC_TEST_SANDBOX=0`) sees the tree where it is rather than at /tree, so its key
   holds the tree's path whole (`build/declared_key.tl`'s `Spec.tree`): its
   verdict stands only at the path it was reached at. CI moves its checkout,
   and the tool with it, to a path a hash of the commit and the leg chooses

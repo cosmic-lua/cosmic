@@ -27,9 +27,8 @@
 --- those paths alone, where the kernel gives one, so what it read is
 --- keyed by what it was given (a path outside the tree by what `lstat`
 --- says of everything beneath it). Where the kernel gives none, it runs
---- unconfined: a run keyed by what was seen never stands, and one keyed
---- by what was declared (COSMIC_TEST_KEY=declared, CI's macOS leg) stands
---- on that alone.
+--- unconfined, and its test's verdict stands on what was declared
+--- alone.
 ---
 --- After a compile, every header its dependency file names outside that
 --- zig's own install is read, so a test that checks C is keyed by what

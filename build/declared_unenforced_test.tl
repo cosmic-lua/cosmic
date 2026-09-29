@@ -1,10 +1,11 @@
---- End to end: an unsandboxed run given COSMIC_TEST_KEY=declared keys
---- each verdict by its test's declared inputs, as a sandboxed run does
---- (build/declared_key.tl), though nothing holds a worker to them -- as
---- macOS, which has no sandbox, trusts what CI's Linux legs enforce. Its
---- verdict stands on a run again and in another checkout at the same
---- path, through the shared cache, until what the test declares
---- changes -- but not in a checkout elsewhere, since its worker sees
+--- End to end: an unsandboxed run keys each verdict by its test's
+--- declared inputs, as a sandboxed run does (build/declared_key.tl),
+--- though nothing holds a worker to them -- as macOS, which has no
+--- sandbox, trusts what CI's Linux legs enforce. Its verdict stands on
+--- a run again, and in another checkout at the same path through a
+--- shared cache COSMIC_VERDICT_CACHE names -- never through the one
+--- every sandboxed checkout shares by default -- until what the test
+--- declares changes -- but not in a checkout elsewhere, since its worker sees
 --- the tree where it is, not at /tree as a sandboxed one does; its worker is
 --- given the environment its key holds and no more, and the store of
 --- its closure; and neither a
@@ -28,8 +29,11 @@ Test.needs{
   nests = true,
 }
 
---- The summary of an unenforced run.
-local UNENFORCED <const> = "; unsandboxed, keyed by declared inputs (COSMIC_TEST_KEY=declared))"
+--- The summary of an unenforced run that shares through the file
+--- COSMIC_VERDICT_CACHE names, and of one that names none.
+local UNENFORCED <const> = "; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs)"
+local UNSHARED <const> =
+  "; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, sharing no verdicts)"
 
 --- A checkout of the suite at `root`: a test that reads a declared
 --- directory, and one that reads a declared variable and finds one it
@@ -79,7 +83,6 @@ local function environment(cache: string): {string:string}
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = cache
   env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_TEST_KEY = "declared"
   env.FLAVOUR = "sweet"
   env.UNDECLARED = "leaked"
   env.OUTER_TMPDIR = env.TMPDIR or "/tmp"
@@ -169,14 +172,26 @@ local function test_an_edit_to_what_a_test_declares_runs_it(tmp: string)
   says(tmp .. "/root", tmp .. "/edited.out", env, "1 ran, 1 stood")
 end
 
---- A way of keying it does not know is refused, naming the one it does.
-local function test_a_key_mode_it_does_not_know_is_refused(tmp: string)
-  local env = environment(tmp .. "/cache/verdicts.db")
+--- Where COSMIC_VERDICT_CACHE names no file, it shares nothing: it
+--- neither makes nor reads the cache every sandboxed checkout shares by
+--- default, so another checkout at the same path runs every test again,
+--- and the summary says so. The retired COSMIC_TEST_KEY, which CI's
+--- driver still sets for the release it pins, changes nothing, whatever
+--- it says.
+local function test_an_unenforced_run_shares_only_through_a_named_cache(tmp: string)
+  local env = environment("")
+  env.COSMIC_VERDICT_CACHE = nil
+  env.XDG_CACHE_HOME = tmp .. "/xdg"
   env.COSMIC_TEST_KEY = "observed-ish"
-  checkout(tmp .. "/root")
-  local code, text = run(tmp .. "/root", tmp .. "/refused.out", env)
-  assert(code == 2, text)
-  assert(text:find("COSMIC_TEST_KEY is \"observed-ish\": set it to declared", 1, true), text)
+  checkout(tmp .. "/first")
+  local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
+  assert(first:find(UNSHARED, 1, true), first)
+  says(tmp .. "/first", tmp .. "/again.out", env, "0 ran, 2 stood")
+  assert(Fs.rename(tmp .. "/first", tmp .. "/moved"))
+  checkout(tmp .. "/first")
+  says(tmp .. "/first", tmp .. "/second.out", env, "2 ran, 0 stood")
+  assert(Fs.stat(tmp .. "/xdg/cosmic/verdicts/verdicts.db") == nil,
+    "it made the shared cache every checkout reads by default")
 end
 
 --- Neither a sandboxed verdict nor an unenforced one stands for the
@@ -201,7 +216,6 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
     local sandboxed: {string:string} = {}
     for name, value in pairs(unenforced) do sandboxed[name] = value end
     sandboxed.COSMIC_TEST_SANDBOX = nil
-    sandboxed.COSMIC_TEST_KEY = nil
     sandboxed.UNDECLARED = nil
     sandboxed.OUTER_TMPDIR = nil
     return sandboxed, unenforced

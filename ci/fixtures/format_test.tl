@@ -2,6 +2,15 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 
+local Test = require("cosmic.test")
+
+--- Run unsandboxed and sharing nothing (cosmic_ci/orchestration.tl's
+--- `fixture`), its workers are given the environment they declare:
+--- all of it, which says where the candidate and its products are
+--- (COSMIC_FIXTURE_*) and where the host's toolchain is. A release that
+--- keys every unsandboxed run by declaration gives a worker only that.
+Test.needs{ env = { "*" } }
+
 local native_build_timeout_ms <const> = 120000
 
 local function test_decoder_inspection_records_are_exact(tmp: string)
