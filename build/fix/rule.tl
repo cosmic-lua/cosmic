@@ -1,20 +1,18 @@
 --- The structural rewrite stage of `cosmic fix`, and the list of rules
 --- it applies.
 ---
---- The list is empty today, on purpose. The rules worth writing are
---- lint fixes, and those lint rules have not yet been implemented.
---- What matters now is
---- that the stage is real and sits where it belongs: a rule matches a
---- structural PATTERN over the parsed tree and replaces it with another
---- (`build.ast.match` and `build.ast.rewrite`), and whatever it
---- produces goes through the renderer before it reaches a file. A fix
---- is therefore never a hand-rolled patch over source text, and its
---- result is never a raw splice -- adding a rule here is the whole cost
---- of a new fix, with no part of the pipeline to restructure around it.
+--- A rule matches a structural pattern over the parsed tree and replaces
+--- it with another (`build.ast.match` and `build.ast.rewrite`), and
+--- whatever it produces goes through the renderer before it reaches a
+--- file. A fix is therefore never a hand-rolled patch over source text
+--- and its result is never a raw splice. Adding a rule to the list is
+--- the whole cost of a new fix.
 ---
---- `build.ast.rewrite` refuses any single hit that would silently drop
---- a comment, reporting it rather than applying it, so a rule that
---- would eat a comment leaves the file alone and says so.
+--- The list is empty, because the rules worth writing are lint fixes.
+---
+--- `build.ast.rewrite` refuses any single hit that would drop a comment
+--- and reports it in `RewriteResult.refused` instead of applying it.
+-- TODO: add rules here once lint rules exist.
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
@@ -36,6 +34,8 @@ local rules: {Rule} = {}
 --- @param name string Filename used in diagnostics
 --- @return string|nil The rewritten source, or nil when a rule failed
 --- @return string Error message on failure
+-- TODO: report `result.refused`. As it is, a hit `ast.rewrite` refuses
+-- for a comment it would drop is skipped and nothing says so.
 local function apply(built: compiler, source: string,
                      name: string): string | nil, string
   local out = source

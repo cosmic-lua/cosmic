@@ -531,13 +531,14 @@ function Orchestration.fixture(env: {string:string}, tmpdir: string,
   -- Unsandboxed: a fixture reads and runs the candidate and its
   -- products where the host has them, which its environment names
   -- (COSMIC_FIXTURE_*), and a sandboxed worker would be given none of.
-  -- TODO: run the fixtures sandboxed, each declaring the paths it reads
-  -- by the variable that says where they are (`Test.needs` host
-  -- "$COSMIC_FIXTURE_ROOT/...", _PRODUCT, _RUNTIME: the tree side is
-  -- done), once ci/cosmic-driver.pin names a release that carries host
-  -- paths a variable names and knows `system`, which each fixture that
-  -- starts the system's programs (/usr/bin/env, sh) then declares: a
-  -- sandboxed worker is given none of them otherwise.
+  -- TODO: run the fixtures sandboxed, and drop COSMIC_TEST_SANDBOX=0
+  -- here, once each fixture declares in its `Test.needs` the paths it
+  -- reads by the variable that says where they are (host
+  -- "$COSMIC_FIXTURE_ROOT/...", _PRODUCT, _RUNTIME) and `system` where
+  -- it starts the system's programs (/usr/bin/env, sh), which a
+  -- sandboxed worker is given none of otherwise. The pinned driver
+  -- carries both host paths a variable names and `system`; no fixture
+  -- declares either yet, and none has been run sandboxed.
   env.COSMIC_TEST_SANDBOX = "0"
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_BUILD_CACHE = compiles
