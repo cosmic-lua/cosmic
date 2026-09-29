@@ -543,7 +543,10 @@ Items, in order:
    driver uploads.
    - Shows: `build/workflows_test.tl` passes, and a main run saves as
      before.
-2. **Main reuses the queue's result (M): in the queue (#2320).** The queue uploads each leg's
+2. **Main reuses the queue's result (M): landed (#2320).** Its own
+   main push (run 36507253271) took 47 s against 8 to 10 min: `reuse`
+   found the queue run in a second, the four seed legs saved its
+   verdicts, compiles and driver marker, and the prerelease published. The queue uploads each leg's
    trimmed verdicts and compiles, with the keys it computed, as
    `seed-<leg>`. A main push first looks for a successful `merge_group`
    run of `ci.yml` with the same `head_sha`. Finding one, it skips
