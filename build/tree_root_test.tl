@@ -1,11 +1,18 @@
 --- `build.tree_root`: a tree verb started below an established tree's
 --- root runs at the root, its paths read from where it was started.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
 local tree_root = require("build.tree_root")
+
+--- The move a command line gets, or nil.
+local function moved_by(argv: {integer:string}, options: {string:boolean | Flags.Option},
+    home: string | nil, named?: string): tree_root.Move | nil
+  return tree_root.move(argv, options, home, named).move
+end
 
 --- A project at `tmp` with a build's database, and `tmp/a/b` below it.
 local function project(dir: string): string
@@ -27,7 +34,7 @@ end
 local function rooted(dir: string, home: string | nil, named?: string): string | nil
   local here = assert(sys.getcwd())
   assert(sys.chdir(dir))
-  local moved = tree_root.move({ [0] = "cosmic", "todos" }, {}, home, named)
+  local moved = moved_by({ [0] = "cosmic", "todos" }, {}, home, named)
   assert(sys.chdir(here))
   if moved == nil then return nil end
   return moved.root
@@ -96,13 +103,13 @@ local function test_paths_are_read_from_where_the_verb_started(tmp: string)
   assert(Fs.write(root .. "/a/b/x_test.tl", ""))
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a/b"))
-  local fix = tree_root.move({ [0] = "cosmic", "fix", "--check", "x_test.tl", "." }, { ["--check"] = {} }, nil)
-  local test = tree_root.move({ [0] = "cosmic", "test", "--jobs", "2", "x_test.tl:test_a", "some.module" },
+  local fix = moved_by({ [0] = "cosmic", "fix", "--check", "x_test.tl", "." }, { ["--check"] = {} }, nil)
+  local test = moved_by({ [0] = "cosmic", "test", "--jobs", "2", "x_test.tl:test_a", "some.module" },
     { ["--jobs"] = { value = "n" } }, nil)
-  local uses = tree_root.move({ [0] = "cosmic", "uses", "Fs.read", "x_test.tl" }, {}, nil)
-  local docs = tree_root.move({ [0] = "cosmic", "docs", "x_test.tl" }, {}, nil)
-  local made = tree_root.move({ [0] = "cosmic", "fix", "new/x.tl", "../x.tl", "/elsewhere/y" }, {}, nil, nil)
-  local json = tree_root.move({ [0] = "cosmic", "json", "x" }, {}, nil)
+  local uses = moved_by({ [0] = "cosmic", "uses", "Fs.read", "x_test.tl" }, {}, nil)
+  local docs = moved_by({ [0] = "cosmic", "docs", "x_test.tl" }, {}, nil)
+  local made = moved_by({ [0] = "cosmic", "fix", "new/x.tl", "../x.tl", "/elsewhere/y" }, {}, nil, nil)
+  local json = moved_by({ [0] = "cosmic", "json", "x" }, {}, nil)
   assert(sys.chdir(here))
   assert(made ~= nil)
   assert(table.concat(made.argv, " ") == "fix a/b/new/x.tl a/x.tl /elsewhere/y",
@@ -127,4 +134,49 @@ local function test_a_verb_below_the_root_runs_at_the_root(tmp: string)
   assert(result.stderr:find("todos runs in " .. root, 1, true), result.stderr)
   assert(result.stdout:find("a/b/note.tl:1", 1, true), result.stdout)
   assert(not Fs.exists(root .. "/a/b/o"))
+end
+
+--- The home directory stops the climb however it is spelled: with a
+--- trailing slash, or through a link.
+local function test_home_stops_the_climb_spelled_any_way(tmp: string)
+  local root = project(tmp)
+  assert(rooted(root .. "/a/b", root .. "/") == nil)
+  assert(sys.symlink(root, tmp .. "/home"))
+  assert(rooted(root .. "/a/b", tmp .. "/home") == nil)
+end
+
+--- A tree whose database cannot be read is not silently passed over:
+--- the directory stays a root of its own, and the note says why.
+local function test_an_unreadable_database_is_said(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/o/build.db", "not a database"))
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(root .. "/a/b"))
+  local answer = tree_root.move({ [0] = "cosmic", "todos" }, {}, nil)
+  assert(sys.chdir(here))
+  assert(answer.move == nil and answer.refused == "")
+  assert(answer.note:find("not using the tree at " .. root, 1, true), answer.note)
+end
+
+--- A root of `/` joins paths without a doubled slash.
+local function test_a_root_of_slash_joins_cleanly(tmp: string)
+  local root = project(tmp)
+  local here = assert(sys.getcwd())
+  assert(sys.chdir(root .. "/a"))
+  local moved = moved_by({ [0] = "cosmic", "fix", "x.tl" }, {}, nil, "/")
+  assert(sys.chdir(here))
+  assert(moved ~= nil and moved.root == "/")
+  assert(moved.argv[2] == root:sub(2) .. "/a/x.tl", moved.argv[2])
+end
+
+--- A `COSMIC_TREE` that names no directory refuses the command line, and
+--- the verb does not run where it was started.
+local function test_a_missing_named_tree_refuses_the_line(tmp: string)
+  local root = project(tmp)
+  local result = invoke.run({ "todos" }, { cwd = root .. "/a/b",
+    env = { COSMIC_TREE = root .. "/nowhere" } })
+  assert(result.code == 2, result.stderr)
+  assert(result.stderr:find("COSMIC_TREE=" .. root .. "/nowhere is not a directory", 1, true),
+    result.stderr)
+  assert(not result.stderr:find("runs in", 1, true), result.stderr)
 end

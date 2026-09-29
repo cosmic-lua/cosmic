@@ -630,16 +630,24 @@ function dispatch.main(argv: {integer:string}): integer
     -- A tree verb started below an established tree's root runs at the
     -- root (`build.tree_root`), its paths still read from here.
     local tree_root = require("build.tree_root")
-    local moved = tree_root.move(argv, Cli.options[verb] or {}, Env.get("HOME"),
-      Env.get("COSMIC_TREE"))
+    local answer = tree_root.move(argv, Cli.options[verb] or {},
+      Env.get("HOME"), Env.get("COSMIC_TREE"))
+    local moved, refused, note = answer.move, answer.refused, answer.note
+    if refused ~= "" then
+      log:complain(verb .. ": " .. refused)
+      return 2
+    end
+    if note ~= "" then
+      local _, _ = Fs.put(Fs.stderr, "cosmic: " .. verb .. ": " .. note .. "\n")
+    end
     if moved ~= nil then
       local entered, enter_trouble = sys.chdir(moved.root)
-      if entered == nil then
+      if not entered then
         log:complain(verb .. ": " .. moved.root .. ": " .. enter_trouble)
         return 1
       end
       local _, _ = Fs.put(Fs.stderr, "cosmic: " .. verb .. " runs in " .. moved.root ..
-        ", the tree this directory is in\n")
+        ", the tree this directory is in;\n  paths below are relative to " .. moved.root .. "\n")
       argv = moved.argv
     end
   end

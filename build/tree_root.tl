@@ -37,6 +37,17 @@ local record tree_root
     --- was started and now relative to `root`.
     argv: {integer:string}
   end
+
+  --- What `move` decides.
+  record Answer
+    --- The move, or nil where the verb runs where it was started.
+    move: Move | nil
+    --- Why the command line is refused (`COSMIC_TREE` names no
+    --- directory), or empty.
+    refused: string
+    --- Why a tree found was not used, or empty.
+    note: string
+  end
 end
 
 --- Whether a build wrote a database under `dir`'s `o/`.
@@ -46,32 +57,42 @@ local function established(dir: string): boolean
 end
 
 --- Whether `root`'s last build staged a source at `path` or under it,
---- `path` relative to `root`.
-local function staged(root: string, path: string): boolean
-  local db, _ = Sqlite.open(root .. "/o/build.db", false)
-  if db == nil then return false end
-  local rows, _ = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..
+--- `path` relative to `root`; nil and why when its `o/build.db` cannot
+--- be read, which is not an answer either way.
+local function staged(root: string, path: string): boolean | nil, string
+  local file = root .. "/o/build.db"
+  local db, open_trouble = Sqlite.open(file, false)
+  if db == nil then return nil, open_trouble end
+  local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM files WHERE path = ?1 OR " ..
     "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
   local _, _ = db:close()
-  return rows ~= nil and #rows > 0
+  if rows == nil then return nil, file .. ": " .. trouble end
+  return #rows > 0
 end
 
 --- The nearest ancestor of `dir`, absolute, that a build established and
 --- staged `dir` in, or nil: none does, or `dir` is at or above `home`,
 --- or `dir` holds an established tree itself. The climb ends at `home`
---- and at the filesystem root, neither of which is a tree.
+--- and at the filesystem root, neither of which is a tree. A second
+--- answer says why when a tree was found but its database could not be
+--- read, so `dir` is left a root of its own for that reason.
 --- @param dir an absolute directory
---- @param home the home directory, or nil for none
-local function above(dir: string, home: string | nil): string | nil
-  if established(dir) then return nil end
+--- @param home the home directory, resolved, or nil for none
+local function above(dir: string, home: string | nil): string | nil, string
+  if established(dir) then return nil, "" end
   local here = dir
   while true do
     local parent = Fs.dirname(here)
-    if parent == here or parent == "/" or parent == home then return nil end
+    if parent == here or parent == "/" or parent == home then return nil, "" end
     if established(parent) then
       local rest, _ = Fs.relative(dir, parent)
-      if rest ~= nil and staged(parent, rest) then return parent end
-      return nil
+      if rest == nil then return nil, "" end
+      local found, trouble = staged(parent, rest)
+      if found == nil then
+        return nil, "not using the tree at " .. parent .. ": " .. trouble
+      end
+      if found then return parent, "" end
+      return nil, ""
     end
     here = parent
   end
@@ -107,10 +128,16 @@ local function normalized(path: string): string
   return joined == "" and "." or joined
 end
 
+--- `word` read from the directory `from`, unnormalized.
+local function joined_to(from: string, word: string): string
+  if word:sub(1, 1) == "/" then return word end
+  return (from == "/" and "" or from) .. "/" .. word
+end
+
 --- `word`, read from `from`, as a path from `root`: absolute where it is
 --- not within it.
 local function from_root(word: string, from: string, root: string): string
-  local absolute = normalized(word:sub(1, 1) == "/" and word or from .. "/" .. word)
+  local absolute = normalized(joined_to(from, word))
   local relative, _ = Fs.relative(absolute, root)
   return relative or absolute
 end
@@ -123,19 +150,32 @@ end
 --- @param named `COSMIC_TREE`, or nil: the root, `.` for the working directory
 function tree_root.move(argv: {integer:string},
     options: {string:boolean | Flags.Option}, home: string | nil,
-    named?: string): tree_root.Move | nil
+    named?: string): tree_root.Answer
   local kind = paths[argv[1]]
-  if kind == nil then return nil end
+  if kind == nil then return { refused = "", note = "" } end
   local from, _ = Fs.absolute(".")
-  if from == nil then return nil end
+  if from == nil then return { refused = "", note = "" } end
   local root: string | nil
+  local note = ""
   if named ~= nil and named ~= "" then
-    root = normalized(named:sub(1, 1) == "/" and named or from .. "/" .. named)
-    if root == from then return nil end
+    root = normalized(joined_to(from, named))
+    local directory, _ = Fs.is_dir(root)
+    if not directory then
+      return { refused = "COSMIC_TREE=" .. named .. " is not a directory", note = "" }
+    end
+    local there, _ = Fs.absolute(root)
+    if there == from then return { refused = "", note = "" } end
   else
-    root = above(from, home)
+    -- The home directory as `from` is spelled: resolved, else as given
+    -- less its trailing slashes.
+    local resolved: string | nil = nil
+    if home ~= nil and home ~= "" then
+      local real, _ = Fs.absolute(home)
+      resolved = real or normalized(home)
+    end
+    root, note = above(from, resolved)
   end
-  if root == nil then return nil end
+  if root == nil then return { refused = "", note = note } end
 
   local line: {integer:string} = {}
   for slot, word in pairs(argv) do line[slot] = word end
@@ -167,7 +207,7 @@ function tree_root.move(argv: {integer:string},
     end
     slot = slot + 1
   end
-  return { root = root, argv = line }
+  return { move = { root = root, argv = line }, refused = "", note = "" }
 end
 
 return tree_root
