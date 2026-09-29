@@ -22,10 +22,11 @@ local record verb_spec
     --- runs, for a verb that does not check as it goes (`build.reboot`'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
-    --- What the verb takes after its name, as `cosmic help` phrases it ("a
-    --- path and a file"); verbs that take the same share one clause there.
+    --- What the verb takes after its name, as `cosmic help <verb>` phrases it
+    --- ("a path and a file").
     takes: string
-    --- The sentence `cosmic help` gives a bare verb's output and exit codes
+    --- The sentence `cosmic help <verb>` and `cosmic help exit` give a bare
+    --- verb's output and exit codes
     --- ("`json` prints its value ... and exits 0 when it ..."), starting
     --- with its name in backticks, on one line: help wraps it. Nil for a
     --- verb that ends in a verdict line.

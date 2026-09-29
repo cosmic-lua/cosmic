@@ -1,23 +1,19 @@
---- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
---- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, hash, codec, archive, fetch, time, rand, docs,
---- uses, todos, bom, refresh, help, run, standalone, eval, version)
---- answers with what that verb does, ahead of the module of the same
---- name (and the other symbols) when there is one. This is not an
---- argument parser for a project's own command line: a project's
---- cmd/<name>/main.tl gets its arguments as a plain array, and
---- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options,
---- or `Flags.dispatch(argv, 1, commands)` its commands -- see argv.
----
---- `cosmic help` is generated from these fields (`build/dispatch.tl`'s
---- `verb_help`), in the order `order` gives, rather than keeping a
---- second, hand-written copy of the same wording, and each verb's
---- options beneath its prose from `options`, the spec the verb parses
---- its command line with.
+--- Help for the `cosmic` verbs: `cosmic help` prints an index of them
+--- and `cosmic help <verb>` one verb's full text, generated from one
+--- field per verb (`cosmic docs test`, `build`, `fix`, ... answer with
+--- the same text, ahead of the module of that name when there is one).
+--- This is not an argument parser for a project's own command line: a
+--- project's cmd/<name>/main.tl gets its arguments as a plain array, and
+--- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options, or
+--- `Flags.dispatch(argv, 1, commands)` its commands -- see argv.
+--
+-- The index comes from `usage`, `summary` and `groups`, a verb's page
+-- from its field and `options`, in the order `order` gives. The
+-- generator is `verb_help` in build/dispatch.tl.
 
 local Flags = require("cosmic.flags")
 
---- One field per verb, each the verb's own line of `cosmic help`.
+--- One field per verb: the full text of `cosmic help <verb>`.
 local record Cli
   --- `cosmic <file.tl>`: builds the tree the file sits in -- the
   --- working directory when the file is under it, so a file of a
@@ -52,10 +48,11 @@ local record Cli
   --- it by and its notes cite -- with nothing built or checked
   version: string
   --- `cosmic test [options] [selector...]`: builds the tree in the working
-  --- directory, then runs every test it defines -- see test, Example --
-  --- which `cosmic docs` also shows under every symbol an example
-  --- calls. A selector narrows the run to the modules it names, a file,
-  --- a module name, or a directory; `<file or module>:<name>` to the
+  --- directory, then runs every test it defines (`cosmic docs
+  --- cosmic.layout` says where tests and examples live). `cosmic docs`
+  --- shows an example under every symbol it calls. A selector narrows
+  --- the run to the modules it names, a file, a module name, or a
+  --- directory; `<file or module>:<name>` to the
   --- one test of that name, `test_*` or an example's, and one no test
   --- there has is refused. Each test runs
   --- in a process of its own, and fails if it runs past its timeout;
@@ -411,8 +408,11 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
-  --- `cosmic help [verb]`: prints the whole discovery surface -- every
-  --- verb, one line of prose each -- or, given a verb, only its line
+  --- `cosmic help [verb | exit]`: with no word, an index of every verb,
+  --- one line each, and where to read more. `cosmic help <verb>`
+  --- prints that verb's full text, options and exit codes. `cosmic help
+  --- exit` prints the verdict lines and exit codes every verb shares.
+  --- `cosmic <verb> --help` is `cosmic help <verb>`
   help: string
 end
 
@@ -423,6 +423,13 @@ local record Module
   --- lists beneath its prose, so the two cannot drift apart. A verb
   --- that is absent takes none.
   options: {string: {string:boolean | Flags.Option}}
+  --- The command line of each verb, as its line in the index shows it.
+  usage: {string:string}
+  --- What each verb does, as one short phrase for the index.
+  summary: {string:string}
+  --- The index's sections, each a title and the verbs under it, in
+  --- order. Together they name every verb once.
+  groups: {{string}}
   --- The order `verb_help` prints these in. A record's field order is
   --- not queryable at runtime, so it is spelled out here.
   order: {string}
@@ -440,7 +447,8 @@ local module: Module = {
         "as they last did, in this checkout or another; sandboxed, run every test, " ..
         "whatever stands (COSMIC_TEST_ALL=1)" },
       ["--audit"] = { about = "run every test, then name what each read beyond its " ..
-        "default and declared inputs (build.inputs), and fail if any did" },
+        "default and declared inputs (`cosmic docs Test.needs` says how to " ..
+        "declare one), and fail if any did" },
       ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
         "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
       ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
@@ -550,6 +558,50 @@ local module: Module = {
     todos = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
+  },
+  usage = {
+    run = "cosmic <file.tl> [args]", standalone = "cosmic --standalone <file.tl>",
+    eval = "cosmic -e '<chunk>' [args]", version = "cosmic --version",
+    test = "cosmic test [selector...]", fix = "cosmic fix [path...]",
+    build = "cosmic build [path...]", db = "cosmic db [path...]",
+    sql = "cosmic sql <statement>", json = "cosmic json <path> [file]",
+    hash = "cosmic hash [file...]", codec = "cosmic codec <encoding> [file]",
+    archive = "cosmic archive <command> ...", fetch = "cosmic fetch <url>",
+    time = "cosmic time <command> ...", rand = "cosmic rand <command> ...",
+    docs = "cosmic docs [words...]", uses = "cosmic uses <symbol> [path...]",
+    todos = "cosmic todos [path | words...]", bom = "cosmic bom",
+    refresh = "cosmic refresh -o <path>", help = "cosmic help [verb]",
+  },
+  summary = {
+    run = "build the tree around a file and run it",
+    standalone = "run one file with no tree around it",
+    eval = "run a Lua chunk",
+    version = "print this binary's digest",
+    test = "build the tree and run its tests",
+    fix = "format source files and check the tree",
+    build = "write o/bin/<name> per cmd/<name>/main.tl",
+    db = "what the databases under o/ hold",
+    sql = "read-only SQL on a database or data files",
+    json = "look up a path in a JSON file",
+    hash = "digest files, or check a sums file",
+    codec = "encode or decode base64, hex and the like",
+    archive = "list, extract or create tar and zip files",
+    fetch = "GET a URL, verifying what it keeps",
+    time = "show, convert and calculate with times",
+    rand = "uuids, tokens, integers, picks",
+    docs = "a symbol's or module's docs, or a search",
+    uses = "every place that refers to a symbol",
+    todos = "every TODO, with its date and commit",
+    bom = "third-party components in this binary",
+    refresh = "update a binary's CA roots and time zones",
+    help = "this index, or a verb's full text",
+  },
+  groups = {
+    { "Running code", "run", "standalone", "eval", "version" },
+    { "Project", "test", "fix", "build", "db" },
+    { "Quick tools", "sql", "json", "hash", "codec", "archive", "fetch", "time", "rand" },
+    { "Lookup", "docs", "uses", "todos", "help" },
+    { "This binary", "bom", "refresh" },
   },
   order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "hash", "codec", "archive", "fetch", "time", "rand", "docs", "uses", "todos",
     "bom", "refresh", "help" },
