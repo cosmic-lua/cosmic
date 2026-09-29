@@ -400,6 +400,9 @@ end
 --- `extract_reader` over a stream, however it chunks its bytes, writes
 --- what `extract` of the same bytes as a file does, and refuses what it
 --- refuses with the same words: one code path, read two ways.
+-- TODO: fuzz the verb's staged extraction too (`resolve_in` and the
+-- move into a destination that already holds files) against a direct
+-- extract into the same destination; only its unit tests reach it now.
 local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tmp: string)
   local base = Fs.absolute(tmp) or tmp
   local case = base .. "/case"

@@ -360,6 +360,10 @@ end
 --- refusal a direct extraction would have made at that path: through a
 --- symlink the destination holds, onto a directory or over a file.
 --- `rel` is the directory of `tree` looked at, "" for the top.
+-- Checked, then moved: a file that appears at a path between this look
+-- and `apply_steps`' rename of it is replaced without a refusal. That
+-- stays -- only another process racing the extraction reaches it, and
+-- holding the destination still would need a lock no reader honours.
 local function plan_move(tree: string, dest: string, force: boolean, rel: string,
     steps: {Step}, why_of: function(string): string): Outcome | nil
   local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel))
@@ -644,6 +648,9 @@ local function extract(file: string, dest: string, force: boolean, members: {str
       if not found then missing[#missing + 1] = member end
     end
     if #missing > 0 then
+      -- TODO: name standard input as the other messages here do
+      -- ("standard input: no such member"), not by its `-`; this and the
+      -- spooled zip's branch both still print `-:`.
       return fail(bare.failed, file .. ": no such member: " .. table.concat(missing, ", "))
     end
     if not force then
