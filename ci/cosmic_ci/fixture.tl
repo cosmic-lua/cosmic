@@ -1,3 +1,4 @@
+local Archive = require("cosmic.archive")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -74,25 +75,71 @@ function Fixture.copy(from: string, to: string, mode?: integer)
   Fixture.write(to, Fixture.read(from), mode)
 end
 
+--- Unpacks the tar at `tar` into `destination`, which must not exist
+--- yet, and answers it: a copy the fixture may write in, of files the
+--- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).
+function Fixture.unpack(tar: string, destination: string): string
+  assert(not Fs.exists(destination), "unpack destination already exists: " .. destination)
+  Fixture.mkdir(destination)
+  local written, trouble = Archive.extract(tar, destination)
+  assert(written, tar .. ": " .. tostring(trouble))
+  return destination
+end
+
+--- The runtime setup's copy of test/portable/tool.tl and the modules of
+--- the tree it requires (its `tool.tar`), unpacked beneath `work` once:
+--- the directory a tool.tl run starts in, where it resolves its
+--- `require`s and writes what it builds (its o/).
+function Fixture.tool_tree(fixture_dir: string, work: string): string
+  local tree = work .. "/tool-tree"
+  if Fs.exists(tree) then return tree end
+  return Fixture.unpack(fixture_dir .. "/tool.tar", tree)
+end
+
+--- A fresh tree at `tree`, which must not exist yet: a copy of the
+--- candidate's tracked source, which the driver unpacks from its
+--- `git archive` (COSMIC_FIXTURE_SOURCE, cosmic_ci/orchestration.tl's
+--- `phase_fixtures`), the tree the product was booted from.
+function Fixture.source_tree(tree: string)
+  local copied, trouble = Fs.copy_tree(Fixture.required("COSMIC_FIXTURE_SOURCE"), tree)
+  assert(copied, "source tree: " .. tostring(trouble))
+end
+
 function Fixture.hash(path: string): string
   return Hash.hex_sha256(Fixture.read(path))
 end
 
 --- The fixture's own environment for a child it starts, with `extra` set
---- over it. The child shares no compiles or parses (COSMIC_BUILD_CACHE=0)
---- unless `extra` says otherwise. The fixture's own run shares one file
---- with the leg's other fixtures (`Orchestration.fixture`), but a tree a
---- child builds (a fresh checkout's boot, the product rebuilding itself)
---- is what a fixture checks compiles, and work another child or fixture
---- left in that file would stand in for it (fixed_point_test,
---- self_rebuild_test).
-function Fixture.environment(extra?: {string:string}): {string:string}
-  local environment = Env.all()
+--- over it, made of `base` rather than of the fixture's own (`environment`
+--- makes it of that): a copy, which `base` keeps nothing of. The child
+--- shares no compiles or parses (COSMIC_BUILD_CACHE=0) unless `extra`
+--- says otherwise. The fixture's own run shares one file with the leg's
+--- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
+--- fresh checkout's boot, the product rebuilding itself) is what a
+--- fixture checks compiles, and work another child or fixture left in
+--- that file would stand in for it (fixed_point_test, self_rebuild_test).
+---
+--- Nor does a `cosmic test` the child runs sandbox its workers
+--- (COSMIC_TEST_SANDBOX=0): what a fixture asserts of such a run is its
+--- tally, not its sandbox, and a fixture's own worker is sandboxed
+--- (`Orchestration.fixture`), which a sandbox of the child's would nest
+--- in only as deep as the host allows. So it means the same on every
+--- host, as AGENTS.md asks of a test's own `cosmic test`.
+function Fixture.environment_of(base: {string:string},
+    extra?: {string:string}): {string:string}
+  local environment: {string:string} = {}
+  for name, value in pairs(base) do environment[name] = value end
   environment.COSMIC_BUILD_CACHE = "0"
+  environment.COSMIC_TEST_SANDBOX = "0"
   if extra then
     for name, value in pairs(extra) do environment[name] = value end
   end
   return environment
+end
+
+--- `environment_of` the fixture's own environment.
+function Fixture.environment(extra?: {string:string}): {string:string}
+  return Fixture.environment_of(Env.all(), extra)
 end
 
 local function preview(path: string): string
