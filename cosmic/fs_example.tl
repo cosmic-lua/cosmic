@@ -17,6 +17,19 @@ function Example.stdin()
   end
 end
 
+--- What `stat` says of a file: its kind and its size in bytes. `mode`
+--- holds the permission bits too (`mode & 0xfff`, as `chmod` sets them),
+--- less the umask for a file just made.
+function Example.stat()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path = dir .. "/notes.txt"
+  assert(Fs.write(path, "hello\n"))
+  local st = assert(Fs.stat(path))
+  print(st.kind, st.size)
+  assert(st.kind == "file" and st.size == 6, st.kind)
+  assert(Fs.remove_tree(dir))
+end
+
 --- A link stores its target as written, and `readlink` reads it back
 --- without following it.
 function Example.readlink()
