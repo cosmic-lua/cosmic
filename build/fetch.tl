@@ -30,20 +30,28 @@
 ---
 --- Redirects are followed as `cosmic.http` follows them: up to 10 hops
 --- (`Http.Options.max_redirects`), a longer chain failing the fetch. A
---- redirect may downgrade https to http, as curl's default does: pass
---- `--sha256` when that matters.
--- TODO: add a no-downgrade option (refuse a redirect from https to http)
--- once Http.Options carries a redirect-protocols field.
----
+--- fetch that starts at an https URL refuses a redirect to http by
+--- default (exit 1, saying so), and `--allow-downgrade` follows it. That
+--- is the safe default, like the verb's others (a failing status, every
+--- certificate verified): a plaintext hop hands the request, and any
+--- body, to whoever is on the path, who can also swap the body, and
+--- nobody chose it who typed https. It differs from curl's default, which
+--- follows the downgrade, on purpose; what a script gains from it, a
+--- mirror that still bounces to http, `--allow-downgrade` (with
+--- `--sha256`) names. An http start URL may redirect to either.
 --- Failures: a body that breaks off after some bytes went to standard
 --- output leaves those bytes sent (exit 1), since a pipe cannot take
 --- them back; `--sha256` on standard output buffers the whole body in
 --- memory, with no cap. A failed write of the `-o` file is exit 1, a
 --- failed fetch like the rest; only standard output's is 2.
 -- TODO: remove the `-o` temporary file when the process is killed by
--- SIGINT, once cosmic.sys carries a signal handler or an exit hook to
--- run it from; today an interrupt leaves the `.part` file beside the
--- target.
+-- SIGINT: cosmic.child's `Child.guard` already holds SIGINT and SIGTERM
+-- as a flag, so this waits only on `Http.download` taking a cancel
+-- check to poll between chunks (and on curl's transfer returning to it
+-- within its one-second poll), after which the verb opens the guard,
+-- lets the download remove its `.part` file, and closes the guard to
+-- deliver the signal again. Today an interrupt leaves the `.part` file
+-- beside the target.
 --- Certificates are always verified; there is no option that turns that
 --- off, and none will be added.
 
@@ -68,11 +76,32 @@ local record verb
     --- connection.
     script: {string}
   end
+  --- The schemes a redirect of `url` may lead to, for
+  --- `Http.Options.redirect_protocols`: https only when `url` is https
+  --- and `allow_downgrade` is not given, nil (both) otherwise.
+  redirect_protocols: function(url: string, allow_downgrade: boolean): {string}
+  --- What to print for `why`, an `Http` failure, when the fetch was
+  --- limited to https redirects: a plain sentence where curl's is
+  --- `Protocol "http" is disabled (in redirect)`; `why` as given
+  --- otherwise, or when `protocols` is nil.
+  refusal: function(why: string, protocols: {string}): string
 end
 
 local spec = Cli.options.fetch
 
-local usage = "cosmic fetch <url> [-o <file>] [--sha256 <hex>] [--head [--json]]"
+local usage = "cosmic fetch <url> [-o <file>] [--sha256 <hex>] [--allow-downgrade] [--head [--json]]"
+
+function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string}
+  if allow_downgrade or url:match("^(%a+)://"):lower() ~= "https" then return nil end
+  return { "https" }
+end
+
+function verb.refusal(why: string, protocols: {string}): string
+  if protocols ~= nil and why:find('Protocol "http" is disabled (in redirect)', 1, true) then
+    return "refused a redirect from https to http (--allow-downgrade follows it)"
+  end
+  return why
+end
 
 --- Whether `url` names an http or https host, the only schemes there
 --- are. `Http.open` would refuse others too, but as a failed fetch and
@@ -172,6 +201,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   local options: Http.Options = { script = to.script }
+  options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false)
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. status)
     return 1
@@ -186,7 +216,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     options.sha256 = want
     local ok, why = Http.download(url, target, options)
     if not ok then
-      complain(why)
+      complain(verb.refusal(why, options.redirect_protocols))
       return 1
     end
     return 0
@@ -194,7 +224,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   local response, open_trouble = Http.open(url, options)
   if response == nil then
-    complain(shown .. ": " .. open_trouble)
+    complain(shown .. ": " .. verb.refusal(open_trouble, options.redirect_protocols))
     return 1
   end
   local ok2 = response.status >= 200 and response.status < 300

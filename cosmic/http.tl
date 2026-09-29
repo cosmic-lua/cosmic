@@ -44,6 +44,13 @@ local record Http
   --- into a GET, as RFC 9110 says. `method` is case-sensitive, as
   --- HTTP's are, and defaults to GET, or POST when there is a `body`.
   ---
+  --- `redirect_protocols`, a list of "http" and "https", names the
+  --- schemes a redirect may lead to (default both; the start URL's own
+  --- is not limited by it): `{"https"}` refuses a redirect to http, so
+  --- a request that started over https never falls back to plaintext,
+  --- and the redirect refused fails the request. An empty list or any
+  --- other entry raises (`follow = false` is how to take no redirect).
+  ---
   --- A connection not made within `connect_timeout_ms` (default
   --- 30000) fails, and so does a transfer that moves fewer than
   --- `low_speed_bytes` (default 1) per second for `low_speed_seconds`

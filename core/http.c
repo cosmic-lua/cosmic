@@ -393,6 +393,34 @@ static long opt_integer (lua_State *L, const char *key, long fallback,
   return (long)v;
 }
 
+/* opts.redirect_protocols, a list of "http" and "https" (nil: both), as
+ * the static string curl's CURLOPT_REDIR_PROTOCOLS_STR takes. Any other
+ * entry, or a list of the wrong shape or an empty one (curl takes no
+ * empty set; `follow = false` is how to take no redirect), raises. */
+static const char *opt_redirect_protocols (lua_State *L) {
+  static const char *const names[] = { NULL, "http", "https", "http,https" };
+  const char *want = "a non-empty list of \"http\" and \"https\"";
+  lua_getfield(L, 2, "redirect_protocols");
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    return names[3];
+  }
+  if (lua_type(L, -1) != LUA_TTABLE) bad_option(L, "redirect_protocols", want);
+  int allowed = 0;
+  lua_Unsigned count = lua_rawlen(L, -1);
+  for (lua_Unsigned i = 1; i <= count; i++) {
+    lua_rawgeti(L, -1, (lua_Integer)i);
+    const char *name = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+    if (name != NULL && strcmp(name, "http") == 0) allowed |= 1;
+    else if (name != NULL && strcmp(name, "https") == 0) allowed |= 2;
+    else bad_option(L, "redirect_protocols", want);
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  if (allowed == 0) bad_option(L, "redirect_protocols", want);
+  return names[allowed];
+}
+
 static int opt_boolean (lua_State *L, const char *key, int fallback) {
   lua_getfield(L, 2, key);
   int v = fallback;
@@ -1005,6 +1033,7 @@ struct request {
   long body_size;     /* -1: not known, so sent chunked */
   int follow;
   int verbose;
+  const char *redirect_protocols; /* a static CURLOPT_REDIR_PROTOCOLS_STR */
   long max_redirects;
   long connect_timeout_ms;
   long timeout_ms;
@@ -1068,7 +1097,7 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   SET(CURLOPT_PRIVATE, (void *)t);
   SET(CURLOPT_URL, r->url);
   SET(CURLOPT_PROTOCOLS_STR, "http,https");
-  SET(CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+  SET(CURLOPT_REDIR_PROTOCOLS_STR, r->redirect_protocols);
   SET(CURLOPT_NOSIGNAL, 1L);
   SET(CURLOPT_FOLLOWLOCATION, r->follow ? CURLFOLLOW_OBEYCODE : 0L);
   SET(CURLOPT_MAXREDIRS, r->max_redirects);
@@ -1100,7 +1129,6 @@ static CURLcode configure_script (struct transfer *t, const char **which) {
   /* https too: the reply is then the server's side of the handshake,
    * which is how a test sees a certificate verified by `use_roots`. */
   SET(CURLOPT_PROTOCOLS_STR, "http,https");
-  SET(CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
   SET(CURLOPT_FRESH_CONNECT, 1L);
   SET(CURLOPT_FORBID_REUSE, 1L);
   return CURLE_OK;
@@ -1215,6 +1243,7 @@ static int open_request (lua_State *L, int streamed) {
   if (has_script) script_check(L);
   r.follow = opt_boolean(L, "follow", 1);
   r.verbose = opt_boolean(L, "verbose", 0);
+  r.redirect_protocols = opt_redirect_protocols(L);
   r.max_redirects = opt_integer(L, "max_redirects", 10, MAX_REDIRECTS);
   r.connect_timeout_ms = opt_integer(L, "connect_timeout_ms",
                                      DEFAULT_CONNECT_TIMEOUT_MS, LONG_MAX);

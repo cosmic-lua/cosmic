@@ -84,6 +84,31 @@ local function test_a_redirect_is_not_followed_when_follow_is_false()
   assert(response.headers["location"] == "/next")
 end
 
+local function test_a_redirect_to_a_scheme_outside_redirect_protocols_is_refused()
+  local response, why = Http.open(url, { redirect_protocols = { "https" },
+    script = { reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "no") } })
+  assert(response == nil, "the redirect to http was followed")
+  assert(why:find("disabled (in redirect)", 1, true) ~= nil, why)
+end
+
+local function test_a_redirect_to_a_listed_scheme_is_followed()
+  for _, protocols in ipairs({ { "http" }, { "http", "https" } } as {{string}}) do
+    local response, body = fetch({ reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "yes") },
+      { redirect_protocols = protocols })
+    assert(response.status == 200 and body == "yes", body)
+  end
+end
+
+local function test_a_redirect_to_https_is_attempted_when_only_https_is_listed()
+  -- a canned reply cannot finish a TLS handshake, so the hop fails there:
+  -- what matters is that it is a TLS failure, not a refused scheme
+  local response, why = Http.open(url, { redirect_protocols = { "https" },
+    script = { reply("302 Found", "Location: https://other.test/next\r\n"), reply("200 OK", "", "no") } })
+  assert(response == nil)
+  assert(why:find("not supported or disabled", 1, true) == nil, why)
+  assert(why:find("Protocol", 1, true) == nil, why)
+end
+
 local function test_a_303_after_post_is_followed_with_get()
   local response, body, sent = fetch({
     reply("303 See Other", "Location: /done\r\n"),
@@ -474,6 +499,17 @@ local function test_zero_integer_options_are_accepted()
   local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ms = 0,
     max_redirects = 0, low_speed_bytes = 0, low_speed_seconds = 0 })
   assert(response.status == 200 and body == "ok")
+end
+
+local function test_redirect_protocols_takes_a_list_of_http_and_https()
+  local err = raised({ redirect_protocols = "https" as {string} })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = {} })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "ftp" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
+  err = raised({ redirect_protocols = { "HTTPS" } })
+  assert(err:find("opts.redirect_protocols must be a non-empty list", 1, true) ~= nil, err)
 end
 
 local function test_a_boolean_option_takes_only_a_boolean()

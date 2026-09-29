@@ -212,3 +212,31 @@ local function test_sha256_on_standard_output_with_a_bad_status_sends_nothing()
   assert(ran.code == 1 and ran.out == "", ran.out)
   assert(ran.err:find("HTTP 404", 1, true), ran.err)
 end
+
+local function test_an_https_start_limits_redirects_to_https_unless_allowed()
+  local limited = fetch.redirect_protocols("https://example.test/a", false)
+  assert(#limited == 1 and limited[1] == "https")
+  limited = fetch.redirect_protocols("HTTPS://example.test/a", false)
+  assert(#limited == 1 and limited[1] == "https")
+  assert(fetch.redirect_protocols("https://example.test/a", true) == nil)
+  assert(fetch.redirect_protocols("http://example.test/a", false) == nil)
+end
+
+local function test_a_refused_downgrade_is_named_plainly()
+  local curl = 'Protocol "http" is disabled (in redirect)'
+  local said = fetch.refusal(curl, { "https" })
+  assert(said:find("refused a redirect from https to http", 1, true) ~= nil, said)
+  assert(said:find("--allow-downgrade", 1, true) ~= nil, said)
+  assert(fetch.refusal(curl, nil) == curl, "a fetch not limited to https says what curl said")
+  assert(fetch.refusal("Could not resolve host", { "https" }) == "Could not resolve host")
+end
+
+local function test_an_http_redirect_from_an_http_start_is_still_followed()
+  local ran = run({ url }, { reply("302 Found", "Location: http://other.test/x\r\n"), reply("200 OK", "", "ok") })
+  assert(ran.code == 0 and ran.out == "ok", ran.err)
+end
+
+local function test_allow_downgrade_is_a_flag_and_not_a_usage_error()
+  local ran = run({ "--allow-downgrade", url }, { reply("200 OK", "", "ok") })
+  assert(ran.code == 0 and ran.out == "ok", ran.err)
+end
