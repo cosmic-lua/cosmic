@@ -1041,8 +1041,10 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 ---   calls a filter refuses are theirs. A worker a root runner runs as a
 ---   user of its own (`HostSources`' `worker_uid`) is held as that user
 ---   with no supplementary group and no capability in effect, as an
----   unprivileged runner of that user's is: the bounding set, no_new_privs
----   and the filter stay this process's, which the worker's are;
+---   unprivileged runner of that user's is -- the bounding set,
+---   no_new_privs and the filter stay this process's, which the worker's
+---   are -- but apart from such a runner's worker, by the user it was
+---   dropped from, whose sandbox gave it what that user alone may read;
 --- - whether a sandbox gets a /proc of its own
 ---   (`confine.own_proc_given`), which a test of the sandbox
 ---   expects different things of; and
@@ -1112,6 +1114,11 @@ function declared_key.host_identity(digests: declared_key.Digests,
   lines[#lines + 1] = "cpu " .. table.concat(features(from.cpuinfo, from.machine), " ")
   local worker_uid, worker_gid = from.worker_uid, from.worker_gid
   lines[#lines + 1] = "uid " .. tostring(worker_uid or from.uid or sys.getuid())
+  -- Dropped from the runner's user, which built its root and so gave it
+  -- what that user alone reads: apart from that user's own runner's.
+  if worker_uid ~= nil then
+    lines[#lines + 1] = "dropped from " .. tostring(from.uid or sys.getuid())
+  end
   local status, _ = Fs.read(from.status or "/proc/self/status")
   for line in (status or ""):gmatch("[^\n]+") do
     local name = line:match("^(%a+):")

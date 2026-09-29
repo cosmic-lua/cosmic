@@ -39,8 +39,10 @@ end
 
 --- Whether the run that said `text` sandboxed none of its workers, where
 --- that is allowed. The workers nest in this test's own sandbox, which a
---- host may refuse (the kernel lets root nest one only two deep:
---- core/syscalls.c's `map_ids`); the sandboxed case then checks only what
+--- host may refuse (the kernel lets root nest one only two deep,
+--- core/syscalls.c's `map_ids`, where a root runner cannot run its
+--- workers as a user of their own: build.test_sandbox's `runs_as`);
+--- the sandboxed case then checks only what
 --- the unsandboxed one does. It says it is skipped (`Test.skip`),
 --- which a run held to sandboxing fails
 --- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or

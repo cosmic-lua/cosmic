@@ -56,7 +56,9 @@ end
 --- Whether the run that printed `text` sandboxed none of its workers,
 --- where that is allowed. The workers, and what they confine, nest in
 --- this test's own sandbox, which a host may refuse (the kernel lets
---- root nest one only two deep: core/syscalls.c's `map_ids`); a case of a
+--- root nest one only two deep, core/syscalls.c's `map_ids`, where a
+--- root runner cannot run its workers as a user of their own:
+--- build.test_sandbox's `runs_as`); a case of a
 --- confined process then has only the refusal to check, and says it is
 --- skipped (`Test.skip`), which a run held to sandboxing fails
 --- (COSMIC_TEST_SANDBOX=1, as CI's suites set it, COSMIC_SANDBOX=must or

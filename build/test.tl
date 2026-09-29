@@ -3538,9 +3538,14 @@ local function run(argv: {integer:string}): integer
     end
     rec.compiler = tool .. " " .. compiled_by
     rec.host = declared_key.host_identity(rec.digests)
-    local worker_user, _ = test_sandbox.runs_as()
-    rec.worker_host = rec.sandbox and worker_user ~= nil and declared_key.host_identity(
-      rec.digests, { worker_uid = worker_user.uid, worker_gid = worker_user.gid }) or rec.host
+    rec.worker_host = rec.host
+    if rec.sandbox then
+      local worker_user, _ = test_sandbox.runs_as()
+      if worker_user ~= nil then
+        rec.worker_host = declared_key.host_identity(rec.digests,
+          { worker_uid = worker_user.uid, worker_gid = worker_user.gid })
+      end
+    end
     -- What the system's paths hold is walked only for a run that holds
     -- a module given them, whose key alone holds it: half a second of
     -- /usr's entries otherwise spent for nothing.

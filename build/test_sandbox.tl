@@ -57,7 +57,7 @@
 --- it, at /tree and `test_sandbox.scratch`; `to_host` puts each path back where the host
 --- has it, for the audit of what it read and for its `runs` row.
 
-local type Child = require("cosmic.child")
+local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -189,9 +189,13 @@ local own_tmp <const> = Fs.dirname(test_sandbox.scratch)
 --- overflow id, 65534, and a worker that were 65534 too would seem to
 --- own them. 65532 is the unprivileged user distroless images run as,
 --- beneath 65536, so a container whose namespace maps the usual 65536
---- ids maps it too; a host with a user of its own at 65532 would have
---- its workers run as that user, which none of the hosts the tree is
---- tested on has.
+--- ids maps it too.
+-- TODO: choose an id no user of this host has -- one /etc/passwd and
+-- /etc/group name no entry for, from a range the host keeps for no one
+-- (a subordinate id range of root's) -- once a runner reads them
+-- (getpwuid, or the files parsed): today a host with a user of its own
+-- at 65532 would have root's workers run as that user, and a process of
+-- that user could signal or trace them.
 local worker_id <const> = 65532
 
 --- Of `path`, a /proc/<pid>/uid_map or gid_map, whether it maps `id`
@@ -227,16 +231,22 @@ end
 --- of the cache it is in, by that cache's name (`Plan`'s `sandbox`),
 --- where it runs a core the launcher extracted (build/launcher.tl),
 --- which the launcher keeps as root's alone, 0500 in a 0700
---- directory: a copy of it, and of the stamp that spares hashing it,
---- the worker's own, in a cache of the worker's own beside root's --
---- `cores-as-65532`, as the launcher would keep them for that user,
---- and checks it keeps them so, where a test runs this program. Each
---- copy is checked against the digest the core's name holds, and made
---- in place by a rename, so two runs at once make it alike. The
---- directory, and the cache it stands for, or "" for neither where the
---- core is no launcher's -- a host program, its own core -- and one
---- the worker's user may read and run; nil where the worker could not
---- run it.
+--- directory: a copy of it, and of the stamp that spares hashing it, in
+--- a directory of the worker's user's own, 0500, as the launcher keeps
+--- them for that user and checks it keeps them where a test runs this
+--- program. Each such directory is beneath `worker-cores` in root's
+--- cache, root's own and 0700, so no process but root's reaches one:
+--- root writes it, by name, and nothing else can swap a link or a core
+--- into it. A copy is checked against the digest the core's name holds
+--- as it is made, and made in place by a rename, so two runs at once
+--- make it alike. The directory, and the cache it stands for, or ""
+--- for neither where the core is no launcher's -- a host program, its
+--- own core -- and one the worker's user may read and run; nil where
+--- the worker could not run it.
+-- TODO: prune a directory of `worker-cores` whose core no run has used
+-- for a while, as nothing prunes the launcher's own cores directory
+-- either, once that has a rule to share (the launcher's cache is
+-- pruned by hand today): each core this host runs as root leaves one.
 local record Cores
   --- The worker's own copy of the cache, "" for none.
   copy: string
@@ -263,18 +273,31 @@ local function worker_cores(): Cores | nil, string
     return nil, core .. " is not another user's to read and run"
   end
   local digest = name:match("%-(%x+)$")
-  local cache, cache_trouble = Fs.cache_path("cores-as-" .. tostring(worker_id))
-  if cache == nil then return nil, cache_trouble end
   if digest == nil then return nil, core .. " names no digest" end
+  local base, base_trouble = Fs.cache_path("worker-cores")
+  if base == nil then return nil, base_trouble end
+  local made, made_trouble = Fs.mkdirs(base)
+  if not made then return nil, made_trouble end
+  local closed, close_trouble = sys.chmod(base, 0x1c0)
+  if not closed then return nil, base .. ": " .. close_trouble end
+  -- Root's alone, as made: what is beneath it is written by name.
+  local held, _ = sys.lstat(base)
+  if held == nil or held.kind ~= "dir" or held.uid ~= 0 or held.mode & 0x1ff ~= 0x1c0 then
+    return nil, base .. " is not root's alone"
+  end
+  local cache = base .. "/" .. name
   local function owned(path: string, mode: integer): boolean, string
     local changed, trouble = sys.chmod(path, mode)
     if changed then changed, trouble = sys.chown(path, worker_id, worker_id) end
     if not changed then return false, path .. ": " .. trouble end
     return true, ""
   end
-  local made, made_trouble = Fs.mkdirs(cache)
-  if not made then return nil, made_trouble end
-  local ready, ready_trouble = owned(cache, 0x1c0)
+  local there_dir, _ = sys.lstat(cache)
+  if there_dir == nil then
+    local ok, trouble = sys.mkdir(cache, 0x140)
+    if not ok then return nil, cache .. ": " .. trouble end
+  end
+  local ready, ready_trouble = owned(cache, 0x140)
   if not ready then return nil, ready_trouble end
   local copy = cache .. "/" .. name
   local function placed(path: string, data: string, mode: integer): boolean, string
@@ -288,14 +311,15 @@ local function worker_cores(): Cores | nil, string
     end
     return true, ""
   end
-  local there, _ = sys.stat(copy)
-  if there == nil or there.uid ~= worker_id or there.mode & 0xfff ~= 0x140 then
+  local there, _ = sys.lstat(copy)
+  if there == nil or there.kind ~= "file" or there.uid ~= worker_id or
+      there.mode & 0xfff ~= 0x140 then
     local data, read_trouble = Fs.read(core)
     if data == nil then return nil, read_trouble end
     if hashing.hex_sha256(data) ~= digest then return nil, core .. " is not the core it names" end
     local ok, trouble = placed(copy, data, 0x140)
     if not ok then return nil, trouble end
-    there, _ = sys.stat(copy)
+    there, _ = sys.lstat(copy)
   end
   if there == nil then return nil, copy .. " is not there" end
   -- The stamp core/startup.c's `stamp_line` writes of it: its size,
@@ -304,7 +328,7 @@ local function worker_cores(): Cores | nil, string
   local stamp = cache .. "/.verified-" .. name
   local stamped, _ = Fs.read(stamp)
   if stamped ~= line then
-    local ok, trouble = placed(stamp, line, 0x180)
+    local ok, trouble = placed(stamp, line, 0x100)
     if not ok then return nil, trouble end
   end
   -- The core a relaunch hands on as a descriptor, which the worker's
@@ -327,17 +351,71 @@ local function worker_cores(): Cores | nil, string
   return { copy = cache, cache = directory, start = handed }, ""
 end
 
+--- Whether this program starts, sandboxed, as `user`, with `cores` its
+--- core (`worker_cores`): given /proc, /dev/null and that core alone,
+--- it runs nothing and ends. Where the host refuses what a worker run as
+--- that user takes -- a user namespace of that user's own (AppArmor's
+--- kernel.apparmor_restrict_unprivileged_userns, a kernel that allows
+--- none unprivileged), or a map written from outside -- every worker's
+--- start would fail; so none is run so there, and each runs as root.
+-- TODO: test the fallback on a host that refuses an unprivileged user
+-- a user namespace, once CI has a leg run as root on one (doc/roadmap.md):
+-- no host the suite runs on refuses one to 65532 but grants it to root.
+local function starts_as(user: test_sandbox.User, cores: Cores): boolean, string
+  local launched, _ = Proc.relaunch()
+  local start: Proc.Relaunch = cores.start or launched
+  local reads: {string} = {}
+  local at: {string:string} = {}
+  if start == nil then
+    local executable, trouble = Proc.executable()
+    if executable == nil then return false, trouble end
+    start = { argv = { executable }, env = {}, fds = {} }
+  end
+  if cores.copy ~= "" then
+    reads[#reads + 1] = cores.copy
+    at[cores.copy] = cores.cache
+  else
+    reads[#reads + 1] = start.argv[1]
+  end
+  for _, path in ipairs({ "/proc", "/dev/null" }) do
+    local there, _ = sys.stat(path)
+    if there ~= nil then reads[#reads + 1] = path end
+  end
+  local argv: {string} = {}
+  for i, word in ipairs(start.argv) do argv[i] = word end
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = ""
+  local fds: {integer:integer | string} = {}
+  for number, fd in pairs(start.fds) do fds[number] = fd end
+  local handle, trouble = Child.start(argv, { env = start.env, fds = fds, cwd = "/",
+    stdin = "null", stdout = "capture", stderr = "stdout", process_group = false,
+    sandbox = { unveil = { reads = reads, writes = {}, at = at }, offline = true,
+      user = user.uid, group = user.gid } })
+  if handle == nil then return false, trouble end
+  local result, wait_trouble = handle:wait(30000)
+  if result == nil then
+    local _, _ = handle:close()
+    return false, wait_trouble
+  end
+  if not result.ok then
+    return false, "a start as " .. tostring(user.uid) .. " ended " ..
+      tostring(result.code or result.signal) .. ": " .. (result.stdout or "")
+  end
+  return true, ""
+end
+
 --- Whether, and as whom, a sandboxed worker runs in place of this
 --- process's own user: `worker_id`, as user and group, where this
 --- process is root (`root_here`), its user namespace maps root and that
---- id -- the host's does, and a container's usual 65536 ids -- and the
---- worker has a core it may run (`worker_cores`). Such a worker gives
---- root up for them once its root is built, as core/process.h's
---- `Sandbox.user` says, and so confines what its test starts at any
---- depth, as an unprivileged runner's worker does -- where a worker
---- left root would not, the kernel refusing a user namespace to a
---- child of its that is unmapped -- and meets the permissions of the
---- files it reads as such a worker does. Its key holds it as that user
+--- id -- the host's does, and a container's usual 65536 ids -- the
+--- worker has a core it may run (`worker_cores`), and a start as that
+--- user succeeds (`starts_as`). Such a worker gives root up for them
+--- once its root is built, as core/process.h's `Sandbox.user` says, and
+--- so confines what its test starts at any depth, as an unprivileged
+--- runner's worker does -- where a worker left root would not, the
+--- kernel refusing a user namespace to a child of its that is unmapped
+--- -- and meets the permissions of the files it reads as such a worker
+--- does. Its key holds it as that user
 --- (`declared_key.HostSources`' `worker_uid`). Nil, and why, elsewhere,
 --- the worker running as this process's user, as ever. Worked out
 --- once.
@@ -354,8 +432,13 @@ function test_sandbox.runs_as(): test_sandbox.User | nil, string
         local copy, trouble = worker_cores()
         worker_trouble = trouble
         if copy ~= nil then
-          worker_user = { uid = worker_id, gid = worker_id }
-          worker_copy = copy
+          local user: test_sandbox.User = { uid = worker_id, gid = worker_id }
+          local started, why = starts_as(user, copy)
+          worker_trouble = why
+          if started then
+            worker_user = user
+            worker_copy = copy
+          end
         end
       end
     end

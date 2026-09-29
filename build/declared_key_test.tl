@@ -409,9 +409,11 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
 end
 
 --- A worker a root runner runs as a user of its own is keyed as that
---- user's runner's worker is, with no group and no capability but the
---- bounding set, which it keeps: a verdict one reached stands for the
---- other, and for no worker run as root, or as another user.
+--- user, with no group and no capability but the bounding set, which
+--- it keeps, whatever groups and capabilities root had -- but apart
+--- from that user's own runner's worker, which its sandbox could give
+--- nothing only root may read, and from a worker run as root, or as
+--- another user.
 local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp: string)
   local function status(name: string, text: string): string
     assert(Fs.write(tmp .. "/" .. name, text))
@@ -432,9 +434,15 @@ local function test_a_worker_run_as_a_user_of_its_own_is_keyed_as_that_user(tmp:
     return declared_key.host_identity(declared_key.digests(tmp), sources)
   end
   local dropped = host({ status = root, uid = 0, worker_uid = 65532, worker_gid = 65532 })
-  assert(dropped == host({ status = user, uid = 65532 }), "keyed apart from that user's own")
+  assert(dropped ~= host({ status = user, uid = 65532 }),
+    "keyed as that user's own runner's worker, which reads what root's could not give it")
   assert(dropped ~= host({ status = root, uid = 0 }), "keyed as root")
   assert(dropped ~= host({ status = root, uid = 0, worker_uid = 65533, worker_gid = 65533 }))
+  local other_root = status("other-root", "Name:\tx\nUid:\t0\t0\t0\t0\n" ..
+    "Gid:\t0\t0\t0\t0\nGroups:\t0 10 \nCapInh:\t0000000000000000\n" ..
+    "CapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\n" .. tail)
+  assert(dropped == host({ status = other_root, uid = 0, worker_uid = 65532,
+    worker_gid = 65532 }), "keyed by the groups and capabilities of the root it left")
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,
