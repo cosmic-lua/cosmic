@@ -237,12 +237,11 @@ local function test_declaration_dependency_keys_allow_cycles()
   assert(result ~= nil, "declaration cycle was refused: " .. tostring(trouble))
 end
 
---- A `require("cosmic.hidden_dep")` sitting inside a comment or a
---- string literal is not a real import: `requires_of` finds no
---- `require` call at all in this source, even though the raw bytes
---- carry that exact text twice. A regex over source TEXT, with no
---- notion of a comment or a string literal, would match both
---- occurrences and wrongly report `cosmic.hidden_dep` as a dependency.
+--- A `require("cosmic.hidden_dep")` inside a comment or a string literal
+--- is not an import: `requires_of` finds no `require` call in this
+--- source, though its bytes carry that text twice. A match over the
+--- source text, with no notion of a comment or a string, would report
+--- `cosmic.hidden_dep` as a dependency.
 local function test_ignores_a_require_inside_a_comment_and_a_string()
   local source = table.concat({
     '-- require("cosmic.hidden_dep") is only text in this comment.',
@@ -261,8 +260,7 @@ local function test_ignores_a_require_inside_a_comment_and_a_string()
     "expected no requires, got " .. #requires .. ": " .. table.concat(requires, ", "))
 end
 
---- A genuine top-level require of a real sibling module is still
---- found -- the fix above does not simply stop finding requires at all.
+--- A genuine top-level require of a real sibling module is found.
 local function test_finds_a_real_top_level_require()
   local root, write_trouble = write_fixture("real-require", {
     ["main.tl"] = 'local dep = require("real_dep")\nreturn dep\n',
@@ -847,16 +845,15 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
 end
 
 --- A boot carries no database and runs the tree's own code, so it names
---- the analyzer by the tree (`importer.tree_code`), and must name it as
---- the tool it writes will name its own, from what that tool carries:
+--- the analyzer by the tree (`importer.tree_code`). It must name it as
+--- the tool it writes will name its own, from what that tool carries;
 --- otherwise the first build the booted tool runs forgets every row the
---- boot derived and parses every source again (11 s at release speed on
---- cosmic's own tree, and 30 s or more under the checked core, after
---- each boot of either). The tree is read as the binary is: a name only
---- a declaration holds is never followed, since the binary records no
---- module requiring one. Before a parse, what the last one
---- found names it already; an edit to an analyzer module moves it, and
---- an edit elsewhere does not.
+--- boot derived and parses every source again (about 11 s at release
+--- speed on cosmic's own tree, 30 s or more under the checked core).
+--- The tree is read as the binary is: a name only a declaration holds
+--- is never followed, since the binary records no module requiring
+--- one. Before a parse, what the last one found names it already; an
+--- edit to an analyzer module moves it, and an edit elsewhere does not.
 local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-analyzer-"))
   for _, dir in ipairs({ "build", "core" }) do
@@ -1010,11 +1007,9 @@ end
 
 --- tl's checker silently accepts a `_`-prefixed name as intentionally
 --- unused (`vendor/tl/tl.tl`'s own `var_name:sub(1, 1) == "_"` check),
---- but says nothing about that escape hatch in the warning it raises
---- for every other name -- and cosmic refuses the whole compile over
---- any warning (see `complain`). A fresh agent hit this three times in
---- one eval run before generalizing the fix; `with_unused_hint` names
---- it in the message itself instead.
+--- but its warning for every other name does not mention that escape,
+--- and cosmic refuses the whole compile over any warning (see
+--- `complain`). `with_unused_hint` names the escape in the message.
 local function test_unused_variable_warning_names_its_own_fix()
   local root = assert(write_fixture("unused-hint", {
     ["thing.tl"] = "local function f(x: integer): integer\n  return 0\nend\nreturn f\n",
@@ -1307,24 +1302,30 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
   end
 end
 
---- The compiler's identity holds what a compile or a parse runs to decide
---- what it stores (`build.work`'s `compiler_identity`), and that holds
---- only while the set is closed: every module of the tree's that one of
---- them requires is in it too, or is the standard library the compile
---- runs on. build.importer's own requires are not followed, so each is
---- in the set or named below with the reason it is not, and a new
---- require of it fails here until it is one or the other. Every module
---- of the analyzer's but the standard library's is the compiler's too,
---- whose identity the analyzer's starts from. A `cosmic.*` require is
---- let through whole: it is the standard library the compile runs on,
---- which the identity leaves out. One that is data deciding what a
---- compile accepts, as `cosmic.removed` is, this cannot tell apart: it
---- goes into the identity by hand (`work.compiler_modules`). The walk
---- here reads the running binary's `imports` (`Store.requires`), where
---- `work.compiler_identity` reads the working database's `requires`,
---- which a declaration's source (`.d.tl`) has rows in too; the two
---- reach the same modules while no module of the identity has a
---- declaration of its own but build.compiler, which requires nothing.
+--- The compiler's identity holds what a compile or a parse runs to
+--- decide what it stores (`build.work`'s `compiler_identity`). That
+--- holds only while the set is closed: every module of the tree's that
+--- one of them requires is in it too, or is the standard library the
+--- compile runs on.
+---
+--- build.importer's own requires are not followed, so each is in the
+--- set or named below with the reason it is not; a new require of it
+--- fails here until it is one or the other. Every module of the
+--- analyzer's but the standard library's is the compiler's too, since
+--- the analyzer's identity starts from the compiler's.
+---
+--- A `cosmic.*` require is let through whole: it is the standard
+--- library the compile runs on, which the identity leaves out. This
+--- cannot tell that from data that decides what a compile accepts, as
+--- `cosmic.removed` does; such a module goes into the identity by hand
+--- (`work.compiler_modules`).
+---
+--- The walk here reads the running binary's `imports`
+--- (`Store.requires`), where `work.compiler_identity` reads the working
+--- database's `requires`, which has rows for a declaration's source
+--- (`.d.tl`) too. The two reach the same modules while no module of the
+--- identity has a declaration of its own but build.compiler, which
+--- requires nothing.
 local function test_the_compiler_modules_are_closed_under_require()
   local ast = require("build.ast")
   local modules = assert(work.compiler_modules(Store.requires))
@@ -1381,15 +1382,17 @@ end
 --- The writer's identity holds what decides a projection's bytes beside
 --- the rows it is filled from (`build.work`'s `writer_identity`): all
 --- that build.writer and build.work reach, but the few requires of
---- theirs `work.writer_left_out` names with a reason. Each named is
---- still one of theirs, and in no other way in the identity. What that
---- leaves out of build.writer's whole import closure is the compiler's
---- -- whose identity a projection's signature holds -- or named below,
---- a module of the standard library's as much as the build's, with the
---- reason no projection turns on it, so a new require of the importer's
---- that fills a row the writer projects, or runs on a module of the
---- standard library the writer does not, fails here until it is one or
---- the other.
+--- theirs that `work.writer_left_out` names with a reason. Each one
+--- named is still a require of theirs, and reaches the identity no
+--- other way.
+---
+--- What that leaves out of build.writer's whole import closure is
+--- either the compiler's (whose identity a projection's signature
+--- holds) or named below with the reason no projection turns on it,
+--- whether a module of the standard library or of the build. So a new
+--- require of the importer's that fills a row the writer projects, or
+--- that runs on a standard-library module the writer does not, fails
+--- here until it is one or the other.
 local function test_the_writer_modules_are_closed_under_require()
   local modules = assert(work.writer_modules(Store.requires))
   local covered: {string:boolean} = {}
@@ -1673,7 +1676,7 @@ local function count_of(db: Sqlite.Handle, sql: string): integer
   return math.tointeger(tonumber(rows[1][1])) or -1
 end
 
---- The record-field uses of a compile `compiled` no longer holds go at
+--- The record-field uses of a compile `compiled` has dropped go at
 --- the end of the next compile, even one that drops no compile itself;
 --- the uses of a compile it holds stay.
 local function test_a_compile_sweeps_the_uses_of_a_vanished_compile()

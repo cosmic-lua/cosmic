@@ -206,10 +206,10 @@ local function populated(value: any): boolean
 end
 
 --- Every field `fields` lists, of the record `holder` finds in a value,
---- is held by `changes`, each of which must move `key` from the value
---- `make` builds, or named in `unkeyed`, with why no key needs it;
---- `make`'s value populates every field, and
---- neither table names a field the record no longer declares. `what`
+--- is either in `changes` or in `unkeyed`. Each entry of `changes` must
+--- move `key` from the value `make` builds, which populates every field.
+--- Each entry of `unkeyed` gives the reason no key needs that field.
+--- Neither table may name a field the record does not declare. `what`
 --- names the record in what fails.
 local function each_field_moves<T>(what: string, fields: {string}, make: function(): T,
                                    holder: function(T): any, key: function(T): string,
@@ -903,12 +903,12 @@ local function program_at(path: string, core: string, meta: {string:string}, byt
 end
 
 --- A program is keyed by what it runs as: its image and the rows it
---- carries, but not the rows of its `meta` every edit of the tree
---- moves -- `boot_hash`, over every file of the tool's trees but their
---- tests, and `projected`, over the whole projection -- so a tool
---- written again for an edit that moved nothing it carries (a boot
---- after a comment in a test) keys as it did, in the program that runs
---- and in o/bin alike, while a carried module and the core move both.
+--- carries. The `meta` rows that every edit of the tree moves are left
+--- out: `boot_hash`, over every file of the tool's trees but their
+--- tests, and `projected`, over the whole projection. So a tool written
+--- again for an edit that changes nothing it carries (a boot after a
+--- comment in a test) keeps its key, both as the running program and in
+--- o/bin, while a carried module or the core moves it.
 local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   tree(tmp)
   assert(Fs.mkdirs(tmp .. "/o/bin"))

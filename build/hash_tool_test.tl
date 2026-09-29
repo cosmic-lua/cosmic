@@ -1,6 +1,7 @@
 --- `cosmic hash` run as this program: real standard input, the absence of
---- a verdict line, its exit statuses, and a file streamed from disk. These start this program, so
---- they need `tool`; the digests themselves are in `hash_test.tl`.
+--- a verdict line, its exit statuses, and a file streamed from disk.
+--- These start this program, so they need `tool`; the digests
+--- themselves are in `hash_test.tl`.
 
 local Child = require("cosmic.child")
 local Codec = require("cosmic.codec")
