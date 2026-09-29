@@ -91,9 +91,9 @@ harness_epoch.acknowledged = {
 
   ["build.test_worker"] = "b067d58a4f23e2e45dd778dca9df265b01ae9dbf32c9d756e9b39211465939a9",
 
-  ["build.this_program"] = "5d3b4cd43a514a2957d3bb6dae0827a3ca67245c473709cb644de5d61dc20a52",
+  ["build.this_program"] = "543c40bf6abd96f03c599f91a873433d13a533ef19a6d6fca30085dc8b7c2265",
 
-  ["build.zig_caches"] = "a09afd64fec41a72a2b350879f9d8aefc59482dc6d8938564124b893e1840c07",
+  ["build.zig_caches"] = "6fb33bb6dddd3bc15b50c6fe3435d1789240041e2401a0436f19cc5b9c878015",
 
   ["cmd.cosmic.main"] = "7e1aeb6507bc43ed66bff90de92beb0dcc983087452924d87f08be72ddc9e7a8",
 

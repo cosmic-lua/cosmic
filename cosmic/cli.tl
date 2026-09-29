@@ -65,7 +65,12 @@ local record Cli
   --- compiled again either, nor a source parsed, where any checkout
   --- compiled or parsed the same, through $XDG_CACHE_HOME/cosmic/build
   --- (~/.cache/cosmic/build): COSMIC_BUILD_CACHE names another file, and
-  --- COSMIC_BUILD_CACHE=0 turns it off
+  --- COSMIC_BUILD_CACHE=0 turns it off. The tree is the working directory,
+  --- unless that has no o/cosmic.db and an ancestor below the home
+  --- directory has one whose build staged the working directory: then it
+  --- is that ancestor, named on stderr, and paths are read from the
+  --- working directory. COSMIC_TREE=<dir> names the tree outright, `.`
+  --- for the working directory
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in
   --- the working directory structurally, then writes it back out as
@@ -74,7 +79,8 @@ local record Cli
   --- again would change nothing further, and refusing a file it does
   --- not. It also builds the tree and parenthesizes every `assert(...)`
   --- the type checker says passes on more values than its place can
-  --- take -- `(assert(...))` keeps only the first
+  --- take -- `(assert(...))` keeps only the first. The tree is found as
+  --- `test` finds it
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
   --- directory, then writes one executable under o/bin/ for each
@@ -82,7 +88,8 @@ local record Cli
   --- o/bin/<name>, which runs on its own, with nothing beside it -- see
   --- cmd. It runs on every supported system, and carries this binary's
   --- CA roots and time zones: `cosmic refresh --binary o/bin/<name> -o
-  --- <copy>` writes a copy with newer ones later
+  --- <copy>` writes a copy with newer ones later. The tree is found as
+  --- `test` finds it
   build: string
   --- `cosmic db [path...]`: what the three databases under o/ hold,
   --- table by table -- rows, pages, bytes -- how the last few builds
@@ -91,7 +98,7 @@ local record Cli
   --- one under a path -- counted per table (coverage counting every run
   --- kept, not only the latest), and the slowest of those tests. Pages,
   --- bytes and builds are not per source, so a narrowed report leaves
-  --- them out
+  --- them out. The tree is found as `test` finds it
   db: string
   --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
@@ -361,10 +368,12 @@ local record Cli
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
   --- or words to search the documentation for; a module lists the
   --- signature of each function it offers, ahead of the rest of its
-  --- prose; with no q, every module there is, with what it is for
+  --- prose; with no q, every module there is, with what it is for. The
+  --- tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
-  --- symbol, as file:line -- only those under the paths, when given
+  --- symbol, as file:line -- only those under the paths, when given. The
+  --- tree is found as `test` finds it
   uses: string
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
@@ -373,7 +382,7 @@ local record Cli
   --- only a file that moved is blamed again. An argument that names a path narrows it to that
   --- path; the rest are words to search the TODOs' text for, best match
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
-  --- parse as that
+  --- parse as that. The tree is found as `test` finds it
   todos: string
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores

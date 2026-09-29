@@ -5,10 +5,9 @@
 --- pipeline: pattern compiled, tree matched, replacement spliced,
 --- result rendered, and the render checked against its tree.
 ---
---- The fixtures are deliberately mangled around the part a rule
---- touches. A pipeline that spliced and returned would give the mangled
---- spacing straight back; only one that renders produces the text these
---- cases expect.
+--- The fixtures are mangled around the part a rule touches. A pipeline
+--- that spliced and returned would give the mangled spacing back; only
+--- one that renders produces the text these cases expect.
 
 local fix = require("build.fix")
 local rule = require("build.fix.rule")
@@ -23,8 +22,8 @@ end
 
 --- Run `body` with `probe` as the one registered rule, and put the list
 --- back the way it was found afterwards, however `body` ends. The list
---- is module state shared with every other test in this run; preserve
---- its identity and any production rules already registered.
+--- is module state shared with every other test in this run, so its
+--- identity and any production rules already registered are kept.
 --- @param probe Rule
 --- @param body function(): (any...)
 local function with_rule(probe: Rule, body: function(): (any...))
@@ -98,9 +97,9 @@ end
 --- contains the one it names, or that name used as something other than
 --- a call.
 ---
---- What replaces the hit is the replacement's own shape, not the
---- match's: the template is written on one line, so the call comes back
---- on one. A rule that wants otherwise writes its template that way.
+--- What replaces the hit has the replacement's shape, not the match's:
+--- the template is on one line, so the call comes back on one. A rule
+--- that wants otherwise writes its template that way.
 local function test_the_match_is_structural_and_not_textual()
   local got = fixed("print(\n  a\n)\nsprint(b)\nprint = 1\n")
   assert(got == "log(a)\nsprint(b)\nprint = 1\n", "got:\n" .. got)
@@ -118,11 +117,11 @@ local function test_a_rule_that_will_not_compile_is_named()
 end
 
 --- A hit whose replacement would swallow a comment is left unmodified,
---- comment and all, which is `build.ast.rewrite`'s own refusal reaching
---- through this stage. `rule.apply` reads only the spliced code and
---- does not pass the refusal list on, so the file's other hits are
---- rewritten around it and nothing is said -- what matters, and what
---- this pins, is that the comment is still there afterwards.
+--- comment and all: `build.ast.rewrite`'s refusal reaching through
+--- this stage. `rule.apply` reads only the spliced code and does not
+--- pass the refusal list on (see the TODO there), so the file's other
+--- hits are rewritten around it and nothing is said. This pins that
+--- the comment is still there afterwards.
 local function test_a_hit_that_would_eat_a_comment_is_left_alone()
   local got = fixed("print( -- why\n  a)\nprint(b)\n")
   assert(got == "print( -- why\n  a)\nlog(b)\n", "got:\n" .. got)
