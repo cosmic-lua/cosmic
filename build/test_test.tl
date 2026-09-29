@@ -33,6 +33,18 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
 end
 
+--- The census says a key's harness parts as one word, which a report
+--- compares whole (ci/cosmic_ci/report.tl) and reads as the rest of a
+--- part, up to a space: two bumps of the epoch from one count say
+--- a moved harness, as another timeout does.
+local function test_the_census_says_each_bump_of_the_epoch_apart()
+  local word = test.harness_word("8-072f7458", 30000)
+  assert(word == "e8-072f7458-t30000", word)
+  assert(word:match("^%S+$") and not word:find("[,;]"), word)
+  assert(test.harness_word("8-3f9c2a1b", 30000) ~= word, "two bumps from one count")
+  assert(test.harness_word("8-072f7458", 60000) ~= word, "another timeout")
+end
+
 local function test_a_selector_is_printed_as_one_shell_word()
   assert(test.shell_word("build/test_test.tl:test_x") == "build/test_test.tl:test_x")
   assert(test.shell_word("a b/c_test.tl:t") == "'a b/c_test.tl:t'")

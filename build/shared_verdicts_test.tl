@@ -59,8 +59,8 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(db:close())
   cache = assert(shared_verdicts.open(path))
   assert(shared_verdicts.declared(cache, "old") ~= nil, "the earlier row went")
-  local now = shared_verdicts.named({ { "runtime", "r1" }, { "harness", "e1t60000" } })
-  assert(now == "runtime r1, harness e1t60000", now)
+  local now = shared_verdicts.named({ { "runtime", "r1" }, { "harness", "e1-00000000-t60000" } })
+  assert(now == "runtime r1, harness e1-00000000-t60000", now)
   local kept: {shared_verdicts.Kept} = {}
   for i = 1, 2 do
     kept[i] = { key = "k" .. i, test = "b_test.tl test_" .. i, hits = "", elapsed_ns = 1 }
@@ -68,13 +68,13 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(shared_verdicts.settle(cache, "first", { parts = now, kept = kept, used = {},
     failed = {} }, Time.now_ns()))
   assert(shared_verdicts.census_line((assert(shared_verdicts.held(cache)))) ==
-    "test: census: 2 rows under runtime r1, harness e1t60000; 1 row under no parts named")
+    "test: census: 2 rows under runtime r1, harness e1-00000000-t60000; 1 row under no parts named")
   -- Stood on, the earlier row is stamped; a named one keeps its parts.
-  assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2t60000",
+  assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2-00000000-t60000",
     kept = {}, used = { "old", "k1" }, failed = {} }, Time.now_ns()))
   local held = assert(shared_verdicts.held(cache))
   assert(#held == 2 and held[1].rows == 2 and held[1].parts == now, held[1].parts)
-  assert(held[2].rows == 1 and held[2].parts == "runtime r2, harness e2t60000", held[2].parts)
+  assert(held[2].rows == 1 and held[2].parts == "runtime r2, harness e2-00000000-t60000", held[2].parts)
   shared_verdicts.close(cache)
 end
 
