@@ -19,7 +19,10 @@
 --- (`is_call_statement`) removes the whole line range, not just the
 --- node's byte span, so deleting `test_a()` leaves no blank line.
 --- `dropped_comments` checks that wider range, so a trailing comment
---- on the same line still refuses the hit.
+--- on the same line still refuses the hit. A call nested in a larger
+--- statement is an expression: an empty replacement removes only its
+--- bytes, as any other template replaces only the hit's span, and the
+--- caller's reparse says whether what is left is still a program.
 local type compiler = require("build.compiler")
 local node_mod = require("build.ast.node")
 local ast_walk = require("build.ast.walk")
@@ -234,18 +237,35 @@ local function dropped_comments(tokens: {compiler.Token}, starts: {integer},
   return dropped
 end
 
---- Is `node` a call, `f(...)` or `t:m(...)`? Calls are "op" nodes with
---- operator "@funcall" or "@method". A statement has no node kind of
---- its own, and this does not check that `node` stands alone in a
---- "statements" list.
+--- Every direct child of a "statements" node in `root`'s tree: the
+--- nodes that stand alone as statements. A statement has no node kind
+--- of its own, so the block holding it is what says so.
+--- @param root Node
+--- @return {Node: boolean}
+local function statements_of(root: Node): {Node: boolean}
+  local out: {Node: boolean} = {}
+  ast_walk.walk(root, function(n: Node)
+    if n.kind == "statements" then
+      for _, child in ipairs(ast_walk.children(n)) do
+        out[child] = true
+      end
+    end
+  end)
+  return out
+end
+
+--- Is `node` a call, `f(...)` or `t:m(...)`, standing alone as a
+--- statement? Calls are "op" nodes with operator "@funcall" or
+--- "@method". A call inside a larger statement (`local x = f(1)`,
+--- `return f(1)`) is an expression, and removing its line would remove
+--- the rest of the statement too.
 --- @param node Node
+--- @param statements {Node: boolean} `statements_of`'s result for the same tree
 --- @return boolean
--- TODO: require that `node` is a statement. As it is, `rewrite` with a
--- replacement of `""` removes the whole line of a call nested in a
--- larger statement: `f($X)` over `local x = f(1)` deletes that line.
-local function is_call_statement(node: Node): boolean
+local function is_call_statement(node: Node, statements: {Node: boolean}): boolean
   local op = node.op
-  return node.kind == "op" and op ~= nil and (op.op == "@funcall" or op.op == "@method")
+  return statements[node] == true and node.kind == "op" and op ~= nil
+    and (op.op == "@funcall" or op.op == "@method")
 end
 
 --- The byte range `[a, b]` (inclusive) of every whole line `node`'s
@@ -299,13 +319,14 @@ local function rewrite(built: compiler, source: string, name: string, pattern: N
     hits = kept
   end
   local starts = line_starts(source)
+  local statements = statements_of(parsed.node)
   local out = source
   local refused: {Refusal} = {}
   local edits: {Hit} = {}
   for i = #hits, 1, -1 do
     local h = hits[i]
     local a, b: integer, integer
-    if desugared == "" and is_call_statement(h.node) then
+    if desugared == "" and is_call_statement(h.node, statements) then
       a, b = line_range(h.node, parsed.tokens, starts, #source)
     else
       a, b = byte_span(h.node, parsed.tokens, starts)
