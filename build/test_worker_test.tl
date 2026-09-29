@@ -21,7 +21,7 @@ local function test_a_report_carries_what_its_worker_loaded()
   local back = assert(worker.decode(worker.encode(passing({ "build.a", "cosmic.fs", "string" }))))
   assert(#back.modules == 3 and back.modules[1] == "build.a" and back.modules[3] == "string")
   -- A report of another shape, an older worker's, is none.
-  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-2", "cosmic-test-report-1")
+  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-3", "cosmic-test-report-2")
   assert(worker.decode(older) == nil)
 end
 
@@ -112,4 +112,27 @@ local function test_a_worker_is_started_as_its_command_line_says()
       "--store /stores/a.db suite.a_test --tree --declared"
     assert(said == wanted, said)
   end
+end
+
+--- A test that said it could not check what it exists to check
+--- (`Test.skip`) reports why, and is judged skipped where it passed:
+--- only a pass is, since a failure is one whether it skipped or not.
+local function test_a_skip_is_reported_and_judged_only_of_a_pass()
+  local report = passing({})
+  report.skipped = "no Landlock: ENOSYS; no pledge"
+  local back = assert(worker.decode(worker.encode(report)))
+  assert(back.skipped == "no Landlock: ENOSYS; no pledge", back.skipped)
+  assert(assert(worker.decode(worker.encode(passing({})))).skipped == "")
+  local skipped = worker.judge({ result = ended(report), trouble = "", timeout_ms = 1000,
+    sandboxed = false })
+  assert(skipped.passed and skipped.skipped == "no Landlock: ENOSYS; no pledge", skipped.skipped)
+  report.passed, report.message = false, "asserted"
+  local failed = worker.judge({ result = ended(report), trouble = "", timeout_ms = 1000,
+    sandboxed = false })
+  assert(not failed.passed and failed.skipped == "", failed.skipped)
+  -- A pass whose processes outlived it fails, skip or not.
+  report.passed = true
+  local outlived = worker.judge({ result = ended(report), trouble = "a process outlived it",
+    timeout_ms = 1000, sandboxed = false })
+  assert(not outlived.passed and outlived.skipped == "")
 end

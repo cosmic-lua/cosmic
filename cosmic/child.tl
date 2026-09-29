@@ -195,6 +195,7 @@ local record Handle
   --- the open guard has caught a signal, a read or a write fails with
   --- "cancelled by signal N", as a wait does.
   stdout_stream: Stream.Reader | nil
+  --- See `stdout_stream`.
   stderr_stream: Stream.Reader | nil
   --- A Writer to stdin, when it was "stream"; its `close` (or `abort`)
   --- closes the child's stdin. A write fails once the child has closed
@@ -1268,6 +1269,10 @@ end
 --- a timeout is `done == nil and trouble == ""`, so test `done` itself.
 --- `assert` on this answer raises at a timeout, with an empty message.
 function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, string
+  -- TODO: carry a settled group's lingering members on Child.Result, a
+  -- field beside the exit status, and answer the handle with "" here:
+  -- build/test.tl reads the trouble beside the handle's result today, and
+  -- build.contracts exempts this pair from the error-slot rules until then.
   if #handles == 0 then error("no handles to wait for", 2) end
   if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end
   local deadline = timeout_ms ~= nil and now() + timeout_ms * 1000000 or nil

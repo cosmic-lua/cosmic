@@ -527,17 +527,11 @@ end
 --- are in every verdict's key, so no fixture stands on a verdict another
 --- product reached (orchestration_test.tl holds each to it).
 ---
--- TODO: once ci/cosmic-driver.pin names a release carrying #2364's
--- system-path walk and #2403's tree key part, these fixtures' verdicts
--- hold what they do not yet: each declares `system`, which the pinned
--- driver keys only by the host's package database, os-release,
--- COSMIC_SYSTEM_ID and COSMIC_HOST_ID -- not by what the system's paths
--- hold, so a /bin/sh or uname changed under the same packages and image
--- moves no fixture's key -- and the macOS leg's workers, which no
--- sandbox holds (COSMIC_TEST_KEY=declared), are keyed by no place of the
--- fixture project, so a verdict that turned on its path would stand in a
--- project elsewhere. Then the system paths are keyed by what they hold,
--- and an unenforced worker's verdict by the project's path.
+--- A fixture that declares `system` is keyed by what the system's
+--- paths hold, a /bin/sh or uname changed under the same packages
+--- moving its key; and on the macOS leg, whose workers no sandbox holds
+--- (COSMIC_TEST_KEY=declared), by the fixture project's path, so a
+--- verdict that turned on that path stands in no project elsewhere.
 ---
 --- The rest run unsandboxed, as before, and share nothing: `format`,
 --- `self_rebuild`, `fixed_point` and `self_driven` write a checkout and

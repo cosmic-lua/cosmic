@@ -142,6 +142,29 @@ local function comment_body(c: compiler.Comment): string
   return c.text:match("^%-%-%-?%s?(.*)$") or c.text
 end
 
+--- Whether a comment is a `---` doc comment.
+local function is_doc(c: compiler.Comment): boolean
+  return c.text:sub(1, 3) == "---"
+end
+
+--- The body of each comment in `run` (a run of consecutive lines) that
+--- is documentation: the `---` lines when the run has any, so a `--`
+--- note beside them (a `TODO:`) stays out of the doc text, and every
+--- line of a run of `--` alone, which documents a script or a module.
+local function doc_bodies(run: {compiler.Comment}): {string}
+  local any = false
+  for _, c in ipairs(run) do
+    if is_doc(c) then any = true end
+  end
+  local parts: {string} = {}
+  for _, c in ipairs(run) do
+    if is_doc(c) or not any then
+      parts[#parts + 1] = comment_body(c)
+    end
+  end
+  return parts
+end
+
 --- Whether a comment trails code on its own line (`s: string -- why`)
 --- rather than standing on lines of its own. A trailing comment is a note
 --- on what it follows, never the documentation of the declaration below:
@@ -180,11 +203,11 @@ local function doc_before(lines: {string}, all: {compiler.Comment}, line: intege
   while first > 1 and comments[first - 1].y == comments[first].y - 1 do
     first = first - 1
   end
-  local parts: {string} = {}
+  local run: {compiler.Comment} = {}
   for index = first, #comments do
-    parts[#parts + 1] = comment_body(comments[index])
+    run[#run + 1] = comments[index]
   end
-  return table.concat(parts, "\n")
+  return table.concat(doc_bodies(run), "\n")
 end
 
 --- Whether a statement is a function declaration, whose own doc comment
@@ -225,11 +248,11 @@ local function module_doc(parsed: ast.Parsed): string, integer
      and comments[last].y == first_stmt.y - 1 then
     return "", 1
   end
-  local parts: {string} = {}
+  local run: {compiler.Comment} = {}
   for index = 1, last do
-    parts[#parts + 1] = comment_body(comments[index])
+    run[#run + 1] = comments[index]
   end
-  return table.concat(parts, "\n"), comments[1].y
+  return table.concat(doc_bodies(run), "\n"), comments[1].y
 end
 
 --- `source` split into its lines, once per analysis.
@@ -713,7 +736,8 @@ end
 --- `surface_of`), and every `local` record, enum, interface or type
 --- an exported row's signature names, again for each one that joins,
 --- since a caller meets those names in the signatures it reads. A
---- `local` type no exported signature reaches stays private.
+--- `local` type no exported signature reaches stays private; a member
+--- named `_x` is no caller's to read, so its signature reaches nothing.
 local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: string,
                                     export: string)
   local function under(entry: analyzer.DocEntry, root: string): boolean
@@ -732,7 +756,11 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
   while joined do
     joined = false
     for _, reader in ipairs(entries) do
-      if reader.exported and not searched[reader] and reader.signature ~= "" then
+      -- A member named `_x` is hidden from callers, so what its
+      -- signature names is not reached through it.
+      local hidden = reader.source_symbol:find("[.:]_[^.:]*$") ~= nil
+        or reader.source_symbol:sub(1, 1) == "_"
+      if reader.exported and not hidden and not searched[reader] and reader.signature ~= "" then
         searched[reader] = true
         local words = " " .. reader.signature .. " "
         for _, entry in ipairs(entries) do

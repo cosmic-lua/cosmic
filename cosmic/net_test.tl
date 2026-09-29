@@ -347,3 +347,58 @@ local function test_reclaim_leaves_a_full_live_listener_alone(tmp: string)
   assert(Fs.stat(path) ~= nil, "the live listener's file was taken")
   for _, conn in ipairs(held) do assert(conn:close()) end
 end
+
+local DEEP_PART <const> = string.rep("d", 200)
+local DEEP_LEVELS <const> = 24
+
+--- A directory under `tmp` whose whole path is past any platform's
+--- PATH_MAX, made and entered one component at a time, since no call
+--- can name it whole.
+local function enter_deep(tmp: string)
+  assert(sys.chdir(tmp))
+  for _ = 1, DEEP_LEVELS do
+    local made, why, errno = sys.mkdir(DEEP_PART)
+    assert(made or errno == sys.EEXIST, why)
+    assert(sys.chdir(DEEP_PART))
+  end
+end
+
+--- Removes what `enter_deep` made, deepest first, which the harness
+--- could not: its own removal names each path whole.
+local function remove_deep(tmp: string)
+  enter_deep(tmp)
+  sys.unlink("s.sock")
+  for _ = 1, DEEP_LEVELS do
+    assert(sys.chdir(".."))
+    assert(sys.rmdir(DEEP_PART))
+  end
+end
+
+--- A relative name listened at from a working directory past PATH_MAX
+--- needs no whole path: the listener serves there, and close removes
+--- its file from wherever the process has moved to.
+local function test_a_listener_past_path_max_serves_and_removes_its_file(tmp: string)
+  local was = assert(sys.getcwd())
+  local ok, failure: boolean, any = pcall(function()
+    enter_deep(tmp)
+    local server, trouble = Net.listen(Net.unix("s.sock"), { timeout_ms = 5000 })
+    local client, connect_trouble = Net.connect(Net.unix("s.sock"), { timeout_ms = 5000 })
+    assert(sys.chdir(was))
+    assert(server ~= nil, trouble)
+    assert(client ~= nil, connect_trouble)
+    local accepted = assert(server:accept())
+    assert(client:write("deep"))
+    assert(assert(accepted:read()) == "deep")
+    assert(accepted:close())
+    assert(client:close())
+    assert(server:close())
+    enter_deep(tmp)
+    local left = sys.lstat("s.sock")
+    assert(sys.chdir(was))
+    assert(left == nil, "the socket file was left")
+  end)
+  local removed, trouble: boolean, any = pcall(remove_deep, tmp)
+  assert(sys.chdir(was))
+  assert(ok, tostring(failure))
+  assert(removed, tostring(trouble))
+end

@@ -57,6 +57,9 @@ local record worker
     --- its test has run, sorted: what it ran, which `judge` holds to
     --- what a key holds of it (`loads`).
     modules: {string}
+    --- Why its test is skipped (`Test.skip`): each reason it was given,
+    --- once, joined by "; "; "" or nil where it called none.
+    skipped: string
   end
 
   --- How a sandboxed worker is held by a Landlock ruleset
@@ -141,11 +144,14 @@ local record worker
   end
 
   --- A finished worker's verdict: its report, nil where there is none,
-  --- and whether its test passed, with what to say of it.
+  --- and whether its test passed, with what to say of it; and, of one
+  --- that passed, why it is skipped instead (`Report.skipped`), "" for
+  --- a pass.
   record Judgement
     report: Report
     passed: boolean
     message: string
+    skipped: string
   end
 
   --- The descriptor the report is written to.
@@ -156,7 +162,7 @@ end
 
 worker.report_fd = 3
 
-local HEADER <const> = "cosmic-test-report-2"
+local HEADER <const> = "cosmic-test-report-3"
 
 --- The modules of the tree a worker loads besides its test's import
 --- closure, which is the code a worker runs of the tree but its test's:
@@ -294,6 +300,9 @@ function worker.encode(report: worker.Report): string
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
   for _, name in ipairs(report.modules or {}) do lines[#lines + 1] = "module " .. hex(name) end
+  if report.skipped ~= nil and report.skipped ~= "" then
+    lines[#lines + 1] = "skipped " .. hex(report.skipped)
+  end
   lines[#lines + 1] = "end"
   return table.concat(lines, "\n") .. "\n"
 end
@@ -304,7 +313,7 @@ function worker.decode(text: string): worker.Report | nil, string
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
     load_reads = {}, test_reads = {}, refusals = {}, load_hits = {}, test_hits = {},
-    modules = {},
+    modules = {}, skipped = "",
   }
   local first = true
   local finished = false
@@ -349,6 +358,10 @@ function worker.decode(text: string): worker.Report | nil, string
         local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed module: " .. line end
         report.modules[#report.modules + 1] = decoded
+      elseif tag == "skipped" then
+        local decoded = unhex(rest)
+        if decoded == nil or decoded == "" then return nil, "a malformed skip: " .. line end
+        report.skipped = decoded
       else
         return nil, "an unknown line: " .. line
       end
@@ -667,19 +680,19 @@ end
 function worker.judge(judging: worker.Judging): worker.Judgement
   local result = judging.result
   if result == nil and judging.refused then
-    return { passed = false, message = judging.trouble }
+    return { passed = false, message = judging.trouble, skipped = "" }
   elseif result == nil then
-    return { passed = false,
+    return { passed = false, skipped = "",
       message = "the test process could not be supervised: " .. judging.trouble }
   end
   if result.timed_out then
-    return { passed = false, message = "timed out after " ..
+    return { passed = false, skipped = "", message = "timed out after " ..
       tostring(judging.timeout_ms // 1000) .. " s; " ..
       (judging.sandboxed and "its pid namespace" or "its process group") .. " was ended" }
   end
   local report, decode_trouble = worker.decode(result.captured[worker.report_fd])
   if report == nil then
-    return { passed = false, message = "the test process " .. ending(result) ..
+    return { passed = false, skipped = "", message = "the test process " .. ending(result) ..
       " before it reported (" .. decode_trouble .. ")" }
   end
   local judgement: worker.Judgement = { report = report, passed = report.passed,
@@ -699,6 +712,8 @@ function worker.judge(judging: worker.Judging): worker.Judgement
     -- The test passed, but what it started outlived it.
     judgement.passed, judgement.message = false, judging.trouble
   end
+  -- Only a pass is skipped instead: a failure is one, skip or not.
+  judgement.skipped = judgement.passed and report.skipped or ""
   return judgement
 end
 
@@ -826,7 +841,7 @@ function worker.run(argv: {integer:string}): integer
   observations.exclude_held_files()
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
-    load_reads = {}, test_reads = {},
+    load_reads = {}, test_reads = {}, skipped = "",
   }
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
@@ -851,7 +866,18 @@ function worker.run(argv: {integer:string}): integer
   -- hook `cosmic.test` leaves for a runner; once it has loaded, a call
   -- is refused.
   local handed: Test.Needs = nil
-  local runner = { loaded = false, handed = function(needs: Test.Needs) handed = needs end }
+  -- Each reason the test gives `Test.skip`, once, in order.
+  local reasons: {string} = {}
+  local runner = {
+    loaded = false,
+    handed = function(needs: Test.Needs) handed = needs end,
+    skipped = function(reason: string)
+      for _, given in ipairs(reasons) do
+        if given == reason then return end
+      end
+      reasons[#reasons + 1] = reason
+    end,
+  }
   install(Test, runner)
   -- The hold on `require` is up for the module's load and its test
   -- alone, not for the worker's own work around them; the store's is
@@ -910,6 +936,7 @@ function worker.run(argv: {integer:string}): integer
         report.test_hits = hits
       end
       report.passed, report.message = run.passed, run.message
+      report.skipped = table.concat(reasons, "; ")
       report.test_reads = run.reads
       report.elapsed_ns = finished - started
     end
