@@ -125,6 +125,19 @@ takes 178 to 345 s and its fixtures 95 to 163 s; macOS's fixtures take
 170 to 266 s. 4.5's item 3 and the fixture items move it; more tests
 standing does not.
 
+Decided (2026-09-29):
+
+- Shrink what every worker loads, so the harness set holds only the
+  code that judges a test and makes its key, not the standard library
+  (2.7). The queue's `--all` on any change to `build/harness_epoch.tl`
+  stays.
+- A closure store carries only the declarations its closure needs
+  (2.8).
+- M1's 90% stays; the way there is fewer `tool` and `store` tests
+  (2.4's work continued, and 3.0b), not a softer target.
+- The gate's time comes next in 4.5: the checked suite in its own job,
+  then the fixtures (items 3 to 5), ahead of merge-base restores.
+
 (The first measurement follows.)
 
 A first measurement (2026-09-28): only 1 of 5 gating runs after #2291
@@ -245,6 +258,31 @@ old target of about 355 was already met. The new target is at most
 - Then take M1 over the next ten ordinary merges. Without `gh` in this
   container, the run data comes through the GitHub API tools.
 - Shows: M1's four numbers, recorded above.
+
+### 2.7 Every worker loads less
+
+The harness set (`build/harness_epoch.tl`, 44 modules) is what every
+worker loads, `harness_own` and the key's own code. It includes most
+of the standard library (`cosmic.time`, `codec`, `hash`, `stream`,
+`fs`, `string`, `sqlite`, `store`), so an ordinary edit to one sends
+the merge queue to `--all` (M1's second measurement: 6 of 13 runs).
+
+- Change: census what `worker.loads` pulls in and why; load the
+  judging and keying code without the modules a test imports for
+  itself, which its own key already holds.
+- Shows: the harness set's size, and the share of gating runs that go
+  `--all`, both lower.
+
+### 2.8 A closure store carries only its closure's declarations
+
+Every closure store carries every `*.d.tl` whole
+(`build/closure_store.tl`), and a test's key holds its store's
+address, so an edit to any declaration reruns every test (#2327:
+2216 of 2216).
+
+- Change: a store carries the declarations its closure reads.
+- Shows: an edit to `cosmic/internal/store.d.tl` reruns only the tests
+  whose closure holds `cosmic.store`.
 
 ### Milestone M2
 
@@ -593,7 +631,10 @@ Items, in order:
    - Shows: main runs under 2 min with none cancelled; runner-minutes
      per landed change from about 65 to about 38; the queue's suites
      stand more (its restores one commit behind).
-3. **The checked suite in its own gating job (M), if still needed.**
+3. **The checked suite in its own gating job (M): next.** M1's second
+   measurement: linux-x86_64 is the gate in 9 of 13 runs, its checked
+   suite 178 to 345 s. Standing more does not shorten it much (the
+   tests left to run are the slow ones).
    Re-measure after item 2. If linux-x86_64 still runs more than a
    minute over the other legs, the checked suite moves to a job of its
    own (a native-suite skip on the build, then `platform checked`).
