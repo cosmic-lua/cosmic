@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, json, codec, docs, uses, todos, bom, refresh, help, run, standalone, eval,
+--- fix, db, sql, json, codec, archive, docs, uses, todos, bom, refresh, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does, ahead of the module of the same name (and
 --- the other symbols) when there is one. This is not an argument parser for a
@@ -168,6 +168,34 @@ local record Cli
   --- file that is missing or not JSON. It prints no verdict line, which
   --- would be in the data a pipe reads
   json: string
+  --- `cosmic archive list|extract|create`: the zip and tar files a
+  --- release ships, with no script. `list <file>|-` prints one entry
+  --- per line -- path (a symlink's `path -> target`), size, mode in
+  --- octal, and type, tab-separated, control bytes escaped -- or, with
+  --- `--json`, an array of objects (path, type, size, mode as the same
+  --- octal string, mtime and a symlink's linkpath) for `cosmic json`.
+  --- `extract <file>|- [-C dir] [member...]` unpacks into dir (the
+  --- working directory by default) and prints the paths written; a
+  --- member is a path in the archive and takes what is under it. The
+  --- format -- zip, tar, or tar under gzip, xz or bzip2 -- is read from
+  --- the file's first bytes, not its name. An absolute path, a `..`,
+  --- or a symlink out of the target is refused (`Archive.extract`), and
+  --- so is replacing an existing path unless `--force` is given. Only
+  --- that refusal and a member not in the archive write nothing: an
+  --- unsafe entry stops the extraction after the entries before it,
+  --- which stay written. `create <out> <path>...` packs the paths and what is under
+  --- them, sorted by name, as a zip or a gzip tar, by the extension of
+  --- out (`.zip`, `.tar.gz`, `.tgz`); `--reproducible` fixes every
+  --- modification time (tar 0, zip 1980) so the same tree packs to the
+  --- same bytes; file modes are kept, not normalised. `.tar.xz` and `.tar.bz2` are refused: there is no
+  --- encoder for either. Paths must be relative and stay under the
+  --- working directory; a symlink cannot go in a zip, and a fifo,
+  --- socket or device is refused, named, wherever it is found. Prints no verdict
+  --- line, its output being data for a pipe. Exits 0 when done, 1 for a
+  --- member or a path that is not there or files it would overwrite, 2
+  --- for a command line, an archive it cannot read or one it refuses
+  --- to unpack. See also `cosmic json`
+  archive: string
   --- `cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [file|-]`:
   --- bytes to text and back, for a token or a checksum, with no script
   --- to write. It reads the file, or standard input when the file is `-`
@@ -250,7 +278,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", json = "json", codec = "codec", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", sql = "sql", json = "json", codec = "codec", archive = "archive", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", help = "help",
   },
   options = {
@@ -296,6 +324,12 @@ local module: Module = {
       ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
       ["--shape"] = { about = "print the value's shape (Json.describe), not the value" },
     },
+    archive = {
+      ["--json"] = { about = "list: print an array of objects, not lines" },
+      ["-C"] = { value = "dir", about = "extract: unpack into dir (default: the working directory)" },
+      ["--force"] = { about = "extract: replace existing files" },
+      ["--reproducible"] = { about = "create: fix every modification time, so the same tree packs alike" },
+    },
     codec = {
       ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
       ["--decode"] = { about = "decode text to bytes, ignoring whitespace" },
@@ -316,7 +350,7 @@ local module: Module = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "json", "codec", "archive", "docs", "uses", "todos",
     "bom", "refresh", "help" },
 }
 
