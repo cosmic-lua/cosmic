@@ -398,7 +398,7 @@ local dropped_modules <const> =
 --- module is a nested type -- `sqlite.Handle` -- or a member of one
 --- (`Handle.exec`) that a public declaration reaches: an alias
 --- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
---- raw_http.Options`), whose page lists them. `symbols.public_docs`
+--- raw_http.Options`), whose page lists them. `symbols.shown_docs`
 --- still hides these rows from every public query; only that page's
 --- resolution (`build.docs`) reads them.
 local carried_internal_types =

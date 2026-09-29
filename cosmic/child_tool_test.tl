@@ -613,8 +613,10 @@ local function test_try_wait_services_a_chatty_child()
 end
 
 local function test_timeout_keeps_what_was_captured()
+  -- The timeout must outlast the child's start and its write, which take
+  -- over 200 ms on the sanitized core under a full suite's load.
   local r = assert(Child.run(lua(FS .. 'Fs.put(1, "partial") ' .. sleep(30000), nil,
-    { stdout = "capture", timeout_ms = 200 })))
+    { stdout = "capture", timeout_ms = 5000 })))
   assert(r.timed_out and not r.ok and r.stdout == "partial")
 end
 

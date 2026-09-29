@@ -64,6 +64,18 @@ function symbols.guide_module(column: string): string
   return column .. " IN (" .. table.concat(names, ", ") .. ")"
 end
 
+--- `public_only`, and the user guides too: what a public source's
+--- docs rows may hold. Only a guide's own row is carried (its prose),
+--- not the helpers its generated test module declares, so this is a
+--- condition on `docs` rows alone.
+local function public_docs(column: string, public: boolean): string
+  if not public then
+    return "1"
+  end
+  return "(" .. symbols.public_only(column, true) .. " OR " ..
+    symbols.guide_module(column) .. ")"
+end
+
 --- The condition under which `alias` (a row of `docs`) is a `local`
 --- declaration the module never hands out: not the module's surface.
 function symbols.local_declaration(alias: string): string
@@ -71,18 +83,17 @@ function symbols.local_declaration(alias: string): string
 end
 
 --- The rows of `docs`, under the alias `alias`, that a source shows: as
---- `public_only` and the user guides, and in a public source, no symbol the module keeps to
---- itself: a `local` declaration (a record, enum, type or function) and
+--- `public_docs` (the standard library and the user guides), and in a
+--- public source, no symbol the module keeps to itself: a `local` declaration (a record, enum, type or function) and
 --- what is declared under it, and a field or function whose name starts
 --- with `_`. A metamethod (`__call`) is part of a record's surface, so it
 --- stays. Every other source shows them, since it is a reader's own
 --- tree or cosmic's.
-function symbols.public_docs(alias: string, public: boolean): string
+function symbols.shown_docs(alias: string, public: boolean): string
   if not public then
     return "1"
   end
-  local module = "(" .. symbols.public_only(alias .. ".module", true) .. " OR " ..
-    symbols.guide_module(alias .. ".module") .. ")"
+  local module = public_docs(alias .. ".module", true)
   local symbol = alias .. ".symbol"
   local dotted = "replace(" .. symbol .. ", ':', '.')"
   -- The declaration is found by where it is written, `source_symbol`: a
@@ -160,7 +171,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
     local rows, _ = Sqlite.text_rows(db,
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
       symbols.named_where("d") .. " AND " ..
-      symbols.public_docs("d", public[index] == true) ..
+      public_docs("d.module", public[index] == true) ..
       " ORDER BY module, symbol",
       { { text = query } })
     if rows ~= nil then

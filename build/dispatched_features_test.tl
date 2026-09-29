@@ -96,41 +96,75 @@ local SITES <const>: {string:Site} = {
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
 
---- The lines of `text` that hold a needle or match a pattern, and the
---- `AFTER` lines after each, in order, each once.
-local function asking(text: string): {string}
-  -- Most files hold none: seen whole first, not split into lines.
-  local any = text:lower():find("hwcap", 1, true) ~= nil
+--- Whether `line` holds a needle or matches a pattern.
+local function asks(line: string): boolean
+  if line:lower():find("hwcap", 1, true) ~= nil then return true end
   for _, needle in ipairs(NEEDLES) do
-    if any then break end
-    any = text:find(needle, 1, true) ~= nil
+    if line:find(needle, 1, true) ~= nil then return true end
   end
   for _, pattern in ipairs(PATTERNS) do
-    if any then break end
-    any = text:find(pattern) ~= nil
+    if line:find(pattern) ~= nil then return true end
   end
-  if not any then return {} end
-  local lines: {string} = {}
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
-  local kept: {integer:boolean} = {}
-  for i, line in ipairs(lines) do
-    local hit = line:lower():find("hwcap", 1, true) ~= nil
-    for _, needle in ipairs(NEEDLES) do
-      if hit then break end
-      hit = line:find(needle, 1, true) ~= nil
-    end
-    for _, pattern in ipairs(PATTERNS) do
-      if hit then break end
-      hit = line:find(pattern) ~= nil
-    end
-    if hit then
-      for j = i, math.min(i + AFTER, #lines) do kept[j] = true end
+  return false
+end
+
+--- The lines of `text` that hold a needle or match a pattern (`asks`),
+--- and the `AFTER` lines after each, in order, each once. The text is
+--- searched whole and only the lines around each find are cut out of
+--- it. A test runs under the coverage line hook, and taking every file
+--- a line at a time (SQLite's amalgamation alone is 260,000 lines)
+--- took 3 s on the release core and 24 s on the checked core idle, 38 s
+--- on a loaded 4-core host, past the runner's 30; this takes about 1 s
+--- on either.
+local function asking(text: string): {string}
+  local body = text .. "\n"
+  -- Where each find starts: a line that holds one holds it there. A
+  -- pattern's match may run on past its line's end, so the line each
+  -- find is on is held to `asks` below.
+  local starts: {integer} = {}
+  local function every(within: string, sought: string, plain: boolean)
+    local from = 1
+    while true do
+      local at = within:find(sought, from, plain)
+      if at == nil then return end
+      starts[#starts + 1] = at
+      from = at + 1
     end
   end
+  every(text:lower(), "hwcap", true)
+  for _, needle in ipairs(NEEDLES) do every(text, needle, true) end
+  for _, pattern in ipairs(PATTERNS) do every(text, pattern, false) end
+  if #starts == 0 then return {} end
+  table.sort(starts)
+  -- Each find's line, by number, and where it starts, found from the
+  -- end back (`reversed`); the lines between two finds are counted, not
+  -- walked.
+  local reversed = body:reverse()
+  local kept: {integer:string} = {}
+  local number, counted, held = 1, 1, 0
+  for _, at in ipairs(starts) do
+    local before = reversed:find("\n", #body - at + 2, true)
+    local start = before == nil and 1 or #body - before + 2
+    if start > counted then
+      local _, lines = body:sub(counted, start - 1):gsub("\n", "")
+      number, counted = number + lines, start
+    end
+    local stop = assert(body:find("\n", start, true))
+    if number ~= held and asks(body:sub(start, stop - 1)) then
+      held = number
+      for j = number, number + AFTER do
+        if start > #body then break end
+        stop = assert(body:find("\n", start, true))
+        kept[j] = body:sub(start, stop - 1)
+        start = stop + 1
+      end
+    end
+  end
+  local numbers: {integer} = {}
+  for j in pairs(kept) do numbers[#numbers + 1] = j end
+  table.sort(numbers)
   local found: {string} = {}
-  for i, line in ipairs(lines) do
-    if kept[i] then found[#found + 1] = line end
-  end
+  for i, j in ipairs(numbers) do found[i] = kept[j] end
   return found
 end
 
@@ -149,6 +183,46 @@ local function sites(): {string:{string}}
   end
   scan("build.zig")
   return found
+end
+
+--- `asking` finds the lines taking the text a line at a time would:
+--- each line `asks` holds and the `AFTER` after it, each once, in order.
+local function test_asking_keeps_what_a_line_at_a_time_would()
+  local function by_line(text: string): {string}
+    local lines: {string} = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    local kept: {integer:boolean} = {}
+    for i, line in ipairs(lines) do
+      if asks(line) then
+        for j = i, math.min(i + AFTER, #lines) do kept[j] = true end
+      end
+    end
+    local found: {string} = {}
+    for i, line in ipairs(lines) do
+      if kept[i] then found[#found + 1] = line end
+    end
+    return found
+  end
+  -- A pattern's match that runs past its line's end, which no line
+  -- holds; a find on a window's last line, which carries it on; two on
+  -- one line; a find in any case; and the last line, with and without
+  -- a newline after it.
+  local lines: {string} = { "#define MBEDTLS_AESNI_X", "0x1", "a", "cpuid" }
+  for i = 1, AFTER - 1 do lines[#lines + 1] = "filler " .. i end
+  lines[#lines + 1] = "xgetbv on the window's last line"
+  for i = 1, AFTER + 4 do lines[#lines + 1] = "more " .. i end
+  lines[#lines + 1] = "cpuid and cpuid, HwCaP too"
+  lines[#lines + 1] = ""
+  lines[#lines + 1] = "getauxval last"
+  local text = table.concat(lines, "\n")
+  for _, each in ipairs({ text, text .. "\n", "", "\n\n", "cpuid" }) do
+    local want, got = by_line(each), asking(each)
+    assert(table.concat(got, "\n") == table.concat(want, "\n") and #got == #want,
+      "asking found " .. #got .. " lines where a line at a time finds " .. #want)
+  end
+  local found = asking(text)
+  assert(#found > AFTER * 2 and #found < #lines, "the case keeps " .. #found .. " lines")
+  assert(found[1] == "cpuid", "the case begins with " .. tostring(found[1]))
 end
 
 local function test_every_library_build_zig_compiles_is_walked()

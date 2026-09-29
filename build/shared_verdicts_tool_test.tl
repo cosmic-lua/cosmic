@@ -445,7 +445,7 @@ local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_st
   env.TMPDIR = tmp .. "/temp"
   -- Unsandboxed, as on macOS, whose /var the link stands for: the case
   -- is a verdict keyed by what its test read, which a sandboxed one is
-  -- not, its directory at /tmp through no link.
+  -- not, its directory in its scratch directory through no link.
   env.COSMIC_TEST_SANDBOX = "0"
   local root = tmp .. "/checkout"
   assert(Fs.mkdirs(root .. "/suite"))

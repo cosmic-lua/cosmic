@@ -61,10 +61,10 @@ end
 
 --- A worker is given the tree's store, its closure's files and what its
 --- module declares of the tree, each at its name under /tree; its
---- scratch directory to write, at /tmp; the host files it declares at
+--- scratch directory to write, at `test_sandbox.scratch`; the host files it declares at
 --- their own names; and no network but its own loopback. A path that is
 --- not there is not given: a read of it finds nothing either way.
-local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: string)
+local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_name(tmp: string)
   local root, scratch, dir = tmp .. "/root", tmp .. "/scratch", tmp .. "/host"
   for _, made in ipairs({ root .. "/o", root .. "/a", root .. "/data", scratch, dir }) do
     assert(Fs.mkdirs(made))
@@ -89,9 +89,10 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
     assert(path:find("outside", 1, true) == nil, "a read that climbs out of the tree: " .. path)
   end
   assert(holds(unveil.reads, host) and unveil.at[host] == nil)
-  -- One given at its own name beneath /tmp is kept where it is.
-  assert(host:sub(1, 5) ~= "/tmp/" or holds(plan.kept, host), host)
-  assert(#unveil.writes == 1 and unveil.writes[1] == scratch and unveil.at[scratch] == "/tmp")
+  -- One given at its own name beneath the scratch directory is kept where it is.
+  assert(not Fs.within(host, test_sandbox.scratch) or holds(plan.kept, host), host)
+  assert(#unveil.writes == 1 and unveil.writes[1] == scratch and
+    unveil.at[scratch] == test_sandbox.scratch)
   -- A process the worker starts is keyed by what it declares, as the
   -- worker sees it, the runtime's own paths (/dev/null everywhere, /proc
   -- where the host has one: a path that is not there is not given) and
@@ -160,7 +161,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_tmp(tmp: st
   local own_cores = test_sandbox.plan(root, scratch, inputs, { COSMIC_PORTABLE_CACHE =
     tmp .. "/caches/cores" })
   assert(own_cores.trouble == "", own_cores.trouble)
-  assert(own_cores.env.COSMIC_PORTABLE_CACHE == "/tmp/cores",
+  assert(own_cores.env.COSMIC_PORTABLE_CACHE == test_sandbox.scratch .. "/cores",
     tostring(own_cores.env.COSMIC_PORTABLE_CACHE))
   local cores = assert(sys.stat(scratch .. "/cores"))
   assert(cores.kind == "dir" and cores.mode & 511 == 448, tostring(cores.mode))
@@ -319,7 +320,7 @@ end
   assert(seen ~= nil, text)
   fields = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
-  assert(fields[1] == "/tree" and fields[2] == "/tmp/tmp" and fields[3] == "declared" and
+  assert(fields[1] == "/tree" and fields[2] == test_sandbox.scratch .. "/tmp" and fields[3] == "declared" and
     fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and
     fields[8] == "declared/d/", seen)
   -- Its failure names what it read undeclared, the declaration that

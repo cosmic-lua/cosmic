@@ -443,6 +443,7 @@ const core_sources = [_][]const u8{
     "hash.c",
     "http.c",
     "json.c",
+    "socket.c",
     "sqlite.c",
     "store.c",
     "strnlen.c",

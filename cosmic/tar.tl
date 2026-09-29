@@ -613,7 +613,7 @@ local function split_ustar(path: string): string, string, boolean
 end
 
 --- A ustar header block. Every entry is owned by uid and gid 0 with no
---- user or group name, as `Tar.Writer` documents.
+--- user or group name, as `Tar.WriterOptions` documents.
 local function build_header(name: string, prefix: string, typeflag: string, size: integer,
     mode: integer, mtime: integer, linkname: string): string
   local block = txt(name, 100) .. oct(mode, 8) .. oct(0, 8) .. oct(0, 8) ..

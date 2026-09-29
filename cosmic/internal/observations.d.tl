@@ -14,9 +14,9 @@ local record observations
     --- "realpath", "open", "stat", "readdir", "getenv", "environ",
     --- "mkdir" or "mkdtemp" of `cosmic.sys`; "tree_digest" or
     --- "tree_stamps", `cosmic.sys`'s `tree_digest` with contents or
-    --- without; "spawn", the process
-    --- table's own, called past the stand-in for it; or "http",
-    --- cosmic.http's `open` of a request that is not scripted.
+    --- without; "spawn", the process table's own, called past the
+    --- stand-in for it; or "http", cosmic.http's `open` of a request
+    --- that is not scripted.
     call: string
     --- What a call that takes one was given: a path absolute -- a
     --- relative one after the working directory it was made in -- or
@@ -26,9 +26,9 @@ local record observations
     --- that takes none, or given no string.
     path: string | nil
     --- What an absolute path an open, a stat, a listing, a realpath, an
-    --- lstat, a readlink or a tree digest was given resolved to as the call was made
-    --- (see `resolve`), "" where it resolved to nothing, where
-    --- `resolving` asked for it; nil otherwise.
+    --- lstat, a readlink or a tree digest was given resolved to as the
+    --- call was made (see `resolve`), "" where it resolved to nothing,
+    --- where `resolving` asked for it; nil otherwise.
     resolved: string | nil
     --- How many values it answered, each at its index from 1: none of
     --- a call noted before it acted, or that made a directory.
