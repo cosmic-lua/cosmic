@@ -394,6 +394,30 @@ local dropped_modules <const> =
   "dropped(path) AS (SELECT path FROM whole.modules " ..
   "EXCEPT SELECT path FROM carried) "
 
+--- The condition under which a doc row `d` of a `cosmic.internal.*`
+--- module is a nested type -- `sqlite.Handle` -- or a member of one
+--- (`Handle.exec`) that a public declaration reaches: an alias
+--- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
+--- raw_http.Options`), whose page lists them. `symbols.shown_docs`
+--- still hides these rows from every public query; only that page's
+--- resolution (`build.docs`) reads them.
+local carried_internal_types =
+  "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
+  "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
+  "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
+  "EXISTS (SELECT 1 FROM whole.docs p WHERE " ..
+  symbols.public_only("p.module", true) .. " AND " ..
+  "(p.signature GLOB 'type * = *' OR p.signature GLOB '*record * is *' OR " ..
+  "p.signature GLOB '*interface * is *') AND " ..
+  "(p.signature GLOB '*[ _]' || substr(d.module, 17) || '.' || " ..
+  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
+  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
+  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END) OR " ..
+  "p.signature GLOB '*[ _]' || substr(d.module, 17) || '.' || " ..
+  "(CASE WHEN d.kind IN ('record', 'interface', 'enum') " ..
+  "THEN substr(d.source_symbol, instr(d.source_symbol, '.') + 1) " ..
+  "ELSE substr(d.symbol, 1, instr(d.symbol, '.') - 1) END) || ',*')))"
+
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from
 --- `build.schema`, so `*` names the same columns in the same order. A
@@ -430,7 +454,7 @@ local carry: {string} = {
     symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
     " OR EXISTS (SELECT 1 FROM whole.catalog c WHERE c.module = d.module " ..
-    "AND c.symbol = d.source_symbol))) ORDER BY id",
+    "AND c.symbol = d.source_symbol) OR " .. carried_internal_types .. ")) ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..
     symbols.public_only("u.module", true) .. " AND " ..
