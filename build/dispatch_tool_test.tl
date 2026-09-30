@@ -14,14 +14,25 @@ Test.needs{ tool = true }
 --- through, and the slot dispatch leaves `cosmic help`'s texts in.
 local allowed <const> = 4
 
---- `-e` loads no verb, no help and none of the build: a module required
---- at dispatch's top level for a verb's sake is loaded by every child a
---- test starts, and fails this.
+--- The `cosmic.*` modules `-e` may have loaded: the verdict logger's and
+--- what it reads through. A verb's own ([`cosmic.cli`], [`cosmic.flags`],
+--- [`cosmic.store`]) is not among them.
+local library: {string: boolean} = {
+  ["cosmic.env"] = true,
+  ["cosmic.fs"] = true,
+  ["cosmic.log"] = true,
+  ["cosmic.sys"] = true,
+}
+
+--- `-e` loads no verb, no help and none of the build, and of the standard
+--- library only what the verdict logger reads: a module required at
+--- dispatch's top level for a verb's sake is loaded by every child a test
+--- starts, and fails this.
 local function test_e_loads_none_of_the_verbs(tmp: string)
   local started = this_program.program({ "-e", [[
 local names = {}
 for name in pairs(package.loaded) do
-  if name:match("^build%.") then names[#names + 1] = name end
+  if name:match("^build%.") or name:match("^cosmic%.") then names[#names + 1] = name end
 end
 table.sort(names)
 print(table.concat(names, " "))
@@ -29,7 +40,13 @@ print(table.concat(names, " "))
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
   local names: {string} = {}
-  for name in (r.stdout or ""):gmatch("%S+") do names[#names + 1] = name end
+  for name in (r.stdout or ""):gmatch("%S+") do
+    if name:match("^build%.") then
+      names[#names + 1] = name
+    else
+      assert(library[name], name .. " is loaded before -e's chunk runs: " .. tostring(r.stdout))
+    end
+  end
   assert(#names > 0 and #names <= allowed, #names .. " build modules, more than " .. allowed ..
     ": " .. tostring(r.stdout))
   local loaded = " " .. table.concat(names, " ") .. " "

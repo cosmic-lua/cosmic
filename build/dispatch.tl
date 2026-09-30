@@ -14,7 +14,7 @@
 local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
 local verdict = require("build.verdict")
-local type Option = require("cosmic.flags").Option
+local type Flags = require("cosmic.flags")
 local type verb_spec = require("build.verb_spec")
 
 local log = verdict.log
@@ -38,7 +38,6 @@ local log = verdict.log
 --- @return each verb's text, by verb
 local function verb_help(verbs: {string}): {string: string}
   local Cli = require("cosmic.cli")
-  local Flags = require("cosmic.flags")
   local docs = require("build.docs")
   local link_text = require("build.link_text")
   local sources = docs.databases()
@@ -73,7 +72,7 @@ local function verb_help(verbs: {string}): {string: string}
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else
       lines[#lines + 1] = text
-      local options = Flags.options(Cli.options[verb] or {})
+      local options = require("cosmic.flags").options(Cli.options[verb] or {})
       if options ~= "" then
         lines[#lines + 1] = options
       end
@@ -504,7 +503,6 @@ local help_spec: verb_spec.Spec
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
   local Cli = require("cosmic.cli")
-  local Flags = require("cosmic.flags")
   local Time = require("cosmic.time")
   local clock = require("build.clock")
   local plural = require("build.plural")
@@ -527,7 +525,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       for slot, word in pairs(argv) do line[slot] = word end
       line[2] = spelled
     end
-    local parsed, parse_trouble = Flags.parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
+    local parsed, parse_trouble = require("cosmic.flags").parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
       log:complain("help: " .. parse_trouble)
       log:verdict("help", false, parse_trouble)
@@ -622,7 +620,7 @@ end
 --- anywhere after the verb, before a "--", that its options do not
 --- name -- as [`Flags.dispatch`] reads a command's.
 local function asks_help(argv: {integer:string},
-    options: {string:boolean | Option}): boolean
+    options: {string:boolean | Flags.Option}): boolean
   local slot = 2
   while argv[slot] ~= nil and argv[slot] ~= "--" do
     local word = argv[slot]
