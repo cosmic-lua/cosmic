@@ -267,6 +267,8 @@ local POLL_NS <const> = POLL_MS * 1000 * 1000
 local TERM_GRACE_NS <const> = 250 * 1000 * 1000
 local KILL_REAP_NS <const> = 1000 * 1000 * 1000
 local INT_MAX <const> = 2147483647
+--- The longest wait [`Poll.readable`] takes, which `g:wait` waits through.
+local MOST_WAIT_MS <const> = INT_MAX
 local CHUNK <const> = 65536
 local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
 
@@ -904,8 +906,9 @@ local function make_guard(): Guard
 
   function g:wait(timeout_ms?: integer): integer, string
     if not Poll.in_task() then error("g:wait waits in a task of Poll.run", 2) end
-    if timeout_ms ~= nil and (math.type(timeout_ms) ~= "integer" or timeout_ms < 0) then
-      error("timeout_ms must be an integer from 0", 2)
+    if timeout_ms ~= nil and (math.type(timeout_ms) ~= "integer" or timeout_ms < 0 or
+        timeout_ms > MOST_WAIT_MS) then
+      error("timeout_ms must be an integer from 0 to " .. MOST_WAIT_MS, 2)
     end
     local deadline: integer
     if timeout_ms ~= nil then deadline = now() + timeout_ms * 1000000 end
@@ -939,13 +942,13 @@ local function make_guard(): Guard
     active = open_guards[#open_guards]
     local last = active == nil
     local owing = 0
-    if last then
-      -- A task waiting on the pipe looks again, finds this guard
-      -- closed, and returns.
-      Poll.closing(raw.child_signal_fd())
-      owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0
-    end
+    if last then owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0 end
+    local fd = raw.child_signal_fd()
     local stamp, trouble = raw.unguard_child_signals(active ~= nil and active._read or 0)
+    -- Every task waiting on the pipe looks again: one waiting on this
+    -- guard finds it closed and returns, and one waiting on a guard
+    -- still open finds its stamp unmoved and waits again.
+    Poll.closing(fd)
     if stamp == nil then
       self._trouble = trouble
       return trouble, last, owing

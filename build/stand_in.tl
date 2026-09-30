@@ -60,8 +60,7 @@
 ---                      it, as a shell runs one: what P leaves running
 ---                      runs on, and none of it is adopted here; ends
 ---                      with P's status where it fails (128 past a
----                      signal), and 127 where P cannot start, as after
----                      a `trap`: a process holds one guard at once
+---                      signal), and 127 where P cannot start
 ---     start P [T]      starts P, with T its one argument, and goes on
 ---                      without waiting for it, as a shell's `P &` does:
 ---                      it outlives the script, which then ends by

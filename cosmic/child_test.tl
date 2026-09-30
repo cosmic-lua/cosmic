@@ -137,6 +137,31 @@ local function test_guard_wait_takes_a_signal_in_a_task()
   assert(outer:release() == sys.SIGTERM)
 end
 
+--- A guard's wait ends once that guard closes, though another stays
+--- open; a wait on the one still open waits on.
+local function test_a_guard_s_wait_ends_when_it_closes_under_another()
+  local outer = assert(Child.guard())
+  local inner = assert(Child.guard())
+  local got: {string} = {}
+  Poll.run(function()
+    local on_inner = Poll.spawn(function()
+      local signal, why = inner:wait(5000)
+      got[#got + 1] = "inner=" .. tostring(signal) .. " " .. why
+    end)
+    local on_outer = Poll.spawn(function()
+      local signal, why = outer:wait(100)
+      got[#got + 1] = "outer=" .. tostring(signal) .. " " .. why
+    end)
+    assert(Poll.delay(10))
+    assert(inner:close())
+    assert(on_inner:join())
+    assert(on_outer:join())
+  end)
+  assert(table.concat(got, ",") == "inner=0 the guard is closed,outer=0 " .. Poll.TIMEOUT,
+    table.concat(got, ","))
+  assert(outer:release() == 0)
+end
+
 local function test_guard_release_with_nothing_caught_answers_zero()
   local guard = assert(Child.guard())
   local caught, trouble = guard:release()

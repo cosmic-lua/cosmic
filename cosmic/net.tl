@@ -23,7 +23,7 @@
 --- Every wait -- to connect, to accept, to read, to write -- lasts at
 --- most the object's `timeout_ms` (no limit by default), failing with
 --- "timed out", and ends with "interrupted", within a tenth of a second,
---- when an open [`Child.guard`] catches SIGINT or SIGTERM, as
+--- when the innermost open [`Child.guard`] catches SIGINT or SIGTERM, as
 --- [`cosmic.http`]'s do.
 ---
 --- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to connect, to
@@ -107,8 +107,8 @@ local record Net
     --- refuses another's in a sticky directory such as /tmp) or in a
     --- directory not writable here; "File name too long" for a path
     --- within 5 bytes of the longest a path may be; "timed out" for
-    --- another's lock held 10 seconds; "interrupted" for a signal a
-    --- [`Child.guard`] caught; and a directory or a link at its name
+    --- another's lock held 10 seconds; "interrupted" for a signal the
+    --- innermost open [`Child.guard`] caught; and a directory or a link at its name
     --- fails too. A path ending in "/" fails "Is a directory", and an
     --- empty path raises, as it does without `reclaim`. A "tcp" address
     --- raises: a port holds no file to take over.
@@ -833,6 +833,9 @@ local record Serving
   grace: Poll.Task
   --- Set once a signal has ended the grace.
   hurried: boolean
+  --- Set once a signal `guard` caught has stopped the server: only
+  --- then has the server acted on what the guard holds.
+  signalled: boolean
   metamethod __close: function(Serving)
 end
 
@@ -840,9 +843,11 @@ local serving_mt: metatable<Serving> = {
   __close = function(self: Serving)
     for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
     for _, conn in pairs(self.conns) do local _, _ = conn:close() end
-    -- Released, not closed: the server has acted on what it caught. A
-    -- release already made, or one that fails, is answered again here.
-    if self.guard ~= nil then local _, _ = self.guard:release() end
+    -- Closed, so a signal caught is delivered as it would be without
+    -- the server's guard: this runs as the run raises, or after
+    -- `serving` has closed or released the guard itself, when closing
+    -- again does nothing.
+    if self.guard ~= nil then local _, _ = self.guard:close() end
   end,
 }
 
@@ -974,6 +979,7 @@ local function watch(s: Serving)
     local signal, _ = s.guard:wait()
     if signal == 0 then return end
     if not s.stopping then
+      s.signalled = true
       stop(s)
     else
       s.hurried = true
@@ -987,6 +993,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
   local state: Serving = {
     spec = spec, most = spec.limits and spec.limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
+    signalled = false,
   }
   local s <close> = setmetatable(state, serving_mt)
   local guard, guard_trouble = Child.guard()
@@ -1014,7 +1021,17 @@ local function serving(spec: Net.ServeSpec): boolean, string
   end
   drain(s)
   s.watcher:cancel()
-  local _, restore_trouble = guard:release()
+  -- Released where a signal stopped the server, which has acted on it;
+  -- closed otherwise, so one caught in a drain that `stop` began is
+  -- delivered as it would be without this guard.
+  local restore_trouble: string
+  if s.signalled then
+    local _, trouble = guard:release()
+    restore_trouble = trouble
+  else
+    local _, trouble = guard:close()
+    restore_trouble = trouble
+  end
   if restore_trouble ~= "" then return false, "signal restore: " .. restore_trouble end
   return true, ""
 end
@@ -1041,12 +1058,17 @@ end
 --- waiting, stalls every task of the run.
 ---
 --- SIGINT and SIGTERM stop the server as [`Server.stop`] does: it holds
---- a [`Child.guard`] for its run, and the first either signal delivered
+--- a [`Child.guard`] for its run, and the first signal of either kind
 --- stops it. One more while it drains ends `grace_ms` at once, the
---- connections still open cancelled and closed. The guard is released,
---- not closed, so Net.serve returns true without the signal delivered
---- again; a caller that would know of it, or die of it, holds a
---- [`Child.guard`] of its own around the call, which sees it too. A
+--- connections still open cancelled and closed. Where a signal stopped
+--- it, the guard is released, not closed, so Net.serve returns true
+--- without the signal delivered again; a caller that would know of it,
+--- or die of it, holds a [`Child.guard`] of its own around the call,
+--- which sees it too. A signal the server did not stop on, one in a
+--- drain [`Server.stop`] began, is delivered again as the guard closes,
+--- as it would be without it; so is any signal caught where a listener
+--- cannot listen or [`ServeSpec.on_ready`] or [`ServeSpec.on_error`]
+--- raises. A
 --- [`Child.run`] in a protocol holds a guard inside the server's, so a
 --- signal ends its child as it would anywhere, and a run begun after
 --- the signal runs to its end. A wait that holds the thread rather than

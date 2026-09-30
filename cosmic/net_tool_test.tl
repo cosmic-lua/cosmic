@@ -68,3 +68,76 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard(tmp: string
   })
   assert(answer == "6", answer)
 end
+
+--- Runs `script`, a Teal file taking the scratch directory, in a
+--- process of this program's own, and answers how it ended.
+local function run_script(tmp: string, script: string): Child.Result
+  local started = this_program.program({ "--standalone", script, tmp },
+    { stdout = "capture", stderr = "capture", timeout_ms = 30000 })
+  return (assert(Child.run(started.argv, started.options)))
+end
+
+--- A signal the server never stopped on is not swallowed: where
+--- on_ready raises after SIGTERM, the process dies of the signal, as it
+--- would without the server's guard.
+local function test_a_signal_is_delivered_where_on_ready_raises(tmp: string)
+  local script = tmp .. "/raises.tl"
+  assert(Fs.write(script, [[
+local Net = require("cosmic.net")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local _, _ = pcall(Net.serve, {
+    listeners = { Net.unix(argv[1] .. "/s.sock") },
+    serve = function(_conn: Net.Conn) end,
+    on_ready = function(_addresses: {Net.Address}, _server: Net.Server)
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+      error("on_ready failed")
+    end,
+  } as Net.ServeSpec)
+  return 0
+end
+]]))
+  local r = run_script(tmp, script)
+  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
+end
+
+--- A signal during a drain that Server.stop began is delivered once the
+--- drain ends: the connection in flight finishes, and the process then
+--- dies of the signal.
+local function test_a_signal_in_a_drain_stop_began_is_delivered(tmp: string)
+  local script = tmp .. "/stopped.tl"
+  local report = tmp .. "/report"
+  assert(Fs.write(script, [[
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
+local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local started = false
+  assert(Net.serve{
+    listeners = { Net.unix(argv[1] .. "/s.sock") },
+    serve = function(conn: Net.Conn)
+      local line = assert(Stream.lines(conn):read())
+      started = true
+      assert(Poll.delay(100))
+      assert(conn:write(line .. "\n"))
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ms = 5000 }))
+      assert(conn:write("slow\n"))
+      while not started do assert(Poll.delay(1)) end
+      server:stop()
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+      local answer = assert(Stream.lines(conn):read())
+      assert(Fs.write(argv[1] .. "/report", answer))
+    end,
+  })
+  return 0
+end
+]]))
+  local r = run_script(tmp, script)
+  local got = Fs.read(report)
+  assert(got == "slow", tostring(got) .. " " .. tostring(r.stderr))
+  assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
+end

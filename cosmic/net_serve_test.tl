@@ -366,7 +366,9 @@ local function test_sigterm_stops_the_server_and_it_drains(tmp: string)
   local path = tmp .. "/s.sock"
   local started = false
   local answer = ""
-  local outer = assert(Child.guard())
+  -- Closed only where an assertion fails first, which delivers the
+  -- signal: released below otherwise.
+  local outer <close> = assert(Child.guard())
   local ok, why = Net.serve{
     listeners = { Net.unix(path) },
     serve = function(conn: Net.Conn)
@@ -391,13 +393,16 @@ local function test_sigterm_stops_the_server_and_it_drains(tmp: string)
 end
 
 --- A second signal while the server drains ends the grace at once,
---- though it has no bound: the connection still open is cancelled.
+--- though it has no bound: the connection still open is cancelled. The
+--- first is SIGINT, to stop on either kind: a worker started with
+--- SIGINT ignored, whose guard leaves it so, fails this case.
 local function test_a_second_signal_ends_the_grace(tmp: string)
   local path = tmp .. "/s.sock"
   local started = false
   local stuck_why = ""
   local stuck: Client
-  local outer = assert(Child.guard())
+  -- Closed only where an assertion fails first: released below otherwise.
+  local outer <close> = assert(Child.guard())
   assert(Net.serve{
     listeners = { Net.unix(path) },
     serve = function(conn: Net.Conn)
