@@ -1021,21 +1021,34 @@ end
 
 --- `poll` watches as many descriptors as the kernel lets a process
 --- watch, past the 1024 it was once held to, and -1 is left unwatched.
+--- Each entry is a descriptor of its own, a copy of one pipe's reading
+--- end: macOS answers only one of a descriptor given more than once.
 --- Where RLIMIT_NOFILE's soft limit is lower (1024 under systemd's
---- default, 256 on macOS), the kernel refuses with EINVAL.
+--- default, 256 on macOS), the copies stop short and the kernel refuses
+--- the count with EINVAL.
 local function test_poll_watches_past_a_thousand_descriptors()
   local ends = assert(process.pipe())
   assert(sys.write(ends.writer, "x") == 1)
-  local fds: {integer} = {}
-  local events: {integer} = {}
-  for i = 1, 1100 do
-    fds[i] = ends.reader
-    events[i] = sys.POLLIN
+  local fds: {integer} = { ends.reader }
+  local events: {integer} = { sys.POLLIN }
+  local copies = 0
+  while #fds < 1100 do
+    local copy = sys.dup(ends.reader)
+    if copy == nil then break end
+    fds[#fds + 1] = copy
+    events[#events + 1] = sys.POLLIN
+    copies = copies + 1
+  end
+  local distinct = #fds
+  while #fds < 1100 do
+    fds[#fds + 1] = ends.reader
+    events[#events + 1] = sys.POLLIN
   end
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
   local revents, trouble, errno = sys.poll(fds, events, 0)
+  for i = 2, copies + 1 do sys.close(fds[i]) end
   sys.close(ends.reader)
   sys.close(ends.writer)
   -- TODO: raise RLIMIT_NOFILE's soft limit past 1101 first, once
@@ -1046,7 +1059,7 @@ local function test_poll_watches_past_a_thousand_descriptors()
     return
   end
   assert(#revents == 1101, "one answer per descriptor, not " .. #revents)
-  for i = 1, 1100 do
+  for i = 1, distinct do
     assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
   end
   assert(revents[1101] == 0, "an unwatched descriptor answered " .. revents[1101])
