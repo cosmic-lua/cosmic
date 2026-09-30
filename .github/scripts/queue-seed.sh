@@ -37,7 +37,13 @@
 # names the entry restored (the commit's own key is saved on every push
 # to main, for a branch based on it: .github/scripts/merge-base.sh); and
 # `driver-checked` (from $RUNNER_TEMP/driver-checked), the key its marker
-# holds, where the driver check ran and passed.
+# holds, where the driver check ran and passed; and `zig-build` (from
+# $RUNNER_TEMP/zig-build, as `zig-build.tar`: an artifact keeps no
+# file's mode, and zig's cache holds programs it runs), under
+# ZIG_BUILD_KEY, the restore's primary key, where ZIG_BUILD_EXACT, the
+# prefix of an entry built from this very core and vendor part, does
+# not begin ZIG_BUILD_RESTORED, the entry restored (a job that saves no
+# zig build outputs, ci.yml's `checked`, sets no ZIG_BUILD_*).
 #
 # ahead, a merge_group run's job before its suite (ci.yml's "find the
 # run ahead in the queue"): finds the run ahead of this one in the
@@ -226,6 +232,16 @@ entry() {
   echo "$name=$prefix$digest" >> "$seed/seed.keys"
 }
 
+# zig's build outputs under KEY, unless EXACT is empty or begins
+# RESTORED: an entry of this core and vendor part answers already.
+zig_build() {
+  key=$1 exact=$2 restored=$3
+  [ -n "$key" ] && [ -n "$exact" ] && [ -d "$RUNNER_TEMP/zig-build" ] || return 0
+  case $restored in "$exact"*) return 0 ;; esac
+  tar -cf "$seed/zig-build.tar" -C "$RUNNER_TEMP" zig-build
+  echo "zig-build=$key" >> "$seed/seed.keys"
+}
+
 stage() {
   seed=$RUNNER_TEMP/seed
   rm -rf "$seed"
@@ -237,6 +253,7 @@ stage() {
     [ -d "$seed/verdicts" ] || cp -R "$RUNNER_TEMP/verdicts" "$seed/verdicts"
     echo "verdicts-sha=${VERDICTS_PREFIX-}sha-$SHA" >> "$seed/seed.keys"
   fi
+  zig_build "${ZIG_BUILD_KEY-}" "${ZIG_BUILD_EXACT-}" "${ZIG_BUILD_RESTORED-}"
   if [ -f "$RUNNER_TEMP/driver-checked/key" ]; then
     cp -R "$RUNNER_TEMP/driver-checked" "$seed/driver-checked"
     echo "driver-checked=$(cat "$RUNNER_TEMP/driver-checked/key")" >> "$seed/seed.keys"

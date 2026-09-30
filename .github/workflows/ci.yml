@@ -237,7 +237,8 @@
         # runner's image (the driver check's key) and the run's start,
         # from which a compile or verdict row counts as this run's.
         # TODO: keep a core change's compiles for main's later runs at
-        # the cost of the change rather than of an entry: save beside
+        # the cost of the change rather than of a whole entry, as the
+        # queue's seed now keeps them (below): save beside
         # the entry restored only what the build wrote under zig-build
         # since (files newer than a stamp made after the restore), keyed
         # by the restored entry's run, and restore it over that entry,
@@ -661,7 +662,21 @@
 
         # The queue's leg keeps what main would save, under the keys it
         # would save it under, for main's push of this commit to save
-        # (the `seed` job): only a queue run that passed is reused.
+        # (the `seed` job): only a queue run that passed is reused. Its
+        # zig build outputs too, where no entry of this core and vendor
+        # part was restored, which main's own save above keeps only once
+        # per vendor part: so the queue's runs after a core change
+        # restore one built from it rather than the nightly's, which
+        # compiles the core again on every leg (some two to three
+        # minutes a boot and a checked build). Once per core change, of
+        # some 0.5 GB for the four legs: the nightly still bounds what
+        # each carries (it restores nothing), and GitHub evicts the least
+        # recently used, so the older of them.
+        # TODO: delete a seeded zig build entry once the nightly's
+        # supersedes it (in `prune`, as prune-commit-verdicts.sh deletes
+        # the verdicts under a commit), should their room in the
+        # repository's 10 GB cache evict entries still in use (the fuzz
+        # corpora, another leg's newest).
         {
           name: "keep what main would save of this leg",
           if: "success() && github.event_name == 'merge_group'",
@@ -675,6 +690,9 @@
             COMPILES_PREFIX: "compiles-${{ matrix.name }}-",
             COMPILES_DIGEST: "${{ steps.compiles-trim.outputs.digest }}",
             COMPILES_RESTORED: "${{ steps.compiles-restore.outputs.cache-matched-key }}",
+            ZIG_BUILD_KEY: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            ZIG_BUILD_EXACT: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-",
+            ZIG_BUILD_RESTORED: "${{ steps.zig-cache-restore.outputs.cache-matched-key }}",
           },
           run: "sh .github/scripts/queue-seed.sh stage",
         },
@@ -687,6 +705,9 @@
             path: "${{ runner.temp }}/seed",
             "if-no-files-found": "error",
             "retention-days": 1,
+            # The zig build outputs' tar, a few hundred MB, is its bulk,
+            # and the gate waits on the upload: deflate's fastest.
+            "compression-level": 1,
           },
         },
 
@@ -1026,7 +1047,10 @@
           run: "[ ! -f .github/scripts/place-tree.sh ] || sh .github/scripts/place-tree.sh --restore",
         },
         # As a leg's: what main would save, for main's push of this
-        # commit (`seed`); verdicts alone, it saves no compiles.
+        # commit (`seed`); verdicts alone, it saves no compiles and no
+        # zig build outputs: its restore's key is linux-x86_64's in the
+        # same run, and that leg keeps its own, having built what this
+        # job builds (a boot; assemble's checked build and decoders).
         {
           name: "keep what main would save of this job",
           if: "success() && github.event_name == 'merge_group'",
@@ -1117,7 +1141,7 @@
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
         # Under the commit first, as a leg saves them.
         {
@@ -1137,6 +1161,21 @@
           if: "steps.keys.outputs.compiles != ''",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {path: "${{ runner.temp }}/build-cache", key: "${{ steps.keys.outputs.compiles }}"},
+        },
+        # From the tar the leg kept them in, with their modes, where the
+        # leg saved them, under the queue run's key (`<run>-<attempt>`),
+        # which a restore by the prefix of this core finds as its own.
+        {
+          name: "lay out zig build outputs",
+          if: "steps.keys.outputs.zig-build != ''",
+          shell: "sh",
+          run: "tar -xf \"$RUNNER_TEMP/zig-build.tar\" -C \"$RUNNER_TEMP\" && rm \"$RUNNER_TEMP/zig-build.tar\"",
+        },
+        {
+          name: "save zig build outputs",
+          if: "steps.keys.outputs.zig-build != ''",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {path: "${{ runner.temp }}/zig-build", key: "${{ steps.keys.outputs.zig-build }}"},
         },
         {
           name: "save the CI driver check's marker",

@@ -929,7 +929,9 @@ local function test_a_main_push_reuses_the_queue_run()
   -- none of linux-x86_64-checked's.
   assert(keys.id == "keys" and keys.run == "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-" ..
     "[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|" ..
-    "compiles=compiles-${{ matrix.name }}-[0-9a-f]+|driver-checked=driver-checked-v2-${{ matrix.name }}-" ..
+    "compiles=compiles-${{ matrix.name }}-[0-9a-f]+|" ..
+    "zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|" ..
+    "driver-checked=driver-checked-v2-${{ matrix.name }}-" ..
     "[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' " ..
     "\"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
     "seed reads other keys: " .. tostring(keys.run))
@@ -946,7 +948,15 @@ local function test_a_main_push_reuses_the_queue_run()
     assert(name ~= nil, path .. " is seeded under a key the queue did not name: " .. key)
     assert(step["if"] == "steps.keys.outputs." .. name .. " != ''", path .. " is seeded where no key was named")
   end
-  assert(saved == 4, "the verdicts (by content and by commit), compiles and driver marker: " .. saved)
+  assert(saved == 5, "the verdicts (by content and by commit), compiles, zig outputs and driver marker: " .. saved)
+  -- The zig outputs are laid out, with their modes, from the tar the
+  -- leg kept them in, before their save and where it runs.
+  local zig = save_of(steps, "${{ runner.temp }}/zig-build")
+  local unpack, at = step_running(steps, "zig-build.tar")
+  assert(unpack["if"] == zig["if"] and unpack.run ==
+    "tar -xf \"$RUNNER_TEMP/zig-build.tar\" -C \"$RUNNER_TEMP\" && rm \"$RUNNER_TEMP/zig-build.tar\"",
+    "the zig outputs are laid out elsewhere, or on other runs, than they are saved: " .. tostring(unpack.run))
+  assert(steps[at + 1] == zig, "the zig outputs are saved other than right after they are laid out")
 
   local join = jobs.ci
   local needs = join.needs as {string}
@@ -995,6 +1005,23 @@ local function test_the_queue_keeps_what_main_would_save()
       env[cache .. "_RESTORED"]:match("^%${{ (.-) }}$"), 1, true) ~= nil,
       cache .. "'s seed is compared with another entry than main's save is")
   end
+  -- The zig outputs under the key main's save names, the restore's own,
+  -- except where that restore took an entry of this core and vendor
+  -- part: the first prefix it asks for.
+  local zig = save_of(steps, "${{ runner.temp }}/zig-build")
+  local zkey = (zig.with as {string: string}).key
+  local restore = zkey:match("^%${{ steps%.([%w-]+)%.outputs%.cache%-primary%-key }}$")
+  assert(restore ~= nil and env.ZIG_BUILD_KEY == zkey and
+    env.ZIG_BUILD_RESTORED == "${{ steps." .. restore .. ".outputs.cache-matched-key }}",
+    "the zig outputs are seeded under another key than main saves them under, or held to another entry: " ..
+    tostring(env.ZIG_BUILD_KEY))
+  local zrestore: {string: any}
+  for _, step in ipairs(steps) do
+    if step.id == restore then zrestore = step end
+  end
+  local first = (((zrestore.with as {string: string})["restore-keys"]):match("^([^\n]*)\n"))
+  assert(env.ZIG_BUILD_EXACT == first and first:find("-${{ steps.names.outputs.core }}-", 1, true) ~= nil,
+    "the zig outputs are held to another entry than one of this core: " .. tostring(env.ZIG_BUILD_EXACT))
   -- And the verdicts under the commit, which is the queue's merge.
   local _, twin = save_of(steps, "${{ runner.temp }}/verdicts")
   assert(env.SHA == "${{ github.sha }}" and
@@ -1041,6 +1068,8 @@ local function test_the_queue_keeps_what_main_would_save()
     "the checked job's seed is compared with another entry than main's save is")
   assert(cenv.COMPILES_PREFIX == nil and save_of(csteps, "${{ runner.temp }}/build-cache") == nil,
     "the checked job keeps compiles, which linux-x86_64's leg saves")
+  assert(cenv.ZIG_BUILD_KEY == nil and save_of(csteps, "${{ runner.temp }}/zig-build") == nil,
+    "the checked job keeps zig outputs, which linux-x86_64's leg saves under the same key")
   local _, ctrim = step_running(csteps, "driver.tl verdicts-trim")
   local removed: integer
   for i, step in ipairs(csteps) do
