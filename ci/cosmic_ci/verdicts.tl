@@ -45,7 +45,7 @@ local tables: CacheTrim.Tables = { patterns = { "declared_v[0-9]*", "verdicts_v[
   whole_unless_reached = true }
 
 --- The caches in `dir`, each a `.db` file: not their logs, nor what
---- was set aside beside them, which `CacheTrim.file` removes.
+--- was set aside beside them, which [`CacheTrim.file`] removes.
 local function caches(dir: string): {string}
   local listed, _ = Fs.list(dir)
   local out: {string} = {}
@@ -60,11 +60,11 @@ end
 --- and what it says on standard output and on standard error. It trims
 --- every cache in the directory of the file `env.COSMIC_VERDICT_CACHE`
 --- names (the directory ci.yml saves) to the verdicts used since SINCE,
---- in Unix seconds (`CacheTrim.file`). Given `whole`, it trims none, so
+--- in Unix seconds ([`CacheTrim.file`]). Given `whole`, it trims none, so
 --- a run that failed saves what it restored with what it reached;
 --- either way it removes what was set aside beside them. Then it writes
---- `digest=<hex>` of the caches' rows (`CacheTrim.digest`) to the
---- step's outputs (`CacheTrim.output`), the tail of the key ci.yml
+--- `digest=<hex>` of the caches' rows ([`CacheTrim.digest`]) to the
+--- step's outputs ([`CacheTrim.output`]), the tail of the key ci.yml
 --- saves them under. Nothing to do, and no digest, where the variable
 --- names no file or its directory holds no cache. Only a SINCE that is
 --- no count of seconds fails it (2): a cache it cannot trim is reported

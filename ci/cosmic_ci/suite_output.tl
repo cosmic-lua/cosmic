@@ -97,7 +97,7 @@ local function fail_figures(detail: string, into: SuiteOutput.Figures): boolean
   return true
 end
 
---- The sets of key parts a census line's list (`Figures.held`) names,
+--- The sets of key parts a census line's list ([`Figures.held`]) names,
 --- as said, the most rows first; none for "" (a cache with no rows).
 function SuiteOutput.held(list: string): {SuiteOutput.Held}
   local out: {SuiteOutput.Held} = {}

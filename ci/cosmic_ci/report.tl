@@ -265,7 +265,7 @@ local function deciding_rows(run: Report.Run): {string:State.SuiteRun}
 end
 
 --- What `held`, a suite row's census of its restored cache (a census
---- line's list, `SuiteOutput.held`), says of `now`, the key parts the
+--- line's list, [`SuiteOutput.held`]), says of `now`, the key parts the
 --- row says. "matched", with the share of the cache's rows under its
 --- runtime and harness; "unnamed", which tells nothing, where every row
 --- held names no parts (a cache kept from before rows named them); else

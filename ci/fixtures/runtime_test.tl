@@ -63,7 +63,7 @@ end
 -- (test/portable/startup_hook.c), which fires at one fixed point in real
 -- startup whatever the hook's name, and runs `tool.tl
 -- retained-prefix-probe` from `tool`, the runtime setup's copy of it
--- (`Fixture.tool_tree`). Every other hook name (e.g.
+-- ([`Fixture.tool_tree`]). Every other hook name (e.g.
 -- "after_select") goes through the named
 -- `COSMIC_PORTABLE_TEST_HOOK`/`_READY`/`_GO` mechanism (the one
 -- launcher_test.tl's `hook_environment` drives), running the copied
