@@ -1,0 +1,15 @@
+file: miniz.c
+note: tinfl builds an incomplete Huffman table -- no codes at all, or one code, which it allows -- leaving the fast lookup's unused slots 0, and decoding one reads as symbol 0 of length 0: nothing consumed. A literal/length table with no codes then yields literal 0 forever from a few bytes of input (a dynamic block whose code lengths are all zero), and tinfl never asks for more, so every caller spins. zlib marks those slots invalid and fails on them ("invalid literal/length code", "invalid distance code"); this does the same for a symbol decoded through TINFL_HUFF_DECODE (code lengths, the slow literal/length path, distances). State 100 + the macro's own index is its failing state, clear of every index tinfl uses (1 to 53). Upstream has no such check as of 3.1.1 and master. 02-invalid-code-fast-literal.txt and 03-invalid-code-fast-second-literal.txt make the fast literal path's two lookups fail alike.
+--- find
+        if ((temp = pLookUp[bit_buf & (TINFL_FAST_LOOKUP_SIZE - 1)]) >= 0)                                                          \
+            code_len = temp >> 9, temp &= 511;                                                                                      \
+        else                                                                                                                        \
+--- replace
+        if ((temp = pLookUp[bit_buf & (TINFL_FAST_LOOKUP_SIZE - 1)]) >= 0)                                                          \
+        {                                                                                                                           \
+            code_len = temp >> 9, temp &= 511;                                                                                      \
+            if (!code_len)                                                                                                          \
+                TINFL_CR_RETURN_FOREVER(100 + state_index, TINFL_STATUS_FAILED);                                                    \
+        }                                                                                                                           \
+        else                                                                                                                        \
+--- end
