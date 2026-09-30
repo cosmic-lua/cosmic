@@ -546,7 +546,7 @@ end
 --- `store`, else the whole projection. A caller keys the store as it gives it
 --- ([`build.declared_key`]): the whole projection by its contents only
 --- where the module declares `store`, so it gives one that does not the
---- store of its closure, keyed by its address.
+--- store of its closure, keyed by its bytes.
 function test_sandbox.plan(root: string, scratch: string, effective: test_inputs.Effective,
                            environment: {string:string}, closure_store?: string): test_sandbox.Plan
   -- The program is given at its own name only where the worker does

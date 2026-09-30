@@ -266,3 +266,32 @@ local function test_adopt_refuses_a_socket_not_listening()
   end
   assert(adopted == nil and errno == raw.EINVAL, why)
 end
+
+--- The monotonic clock, in milliseconds.
+local function now_ms(): integer
+  return assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) // 1000000
+end
+
+--- A unix listener whose backlog is full refuses a further connection
+--- at once, however long it may wait, whether started or connected:
+--- EAGAIN on Linux, kept apart from ECONNREFUSED, which [`cosmic.net`]'s
+--- `reclaim` takes for a listener gone; macOS cannot tell the two
+--- apart, and answers ECONNREFUSED.
+local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string)
+  local path = tmp .. "/s.sock"
+  local _listener <close> = assert(raw.listen(unix(path), 1))
+  local held: {raw_socket.Socket} = {}
+  for _ = 1, 16 do
+    local client = raw.connect(unix(path), 0)
+    if client == nil then break end
+    held[#held + 1] = client
+  end
+  local want = assert(sys.uname()).sysname == "Darwin" and raw.ECONNREFUSED or raw.EAGAIN
+  local began = now_ms()
+  local client, why, errno = raw.connect(unix(path), 20000)
+  assert(now_ms() - began < 10000, "the connection waited for room")
+  assert(client == nil and errno == want, why)
+  local started, start_why, start_errno = raw.start(unix(path))
+  assert(started == nil and start_errno == want, start_why)
+  for _, conn in ipairs(held) do assert(conn:close()) end
+end

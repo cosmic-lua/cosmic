@@ -317,3 +317,15 @@ local function test_sql_never_stages_the_tree(tmp: string)
   local names = assert(Fs.list(tmp .. "/o"))
   assert(#names == 1, table.concat(names, " "))
 end
+
+--- `db` counts the closures' stores under o/stores, and not the store of
+--- no module beside them (build/test.tl's `base_name`).
+local function test_db_counts_the_closure_stores_alone(tmp: string)
+  local tree = write_programs(tmp)
+  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  assert(Fs.mkdirs(tree .. "/o/stores"))
+  assert(Fs.write(tree .. "/o/stores/" .. ("a"):rep(64) .. ".db", "abc"))
+  assert(Fs.write(tree .. "/o/stores/base-" .. ("b"):rep(64) .. ".db", "defgh"))
+  local whole = verbs_fixture.expect(tree, "db", { "db" }, 0).stdout or ""
+  assert(whole:find("1 closure store, 3 bytes", 1, true), whole)
+end

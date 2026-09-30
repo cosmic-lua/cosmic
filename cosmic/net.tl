@@ -115,33 +115,35 @@ local record Net
     --- another's lock held 10 seconds; "interrupted" for a signal the
     --- innermost open [`Child.guard`] caught; and a directory or a link
     --- at its name fails too. In a task of [`Poll.run`], the wait for
-    --- the lock and the connection that asks wait through the run, so
-    --- reclaims of one path in tasks of one run take turns as those of
-    --- two processes do -- but over NFS or SMB, where a lock may be
-    --- the process's own rather than its open file's, and then none
-    --- waits for another of the same process. A task cancelled in either
-    --- wait fails "cancelled"; a caught signal cuts short only the wait
-    --- for the lock, and the connection waits out its second. A
-    --- relative path is read from the working directory at each step,
-    --- which another task may change while one waits. A path ending in
-    --- "/" fails "Is a directory", and an empty path raises, as it does
-    --- without `reclaim`. A "tcp" address raises: a port holds no file
-    --- to take over.
+    --- the lock waits through the run, so reclaims of one path in tasks
+    --- of one run take turns as those of two processes do -- but over
+    --- NFS or SMB, where a lock may be the process's own rather than its
+    --- open file's, and then none waits for another of the same process.
+    --- A task cancelled in that wait fails "cancelled". A relative path
+    --- is read from the working directory at each step, which another
+    --- task may change while one waits. A path ending in "/" fails "Is
+    --- a directory", and an empty path raises, as it does without
+    --- `reclaim`. A "tcp" address raises: a port holds no file to take
+    --- over.
     reclaim: boolean
     --- How long `accept` waits, in milliseconds, from 0; nil for no
     --- limit. The connections it accepts start with the same.
     timeout_ms: integer
     --- How many connections may wait to be accepted (64 by default).
+    --- A unix connection past it fails at once rather than waiting (see
+    --- [`ConnectOptions.timeout_ms`]).
     backlog: integer
   end
 
   record ConnectOptions
     --- How long connecting, and then any one read or write, waits, in
     --- milliseconds, from 0; nil for no limit. A TCP connection is
-    --- waited on until made or refused. A unix listener whose
-    --- backlog is full is waited on for room on Linux; macOS refuses the
-    --- connection at once, "Connection refused", as though nothing
-    --- listened.
+    --- waited on until made or refused. Connecting to a unix one waits
+    --- for nothing: a listener whose backlog is full fails it at once,
+    --- "Resource temporarily unavailable (the listener is busy: its
+    --- backlog is full)" on Linux and "Connection refused" on macOS,
+    --- which cannot tell a busy listener from none. A caller that would
+    --- wait for room connects again.
     timeout_ms: integer
   end
 
@@ -229,7 +231,9 @@ local record Net
     record Limits
       --- The most connections open at once, from 1; nil for no limit.
       --- At the limit no listener accepts: a connection that comes waits
-      --- in its listener's backlog until one open closes. With
+      --- in its listener's backlog until one open closes, and a unix one
+      --- past the backlog fails at once (see
+      --- [`ConnectOptions.timeout_ms`]). With
       --- [`ServeSpec.workers`], each worker's limit: a connection one
       --- worker at its limit leaves waiting is taken by another.
       connections: integer
@@ -347,13 +351,17 @@ local function milliseconds(timeout_ms: integer | nil): integer
 end
 
 --- What a failed call says: its own words for a deadline or a signal,
---- the bound a name too long ran past, and what a host must be.
+--- the bound a name too long ran past, what a host must be, and why a
+--- unix listener answered EAGAIN, which errno's words leave unsaid.
 local function said(trouble: string, errno: integer, address?: Net.Address): string
   if errno == raw.ETIMEDOUT then return "timed out" end
   if errno == raw.EINTR then return "interrupted" end
   if errno == raw.ENAMETOOLONG then
     return trouble .. " (a socket file's own name may be at most " ..
       raw.SOCKET_NAME_MAX .. " bytes here)"
+  end
+  if errno == raw.EAGAIN and address ~= nil and address.kind == "unix" then
+    return trouble .. " (the listener is busy: its backlog is full)"
   end
   if errno == raw.EINVAL and address ~= nil and address.kind == "tcp" then
     return trouble .. " (not a numeric IPv4 or IPv6 address: a name is not looked up, " ..
@@ -554,17 +562,12 @@ local function raw_address(address: Net.Address): raw_socket.Address
   return { kind = address.kind, path = address.path, host = address.host, port = address.port }
 end
 
---- The clock a connection in a task waits out its timeout on.
+--- The monotonic clock, in milliseconds.
 local function now_ms(): integer
   local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if reading == nil then error("clock_gettime(CLOCK_MONOTONIC): " .. trouble) end
   return reading // 1000000
 end
-
---- The longest a connection in a task sleeps before it asks a unix
---- listener whose backlog was full again, as core/socket.c's `connect`
---- does out of one.
-local ROOM_PAUSE_MS <const> = 100
 
 --- What [`connection`] made: the socket, or, where there is none, what
 --- went wrong and its errno, which [`left_behind`] tells apart. `errno`
@@ -598,40 +601,22 @@ local function connection(address: Net.Address, timeout_ms: integer | nil): Atte
     local socket, trouble, errno = raw.connect(raw_address(address), ms)
     return { socket = socket, trouble = trouble, errno = errno }
   end
-  local deadline = timeout_ms ~= nil and now_ms() + timeout_ms or nil
-  local pause = 1
-  while true do
-    local socket, trouble, errno = raw.start(raw_address(address))
-    local left: integer = nil
-    if deadline ~= nil then left = math.max(deadline - now_ms(), 0) end
-    if socket ~= nil then
-      local holder: Connecting = { socket = socket }
-      local held <close> = setmetatable(holder, connecting_mt)
-      local ready, why = Poll.writable(socket:fd(), left)
-      if not ready then return { trouble = why, errno = 0 } end
-      local made, refused, number = raw.connected(socket:fd())
-      if not made then return { trouble = refused, errno = number } end
-      held.socket = nil
-      return { socket = socket }
-    end
-    if errno ~= raw.EAGAIN then return { trouble = trouble, errno = errno } end
-    -- A unix listener's backlog is full, and writable says nothing of
-    -- room there: ask again after a pause, as the wait out of a run does.
-    if left == 0 then return { trouble = Poll.TIMEOUT, errno = 0 } end
-    local paused, why = Poll.delay(left ~= nil and math.min(pause, left) or pause)
-    if not paused then return { trouble = why, errno = 0 } end
-    pause = math.min(pause * 2, ROOM_PAUSE_MS)
-  end
+  local socket, trouble, errno = raw.start(raw_address(address))
+  if socket == nil then return { trouble = trouble, errno = errno } end
+  local holder: Connecting = { socket = socket }
+  local held <close> = setmetatable(holder, connecting_mt)
+  local ready, why = Poll.writable(socket:fd(), timeout_ms)
+  if not ready then return { trouble = why, errno = 0 } end
+  local made, refused, number = raw.connected(socket:fd())
+  if not made then return { trouble = refused, errno = number } end
+  held.socket = nil
+  return { socket = socket }
 end
 
---- How long [`left_behind`] waits to connect: a live listener on Linux
---- whose backlog is full keeps a connection waiting for room, which
---- then times out rather than being refused.
-local PROBE_MS <const> = 1000
-
 --- How long `reclaim` waits for another's lock, which each holds for
---- a probe and two binds: far past that, the holder is stuck.
-local LOCK_MS <const> = 10 * PROBE_MS
+--- two binds with a unix connect and an unlink between, none of which
+--- waits: far past that, the holder is stuck.
+local LOCK_MS <const> = 10000
 
 --- The longest a reclaim in a task sleeps before it asks for another's
 --- lock again, as core's `flock` does out of one.
@@ -703,20 +688,22 @@ end
 --- What `reclaim` finds at `address`'s path, which a bind found taken,
 --- read from the working directory the bind was: "refused", a socket
 --- file connecting to which is refused, to take over; "gone", nothing
---- there any longer, to bind again; [`Poll.CANCELLED`], its task
---- cancelled while it asked; or "", anything else, to leave alone.
+--- there any longer, to bind again; or "", anything else, to leave
+--- alone.
 local function left_behind(address: Net.Address): string
   local st, _, lstat_errno = sys.lstat(address.path)
   if st == nil then return lstat_errno == sys.ENOENT and "gone" or "" end
   if st.kind ~= "socket" then return "" end
-  local probe = connection(address, PROBE_MS)
-  if probe.socket ~= nil then
-    local _, _ = probe.socket:close()
+  -- A unix connect answers at once, so this waits for nothing: a live
+  -- listener whose backlog is full answers EAGAIN on Linux, left alone,
+  -- and ECONNREFUSED on macOS, taken over (see ListenOptions.reclaim).
+  local probe, _, errno = raw.connect(raw_address(address), 0)
+  if probe ~= nil then
+    local _, _ = probe:close()
     return ""
   end
-  if probe.errno == raw.ECONNREFUSED then return "refused" end
-  if probe.errno == 0 and probe.trouble == Poll.CANCELLED then return Poll.CANCELLED end
-  return probe.errno == sys.ENOENT and "gone" or ""
+  if errno == raw.ECONNREFUSED then return "refused" end
+  return errno == sys.ENOENT and "gone" or ""
 end
 
 --- A unix listener at `address`; with `reclaim`, taking over a socket
@@ -726,10 +713,7 @@ local function listened(address: Net.Address, backlog: integer, timeout_ms: inte
   local socket, trouble, errno = raw.listen(raw_address(address), backlog)
   if socket == nil and errno == raw.EADDRINUSE and reclaim then
     local found = left_behind(address)
-    if found == Poll.CANCELLED then
-      trouble, errno = found, 0
-      found = ""
-    elseif found == "refused" then
+    if found == "refused" then
       local removed, why, number = sys.unlink(address.path)
       if not removed and number ~= sys.ENOENT then
         trouble, errno = why, number
@@ -787,8 +771,8 @@ end
 
 --- Connects to `address`. A unix one fails "No such file or directory"
 --- where there is no socket file and "Connection refused" where nothing
---- listens at it, and waits for room at a listener whose backlog is
---- full (on Linux; see [`ConnectOptions.timeout_ms`]). A TCP one waits
+--- listens at it, and fails at once at a listener whose backlog is
+--- full (see [`ConnectOptions.timeout_ms`]). A TCP one waits
 --- for the connection to be made, and fails "Connection refused" where
 --- nothing listens at the port.
 --- A unix path too long to connect to whole is connected to from its

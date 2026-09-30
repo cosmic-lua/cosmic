@@ -181,8 +181,8 @@ end
 
 --- The part names the suites table shows, by its column heading.
 local shown_parts: {{string}} = { { "Runtime", "runtime" }, { "Harness", "harness" },
-  { "Compiler", "compiler" }, { "Host", "host" }, { "System", "system" },
-  { "Host features", "host features" } }
+  { "Compiler", "compiler" }, { "Store", "store" }, { "Host", "host" },
+  { "System", "system" }, { "Host features", "host features" } }
 
 --- `rows` as the step summary's markdown table of suites: one line each,
 --- its counts, its stood share and its key parts.
