@@ -694,6 +694,22 @@
         # the verdicts under a commit), should their room in the
         # repository's 10 GB cache evict entries still in use (the fuzz
         # corpora, another leg's newest).
+        # TODO: bound what a seeded zig build entry carries. Each is the
+        # entry its run restored (often the last core change's seed) and
+        # all the run added, saved whole, so a day's core changes grow it
+        # until the nightly's cold entry supersedes them (linux-x86_64's
+        # seed-zig artifact went 243 -> 306 MB over two queue runs). Keeping
+        # only the files the run read or wrote (atime or mtime newer than
+        # a stamp made after the restore, atimes reset first) breaks the
+        # next build rather than recompiling it: zig takes a hit on each
+        # input's stat, unread, and trusts a hit step's whole o/<digest>,
+        # so a pruned input or output fails as "file not found". That held
+        # even with every cache file a kept manifest names, and every
+        # o/<digest> any kept file is in, kept too. The fix waits on zig
+        # naming the outputs each manifest vouches for, or a cache
+        # collection of its own; short of that, queue runs could build
+        # on the nightly's entry rather than the last seed, given the
+        # nightly a key of its own to restore by.
         {
           name: "keep what main would save of this leg",
           if: "success() && github.event_name == 'merge_group'",
@@ -1187,11 +1203,15 @@
             "github-token": "${{ github.token }}",
           },
         },
+        # The driver check's marker names the runner's image,
+        # <ImageOS>-<ImageVersion>, of any number of `-`-joined parts
+        # (linux-aarch64's is ubuntu24-arm64-<version>).
+        # build/queue_seed_test.tl reads each leg's keys through this.
         {
           name: "read the keys the queue's leg named",
           id: "keys",
           shell: "sh",
-          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._]*-[A-Za-z0-9._]*-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
+          run: "grep -E '^(verdicts=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-[0-9a-f]+|verdicts-sha=verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+-sha-${{ github.sha }}|compiles=compiles-${{ matrix.name }}-[0-9a-f]+|zig-build=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-[0-9]+-[0-9]+|zig-build-exact=zig-build-${{ matrix.name }}-[0-9a-f]+-full-[0-9a-f]+-|driver-checked=driver-checked-v2-${{ matrix.name }}-[A-Za-z0-9._-]+-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' \"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
         },
         # Under the commit first, as a leg saves them.
         {

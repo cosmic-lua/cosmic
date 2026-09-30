@@ -10,11 +10,13 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 
---- The script, and the system's `sh`, jq and tools, which run it.
-Test.needs{ reads = { ".github/scripts/queue-seed.sh" }, system = true }
+--- The script, and the system's `sh`, jq and tools, which run it; and
+--- ci.yml, whose keys `stage` is run with and whose `seed` job reads.
+Test.needs{ reads = { ".github/scripts/queue-seed.sh", ".github/workflows/ci.yml" }, system = true }
 
 -- By its whole path: a process the test starts elsewhere finds it.
 local SCRIPT <const> = assert(Fs.absolute(".github/scripts/queue-seed.sh"))
@@ -210,9 +212,10 @@ local function test_a_passing_run_beside_a_failed_one_is_found(tmp: string)
 end
 
 --- What `stage` keeps under $RUNNER_TEMP/seed, run with `env` and, where
---- `marker`, a passing driver check's marker, and its seed.keys. The
---- zig build outputs hold a program, whose mode their seed keeps.
-local function stage(tmp: string, env: {string: string}, marker: boolean): string, string
+--- `marker`, a passing driver check's marker (holding `marker_key`, or
+--- a key of no shape), and its seed.keys. The zig build outputs hold a
+--- program, whose mode their seed keeps.
+local function stage(tmp: string, env: {string: string}, marker: boolean, marker_key?: string): string, string
   runs = runs + 1
   local temp = tmp .. "/stage-" .. runs
   assert(Fs.mkdirs(temp .. "/zig-build/zig-project/o/abc"))
@@ -224,7 +227,7 @@ local function stage(tmp: string, env: {string: string}, marker: boolean): strin
   assert(Fs.write(temp .. "/build-cache/cache.db", "c"))
   if marker then
     assert(Fs.mkdirs(temp .. "/driver-checked"))
-    assert(Fs.write(temp .. "/driver-checked/key", "driver-checked-v2-leg-x\n"))
+    assert(Fs.write(temp .. "/driver-checked/key", (marker_key or "driver-checked-v2-leg-x") .. "\n"))
   end
   local full: {string: string} = { PATH = Env.get("PATH") or "/usr/bin:/bin", RUNNER_TEMP = temp }
   for name, value in pairs(env) do full[name] = value end
@@ -533,4 +536,134 @@ local function test_a_change_that_moves_the_harness_takes_nothing(tmp: string)
   output, calls, code, said = ahead(tmp, base, { running }, { ["42"] = KEPT }, nil, nil, repo)
   assert(code == 0 and output == "run=\n" and calls == "", output .. calls)
   assert(said:find("every test runs (--all)", 1, true), said)
+end
+
+--- ci.yml, decoded.
+local function workflow(): {string: {string: any}}
+  local text = assert(Fs.read(".github/workflows/ci.yml"))
+  return (assert(Json.decode_object(text, { json5 = true, hash_comments = true }))) as {string: {string: any}}
+end
+
+--- The step of `steps` whose `id` is `id`, or whose `run` holds `text`.
+local function step_of(steps: {{string: any}}, id?: string, text?: string): {string: any}
+  for _, step in ipairs(steps) do
+    local script = step.run
+    if (id ~= nil and step.id == id) or
+        (text ~= nil and script is string and script:find(text, 1, true) ~= nil) then
+      return step
+    end
+  end
+  error("no step " .. tostring(id or text))
+end
+
+local HEX64 <const> = "95301174f75ffeb84a42bb8a48da9110e55de69d2379ca686f538663fe25529d"
+
+--- Each runner image a leg's run names, `<ImageOS>-<ImageVersion>` as
+--- ci.yml's "name the zig build cache" step writes it: linux-aarch64's
+--- as run 36730873187 named it (ImageOS ubuntu24-arm64, whose `-` the
+--- seed's key read once refused), the others in the runners' shapes.
+local IMAGES <const>: {string: string} = {
+  ["linux-x86_64"] = "ubuntu24-20260920.130.1",
+  ["linux-aarch64"] = "ubuntu24-arm64-20260920.129.1",
+  ["macos-aarch64"] = "macos15-20260915.0138",
+  ["alpine-x86_64"] = "ubuntu24-20260920.130.1",
+}
+
+--- `template` with each `${{ ... }}` in it the value a run of leg `leg`
+--- gives it, in the shape the step that writes it writes: hashFiles
+--- a sha256, a digest one too, a restore's matched key none (nothing
+--- restored, so everything is kept). An expression it does not know
+--- fails, so a key built of something new is read here first.
+local function expand(template: string, leg: string, steps: {{string: any}}): string
+  local host = "verdicts-" .. leg .. "-3a9f8d7b94f5492e-"
+  local values: {string: string} = {
+    ["matrix.name"] = leg,
+    ["github.sha"] = SHA,
+    ["github.run_id"] = "36730873187",
+    ["github.run_attempt"] = "1",
+    ["steps.host-id.outputs.prefix"] = host,
+    ["steps.host-id.outputs.verdicts"] = host .. "bfd3e88dc72aaf8f-",
+    ["steps.names.outputs.image"] = IMAGES[leg],
+    ["steps.names.outputs.vendor"] = "zig-build-" .. leg .. "-" .. HEX64 .. "-",
+    ["steps.names.outputs.core"] = HEX64,
+    ["steps.verdicts-trim.outputs.digest"] = HEX64,
+    ["steps.compiles-trim.outputs.digest"] = HEX64,
+    ["steps.verdicts-restore.outputs.cache-matched-key"] = "",
+    ["steps.compiles-restore.outputs.cache-matched-key"] = "",
+    ["steps.zig-cache-restore.outputs.cache-matched-key"] = "",
+  }
+  return (template:gsub("%${{ (.-) }}", function(expression: string): string
+    if expression:match("^hashFiles%(") then return HEX64 end
+    if expression == "steps.zig-cache-restore.outputs.cache-primary-key" then
+      return expand((step_of(steps, "zig-cache-restore").with as {string: string}).key, leg, steps)
+    end
+    local value = values[expression]
+    assert(value ~= nil, "a key holds an expression the test gives no value: " .. expression)
+    return value
+  end))
+end
+
+--- Runs the `seed` job (of `ci`, ci.yml's jobs)'s key read for leg `leg`
+--- over `keys` (a seed.keys), and answers what it wrote to
+--- $GITHUB_OUTPUT.
+local function read_keys(tmp: string, ci: {string: {string: any}}, leg: string, keys: string): string
+  runs = runs + 1
+  local dir = tmp .. "/read-" .. runs
+  assert(Fs.mkdirs(dir))
+  assert(Fs.write(dir .. "/seed.keys", keys))
+  assert(Fs.write(dir .. "/output", ""))
+  local seed = ci.seed
+  local script = step_of(seed.steps as {{string: any}}, "keys").run as string
+  script = script:gsub("%${{ matrix%.name }}", leg):gsub("%${{ github%.sha }}", SHA)
+  assert(not script:find("${{", 1, true), "the key read holds an expression the test gives no value: " .. script)
+  local result = assert(Child.run({ "/bin/sh", "-e", "-c", script }, {
+    env = { PATH = Env.get("PATH") or "/usr/bin:/bin", RUNNER_TEMP = dir, GITHUB_OUTPUT = dir .. "/output" },
+    cwd = dir, stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
+  return Fs.read(dir .. "/output") or ""
+end
+
+--- Every key a leg's `stage` names, run as ci.yml runs it on that leg
+--- (its env, and the driver check's marker under the key ci.yml builds
+--- for it), `seed` reads back on that leg's own runner, and no other
+--- leg's: linux-aarch64's driver marker, whose image holds a third
+--- `-`-joined part, was once dropped, so each of its queue legs ran the
+--- driver check again.
+local function test_seed_reads_every_key_each_leg_stages(tmp: string)
+  local ci = workflow().jobs as {string: {string: any}}
+  local platform, checked = ci.platform, ci.checked
+  local platform_steps = platform.steps as {{string: any}}
+  local checked_steps = checked.steps as {{string: any}}
+  local legs = ((ci.seed.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}
+  local staged: {string: string} = {}
+  for _, leg in ipairs(legs) do
+    local name = leg.name as string
+    local steps = leg.checked and checked_steps or platform_steps
+    local env: {string: string} = {}
+    for key, template in pairs(step_of(steps, nil, "queue-seed.sh stage").env as {string: string}) do
+      env[key] = expand(template, name, steps)
+    end
+    local marker: string
+    if not leg.checked then
+      marker = expand((step_of(steps, "driver-check-restore").with as {string: string}).key, name, steps)
+      assert(marker:find(IMAGES[name], 1, true), marker)
+    end
+    local _, keys = stage(tmp, env, marker ~= nil, marker)
+    -- Each cache the leg saves is named: the verdicts twice, and where
+    -- the leg is a platform one its compiles, zig outputs and marker.
+    local _, count = keys:gsub("\n", "")
+    assert(count == (leg.checked and 2 or 6), name .. ": " .. keys)
+    local read = read_keys(tmp, ci, name, keys)
+    assert(read == keys, name .. " reads back only some of its keys:\n" .. keys .. "read:\n" .. read)
+    staged[name] = keys
+  end
+  -- A leg reads none of another's, nor of one whose name begins its own.
+  for name, keys in pairs(staged) do
+    for other in pairs(staged) do
+      if other ~= name then
+        local read = read_keys(tmp, ci, other, keys)
+        assert(read == "", other .. " reads " .. name .. "'s keys: " .. read)
+      end
+    end
+  end
 end
