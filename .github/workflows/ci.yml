@@ -250,8 +250,9 @@
         # (zig keys by path), one entry per leg, keyed
         # zig-build-<leg>-<vendor>-<scope>-<core>-<run>-<attempt>: `vendor`
         # hashes what compiles vendor/, `core` the core's own C. Also the
-        # runner's image (the driver check's key) and the run's start,
-        # from which a compile or verdict row counts as this run's.
+        # runner's image (in the driver check's key on macOS alone; a
+        # Linux leg's names its container) and the run's start, from
+        # which a compile or verdict row counts as this run's.
         # TODO: keep a core change's compiles for main's later runs at
         # the cost of the change rather than of a whole entry, as the
         # queue's seed now keeps them (below): save beside

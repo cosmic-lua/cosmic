@@ -503,7 +503,9 @@ end
 local function test_a_job_ahead_before_its_suite_is_not_waited_for(tmp: string)
   if not has_jq() then return end
   local running = listed(run("42", "in_progress", nil, SHA, QUEUE))
-  local suite: {string: string} = { SUITE_STEP = SUITE, WITHIN_SECONDS = "30" }
+  -- The helper's own five seconds: a job ahead waited for that should
+  -- not be fails by the assertions below, not by a long wait.
+  local suite: {string: string} = { SUITE_STEP = SUITE }
   for _, job in ipairs({ "in_progress a 60 queued", "in_progress a 60", "queued a", "queued b",
       "in_progress a 60 pending" }) do
     local output, calls, code, said = ahead(tmp, SHA, { running }, {}, { ["42"] = jobs(job) }, suite)

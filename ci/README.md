@@ -565,7 +565,12 @@ its image by digest, how it is started and the engine's version), not
 the runner's image, which GitHub rolls out over days: with
 `ImageVersion` in the key, a queue leg on the other image of a mixed
 fleet missed main's marker and checked again (3 of 12 queue runs on
-2026-09-30, 53 s each on the gating leg). What the runner's image
+2026-09-30, 53 s each on the gating leg). Keyed by the container,
+a leg on either image of a mixed fleet finds the marker only while
+both ship the same engine: its
+`Server.Version` is in `COSMIC_HOST_ID`, so an image that moves the
+engine (a moby bump) still misses main's marker until main saves
+again. What the runner's image
 still gives a Linux leg, its kernel and the engine, reaches the check
 only through the engine (keyed) and the kernel's system calls, which
 the check's tests (processes, files) use as any Linux does; the
