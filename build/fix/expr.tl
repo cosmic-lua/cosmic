@@ -132,7 +132,7 @@ local function literal_function(c: Ctx, n: Node)
   emit.text(c.em, "function")
   sig.typeargs(c, typescan.index_at(c.scan, n.y, n.x))
   sig.arguments(c, args)
-  sig.returns(c, rets, args, body)
+  sig.returns(c, rets, args, body.y, body.x)
   c.margin = base
   c.block(c, body)
   ctx_mod.lead_to(c, n.yend or body.y, n.xend or 1, base, " ")

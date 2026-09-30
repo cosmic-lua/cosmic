@@ -6,11 +6,13 @@
 --- on one line stays on one line and a body spread over twenty stays
 --- spread over twenty.
 ---
---- Two statement kinds do not begin where tl stamped them. A `local`
---- declaration's node sits at its first name and a `local type`'s at
---- the name it binds, not at the `local` that opens either. [`begins_at`]
---- walks back over the token stream to the keyword, so the statement is
---- indented from where it starts.
+--- Some statement kinds do not begin where tl stamped them. A `local`
+--- or `global` declaration's node sits at its first name, a `local
+--- type`'s or `global type`'s at the name it binds, a `local
+--- macroexp`'s at its name, a `global function`'s at its `function` and
+--- a pragma's at its name, not at the keyword that opens each.
+--- [`begins_at`] walks back over the token stream to that keyword, so
+--- the statement is indented from where it starts.
 
 local ast = require("build.ast")
 local ctx_mod = require("build.fix.ctx")
@@ -25,8 +27,10 @@ local type Ctx = ctx_mod.Ctx
 local statement: function(Ctx, Node)
 
 --- Where a statement's first character really is. `local a = 1` and
---- `local type T = U` are stamped at `a` and at `T`; every other kind
---- is stamped at its own opening keyword or at its leftmost operand.
+--- `local type T = U` are stamped at `a` and at `T`, `local macroexp
+--- m` at `m`, `global function f` at `function` and `--#pragma k v` at
+--- `k`; every other kind is stamped at its own opening keyword or at its
+--- leftmost operand.
 --- @param c Ctx
 --- @param s Node
 --- @return integer The 1-based line
@@ -34,13 +38,21 @@ local statement: function(Ctx, Node)
 local function begins_at(c: Ctx, s: Node): integer, integer
   local anchor: Node | nil = nil
   local back = 0
-  if s.kind == "local_declaration" then
+  local kind = s.kind
+  if kind == "local_declaration" or kind == "global_declaration" then
     local vars = s.vars
     anchor = vars ~= nil and vars[1] or nil
     back = 1
-  elseif s.kind == "local_type" then
+  elseif kind == "local_type" or kind == "global_type" then
     anchor = s.var
     back = 2
+  elseif kind == "local_macroexp" then
+    anchor = s
+    back = 2
+  elseif (kind == "global_function" and not s.implicit_global_function)
+      or kind == "pragma" then
+    anchor = s
+    back = 1
   end
   if anchor ~= nil then
     local i = typescan.index_at(c.scan, anchor.y, anchor.x)
@@ -121,8 +133,9 @@ local function closes(c: Ctx, n: Node, word: string)
 end
 
 --- A function's signature and body, from its type parameters onward:
---- shared by a `local function` and a `function M.f`, and by nothing
---- else, since a function literal is an expression.
+--- shared by a `local function`, a `global function`, a bare
+--- `function f` and a `function M.f`, and by nothing else, since a
+--- function literal is an expression.
 --- @param c Ctx
 --- @param n Node
 --- @param name Node The declared name, which any `<T>` follows
@@ -134,21 +147,22 @@ local function signature_and_body(c: Ctx, n: Node, name: Node)
   end
   sig.typeargs(c, typescan.index_at(c.scan, name.y, name.x))
   sig.arguments(c, args)
-  sig.returns(c, rets, args, body)
+  sig.returns(c, rets, args, body.y, body.x)
   block(c, body)
   closes(c, n, "end")
 end
 
 --- `local a <const>, b: integer, string = 1, "x"`: names with their
 --- attributes, then the one type list Teal writes after all of them,
---- then the values.
-local function declaration(c: Ctx, n: Node)
+--- then the values. A `global` declaration is the same under its own
+--- keyword.
+local function declaration(c: Ctx, n: Node, word: string)
   local vars = n.vars
   if vars == nil then
     ctx_mod.refuse(c, "a declaration with no names")
     return
   end
-  emit.text(c.em, "local")
+  emit.text(c.em, word)
   for i, v in ipairs(vars) do
     if i > 1 then
       emit.put(c.em, ",")
@@ -188,28 +202,36 @@ local function declaration(c: Ctx, n: Node)
 end
 
 --- `local record R ... end`, `local enum E ... end`, `local type T = U`,
---- and `local type T = require(...)`.
+--- and `local type T = require(...)`, and each of them `global`; and
+--- `global type T`, which declares a name and gives it no value.
 ---
 --- A record or enum body is written as the original bytes of the whole
---- statement. It is type syntax, and tl keeps a record's fields as
---- types, not text, so the comments between them survive only by
---- copying. The parser marks that form by giving the `newtype` an end
---- position; an alias has none.
-local function type_declaration(c: Ctx, n: Node)
+--- statement, from its `local` or `global` on, whether it was spelled
+--- `local record R` or `local type R = record`. It is type syntax, and
+--- tl keeps a record's fields as types, not text, so the comments
+--- between them survive only by copying. The parser marks that form by
+--- giving the `newtype` an end position; an alias has none.
+local function type_declaration(c: Ctx, n: Node, word: string)
   local value, var = n.value, n.var
-  if value == nil or var == nil then
-    ctx_mod.refuse(c, "a type declaration with no name or value")
+  if var == nil then
+    ctx_mod.refuse(c, "a type declaration with no name")
     return
   end
-  local yend, xend = value.yend, value.xend
-  if value.kind == "newtype" and yend ~= nil and xend ~= nil then
-    ctx_mod.verbatim(c, value.y, value.x, yend, xend)
-    return
+  if value ~= nil then
+    local yend, xend = value.yend, value.xend
+    if value.kind == "newtype" and yend ~= nil and xend ~= nil then
+      local y, x = begins_at(c, n)
+      ctx_mod.verbatim(c, y, x, yend, xend)
+      return
+    end
   end
-  emit.text(c.em, "local type")
+  emit.text(c.em, word .. " type")
   ctx_mod.lead(c, var, " ")
   emit.text(c.em, var.tk or "")
   sig.typeargs(c, typescan.index_at(c.scan, var.y, var.x))
+  if value == nil then
+    return
+  end
   emit.put(c.em, " =")
   if value.kind ~= "newtype" then
     ctx_mod.lead(c, value, " ")
@@ -223,6 +245,44 @@ local function type_declaration(c: Ctx, n: Node)
   end
   emit.put(c.em, " ")
   ctx_mod.region(c, first, typescan.type_end(c.scan, first))
+end
+
+--- `local macroexp m(a: integer): integer return a + 1 end`: a
+--- signature, then one `return`, laid out as the body of a `local
+--- function` holding only that statement would be.
+---
+--- tl keeps the returned expression and not the `return`, whose token
+--- is the one just before the expression. The body is written as the
+--- block that `return` spells, so it is indented and led to like any
+--- other.
+local function macroexp(c: Ctx, n: Node)
+  local name, def = n.name, n.macrodef
+  local args = def ~= nil and def.args or nil
+  local rets = def ~= nil and def.rets or nil
+  local exp = def ~= nil and def.exp or nil
+  if name == nil or def == nil or args == nil or rets == nil or exp == nil then
+    ctx_mod.refuse(c, "a macroexp with no name, signature or body")
+    return
+  end
+  local at = ctx_mod.start_of(c, exp)
+  local first = typescan.index_at(c.scan, at.y, at.x)
+  local t = first ~= nil and c.scan.tokens[first - 1] or nil
+  if t == nil or t.tk ~= "return" then
+    ctx_mod.refuse(c, "a macroexp with no 'return' before its expression")
+    return
+  end
+  emit.text(c.em, "local macroexp")
+  ctx_mod.lead(c, name, " ")
+  emit.text(c.em, name.tk or "")
+  sig.typeargs(c, typescan.index_at(c.scan, name.y, name.x))
+  sig.arguments(c, args)
+  sig.returns(c, rets, args, t.y, t.x)
+  local listed: Node = { kind = "expression_list", f = n.f, y = at.y, x = at.x }
+  listed[1] = exp
+  local body: Node = { kind = "statements", f = n.f, y = t.y, x = t.x }
+  body[1] = { kind = "return", f = n.f, y = t.y, x = t.x, exps = listed }
+  block(c, body)
+  closes(c, def, "end")
 end
 
 --- `if` / `elseif` / `else`, one branch per recorded block.
@@ -281,9 +341,27 @@ end
 statement = function(c: Ctx, n: Node)
   local kind = n.kind
   if kind == "local_declaration" then
-    declaration(c, n)
+    declaration(c, n, "local")
+  elseif kind == "global_declaration" then
+    declaration(c, n, "global")
   elseif kind == "local_type" then
-    type_declaration(c, n)
+    type_declaration(c, n, "local")
+  elseif kind == "global_type" then
+    type_declaration(c, n, "global")
+  elseif kind == "local_macroexp" then
+    macroexp(c, n)
+  elseif kind == "pragma" then
+    emit.text(c.em, "--#pragma " .. (n.pkey or "") .. " " .. (n.pvalue or ""))
+  elseif kind == "global_function" then
+    local name = n.name
+    if name == nil then
+      ctx_mod.refuse(c, "a global function with no name")
+      return
+    end
+    emit.text(c.em, n.implicit_global_function and "function" or "global function")
+    ctx_mod.lead(c, name, " ")
+    emit.text(c.em, name.tk or "")
+    signature_and_body(c, n, name)
   elseif kind == "local_function" then
     local name = n.name
     if name == nil then
