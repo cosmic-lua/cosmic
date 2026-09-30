@@ -386,12 +386,16 @@ static void close_child_descriptors (int from, long limit) {
  * checks opening a file or listing a directory, never stat, access,
  * readlink, statfs or chdir, so a confined child still learns whether a
  * path outside the ruleset is there, and its size and times -- nor its
- * reach beyond: a unix socket named by a path, and UDP. A sandbox's
+ * reach beyond: a unix socket named by a path, TCP and UDP. A sandbox's
  * `unveil` closes the first and the socket paths, and `offline` the rest.
+ * TCP is left unhandled though Landlock can hold it from ABI 4: held
+ * there and not below, a child's connection over loopback would pass
+ * on one kernel and fail on another, and `offline` holds it on every
+ * one.
  * TODO: a strict form, for a sandbox that must hold whole, refusing
  * with EOPNOTSUPP where the kernel's ABI or this build's headers leave
  * out a right the ruleset otherwise handles -- truncate below ABI 3,
- * TCP below 4, device ioctls below 5, abstract unix sockets and signals
+ * device ioctls below 5, abstract unix sockets and signals
  * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
  * child to a ruleset under build.confine's `must_confine`: today it
  * handles what the kernel knows and says nothing of the rest, so a
@@ -420,11 +424,6 @@ COSMIC_SYSCALL(landlock_ruleset, 2) {
   attr.handled_access_fs = handled;
   /* A kernel older than a field takes the struct only up to it. */
   size_t size = sizeof attr.handled_access_fs;
-  if (abi >= 4) {
-    attr.handled_access_net = LANDLOCK_ACCESS_NET_BIND_TCP | LANDLOCK_ACCESS_NET_CONNECT_TCP;
-    size = offsetof(struct landlock_ruleset_attr, handled_access_net) +
-           sizeof attr.handled_access_net;
-  }
 #ifdef LANDLOCK_SCOPE_SIGNAL
   if (abi >= 6) {
     /* Nor may it reach a process outside it through an abstract unix
