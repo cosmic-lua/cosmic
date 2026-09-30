@@ -25,6 +25,7 @@ local symbols = require("build.symbols")
 local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
+local rebuild_lock = require("build.rebuild_lock")
 
 local record writer
 end
@@ -387,21 +388,41 @@ function writer.write_result(handle: work.Handle, out: string,
     return true, ""
   end
 
-  local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
-  if not attached then
-    return false, attach_trouble
+  -- Written aside under `out`'s one fixed `.building` name, which no
+  -- other run in this checkout writes meanwhile: the checkout's own
+  -- projection is written holding its rebuild lock, which a `cosmic
+  -- test` run and a rebuild of the tool hold already, and a boot's
+  -- bridge is handed by the `bin/zig build boot` that holds it. Taken
+  -- only now, with the working database's transaction ended above, so
+  -- a holder waiting for that database is not waited on in turn.
+  local took = false
+  if out == handle.root .. "/o/cosmic.db" then
+    local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", "o/cosmic.db")
+    if taken == nil then
+      return false, lock_trouble
+    end
+    took = taken
   end
-  -- TODO: write aside under a name of this run's own, not `out`'s
-  -- `.building`, which another run's write_result in this checkout
-  -- removes and vacuums into under this one (projecting the same edit
-  -- after this one's commit, before this one's rename). The fix is a
-  -- unique name, with a sweep of names no live run holds.
-  local projected, trouble = project(handle, out, result, pending, signature, by)
-  local _, _ = db:exec("DETACH out")
-  if not projected then
+  local function written(): boolean, string
+    local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
+    if not attached then
+      return false, attach_trouble
+    end
+    local projected, trouble = project(handle, out, result, pending, signature, by)
+    local _, _ = db:exec("DETACH out")
+    if not projected then
+      return false, trouble
+    end
+    return Fs.rename(out .. ".building", out)
+  end
+  local ok, trouble = written()
+  if took then
+    rebuild_lock.release()
+  end
+  if not ok then
     return false, trouble
   end
-  return Fs.rename(out .. ".building", out)
+  return true, ""
 end
 
 --- The modules a projection holds that the tool built from it does not
