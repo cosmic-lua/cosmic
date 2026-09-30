@@ -1,6 +1,6 @@
 --- The case of cosmic/log_test.tl that runs a script under this
---- program, to see where each line lands. It declares `tool` because
---- it starts this program.
+--- program, to see where each line lands. It declares `lua` because
+--- it starts this program only to run a script standalone.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.needs{ tool = true }
+Test.needs{ lua = true }
 
 --- Runs `body` as a standalone script and answers what it wrote.
 local function run(tmp: string, body: string): string, string

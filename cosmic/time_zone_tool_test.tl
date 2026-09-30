@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 
 --- The program itself, which the test starts. No zone is read from the
 --- host's files: a program reads only the zones it carries.
-Test.needs{ tool = true }
+Test.needs{ lua = true }
 
 --- `local_zone` with no options reads the process's own `TZ` -- set
 --- and empty, UTC -- and neither it nor `zone` reads `TZDIR`: a zone

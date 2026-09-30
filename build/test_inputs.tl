@@ -86,6 +86,7 @@ local record test_inputs
   end
 
   lua_loads: {string}
+  loaded_beside: {string:{string}}
 end
 
 --- The variables every test may read undeclared, which a sandboxed
@@ -99,28 +100,47 @@ local pinned_env: {string} = { "TL_DEBUG", "TL_DEBUG_FACTS", "FUZZ_SEED", "FUZZ_
 for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_env + 1] = name end
 
 --- The modules of the tree a process of this program runs before the
---- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`), and
---- nothing else of the tree: cosmic's main and the lean way dispatch
---- takes to `-e`, with what each requires at its top level. A module
---- that declares `lua` ([`cosmic.test`]) holds them in its closure, as
---- if it required each at its top level, though not what each requires
---- only inside a function it does not call on that way -- dispatch
---- requires every verb's modules so -- so its key holds each by what it
---- is, and every process its tests start is held to that closure
---- (core/store.c's `hold_children`). A module added to that way is
---- refused to such a process, naming `lua`, until it is added here;
---- build/lua_children_test.tl holds a `-e` child to loading no more.
--- TODO: hold `--standalone`'s way too (build.standalone, build.teal and
--- what each loads), or `-e` alone where a file run is a Lua file, so the
--- modules whose tests run a file standalone and nothing else of the
--- program -- cosmic/log_tool_test.tl, cosmic/store_tool_test.tl,
--- cosmic/net_tool_test.tl, cosmic/http_tool_test.tl,
--- cosmic/time_zone_tool_test.tl, cosmic/test_tool_test.tl -- can declare
--- `lua` in place of `tool`: today such a run is refused a held child.
+--- chunk `cosmic -e` hands it runs ([`build.dispatch`]'s `evaluate`), or
+--- the file `cosmic --standalone` checks and runs ([`build.standalone`]),
+--- and nothing else of the tree: cosmic's main, the lean ways dispatch
+--- takes to each, and the checker standalone types a file with
+--- ([`build.teal`], which loads the compiler beside it: `loaded_beside`),
+--- with what each requires at its top level. A module that declares
+--- `lua` ([`cosmic.test`]) holds them in its closure, as if it required
+--- each at its top level, though not what each requires only inside a
+--- function it does not call on those ways -- dispatch requires every
+--- verb's modules so -- so its key holds each by what it is, and every
+--- process its tests start is held to that closure (core/store.c's
+--- `hold_children`). A module added to those ways is refused to such a
+--- process, naming `lua`, until it is added here;
+--- build/lua_children_test.tl holds a `-e` child and a standalone one to
+--- loading no more. A standalone file that requires a module of the
+--- standard library is typed from its declaration too, which the test
+--- module holds by requiring that module at its top level.
+-- TODO: key a module whose children only run `-e` by that way alone:
+-- today every `lua` module holds standalone's way too (build.teal, the
+-- compiler, cosmic.sqlite and the rest), so an edit to one of those runs
+-- cosmic/child_lua_test.tl again though no child of it loads them. The
+-- fix is a second set, chosen by what the module declares (`lua =
+-- "chunk"` against `lua = "standalone"` in cosmic.test's `needs`), with
+-- the hold narrowed to match.
 test_inputs.lua_loads = {
-  "build.dispatch", "build.exit_status", "build.help_source", "build.verdict",
-  "cmd.cosmic.main", "cosmic.env", "cosmic.fs", "cosmic.log",
+  "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
+  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.dispatch",
+  "build.exit_status", "build.help_source", "build.standalone", "build.teal", "build.verdict",
+  "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
+  "cosmic.sqlite", "cosmic.store",
 }
+
+--- Modules a module loads by other means than `require`, by that
+--- module: build.teal loads the compiler as bytecode
+--- (`Store.bytecode("vendor.tl")`), which no parse follows. A closure
+--- store carries each beside the module that loads it
+--- ([`build.closure_store`]'s `loaded_beside`, which
+--- build/lua_children_test.tl holds to this), and a process a `lua`
+--- module's tests start may load it where the closure holds that module
+--- ([`build.test_worker`]'s `hold_children`).
+test_inputs.loaded_beside = { ["build.teal"] = { "vendor.tl" } }
 
 --- Where [`build.fuzz`] keeps the corpus of every property.
 local corpora <const> = "testdata/fuzz/"

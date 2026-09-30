@@ -534,7 +534,9 @@ end
 --- is given (core/store.c's [`hold_children`]): on every module and
 --- declaration the program carries but those of `closure`, the set of
 --- the names its import closure holds, `lua_loads` among them
---- ([`build.test_inputs`]), and [`cosmic.removed`]; with the `meta` rows
+--- ([`build.test_inputs`]), what those load beside them (its
+--- `loaded_beside`, which their closure store carries), and
+--- [`cosmic.removed`]; with the `meta` rows
 --- of [`meta_keys`]. So what such a process runs and reads of the program
 --- is what the test's key holds of its closure -- its store's bytes --
 --- and of the runtime, as it is for this worker; the program's other
@@ -543,7 +545,12 @@ end
 --- escapes it, and never taken down, as the store's hold is not.
 local function hold_children(module_path: string, closure: {string:boolean})
   local names: {string} = {}
-  for name in pairs(closure) do names[#names + 1] = name end
+  for name in pairs(closure) do
+    names[#names + 1] = name
+    for _, beside in ipairs(test_inputs.loaded_beside[name] or {}) do
+      if not closure[beside] then names[#names + 1] = beside end
+    end
+  end
   table.sort(names)
   local keys: {string} = {}
   for key in pairs(meta_keys(closure)) do keys[#keys + 1] = key end

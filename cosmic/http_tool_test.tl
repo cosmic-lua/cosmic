@@ -10,11 +10,15 @@ local Net = require("cosmic.net")
 local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+--- What the scripts its tests run standalone require, which a child
+--- is typed and run against only where the closure holds it (`lua`).
+local type _ = require("cosmic.http")
 
 --- Requests to a local port, closed or one a test serves, which a
 --- loopback alone answers: the worker runs offline, and is keyed. And
---- the program itself, which its tests start.
-Test.needs{ network = { "127.0.0.1" }, tool = true }
+--- the program itself, which its tests start only to run a script
+--- standalone (`lua`).
+Test.needs{ network = { "127.0.0.1" }, lua = true }
 
 --- What a fresh process, $SSL_CERT_FILE naming `cert_file`, is told
 --- when it opens a closed local port: the roots, that file's included,

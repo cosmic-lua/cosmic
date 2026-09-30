@@ -61,6 +61,10 @@ local record closure_store
     --- ([`required_by`]).
     decl_requires: {string:{string}}
   end
+
+  --- Modules a module loads by other means than `require`, by that
+  --- module (`loaded_beside`).
+  loaded_beside: {string:{string}}
 end
 
 --- `value`, bound as TEXT: [`build.bind`]'s `text`, restated rather than
@@ -215,6 +219,7 @@ end
 --- closure store carries beside it: build.teal loads the compiler as
 --- bytecode (`Store.bytecode("vendor.tl")`), which no parse follows.
 local loaded_beside: {string:{string}} = { ["build.teal"] = { "vendor.tl" } }
+closure_store.loaded_beside = loaded_beside
 
 --- The modules of `basis` a closure store for `names` -- an import
 --- closure's module names ([`test_inputs.modules`]) -- holds, sorted: each

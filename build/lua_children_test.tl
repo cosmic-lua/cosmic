@@ -7,7 +7,9 @@
 --- test holds.
 
 local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local closure_store = require("build.closure_store")
 local test_inputs = require("build.test_inputs")
 local this_program = require("build.this_program")
 
@@ -89,4 +91,38 @@ return failed == 3 and 0 or 1
 ]]
   local ok, out, err = run({ "-e", chunk })
   assert(ok, out .. err)
+end
+
+--- A Teal file runs standalone, checked by the compiler, which build.teal
+--- loads beside it (`loaded_beside`): typed against a module of the
+--- standard library the test module requires, and running it. One that
+--- requires a module outside the closure is refused: the checker, which
+--- types it from rows the hold does not let through, finds no such module.
+local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
+  local good = tmp .. "/good.tl"
+  assert(Fs.write(good, "local Child = require(\"cosmic.child\")\n" ..
+    "local ok = type(Child.run) == \"function\"\n" ..
+    "return function(argv: {integer:string}): integer\n" ..
+    "  print(ok, argv[1])\n  return 0\nend\n"))
+  local ok, out, err = run({ "--standalone", good, "word" })
+  assert(ok and out == "true\tword\n", out .. err)
+  local bad = tmp .. "/bad.tl"
+  assert(Fs.write(bad, "local Zip = require(\"cosmic.zip\")\nprint(Zip ~= nil)\n"))
+  ok, out, err = run({ "--standalone", bad })
+  assert(not ok and err:find("module not found: 'cosmic.zip'", 1, true), out .. err)
+end
+
+--- What a closure store carries beside a module is what a held process
+--- may load beside it.
+local function test_what_a_store_carries_beside_a_module_a_child_may_load()
+  local function flat(by: {string:{string}}): string
+    local lines: {string} = {}
+    for name, besides in pairs(by) do
+      lines[#lines + 1] = name .. "=" .. table.concat(besides, ",")
+    end
+    table.sort(lines)
+    return table.concat(lines, " ")
+  end
+  assert(flat(closure_store.loaded_beside) == flat(test_inputs.loaded_beside),
+    flat(closure_store.loaded_beside))
 end
