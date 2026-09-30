@@ -11,30 +11,20 @@
 --- database is the only module source at run time, so running a file
 --- and building a project are one path.
 
-local Cli = require("cosmic.cli")
-local Codec = require("cosmic.codec")
-local Env = require("cosmic.env")
-local Flags = require("cosmic.flags")
-local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
-local Proc = require("cosmic.proc")
-local Store = require("cosmic.store")
-local String = require("cosmic.string")
-local Time = require("cosmic.time")
-local clock = require("build.clock")
-local docs_checks = require("build.docs_checks")
 local exit_status = require("build.exit_status")
-local sys = require("cosmic.sys")
-local verb_list = require("build.verb_list")
-local verb_spec = require("build.verb_spec")
+local help_source = require("build.help_source")
 local verdict = require("build.verdict")
-local plural = require("build.plural")
+local type Option = require("cosmic.flags").Option
+local type verb_spec = require("build.verb_spec")
 
 local log = verdict.log
 
--- Require build modules lazily inside what needs them, so a verb's command
--- line loads that verb's module alone ([`verb_list.find`]). Only `cosmic help`
--- of a verb loads its spec, and `cosmic help exit` loads them all.
+-- Require modules lazily inside what needs them, so a verb's command line
+-- loads that verb's module alone ([`verb_list.find`]), and `-e`,
+-- `--version` and `--standalone`, which a test's child runs most, load
+-- none of what the verbs and their help read (build/dispatch_tool_test.tl
+-- holds `-e` to that). Only `cosmic help` of a verb loads its spec, and
+-- `cosmic help exit` loads them all.
 
 --- The full text of each verb's `cosmic help <verb>`, generated from
 --- [`cosmic.cli`]'s own fields ([`cosmic.cli.Cli.run`],
@@ -47,6 +37,8 @@ local log = verdict.log
 --- @param verbs the verbs to print
 --- @return each verb's text, by verb
 local function verb_help(verbs: {string}): {string: string}
+  local Cli = require("cosmic.cli")
+  local Flags = require("cosmic.flags")
   local docs = require("build.docs")
   local link_text = require("build.link_text")
   local sources = docs.databases()
@@ -208,6 +200,7 @@ end
 --- The index `cosmic help` prints: what `cosmic` is, each verb's usage
 --- and purpose in the sections [`Cli.groups`] names, and where to read more.
 local function index_help(): string
+  local Cli = require("cosmic.cli")
   local width = 0
   for _, verb in ipairs(Cli.order) do
     width = math.max(width, #Cli.usage[verb])
@@ -247,6 +240,7 @@ end
 
 --- The directory a path sits in, absolute.
 local function directory_of(path: string): string | nil, string
+  local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(path)
   if resolved == nil then
     return nil, trouble
@@ -260,6 +254,7 @@ end
 --- the rest of it; the file's own directory otherwise, so a file
 --- anywhere else runs on its own.
 local function root_of(file: string): string | nil, string
+  local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
     return nil, file .. ": " .. trouble
@@ -275,6 +270,8 @@ end
 --- directory's `init.tl` is the directory's, as the build's `inputs`
 --- view (build/work.tl) names it.
 local function module_of(root: string, file: string): string | nil, string
+  local Fs = require("cosmic.fs")
+  local String = require("cosmic.string")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
     return nil, trouble
@@ -308,6 +305,9 @@ end
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
 local function run(file: string, argv: {integer:string}): integer
+  local Store = require("cosmic.store")
+  local Time = require("cosmic.time")
+  local clock = require("build.clock")
   local importer = require("build.importer")
   local shared_compiles = require("build.shared_compiles")
   local reboot = require("build.reboot")
@@ -418,6 +418,10 @@ local as_option: {string:string} = {
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {integer:string}): integer
+  local Codec = require("cosmic.codec")
+  local Fs = require("cosmic.fs")
+  local Hash = require("cosmic.hash")
+  local Proc = require("cosmic.proc")
   if argv[2] ~= nil then
     log:complain("--version takes nothing after it, not " .. argv[2])
     return 2
@@ -499,6 +503,12 @@ local help_spec: verb_spec.Spec
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
+  local Cli = require("cosmic.cli")
+  local Flags = require("cosmic.flags")
+  local Time = require("cosmic.time")
+  local clock = require("build.clock")
+  local plural = require("build.plural")
+  local verb_list = require("build.verb_list")
   local started = Time.monotonic_ns()
   -- The staleness guard `test` applies: a fingerprint compare when the
   -- tool is fresh. Help reads build.docs, so an edit to it must rebuild.
@@ -575,6 +585,7 @@ help_spec = {
 --- exit status is the verdict, and a usage error is complained about and
 --- nothing more. build/json.tl says why.
 local function spec_of(word: string): verb_spec.Spec | nil
+  local verb_list = require("build.verb_list")
   if word == "help" then
     return help_spec
   end
@@ -611,7 +622,7 @@ end
 --- anywhere after the verb, before a "--", that its options do not
 --- name -- as [`Flags.dispatch`] reads a command's.
 local function asks_help(argv: {integer:string},
-    options: {string:boolean | Flags.Option}): boolean
+    options: {string:boolean | Option}): boolean
   local slot = 2
   while argv[slot] ~= nil and argv[slot] ~= "--" do
     local word = argv[slot]
@@ -629,6 +640,8 @@ local dispatch = {}
 --- index, `exit` its page, and each verb of [`Cli.order`] its own, so a
 --- check reads what a user reads.
 local function help_texts(): {string: string}
+  local Cli = require("cosmic.cli")
+  local verb_list = require("build.verb_list")
   local specs = verb_list.specs()
   specs[#specs + 1] = help_spec
   local out: {string: string} = { [""] = index_help(), exit = exit_help(specs) }
@@ -639,7 +652,7 @@ local function help_texts(): {string: string}
   return out
 end
 
-docs_checks.provide_help(help_texts)
+help_source.provide(help_texts)
 
 --- Runs the command line and answers its exit code.
 --- @param argv the command line, with the program's own name at slot 0
@@ -662,6 +675,11 @@ function dispatch.main(argv: {integer:string}): integer
     local standalone = require("build.standalone")
     return standalone.run(argv)
   end
+  local Cli = require("cosmic.cli")
+  local Env = require("cosmic.env")
+  local Fs = require("cosmic.fs")
+  local String = require("cosmic.string")
+  local sys = require("cosmic.sys")
   local verb = word
   if word == nil or word == "-h" or word == "--help" then
     verb = "help"

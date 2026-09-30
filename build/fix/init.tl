@@ -60,6 +60,7 @@ local Time = require("cosmic.time")
 local clock = require("build.clock")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
+local help_source = require("build.help_source")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local flow = require("build.flow")
@@ -873,7 +874,7 @@ local function fix_verb(argv: {integer:string}): integer
       if carried == nil then
         findings[#findings + 1] = "tree checks: " .. carried_trouble
       end
-      local help, help_trouble = docs_checks.help_texts()
+      local help, help_trouble = help_source.texts()
       if help == nil then
         findings[#findings + 1] = "tree checks: " .. help_trouble
       end

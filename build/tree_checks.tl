@@ -1292,7 +1292,7 @@ end
 --- @param carried the database a release binary carries of `db`
 ---   ([`build.docs_checks`]' `carried`), which the checks of what `cosmic
 ---   docs` shows read; `db` itself when not given
---- @param help what `cosmic help` prints ([`docs_checks.help_texts`]),
+--- @param help what `cosmic help` prints ([`build.help_source`]' `texts`),
 ---   whose references are checked with the docs'; none when not given
 function tree_checks.run(db: Sqlite.Handle, quickstart: string | nil, built?: compiler,
     extra?: {{string}}, carried?: Sqlite.Handle, help?: {string: string}): {string}
