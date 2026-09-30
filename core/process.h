@@ -217,6 +217,14 @@ COSMIC_SYSCALL(subreaper, 0);
 COSMIC_SYSCALL(sandbox_inits, 0);
 
 /*
+ * --- The children of the thread that calls it -- the one that starts every child -- not yet reaped, orphans it adopted as a subreaper among them: Linux's /proc/thread-self/children, named so rather than by `getpid()`, which in a sandbox whose /proc is the host's names another process. ENOSYS where there is no such list, and the error that refused it where it cannot be read (ENOENT from a kernel built without it).
+ * ---@return {integer}|nil pids their process ids, in the kernel's order, or nil on failure
+ * ---@return string error what went wrong, when pids is nil
+ * ---@return integer errno the error number, when pids is nil
+ */
+COSMIC_SYSCALL(children, 0);
+
+/*
  * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back.
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false

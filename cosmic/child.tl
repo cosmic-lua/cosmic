@@ -299,15 +299,11 @@ end
 --- The open guard, if any: at most one is, process-wide.
 local active: Guard | nil
 
--- TODO: use sys.EBUSY once cosmic.sys carries it; 16 is EBUSY on Linux
--- and macOS alike.
-local EBUSY <const> = 16
-
 --- Why no guard could be taken, from the core's `trouble` and `errno`
 --- for it. The core answers EBUSY only while a guard is open, and this
 --- names it; any other failure keeps the core's own words.
 local function busy(trouble: string, errno: integer): string
-  if errno == EBUSY then
+  if errno == sys.EBUSY then
     return "a guard (Child.guard or another Child.run) is already open (" ..
       trouble .. "): close it first"
   end
@@ -1303,29 +1299,18 @@ function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, 
   end
 end
 
---- The children of this process that no handle owns, from Linux's
---- per-thread `children` list -- this thread's, which is the one that
---- starts every child, named /proc/thread-self rather than by
---- `getpid()`, which in a sandbox whose /proc is the host's names
---- another process -- but for the sandboxes' inits the process table
---- started (`sandbox_inits`), each of which ends with the child it was
---- started for; nil where there is no such list.
+--- The children of this process that no handle owns, as the process
+--- table lists this thread's (`children`), but for the sandboxes' inits
+--- it started (`sandbox_inits`), each of which ends with the child it
+--- was started for; nil where there is no such list.
 local function strays(): {integer} | nil
-  local fd, _ = sys.open("/proc/thread-self/children", sys.O_RDONLY)
-  if fd == nil then return nil end
-  local parts: {string} = {}
-  while true do
-    local data, _ = sys.read(fd, CHUNK)
-    if data == nil or data == "" then break end
-    parts[#parts + 1] = data
-  end
-  local _, _ = sys.close(fd)
+  local children, _ = raw.children()
+  if children == nil then return nil end
   local inits: {integer:boolean} = {}
   for _, pid in ipairs(raw.sandbox_inits()) do inits[pid] = true end
   local found: {integer} = {}
-  for number in table.concat(parts):gmatch("%d+") do
-    local pid = math.tointeger(tonumber(number))
-    if pid ~= nil and not owned[pid] and not inits[pid] then found[#found + 1] = pid end
+  for _, pid in ipairs(children) do
+    if not owned[pid] and not inits[pid] then found[#found + 1] = pid end
   end
   return found
 end

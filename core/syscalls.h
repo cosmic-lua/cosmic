@@ -86,7 +86,7 @@ int cosmic_open_syscalls (lua_State *L);
  * ---@class Stat
  * ---@field size integer the size in bytes
  * ---@field mode integer the type and permission bits
- * ---@field kind string one of "file", "dir", "link", "other"
+ * ---@field kind string one of "file", "dir", "link" (a symbolic link), "socket", "fifo" (a named pipe), "char" (a character device), "block" (a block device), or "other" for any other type a system has
  * ---@field mtime integer the modification time, whole seconds
  * ---@field mtime_ns integer the nanoseconds part of the modification time
  * ---@field atime integer the access time, whole seconds
@@ -274,7 +274,7 @@ COSMIC_SYSCALL(chmod, 2);
 COSMIC_SYSCALL(chown, 3);
 
 /*
- * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it: "dir", "file", "link" for a symbolic link (never followed), or "other".
+ * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it (its `kind`): "link" for a symbolic link, which is never followed.
  * ---@param path string the directory to list
  * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure
  * ---@return string error what went wrong, when entries is nil
@@ -656,10 +656,13 @@ COSMIC_SYSCALL(set_nonblocking, 2);
  * --- Waits until one of the descriptors is ready or the timeout passes,
  * --- and answers what happened to each, 0 for one not ready. A
  * --- descriptor of -1 is not watched and answers 0, one below -1 raises,
- * --- and one not open answers POLLNVAL. A signal ends the wait early, as
+ * --- and one not open answers POLLNVAL. A descriptor given more than once
+ * --- is watched once, for every event its entries want, and each entry
+ * --- answers only its own events (and POLLERR, POLLHUP, POLLNVAL), on
+ * --- every system alike. A signal ends the wait early, as
  * --- though nothing were ready. There is no count the call itself
- * --- refuses: the kernel refuses more than RLIMIT_NOFILE's soft limit
- * --- (at most OPEN_MAX on macOS) with EINVAL.
+ * --- refuses: the kernel refuses more distinct descriptors than
+ * --- RLIMIT_NOFILE's soft limit (at most OPEN_MAX on macOS) with EINVAL.
  * ---@param fds {integer} the descriptors to watch
  * ---@param events {integer} the POLL* mask wanted for each descriptor
  * ---@param timeout_ms integer how long to wait, -1 for no limit
@@ -710,6 +713,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
  * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
+ * ---@field EBUSY integer the resource is in use, as while a signal guard is already open
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal
@@ -760,6 +764,7 @@ COSMIC_CONSTANT(EOPNOTSUPP)
 COSMIC_CONSTANT(EPERM)
 COSMIC_CONSTANT(ENOSPC)
 COSMIC_CONSTANT(EINVAL)
+COSMIC_CONSTANT(EBUSY)
 COSMIC_CONSTANT(SIGHUP)
 COSMIC_CONSTANT(SIGINT)
 COSMIC_CONSTANT(SIGQUIT)

@@ -2625,6 +2625,27 @@ COSMIC_SYSCALL(set_nonblocking, 2) {
   return cosmic_ok(L);
 }
 
+/* One entry of `poll`'s argument: its descriptor, and where it is in
+ * the argument, to sort the entries by descriptor. */
+struct poll_entry {
+  int fd;
+  int at;
+};
+
+/* Orders entries by descriptor, then by place, so the order qsort
+ * leaves them in is the same on every libc. */
+static int poll_entry_order (const void *a, const void *b) {
+  const struct poll_entry *left = a, *right = b;
+  if (left->fd != right->fd) return left->fd < right->fd ? -1 : 1;
+  return (left->at > right->at) - (left->at < right->at);
+}
+
+/* The kernel is given each descriptor once, asked for every event any
+ * of its entries wants, and each entry answers what happened masked to
+ * its own events, as Linux answers a descriptor given twice: macOS
+ * answers only one entry of such a descriptor and leaves the other 0,
+ * so no caller could give one twice there. -1 is left out, and
+ * answers 0. */
 COSMIC_SYSCALL(poll, 3) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -2635,10 +2656,18 @@ COSMIC_SYSCALL(poll, 3) {
   if (count > INT_MAX) return luaL_argerror(L, 1, "too many descriptors");
   if ((lua_Integer)lua_rawlen(L, 2) != count)
     return luaL_argerror(L, 2, "one event mask per descriptor");
+  size_t each = sizeof(struct pollfd) + sizeof(struct poll_entry) + sizeof(int) + sizeof(short);
+  if ((size_t)count > SIZE_MAX / each)
+    return luaL_argerror(L, 1, "too many descriptors");
   /* A block Lua owns, not a C allocation: a refused descriptor below
-   * raises part-way through filling it, and the collector takes it. */
-  struct pollfd *fds =
-    lua_newuserdatauv(L, (size_t)count * sizeof(struct pollfd), 0);
+   * raises part-way through filling it, and the collector takes it. Its
+   * parts are laid out from the widest alignment down. */
+  char *block = lua_newuserdatauv(L, (size_t)count * each, 0);
+  struct pollfd *fds = (struct pollfd *)block;
+  struct poll_entry *entries = (struct poll_entry *)(fds + count);
+  int *slot = (int *)(entries + count);
+  short *wanted = (short *)(slot + count);
+  int watched = 0;
   for (lua_Integer i = 0; i < count; i++) {
     lua_rawgeti(L, 1, i + 1);
     lua_rawgeti(L, 2, i + 1);
@@ -2649,20 +2678,39 @@ COSMIC_SYSCALL(poll, 3) {
     if (fd < -1 || fd > INT_MAX || events < 0 || events > SHRT_MAX)
       return luaL_argerror(L, 1, "descriptor or mask is out of range");
     cosmic_argfd(L, 1, fd);
-    fds[i].fd = (int)fd;
-    fds[i].events = (short)events;
-    fds[i].revents = 0;
+    wanted[i] = (short)events;
+    slot[i] = -1;
+    if (fd >= 0) {
+      entries[watched].fd = (int)fd;
+      entries[watched].at = (int)i;
+      watched++;
+    }
     lua_pop(L, 2);
+  }
+  qsort(entries, (size_t)watched, sizeof *entries, poll_entry_order);
+  nfds_t given = 0;
+  for (int k = 0; k < watched; k++) {
+    if (given == 0 || fds[given - 1].fd != entries[k].fd) {
+      fds[given].fd = entries[k].fd;
+      fds[given].events = 0;
+      fds[given].revents = 0;
+      given++;
+    }
+    fds[given - 1].events = (short)(fds[given - 1].events | wanted[entries[k].at]);
+    slot[entries[k].at] = (int)(given - 1);
   }
   /* An interrupted wait answers as a wait that found nothing, so the
    * caller's loop gets to look at whatever the signal meant. */
-  if (poll(fds, (nfds_t)count, (int)timeout) < 0) {
+  if (poll(fds, given, (int)timeout) < 0) {
     if (errno != EINTR) return cosmic_fail(L, errno);
-    for (lua_Integer i = 0; i < count; i++) fds[i].revents = 0;
+    for (nfds_t k = 0; k < given; k++) fds[k].revents = 0;
   }
   lua_createtable(L, (int)count, 0);
   for (lua_Integer i = 0; i < count; i++) {
-    lua_pushinteger(L, fds[i].revents);
+    short answer = 0;
+    if (slot[i] >= 0)
+      answer = (short)(fds[slot[i]].revents & (wanted[i] | POLLERR | POLLHUP | POLLNVAL));
+    lua_pushinteger(L, answer);
     lua_rawseti(L, -2, i + 1);
   }
   return 1;
@@ -2675,6 +2723,61 @@ COSMIC_SYSCALL(subreaper, 0) {
   return cosmic_ok(L);
 #else
   return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(children, 0) {
+#if defined(__linux__)
+  /* The list is read whole into a C block before anything is pushed,
+   * so the descriptor is closed before a Lua call can raise; the block
+   * is the guard's from then on. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, free);
+  int fd = open("/proc/thread-self/children", O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return cosmic_fail(L, errno);
+  size_t room = 4096, used = 0;
+  char *text = malloc(room);
+  int failure = text == NULL ? ENOMEM : 0;
+  while (failure == 0) {
+    if (used == room) {
+      char *grown = room > SIZE_MAX / 2 ? NULL : realloc(text, room * 2);
+      if (grown == NULL) {
+        failure = ENOMEM;
+        break;
+      }
+      text = grown;
+      room *= 2;
+    }
+    ssize_t got = read(fd, text + used, room - used);
+    if (got < 0 && errno == EINTR) continue;
+    if (got < 0) failure = errno;
+    if (got <= 0) break;
+    used += (size_t)got;
+  }
+  close(fd);
+  if (failure != 0) {
+    free(text);
+    return cosmic_fail(L, failure);
+  }
+  guard->resource = text;
+  lua_newtable(L);
+  lua_Integer count = 0;
+  for (size_t at = 0; at < used;) {
+    if (text[at] < '0' || text[at] > '9') {
+      at++;
+      continue;
+    }
+    /* A number past any pid stops growing rather than overflow. */
+    lua_Integer pid = 0;
+    while (at < used && text[at] >= '0' && text[at] <= '9') {
+      if (pid <= INT_MAX) pid = pid * 10 + (text[at] - '0');
+      at++;
+    }
+    lua_pushinteger(L, pid);
+    lua_rawseti(L, -2, ++count);
+  }
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
 #endif
 }
 

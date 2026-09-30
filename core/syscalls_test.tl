@@ -197,6 +197,35 @@ local function test_stat_and_lstat_describe_a_directory(tmp: string)
   assert(assert(sys.lstat(dir)).kind == "dir")
 end
 
+--- Leaves a socket file at `path`: a listener's, moved there, so its
+--- close -- which removes the file it made only while its name is
+--- still that file -- leaves it.
+local function socket_file(path: string)
+  local listening = path .. ".listening"
+  local listener = assert(Net.listen(Net.unix(listening)))
+  assert(sys.rename(listening, path))
+  assert(listener:close())
+end
+
+--- A socket file, a named pipe and a device are each named for what
+--- they are, by the mode's type and the same words on every system,
+--- rather than lumped together as "other".
+local function test_stat_names_a_socket_a_fifo_and_a_device(tmp: string)
+  local socket = tmp .. "/socket"
+  socket_file(socket)
+  local found = assert(sys.lstat(socket)).kind
+  assert(found == "socket", found)
+  assert(sys.mkfifo(tmp .. "/fifo"))
+  found = assert(sys.stat(tmp .. "/fifo")).kind
+  assert(found == "fifo", found)
+  found = assert(sys.stat("/dev/null")).kind
+  assert(found == "char", found)
+  local fd = assert(sys.open("/dev/null", sys.O_RDONLY))
+  local st = sys.fstat(fd)
+  sys.close(fd)
+  assert(st ~= nil and st.kind == "char")
+end
+
 local function test_stat_and_lstat_refuse_a_missing_path(tmp: string)
   failed_with(sys.ENOENT, sys.stat(tmp .. "/missing"))
   failed_with(sys.ENOENT, sys.lstat(tmp .. "/missing"))
@@ -327,22 +356,29 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(next((assert(sys.readdir(tmp .. "/d/sub")))) == nil)
 end
 
---- A directory under `tmp` holding a file, a directory, and a link to
---- each and to nothing.
+--- A directory under `tmp` holding a file, a directory, a named pipe,
+--- a socket file, and a link to each of the first two and to nothing.
 local function linked_directory(tmp: string): string
   local d = tmp .. "/d"
   assert(sys.mkdir(d))
   sys.close(create(d .. "/file"))
   assert(sys.mkdir(d .. "/sub"))
+  assert(sys.mkfifo(d .. "/fifo"))
+  socket_file(d .. "/socket")
   assert(sys.symlink("file", d .. "/to_file"))
   assert(sys.symlink("sub", d .. "/to_dir"))
   assert(sys.symlink("missing", d .. "/dangling"))
   return d
 end
 
+--- The entries of [`linked_directory`].
+local LINKED_ENTRIES <const> = 7
+
 --- Checks readdir's answer for [`linked_directory`].
 local function names_links_as_links(entries: {string:string}, what: string)
   assert(entries["file"] == "file" and entries["sub"] == "dir", what)
+  assert(entries["fifo"] == "fifo", what .. ": a named pipe: " .. tostring(entries["fifo"]))
+  assert(entries["socket"] == "socket", what .. ": a socket file: " .. tostring(entries["socket"]))
   assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
   assert(entries["to_dir"] == "link", what .. ": a link to a directory: " .. tostring(entries["to_dir"]))
   assert(entries["dangling"] == "link", what .. ": a dangling link: " .. tostring(entries["dangling"]))
@@ -358,7 +394,7 @@ end
 local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
   if testing.configuration ~= "sanitized" then return end
   local d = linked_directory(tmp)
-  for skip = 0, 4 do
+  for skip = 0, LINKED_ENTRIES - 1 do
     testing.fail_at("readdir_d_type", skip)
     local entries = assert(sys.readdir(d))
     assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
@@ -1020,6 +1056,34 @@ local function test_sandbox_inits_lists_the_inits_still_running()
   if names.sysname ~= "Linux" then assert(#before == 0) end
 end
 
+--- `children` lists the children of the thread that starts them, a
+--- child still running among them and gone once reaped; off Linux there
+--- is no such list, ENOSYS.
+local function test_children_lists_a_running_child_until_it_is_reaped(tmp: string)
+  local probe = probe_in(tmp)
+  local ends = assert(process.pipe())
+  local pid = assert(process.spawn(probe, { probe, "cat" }, nil, tmp, ends.reader, nil, nil, false))
+  sys.close(ends.reader)
+  local running, trouble, errno = process.children()
+  sys.close(ends.writer)
+  assert(assert(process.waitpid(pid, false)).code == 0)
+  local names = assert(sys.uname())
+  if names.sysname ~= "Linux" then
+    assert(running == nil and errno == sys.ENOSYS, trouble)
+    return
+  end
+  assert(running ~= nil, trouble)
+  local listed = false
+  for _, child in ipairs(running) do
+    assert(math.type(child) == "integer" and child > 0)
+    if child == pid then listed = true end
+  end
+  assert(listed, "the running child " .. pid .. " is not listed")
+  for _, child in ipairs((assert(process.children()))) do
+    assert(child ~= pid, "the reaped child " .. pid .. " is still listed")
+  end
+end
+
 --- The calls that start and reap a child, and hold this process's
 --- signals while it does, are the raw process table's, and not the
 --- public [`cosmic.sys`]'s: a public `waitpid(-1)` would take the status
@@ -1030,7 +1094,7 @@ end
 local function test_the_process_calls_are_off_the_public_table()
   local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
-  for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "relaunch", "pipe",
+  for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "relaunch", "pipe",
       "ignore_sigpipe", "landlock_ruleset",
       "landlock_restrict_execute",
       "guard_child_signals", "unguard_child_signals", "cancelled_child_signal" }) do
@@ -1048,13 +1112,35 @@ local function test_the_process_calls_are_off_the_public_table()
   end
 end
 
+--- A descriptor given more than once answers in every entry, each
+--- only the events that entry asked for, as Linux answers it: macOS
+--- answers only one entry of such a descriptor, left to itself.
+local function test_poll_answers_every_entry_of_a_descriptor_given_twice()
+  local ends = assert(process.pipe())
+  assert(sys.write(ends.writer, "x") == 1)
+  local revents = assert(sys.poll(
+    { ends.writer, ends.reader, ends.writer, -1, ends.reader, ends.writer },
+    { sys.POLLIN, sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT, sys.POLLIN | sys.POLLOUT }, 0))
+  sys.close(ends.reader)
+  sys.close(ends.writer)
+  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
+  assert(#revents == 6, said)
+  assert(revents[1] == 0, "a writing end asked to read: " .. said)
+  assert(revents[2] & sys.POLLIN ~= 0 and revents[2] & sys.POLLOUT == 0, said)
+  assert(revents[3] & sys.POLLOUT ~= 0 and revents[3] & sys.POLLIN == 0, said)
+  assert(revents[4] == 0, "an unwatched entry: " .. said)
+  assert(revents[5] == 0, "a reading end asked to write: " .. said)
+  assert(revents[6] & sys.POLLOUT ~= 0 and revents[6] & sys.POLLIN == 0, said)
+end
+
 --- `poll` watches as many descriptors as the kernel lets a process
 --- watch, past the 1024 it was once held to, and -1 is left unwatched.
---- Each entry is a descriptor of its own, a copy of one pipe's reading
---- end: macOS answers only one of a descriptor given more than once.
---- Where RLIMIT_NOFILE's soft limit is lower (1024 under systemd's
---- default, 256 on macOS), the copies stop short and the kernel refuses
---- the count with EINVAL.
+--- The first entries are distinct descriptors, copies of one pipe's
+--- reading end, since a descriptor given more than once goes to the
+--- kernel once; the rest give that end again, and answer too. Where
+--- RLIMIT_NOFILE's soft limit is lower (1024 under systemd's default,
+--- 256 on macOS), the copies stop short of it, and so does the count
+--- the kernel is given.
 local function test_poll_watches_past_a_thousand_descriptors()
   local ends = assert(process.pipe())
   assert(sys.write(ends.writer, "x") == 1)
@@ -1068,7 +1154,6 @@ local function test_poll_watches_past_a_thousand_descriptors()
     events[#events + 1] = sys.POLLIN
     copies = copies + 1
   end
-  local distinct = #fds
   while #fds < 1100 do
     fds[#fds + 1] = ends.reader
     events[#events + 1] = sys.POLLIN
@@ -1076,19 +1161,16 @@ local function test_poll_watches_past_a_thousand_descriptors()
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
   assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
-  local revents, trouble, errno = sys.poll(fds, events, 0)
+  -- TODO: raise RLIMIT_NOFILE's soft limit past 1101 first, once
+  -- cosmic.sys carries getrlimit and setrlimit, so a host with a low one
+  -- gives the kernel past 1024 descriptors too.
+  local revents, trouble = sys.poll(fds, events, 0)
   for i = 2, copies + 1 do sys.close(fds[i]) end
   sys.close(ends.reader)
   sys.close(ends.writer)
-  -- TODO: raise RLIMIT_NOFILE's soft limit past 1101 first, once
-  -- cosmic.sys carries getrlimit and setrlimit, so a host with a low one
-  -- checks the answers too, and tells the kernel's EINVAL from a cap.
-  if revents == nil then
-    assert(errno == sys.EINVAL, "poll: " .. trouble)
-    return
-  end
+  assert(revents ~= nil, trouble)
   assert(#revents == 1101, "one answer per descriptor, not " .. #revents)
-  for i = 1, distinct do
+  for i = 1, 1100 do
     assert(revents[i] & sys.POLLIN ~= 0, "descriptor " .. i .. " answered " .. revents[i])
   end
   assert(revents[1101] == 0, "an unwatched descriptor answered " .. revents[1101])
@@ -1294,6 +1376,17 @@ local function test_flock_excludes_another_open_until_released(tmp: string)
   raises(sys.flock, 0, "exclusive", 1 << 40)
 end
 
+--- One signal guard is open at a time: a second is refused with EBUSY,
+--- the number cosmic.sys carries, until the first is closed.
+local function test_a_second_signal_guard_is_busy()
+  assert(process.guard_child_signals())
+  local ok, why, errno = process.guard_child_signals()
+  assert(process.unguard_child_signals())
+  assert(not ok and errno == sys.EBUSY, why)
+  assert(process.guard_child_signals())
+  assert(process.unguard_child_signals())
+end
+
 --- A wait for a lock ends when a guard catches a signal, as every
 --- other wait in the tree does, however long it had left.
 local function test_flock_waiting_ends_on_a_caught_signal(tmp: string)
@@ -1382,14 +1475,14 @@ local function test_access_asks_what_this_process_may_do(tmp: string)
   raises(sys.access, path, 0x100)
 end
 
---- `mkfifo` makes a named pipe, which `lstat` calls "other" and a
+--- `mkfifo` makes a named pipe, which `lstat` calls "fifo" and a
 --- second make refuses; opened with O_NONBLOCK, its reading end opens
 --- with no writer rather than waiting for one.
 local function test_mkfifo_makes_a_named_pipe(tmp: string)
   local path = tmp .. "/pipe"
   assert(sys.mkfifo(path, 0x180))
   local st = assert(sys.lstat(path))
-  assert(st.kind == "other" and st.mode & 0x1ff == 0x180, st.kind)
+  assert(st.kind == "fifo" and st.mode & 0x1ff == 0x180, st.kind)
   failed_with(sys.EEXIST, sys.mkfifo(path))
   local reader = assert(sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK))
   assert(sys.read(reader, 64) == "")
