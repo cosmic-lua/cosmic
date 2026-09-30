@@ -1,5 +1,20 @@
+local _ = require("cosmic.child") -- in the closure: `raw_behind` searches for it by hand
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
+local type raw_process = require("cosmic.internal.process")
+
+local type Searcher = function(string): any, any
+
+--- The raw table `require` hands `wrapper`'s loader.
+local function raw_behind(wrapper: string): any
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher(wrapper)
+    if type(loader) == "function" and type(extra) == "table" then return extra end
+  end
+  error(wrapper .. " is handed no raw table")
+end
+
+local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
 
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.
@@ -213,9 +228,12 @@ local function test_a_wait_is_answered_once(tmp: string)
 end
 
 --- The peer gone, or the descriptor closed, ends a readable wait: the
---- read then says which.
+--- read then says which. The hang-up is a pipe's: macOS's poll never
+--- reports a named pipe's writer gone.
 local function test_a_hang_up_or_a_closed_descriptor_ends_a_wait(tmp: string)
-  local reader, writer = fifo(tmp, "p")
+  local ends = assert(process.pipe())
+  local reader, writer = ends.reader, ends.writer
+  assert(sys.set_nonblocking(reader, true))
   local closed_reader, closed_writer = fifo(tmp, "q")
   sys.close(closed_reader)
   Poll.run(function()
