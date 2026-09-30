@@ -61,7 +61,7 @@ local record link_resolve
   --- What one target resolved to, by `kind`:
   ---
   --- - "url": a URL, which is not checked;
-  --- - "standard": a value of the Lua standard library (`name`);
+  --- - "standard": a value this program's globals hold (`name`);
   --- - "declared": a name the linking file declares (`name`, dotted);
   --- - "symbol": a symbol of `module` (`symbol` as `docs` holds it),
   ---   declared in `file` (`""` when the context does not say);
@@ -316,28 +316,30 @@ local function one_of(found: {string}, none: string): string | nil
     (#found > 5 and ", ..." or "") .. "; link the one meant in full"
 end
 
---- The Lua standard library's globals, as this program carries them:
---- not `io`, `os` or `debug`, which cosmic leaves out.
--- TODO: walk `_G` itself, so a global a runtime adds is found too, once
--- the checker takes a reference to `_G`: it fails an assertion in
--- vendor tl's `Err_at` (an error with no file).
-local STANDARD <const>: {string: any} = {
-  assert = assert, collectgarbage = collectgarbage, error = error,
-  getmetatable = getmetatable, ipairs = ipairs, load = load, next = next, pairs = pairs,
-  pcall = pcall, print = print, rawequal = rawequal, rawget = rawget, rawlen = rawlen,
-  rawset = rawset, require = require, select = select, setmetatable = setmetatable,
-  tonumber = tonumber, tostring = tostring, type = type, xpcall = xpcall,
-  coroutine = coroutine, math = math, package = package,
-  string = string, table = table, utf8 = utf8,
-}
-
---- Whether the dotted `name` is a value of the Lua standard library
---- this program carries (`string.format`, `print`).
+--- Whether the dotted `name` is a value the running tool's globals
+--- hold (`string.format`, `print`, `warn`), read from `_G` as it is
+--- now: a project checked by one version of cosmic resolves against
+--- that version's globals, not those of the one its programs run on.
+--- Each step is a `rawget`, so a name the core refuses (`io`,
+--- `dofile`), which only its metatable answers, does not resolve. Nor
+--- does a step back into `_G` (`_G._G.print`) or into
+--- `package.loaded` or `package.preload`, which hold what this process
+--- happened to load, and `_G` again.
 local function standard(name: string): boolean
-  local value: any = STANDARD
+  local globals: any = _G
+  local package_table: any = package
+  local value: any = globals
+  local steps = 0
   for part in name:gmatch("[^.]+") do
+    steps = steps + 1
     if value is {any: any} then
+      if rawequal(value, package_table) and (part == "loaded" or part == "preload") then
+        return false
+      end
       value = rawget(value, part)
+      if steps > 1 and rawequal(value, globals) then
+        return false
+      end
     else
       return false
     end
@@ -411,6 +413,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     if own.names[dotted] then
       return made("declared", { name = dotted })
     end
+    -- A global comes before a symbol, so one a later core adds shadows a symbol of its name.
     if standard(dotted) then
       return made("standard", { name = dotted })
     end
